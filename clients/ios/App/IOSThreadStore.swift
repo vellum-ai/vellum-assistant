@@ -71,20 +71,22 @@ class IOSThreadStore: ObservableObject {
     private static let threadPageSize = 50
     /// Current offset used for the next page fetch; advances by `threadPageSize` on each load.
     private var threadListOffset: Int = 0
-    /// Monotonically increasing counter incremented once per request (including reconnect-triggered
-    /// ones). Each send captures the value at call time; the response handler compares against it
-    /// to reject any response that belongs to an older in-flight request.
+    /// Reconnect-generation counter. Incremented only when pagination is reset due to a
+    /// reconnect (or a `rebindDaemonClient` call). Never incremented on ordinary
+    /// `loadMoreThreads` calls.
     ///
-    /// Unlike a reconnect-only generation counter (where both the "current" and "in-flight" markers
-    /// are bumped together before the send), a per-request counter guarantees that the in-flight
-    /// marker belongs to the specific request that is actually pending — not merely the most recent
-    /// reset epoch. A stale page-N response from a previous connection carries a lower sequence
-    /// number and is therefore discarded even if a reconnect has since sent a new page-1 request
-    /// with a higher number.
-    private var sessionListRequestSeq: UInt64 = 0
-    /// Sequence number of the most-recently issued session-list request.
-    /// Updated immediately before each `sendSessionList` call so the handler can compare.
-    private var inFlightSessionListSeq: UInt64 = 0
+    /// Because the daemon does not echo a request ID back in session-list responses, we
+    /// cannot correlate individual responses to individual requests within the same
+    /// connection.  What we *can* do is reject any response that arrived from the *old*
+    /// connection after a reconnect has already started a fresh page-1 sequence.  This is
+    /// exactly what the generation counter provides: every page-1 send captures the current
+    /// generation in `expectedSessionListGeneration`; the response handler discards any
+    /// response whose expected generation no longer matches the live counter.
+    private var sessionListGeneration: UInt64 = 0
+    /// Generation captured at the time the most-recent page-1 session-list request was sent.
+    /// The response handler compares this against `sessionListGeneration` to detect and
+    /// discard stale responses from the previous connection.
+    private var expectedSessionListGeneration: UInt64 = 0
 
     init(daemonClient: any DaemonClientProtocol) {
         self.daemonClient = daemonClient
@@ -125,8 +127,8 @@ class IOSThreadStore: ObservableObject {
         // otherwise wait for the daemonDidReconnect notification.
         if daemon.isConnected {
             threadListOffset = 0
-            sessionListRequestSeq += 1
-            inFlightSessionListSeq = sessionListRequestSeq
+            sessionListGeneration += 1
+            expectedSessionListGeneration = sessionListGeneration
             try? daemon.sendSessionList(offset: 0, limit: Self.threadPageSize)
         }
 
@@ -136,13 +138,13 @@ class IOSThreadStore: ObservableObject {
                 // Reset pagination state so the list refreshes from page 1.
                 self.threadListOffset = 0
                 self.hasMoreThreads = false
-                // Bump the per-request sequence number so any response from the previous
-                // connection's in-flight page-N request carries a lower seq and is
-                // discarded by the handler.  The new seq is captured in inFlightSessionListSeq
-                // immediately before the send so the guard in handleSessionListResponse can
-                // distinguish this fresh page-1 request from any stale response.
-                self.sessionListRequestSeq += 1
-                self.inFlightSessionListSeq = self.sessionListRequestSeq
+                // Bump the generation so any in-flight response from the old connection
+                // carries a stale expectedSessionListGeneration and is discarded by the
+                // handler.  Within a single connection responses cannot be individually
+                // correlated (the daemon doesn't echo a request ID), so only reconnect-era
+                // staleness is detectable — and this is exactly what the generation guards.
+                self.sessionListGeneration += 1
+                self.expectedSessionListGeneration = self.sessionListGeneration
                 try? daemon.sendSessionList(offset: 0, limit: Self.threadPageSize)
             }
             .store(in: &cancellables)
@@ -172,11 +174,13 @@ class IOSThreadStore: ObservableObject {
 
         if let daemon = newClient as? DaemonClient {
             // Connected mode — reset thread list and re-fetch from the new daemon.
+            // Bump the generation so any in-flight response from the old client is
+            // discarded by the handler (setupDaemonCallbacks will bump it again on
+            // the fresh page-1 send, keeping expectedSessionListGeneration in sync).
             isConnectedMode = true
             threads = [IOSThread()]
             threadListOffset = 0
-            sessionListToken += 1
-            inFlightSessionListToken = sessionListToken
+            sessionListGeneration += 1
             hasMoreThreads = false
             isLoadingMoreThreads = false
             setupDaemonCallbacks(daemon)
@@ -195,11 +199,14 @@ class IOSThreadStore: ObservableObject {
     }
 
     private func handleSessionListResponse(_ response: SessionListResponseMessage) {
-        // Discard responses that don't match the most recently issued request sequence.
-        // Each send increments sessionListRequestSeq and captures the new value in
-        // inFlightSessionListSeq, so a stale page-N response from a previous connection
-        // (which was sent when the seq was lower) is rejected here.
-        guard inFlightSessionListSeq == sessionListRequestSeq else {
+        // Discard responses from a previous connection.  The daemon does not echo a
+        // request ID, so within a single connection all responses are accepted in order.
+        // Reconnect-era staleness is detected via the generation counter: when the
+        // connection is reset, sessionListGeneration is bumped and
+        // expectedSessionListGeneration is updated to match only for the new page-1
+        // send.  Any response still arriving from the old connection carries the stale
+        // expected generation and is dropped here.
+        guard expectedSessionListGeneration == sessionListGeneration else {
             return
         }
 
@@ -281,18 +288,15 @@ class IOSThreadStore: ObservableObject {
         isLoadingMoreThreads = true
         let nextOffset = threadListOffset + Self.threadPageSize
         threadListOffset = nextOffset
-        sessionListRequestSeq += 1
-        let seq = sessionListRequestSeq
-        inFlightSessionListSeq = seq
+        // Do not touch sessionListGeneration or expectedSessionListGeneration here.
+        // The generation counter tracks reconnect boundaries only; within a single
+        // connection all responses are accepted (the daemon doesn't echo request IDs).
         do {
             try daemon.sendSessionList(offset: nextOffset, limit: Self.threadPageSize)
         } catch {
-            // Request failed before being sent — roll back all state so a subsequent
-            // call can retry from the same offset with the same sequence number.
+            // Request failed before being sent — roll back pagination state.
             isLoadingMoreThreads = false
             threadListOffset -= Self.threadPageSize
-            sessionListRequestSeq -= 1
-            inFlightSessionListSeq = sessionListRequestSeq
         }
     }
 
