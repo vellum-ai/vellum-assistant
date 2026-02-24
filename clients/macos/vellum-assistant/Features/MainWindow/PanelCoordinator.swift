@@ -448,6 +448,7 @@ extension MainWindowView {
         case .identity:
             IdentityPanel(onClose: { windowState.dismissOverlay() }, onCustomizeAvatar: { windowState.selection = .panel(.avatarCustomization) }, daemonClient: daemonClient)
                 .overlay(alignment: .topTrailing) { panelDismissButton }
+                .background(adaptiveColor(light: Color(hex: 0xF5F3EB), dark: Moss._900))
         case .avatarCustomization:
             AvatarCustomizationPanel(onClose: { windowState.selection = .panel(.identity) })
         case .generated:
