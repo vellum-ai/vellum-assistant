@@ -56,6 +56,7 @@ struct ChatView: View {
     var onDismissDocumentWidget: ((String) -> Void)?
     var isMemoryDegraded: Bool = false
     var memoryDegradedReason: String? = nil
+    var connectionDiagnosticHint: String? = nil
 
     /// Triggers auto-scroll when the last message's text length changes (e.g. during streaming).
     /// Sums utf8.count over each segment (O(1) per contiguous segment) instead of joining first,
@@ -239,6 +240,7 @@ struct ChatView: View {
                     isRetryableError: isRetryableError,
                     onRetryError: onRetryError,
                     isConnectionError: isConnectionError,
+                    connectionDiagnosticHint: connectionDiagnosticHint,
                     onOpenDoctor: onOpenDoctor,
                     onDismissError: onDismissError
                 )

@@ -1,4 +1,5 @@
 import Foundation
+import Network
 import os
 import UniformTypeIdentifiers
 #if os(macOS)
@@ -59,6 +60,10 @@ public final class ChatViewModel: ObservableObject {
     /// Human-readable reason for degradation (e.g. "memory.embedding_failure: API 401").
     /// Nil when memory is healthy or memory is disabled.
     @Published public var memoryDegradedReason: String? = nil
+
+    /// Supplemental diagnostic hint shown alongside a daemon connection error.
+    /// Nil when no connection error is active or the error has been dismissed.
+    @Published public var connectionDiagnosticHint: String? = nil
 
     /// Maximum file size per attachment (20 MB).
     static let maxFileSize = 20 * 1024 * 1024
@@ -401,6 +406,7 @@ public final class ChatViewModel: ObservableObject {
                     self.lastFailedMessageText = self.pendingUserMessage
                     self.lastFailedMessageAttachments = self.pendingUserAttachments
                     self.lastFailedSendError = "Failed to connect to the assistant."
+                    self.connectionDiagnosticHint = Self.connectionDiagnosticHint(for: error)
                     self.pendingUserMessage = nil
                     self.pendingUserAttachments = nil
                     self.errorText = self.lastFailedSendError
@@ -934,6 +940,7 @@ public final class ChatViewModel: ObservableObject {
         lastFailedMessageText = nil
         lastFailedMessageAttachments = nil
         lastFailedSendError = nil
+        connectionDiagnosticHint = nil
         secretBlockedMessageText = nil
         secretBlockedAttachments = nil
         secretBlockedActiveSurfaceId = nil
@@ -1445,5 +1452,60 @@ public final class ChatViewModel: ObservableObject {
         if let observer = reconnectObserver {
             NotificationCenter.default.removeObserver(observer)
         }
+    }
+
+    // MARK: - Connection diagnostics
+
+    /// Map a raw connection error to a short, actionable diagnostic hint.
+    ///
+    /// The hint is shown below the generic "Failed to connect" error banner so
+    /// users can understand *why* the connection failed without opening the
+    /// debug panel or contacting support.
+    static func connectionDiagnosticHint(for error: Error) -> String? {
+        #if os(macOS)
+        if let nwErr = error as? NWError {
+            switch nwErr {
+            case .posix(let code):
+                switch code {
+                case .ECONNREFUSED:
+                    return "Daemon is not accepting connections — it may still be starting."
+                case .ENOENT:
+                    return "Daemon socket not found — the daemon may not be running."
+                case .ETIMEDOUT:
+                    return "Connection timed out — the daemon may be unresponsive or the socket path may be wrong."
+                default:
+                    return "POSIX error \(code.rawValue): \(nwErr.localizedDescription)"
+                }
+            default:
+                return nwErr.localizedDescription
+            }
+        }
+        if let authErr = error as? DaemonClient.AuthError {
+            switch authErr {
+            case .missingToken:
+                return "Session token not found — try restarting the daemon."
+            case .timeout:
+                return "Authentication timed out — daemon may be overloaded."
+            case .rejected:
+                return "Session token rejected — token may have changed; try restarting the daemon."
+            }
+        }
+        #endif
+        // HTTP transport / iOS
+        if let urlErr = error as? URLError {
+            switch urlErr.code {
+            case .notConnectedToInternet:
+                return "Device is not connected to the internet."
+            case .timedOut:
+                return "Gateway request timed out — check your host and port."
+            case .cannotConnectToHost:
+                return "Cannot connect to gateway host — verify the address and that the daemon is running."
+            case .networkConnectionLost:
+                return "Network connection lost."
+            default:
+                return urlErr.localizedDescription
+            }
+        }
+        return nil
     }
 }
