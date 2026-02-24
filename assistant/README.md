@@ -194,7 +194,7 @@ The `/channels/inbound` endpoint requires a valid `X-Gateway-Origin` header to p
 
 ## Twilio Setup Primitive
 
-Twilio is the shared telephony provider for both voice calls and SMS messaging. Configuration is managed through the `twilio_config` IPC contract and the `twilio-setup` skill.
+Twilio is the shared telephony provider for both voice calls and SMS messaging. Configuration is managed through the `twilio_config` IPC contract and the `twilio-setup` skill. For SMS-specific onboarding (including compliance verification and test sending), the `sms-setup` skill provides a guided conversational flow that layers on top of `twilio-setup`.
 
 ### `twilio_config` IPC Contract
 
