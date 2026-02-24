@@ -124,22 +124,26 @@ export function getLatestConversation() {
 
 export function addMessage(conversationId: string, role: string, content: string, metadata?: Record<string, unknown>) {
   const db = getDb();
-  const now = monotonicNow();
-  const message = {
-    id: uuid(),
-    conversationId,
-    role,
-    content,
-    createdAt: now,
-    ...(metadata ? { metadata: JSON.stringify(metadata) } : {}),
-  };
+  const messageId = uuid();
+  const metadataStr = metadata ? JSON.stringify(metadata) : undefined;
   // Wrap insert + updatedAt bump in a transaction so they're atomic.
   // Retry on SQLITE_BUSY in case busy_timeout is exhausted under heavy contention.
+  // Timestamp is recomputed each attempt so a late retry doesn't persist a stale updatedAt.
   const MAX_RETRIES = 3;
+  let now!: number;
   for (let attempt = 0; ; attempt++) {
+    now = monotonicNow();
     try {
+      const values = {
+        id: messageId,
+        conversationId,
+        role,
+        content,
+        createdAt: now,
+        ...(metadataStr ? { metadata: metadataStr } : {}),
+      };
       db.transaction((tx) => {
-        tx.insert(messages).values(message).run();
+        tx.insert(messages).values(values).run();
         tx.update(conversations)
           .set({ updatedAt: now })
           .where(eq(conversations.id, conversationId))
@@ -155,6 +159,7 @@ export function addMessage(conversationId: string, role: string, content: string
       throw err;
     }
   }
+  const message = { id: messageId, conversationId, role, content, createdAt: now };
 
   try {
     const config = getConfig();
