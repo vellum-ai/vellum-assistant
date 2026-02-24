@@ -1243,8 +1243,14 @@ public final class SettingsStore: ObservableObject {
 
     func removeApprovedDevice(hashedDeviceId: String) {
         guard let daemonClient else { return }
+        let removed = approvedDevices.filter { $0.hashedDeviceId == hashedDeviceId }
         approvedDevices.removeAll { $0.hashedDeviceId == hashedDeviceId }
-        try? daemonClient.sendApprovedDeviceRemove(hashedDeviceId: hashedDeviceId)
+        do {
+            try daemonClient.sendApprovedDeviceRemove(hashedDeviceId: hashedDeviceId)
+        } catch {
+            // IPC failed — restore optimistically removed devices
+            approvedDevices.append(contentsOf: removed)
+        }
     }
 
     func clearAllApprovedDevices() {
