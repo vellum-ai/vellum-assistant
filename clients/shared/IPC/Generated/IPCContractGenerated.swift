@@ -3437,6 +3437,18 @@ public struct IPCSessionListResponseSession: Codable, Sendable {
     }
 }
 
+public struct IPCSessionRenameRequest: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let title: String
+
+    public init(type: String, sessionId: String, title: String) {
+        self.type = type
+        self.sessionId = sessionId
+        self.title = title
+    }
+}
+
 public struct IPCSessionsClearRequest: Codable, Sendable {
     public let type: String
 
