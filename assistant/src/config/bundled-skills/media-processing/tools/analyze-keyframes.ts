@@ -1,8 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
 import { getAnthropicProvider, extractText, userMessageWithImage } from '../../../../providers/anthropic-send-message.js';
-import { getProvider, listProviders, initializeProviders } from '../../../../providers/registry.js';
-import { loadConfig } from '../../../../config/loader.js';
+import { initializeProviders } from '../../../../providers/registry.js';
+import { loadConfig, invalidateConfigCache } from '../../../../config/loader.js';
 import {
   getMediaAssetById,
   getKeyframesForAsset,
@@ -76,6 +76,7 @@ export async function analyzeKeyframesForAsset(
   // keychain/secure storage and re-initialize providers.
   let provider = getAnthropicProvider();
   if (!provider) {
+    invalidateConfigCache();
     const freshConfig = loadConfig();
     if (freshConfig.apiKeys.anthropic) {
       initializeProviders(freshConfig);
