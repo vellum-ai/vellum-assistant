@@ -90,7 +90,7 @@ struct ChatBubble: View {
                         .offset(x: isUser ? -(24 + VSpacing.sm) : (24 + VSpacing.sm))
                 }
             }
-            .frame(maxWidth: 520, alignment: isUser ? .trailing : .leading)
+            .frame(maxWidth: message.isError ? .infinity : 520, alignment: isUser ? .trailing : .leading)
     }
 
     private var formattedTimestamp: String {
