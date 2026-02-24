@@ -283,7 +283,6 @@ export async function runDaemon(): Promise<void> {
   // server. The bridge only needs the RunOrchestrator instance (already created
   // above) and must be available even when the HTTP server fails to bind.
   setVoiceBridgeOrchestrator(runOrchestrator);
-
   try {
     await runtimeHttp.start();
     setRelayBroadcast((msg) => server.broadcast(msg));
