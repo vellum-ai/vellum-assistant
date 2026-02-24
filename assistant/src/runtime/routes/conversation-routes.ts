@@ -11,8 +11,7 @@ import {
 import * as conversationStore from '../../memory/conversation-store.js';
 import * as attachmentsStore from '../../memory/attachments-store.js';
 import { renderHistoryContent, mergeToolResults } from '../../daemon/handlers.js';
-import { getConfig } from '../../config/loader.js';
-import { getFailoverProvider, listProviders } from '../../providers/registry.js';
+import { getConfiguredProvider } from '../../providers/provider-send-message.js';
 import type { Provider } from '../../providers/types.js';
 import type {
   MessageProcessor,
@@ -313,10 +312,9 @@ export async function handleGetSuggestion(
     }
 
     // Try LLM suggestion using the configured provider
-    const config = getConfig();
-    if (listProviders().includes(config.provider)) {
+    const provider = getConfiguredProvider();
+    if (provider) {
       try {
-        const provider = getFailoverProvider(config.provider, config.providerOrder);
         // Deduplicate concurrent requests
         let promise = suggestionInFlight.get(msg.id);
         if (!promise) {

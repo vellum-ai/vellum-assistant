@@ -5,17 +5,31 @@
  */
 
 import type { Provider, ProviderResponse, Message, ContentBlock, ToolUseContent } from './types.js';
-import { getFailoverProvider, listProviders, initializeProviders } from './registry.js';
+import { getFailoverProvider, listProviders, initializeProviders, resolveProviderSelection } from './registry.js';
 import { getConfig } from '../config/loader.js';
+import { getLogger } from '../util/logger.js';
+
+export interface ConfiguredProviderResult {
+  provider: Provider;
+  configuredProviderName: string;
+  selectedProviderName: string;
+  usedFallbackPrimary: boolean;
+}
+
+const providerSelectionLog = getLogger('provider-selection');
+let fallbackWarningLogged = false;
 
 /**
- * Resolve the configured provider through the registry/failover path.
+ * Resolve the configured provider with full selection metadata.
  * If providers haven't been initialized yet (e.g. non-daemon code paths),
  * performs a one-shot `initializeProviders(getConfig())`.
  *
- * Returns `null` when the configured provider is unavailable.
+ * Uses fail-open selection: if `config.provider` is unavailable but
+ * alternates from `config.providerOrder` exist, selects the first available.
+ *
+ * Returns `null` when no providers are available at all.
  */
-export function getConfiguredProvider(): Provider | null {
+export function resolveConfiguredProvider(): ConfiguredProviderResult | null {
   const config = getConfig();
 
   if (listProviders().length === 0) {
@@ -26,16 +40,45 @@ export function getConfiguredProvider(): Provider | null {
     }
   }
 
-  if (!listProviders().includes(config.provider)) {
+  const providerOrder = Array.isArray(config.providerOrder) ? config.providerOrder : [];
+  const selection = resolveProviderSelection(config.provider, providerOrder);
+
+  if (!selection.selectedPrimary) {
     return null;
   }
 
+  if (selection.usedFallbackPrimary) {
+    const level = fallbackWarningLogged ? 'debug' : 'warn';
+    providerSelectionLog[level](
+      { configured: config.provider, selected: selection.selectedPrimary },
+      'Configured provider unavailable, using fallback',
+    );
+    fallbackWarningLogged = true;
+  }
+
   try {
-    const providerOrder = Array.isArray(config.providerOrder) ? config.providerOrder : [];
-    return getFailoverProvider(config.provider, providerOrder);
+    const provider = getFailoverProvider(config.provider, providerOrder);
+    return {
+      provider,
+      configuredProviderName: config.provider,
+      selectedProviderName: selection.selectedPrimary,
+      usedFallbackPrimary: selection.usedFallbackPrimary,
+    };
   } catch {
     return null;
   }
+}
+
+/**
+ * Resolve the configured provider through the registry/failover path.
+ * Thin wrapper around `resolveConfiguredProvider()` for callsites
+ * that only need the Provider instance.
+ *
+ * Returns `null` when no providers are available.
+ */
+export function getConfiguredProvider(): Provider | null {
+  const result = resolveConfiguredProvider();
+  return result?.provider ?? null;
 }
 
 /**

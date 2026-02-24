@@ -18,7 +18,7 @@ import {
 } from '../util/platform.js';
 import { initializeDb } from '../memory/db.js';
 import { rotateToolInvocations } from '../memory/tool-usage-store.js';
-import { initializeProviders, getFailoverProvider, listProviders } from '../providers/registry.js';
+import { initializeProviders, getFailoverProvider } from '../providers/registry.js';
 import { initializeTools } from '../tools/registry.js';
 import { loadConfig } from '../config/loader.js';
 import {
@@ -290,10 +290,12 @@ function loadDotEnv(): void {
 function createApprovalCopyGenerator(): ApprovalCopyGenerator {
   return async (context, options = {}) => {
     const config = loadConfig();
-    if (!listProviders().includes(config.provider)) {
+    let provider;
+    try {
+      provider = getFailoverProvider(config.provider, config.providerOrder);
+    } catch {
       return null;
     }
-    const provider = getFailoverProvider(config.provider, config.providerOrder);
 
     const fallbackText = options.fallbackText?.trim() || getFallbackMessage(context);
     const requiredKeywords = options.requiredKeywords?.map((kw) => kw.trim()).filter((kw) => kw.length > 0);

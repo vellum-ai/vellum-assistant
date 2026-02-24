@@ -114,6 +114,22 @@ mock.module('../providers/registry.js', () => {
   };
 });
 
+mock.module('../providers/provider-send-message.js', () => ({
+  resolveConfiguredProvider: () => ({
+    provider: {
+      name: 'anthropic',
+      sendMessage: (...args: unknown[]) => mockSendMessage(...args),
+    },
+    configuredProviderName: 'anthropic',
+    selectedProviderName: 'anthropic',
+    usedFallbackPrimary: false,
+  }),
+  getConfiguredProvider: () => ({
+    name: 'anthropic',
+    sendMessage: (...args: unknown[]) => mockSendMessage(...args),
+  }),
+}));
+
 // ── Import source modules after all mocks are registered ────────────
 
 import { initializeDb, getDb, resetDb } from '../memory/db.js';
