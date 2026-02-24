@@ -570,6 +570,84 @@ describe('eventSink forwarding', () => {
     expect(receivedTools[0].input).toEqual({ query: 'test' });
   });
 
+  test('eventSink receives onMessageComplete on generation_cancelled', async () => {
+    const conversation = createConversation('event sink cancelled test');
+    const cancelledMsg: ServerMessage = {
+      type: 'generation_cancelled',
+      sessionId: conversation.id,
+    };
+    const session = makeSessionWithEvent(cancelledMsg);
+
+    let messageCompleteCount = 0;
+    const receivedErrors: string[] = [];
+    const sink: VoiceRunEventSink = {
+      onTextDelta: () => {},
+      onMessageComplete: () => { messageCompleteCount++; },
+      onError: (msg) => receivedErrors.push(msg),
+      onToolUse: () => {},
+    };
+
+    const orchestrator = new RunOrchestrator({
+      getOrCreateSession: async () => session,
+      resolveAttachments: () => [],
+      deriveDefaultStrictSideEffects: () => false,
+    });
+
+    await orchestrator.startRun(conversation.id, 'Hello', undefined, {
+      eventSink: sink,
+    });
+    await new Promise((r) => setTimeout(r, 50));
+
+    // generation_cancelled should be forwarded as onMessageComplete
+    expect(messageCompleteCount).toBe(1);
+    // It should NOT trigger onError
+    expect(receivedErrors).toHaveLength(0);
+  });
+
+  test('eventSink receives onError when runAgentLoop throws', async () => {
+    const conversation = createConversation('event sink exception test');
+
+    // Build a session whose runAgentLoop throws an exception instead of
+    // emitting events — simulating an unhandled crash in the agent loop.
+    const session = {
+      isProcessing: () => false,
+      persistUserMessage: () => undefined as unknown as string,
+      memoryPolicy: { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false },
+      setChannelCapabilities: () => {},
+      setAssistantId: () => {},
+      setGuardianContext: () => {},
+      setCommandIntent: () => {},
+      setTurnChannelContext: () => {},
+      updateClient: () => {},
+      runAgentLoop: async () => {
+        throw new Error('Unexpected agent crash');
+      },
+      handleConfirmationResponse: () => {},
+    } as unknown as Session;
+
+    const receivedErrors: string[] = [];
+    const sink: VoiceRunEventSink = {
+      onTextDelta: () => {},
+      onMessageComplete: () => {},
+      onError: (msg) => receivedErrors.push(msg),
+      onToolUse: () => {},
+    };
+
+    const orchestrator = new RunOrchestrator({
+      getOrCreateSession: async () => session,
+      resolveAttachments: () => [],
+      deriveDefaultStrictSideEffects: () => false,
+    });
+
+    await orchestrator.startRun(conversation.id, 'Hello', undefined, {
+      eventSink: sink,
+    });
+    await new Promise((r) => setTimeout(r, 50));
+
+    // The exception message should be forwarded to the event sink
+    expect(receivedErrors).toEqual(['Unexpected agent crash']);
+  });
+
   test('no events forwarded when eventSink is not provided', async () => {
     const conversation = createConversation('no sink test');
     const deltaMsg: ServerMessage = {

@@ -72,8 +72,8 @@ export interface VoiceTurnHandle {
  *   - eventSink wired to the provided callbacks
  *   - abort propagated from the returned handle
  *
- * The caller (future M2: relay-server / call-orchestrator replacement) can
- * use the returned handle to cancel the turn on barge-in.
+ * The caller (CallController via relay-server) can use the returned handle
+ * to cancel the turn on barge-in.
  */
 export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnHandle> {
   if (!orchestrator) {

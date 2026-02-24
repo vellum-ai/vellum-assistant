@@ -312,6 +312,10 @@ export class RunOrchestrator {
               eventSink.onTextDelta(msg.text);
             } else if (msg.type === 'message_complete') {
               eventSink.onMessageComplete();
+            } else if (msg.type === 'generation_cancelled') {
+              // Treat cancellation as a completed turn so the voice
+              // turnComplete promise settles instead of hanging forever.
+              eventSink.onMessageComplete();
             } else if (msg.type === 'error') {
               eventSink.onError(msg.message);
             } else if (msg.type === 'session_error') {
@@ -331,6 +335,11 @@ export class RunOrchestrator {
         const message = err instanceof Error ? err.message : String(err);
         log.error({ err, runId: run.id }, 'Run failed');
         runsStore.failRun(run.id, message);
+        // Notify the voice event sink so the caller's turnComplete
+        // promise settles instead of hanging on unhandled exceptions.
+        if (eventSink) {
+          eventSink.onError(message);
+        }
       } finally {
         cleanup();
       }
