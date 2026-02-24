@@ -153,11 +153,11 @@ export class CallController {
     // If we're already processing or speaking, abort the in-flight generation
     if (interruptedInFlight) {
       this.abortCurrentTurn();
+      this.llmRunVersion++;  // Invalidate stale turn before awaiting teardown
     }
 
-    // Wait for the aborted turn to finish unwinding before starting a new
-    // one, so RunOrchestrator's `isProcessing()` guard doesn't reject us.
-    if (interruptedInFlight && this.currentTurnPromise) {
+    // Always await any lingering turn promise, even if handleInterrupt() already ran
+    if (this.currentTurnPromise) {
       const teardownPromise = this.currentTurnPromise;
       this.currentTurnPromise = null;
       await Promise.race([
