@@ -886,7 +886,7 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
         assistantMessageChannel: sourceChannel,
       };
 
-      const run = await orchestrator.startRun(
+      const { run } = await orchestrator.startRun(
         conversationId,
         content,
         attachmentIds,
