@@ -96,6 +96,19 @@ final class RideShotgunSession: ObservableObject, Identifiable {
     }
 
     func cancel() {
+        // Send ride_shotgun_stop so the daemon terminates the capture session
+        // immediately rather than running to timeout.  Use the watchId if we
+        // have one; if we cancelled before watch_started arrived, skip the IPC
+        // (the daemon will time out on its own shortly after never receiving
+        // any client activity).
+        if let watchId = expectedWatchId, let daemonClient {
+            do {
+                try daemonClient.send(RideShotgunStopMessage(watchId: watchId))
+                log.info("ride_shotgun_stop sent on cancel: watchId=\(watchId)")
+            } catch {
+                log.error("Failed to send ride_shotgun_stop on cancel: \(error.localizedDescription)")
+            }
+        }
         log.info("Session cancelled")
         state = .cancelled
         cleanup()

@@ -139,8 +139,18 @@ final class AmbientAgentManager: ObservableObject {
             } else {
                 displayText = summary
             }
-            completedSummary = CompletedSummary(text: displayText, recordingId: recordingId)
             trigger.recordCompleted()
+
+            // SwiftUI cannot present a new sheet while another is being dismissed.
+            // Setting completedSummary immediately after nil-ing activeSession would
+            // race with the progress-sheet dismissal animation and the summary sheet
+            // would be silently dropped on many iOS versions.  A short delay lets
+            // the dismissal animation finish before we request the next presentation.
+            let pendingSummary = CompletedSummary(text: displayText, recordingId: recordingId)
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 600_000_000) // 0.6 s
+                self?.completedSummary = pendingSummary
+            }
 
         case .failed(let reason):
             log.error("Ride shotgun session failed: \(reason)")
