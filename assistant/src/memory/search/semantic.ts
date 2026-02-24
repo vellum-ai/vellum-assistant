@@ -23,7 +23,9 @@ export async function semanticSearch(
   const qdrant = getQdrantClient();
 
   // Overfetch to account for items filtered out post-query (invalidated, excluded, etc.)
-  const fetchLimit = limit * 2;
+  // Use 3x when exclusions are active to ensure enough results survive filtering
+  const overfetchMultiplier = excludedMessageIds.length > 0 ? 3 : 2;
+  const fetchLimit = limit * overfetchMultiplier;
   const results = await qdrant.searchWithFilter(
     queryVector,
     fetchLimit,
