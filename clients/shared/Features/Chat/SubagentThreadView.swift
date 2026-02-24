@@ -22,9 +22,9 @@ public struct SubagentThreadView: View {
 
     private var statusColor: Color {
         switch subagent.status {
-        case .completed: return Emerald._500
-        case .failed, .aborted: return Danger._500
-        default: return Forest._500
+        case .completed: return VColor.success
+        case .failed, .aborted: return VColor.error
+        default: return adaptiveColor(light: Forest._600, dark: Forest._400)
         }
     }
 
@@ -101,7 +101,7 @@ public struct SubagentThreadView: View {
             // Label (clickable, turns blue on hover like Slack)
             Text(subagent.label)
                 .font(VFont.captionMedium)
-                .foregroundColor(isHovered ? Forest._400 : VColor.textPrimary)
+                .foregroundColor(isHovered ? VColor.iconAccent : VColor.textPrimary)
 
             // Status icon
             Image(systemName: statusIcon)
@@ -119,7 +119,7 @@ public struct SubagentThreadView: View {
             if replyCount > 0 {
                 Text("\(replyCount) repl\(replyCount == 1 ? "y" : "ies")")
                     .font(VFont.captionMedium)
-                    .foregroundColor(isHovered ? Forest._400 : Forest._500)
+                    .foregroundColor(isHovered ? VColor.iconAccent : adaptiveColor(light: Forest._600, dark: Forest._400))
             } else if isRunning {
                 Text("Working...")
                     .font(VFont.caption)
@@ -142,7 +142,7 @@ public struct SubagentThreadView: View {
             // View thread arrow
             Image(systemName: "chevron.right")
                 .font(.system(size: 9, weight: .semibold))
-                .foregroundColor(isHovered ? Forest._400 : VColor.textMuted)
+                .foregroundColor(isHovered ? VColor.iconAccent : VColor.textMuted)
         }
         .padding(.horizontal, VSpacing.sm)
         .padding(.vertical, VSpacing.sm)
