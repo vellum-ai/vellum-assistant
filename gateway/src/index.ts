@@ -15,6 +15,7 @@ import { createSmsDeliverHandler } from "./http/routes/sms-deliver.js";
 import { createWhatsAppWebhookHandler } from "./http/routes/whatsapp-webhook.js";
 import { createWhatsAppDeliverHandler } from "./http/routes/whatsapp-deliver.js";
 import { createOAuthCallbackHandler } from "./http/routes/oauth-callback.js";
+import { createPairingProxyHandler } from "./http/routes/pairing-proxy.js";
 import { getLogger, initLogger } from "./logger.js";
 import { buildSchema } from "./schema.js";
 import { callTelegramApi } from "./telegram/api.js";
@@ -53,6 +54,7 @@ function main() {
   const handleWhatsAppWebhook = createWhatsAppWebhookHandler(config);
   const handleWhatsAppDeliver = createWhatsAppDeliverHandler(config);
   const handleOAuthCallback = createOAuthCallbackHandler(config);
+  const pairingProxy = createPairingProxyHandler(config);
 
   const handleRuntimeProxy = config.runtimeProxyEnabled
     ? createRuntimeProxyHandler(config)
@@ -180,6 +182,14 @@ function main() {
             address: config.assistantEmail ?? null,
           },
         });
+      }
+
+      // ── Pairing proxy (unauthenticated at gateway, secret-gated) ──
+      if (url.pathname === "/pairing/request" && tracedReq.method === "POST") {
+        return pairingProxy.handlePairingRequest(tracedReq);
+      }
+      if (url.pathname === "/pairing/status" && tracedReq.method === "GET") {
+        return pairingProxy.handlePairingStatus(tracedReq);
       }
 
       if (handleRuntimeProxy) {
