@@ -50,3 +50,25 @@ export interface ChannelAdapter {
   channel: NotificationChannel;
   send(delivery: PreparedDelivery, destination: ChannelDestination): Promise<DeliveryResult>;
 }
+
+// -- Decision engine output ---------------------------------------------------
+
+/** Rendered notification copy for a single channel. */
+export interface RenderedChannelCopy {
+  title: string;
+  body: string;
+  threadTitle?: string;
+  threadSeedMessage?: string;
+}
+
+/** Output produced by the notification decision engine for a given signal. */
+export interface NotificationDecision {
+  shouldNotify: boolean;
+  selectedChannels: NotificationChannel[];
+  reasoningSummary: string;
+  renderedCopy: Partial<Record<NotificationChannel, RenderedChannelCopy>>;
+  deepLinkTarget?: Record<string, unknown>;
+  dedupeKey: string;
+  confidence: number;
+  fallbackUsed: boolean;
+}
