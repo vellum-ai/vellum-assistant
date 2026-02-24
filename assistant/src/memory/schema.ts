@@ -12,6 +12,7 @@ export const conversations = sqliteTable('conversations', {
   contextCompactedMessageCount: integer('context_compacted_message_count').notNull().default(0),
   contextCompactedAt: integer('context_compacted_at'),
   threadType: text('thread_type').notNull().default('standard'),
+  source: text('source').notNull().default('user'),
   memoryScopeId: text('memory_scope_id').notNull().default('default'),
 });
 
