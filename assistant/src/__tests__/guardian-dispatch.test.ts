@@ -56,11 +56,38 @@ mock.module('../runtime/gateway-client.js', () => ({
   },
 }));
 
+// Mock guardian-question-copy to return deterministic values without hitting a real provider.
+// The mock returns an emoji-prefixed title and a richer initial message containing the question.
+let mockGuardianCopy = {
+  threadTitle: '\u{1F6A8} Caller needs the gate code',
+  initialMessage: 'Your assistant needs your input during a live phone call.\n\nQuestion: What is the gate code?\n\nReply to this message with your answer.',
+};
+
+mock.module('../calls/guardian-question-copy.js', () => ({
+  generateGuardianCopy: async (questionText: string) => ({
+    threadTitle: mockGuardianCopy.threadTitle,
+    initialMessage: mockGuardianCopy.initialMessage.includes(questionText)
+      ? mockGuardianCopy.initialMessage
+      : mockGuardianCopy.initialMessage.replace(/Question: .*/, `Question: ${questionText}`),
+  }),
+  buildFallbackCopy: (questionText: string) => ({
+    threadTitle: `\u26A0\uFE0F ${questionText.slice(0, 70)}`,
+    initialMessage: [
+      'Your assistant needs your input during a phone call.',
+      '',
+      `Question: ${questionText}`,
+      '',
+      'Reply to this message with your answer.',
+    ].join('\n'),
+  }),
+}));
+
 import { initializeDb, getDb, resetDb } from '../memory/db.js';
 import { conversations } from '../memory/schema.js';
 import { createCallSession, createPendingQuestion } from '../calls/call-store.js';
 import { dispatchGuardianQuestion } from '../calls/guardian-dispatch.js';
 import { getMessages } from '../memory/conversation-store.js';
+import { buildFallbackCopy } from '../calls/guardian-question-copy.js';
 
 initializeDb();
 
@@ -87,6 +114,10 @@ function resetTables(): void {
   mockTelegramBinding = null;
   mockSmsBinding = null;
   deliveredMessages.length = 0;
+  mockGuardianCopy = {
+    threadTitle: '\u{1F6A8} Caller needs the gate code',
+    initialMessage: 'Your assistant needs your input during a live phone call.\n\nQuestion: What is the gate code?\n\nReply to this message with your answer.',
+  };
 }
 
 describe('guardian-dispatch', () => {
@@ -249,5 +280,119 @@ describe('guardian-dispatch', () => {
       assistantId: 'self',
       pendingQuestion: pq,
     })).resolves.toBeUndefined();
+  });
+
+  test('broadcast title is emoji-prefixed and does not start with "Guardian question:"', async () => {
+    const convId = 'conv-dispatch-6';
+    ensureConversation(convId);
+
+    const session = createCallSession({
+      conversationId: convId,
+      provider: 'twilio',
+      fromNumber: '+15550001111',
+      toNumber: '+15550002222',
+    });
+    const pq = createPendingQuestion(session.id, 'What is the gate code?');
+
+    const broadcastedMessages: unknown[] = [];
+    const broadcastFn = (msg: unknown) => { broadcastedMessages.push(msg); };
+
+    await dispatchGuardianQuestion({
+      callSessionId: session.id,
+      conversationId: convId,
+      assistantId: 'self',
+      pendingQuestion: pq,
+      broadcast: broadcastFn,
+    });
+
+    const msg = broadcastedMessages[0] as Record<string, unknown>;
+    const title = msg.title as string;
+
+    // Title must NOT start with the old static "Guardian question:" prefix
+    expect(title.startsWith('Guardian question:')).toBe(false);
+
+    // Title must start with an emoji (code point > 127 or common emoji ranges)
+    const firstCodePoint = title.codePointAt(0)!;
+    expect(firstCodePoint).toBeGreaterThan(127);
+  });
+
+  test('fallback copy produces valid title and message', () => {
+    // Verify the deterministic fallback path produces usable copy
+    const fallback = buildFallbackCopy('Should I open the door?');
+
+    expect(fallback.threadTitle).toMatch(/^\u26A0\uFE0F/); // Starts with warning emoji
+    expect(fallback.threadTitle).toContain('Should I open the door?');
+    expect(fallback.initialMessage).toContain('Should I open the door?');
+    expect(fallback.initialMessage).toContain('Reply to this message');
+  });
+
+  test('broadcast includes questionText field matching the original question', async () => {
+    const convId = 'conv-dispatch-7';
+    ensureConversation(convId);
+
+    const questionText = 'What is the WiFi password?';
+    const session = createCallSession({
+      conversationId: convId,
+      provider: 'twilio',
+      fromNumber: '+15550001111',
+      toNumber: '+15550002222',
+    });
+    const pq = createPendingQuestion(session.id, questionText);
+
+    const broadcastedMessages: unknown[] = [];
+    const broadcastFn = (msg: unknown) => { broadcastedMessages.push(msg); };
+
+    await dispatchGuardianQuestion({
+      callSessionId: session.id,
+      conversationId: convId,
+      assistantId: 'self',
+      pendingQuestion: pq,
+      broadcast: broadcastFn,
+    });
+
+    expect(broadcastedMessages).toHaveLength(1);
+    const msg = broadcastedMessages[0] as Record<string, unknown>;
+    expect(msg.type).toBe('guardian_request_thread_created');
+    expect(msg.questionText).toBe(questionText);
+  });
+
+  test('initial message in mac conversation contains question text from generative copy', async () => {
+    const convId = 'conv-dispatch-8';
+    ensureConversation(convId);
+
+    // Set mock copy to a known generative-style message
+    mockGuardianCopy = {
+      threadTitle: '\u{1F4DE} Live call: Gate code needed',
+      initialMessage: 'You have an active phone call that needs your help.\n\nThe caller is asking: What is the gate code?\n\nPlease reply with your answer to resume the call.',
+    };
+
+    const session = createCallSession({
+      conversationId: convId,
+      provider: 'twilio',
+      fromNumber: '+15550001111',
+      toNumber: '+15550002222',
+    });
+    const pq = createPendingQuestion(session.id, 'What is the gate code?');
+
+    const broadcastedMessages: unknown[] = [];
+    const broadcastFn = (msg: unknown) => { broadcastedMessages.push(msg); };
+
+    await dispatchGuardianQuestion({
+      callSessionId: session.id,
+      conversationId: convId,
+      assistantId: 'self',
+      pendingQuestion: pq,
+      broadcast: broadcastFn,
+    });
+
+    const msg = broadcastedMessages[0] as Record<string, unknown>;
+    const macConvId = msg.conversationId as string;
+
+    const messages = getMessages(macConvId);
+    expect(messages.length).toBeGreaterThanOrEqual(1);
+    const content = messages[0].content;
+    // The generative copy should be used as the initial message
+    expect(content).toContain('What is the gate code?');
+    expect(content).toContain('active phone call');
   });
 });
