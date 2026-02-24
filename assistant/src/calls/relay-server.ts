@@ -354,7 +354,7 @@ export class RelayConnection {
 
     // Inbound calls (no task) skip callee verification — verification is
     // an outbound-call concern where we need to confirm the callee's identity.
-    const isInbound = !session?.task;
+    const isInbound = session?.task == null;
 
     const config = getConfig();
     const verificationConfig = config.calls.verification;
