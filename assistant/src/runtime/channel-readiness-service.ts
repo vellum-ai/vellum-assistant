@@ -165,6 +165,47 @@ const smsProbe: ChannelProbe = {
   },
 };
 
+// ── Voice Probe ─────────────────────────────────────────────────────────────
+
+const voiceProbe: ChannelProbe = {
+  channel: 'voice',
+  runLocalChecks(context?: ChannelProbeContext): ReadinessCheckResult[] {
+    const results: ReadinessCheckResult[] = [];
+
+    const hasCreds = hasTwilioCredentials();
+    results.push({
+      name: 'twilio_credentials',
+      passed: hasCreds,
+      message: hasCreds
+        ? 'Twilio credentials are configured'
+        : 'Twilio Account SID and Auth Token are not configured',
+    });
+
+    const phoneNumber = process.env.TWILIO_PHONE_NUMBER
+      || getSecureKey('credential:twilio:phone_number')
+      || '';
+    const hasPhone = !!phoneNumber;
+    results.push({
+      name: 'phone_number',
+      passed: hasPhone,
+      message: hasPhone
+        ? 'Phone number is assigned for voice calls'
+        : 'No phone number assigned for voice calls',
+    });
+
+    const hasIngress = hasIngressConfigured();
+    results.push({
+      name: 'ingress',
+      passed: hasIngress,
+      message: hasIngress
+        ? 'Public ingress URL is configured'
+        : 'Public ingress URL is not configured or disabled',
+    });
+
+    return results;
+  },
+};
+
 // ── Telegram Probe ──────────────────────────────────────────────────────────
 
 const telegramProbe: ChannelProbe = {
@@ -340,10 +381,11 @@ export class ChannelReadinessService {
 
 // ── Factory ─────────────────────────────────────────────────────────────────
 
-/** Create a service instance with built-in SMS and Telegram probes registered. */
+/** Create a service instance with built-in SMS, Voice, and Telegram probes registered. */
 export function createReadinessService(): ChannelReadinessService {
   const service = new ChannelReadinessService();
   service.registerProbe(smsProbe);
+  service.registerProbe(voiceProbe);
   service.registerProbe(telegramProbe);
   return service;
 }

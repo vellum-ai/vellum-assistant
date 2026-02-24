@@ -23,6 +23,7 @@ function parseCallSession(row: typeof callSessions.$inferSelect): CallSession {
     callerIdentityMode: row.callerIdentityMode,
     callerIdentitySource: row.callerIdentitySource,
     assistantId: row.assistantId,
+    initiatedFromConversationId: row.initiatedFromConversationId,
     startedAt: row.startedAt,
     endedAt: row.endedAt,
     lastError: row.lastError,
@@ -64,6 +65,7 @@ export function createCallSession(opts: {
   callerIdentityMode?: string;
   callerIdentitySource?: string;
   assistantId?: string;
+  initiatedFromConversationId?: string;
 }): CallSession {
   const db = getDb();
   const now = Date.now();
@@ -79,6 +81,7 @@ export function createCallSession(opts: {
     callerIdentityMode: opts.callerIdentityMode ?? null,
     callerIdentitySource: opts.callerIdentitySource ?? null,
     assistantId: opts.assistantId ?? null,
+    initiatedFromConversationId: opts.initiatedFromConversationId ?? null,
     startedAt: null,
     endedAt: null,
     lastError: null,
@@ -126,7 +129,7 @@ export function getActiveCallSessionForConversation(conversationId: string): Cal
 
 export function updateCallSession(
   id: string,
-  updates: Partial<Pick<CallSession, 'status' | 'providerCallSid' | 'startedAt' | 'endedAt' | 'lastError'>>,
+  updates: Partial<Pick<CallSession, 'status' | 'providerCallSid' | 'startedAt' | 'endedAt' | 'lastError' | 'conversationId' | 'initiatedFromConversationId'>>,
 ): void {
   const db = getDb();
 
