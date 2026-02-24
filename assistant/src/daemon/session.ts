@@ -129,7 +129,7 @@ export class Session {
   /** @internal */ channelCapabilities?: ChannelCapabilities;
   /** @internal */ guardianContext?: GuardianRuntimeContext;
   /** @internal */ assistantId?: string;
-  /** @internal */ commandIntent?: { type: string; payload?: string };
+  /** @internal */ commandIntent?: { type: string; payload?: string; languageCode?: string };
   /** @internal */ pendingSurfaceActions = new Map<string, { surfaceType: SurfaceType }>();
   /** @internal */ lastSurfaceAction = new Map<string, { actionId: string; data?: Record<string, unknown> }>();
   /** @internal */ surfaceState = new Map<string, { surfaceType: SurfaceType; data: SurfaceData }>();
@@ -338,7 +338,7 @@ export class Session {
     this.assistantId = assistantId ?? undefined;
   }
 
-  setCommandIntent(intent: { type: string; payload?: string } | null): void {
+  setCommandIntent(intent: { type: string; payload?: string; languageCode?: string } | null): void {
     this.commandIntent = intent ?? undefined;
   }
 

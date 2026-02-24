@@ -95,7 +95,7 @@ export interface AgentLoopSessionContext {
   workspaceTopLevelContext: string | null;
   workspaceTopLevelDirty: boolean;
   channelCapabilities?: ChannelCapabilities;
-  commandIntent?: { type: string; payload?: string };
+  commandIntent?: { type: string; payload?: string; languageCode?: string };
   guardianContext?: GuardianRuntimeContext;
 
   readonly coreToolNames: Set<string>;

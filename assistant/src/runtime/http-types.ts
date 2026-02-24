@@ -13,7 +13,7 @@ export interface RuntimeMessageSessionOptions {
   assistantId?: string;
   guardianContext?: GuardianRuntimeContext;
   /** Channel command intent metadata (e.g. Telegram /start). */
-  commandIntent?: { type: string; payload?: string };
+  commandIntent?: { type: string; payload?: string; languageCode?: string };
 }
 
 export type MessageProcessor = (
