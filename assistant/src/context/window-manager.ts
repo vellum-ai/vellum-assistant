@@ -112,7 +112,7 @@ export class ContextWindowManager {
       };
     }
 
-    const summaryOffset = existingSummary !== undefined ? 1 : 0;
+    const summaryOffset = existingSummary != null ? 1 : 0;
     const userTurnStarts = collectUserTurnStartIndexes(messages);
     if (userTurnStarts.length === 0) {
       return {

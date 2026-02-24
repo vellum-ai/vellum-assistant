@@ -8,7 +8,7 @@ export class PromiseGuard<T> {
 
   /** Whether a promise is currently in-flight. */
   get active(): boolean {
-    return this.promise !== undefined;
+    return this.promise != null;
   }
 
   /**

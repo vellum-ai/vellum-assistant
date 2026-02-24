@@ -70,7 +70,7 @@ export function handleGuardianVerification(
       ctx.send(socket, {
         type: 'guardian_verification_response',
         success: true,
-        bound: binding !== undefined,
+        bound: binding != null,
         guardianExternalUserId: binding?.guardianExternalUserId,
         guardianUsername,
         guardianDisplayName,

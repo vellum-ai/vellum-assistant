@@ -194,7 +194,7 @@ class BrowserManager {
     this.contextCreating = (async () => {
       // Deterministic test mode: when launch is injected via setLaunchFn,
       // bypass ambient CDP probing/negotiation and use the injected launcher.
-      const hasInjectedLaunchFn = launchPersistentContext !== undefined;
+      const hasInjectedLaunchFn = launchPersistentContext != null;
 
       if (!hasInjectedLaunchFn) {
         // Try to detect or negotiate CDP before falling back to headless.
@@ -711,7 +711,7 @@ class BrowserManager {
   }
 
   hasContext(): boolean {
-    return this.context !== undefined;
+    return this.context != null;
   }
 }
 

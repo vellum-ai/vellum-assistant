@@ -651,7 +651,7 @@ export class WorkspaceGitService {
       return;
     }
 
-    const state = currentBranch === undefined ? 'detached HEAD' : `branch '${currentBranch}'`;
+    const state = currentBranch == null ? 'detached HEAD' : `branch '${currentBranch}'`;
     log.warn(
       { workspaceDir: this.workspaceDir, currentBranch },
       `Workspace repo is on ${state}; auto-switching to main`,

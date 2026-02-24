@@ -356,7 +356,7 @@ export function stripUserTextBlocksByPrefix(messages: Message[], prefixes: strin
     if (nextContent.length === message.content.length) return message;
     if (nextContent.length === 0) return null;
     return { ...message, content: nextContent };
-  }).filter((message): message is NonNullable<typeof message> => message !== undefined);
+  }).filter((message): message is NonNullable<typeof message> => message != null);
 }
 
 // ---------------------------------------------------------------------------

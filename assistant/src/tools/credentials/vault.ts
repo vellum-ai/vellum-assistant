@@ -300,7 +300,7 @@ class CredentialStoreTool implements Tool {
           injectionTemplates = [];
           for (let i = 0; i < rawTemplates.length; i++) {
             const t = rawTemplates[i] as Record<string, unknown>;
-            if (typeof t !== 'object' || t === undefined) {
+            if (typeof t !== 'object' || t == null) {
               templateErrors.push(`injection_templates[${i}] must be an object`);
               continue;
             }

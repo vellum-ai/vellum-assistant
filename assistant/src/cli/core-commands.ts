@@ -527,7 +527,7 @@ export function registerDoctorCommand(program: Command): void {
         try {
           const rawTrust = readFileSync(trustPath, 'utf-8');
           const data = JSON.parse(rawTrust);
-          if (typeof data !== 'object' || data === undefined) {
+          if (typeof data !== 'object' || data == null) {
             fail('Trust rule syntax', 'trust.json is not a JSON object');
           } else if (typeof data.version !== 'number') {
             fail('Trust rule syntax', 'missing or invalid "version" field');
@@ -536,7 +536,7 @@ export function registerDoctorCommand(program: Command): void {
           } else {
             const invalid = data.rules.filter(
               (r: unknown) =>
-                typeof r !== 'object' || r === undefined ||
+                typeof r !== 'object' || r == null ||
                 typeof (r as Record<string, unknown>).tool !== 'string' ||
                 typeof (r as Record<string, unknown>).pattern !== 'string' ||
                 typeof (r as Record<string, unknown>).scope !== 'string',

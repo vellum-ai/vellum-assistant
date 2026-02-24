@@ -12,7 +12,7 @@ export interface WorkspaceSessionContext {
 
 /** Refresh workspace top-level directory context if needed. */
 export function refreshWorkspaceTopLevelContextIfNeeded(ctx: WorkspaceSessionContext): void {
-  if (!ctx.workspaceTopLevelDirty && ctx.workspaceTopLevelContext !== undefined) return;
+  if (!ctx.workspaceTopLevelDirty && ctx.workspaceTopLevelContext != null) return;
   const snapshot = scanTopLevelDirectories(ctx.workingDir);
   ctx.workspaceTopLevelContext = renderWorkspaceTopLevelContext(snapshot);
   ctx.workspaceTopLevelDirty = false;

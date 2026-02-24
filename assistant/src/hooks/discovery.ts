@@ -24,7 +24,7 @@ const VALID_EVENTS = new Set<string>([
  * (created before those fields were added) continue to be discovered.
  */
 export function isValidManifest(manifest: unknown): manifest is HookManifest {
-  if (typeof manifest !== 'object' || manifest === undefined) return false;
+  if (typeof manifest !== 'object' || manifest == null) return false;
   const m = manifest as Record<string, unknown>;
   if (typeof m.name !== 'string' || !m.name) return false;
   if (typeof m.script !== 'string' || !m.script) return false;

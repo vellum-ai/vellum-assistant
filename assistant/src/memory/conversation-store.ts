@@ -327,7 +327,7 @@ export function deleteLastExchange(conversationId: string): number {
       .where(inArray(messageAttachments.messageId, messageIds))
       .all()
       .map((r) => r.attachmentId)
-      .filter((id): id is string => id !== undefined)
+      .filter((id): id is string => id != null)
     : [];
 
   db.transaction((tx) => {

@@ -17,7 +17,7 @@ export function stripMediaPayloadsForRetry(messages: Message[]): { messages: Mes
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
     if (msg.role !== 'user') continue;
-    if (getSummaryFromContextMessage(msg) !== undefined) continue;
+    if (getSummaryFromContextMessage(msg) != null) continue;
     if (isToolResultOnlyMessage(msg)) continue;
     latestUserIndex = i;
     break;

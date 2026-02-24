@@ -50,7 +50,7 @@ export class HookManager {
     for (const hook of hooks) {
       try {
         const result = await runHookScript(hook, eventData);
-        if (result.exitCode !== undefined && result.exitCode !== 0) {
+        if (result.exitCode != null && result.exitCode !== 0) {
           // Blocking hooks on pre-* events cancel the action
           if (isPreEvent && hook.manifest.blocking) {
             log.info({ hook: hook.name, event, exitCode: result.exitCode }, 'Blocking hook rejected action');
