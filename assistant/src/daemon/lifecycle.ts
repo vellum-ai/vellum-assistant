@@ -24,6 +24,7 @@ import { loadConfig } from '../config/loader.js';
 import { ensurePromptFiles } from '../config/system-prompt.js';
 import { loadPrebuiltHtml } from '../home-base/prebuilt/seed.js';
 import { DaemonServer } from './server.js';
+import { setRelayBroadcast } from '../calls/relay-server.js';
 import { listWorkItems, updateWorkItem } from '../work-items/work-item-store.js';
 import { getLogger, initLogger } from '../util/logger.js';
 import { DaemonError } from '../util/errors.js';
@@ -467,6 +468,7 @@ export async function runDaemon(): Promise<void> {
       try {
         log.info({ port, hostname }, 'Daemon startup: starting runtime HTTP server');
         await runtimeHttp.start();
+        setRelayBroadcast((msg) => server.broadcast(msg));
         server.setHttpPort(port);
         log.info({ port, hostname }, 'Daemon startup: runtime HTTP server listening');
       } catch (err) {

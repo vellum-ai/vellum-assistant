@@ -21,6 +21,7 @@ import { getUserConsultationTimeoutMs } from './call-constants.js';
 import { getOrCreateConversation } from '../memory/conversation-key-store.js';
 import { addMessage } from '../memory/conversation-store.js';
 import type { CallPendingQuestion } from './types.js';
+import { readHttpToken } from '../util/platform.js';
 import type { ServerMessage } from '../daemon/ipc-contract.js';
 
 const log = getLogger('guardian-dispatch');
@@ -123,7 +124,7 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
         addMessage(
           macConversationId,
           'assistant',
-          JSON.stringify(`Your assistant needs your input during a phone call.\n\nQuestion: ${request.questionText}\n\nReply to this message with your answer.`),
+          JSON.stringify([{ type: 'text', text: `Your assistant needs your input during a phone call.\n\nQuestion: ${request.questionText}\n\nReply to this message with your answer.` }]),
         );
 
         // Emit IPC event for the mac client with the server-created conversation
@@ -146,7 +147,7 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
           destinationExternalUserId: dest.externalUserId,
         });
         // External channel — POST to gateway
-        void deliverToExternalChannel(delivery.id, dest.channel, dest.chatId!, request.questionText, request.requestCode, assistantId);
+        void deliverToExternalChannel(delivery.id, dest.channel, dest.chatId!, request.questionText, request.requestCode, assistantId, readHttpToken() ?? undefined);
       }
     }
   } catch (err) {
@@ -161,6 +162,7 @@ async function deliverToExternalChannel(
   questionText: string,
   requestCode: string,
   assistantId: string,
+  bearerToken?: string,
 ): Promise<void> {
   const gatewayBase = getGatewayBaseUrl();
   const deliverUrl = `${gatewayBase}/deliver/${channel}`;
@@ -178,7 +180,7 @@ async function deliverToExternalChannel(
       chatId,
       text: messageText,
       assistantId,
-    });
+    }, bearerToken);
     updateDeliveryStatus(deliveryId, 'sent');
     log.info({ deliveryId, channel, chatId }, 'External guardian delivery sent');
   } catch (err) {

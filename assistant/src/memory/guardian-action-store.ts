@@ -7,7 +7,7 @@
  * answer resolves the request and all other deliveries are marked answered.
  */
 
-import { and, eq, lt } from 'drizzle-orm';
+import { and, eq, lt, inArray } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb } from './db.js';
 import {
@@ -235,7 +235,7 @@ export function expireGuardianActionRequest(id: string): void {
     .where(
       and(
         eq(guardianActionDeliveries.requestId, id),
-        eq(guardianActionDeliveries.status, 'pending'),
+        inArray(guardianActionDeliveries.status, ['pending', 'sent']),
       ),
     )
     .run();
