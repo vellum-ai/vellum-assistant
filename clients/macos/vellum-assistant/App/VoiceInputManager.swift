@@ -390,14 +390,13 @@ final class VoiceInputManager {
     /// Handle the daemon's dictation response — insert cleaned text or route action mode to a task.
     func handleDictationResponse(text: String, mode: String) {
         awaitingDaemonResponse = false
-        if mode == "dictation" || mode == "command" || mode == "action" {
+        if mode == "dictation" || mode == "command" {
             DictationTextInserter.insertText(text)
             overlayWindow.showDoneAndDismiss()
-            if mode == "action" {
-                // Fn dictation should always end in inline insertion. Treat action-classified
-                // responses as dictation so users don't get redirected into a chat session.
-                log.info("Dictation response mode=action coerced to inline insertion")
-            }
+        } else if mode == "action" {
+            overlayWindow.dismiss()
+            log.info("Action mode detected — routing transcription to task submission: \(text, privacy: .public)")
+            onActionModeTriggered?(text)
         }
     }
 
