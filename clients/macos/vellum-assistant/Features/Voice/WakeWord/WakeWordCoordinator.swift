@@ -72,6 +72,9 @@ final class WakeWordCoordinator: ObservableObject {
     }
 
     private func handleWakeWordDetected() {
+        // Ignore if wake word is disabled in settings
+        guard UserDefaults.standard.bool(forKey: "wakeWordEnabled") else { return }
+
         // Ignore if voice mode is already active
         guard voiceModeManager.state == .off else {
             log.info("Wake word ignored — voice mode already active (state: \(String(describing: voiceModeManager.state)))")
@@ -128,13 +131,16 @@ final class WakeWordCoordinator: ObservableObject {
             .sink { [weak self] newState in
                 guard let self else { return }
                 if newState == .off {
-                    log.info("Voice mode deactivated — resuming wake word listening")
-                    if self.activatedViaWakeWord {
-                        WakeWordFeedback.playDeactivationChime()
-                        self.activationWindow.show(state: .listening)
-                        self.activatedViaWakeWord = false
+                    // Only resume monitoring if wake word is enabled in settings
+                    if UserDefaults.standard.bool(forKey: "wakeWordEnabled") {
+                        log.info("Voice mode deactivated — resuming wake word listening")
+                        if self.activatedViaWakeWord {
+                            WakeWordFeedback.playDeactivationChime()
+                            self.activationWindow.show(state: .listening)
+                            self.activatedViaWakeWord = false
+                        }
+                        self.audioMonitor.startMonitoring()
                     }
-                    self.audioMonitor.startMonitoring()
                 }
             }
     }

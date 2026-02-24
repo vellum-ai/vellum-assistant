@@ -362,6 +362,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             quickChatPanel = nil
             voiceInput?.stop()
             voiceInput = nil
+            wakeWordCoordinator = nil
             ambientAgent.teardown()
 
             if let observer = windowObserver {
@@ -474,6 +475,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         quickChatPanel = nil
         voiceInput?.stop()
         voiceInput = nil
+        wakeWordCoordinator = nil
         ambientAgent.teardown()
 
         if let observer = windowObserver {
