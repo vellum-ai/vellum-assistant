@@ -192,13 +192,15 @@ export async function handleRideShotgunStart(
                 completeSession(session);
               }
             });
-          } else {
+          } else if (!targetDomain) {
             // No targetDomain: use login detection as before
             recorder.onLoginDetected = () => {
               log.info({ watchId }, 'Login detected — auto-stopping learn session');
               completeSession(session);
             };
           }
+          // When autoNavigate is false but targetDomain is set (manual mode),
+          // just record network traffic until timeout or early stop — no login detection shortcut.
 
           return;
         } catch (err) {
