@@ -35,9 +35,9 @@ struct SettingsConnectTab: View {
     @State private var guardianCommandCopiedChannel: String?
 
     // Developer local pairing state
-    @AppStorage("iosPairingUseOverride") private var iosPairingUseOverride: Bool = false
-    @AppStorage("iosPairingGatewayOverride") private var iosPairingGatewayOverride: String = ""
-    @AppStorage("iosPairingTokenOverride") private var iosPairingTokenOverride: String = ""
+    @AppStorage(PairingConfiguration.overrideEnabledKey) private var iosPairingUseOverride: Bool = false
+    @AppStorage(PairingConfiguration.gatewayOverrideKey) private var iosPairingGatewayOverride: String = ""
+    @AppStorage(PairingConfiguration.tokenOverrideKey) private var iosPairingTokenOverride: String = ""
     @State private var lanUrlCopied: Bool = false
 
     var body: some View {
@@ -81,7 +81,7 @@ struct SettingsConnectTab: View {
                 ingressEnabled: store.ingressEnabled,
                 gatewayUrl: store.resolvedIosGatewayUrl,
                 resolvedBearerToken: store.resolvedIosBearerToken,
-                isLocalOverride: UserDefaults.standard.bool(forKey: "iosPairingUseOverride")
+                isLocalOverride: PairingConfiguration.isOverrideEnabled
             )
         }
     }

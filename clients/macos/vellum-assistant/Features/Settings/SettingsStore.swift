@@ -1123,19 +1123,12 @@ public final class SettingsStore: ObservableObject {
 
     /// Resolved gateway URL for iOS pairing — uses per-integration override if enabled, else global.
     var resolvedIosGatewayUrl: String {
-        UserDefaults.standard.bool(forKey: "iosPairingUseOverride")
-            ? (nonEmpty(UserDefaults.standard.string(forKey: "iosPairingGatewayOverride")) ?? ingressPublicBaseUrl)
-            : ingressPublicBaseUrl
+        PairingConfiguration.resolvedGatewayURL(fallback: ingressPublicBaseUrl)
     }
 
     /// Resolved bearer token for iOS pairing — uses per-integration override if enabled, else global.
     var resolvedIosBearerToken: String {
-        if UserDefaults.standard.bool(forKey: "iosPairingUseOverride") {
-            if let override = nonEmpty(UserDefaults.standard.string(forKey: "iosPairingTokenOverride")) {
-                return override
-            }
-        }
-        return readHttpToken() ?? ""
+        PairingConfiguration.resolvedBearerToken(fallback: readHttpToken() ?? "")
     }
 
     /// Resolved gateway URL for public ingress — uses per-integration override if enabled, else global.

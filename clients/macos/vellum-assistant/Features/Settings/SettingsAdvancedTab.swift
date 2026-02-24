@@ -21,9 +21,9 @@ struct SettingsAdvancedTab: View {
     @State private var identity: IdentityInfo?
     @State private var remoteIdentity: RemoteIdentityInfo?
     @State private var flagStates: [(flag: FeatureFlag, enabled: Bool)] = []
-    @AppStorage("iosPairingUseOverride") private var iosPairingUseOverride: Bool = false
-    @AppStorage("iosPairingGatewayOverride") private var iosPairingGatewayOverride: String = ""
-    @AppStorage("iosPairingTokenOverride") private var iosPairingTokenOverride: String = ""
+    @AppStorage(PairingConfiguration.overrideEnabledKey) private var iosPairingUseOverride: Bool = false
+    @AppStorage(PairingConfiguration.gatewayOverrideKey) private var iosPairingGatewayOverride: String = ""
+    @AppStorage(PairingConfiguration.tokenOverrideKey) private var iosPairingTokenOverride: String = ""
 
     #if DEBUG
     @State private var showingEnvVars = false
