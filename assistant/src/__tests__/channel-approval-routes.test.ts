@@ -289,7 +289,7 @@ describe('inbound callback metadata triggers decision handling', () => {
 // 3. Plain text triggers decision handling
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe('inbound text matching approval phrases triggers decision handling', () => {
+describe('inbound text decisions via conversational approval trigger decision handling', () => {
   beforeEach(() => {
     createBinding({
       assistantId: 'self',
@@ -302,6 +302,10 @@ describe('inbound text matching approval phrases triggers decision handling', ()
   test('text "approve" triggers approve_once decision', async () => {
     const orchestrator = makeMockOrchestrator();
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+    const mockConversationGenerator = mock(async (_ctx: unknown) => ({
+      disposition: 'approve_once' as const,
+      replyText: 'Approved once.',
+    }));
 
     // Establish the conversation
     const initReq = makeInboundRequest({ content: 'init' });
@@ -317,7 +321,10 @@ describe('inbound text matching approval phrases triggers decision handling', ()
 
     const req = makeInboundRequest({ content: 'approve' });
 
-    const res = await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+    const res = await handleChannelInbound(
+      req, noopProcessMessage, 'token', orchestrator, 'self', undefined, undefined,
+      mockConversationGenerator,
+    );
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
@@ -330,6 +337,10 @@ describe('inbound text matching approval phrases triggers decision handling', ()
   test('text "always" triggers approve_always decision', async () => {
     const orchestrator = makeMockOrchestrator();
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+    const mockConversationGenerator = mock(async (_ctx: unknown) => ({
+      disposition: 'approve_always' as const,
+      replyText: 'Approved always.',
+    }));
 
     const initReq = makeInboundRequest({ content: 'init' });
     await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
@@ -344,7 +355,10 @@ describe('inbound text matching approval phrases triggers decision handling', ()
 
     const req = makeInboundRequest({ content: 'always' });
 
-    const res = await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+    const res = await handleChannelInbound(
+      req, noopProcessMessage, 'token', orchestrator, 'self', undefined, undefined,
+      mockConversationGenerator,
+    );
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
@@ -613,9 +627,13 @@ describe('callback run ID validation', () => {
     deliverSpy.mockRestore();
   });
 
-  test('plain-text decisions bypass run ID validation (no runId in result)', async () => {
+  test('single-pending conversational decision can apply without targetRunId', async () => {
     const orchestrator = makeMockOrchestrator();
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+    const mockConversationGenerator = mock(async (_ctx: unknown) => ({
+      disposition: 'approve_once' as const,
+      replyText: 'Approved.',
+    }));
 
     // Establish the conversation
     const initReq = makeInboundRequest({ content: 'init' });
@@ -630,10 +648,13 @@ describe('callback run ID validation', () => {
     const run = createRun(conversationId!);
     setRunConfirmation(run.id, sampleConfirmation);
 
-    // Send plain text "yes" — no runId in the parsed result, so validation is skipped
+    // With a single pending approval, targetRunId is optional for decision-bearing dispositions.
     const req = makeInboundRequest({ content: 'yes' });
 
-    const res = await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+    const res = await handleChannelInbound(
+      req, noopProcessMessage, 'token', orchestrator, 'self', undefined, undefined,
+      mockConversationGenerator,
+    );
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
@@ -890,9 +911,13 @@ describe('no immediate reply after approval decision', () => {
     deliverSpy.mockRestore();
   });
 
-  test('plain-text decision also does not trigger immediate reply', async () => {
+  test('conversational decision delivers engine reply immediately', async () => {
     const orchestrator = makeMockOrchestrator();
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+    const mockConversationGenerator = mock(async (_ctx: unknown) => ({
+      disposition: 'approve_once' as const,
+      replyText: 'Done, approving this request.',
+    }));
 
     // Establish the conversation
     const initReq = makeInboundRequest({ content: 'init' });
@@ -911,11 +936,14 @@ describe('no immediate reply after approval decision', () => {
     // Send a plain-text approval
     const req = makeInboundRequest({ content: 'approve' });
 
-    const res = await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+    const res = await handleChannelInbound(
+      req, noopProcessMessage, 'token', orchestrator, 'self', undefined, undefined,
+      mockConversationGenerator,
+    );
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.approval).toBe('decision_applied');
-    expect(deliverSpy).not.toHaveBeenCalled();
+    expect(deliverSpy).toHaveBeenCalled();
 
     deliverSpy.mockRestore();
   });
@@ -1473,6 +1501,10 @@ describe('SMS channel approval decisions', () => {
   test('plain-text "yes" via SMS triggers approve_once decision', async () => {
     const orchestrator = makeMockOrchestrator();
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+    const mockConversationGenerator = mock(async (_ctx: unknown) => ({
+      disposition: 'approve_once' as const,
+      replyText: 'Approved once.',
+    }));
 
     // Establish the conversation via SMS
     const initReq = makeSmsInboundRequest({ content: 'init' });
@@ -1487,7 +1519,10 @@ describe('SMS channel approval decisions', () => {
     setRunConfirmation(run.id, sampleConfirmation);
 
     const req = makeSmsInboundRequest({ content: 'yes' });
-    const res = await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+    const res = await handleChannelInbound(
+      req, noopProcessMessage, 'token', orchestrator, 'self', undefined, undefined,
+      mockConversationGenerator,
+    );
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
@@ -1500,6 +1535,10 @@ describe('SMS channel approval decisions', () => {
   test('plain-text "no" via SMS triggers reject decision', async () => {
     const orchestrator = makeMockOrchestrator();
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+    const mockConversationGenerator = mock(async (_ctx: unknown) => ({
+      disposition: 'reject' as const,
+      replyText: 'Denied.',
+    }));
 
     const initReq = makeSmsInboundRequest({ content: 'init' });
     await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
@@ -1513,7 +1552,10 @@ describe('SMS channel approval decisions', () => {
     setRunConfirmation(run.id, sampleConfirmation);
 
     const req = makeSmsInboundRequest({ content: 'no' });
-    const res = await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+    const res = await handleChannelInbound(
+      req, noopProcessMessage, 'token', orchestrator, 'self', undefined, undefined,
+      mockConversationGenerator,
+    );
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);

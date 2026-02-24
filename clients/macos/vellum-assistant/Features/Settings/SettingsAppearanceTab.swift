@@ -190,8 +190,8 @@ struct SettingsAppearanceTab: View {
 
     // MARK: - Shortcut Recording
 
-    /// The fixed "Open Vellum" shortcut in normalized form for conflict detection.
-    private static let openVellumShortcut = "cmd+shift+g"
+    /// The fixed "Open Vellum" shortcut tokens for order-independent conflict detection.
+    private static let openVellumShortcutTokens = ShortcutHelper.normalizeShortcut("cmd+shift+g")
 
     private func startRecording() {
         isRecordingShortcut = true
@@ -219,7 +219,7 @@ struct SettingsAppearanceTab: View {
             )
 
             // Check for conflict with the fixed "Open Vellum" shortcut
-            if shortcut.lowercased() == Self.openVellumShortcut {
+            if ShortcutHelper.normalizeShortcut(shortcut) == Self.openVellumShortcutTokens {
                 shortcutConflictWarning = "This shortcut conflicts with the Open Vellum shortcut (\u{2318}\u{21E7}G). Choose a different shortcut."
                 stopRecording()
                 return nil

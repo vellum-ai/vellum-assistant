@@ -2,6 +2,7 @@ import { and, asc, eq, lte } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb } from '../../memory/db.js';
 import { reminders } from '../../memory/schema.js';
+import { createRowMapper, cast } from '../../util/row-mapper.js';
 
 export interface ReminderRow {
   id: string;
@@ -15,6 +16,19 @@ export interface ReminderRow {
   createdAt: number;
   updatedAt: number;
 }
+
+const parseRow = createRowMapper<typeof reminders.$inferSelect, ReminderRow>({
+  id: 'id',
+  label: 'label',
+  message: 'message',
+  fireAt: 'fireAt',
+  mode: { from: 'mode', transform: cast<ReminderRow['mode']>() },
+  status: { from: 'status', transform: cast<ReminderRow['status']>() },
+  firedAt: 'firedAt',
+  conversationId: 'conversationId',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt',
+});
 
 export function insertReminder(params: {
   label: string;
@@ -130,19 +144,4 @@ export function setReminderConversationId(id: string, conversationId: string): v
     .set({ conversationId, updatedAt: Date.now() })
     .where(eq(reminders.id, id))
     .run();
-}
-
-function parseRow(row: typeof reminders.$inferSelect): ReminderRow {
-  return {
-    id: row.id,
-    label: row.label,
-    message: row.message,
-    fireAt: row.fireAt,
-    mode: row.mode as ReminderRow['mode'],
-    status: row.status as ReminderRow['status'],
-    firedAt: row.firedAt,
-    conversationId: row.conversationId,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-  };
 }

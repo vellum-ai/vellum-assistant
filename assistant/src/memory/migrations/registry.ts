@@ -1,0 +1,79 @@
+export interface MigrationRegistryEntry {
+  /** The checkpoint key written to memory_checkpoints on completion. */
+  key: string;
+  /** Monotonic version number used for ordering assertions. */
+  version: number;
+  /** Keys of other migrations that must complete before this one runs. */
+  dependsOn?: string[];
+  /** Human-readable description for diagnostics and future authorship guidance. */
+  description: string;
+}
+
+// ---------------------------------------------------------------------------
+// Central registry of all checkpoint-based one-shot migrations.  Each entry
+// carries a monotonic version number (for documentation / ordering assertions)
+// and an optional list of prerequisite checkpoint keys that must already be
+// completed before this migration runs.
+//
+// Migrations that use pure DDL guards (CREATE TABLE IF NOT EXISTS, index
+// presence checks, ALTER TABLE ADD COLUMN try/catch) are inherently idempotent
+// and do not need entries here — they are safe to re-run on every startup.
+// ---------------------------------------------------------------------------
+
+export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
+  {
+    key: 'migration_job_deferrals',
+    version: 1,
+    description: 'Reconcile legacy deferral history from attempts column into deferrals column',
+  },
+  {
+    key: 'migration_memory_entity_relations_dedup_v1',
+    version: 2,
+    description: 'Deduplicate entity relation edges before enforcing the (source, target, relation) unique index',
+  },
+  {
+    key: 'migration_memory_items_fingerprint_scope_unique_v1',
+    version: 3,
+    description: 'Replace column-level UNIQUE on fingerprint with compound (fingerprint, scope_id) unique index',
+  },
+  {
+    key: 'migration_memory_items_scope_salted_fingerprints_v1',
+    version: 4,
+    dependsOn: ['migration_memory_items_fingerprint_scope_unique_v1'],
+    description: 'Recompute memory item fingerprints to include scope_id prefix after schema change',
+  },
+  {
+    key: 'migration_normalize_assistant_id_to_self_v1',
+    version: 5,
+    description: 'Normalize all assistant_id values in scoped tables to the implicit "self" single-tenant identity',
+  },
+  {
+    key: 'migration_remove_assistant_id_columns_v1',
+    version: 6,
+    dependsOn: ['migration_normalize_assistant_id_to_self_v1'],
+    description: 'Rebuild four tables to drop the assistant_id column after normalization',
+  },
+  {
+    key: 'migration_remove_assistant_id_lue_v1',
+    version: 7,
+    dependsOn: ['migration_normalize_assistant_id_to_self_v1'],
+    description: 'Remove assistant_id column from llm_usage_events (separate checkpoint from the four-table migration)',
+  },
+  {
+    key: 'backfill_inbox_thread_state_from_bindings',
+    version: 8,
+    description: 'Seed assistant_inbox_thread_state from external_conversation_bindings',
+  },
+  {
+    key: 'drop_active_search_index_v1',
+    version: 9,
+    description: 'Drop old idx_memory_items_active_search so it can be recreated with updated covering columns',
+  },
+];
+
+export interface MigrationValidationResult {
+  /** Keys of migrations whose checkpoint has value 'started' — started but never completed. */
+  crashed: string[];
+  /** Pairs where a completed migration's declared prerequisite is missing from checkpoints. */
+  dependencyViolations: Array<{ migration: string; missingDependency: string }>;
+}

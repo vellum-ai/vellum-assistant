@@ -281,7 +281,12 @@ extension AppDelegate {
                 return
             }
 
-            // Wait for task_routed, then listen for the response
+            // Wait for task_routed, then listen for the response.
+            // Known limitation: IPCTaskRouted has no correlation/requestId field, so if two
+            // background sessions are started nearly simultaneously, one could capture the
+            // other's sessionId. The same limitation exists in startSession(). Adding a
+            // requestId to the IPC contract would fix this but requires a coordinated
+            // TypeScript + Swift change.
             var routedMessage: TaskRoutedMessage?
             for await message in messageStream {
                 if case .taskRouted(let routed) = message {
@@ -314,7 +319,7 @@ extension AppDelegate {
             var accumulatedText = ""
             for await message in messageStream {
                 switch message {
-                case .assistantTextDelta(let delta):
+                case .assistantTextDelta(let delta) where delta.sessionId == sessionId || delta.sessionId == nil:
                     accumulatedText += delta.text
 
                 case .messageComplete(let complete) where complete.sessionId == sessionId:
@@ -398,14 +403,30 @@ extension AppDelegate {
     }
 
     /// Opens the main window and navigates to the thread for the given conversation ID.
+    /// Retries if the thread isn't populated yet (e.g., ThreadManager hasn't loaded it).
     func openQuickChatThread(conversationId: String?) {
         showMainWindow()
-        guard let conversationId,
-              let threadManager = mainWindow?.threadManager,
-              let thread = threadManager.threads.first(where: { $0.sessionId == conversationId }) else {
-            return
+        guard let conversationId else { return }
+
+        func trySelect() -> Bool {
+            guard let threadManager = mainWindow?.threadManager,
+                  let thread = threadManager.threads.first(where: { $0.sessionId == conversationId }) else {
+                return false
+            }
+            threadManager.activeThreadId = thread.id
+            return true
         }
-        threadManager.activeThreadId = thread.id
+
+        if trySelect() { return }
+
+        // Thread may not be loaded yet — retry up to 5 times with 500ms delay
+        Task { @MainActor in
+            for _ in 0..<5 {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                if trySelect() { return }
+            }
+            log.warning("Could not find thread for conversation \(conversationId) after retries")
+        }
     }
 
     func showDaemonConnectionError() {
