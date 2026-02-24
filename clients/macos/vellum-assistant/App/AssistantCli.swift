@@ -593,6 +593,12 @@ final class AssistantCli {
                 "HOME": NSHomeDirectory(),
                 "PATH": fullEnv["PATH"] ?? "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
                 "VELLUM_DESKTOP_APP": "1",
+                // Always start the HTTP server for file-backed attachment content
+                // streaming (video playback). ProcessInfo.processInfo.environment is
+                // cached at launch, so read via getenv() which reflects setenv() calls.
+                "RUNTIME_HTTP_PORT": fullEnv["RUNTIME_HTTP_PORT"]
+                    ?? getenv("RUNTIME_HTTP_PORT").flatMap({ String(cString: $0) })
+                    ?? "7821",
             ]
             // Forward optional config vars the CLI or daemon may need
             for key in ["ANTHROPIC_API_KEY", "BASE_DATA_DIR", "VELLUM_DEBUG",
@@ -601,12 +607,6 @@ final class AssistantCli {
                 if let val = fullEnv[key] {
                     env[key] = val
                 }
-            }
-            // Forward RUNTIME_HTTP_PORT only when the localHttpEnabled flag
-            // is active, so the daemon doesn't start its HTTP server by default.
-            if FeatureFlagManager.shared.isEnabled(.localHttpEnabled),
-               let port = fullEnv["RUNTIME_HTTP_PORT"] ?? getenv("RUNTIME_HTTP_PORT").flatMap({ String(cString: $0) }) {
-                env["RUNTIME_HTTP_PORT"] = port
             }
             proc.environment = env
 

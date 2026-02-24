@@ -572,12 +572,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let assistant = loadAssistantFromLockfile()
 
-        // Ensure the daemon starts its runtime HTTP server so the app
-        // can communicate over HTTP instead of IPC.
-        if FeatureFlagManager.shared.isEnabled(.localHttpEnabled) {
-            if ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] == nil {
-                setenv("RUNTIME_HTTP_PORT", "7821", 0)
-            }
+        // Ensure the daemon always starts its runtime HTTP server.
+        // Required for file-backed attachment content streaming (video playback),
+        // and optionally used for HTTP-based IPC transport when localHttpEnabled is on.
+        if ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] == nil {
+            setenv("RUNTIME_HTTP_PORT", "7821", 0)
         }
 
         configureDaemonTransport(for: assistant)
