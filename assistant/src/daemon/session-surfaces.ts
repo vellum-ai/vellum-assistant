@@ -140,7 +140,14 @@ export function createSurfaceMutex(): <T>(surfaceId: string, fn: () => T | Promi
     const prev = chains.get(surfaceId) ?? Promise.resolve();
     const next = prev.then(fn, fn);
     // Keep the chain alive but swallow errors so one failure doesn't block subsequent ops
-    chains.set(surfaceId, next.then(() => {}, () => {}));
+    const tail = next.then(() => {}, () => {});
+    chains.set(surfaceId, tail);
+    // Clean up the map entry once the queue settles to prevent unbounded growth
+    tail.then(() => {
+      if (chains.get(surfaceId) === tail) {
+        chains.delete(surfaceId);
+      }
+    });
     return next;
   };
 }

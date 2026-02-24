@@ -542,4 +542,40 @@ if [ $IPC_CHANGED -eq 1 ]; then
     fi
 fi
 
+# --- system-prompt.ts modification warning ---
+# Non-blocking reminder to consider whether changes belong in a skill or
+# one of the compiled source files (IDENTITY.md, SOUL.md, etc.) instead.
+
+if git diff --cached --name-only | grep -q 'assistant/src/config/system-prompt.ts'; then
+    echo ""
+    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${YELLOW}⚠️  You are modifying system-prompt.ts — the core system prompt.${NC}"
+    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo "Please seriously consider whether your system prompt change is relevant"
+    echo "to all users or just for your use-case."
+    echo ""
+    echo "If it's not universally valuable, consider creating a skill or moving"
+    echo "the instructions into your SKILL.md."
+    echo ""
+    echo "If it is universally valuable, also consider whether the content belongs"
+    echo "in one of these files instead of directly in the system prompt:"
+    echo ""
+    echo "  • IDENTITY.md    — Name, nature, personality, emoji, role"
+    echo "  • SOUL.md        — Core principles, personality, quirks, boundaries"
+    echo "  • USER.md        — User profile and preferences"
+    echo "  • LOOKS.md       — Avatar appearance and outfit"
+    echo "  • BOOTSTRAP.md   — First-run onboarding ritual instructions"
+    echo "  • skills/        — Skill-specific instructions (SKILL.md per skill)"
+    echo ""
+    echo "The system prompt is compiled from all of these sources. Adding content"
+    echo "directly to system-prompt.ts increases context overhead for every single"
+    echo "conversation."
+    echo ""
+    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo "Pausing for 3 seconds so you read the above..."
+    sleep 3
+fi
+
 exit 0

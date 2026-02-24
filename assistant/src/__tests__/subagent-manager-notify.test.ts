@@ -397,8 +397,8 @@ describe('SubagentManager sendMessage validation', () => {
     const subagentId = 'sub-1';
     injectFakeSubagent(manager, subagentId, makeState(subagentId));
 
-    expect(manager.sendMessage(subagentId, '')).toBe(false);
-    expect(manager.sendMessage(subagentId, '   ')).toBe(false);
-    expect(manager.sendMessage(subagentId, '\n\t')).toBe(false);
+    expect(manager.sendMessage(subagentId, '')).toBe('empty');
+    expect(manager.sendMessage(subagentId, '   ')).toBe('empty');
+    expect(manager.sendMessage(subagentId, '\n\t')).toBe('empty');
   });
 });

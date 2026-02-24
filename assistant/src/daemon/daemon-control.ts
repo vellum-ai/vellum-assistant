@@ -5,13 +5,51 @@ import {
   getSocketPath,
   getPidPath,
   getRootDir,
+  getWorkspaceConfigPath,
   removeSocketFile,
 } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
 import { DaemonError } from '../util/errors.js';
-import { getConfig } from '../config/loader.js';
 
 const log = getLogger('lifecycle');
+
+const DAEMON_TIMEOUT_DEFAULTS = {
+  startupSocketWaitMs: 5000,
+  stopTimeoutMs: 5000,
+  sigkillGracePeriodMs: 2000,
+};
+
+function isPositiveInteger(v: unknown): v is number {
+  return typeof v === 'number' && Number.isInteger(v) && v > 0;
+}
+
+/**
+ * Read daemon timeout values directly from the config JSON file, bypassing
+ * loadConfig() and its ensureMigratedDataDir()/ensureDataDir() side effects.
+ * Falls back to hardcoded defaults on any error (missing file, malformed JSON,
+ * unexpected shape) so daemon stop/start never fails due to config issues.
+ */
+function readDaemonTimeouts(): typeof DAEMON_TIMEOUT_DEFAULTS {
+  try {
+    const raw = JSON.parse(readFileSync(getWorkspaceConfigPath(), 'utf-8'));
+    if (raw.daemon && typeof raw.daemon === 'object') {
+      return {
+        startupSocketWaitMs: isPositiveInteger(raw.daemon.startupSocketWaitMs)
+          ? raw.daemon.startupSocketWaitMs
+          : DAEMON_TIMEOUT_DEFAULTS.startupSocketWaitMs,
+        stopTimeoutMs: isPositiveInteger(raw.daemon.stopTimeoutMs)
+          ? raw.daemon.stopTimeoutMs
+          : DAEMON_TIMEOUT_DEFAULTS.stopTimeoutMs,
+        sigkillGracePeriodMs: isPositiveInteger(raw.daemon.sigkillGracePeriodMs)
+          ? raw.daemon.sigkillGracePeriodMs
+          : DAEMON_TIMEOUT_DEFAULTS.sigkillGracePeriodMs,
+      };
+    }
+  } catch {
+    // Missing file, malformed JSON, etc. — use defaults.
+  }
+  return { ...DAEMON_TIMEOUT_DEFAULTS };
+}
 
 function isProcessRunning(pid: number): boolean {
   try {
@@ -125,8 +163,8 @@ export async function startDaemon(): Promise<{
   writePid(pid);
 
   // Wait for socket to appear
-  const config = getConfig();
-  const maxWait = config.daemon.startupSocketWaitMs;
+  const timeouts = readDaemonTimeouts();
+  const maxWait = timeouts.startupSocketWaitMs;
   const interval = 100;
   let waited = 0;
   while (waited < maxWait) {
@@ -165,10 +203,10 @@ export async function stopDaemon(): Promise<StopResult> {
 
   process.kill(pid, 'SIGTERM');
 
-  const config = getConfig();
+  const timeouts = readDaemonTimeouts();
 
   // Wait for process to exit
-  const maxWait = config.daemon.stopTimeoutMs;
+  const maxWait = timeouts.stopTimeoutMs;
   const interval = 100;
   let waited = 0;
   while (waited < maxWait) {
@@ -190,7 +228,7 @@ export async function stopDaemon(): Promise<StopResult> {
   // Wait for the process to actually die after SIGKILL. Without this,
   // startDaemon() can race with the dying process's shutdown handler,
   // which removes the socket file and bricks the new daemon.
-  const killMaxWait = config.daemon.sigkillGracePeriodMs;
+  const killMaxWait = timeouts.sigkillGracePeriodMs;
   let killWaited = 0;
   while (killWaited < killMaxWait && isProcessRunning(pid)) {
     await new Promise((r) => setTimeout(r, 100));

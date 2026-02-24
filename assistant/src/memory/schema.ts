@@ -64,7 +64,6 @@ export const memorySegments = sqliteTable('memory_segments', {
   updatedAt: integer('updated_at').notNull(),
 }, (table) => [
   index('idx_memory_segments_scope_id').on(table.scopeId),
-  index('idx_memory_segments_conversation_id').on(table.conversationId),
 ]);
 
 export const memoryItems = sqliteTable('memory_items', {

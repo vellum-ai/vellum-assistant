@@ -109,10 +109,17 @@ export function handleSubagentMessage(
     return;
   }
 
-  const sent = manager.sendMessage(msg.subagentId, msg.content);
+  const result = manager.sendMessage(msg.subagentId, msg.content);
 
-  if (!sent) {
-    log.warn({ subagentId: msg.subagentId }, 'Client sent message to terminal subagent');
+  if (result === 'queue_full') {
+    log.warn({ subagentId: msg.subagentId }, 'Subagent message rejected — queue full');
+    ctx.send(socket, {
+      type: 'error',
+      message: `Subagent "${msg.subagentId}" message queue is full. Please wait for current messages to be processed.`,
+      category: 'queue_full',
+    });
+  } else if (result !== 'sent') {
+    log.warn({ subagentId: msg.subagentId, reason: result }, 'Client sent message to terminal subagent');
     ctx.send(socket, {
       type: 'error',
       message: `Subagent "${msg.subagentId}" not found or in terminal state.`,

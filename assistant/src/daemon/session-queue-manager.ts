@@ -78,11 +78,6 @@ export class MessageQueue {
 
     if (this.items.length >= MAX_QUEUE_DEPTH) {
       this.droppedCount++;
-      item.onEvent({
-        type: 'error',
-        message: 'Message queue is full. Please wait for current messages to be processed.',
-        category: 'queue_full',
-      });
       return false;
     }
 
@@ -149,21 +144,28 @@ export class MessageQueue {
   private expireStale(): void {
     const now = Date.now();
     const cutoff = now - this.maxWaitMs;
-    const before = this.items.length;
+    const expired: QueuedMessage[] = [];
     this.items = this.items.filter((item) => {
       if (item.queuedAt < cutoff) {
         this.expiredCount++;
-        log.warn({ requestId: item.requestId, waitMs: now - item.queuedAt }, 'Expiring stale queued message');
+        expired.push(item);
+        return false;
+      }
+      return true;
+    });
+    for (const item of expired) {
+      log.warn({ requestId: item.requestId, waitMs: now - item.queuedAt }, 'Expiring stale queued message');
+      try {
         item.onEvent({
           type: 'error',
           message: 'Your queued message was dropped because it waited too long in the queue.',
           category: 'queue_expired',
         });
-        return false;
+      } catch (e) {
+        log.debug({ err: e, requestId: item.requestId }, 'Failed to notify client of expired message');
       }
-      return true;
-    });
-    if (this.items.length < before && this.items.length / MAX_QUEUE_DEPTH < CAPACITY_WARNING_THRESHOLD) {
+    }
+    if (expired.length > 0 && this.items.length / MAX_QUEUE_DEPTH < CAPACITY_WARNING_THRESHOLD) {
       this.capacityWarned = false;
     }
   }

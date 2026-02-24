@@ -320,7 +320,10 @@ export async function executeBrowserNavigate(
       if (challenge?.type === 'captcha') {
         log.info('CAPTCHA detected, waiting up to 5s for auto-resolve');
         for (let i = 0; i < 5; i++) {
-          if (context.signal?.aborted) break;
+          if (context.signal?.aborted) {
+            if (sender) updateBrowserStatus(context.sessionId, sender, 'idle');
+            return { content: 'Navigation cancelled.', isError: true };
+          }
           await new Promise((r) => setTimeout(r, 1000));
           const still = await detectCaptchaChallenge(page);
           if (!still) {
