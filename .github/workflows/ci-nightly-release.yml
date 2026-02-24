@@ -139,7 +139,9 @@ jobs:
       - name: Build release .app
         working-directory: clients/macos
         run: |
+          SU_PUBLIC_ED_KEY="${{ secrets.SPARKLE_ED_PUBLIC_KEY }}" \
           SIGN_IDENTITY="Developer ID Application" \
+          SKIP_CLEAN=1 \
           ./build.sh release
 
           APP_PATH="dist/Vellum.app"
