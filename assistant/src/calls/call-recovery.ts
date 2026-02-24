@@ -8,9 +8,10 @@
  */
 
 import { getLogger } from '../util/logger.js';
+import { isTerminalState } from './call-state-machine.js';
 import { listRecoverableCalls, updateCallSession, expirePendingQuestions } from './call-store.js';
-import type { VoiceProvider } from './voice-provider.js';
 import type { CallStatus } from './types.js';
+import type { VoiceProvider } from './voice-provider.js';
 
 type Logger = ReturnType<typeof getLogger>;
 
@@ -57,12 +58,6 @@ function mapProviderStatus(providerStatus: string): CallStatus | null {
   }
 }
 
-/**
- * Check whether a CallStatus is terminal (no further transitions allowed).
- */
-function isTerminal(status: CallStatus): boolean {
-  return status === 'completed' || status === 'failed' || status === 'cancelled';
-}
 
 /**
  * Reconcile all non-terminal call sessions at daemon startup.
@@ -159,7 +154,7 @@ export async function reconcileCallsOnStartup(
         continue;
       }
 
-      if (isTerminal(mappedStatus)) {
+      if (isTerminalState(mappedStatus)) {
         // Provider says the call has ended
         log.info(
           { callSessionId: session.id, providerStatus, mappedStatus },
