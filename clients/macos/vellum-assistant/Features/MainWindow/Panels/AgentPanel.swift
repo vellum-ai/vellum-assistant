@@ -145,6 +145,16 @@ struct AgentPanelContent: View {
         var filtered = skillsManager.searchResults
             .filter { !installedNames.contains($0.name) }
 
+        // Source filter
+        switch skillSourceFilter {
+        case .all:
+            break
+        case .vellum:
+            filtered = filtered.filter { $0.isVellum }
+        case .community:
+            filtered = filtered.filter { !$0.isVellum }
+        }
+
         // Local fuzzy filter by name/description
         if hasActiveSearch {
             let query = normalizedSkillQuery
@@ -195,6 +205,28 @@ struct AgentPanelContent: View {
     @ViewBuilder
     private var availableSkillsList: some View {
         VStack(spacing: VSpacing.lg) {
+            // Source filter
+            HStack(spacing: VSpacing.sm) {
+                Text("Source:")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+
+                ForEach(SkillSourceFilter.allCases, id: \.self) { filter in
+                    Button(action: { skillSourceFilter = filter }) {
+                        Text(filter.rawValue)
+                            .font(VFont.caption)
+                            .foregroundColor(skillSourceFilter == filter ? VColor.accent : VColor.textMuted)
+                            .padding(.horizontal, VSpacing.sm)
+                            .padding(.vertical, VSpacing.xs)
+                            .background(skillSourceFilter == filter ? VColor.accent.opacity(0.15) : Color.clear)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Spacer()
+            }
+
             // Sort picker
             HStack(spacing: VSpacing.sm) {
                 Text("Sort:")
@@ -230,15 +262,17 @@ struct AgentPanelContent: View {
                 ForEach(availableClawhubSkills) { skill in
                     clawhubSkillCard(skill)
                 }
-            } else if hasActiveSearch {
+            } else if hasActiveSearch || skillSourceFilter != .all {
                 VStack(spacing: VSpacing.md) {
                     VEmptyState(
-                        title: "No matches in Available",
-                        subtitle: "No available skills matched \"\(globalSkillSearchQuery)\"",
+                        title: hasActiveSearch ? "No matches in Available" : "No results",
+                        subtitle: hasActiveSearch
+                            ? "No available skills matched \"\(globalSkillSearchQuery)\""
+                            : "No \(skillSourceFilter.rawValue.lowercased()) skills found",
                         icon: "magnifyingglass"
                     )
 
-                    if !filteredUserSkills.isEmpty {
+                    if hasActiveSearch, !filteredUserSkills.isEmpty {
                         Button {
                             withAnimation(VAnimation.fast) { selectedTab = .installed }
                         } label: {
@@ -283,6 +317,7 @@ struct AgentPanelContent: View {
     @State private var installTimeoutTask: Task<Void, Never>?
     @State private var globalSkillSearchQuery = ""
     @State private var skillSortOrder: SkillSortOrder = .installs
+    @State private var skillSourceFilter: SkillSourceFilter = .all
 
     private var normalizedSkillQuery: String {
         globalSkillSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -294,6 +329,12 @@ struct AgentPanelContent: View {
         case installs = "Installs"
         case stars = "Stars"
         case newest = "Newest"
+    }
+
+    private enum SkillSourceFilter: String, CaseIterable {
+        case all = "All"
+        case vellum = "Vellum"
+        case community = "Community"
     }
 
     /// How long ago a skill was published, as a human-readable string.
