@@ -100,7 +100,6 @@ export function buildSystemPrompt(): string {
   const parts: string[] = [];
   if (identity) parts.push(identity);
   if (soul) parts.push(soul);
-  parts.push(buildResponseStyleSection());
   if (user) parts.push(user);
   if (looks) parts.push(looks);
   if (bootstrap) {
@@ -132,17 +131,6 @@ export function buildSystemPrompt(): string {
   if (parentalSection) parts.push(parentalSection);
 
   return appendSkillsCatalog(parts.join('\n\n'));
-}
-
-function buildResponseStyleSection(): string {
-  return [
-    '## Response Style',
-    '- Be direct. Lead with the answer or action, not context-setting.',
-    '- Default to 1-3 sentences. Go longer only when the task requires it.',
-    '- Don\'t gratuitously restate the user\'s request unless they ask for confirmation or the situation requires it.',
-    '- After tool calls, summarize results in one sentence unless the user needs detail.',
-    '- Skip filler phrases like "Sure!", "Great question!", "I\'d be happy to help!".',
-  ].join('\n');
 }
 
 function buildTaskScheduleReminderRoutingSection(): string {
