@@ -44,6 +44,10 @@ import {
   startGuardianExpirySweep,
   stopGuardianExpirySweep,
 } from './routes/channel-routes.js';
+import {
+  startGuardianActionSweep,
+  stopGuardianActionSweep,
+} from '../calls/guardian-action-sweep.js';
 import * as channelDeliveryStore from '../memory/channel-delivery-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import * as externalConversationStore from '../memory/external-conversation-store.js';
@@ -453,6 +457,10 @@ export class RuntimeHttpServer {
       log.info('Guardian approval expiry sweep started');
     }
 
+    // Start guardian action request expiry sweep (cross-channel voice guardian)
+    startGuardianActionSweep(getGatewayBaseUrl(), this.bearerToken);
+    log.info('Guardian action expiry sweep started');
+
     // Startup guard: log gateway-only mode warnings
     log.info('Running in gateway-only ingress mode. Direct webhook routes disabled.');
     if (!isLoopbackHost(this.hostname)) {
@@ -464,6 +472,7 @@ export class RuntimeHttpServer {
 
   async stop(): Promise<void> {
     stopGuardianExpirySweep();
+    stopGuardianActionSweep();
     if (this.retrySweepTimer) {
       clearInterval(this.retrySweepTimer);
       this.retrySweepTimer = null;

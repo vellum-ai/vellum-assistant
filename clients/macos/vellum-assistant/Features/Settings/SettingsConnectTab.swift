@@ -272,13 +272,14 @@ struct SettingsConnectTab: View {
                 Text("Channels")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
-                Text("Telegram and SMS integrations")
+                Text("Telegram, SMS, and Voice integrations")
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
             }
 
             telegramCard
             twilioCard
+            voiceCard
         }
     }
 
@@ -489,6 +490,66 @@ struct SettingsConnectTab: View {
             if store.twilioHasCredentials {
                 Divider().background(VColor.surfaceBorder)
                 guardianStatusRow(channel: "sms")
+            }
+        }
+        .padding(VSpacing.lg)
+        .vCard(background: VColor.surfaceSubtle)
+    }
+
+    // MARK: - Voice (Phone Calls) Card
+
+    private var voiceCard: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                HStack(spacing: VSpacing.xs) {
+                    Image(systemName: "phone.fill")
+                        .foregroundColor(VColor.textPrimary)
+                        .font(.system(size: 12))
+                    Text("Voice (Phone Calls)")
+                        .font(VFont.sectionTitle)
+                        .foregroundColor(VColor.textPrimary)
+                }
+                Text("Receive and make phone calls via Twilio")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+            }
+
+            if store.twilioHasCredentials && store.twilioPhoneNumber != nil {
+                channelStatusRow(
+                    label: "Status",
+                    icon: "checkmark.circle.fill",
+                    iconColor: VColor.success,
+                    value: "Voice calls ready"
+                )
+                channelStatusRow(
+                    label: "Number",
+                    icon: "phone.fill",
+                    iconColor: VColor.success,
+                    value: store.twilioPhoneNumber ?? "",
+                    valueFont: VFont.mono
+                )
+            } else if store.twilioHasCredentials {
+                channelStatusRow(
+                    label: "Credentials",
+                    icon: "checkmark.circle.fill",
+                    iconColor: VColor.success,
+                    value: "Configured"
+                )
+                channelStatusRow(
+                    label: "Number",
+                    icon: "exclamationmark.triangle",
+                    iconColor: VColor.warning,
+                    value: "Assign a phone number in SMS settings above",
+                    valueColor: VColor.textMuted
+                )
+            } else {
+                channelStatusRow(
+                    label: "Status",
+                    icon: "exclamationmark.triangle",
+                    iconColor: VColor.warning,
+                    value: "Configure Twilio credentials in SMS settings above",
+                    valueColor: VColor.textMuted
+                )
             }
         }
         .padding(VSpacing.lg)
