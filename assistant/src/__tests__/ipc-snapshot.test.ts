@@ -99,6 +99,12 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     task: 'Open Safari and search for weather',
     screenWidth: 1920,
     screenHeight: 1080,
+    recordingOptions: {
+      captureScope: 'display',
+      displayId: '69734112',
+      includeAudio: false,
+      promptForSource: true,
+    },
   },
   cu_session_abort: {
     type: 'cu_session_abort',
@@ -945,6 +951,11 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     type: 'task_routed',
     sessionId: 'sess-routed-001',
     interactionType: 'computer_use',
+    recordingOptions: {
+      captureScope: 'window',
+      windowId: 12345,
+      includeAudio: true,
+    },
   },
   ride_shotgun_progress: {
     type: 'ride_shotgun_progress',

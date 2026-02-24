@@ -2,6 +2,22 @@
 
 import type { UserMessageAttachment, IpcBlobRef } from './shared.js';
 
+// === Recording options ===
+
+/** Options describing what the client should record and how. */
+export interface RecordingOptions {
+  /** Whether to capture the full display or a single window. */
+  captureScope?: 'display' | 'window';
+  /** CGDirectDisplayID identifying which display to record. */
+  displayId?: string;
+  /** CGWindowID identifying which window to record. */
+  windowId?: number;
+  /** Whether to include system audio in the recording. */
+  includeAudio?: boolean;
+  /** When true, prompt the user to choose a source before recording starts. */
+  promptForSource?: boolean;
+}
+
 // === Client → Server ===
 
 export interface CuSessionCreate {
@@ -14,6 +30,8 @@ export interface CuSessionCreate {
   interactionType?: 'computer_use' | 'text_qa';
   /** When true, the client should start screen recording for this session. */
   requiresRecording?: boolean;
+  /** Recording source/options selected by the client or requested by the daemon. */
+  recordingOptions?: RecordingOptions;
 }
 
 export interface CuSessionAbort {
@@ -119,6 +137,8 @@ export interface TaskRouted {
   escalatedFrom?: string;
   /** When true, the client should start screen recording for this session. */
   requiresRecording?: boolean;
+  /** Recording source/options the client should use for this session. */
+  recordingOptions?: RecordingOptions;
 }
 
 export interface RideShotgunProgress {
