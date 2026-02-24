@@ -1,10 +1,6 @@
 /**
- * Baseline tests for busy (409) rejection on both HTTP send endpoints:
- * - POST /v1/runs
- * - POST /v1/messages
- *
- * These tests verify the current behavior where a second send attempt
- * on a busy session returns 409 with a descriptive error message.
+ * Tests for busy behavior on POST /v1/runs — verifies that a second send
+ * attempt on a busy session queues the message instead of rejecting.
  */
 import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
 import { mkdtempSync, rmSync, realpathSync } from 'node:fs';
@@ -47,7 +43,6 @@ mock.module('../config/loader.js', () => ({
 import { initializeDb, getDb, resetDb } from '../memory/db.js';
 import { RuntimeHttpServer } from '../runtime/http-server.js';
 import { RunOrchestrator } from '../runtime/run-orchestrator.js';
-import type { MessageProcessor } from '../runtime/http-types.js';
 
 initializeDb();
 
@@ -108,19 +103,6 @@ function makeCompletingSession(): Session {
     handleConfirmationResponse: () => {},
     handleSecretResponse: () => {},
   } as unknown as Session;
-}
-
-/**
- * Build a processMessage function that throws the busy error when
- * `shouldBeBusy` returns true.
- */
-function makeBusyAwareProcessor(shouldBeBusy: () => boolean): MessageProcessor {
-  return async () => {
-    if (shouldBeBusy()) {
-      throw new Error('Session is already processing a message');
-    }
-    return { messageId: 'msg-1' };
-  };
 }
 
 // ── Test infrastructure ─────────────────────────────────────────────────────
@@ -205,113 +187,3 @@ describe('send endpoint busy behavior — POST /v1/runs', () => {
   });
 });
 
-describe('send endpoint busy behavior — POST /v1/messages', () => {
-  let server: RuntimeHttpServer;
-  let port: number;
-  let busyFlag: boolean;
-
-  beforeEach(() => {
-    cleanDb();
-    busyFlag = false;
-  });
-
-  async function startServer(opts?: { alwaysBusy?: boolean }) {
-    port = 19000 + Math.floor(Math.random() * 1000);
-    if (opts?.alwaysBusy) busyFlag = true;
-    const processor = makeBusyAwareProcessor(() => busyFlag);
-    server = new RuntimeHttpServer({
-      port,
-      bearerToken: TEST_TOKEN,
-      processMessage: processor,
-    });
-    await server.start();
-  }
-
-  async function stopServer() {
-    await server?.stop();
-  }
-
-  function messagesUrl() {
-    return `http://127.0.0.1:${port}/v1/messages`;
-  }
-
-  test('returns 409 with descriptive error when session is busy (legacy path)', async () => {
-    await startServer({ alwaysBusy: true });
-
-    const res = await fetch(messagesUrl(), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
-      body: JSON.stringify({ conversationKey: 'conv-busy-msg', content: 'Hello', sourceChannel: 'macos' }),
-    });
-
-    expect(res.status).toBe(409);
-    const body = await res.json() as { error: string };
-    expect(body.error).toContain('busy');
-
-    await stopServer();
-  });
-
-  test('returns 200 with accepted:true and deprecation header', async () => {
-    await startServer();
-
-    const res = await fetch(messagesUrl(), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
-      body: JSON.stringify({ conversationKey: 'conv-ok-msg', content: 'Hello', sourceChannel: 'macos' }),
-    });
-
-    expect(res.status).toBe(200);
-    const body = await res.json() as { accepted: boolean; messageId: string };
-    expect(body.accepted).toBe(true);
-    expect(body.messageId).toBeDefined();
-    expect(res.headers.get('Deprecation')).toBe('true');
-
-    await stopServer();
-  });
-
-  test('returns 400 when sourceChannel is missing', async () => {
-    await startServer();
-
-    const res = await fetch(messagesUrl(), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
-      body: JSON.stringify({ conversationKey: 'conv-no-channel', content: 'Hello' }),
-    });
-
-    expect(res.status).toBe(400);
-    const body = await res.json() as { error: string };
-    expect(body.error).toContain('sourceChannel');
-
-    await stopServer();
-  });
-
-  test('returns 400 when conversationKey is missing', async () => {
-    await startServer();
-
-    const res = await fetch(messagesUrl(), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
-      body: JSON.stringify({ content: 'Hello', sourceChannel: 'macos' }),
-    });
-
-    expect(res.status).toBe(400);
-    const body = await res.json() as { error: string };
-    expect(body.error).toContain('conversationKey');
-
-    await stopServer();
-  });
-
-  test('returns 400 when content is empty', async () => {
-    await startServer();
-
-    const res = await fetch(messagesUrl(), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
-      body: JSON.stringify({ conversationKey: 'conv-empty', content: '', sourceChannel: 'macos' }),
-    });
-
-    expect(res.status).toBe(400);
-
-    await stopServer();
-  });
-});

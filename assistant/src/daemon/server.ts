@@ -680,53 +680,6 @@ export class DaemonServer {
 
   // ── HTTP message processing ─────────────────────────────────────────
 
-  async persistAndProcessMessage(
-    conversationId: string,
-    content: string,
-    attachmentIds?: string[],
-    options?: SessionCreateOptions,
-    sourceChannel?: string,
-  ): Promise<{ messageId: string }> {
-    const ingressCheck = checkIngressForSecrets(content);
-    if (ingressCheck.blocked) {
-      throw new IngressBlockedError(ingressCheck.userNotice!, ingressCheck.detectedTypes);
-    }
-
-    const session = await this.getOrCreateSession(conversationId, undefined, true, options);
-
-    if (session.isProcessing()) {
-      throw new Error('Session is already processing a message');
-    }
-
-    session.setAssistantId(options?.assistantId ?? 'self');
-    session.setGuardianContext(options?.guardianContext ?? null);
-    session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel));
-    session.setCommandIntent(options?.commandIntent ?? null);
-    const resolvedChannel = resolveTurnChannel(sourceChannel, options?.transport?.channelId);
-    session.setTurnChannelContext({
-      userMessageChannel: resolvedChannel,
-      assistantMessageChannel: resolvedChannel,
-    });
-
-    const attachments = attachmentIds
-      ? attachmentsStore.getAttachmentsByIds(attachmentIds).map((a) => ({
-          id: a.id,
-          filename: a.originalFilename,
-          mimeType: a.mimeType,
-          data: a.dataBase64,
-        }))
-      : [];
-
-    const requestId = crypto.randomUUID();
-    const messageId = session.persistUserMessage(content, attachments, requestId);
-
-    session.runAgentLoop(content, messageId, () => {}).catch((err) => {
-      log.error({ err, conversationId }, 'Background agent loop failed');
-    });
-
-    return { messageId };
-  }
-
   async processMessage(
     conversationId: string,
     content: string,

@@ -71,19 +71,6 @@ export type MessageProcessor = (
   sourceChannel?: ChannelId,
 ) => Promise<{ messageId: string }>;
 
-/**
- * Non-blocking message processor that persists the user message and
- * starts the agent loop in the background, returning the messageId
- * immediately.
- */
-export type NonBlockingMessageProcessor = (
-  conversationId: string,
-  content: string,
-  attachmentIds?: string[],
-  options?: RuntimeMessageSessionOptions,
-  sourceChannel?: ChannelId,
-) => Promise<{ messageId: string }>;
-
 export interface RuntimeHttpServerOptions {
   port?: number;
   /** Hostname / IP to bind to. Defaults to '127.0.0.1' (loopback-only). */
@@ -91,8 +78,6 @@ export interface RuntimeHttpServerOptions {
   /** Bearer token required on every request (except health checks). */
   bearerToken?: string;
   processMessage?: MessageProcessor;
-  /** Non-blocking processor for POST /messages (persists + fires agent loop). */
-  persistAndProcessMessage?: NonBlockingMessageProcessor;
   /** Run orchestrator for the approval-flow run endpoints. */
   runOrchestrator?: RunOrchestrator;
   /** Root directory for interface files on disk. */

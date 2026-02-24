@@ -27,7 +27,6 @@ import type { RunOrchestrator } from './run-orchestrator.js';
 // Route handlers — grouped by domain
 import {
   handleListMessages,
-  handleSendMessage,
   handleGetSuggestion,
   handleSearchConversations,
 } from './routes/conversation-routes.js';
@@ -100,7 +99,6 @@ import {
 export type {
   RuntimeMessageSessionOptions,
   MessageProcessor,
-  NonBlockingMessageProcessor,
   RuntimeHttpServerOptions,
   RuntimeAttachmentMetadata,
   ApprovalCopyGenerator,
@@ -109,7 +107,6 @@ export type {
 
 import type {
   MessageProcessor,
-  NonBlockingMessageProcessor,
   RuntimeHttpServerOptions,
   ApprovalCopyGenerator,
   ApprovalConversationGenerator,
@@ -399,7 +396,6 @@ export class RuntimeHttpServer {
   private hostname: string;
   private bearerToken: string | undefined;
   private processMessage?: MessageProcessor;
-  private persistAndProcessMessage?: NonBlockingMessageProcessor;
   private runOrchestrator?: RunOrchestrator;
   private approvalCopyGenerator?: ApprovalCopyGenerator;
   private approvalConversationGenerator?: ApprovalConversationGenerator;
@@ -416,7 +412,6 @@ export class RuntimeHttpServer {
     this.hostname = options.hostname ?? DEFAULT_HOSTNAME;
     this.bearerToken = options.bearerToken;
     this.processMessage = options.processMessage;
-    this.persistAndProcessMessage = options.persistAndProcessMessage;
     this.runOrchestrator = options.runOrchestrator;
     this.approvalCopyGenerator = options.approvalCopyGenerator;
     this.approvalConversationGenerator = options.approvalConversationGenerator;
@@ -835,14 +830,6 @@ export class RuntimeHttpServer {
 
       if (endpoint === 'search' && req.method === 'GET') {
         return handleSearchConversations(url);
-      }
-
-      if (endpoint === 'messages' && req.method === 'POST') {
-        return await handleSendMessage(req, {
-          processMessage: this.processMessage,
-          persistAndProcessMessage: this.persistAndProcessMessage,
-          runOrchestrator: this.runOrchestrator,
-        });
       }
 
       if (endpoint === 'attachments' && req.method === 'POST') {

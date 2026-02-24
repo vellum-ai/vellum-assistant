@@ -665,8 +665,6 @@ export async function runDaemon(): Promise<void> {
       bearerToken,
       processMessage: (conversationId, content, attachmentIds, options, sourceChannel) =>
         server.processMessage(conversationId, content, attachmentIds, options, sourceChannel),
-      persistAndProcessMessage: (conversationId, content, attachmentIds, options, sourceChannel) =>
-        server.persistAndProcessMessage(conversationId, content, attachmentIds, options, sourceChannel),
       runOrchestrator: server.createRunOrchestrator(),
       interfacesDir: getInterfacesDir(),
       approvalCopyGenerator: createApprovalCopyGenerator(),

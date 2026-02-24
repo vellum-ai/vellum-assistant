@@ -12,14 +12,10 @@ import { renderHistoryContent, mergeToolResults } from '../../daemon/handlers.js
 import { getConfiguredProvider } from '../../providers/provider-send-message.js';
 import type { Provider } from '../../providers/types.js';
 import type {
-  MessageProcessor,
-  NonBlockingMessageProcessor,
   RuntimeAttachmentMetadata,
   RuntimeMessagePayload,
 } from '../http-types.js';
 import { getLogger } from '../../util/logger.js';
-import type { RunOrchestrator } from '../run-orchestrator.js';
-import { parseSendRequest, isValidationError } from './send-validation.js';
 
 const log = getLogger('runtime-http');
 const SUGGESTION_CACHE_MAX = 100;
@@ -136,83 +132,6 @@ export function handleListMessages(
   return Response.json({ messages });
 }
 
-/**
- * @deprecated Use POST /v1/runs instead. This endpoint is a compatibility
- * shim that routes through the same submit/queue path as POST /v1/runs.
- */
-export async function handleSendMessage(
-  req: Request,
-  deps: {
-    processMessage?: MessageProcessor;
-    persistAndProcessMessage?: NonBlockingMessageProcessor;
-    runOrchestrator?: RunOrchestrator;
-  },
-): Promise<Response> {
-  const parsed = await parseSendRequest(req);
-  if (isValidationError(parsed)) return parsed;
-
-  const { conversationKey, conversationId, content, attachmentIds, sourceChannel } = parsed;
-
-  log.warn({ endpoint: 'POST /v1/messages', conversationKey }, 'Deprecated endpoint — use POST /v1/runs');
-
-  // When the run orchestrator is available, route through it so both
-  // endpoints share the same submit/queue path.
-  if (deps.runOrchestrator) {
-    const run = await deps.runOrchestrator.startRun(
-      conversationId,
-      content,
-      attachmentIds,
-      { sourceChannel },
-    );
-    return new Response(
-      JSON.stringify({ accepted: true, messageId: run.messageId }),
-      {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-          'Deprecation': 'true',
-          'X-Deprecation-Notice': 'POST /v1/messages is deprecated. Use POST /v1/runs instead.',
-        },
-      },
-    );
-  }
-
-  // Fallback: use legacy processMessage path
-  const processor = deps.persistAndProcessMessage ?? deps.processMessage;
-  if (!processor) {
-    return Response.json({ error: 'Message processing not configured' }, { status: 503 });
-  }
-
-  try {
-    const result = await processor(
-      conversationId,
-      content,
-      attachmentIds,
-      undefined,
-      sourceChannel,
-    );
-    return new Response(
-      JSON.stringify({ accepted: true, messageId: result.messageId }),
-      {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-          'Deprecation': 'true',
-          'X-Deprecation-Notice': 'POST /v1/messages is deprecated. Use POST /v1/runs instead.',
-        },
-      },
-    );
-  } catch (err) {
-    if (err instanceof Error && err.message === 'Session is already processing a message') {
-      log.warn({ endpoint: 'POST /v1/messages', conversationKey }, 'Send rejected — session busy');
-      return Response.json(
-        { error: 'Session is busy processing another message. Please retry.' },
-        { status: 409 },
-      );
-    }
-    throw err;
-  }
-}
 
 async function generateLlmSuggestion(provider: Provider, assistantText: string): Promise<string | null> {
   const truncated = assistantText.length > 2000
