@@ -7,6 +7,7 @@
 import type { EmailProvider } from '../provider.js';
 import { getSecureKey } from '../../security/secure-keys.js';
 import { loadRawConfig, getNestedValue } from '../../config/loader.js';
+import { ConfigError } from '../../util/errors.js';
 
 export const SUPPORTED_PROVIDERS = ['agentmail'] as const;
 export type SupportedProvider = (typeof SUPPORTED_PROVIDERS)[number];
@@ -44,7 +45,7 @@ export async function createProvider(name?: SupportedProvider): Promise<EmailPro
         if (apiKey) break;
       }
       if (!apiKey) {
-        throw new Error(
+        throw new ConfigError(
           'No AgentMail API key configured. Run: vellum keys set agentmail <key>',
         );
       }
@@ -53,6 +54,6 @@ export async function createProvider(name?: SupportedProvider): Promise<EmailPro
       return new AgentMailProvider(new AgentMailClient({ apiKey }));
     }
     default:
-      throw new Error(`Unknown email provider: ${providerName}`);
+      throw new ConfigError(`Unknown email provider: ${providerName}`);
   }
 }

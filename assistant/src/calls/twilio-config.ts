@@ -2,6 +2,7 @@ import { getSecureKey } from '../security/secure-keys.js';
 import { getLogger } from '../util/logger.js';
 import { loadConfig } from '../config/loader.js';
 import { getPublicBaseUrl, getTwilioRelayUrl } from '../inbound/public-ingress-urls.js';
+import { ConfigError } from '../util/errors.js';
 
 const log = getLogger('twilio-config');
 
@@ -48,10 +49,10 @@ export function getTwilioConfig(assistantId?: string): TwilioConfig {
   }
 
   if (!accountSid || !authToken) {
-    throw new Error('Twilio credentials not configured. Set credential:twilio:account_sid and credential:twilio:auth_token via the credential_store tool.');
+    throw new ConfigError('Twilio credentials not configured. Set credential:twilio:account_sid and credential:twilio:auth_token via the credential_store tool.');
   }
   if (!phoneNumber) {
-    throw new Error('Twilio phone number not configured.');
+    throw new ConfigError('Twilio phone number not configured.');
   }
 
   log.debug('Twilio config loaded successfully');

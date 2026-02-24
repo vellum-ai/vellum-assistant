@@ -7,6 +7,7 @@
  */
 
 import { getSecureKey } from '../security/secure-keys.js';
+import { ProviderError, ConfigError } from '../util/errors.js';
 
 export interface TwilioCredentials {
   accountSid: string;
@@ -18,7 +19,7 @@ export function getTwilioCredentials(): TwilioCredentials {
   const accountSid = getSecureKey('credential:twilio:account_sid');
   const authToken = getSecureKey('credential:twilio:auth_token');
   if (!accountSid || !authToken) {
-    throw new Error(
+    throw new ConfigError(
       'Twilio credentials not configured. Set credential:twilio:account_sid and credential:twilio:auth_token via the credential_store tool.',
     );
   }
@@ -58,7 +59,7 @@ export async function listIncomingPhoneNumbers(
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Twilio API error ${res.status}: ${text}`);
+    throw new ProviderError(`Twilio API error ${res.status}: ${text}`, 'twilio', res.status);
   }
 
   const data = (await res.json()) as {
@@ -102,7 +103,7 @@ export async function searchAvailableNumbers(
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Twilio API error ${res.status}: ${text}`);
+    throw new ProviderError(`Twilio API error ${res.status}: ${text}`, 'twilio', res.status);
   }
 
   const data = (await res.json()) as {
@@ -139,7 +140,7 @@ export async function provisionPhoneNumber(
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Twilio API error ${res.status}: ${text}`);
+    throw new ProviderError(`Twilio API error ${res.status}: ${text}`, 'twilio', res.status);
   }
 
   const data = (await res.json()) as {
@@ -171,7 +172,7 @@ export async function fetchMessageStatus(
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Twilio API error ${res.status}: ${text}`);
+    throw new ProviderError(`Twilio API error ${res.status}: ${text}`, 'twilio', res.status);
   }
 
   const data = (await res.json()) as {
@@ -217,7 +218,7 @@ export async function updatePhoneNumberWebhooks(
 
   if (!listRes.ok) {
     const text = await listRes.text();
-    throw new Error(`Twilio API error ${listRes.status} looking up phone number: ${text}`);
+    throw new ProviderError(`Twilio API error ${listRes.status} looking up phone number: ${text}`, 'twilio', listRes.status);
   }
 
   const listData = (await listRes.json()) as {
@@ -226,7 +227,7 @@ export async function updatePhoneNumberWebhooks(
 
   const match = listData.incoming_phone_numbers.find((n) => n.phone_number === phoneNumber);
   if (!match) {
-    throw new Error(`Phone number ${phoneNumber} not found on Twilio account ${accountSid}`);
+    throw new ProviderError(`Phone number ${phoneNumber} not found on Twilio account ${accountSid}`, 'twilio');
   }
 
   // Update the phone number's webhook configuration
@@ -253,7 +254,7 @@ export async function updatePhoneNumberWebhooks(
 
   if (!updateRes.ok) {
     const text = await updateRes.text();
-    throw new Error(`Twilio API error ${updateRes.status} updating webhooks: ${text}`);
+    throw new ProviderError(`Twilio API error ${updateRes.status} updating webhooks: ${text}`, 'twilio', updateRes.status);
   }
 }
 
@@ -310,7 +311,7 @@ export async function getTollFreeVerificationStatus(
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Twilio Toll-Free Verification API error ${res.status}: ${text}`);
+    throw new ProviderError(`Twilio Toll-Free Verification API error ${res.status}: ${text}`, 'twilio', res.status);
   }
 
   const data = (await res.json()) as { verifications?: Array<Record<string, unknown>> };
@@ -337,7 +338,7 @@ export async function getTollFreeVerificationBySid(
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Twilio Toll-Free Verification fetch error ${res.status}: ${text}`);
+    throw new ProviderError(`Twilio Toll-Free Verification fetch error ${res.status}: ${text}`, 'twilio', res.status);
   }
 
   const data = (await res.json()) as Record<string, unknown>;
@@ -397,7 +398,7 @@ export async function submitTollFreeVerification(
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Twilio Toll-Free Verification submit error ${res.status}: ${text}`);
+    throw new ProviderError(`Twilio Toll-Free Verification submit error ${res.status}: ${text}`, 'twilio', res.status);
   }
 
   const data = (await res.json()) as Record<string, unknown>;
@@ -443,7 +444,7 @@ export async function updateTollFreeVerification(
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Twilio Toll-Free Verification update error ${res.status}: ${text}`);
+    throw new ProviderError(`Twilio Toll-Free Verification update error ${res.status}: ${text}`, 'twilio', res.status);
   }
 
   const data = (await res.json()) as Record<string, unknown>;
@@ -463,7 +464,7 @@ export async function deleteTollFreeVerification(
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Twilio Toll-Free Verification delete error ${res.status}: ${text}`);
+    throw new ProviderError(`Twilio Toll-Free Verification delete error ${res.status}: ${text}`, 'twilio', res.status);
   }
 }
 
@@ -486,7 +487,7 @@ export async function getPhoneNumberSid(
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Twilio API error ${res.status} looking up phone number SID: ${text}`);
+    throw new ProviderError(`Twilio API error ${res.status} looking up phone number SID: ${text}`, 'twilio', res.status);
   }
 
   const data = (await res.json()) as {
@@ -508,7 +509,7 @@ export async function releasePhoneNumber(
 ): Promise<void> {
   const sid = await getPhoneNumberSid(accountSid, authToken, phoneNumber);
   if (!sid) {
-    throw new Error(`Phone number ${phoneNumber} not found on Twilio account ${accountSid}`);
+    throw new ProviderError(`Phone number ${phoneNumber} not found on Twilio account ${accountSid}`, 'twilio');
   }
 
   const res = await fetch(
@@ -521,6 +522,6 @@ export async function releasePhoneNumber(
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Twilio API error ${res.status} releasing phone number: ${text}`);
+    throw new ProviderError(`Twilio API error ${res.status} releasing phone number: ${text}`, 'twilio', res.status);
   }
 }

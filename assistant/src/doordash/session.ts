@@ -6,6 +6,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { getDataDir } from '../util/platform.js';
+import { ConfigError } from '../util/errors.js';
 import type { SessionRecording, ExtractedCredential } from '../tools/browser/network-recording-types.js';
 
 export interface DoorDashSession {
@@ -50,11 +51,11 @@ export function clearSession(): void {
  */
 export function importFromRecording(recordingPath: string): DoorDashSession {
   if (!existsSync(recordingPath)) {
-    throw new Error(`Recording not found: ${recordingPath}`);
+    throw new ConfigError(`Recording not found: ${recordingPath}`);
   }
   const recording = JSON.parse(readFileSync(recordingPath, 'utf-8')) as SessionRecording;
   if (!recording.cookies?.length) {
-    throw new Error('Recording contains no cookies');
+    throw new ConfigError('Recording contains no cookies');
   }
   const session: DoorDashSession = {
     cookies: recording.cookies,

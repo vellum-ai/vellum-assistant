@@ -7,6 +7,7 @@
 import type { AgentMailClient } from 'agentmail';
 import type { EmailProvider, SetupDomainOpts, CreateInboxOpts, EnsureInboxesOpts, SetupWebhookOpts, CreateDraftOpts, ListDraftsOpts, ListMessagesOpts, ListThreadsOpts } from '../provider.js';
 import type { EmailDomain, DnsRecord, EmailInbox, EmailDraft, EmailMessage, EmailThread, EmailWebhook, ProviderHealth, SendResult } from '../types.js';
+import { ConfigError } from '../../util/errors.js';
 
 const DEFAULT_INBOX_PREFIXES = ['hello', 'support', 'ops'];
 
@@ -201,7 +202,7 @@ export class AgentMailProvider implements EmailProvider {
     if (inboxes.inboxes.length > 0) {
       return inboxes.inboxes[0].inboxId;
     }
-    throw new Error('No inboxes found. Run: vellum email setup inboxes --domain <domain>');
+    throw new ConfigError('No inboxes found. Run: vellum email setup inboxes --domain <domain>');
   }
 }
 

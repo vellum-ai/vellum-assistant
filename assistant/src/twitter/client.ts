@@ -8,6 +8,7 @@ import {
   loadSession,
   type TwitterSession,
 } from './session.js';
+import { ProviderError } from '../util/errors.js';
 
 const CDP_BASE = 'http://localhost:9222';
 
@@ -325,7 +326,7 @@ async function graphqlGet(queryId: string, queryName: string, variables: Record<
   const url = graphqlUrl(queryId, queryName, variables);
   const json = await cdpGet(wsUrl, url) as { errors?: Array<{ message: string }> };
   if (json.errors?.length) {
-    throw new Error(`X API errors: ${json.errors.map(e => e.message).join('; ')}`);
+    throw new ProviderError(`X API errors: ${json.errors.map(e => e.message).join('; ')}`, 'x');
   }
   return json;
 }
@@ -463,16 +464,16 @@ export async function postTweet(text: string, opts?: { inReplyToTweetId?: string
   const json = (await cdpFetch(wsUrl, url, body)) as AnyJson;
 
   if (json.errors?.length) {
-    throw new Error(`X API errors: ${json.errors.map((e: AnyJson) => e.message).join('; ')}`);
+    throw new ProviderError(`X API errors: ${json.errors.map((e: AnyJson) => e.message).join('; ')}`, 'x');
   }
 
   const tweetResults = json.data?.create_tweet?.tweet_results;
   const result = tweetResults?.result;
   if (!result?.rest_id) {
     if (tweetResults && !result) {
-      throw new Error('X rejected this post — it may be a duplicate of a recent post. Try different text.');
+      throw new ProviderError('X rejected this post — it may be a duplicate of a recent post. Try different text.', 'x');
     }
-    throw new Error(`Unexpected response from X API. Response: ${JSON.stringify(json).slice(0, 500)}`);
+    throw new ProviderError(`Unexpected response from X API. Response: ${JSON.stringify(json).slice(0, 500)}`, 'x');
   }
 
   return {
@@ -492,7 +493,7 @@ export async function getUserByScreenName(screenName: string): Promise<UserInfo>
 
   const user = json.data?.user?.result;
   if (!user?.rest_id) {
-    throw new Error(`User @${screenName} not found`);
+    throw new ProviderError(`User @${screenName} not found`, 'x');
   }
 
   return {

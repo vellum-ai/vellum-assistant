@@ -25,6 +25,7 @@ import {
 } from './queries.js';
 import { loadCapturedQueries } from './query-extractor.js';
 import { truncate } from '../util/truncate.js';
+import { ProviderError } from '../util/errors.js';
 
 const GRAPHQL_BASE = 'https://www.doordash.com/graphql';
 const CDP_BASE = 'http://localhost:9222';
@@ -216,10 +217,10 @@ async function graphql<T = unknown>(
 
       if (json.errors?.length) {
         const msgs = json.errors.map(e => e.message || JSON.stringify(e)).join('; ');
-        throw new Error(`Unexpected response from DoorDash API: ${msgs}`);
+        throw new ProviderError(`Unexpected response from DoorDash API: ${msgs}`, 'doordash');
       }
       if (!json.data) {
-        throw new Error('Unexpected response format from DoorDash API');
+        throw new ProviderError('Unexpected response format from DoorDash API', 'doordash');
       }
       return json.data;
     } catch (err) {
@@ -696,7 +697,7 @@ export async function placeOrder(opts: {
     const methods = await getPaymentMethods();
     const defaultMethod = methods.find(m => m.isDefault) ?? methods[0];
     if (!defaultMethod) {
-      throw new Error('No payment method found. Add a payment method in the DoorDash app first.');
+      throw new ProviderError('No payment method found. Add a payment method in the DoorDash app first.', 'doordash');
     }
     pmUuid = defaultMethod.uuid;
     // defaultMethod.type is the card brand (e.g. "Visa"), not the PaymentMethodType enum

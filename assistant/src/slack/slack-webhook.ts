@@ -1,4 +1,5 @@
 import { getLogger } from '../util/logger.js';
+import { ProviderError } from '../util/errors.js';
 
 const log = getLogger('slack-webhook');
 
@@ -56,6 +57,6 @@ export async function postToSlackWebhook(
 
   if (!response.ok) {
     const body = await response.text();
-    throw new Error(`Slack webhook returned ${response.status}: ${body}`);
+    throw new ProviderError(`Slack webhook returned ${response.status}: ${body}`, 'slack', response.status);
   }
 }

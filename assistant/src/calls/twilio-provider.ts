@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { getLogger } from '../util/logger.js';
 import { getSecureKey } from '../security/secure-keys.js';
 import { getTwilioCredentials, twilioAuthHeader, twilioBaseUrl } from './twilio-rest.js';
+import { ProviderError } from '../util/errors.js';
 import type { VoiceProvider, InitiateCallOptions } from './voice-provider.js';
 
 const log = getLogger('twilio-provider');
@@ -72,7 +73,7 @@ export class TwilioConversationRelayProvider implements VoiceProvider {
     if (!res.ok) {
       const text = await res.text();
       log.error({ status: res.status, body: text }, 'Twilio initiateCall failed');
-      throw new Error(`Twilio API error ${res.status}: ${text}`);
+      throw new ProviderError(`Twilio API error ${res.status}: ${text}`, 'twilio', res.status);
     }
 
     const data = (await res.json()) as { sid: string };
@@ -99,7 +100,7 @@ export class TwilioConversationRelayProvider implements VoiceProvider {
     if (!res.ok) {
       const text = await res.text();
       log.error({ status: res.status, body: text, callSid }, 'Twilio endCall failed');
-      throw new Error(`Twilio API error ${res.status}: ${text}`);
+      throw new ProviderError(`Twilio API error ${res.status}: ${text}`, 'twilio', res.status);
     }
 
     log.info({ callSid }, 'Twilio call ended');
@@ -118,7 +119,7 @@ export class TwilioConversationRelayProvider implements VoiceProvider {
     if (!res.ok) {
       const text = await res.text();
       log.error({ status: res.status, body: text, callSid }, 'Twilio getCallStatus failed');
-      throw new Error(`Twilio API error ${res.status}: ${text}`);
+      throw new ProviderError(`Twilio API error ${res.status}: ${text}`, 'twilio', res.status);
     }
 
     const data = (await res.json()) as { status: string };
@@ -203,8 +204,9 @@ export class TwilioConversationRelayProvider implements VoiceProvider {
         ...(!incomingOk ? [`IncomingPhoneNumbers: ${incomingRes.status}`] : []),
         ...(!outgoingOk ? [`OutgoingCallerIds: ${outgoingRes.status}`] : []),
       ].join(', ');
-      throw new Error(
+      throw new ProviderError(
         `Unable to verify caller ID eligibility for ${phoneNumber}: Twilio API error (${failedEndpoints}). The number may be eligible but could not be confirmed. Please check your Twilio credentials and try again.`,
+        'twilio',
       );
     }
 
