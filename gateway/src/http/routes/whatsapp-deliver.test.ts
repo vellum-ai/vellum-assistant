@@ -275,7 +275,7 @@ describe("/deliver/whatsapp", () => {
 
   it("returns 502 when sendWhatsAppReply throws", async () => {
     // Override the mock to throw
-    const throwingMock = mock.module("../../whatsapp/send.js", () => ({
+    const _throwingMock = mock.module("../../whatsapp/send.js", () => ({
       sendWhatsAppReply: async () => {
         throw new Error("WhatsApp API failure");
       },
@@ -307,7 +307,7 @@ describe("/deliver/whatsapp", () => {
     expect(res.status).toBe(200);
 
     expect(sendWhatsAppReplyCalls).toHaveLength(1);
-    const [config, to, text] = sendWhatsAppReplyCalls[0] as [GatewayConfig, string, string];
+    const [_config, to, text] = sendWhatsAppReplyCalls[0] as [GatewayConfig, string, string];
     expect(to).toBe("+15559876543");
     expect(text).toBe("Test message");
   });

@@ -1,8 +1,8 @@
 /**
  * Optional HTTP server that exposes the canonical runtime API.
  *
- * Runs in the same process as the daemon. Started only when
- * `RUNTIME_HTTP_PORT` is set (default: disabled).
+ * Runs in the same process as the daemon. Always started on the
+ * configured port (default: 7821).
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -77,6 +77,7 @@ import type { BrowserRelayWebSocketData } from '../browser-extension-relay/serve
 import { handleSubscribeAssistantEvents } from './routes/events-routes.js';
 import { consumeCallback, consumeCallbackError } from '../security/oauth-callback-registry.js';
 import { PairingStore } from '../daemon/pairing-store.js';
+import type { ServerMessage } from '../daemon/ipc-contract.js';
 
 // Middleware
 import {
@@ -152,7 +153,7 @@ export class RuntimeHttpServer {
   private retrySweepTimer: ReturnType<typeof setInterval> | null = null;
   private sweepInProgress = false;
   private pairingStore = new PairingStore();
-  private pairingBroadcast?: (msg: { type: string; [key: string]: unknown }) => void;
+  private pairingBroadcast?: (msg: ServerMessage) => void;
 
   constructor(options: RuntimeHttpServerOptions = {}) {
     this.port = options.port ?? DEFAULT_PORT;
@@ -177,7 +178,7 @@ export class RuntimeHttpServer {
   }
 
   /** Set a callback for broadcasting IPC messages (wired by daemon server). */
-  setPairingBroadcast(fn: (msg: { type: string; [key: string]: unknown }) => void): void {
+  setPairingBroadcast(fn: (msg: ServerMessage) => void): void {
     this.pairingBroadcast = fn;
   }
 
