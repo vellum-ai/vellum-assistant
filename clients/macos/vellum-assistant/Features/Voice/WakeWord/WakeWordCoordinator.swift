@@ -137,10 +137,10 @@ final class WakeWordCoordinator: ObservableObject {
                         if self.activatedViaWakeWord {
                             WakeWordFeedback.playDeactivationChime()
                             self.activationWindow.show(state: .listening)
-                            self.activatedViaWakeWord = false
                         }
                         self.audioMonitor.startMonitoring()
                     }
+                    self.activatedViaWakeWord = false  // always reset, regardless of setting
                 }
             }
     }
