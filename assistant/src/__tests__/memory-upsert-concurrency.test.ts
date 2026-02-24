@@ -1,18 +1,20 @@
 /**
- * Concurrency tests for memory UPSERT atomicity.
+ * Atomicity tests for memory UPSERT paths.
  *
  * SQLite is single-writer, and indexMessageNow / createOrUpdatePendingConflict
- * are synchronous functions.  True OS-level thread concurrency is therefore not
- * possible within a single Bun process.  What we CAN test — and what matters
- * for production correctness — is that the ON CONFLICT / IMMEDIATE-transaction
- * logic holds up when many calls are dispatched simultaneously as microtasks.
+ * are synchronous functions.  Because every call runs to completion before the
+ * next microtask starts, the Promise.all / Promise.resolve().then() pattern
+ * used here does NOT create true concurrent execution — calls still run
+ * sequentially.
  *
- * Each concurrent test wraps every worker call in `Promise.resolve().then(...)`
- * and fans them out with `Promise.all([...])`.  This schedules all N microtasks
- * in the same event-loop tick before any one of them runs, so each task sees
- * whatever state the previous task left behind.  That is the closest in-process
- * approximation of a "race" for synchronous SQLite operations, and it is enough
- * to catch check-then-act bugs or missing ON CONFLICT clauses.
+ * What these tests DO verify is the correctness of the ON CONFLICT /
+ * IMMEDIATE-transaction logic when the same logical operation is repeated many
+ * times (e.g. duplicate indexer runs for the same messageId).  That covers the
+ * most common real-world correctness problem: a retry or a duplicate dispatch
+ * reaching the same code path more than once.
+ *
+ * True OS-level thread concurrency would require spawning separate worker
+ * processes and is not tested here.
  */
 
 import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
@@ -184,15 +186,15 @@ function seedItemPair(suffix: string, scopeId = 'default'): { existingItemId: st
 // Test suite: segment UPSERT atomicity under parallel indexer load
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('segment UPSERT atomicity under parallel indexer load', () => {
+describe('segment UPSERT atomicity under repeated indexer invocations', () => {
   beforeEach(() => {
     resetTables();
   });
 
-  test('parallel indexing of the same message does not create duplicate segments', async () => {
-    // Seed a single message that multiple "workers" will try to index concurrently.
-    // In production, two indexer calls for the same messageId could race; the
-    // ON CONFLICT DO UPDATE on memorySegments.id must absorb the collision.
+  test('repeated indexing of the same message does not create duplicate segments', async () => {
+    // Index the same messageId multiple times (simulating duplicate indexer
+    // dispatches, retries, or a race at the call site).  The ON CONFLICT DO
+    // UPDATE on memorySegments.id must absorb every duplicate call.
     const conversationId = 'conv-parallel-segment-dedup';
     const messageId = 'msg-parallel-segment-dedup';
     const text = 'I prefer TypeScript over plain JavaScript for large projects.';
@@ -202,10 +204,10 @@ describe('segment UPSERT atomicity under parallel indexer load', () => {
     const db = getDb();
     const config = TEST_CONFIG.memory;
 
-    // Dispatch N workers simultaneously via Promise.all so that all microtasks
-    // are enqueued before any one of them begins executing.  This is the
-    // genuine concurrent-dispatch pattern — unlike a sequential for-loop that
-    // awaits each call in turn, Promise.all submits every task in the same tick.
+    // Call indexMessageNow N times for the same messageId.  Even though we use
+    // Promise.all, these synchronous calls still run sequentially — the point is
+    // to verify that repeated indexer runs for the same messageId do not produce
+    // duplicate segment rows (i.e. the ON CONFLICT DO UPDATE absorbs them).
     const WORKERS = 8;
     await Promise.all(
       Array.from({ length: WORKERS }, () =>
@@ -242,8 +244,8 @@ describe('segment UPSERT atomicity under parallel indexer load', () => {
     }
   });
 
-  test('parallel indexing of distinct messages produces independent segment sets', async () => {
-    // Two different messages indexed in parallel must each produce their own
+  test('indexing distinct messages produces independent segment sets', async () => {
+    // Different messages indexed in the same batch must each produce their own
     // non-overlapping segments with correct messageId back-references.
     const now = Date.now();
     const conversationId = 'conv-parallel-distinct';
@@ -275,9 +277,10 @@ describe('segment UPSERT atomicity under parallel indexer load', () => {
 
     const config = TEST_CONFIG.memory;
 
-    // Dispatch all indexer calls simultaneously — Promise.all enqueues every
-    // microtask before any one starts, which is the genuine concurrent-dispatch
-    // pattern rather than sequential awaiting.
+    // Call indexMessageNow once per distinct messageId.  The calls run
+    // sequentially (synchronous functions), but grouping them here mirrors
+    // how a batch indexer would dispatch multiple messages and lets us assert
+    // that each message produces its own non-overlapping segment set.
     await Promise.all(
       Array.from({ length: MSG_COUNT }, (_, i) => {
         const msgId = `msg-distinct-${i}`;
@@ -374,11 +377,11 @@ describe('segment UPSERT atomicity under parallel indexer load', () => {
     expect(firstResult.indexedSegments).toBeGreaterThanOrEqual(1);
   });
 
-  test('parallel indexing with content update correctly applies last-write semantics', async () => {
-    // When two workers index the same messageId with *different* text (simulating
-    // an edit-then-index race), the ON CONFLICT DO UPDATE must store one row per
-    // segmentId.  We cannot assert on which text "wins" — only that no duplicate
-    // rows exist.
+  test('re-indexing same message with different content applies last-write semantics', async () => {
+    // When indexMessageNow is called twice for the same messageId with different
+    // content (simulating an edit followed by a re-index), the ON CONFLICT DO
+    // UPDATE must store one row per segmentId.  We cannot assert which text
+    // "wins" — only that no duplicate rows exist.
     const conversationId = 'conv-edit-race';
     const messageId = 'msg-edit-race';
     const textV1 = 'I prefer React for frontend development work on large projects.';
@@ -388,8 +391,9 @@ describe('segment UPSERT atomicity under parallel indexer load', () => {
 
     const config = TEST_CONFIG.memory;
 
-    // Dispatch both workers simultaneously so neither finishes before the other
-    // starts — this is the genuine race scenario.
+    // Call indexMessageNow twice with different content for the same messageId,
+    // running sequentially.  The ON CONFLICT DO UPDATE must absorb both calls
+    // and leave exactly one row per segmentId regardless of which content wins.
     await Promise.all([
       Promise.resolve().then(() =>
         indexMessageNow(
@@ -428,14 +432,15 @@ describe('conflict creation UPSERT atomicity', () => {
     resetTables();
   });
 
-  test('parallel createOrUpdatePendingConflict calls for the same pair produce exactly one conflict row', async () => {
-    // This is the critical UPSERT path: multiple memory workers discovering the
-    // same conflict pair and racing to insert it.  The IMMEDIATE transaction
+  test('repeated createOrUpdatePendingConflict calls for the same pair produce exactly one conflict row', async () => {
+    // Critical UPSERT path: the same conflict pair inserted multiple times
+    // (e.g. duplicate worker dispatches, retries).  The IMMEDIATE transaction
     // guard in createOrUpdatePendingConflict must ensure only one row exists.
     const pair = seedItemPair('parallel-create');
 
-    // Dispatch all workers simultaneously via Promise.all so every microtask is
-    // enqueued before any one of them begins — the genuine concurrent pattern.
+    // Call createOrUpdatePendingConflict N times for the same pair.  Calls run
+    // sequentially (synchronous); the test verifies that repeated calls produce
+    // exactly one conflict row — the IMMEDIATE transaction deduplication path.
     const WORKERS = 10;
     const results = await Promise.all(
       Array.from({ length: WORKERS }, (_, i) =>
@@ -464,14 +469,16 @@ describe('conflict creation UPSERT atomicity', () => {
     expect(pending[0].id).toBe(firstId);
   });
 
-  test('parallel conflict creation for different pairs produces distinct rows without cross-contamination', async () => {
-    // Multiple workers each operating on a unique item pair must each get their
-    // own conflict row — the deduplication must be scoped to the pair, not global.
+  test('conflict creation for different pairs produces distinct rows without cross-contamination', async () => {
+    // Each unique item pair must get its own conflict row — deduplication must
+    // be scoped to the pair, not global.  Also exercises the idempotent
+    // insert-then-update path within each pair.
     const PAIR_COUNT = 6;
     const pairs = Array.from({ length: PAIR_COUNT }, (_, i) => seedItemPair(`multi-pair-${i}`));
 
-    // For each pair, dispatch both the initial insert and the update
-    // simultaneously across all pairs — every task is enqueued before any runs.
+    // For each pair, make two calls: one insert and one update.  All calls run
+    // sequentially.  The test verifies that each pair ends up with exactly one
+    // conflict row (no cross-pair contamination, idempotent update path works).
     await Promise.all(
       pairs.flatMap((pair) => [
         // First call: insert with 'contradiction'.
@@ -515,10 +522,10 @@ describe('conflict creation UPSERT atomicity', () => {
     }
   });
 
-  test('concurrent updates to the same conflict row converge to a consistent state', async () => {
-    // Simulate multiple workers each trying to update the clarification question
-    // for the same existing conflict.  All updates must succeed (last writer wins
-    // is acceptable) and the row must remain internally consistent.
+  test('repeated updates to the same conflict row converge to a consistent state', async () => {
+    // Multiple update calls for the same conflict (e.g. repeated worker runs).
+    // All updates must succeed (last writer wins is acceptable) and the row
+    // must remain internally consistent.
     const pair = seedItemPair('concurrent-update');
     const first = createOrUpdatePendingConflict({
       scopeId: 'default',
@@ -528,8 +535,9 @@ describe('conflict creation UPSERT atomicity', () => {
       clarificationQuestion: 'Initial question',
     });
 
-    // Dispatch all update workers simultaneously so every microtask is queued
-    // before any one executes — the genuine concurrent-dispatch pattern.
+    // Call createOrUpdatePendingConflict N times against the same existing row.
+    // Calls are sequential; the test verifies the row stays consistent (one row,
+    // valid status/relationship) after repeated updates — last writer wins.
     const UPDATES = 8;
     const results = await Promise.all(
       Array.from({ length: UPDATES }, (_, i) =>
@@ -561,14 +569,14 @@ describe('conflict creation UPSERT atomicity', () => {
   });
 
   test('scope isolation ensures conflicts in different scopes do not interfere', async () => {
-    // Workers indexing different user scopes must not cross-contaminate each
-    // other's conflict sets — the scopeId must be part of the deduplication key.
+    // Conflicts created in different scopes must not cross-contaminate each
+    // other's conflict sets — scopeId must be part of the deduplication key.
     const SCOPES = ['scope-alpha', 'scope-beta', 'scope-gamma'];
     const scopePairs = SCOPES.map((scope) => ({ scope, pair: seedItemPair(`scope-${scope}`, scope) }));
 
-    // Dispatch all calls across all scopes simultaneously — 3 calls per scope,
-    // all enqueued before any runs — to exercise cross-scope isolation under
-    // concurrent load rather than sequentially processing scope-by-scope.
+    // Make 3 calls per scope for all scopes.  Calls run sequentially; the test
+    // verifies that each scope produces exactly one conflict row and that there
+    // is no cross-scope contamination from repeated same-scope calls.
     await Promise.all(
       scopePairs.flatMap(({ scope, pair }) =>
         Array.from({ length: 3 }, () =>
@@ -597,15 +605,15 @@ describe('conflict creation UPSERT atomicity', () => {
 // Test suite: memory segment job atomicity
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('memory segment job atomicity under parallel indexer load', () => {
+describe('memory segment job atomicity under repeated indexer invocations', () => {
   beforeEach(() => {
     resetTables();
   });
 
   test('each unique (messageId, segmentIndex) pair generates at most one segment row', async () => {
-    // Spin up multiple indexer calls for distinct messages in the same conversation
-    // to verify that the job+segment transaction boundary is respected and no two
-    // calls create duplicate segment rows for the same logical identity.
+    // Re-index the same messages multiple times to verify that the job+segment
+    // transaction boundary is respected and no duplicate segment rows appear for
+    // the same logical (messageId, segmentIndex) identity.
     const conversationId = 'conv-job-atomicity';
     const now = Date.now();
     const db = getDb();
@@ -637,9 +645,9 @@ describe('memory segment job atomicity under parallel indexer load', () => {
 
     const config = TEST_CONFIG.memory;
 
-    // Dispatch all (MSG_COUNT × REPEATS) calls simultaneously — every microtask
-    // is enqueued before any one begins, exercising the transaction guard for the
-    // maximum possible overlap window.
+    // Repeat indexMessageNow REPEATS times for each of MSG_COUNT messages.  All
+    // calls run sequentially; the test verifies that repeated indexing of the
+    // same (messageId, segmentIndex) never produces duplicate segment rows.
     await Promise.all(
       Array.from({ length: REPEATS }, () =>
         Array.from({ length: MSG_COUNT }, (_, i) => {
@@ -679,8 +687,8 @@ describe('memory segment job atomicity under parallel indexer load', () => {
   test('indexer result counts are consistent with actual stored segment counts', async () => {
     // The IndexMessageResult.indexedSegments value returned by indexMessageNow
     // must always match the number of rows stored in memory_segments for that
-    // message.  Under repeated concurrent indexing the stored count stays stable
-    // while every result reports the same logical segment count.
+    // message.  Under repeated indexing the stored count stays stable while
+    // every result reports the same logical segment count.
     const conversationId = 'conv-count-consistency';
     const messageId = 'msg-count-consistency';
     const text = 'I always prefer concise code reviews and I work in a distributed team across multiple timezones.';
@@ -689,8 +697,9 @@ describe('memory segment job atomicity under parallel indexer load', () => {
 
     const config = TEST_CONFIG.memory;
 
-    // Dispatch all runs simultaneously — every microtask is queued before any
-    // one executes, so each run races the others rather than seeing a clean DB.
+    // Index the same message RUNS times sequentially.  The test verifies that
+    // the returned indexedSegments count is stable across all runs and matches
+    // the number of rows actually stored in the DB.
     const RUNS = 5;
     const results = await Promise.all(
       Array.from({ length: RUNS }, () =>
@@ -730,18 +739,17 @@ describe('memory_items fingerprint uniqueness under race conditions', () => {
     resetTables();
   });
 
-  test('direct concurrent inserts with identical fingerprints produce exactly one row', () => {
+  test('duplicate inserts with identical fingerprints produce exactly one row', () => {
     // The memory_items table has a unique constraint on (fingerprint, scope_id).
-    // Simulate a race where two extractor workers try to INSERT the same item
-    // simultaneously.  Only one INSERT must land; the second must be absorbed by
-    // ON CONFLICT or the check-then-insert logic.
+    // Two sequential inserts for the same fingerprint simulate duplicate extractor
+    // runs.  Only one INSERT must land; the second must be absorbed by ON CONFLICT.
     const db = getDb();
     const now = Date.now();
     const fingerprint = 'fp-race-unique-test-concurrency';
     const scopeId = 'default';
 
-    // Use raw SQL to replicate what the items-extractor would do when two
-    // concurrent workers each see no existing row and both attempt to INSERT.
+    // Use raw SQL to replicate what the items-extractor would do when a second
+    // run tries to INSERT the same fingerprint that already exists.
     const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
 
     raw.run(`
