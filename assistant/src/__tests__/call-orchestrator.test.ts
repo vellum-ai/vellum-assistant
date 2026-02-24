@@ -264,6 +264,29 @@ describe('call-orchestrator', () => {
     orchestrator.destroy();
   });
 
+  test('startInitialGreeting: generates model-driven opening and strips control marker from speech', async () => {
+    mockStreamFn.mockImplementation((...args: unknown[]) => {
+      const firstArg = args[0] as { messages: Array<{ role: string; content: string }> };
+      const firstUser = firstArg.messages.find((m) => m.role === 'user');
+      expect(firstUser?.content).toContain('[CALL_OPENING]');
+      return createMockStream(['Hi, I am calling about your appointment request. Is now a good time to talk?']);
+    });
+
+    const { relay, orchestrator } = setupOrchestrator('Confirm appointment');
+
+    const callCountBefore = mockStreamFn.mock.calls.length;
+    await orchestrator.startInitialGreeting();
+    await orchestrator.startInitialGreeting();
+
+    const allText = relay.sentTokens.map((t) => t.token).join('');
+    expect(allText).toContain('appointment request');
+    expect(allText).toContain('good time to talk');
+    expect(allText).not.toContain('[CALL_OPENING]');
+    expect(mockStreamFn.mock.calls.length - callCountBefore).toBe(1);
+
+    orchestrator.destroy();
+  });
+
   // ── ASK_USER pattern ──────────────────────────────────────────────
 
   test('ASK_USER pattern: detects pattern, creates pending question, enters waiting_on_user', async () => {

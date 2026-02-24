@@ -124,4 +124,15 @@ describe('generateTwiML with voice quality profile', () => {
     expect(twiml).toContain('interruptible="true"');
     expect(twiml).toContain('dtmfDetection="true"');
   });
+
+  test('TwiML omits welcomeGreeting attribute when not provided', () => {
+    const twiml = generateTwiML(callSessionId, relayUrl, null, {
+      language: 'en-US',
+      transcriptionProvider: 'Deepgram',
+      ttsProvider: 'Google',
+      voice: 'Google.en-US-Journey-O',
+    });
+
+    expect(twiml).not.toContain('welcomeGreeting=');
+  });
 });

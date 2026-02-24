@@ -29,27 +29,6 @@ import { resolveVoiceQualityProfile, isVoiceProfileValid } from './voice-quality
 
 const log = getLogger('twilio-routes');
 
-const CONTEXT_BLOCK_SPLIT_REGEX = /\n\s*\nContext:\s*/i;
-const MAX_TASK_SUMMARY_CHARS = 90;
-const MAX_TASK_SUMMARY_WORDS = 18;
-const DEFAULT_WELCOME_GREETING = 'Hello, this is an assistant calling. Is now a good time to talk?';
-const TASK_PREFIX_REGEX = /^task:\s*/i;
-const UNSAFE_TASK_PATTERNS: RegExp[] = [
-  /\byou are\b/i,
-  /\b(system|assistant)\s+prompt\b/i,
-  /\bimportant rules?\b/i,
-  /\brespond naturally\b/i,
-  /\bask_user\b/i,
-  /\buser_answered\b/i,
-  /\buser_instruction\b/i,
-  /\bend_call\b/i,
-  /\bcall_start\b/i,
-  /\bllm\b/i,
-  /\bclaude\b/i,
-  /\bsay\s+(this|the following|exactly)\b/i,
-];
-const UNSAFE_TASK_CHARS_REGEX = /[<>{}\[\]`]/;
-
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function escapeXml(str: string): string {
@@ -64,15 +43,18 @@ function escapeXml(str: string): string {
 export function generateTwiML(
   callSessionId: string,
   relayUrl: string,
-  welcomeGreeting: string,
+  welcomeGreeting: string | null,
   profile: { language: string; transcriptionProvider: string; ttsProvider: string; voice: string },
 ): string {
+  const greetingAttr = welcomeGreeting && welcomeGreeting.trim().length > 0
+    ? `\n      welcomeGreeting="${escapeXml(welcomeGreeting.trim())}"`
+    : '';
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
     <ConversationRelay
       url="${escapeXml(relayUrl)}?callSessionId=${escapeXml(callSessionId)}"
-      welcomeGreeting="${escapeXml(welcomeGreeting)}"
+${greetingAttr}
       voice="${escapeXml(profile.voice)}"
       language="${escapeXml(profile.language)}"
       transcriptionProvider="${escapeXml(profile.transcriptionProvider)}"
@@ -84,50 +66,14 @@ export function generateTwiML(
 </Response>`;
 }
 
-function summarizeTaskForGreeting(task: string | null): string | null {
-  if (!task) return null;
-  const primaryTaskBlock = task.split(CONTEXT_BLOCK_SPLIT_REGEX)[0]?.trim() ?? '';
-  const primaryTaskLine = primaryTaskBlock
-    .split('\n')
-    .map((line) => line.trim())
-    .find((line) => line.length > 0) ?? '';
-  const primaryTask = primaryTaskLine.replace(TASK_PREFIX_REGEX, '').trim();
-  if (!primaryTask) return null;
-
-  const compact = primaryTask.replace(/\s+/g, ' ').trim().replace(/[.!?]+$/, '');
-  if (!compact) return null;
-
-  if (UNSAFE_TASK_CHARS_REGEX.test(compact)) return null;
-  if (UNSAFE_TASK_PATTERNS.some((pattern) => pattern.test(compact))) return null;
-
-  const wordCount = compact.split(/\s+/).length;
-  if (wordCount > MAX_TASK_SUMMARY_WORDS) return null;
-
-  if (compact.length <= MAX_TASK_SUMMARY_CHARS) return compact;
-  return `${compact.slice(0, MAX_TASK_SUMMARY_CHARS - 3).trimEnd()}...`;
-}
-
-function formatTaskAsCallPurpose(taskSummary: string): string {
-  const lower = taskSummary.toLowerCase();
-  if (
-    lower.startsWith('about ') ||
-    lower.startsWith('to ') ||
-    lower.startsWith('for ') ||
-    lower.startsWith('regarding ')
-  ) {
-    return taskSummary;
-  }
-  return `about ${taskSummary}`;
-}
-
 export function buildWelcomeGreeting(task: string | null, configuredGreeting?: string): string {
+  void task;
   const override = configuredGreeting?.trim();
   if (override) return override;
-
-  const taskSummary = summarizeTaskForGreeting(task);
-  if (!taskSummary) return DEFAULT_WELCOME_GREETING;
-
-  return `Hello, I am calling ${formatTaskAsCallPurpose(taskSummary)}. Is now a good time to talk?`;
+  // The contextual first opener now comes from the call orchestrator's
+  // initial LLM turn. Keep Twilio's relay-level greeting empty by default
+  // so we don't speak a deterministic static line first.
+  return '';
 }
 
 /**

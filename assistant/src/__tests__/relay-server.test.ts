@@ -211,6 +211,41 @@ describe('relay-server', () => {
     relay.destroy();
   });
 
+  test('handleMessage: setup triggers initial assistant greeting turn', async () => {
+    ensureConversation('conv-relay-setup-greet');
+    const session = createCallSession({
+      conversationId: 'conv-relay-setup-greet',
+      provider: 'twilio',
+      fromNumber: '+15551111111',
+      toNumber: '+15552222222',
+      task: 'Confirm appointment time',
+    });
+
+    mockStreamFn.mockImplementation(() => createMockStream(['Hello, I am calling to confirm your appointment.']));
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_setup_greet_123',
+      from: '+15551111111',
+      to: '+15552222222',
+    }));
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const textMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string; last?: boolean })
+      .filter((m) => m.type === 'text');
+    expect(textMessages.some((m) => (m.token ?? '').includes('confirm your appointment'))).toBe(true);
+    expect(textMessages.some((m) => m.last === true)).toBe(true);
+
+    const events = getCallEvents(session.id).filter((e) => e.eventType === 'assistant_spoke');
+    expect(events.length).toBeGreaterThan(0);
+
+    relay.destroy();
+  });
+
   test('handleTransportClosed: normal close marks call completed and notifies completion', () => {
     ensureConversation('conv-relay-close-normal');
     const session = createCallSession({
@@ -285,8 +320,9 @@ describe('relay-server', () => {
 
     // Verify event recorded with custom parameters
     const events = getCallEvents(session.id);
-    expect(events.length).toBe(1);
-    const payload = JSON.parse(events[0].payloadJson);
+    const connectedEvents = events.filter((e) => e.eventType === 'call_connected');
+    expect(connectedEvents.length).toBe(1);
+    const payload = JSON.parse(connectedEvents[0].payloadJson);
     expect(payload.customParameters).toEqual({ taskId: 'task-1', priority: 'high' });
 
     relay.destroy();
@@ -359,6 +395,9 @@ describe('relay-server', () => {
       to: '+15552222222',
     }));
 
+    // Let any async initial-greeting turn settle so we can compare only
+    // the effect of the partial prompt itself.
+    await new Promise((resolve) => setTimeout(resolve, 10));
     const messagesBeforePrompt = ws.sentMessages.length;
 
     // Send a partial prompt (last=false)

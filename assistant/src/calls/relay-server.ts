@@ -302,6 +302,9 @@ export class RelayConnection {
     // Create and attach the LLM-driven orchestrator
     const orchestrator = new CallOrchestrator(this.callSessionId, this, session?.task ?? null);
     this.setOrchestrator(orchestrator);
+    orchestrator.startInitialGreeting().catch((err) =>
+      log.error({ err, callSessionId: this.callSessionId }, 'Failed to start initial outbound greeting'),
+    );
   }
 
   private async handlePrompt(msg: RelayPromptMessage): Promise<void> {
