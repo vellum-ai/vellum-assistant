@@ -57,6 +57,16 @@ function sanitizePreferenceText(text: string): string {
   return text.replace(/</g, '\uFF1C').replace(/>/g, '\uFF1E');
 }
 
+/**
+ * Safely convert and sanitize a value to a string.
+ * If the value is already a string, sanitizes it with sanitizePreferenceText.
+ * If it's not a string, coerces it to a string without sanitization.
+ * This handles legacy or manually inserted JSON that may contain non-string values.
+ */
+function safeString(value: unknown): string {
+  return typeof value === 'string' ? sanitizePreferenceText(value) : String(value ?? '');
+}
+
 // ── Condition formatting ────────────────────────────────────────────────
 
 function formatConditions(appliesWhenJson: string): string {
@@ -73,8 +83,8 @@ function formatConditions(appliesWhenJson: string): string {
   const parts: string[] = [];
 
   if (conditions.timeRange) {
-    const after = conditions.timeRange.after ? sanitizePreferenceText(conditions.timeRange.after) : '';
-    const before = conditions.timeRange.before ? sanitizePreferenceText(conditions.timeRange.before) : '';
+    const after = conditions.timeRange.after ? safeString(conditions.timeRange.after) : '';
+    const before = conditions.timeRange.before ? safeString(conditions.timeRange.before) : '';
     if (after && before) {
       parts.push(`${after}-${before}`);
     } else if (after) {
@@ -85,15 +95,15 @@ function formatConditions(appliesWhenJson: string): string {
   }
 
   if (conditions.channels && conditions.channels.length > 0) {
-    parts.push(`channels: ${conditions.channels.map(sanitizePreferenceText).join(', ')}`);
+    parts.push(`channels: ${conditions.channels.map(safeString).join(', ')}`);
   }
 
   if (conditions.urgencyLevels && conditions.urgencyLevels.length > 0) {
-    parts.push(`urgency: ${conditions.urgencyLevels.map(sanitizePreferenceText).join(', ')}`);
+    parts.push(`urgency: ${conditions.urgencyLevels.map(safeString).join(', ')}`);
   }
 
   if (conditions.contexts && conditions.contexts.length > 0) {
-    parts.push(`context: ${conditions.contexts.map(sanitizePreferenceText).join(', ')}`);
+    parts.push(`context: ${conditions.contexts.map(safeString).join(', ')}`);
   }
 
   return parts.join('; ');
