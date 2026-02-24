@@ -3,28 +3,30 @@ import SwiftUI
 
 /// Tracks the avatar's evolution lifecycle, trait scores, feature unlocks, and user overrides.
 @Observable @MainActor
-final class AvatarEvolutionState {
+public final class AvatarEvolutionState {
     // MARK: - Lifecycle
 
-    enum LifecycleStage: String, Codable {
+    public enum LifecycleStage: String, Codable {
         case setupPending       // Before hatch
         case blobHatched        // Minimal blob visible
         case identityEvolving   // During onboarding conversation
         case stabilized         // Post-onboarding, identity complete
     }
 
-    var stage: LifecycleStage = .setupPending
+    public var stage: LifecycleStage = .setupPending
 
     // MARK: - Trait Scores (0.0–1.0 bounded)
 
-    struct TraitScores: Codable, Equatable {
-        var warmth: Double = 0.5      // cold/analytical ↔ warm/empathetic
-        var energy: Double = 0.5      // calm/steady ↔ energetic/chaotic
-        var formality: Double = 0.5   // casual/playful ↔ formal/professional
-        var playfulness: Double = 0.5 // serious/focused ↔ whimsical/fun
+    public struct TraitScores: Codable, Equatable {
+        public var warmth: Double = 0.5      // cold/analytical ↔ warm/empathetic
+        public var energy: Double = 0.5      // calm/steady ↔ energetic/chaotic
+        public var formality: Double = 0.5   // casual/playful ↔ formal/professional
+        public var playfulness: Double = 0.5 // serious/focused ↔ whimsical/fun
+
+        public init() {}
 
         /// Clamp all values to 0.0–1.0
-        mutating func clamp() {
+        public mutating func clamp() {
             warmth = min(max(warmth, 0.0), 1.0)
             energy = min(max(energy, 0.0), 1.0)
             formality = min(max(formality, 0.0), 1.0)
@@ -32,11 +34,11 @@ final class AvatarEvolutionState {
         }
     }
 
-    var traits: TraitScores = TraitScores()
+    public var traits: TraitScores = TraitScores()
 
     // MARK: - Feature Unlocks
 
-    enum VisualFeature: String, Codable, CaseIterable {
+    public enum VisualFeature: String, Codable, CaseIterable {
         case blob           // Base shape, minimal
         case eyes           // Eyes appear
         case coreFace       // Expression style (mouth, brows)
@@ -45,11 +47,11 @@ final class AvatarEvolutionState {
         case fullExpression // Full trait-driven appearance
     }
 
-    var unlockedFeatures: Set<VisualFeature> = []
+    public var unlockedFeatures: Set<VisualFeature> = []
 
     // MARK: - Appearance Fields
 
-    enum AppearanceField: String, Codable, CaseIterable {
+    public enum AppearanceField: String, Codable, CaseIterable {
         case bodyColor
         case cheekColor
         case hat
@@ -64,25 +66,27 @@ final class AvatarEvolutionState {
     // MARK: - User Overrides
 
     /// User-set values for specific appearance fields
-    var userOverrides: [AppearanceField: String] = [:]
+    public var userOverrides: [AppearanceField: String] = [:]
 
     /// Fields locked by the user (won't be auto-evolved)
-    var lockedFields: Set<AppearanceField> = []
+    public var lockedFields: Set<AppearanceField> = []
 
     // MARK: - Checkpoint Metadata
 
-    var lastCheckpointTurn: Int = 0
-    var lastCheckpointDate: Date?
+    public var lastCheckpointTurn: Int = 0
+    public var lastCheckpointDate: Date?
 
     // MARK: - Applied Milestones
 
-    var appliedMilestones: Set<String> = []
+    public var appliedMilestones: Set<String> = []
+
+    public init() {}
 
     // MARK: - Persistence
 
     private static let persistenceID = "avatarEvolutionState"
 
-    func save() {
+    public func save() {
         let data = PersistableState(
             stage: stage,
             traits: traits,
@@ -98,7 +102,7 @@ final class AvatarEvolutionState {
         }
     }
 
-    func load() {
+    public func load() {
         guard let data = UserDefaults.standard.data(forKey: Self.persistenceID),
               let state = try? JSONDecoder().decode(PersistableState.self, from: data) else { return }
 
@@ -116,7 +120,7 @@ final class AvatarEvolutionState {
         appliedMilestones = Set(state.appliedMilestones)
     }
 
-    static func clearPersistedState() {
+    public static func clearPersistedState() {
         UserDefaults.standard.removeObject(forKey: persistenceID)
     }
 

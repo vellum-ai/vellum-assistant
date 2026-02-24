@@ -1,29 +1,46 @@
 import Foundation
 
 /// A resolved set of hex colors for the dino pixel art grid.
-struct DinoPalette: Equatable {
+public struct DinoPalette: Equatable {
     // Body (5 shades: outline → belly highlight)
-    let outline: UInt32   // darkest
-    let dark: UInt32
-    let mid: UInt32
-    let light: UInt32
-    let belly: UInt32     // lightest
+    public let outline: UInt32   // darkest
+    public let dark: UInt32
+    public let mid: UInt32
+    public let light: UInt32
+    public let belly: UInt32     // lightest
 
     // Eyes
-    let eyeWhite: UInt32 = 0xFFFFFF
-    let pupil: UInt32 = 0x1E293B
+    public let eyeWhite: UInt32 = 0xFFFFFF
+    public let pupil: UInt32 = 0x1E293B
 
     // Accents
-    let cheek: UInt32
-    let tongue: UInt32    // derived from cheek (one shade darker)
+    public let cheek: UInt32
+    public let tongue: UInt32    // derived from cheek (one shade darker)
 
     // Wings (3 shades)
-    let wingLight: UInt32
-    let wingMid: UInt32
-    let wingDark: UInt32
+    public let wingLight: UInt32
+    public let wingMid: UInt32
+    public let wingDark: UInt32
+
+    public init(
+        outline: UInt32, dark: UInt32, mid: UInt32, light: UInt32, belly: UInt32,
+        cheek: UInt32, tongue: UInt32,
+        wingLight: UInt32, wingMid: UInt32, wingDark: UInt32
+    ) {
+        self.outline = outline
+        self.dark = dark
+        self.mid = mid
+        self.light = light
+        self.belly = belly
+        self.cheek = cheek
+        self.tongue = tongue
+        self.wingLight = wingLight
+        self.wingMid = wingMid
+        self.wingDark = wingDark
+    }
 
     /// The default violet palette (matches current hardcoded values).
-    static let violet = DinoPalette(
+    public static let violet = DinoPalette(
         outline: 0x5C2FB2, dark: 0x7240CC, mid: 0x8A5BE0,
         light: 0x9878EA, belly: 0xB8A6F1,
         cheek: 0xF99AAE, tongue: 0xF06A86,
@@ -34,24 +51,35 @@ struct DinoPalette: Equatable {
 // MARK: - Dino Outfit
 
 /// Outfit choices for the 3D voxel dino. Overrides seed-derived clothing when provided.
-struct DinoOutfit: Equatable {
-    var hat: String         // e.g. "crown", "none"
-    var hatColor: String?   // e.g. "gold" — uses item default if nil
-    var shirt: String       // e.g. "hoodie", "none"
-    var shirtColor: String?
-    var accessory: String   // e.g. "sunglasses", "none"
-    var accessoryColor: String?
-    var heldItem: String    // e.g. "sword", "none"
+public struct DinoOutfit: Equatable {
+    public var hat: String         // e.g. "crown", "none"
+    public var hatColor: String?   // e.g. "gold" — uses item default if nil
+    public var shirt: String       // e.g. "hoodie", "none"
+    public var shirtColor: String?
+    public var accessory: String   // e.g. "sunglasses", "none"
+    public var accessoryColor: String?
+    public var heldItem: String    // e.g. "sword", "none"
 
-    static let none = DinoOutfit(hat: "none", shirt: "none", accessory: "none", heldItem: "none")
+    public init(hat: String, hatColor: String? = nil, shirt: String, shirtColor: String? = nil,
+                accessory: String, accessoryColor: String? = nil, heldItem: String) {
+        self.hat = hat
+        self.hatColor = hatColor
+        self.shirt = shirt
+        self.shirtColor = shirtColor
+        self.accessory = accessory
+        self.accessoryColor = accessoryColor
+        self.heldItem = heldItem
+    }
+
+    public static let none = DinoOutfit(hat: "none", shirt: "none", accessory: "none", heldItem: "none")
 }
 
 // MARK: - Body Color Scales
 
 /// Maps color names to 5-shade body tuples (outline, dark, mid, light, belly).
 /// Hex values correspond to Tailwind-style _800, _700, _600, _500, _300 scales.
-enum BodyColorScale {
-    static let scales: [String: (outline: UInt32, dark: UInt32, mid: UInt32, light: UInt32, belly: UInt32)] = [
+public enum BodyColorScale {
+    public static let scales: [String: (outline: UInt32, dark: UInt32, mid: UInt32, light: UInt32, belly: UInt32)] = [
         // From ColorTokens.swift
         "violet":  (0x5C2FB2, 0x7240CC, 0x8A5BE0, 0x9878EA, 0xB8A6F1),
         "emerald": (0x0C7356, 0x10906A, 0x18B07A, 0x38CF93, 0xA6F2D1),
@@ -73,8 +101,8 @@ enum BodyColorScale {
 
 /// Maps color names to 3-shade wing tuples (light, mid, dark).
 /// Hex values correspond to _400, _500, _600 scales.
-enum WingColorScale {
-    static let scales: [String: (light: UInt32, mid: UInt32, dark: UInt32)] = [
+public enum WingColorScale {
+    public static let scales: [String: (light: UInt32, mid: UInt32, dark: UInt32)] = [
         "violet":  (0xB8A6F1, 0x9878EA, 0x8A5BE0),
         "emerald": (0x6EE7B5, 0x38CF93, 0x18B07A),
         "rose":    (0xF99AAE, 0xF06A86, 0xE84060),
@@ -93,8 +121,8 @@ enum WingColorScale {
 // MARK: - Cheek Color Scales
 
 /// Maps color names to cheek + tongue pair (cheek = _400, tongue = _500).
-enum CheekColorScale {
-    static let scales: [String: (cheek: UInt32, tongue: UInt32)] = [
+public enum CheekColorScale {
+    public static let scales: [String: (cheek: UInt32, tongue: UInt32)] = [
         "violet":  (0xB8A6F1, 0x9878EA),
         "emerald": (0x6EE7B5, 0x38CF93),
         "rose":    (0xF99AAE, 0xF06A86),

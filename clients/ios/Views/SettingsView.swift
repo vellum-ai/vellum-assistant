@@ -63,6 +63,12 @@ struct SettingsView: View {
                         Text("Dark").tag("dark")
                     }
                     .pickerStyle(.segmented)
+
+                    NavigationLink {
+                        AvatarCustomizationPanel()
+                    } label: {
+                        Label("Avatar", systemImage: "face.smiling")
+                    }
                 }
 
                 Section("Permissions") {

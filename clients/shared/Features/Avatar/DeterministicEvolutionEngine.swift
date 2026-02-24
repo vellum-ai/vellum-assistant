@@ -2,7 +2,7 @@ import Foundation
 
 /// Maps onboarding milestones to guaranteed visual unlocks.
 /// These transitions are deterministic and don't depend on model output.
-enum OnboardingMilestone: String, CaseIterable {
+public enum OnboardingMilestone: String, CaseIterable {
     case hatched              // Egg cracked, blob visible
     case nameChosen           // User/assistant agreed on a name
     case personalityDefined   // Personality established
@@ -13,23 +13,23 @@ enum OnboardingMilestone: String, CaseIterable {
 
 /// Context passed with a milestone to provide additional information
 /// for deterministic trait hints.
-struct MilestoneContext {
-    var personalityText: String?
-    var emoji: String?
+public struct MilestoneContext {
+    public var personalityText: String?
+    public var emoji: String?
 
-    init(personalityText: String? = nil, emoji: String? = nil) {
+    public init(personalityText: String? = nil, emoji: String? = nil) {
         self.personalityText = personalityText
         self.emoji = emoji
     }
 }
 
 @MainActor
-enum DeterministicEvolutionEngine {
+public enum DeterministicEvolutionEngine {
 
     /// Apply a milestone to the evolution state.
     /// Returns true if the milestone caused a state change.
     @discardableResult
-    static func applyMilestone(
+    public static func applyMilestone(
         _ milestone: OnboardingMilestone,
         to state: AvatarEvolutionState,
         context: MilestoneContext = MilestoneContext()
