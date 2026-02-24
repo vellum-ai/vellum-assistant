@@ -219,57 +219,56 @@ export async function runDaemon(): Promise<void> {
     },
   );
 
-  // Start optional runtime HTTP server when RUNTIME_HTTP_PORT is set
+  // Start the runtime HTTP server. Required for iOS pairing (gateway proxies
+  // to it) and optional REST API access. Defaults to port 7821.
   let runtimeHttp: RuntimeHttpServer | null = null;
   const httpPort = getRuntimeHttpPort();
-  log.info({ httpPort }, 'Daemon startup: checking RUNTIME_HTTP_PORT');
-  if (httpPort) {
-    const port = httpPort;
-    // Resolve the bearer token in priority order:
-    //   1. Explicit env var (e.g. cloud deploys)
-    //   2. Existing token file on disk (preserves QR-paired iOS devices across restarts)
-    //   3. Fresh random token (first-time startup)
-    const httpTokenPath = getHttpTokenPath();
-    let bearerToken = getRuntimeProxyBearerToken();
-    if (!bearerToken) {
-      try {
-        const existing = readFileSync(httpTokenPath, 'utf-8').trim();
-        if (existing) bearerToken = existing;
-      } catch {
-        // File doesn't exist or can't be read — will generate below
-      }
-    }
-    if (!bearerToken) {
-      bearerToken = randomBytes(32).toString('hex');
-    }
-    writeFileSync(httpTokenPath, bearerToken, { mode: 0o600 });
-    chmodSync(httpTokenPath, 0o600);
+  log.info({ httpPort }, 'Daemon startup: starting runtime HTTP server');
 
-    const hostname = getRuntimeHttpHost();
-
-    runtimeHttp = new RuntimeHttpServer({
-      port,
-      hostname,
-      bearerToken,
-      processMessage: (conversationId, content, attachmentIds, options, sourceChannel) =>
-        server.processMessage(conversationId, content, attachmentIds, options, sourceChannel),
-      persistAndProcessMessage: (conversationId, content, attachmentIds, options, sourceChannel) =>
-        server.persistAndProcessMessage(conversationId, content, attachmentIds, options, sourceChannel),
-      runOrchestrator: server.createRunOrchestrator(),
-      interfacesDir: getInterfacesDir(),
-      approvalCopyGenerator: createApprovalCopyGenerator(),
-      approvalConversationGenerator: createApprovalConversationGenerator(),
-    });
+  // Resolve the bearer token in priority order:
+  //   1. Explicit env var (e.g. cloud deploys)
+  //   2. Existing token file on disk (preserves QR-paired iOS devices across restarts)
+  //   3. Fresh random token (first-time startup)
+  const httpTokenPath = getHttpTokenPath();
+  let bearerToken = getRuntimeProxyBearerToken();
+  if (!bearerToken) {
     try {
-      log.info({ port, hostname }, 'Daemon startup: starting runtime HTTP server');
-      await runtimeHttp.start();
-      setRelayBroadcast((msg) => server.broadcast(msg));
-      server.setHttpPort(port);
-      log.info({ port, hostname }, 'Daemon startup: runtime HTTP server listening');
-    } catch (err) {
-      log.warn({ err, port }, 'Failed to start runtime HTTP server, continuing without it');
-      runtimeHttp = null;
+      const existing = readFileSync(httpTokenPath, 'utf-8').trim();
+      if (existing) bearerToken = existing;
+    } catch {
+      // File doesn't exist or can't be read — will generate below
     }
+  }
+  if (!bearerToken) {
+    bearerToken = randomBytes(32).toString('hex');
+  }
+  writeFileSync(httpTokenPath, bearerToken, { mode: 0o600 });
+  chmodSync(httpTokenPath, 0o600);
+
+  const hostname = getRuntimeHttpHost();
+
+  runtimeHttp = new RuntimeHttpServer({
+    port: httpPort,
+    hostname,
+    bearerToken,
+    processMessage: (conversationId, content, attachmentIds, options, sourceChannel) =>
+      server.processMessage(conversationId, content, attachmentIds, options, sourceChannel),
+    persistAndProcessMessage: (conversationId, content, attachmentIds, options, sourceChannel) =>
+      server.persistAndProcessMessage(conversationId, content, attachmentIds, options, sourceChannel),
+    runOrchestrator: server.createRunOrchestrator(),
+    interfacesDir: getInterfacesDir(),
+    approvalCopyGenerator: createApprovalCopyGenerator(),
+    approvalConversationGenerator: createApprovalConversationGenerator(),
+  });
+  try {
+    await runtimeHttp.start();
+    setRelayBroadcast((msg) => server.broadcast(msg));
+    runtimeHttp.setPairingBroadcast((msg) => server.broadcast(msg));
+    server.setHttpPort(httpPort);
+    log.info({ port: httpPort, hostname }, 'Daemon startup: runtime HTTP server listening');
+  } catch (err) {
+    log.warn({ err, port: httpPort }, 'Failed to start runtime HTTP server, continuing without it');
+    runtimeHttp = null;
   }
 
   writePid(process.pid);

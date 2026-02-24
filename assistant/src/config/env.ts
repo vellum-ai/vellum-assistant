@@ -76,8 +76,8 @@ export function setIngressPublicBaseUrl(value: string | undefined): void {
 
 // ── Runtime HTTP ─────────────────────────────────────────────────────────────
 
-export function getRuntimeHttpPort(): number | undefined {
-  return int('RUNTIME_HTTP_PORT');
+export function getRuntimeHttpPort(): number {
+  return int('RUNTIME_HTTP_PORT') ?? 7821;
 }
 
 export function getRuntimeHttpHost(): string {
@@ -161,7 +161,7 @@ export function validateEnv(): void {
   }
 
   const httpPort = getRuntimeHttpPort();
-  if (httpPort !== undefined && (httpPort < 1 || httpPort > 65535)) {
+  if (httpPort < 1 || httpPort > 65535) {
     throw new Error(`Invalid RUNTIME_HTTP_PORT: ${httpPort} (must be 1-65535)`);
   }
 
