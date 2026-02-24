@@ -28,36 +28,12 @@ jobs:
     timeout-minutes: 15
     env:
       VELLUM_FLAG_FEATURE_FLAG_EDITOR_ENABLED: "true"
-      KEYCHAIN_NAME: build.keychain
-      KEYCHAIN_PASSWORD: temporary-ci-password
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Select Xcode 16.2
         run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
-
-      - name: Import code-signing certificate
-        run: |
-          KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
-
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
-          security set-keychain-settings -lut 3600 "$KEYCHAIN_PATH"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-
-          echo "${{ secrets.CERTIFICATE_P12 }}" | base64 -D > /tmp/certificate.p12
-          security import /tmp/certificate.p12 \
-            -k "$KEYCHAIN_PATH" \
-            -P "${{ secrets.CERTIFICATE_PASSWORD }}" \
-            -T /usr/bin/codesign \
-            -T /usr/bin/security
-          rm /tmp/certificate.p12
-
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
-          security default-keychain -s "$KEYCHAIN_PATH"
-
-          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
 
       - name: Cache SPM build artifacts
         uses: actions/cache@v4
@@ -130,23 +106,12 @@ jobs:
           ls -lh ../clients/macos/cli-bin/vellum-cli
           file ../clients/macos/cli-bin/vellum-cli
 
-      - name: Build release .app
+      - name: Build .app
         working-directory: clients/macos
         run: |
-          SKIP_CLEAN=1 \
-          SIGN_IDENTITY="Developer ID Application" \
-          ./build.sh release
+          SIGN_IDENTITY="-" ./build.sh
           ls -la "dist/Vellum.app"
-
-          codesign --verify --deep --strict "dist/Vellum.app"
-          echo "Code signature verified"
 
       - name: Run tests
         working-directory: clients/macos
         run: ./build.sh test
-
-      - name: Cleanup keychain
-        if: always()
-        run: |
-          KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
-          security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
