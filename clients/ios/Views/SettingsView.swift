@@ -5,7 +5,6 @@ import VellumAssistantShared
 struct SettingsView: View {
     @EnvironmentObject var clientProvider: ClientProvider
     @Bindable var authManager: AuthManager
-    @AppStorage(UserDefaultsKeys.appearanceMode) private var appearanceMode: String = "system"
     @Binding var navigateToConnect: Bool
 
     var body: some View {
@@ -61,13 +60,10 @@ struct SettingsView: View {
                     }
                 }
 
-                Section("Appearance") {
-                    Picker("Theme", selection: $appearanceMode) {
-                        Text("System").tag("system")
-                        Text("Light").tag("light")
-                        Text("Dark").tag("dark")
-                    }
-                    .pickerStyle(.segmented)
+                NavigationLink {
+                    AppearanceSection()
+                } label: {
+                    Label("Appearance", systemImage: "paintbrush")
                 }
 
                 Section("Permissions") {
