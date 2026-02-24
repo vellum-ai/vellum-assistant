@@ -107,7 +107,7 @@ public struct ToolConfirmationData: Equatable {
     /// Used in the "More details" section so the user can see exactly what will happen.
     public var fullInputPreview: String {
         switch toolName {
-        case "bash", "host_bash":
+        case "bash":
             let command = (input["command"]?.value as? String) ?? ""
             var extras: [String] = []
             if let networkMode = input["network_mode"]?.value as? String, !networkMode.isEmpty {
@@ -122,6 +122,12 @@ public struct ToolConfirmationData: Equatable {
             }
             if extras.isEmpty { return command }
             return command + "\n\n" + extras.joined(separator: "\n")
+        case "host_bash":
+            let command = (input["command"]?.value as? String) ?? ""
+            if let timeout = input["timeout_seconds"]?.value {
+                return command + "\n\ntimeout_seconds: \(timeout)"
+            }
+            return command
         default:
             break
         }
