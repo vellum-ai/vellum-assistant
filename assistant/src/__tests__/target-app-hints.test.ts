@@ -60,8 +60,13 @@ describe('resolveComputerUseTargetAppHint', () => {
       expect(result).toEqual({ appName: 'Discord', bundleId: 'com.hnc.Discord' });
     });
 
-    test('matches "zoom"', () => {
-      const result = resolveComputerUseTargetAppHint('join the zoom meeting');
+    test('matches "open zoom"', () => {
+      const result = resolveComputerUseTargetAppHint('open zoom and join the call');
+      expect(result).toEqual({ appName: 'zoom.us', bundleId: 'us.zoom.xos' });
+    });
+
+    test('matches "zoom app"', () => {
+      const result = resolveComputerUseTargetAppHint('check the zoom app');
       expect(result).toEqual({ appName: 'zoom.us', bundleId: 'us.zoom.xos' });
     });
 
@@ -102,6 +107,11 @@ describe('resolveComputerUseTargetAppHint', () => {
       const result = resolveComputerUseTargetAppHint('use iterm2 for this');
       expect(result).toEqual({ appName: 'iTerm', bundleId: 'com.googlecode.iterm2' });
     });
+
+    test('"open terminal in iterm2" resolves to iTerm', () => {
+      const result = resolveComputerUseTargetAppHint('open terminal in iterm2');
+      expect(result).toEqual({ appName: 'iTerm', bundleId: 'com.googlecode.iterm2' });
+    });
   });
 
   // ── IDEs ───────────────────────────────────────────────────────────
@@ -121,8 +131,13 @@ describe('resolveComputerUseTargetAppHint', () => {
       expect(result).toEqual({ appName: 'Visual Studio Code', bundleId: 'com.microsoft.VSCode' });
     });
 
-    test('matches "cursor"', () => {
+    test('matches "open cursor"', () => {
       const result = resolveComputerUseTargetAppHint('open cursor and edit the file');
+      expect(result).toEqual({ appName: 'Cursor', bundleId: 'com.todesktop.230313mzl4w4u92' });
+    });
+
+    test('matches "cursor app"', () => {
+      const result = resolveComputerUseTargetAppHint('check the cursor app');
       expect(result).toEqual({ appName: 'Cursor', bundleId: 'com.todesktop.230313mzl4w4u92' });
     });
 
@@ -242,6 +257,26 @@ describe('resolveComputerUseTargetAppHint', () => {
 
     test('"terminal velocity" does NOT return Terminal', () => {
       const result = resolveComputerUseTargetAppHint('terminal velocity of the object');
+      expect(result).toBeUndefined();
+    });
+
+    test('"move cursor to the submit button" does NOT return Cursor', () => {
+      const result = resolveComputerUseTargetAppHint('move cursor to the submit button');
+      expect(result).toBeUndefined();
+    });
+
+    test('"zoom in on the chart" does NOT return Zoom', () => {
+      const result = resolveComputerUseTargetAppHint('zoom in on the chart');
+      expect(result).toBeUndefined();
+    });
+
+    test('"login terminal" does NOT return Terminal (word boundary)', () => {
+      const result = resolveComputerUseTargetAppHint('login terminal');
+      expect(result).toBeUndefined();
+    });
+
+    test('"domain mail server" does NOT return Mail (word boundary)', () => {
+      const result = resolveComputerUseTargetAppHint('domain mail server');
       expect(result).toBeUndefined();
     });
 

@@ -19,7 +19,7 @@ function contextPattern(word: string): RegExp {
   // Deliberately excludes "the" — too many false positives
   // ("the settings in the config", "the messages carefully").
   return new RegExp(
-    `(?:(?:(?:open|launch|switch\\s+to|in|test|qa|check|use)\\s+)${word}|${word}\\s+app)\\b`,
+    `(?:(?:(?:^|\\b)(?:open|launch|switch\\s+to|in|test|qa|check|use)\\s+)${word}|\\b${word}\\s+app)\\b`,
     'i',
   );
 }
@@ -79,7 +79,7 @@ export const APP_HINTS: AppHintEntry[] = [
     bundleId: 'com.hnc.Discord',
   },
   {
-    patterns: [/\bzoom\b/],
+    patterns: [contextPattern('zoom')],
     appName: 'zoom.us',
     bundleId: 'us.zoom.xos',
   },
@@ -95,14 +95,14 @@ export const APP_HINTS: AppHintEntry[] = [
     bundleId: 'dev.warp.Warp-Stable',
   },
   {
-    patterns: [contextPattern('terminal')],
-    appName: 'Terminal',
-    bundleId: 'com.apple.Terminal',
-  },
-  {
     patterns: [/\biterm2?\b/],
     appName: 'iTerm',
     bundleId: 'com.googlecode.iterm2',
+  },
+  {
+    patterns: [contextPattern('terminal')],
+    appName: 'Terminal',
+    bundleId: 'com.apple.Terminal',
   },
   // IDEs
   {
@@ -111,7 +111,7 @@ export const APP_HINTS: AppHintEntry[] = [
     bundleId: 'com.microsoft.VSCode',
   },
   {
-    patterns: [/\bcursor\b/],
+    patterns: [contextPattern('cursor')],
     appName: 'Cursor',
     bundleId: 'com.todesktop.230313mzl4w4u92',
   },
