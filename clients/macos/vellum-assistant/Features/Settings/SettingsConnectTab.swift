@@ -57,6 +57,7 @@ struct SettingsConnectTab: View {
             refreshBearerToken()
             store.refreshChannelGuardianStatus(channel: "telegram")
             store.refreshChannelGuardianStatus(channel: "sms")
+            store.refreshChannelGuardianStatus(channel: "voice")
             gatewayExpanded = store.ingressPublicBaseUrl.isEmpty
         }
         .onChange(of: store.ingressPublicBaseUrl) { _, newValue in
@@ -533,6 +534,9 @@ struct SettingsConnectTab: View {
                     value: store.twilioPhoneNumber ?? "",
                     valueFont: VFont.mono
                 )
+
+                Divider().background(VColor.surfaceBorder)
+                guardianStatusRow(channel: "voice")
             } else if store.twilioHasCredentials {
                 channelStatusRow(
                     label: "Credentials",
@@ -754,6 +758,11 @@ struct SettingsConnectTab: View {
                !displayName.isEmpty {
                 return displayName
             }
+        } else if channel == "voice" {
+            if let displayName = store.voiceGuardianDisplayName?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !displayName.isEmpty {
+                return displayName
+            }
         }
         return identity
     }
@@ -773,11 +782,46 @@ struct SettingsConnectTab: View {
 
     @ViewBuilder
     private func guardianStatusRow(channel: String) -> some View {
-        let identity: String? = channel == "telegram" ? store.telegramGuardianIdentity : store.smsGuardianIdentity
-        let verified: Bool = channel == "telegram" ? store.telegramGuardianVerified : store.smsGuardianVerified
-        let inProgress: Bool = channel == "telegram" ? store.telegramGuardianVerificationInProgress : store.smsGuardianVerificationInProgress
-        let instruction: String? = channel == "telegram" ? store.telegramGuardianInstruction : store.smsGuardianInstruction
-        let error: String? = channel == "telegram" ? store.telegramGuardianError : store.smsGuardianError
+        let identity: String? = {
+            switch channel {
+            case "telegram": return store.telegramGuardianIdentity
+            case "sms": return store.smsGuardianIdentity
+            case "voice": return store.voiceGuardianIdentity
+            default: return nil
+            }
+        }()
+        let verified: Bool = {
+            switch channel {
+            case "telegram": return store.telegramGuardianVerified
+            case "sms": return store.smsGuardianVerified
+            case "voice": return store.voiceGuardianVerified
+            default: return false
+            }
+        }()
+        let inProgress: Bool = {
+            switch channel {
+            case "telegram": return store.telegramGuardianVerificationInProgress
+            case "sms": return store.smsGuardianVerificationInProgress
+            case "voice": return store.voiceGuardianVerificationInProgress
+            default: return false
+            }
+        }()
+        let instruction: String? = {
+            switch channel {
+            case "telegram": return store.telegramGuardianInstruction
+            case "sms": return store.smsGuardianInstruction
+            case "voice": return store.voiceGuardianInstruction
+            default: return nil
+            }
+        }()
+        let error: String? = {
+            switch channel {
+            case "telegram": return store.telegramGuardianError
+            case "sms": return store.smsGuardianError
+            case "voice": return store.voiceGuardianError
+            default: return nil
+            }
+        }()
         let primaryIdentity = guardianPrimaryIdentity(channel: channel, identity: identity)
         let secondaryIdentity = guardianSecondaryIdentity(primary: primaryIdentity, identity: identity)
 
@@ -846,6 +890,9 @@ struct SettingsConnectTab: View {
         if channel == "telegram" {
             let handle = store.telegramBotUsername.map { "@\($0)" } ?? "your bot"
             return "Message \(handle) with the below command within the next 10 minutes"
+        } else if channel == "voice" {
+            let number = store.twilioPhoneNumber ?? "your assistant"
+            return "Call \(number) and say the six-digit code below within the next 10 minutes"
         } else {
             let number = store.twilioPhoneNumber ?? "your assistant"
             return "Text \(number) with the below command within the next 10 minutes"
