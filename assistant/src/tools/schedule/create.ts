@@ -66,6 +66,7 @@ export async function executeScheduleCreate(
     return {
       content: [
         `Schedule created successfully.`,
+        `  ID: ${job.id}`,
         `  Name: ${job.name}`,
         `  Syntax: ${job.syntax}`,
         `  Schedule: ${scheduleDescription}${job.timezone ? ` (${job.timezone})` : ''}`,
