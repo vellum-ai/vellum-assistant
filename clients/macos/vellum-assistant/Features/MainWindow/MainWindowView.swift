@@ -597,6 +597,10 @@ struct MainWindowView: View {
                 .overlay(alignment: .bottomLeading) {
                     // Control center drawer rendered at top level so it floats above all content
                     if showControlCenterDrawer {
+                        let drawerWidth = sidebarExpandedWidth - VSpacing.sm * 2
+                        let drawerX = sidebarExpanded
+                            ? 16 + VSpacing.sm
+                            : 16 + sidebarCollapsedWidth + VSpacing.sm
                         DrawerMenuView(
                             onSettings: {
                                 showControlCenterDrawer = false
@@ -611,8 +615,8 @@ struct MainWindowView: View {
                                 windowState.selection = .panel(.doctor)
                             }
                         )
-                        .frame(width: sidebarExpandedWidth - VSpacing.sm * 2)
-                        .offset(x: 16 + VSpacing.sm, y: -52)
+                        .frame(width: drawerWidth)
+                        .offset(x: drawerX, y: -52)
                         .zIndex(10)
                         .transition(.opacity)
                     }
@@ -671,13 +675,6 @@ struct MainWindowView: View {
         .onReceive(daemonClient.$isConnected) { _ in
             windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected)
             requestHomeBaseDashboardIfNeeded()
-        }
-        .onChange(of: sidebarExpanded) { _, isExpanded in
-            if !isExpanded && showControlCenterDrawer {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
-                    showControlCenterDrawer = false
-                }
-            }
         }
         .onChange(of: selectedThreadId) { _, newId in
             if let newId = newId {
@@ -1102,13 +1099,8 @@ struct MainWindowView: View {
             Spacer()
 
             SidebarNavRow(icon: "gearshape", label: "Control Center", isActive: false, isExpanded: false) {
-                withAnimation(VAnimation.panel) {
-                    sidebarExpanded = true
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
-                        showControlCenterDrawer = true
-                    }
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                    showControlCenterDrawer.toggle()
                 }
             }
         }
