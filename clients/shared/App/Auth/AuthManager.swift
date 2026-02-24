@@ -23,11 +23,13 @@ public final class AuthManager {
     public var isSubmitting = false
     public var errorMessage: String?
 
-    private let authService = AuthService.shared
+    private let authService: AuthService
     private static let callbackScheme = "vellum-assistant"
     private var webAuthSession: ASWebAuthenticationSession?
 
-    public init() {}
+    public init(authService: AuthService = .shared) {
+        self.authService = authService
+    }
 
     public var isAuthenticated: Bool {
         if case .authenticated = state { return true }
@@ -60,6 +62,9 @@ public final class AuthManager {
             } else {
                 state = .unauthenticated
             }
+        } catch AuthServiceError.invalidSessionToken {
+            state = .unauthenticated
+            errorMessage = "Session expired. Please sign in again."
         } catch {
             log.error("Session check failed: \(error.localizedDescription)")
             state = .unauthenticated
@@ -153,6 +158,7 @@ public final class AuthManager {
         } catch {
             log.error("Logout request failed: \(error.localizedDescription)")
         }
+        // Always clear local session state, even if remote logout fails.
         await SessionTokenManager.deleteTokenAsync()
         state = .unauthenticated
         errorMessage = nil
