@@ -405,6 +405,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends an `assistant_inbox_response` message.
     public var onAssistantInboxResponse: ((IPCAssistantInboxResponse) -> Void)?
 
+    /// Called when the daemon sends an `assistant_inbox_reply_response` message.
+    public var onAssistantInboxReplyResponse: ((IPCAssistantInboxReplyResponse) -> Void)?
+
     /// Called when the daemon sends a generic `error` message (e.g. when a handler fails).
     public var onError: ((ErrorMessage) -> Void)?
 
@@ -1074,6 +1077,15 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             limit: limit.map { Double($0) },
             conversationId: conversationId,
             beforeMessageId: beforeMessageId
+        ))
+    }
+
+    /// Send a reply to an inbox thread conversation.
+    public func sendAssistantInboxReply(conversationId: String, content: String) throws {
+        try send(IPCAssistantInboxReplyRequest(
+            type: "assistant_inbox_reply",
+            conversationId: conversationId,
+            content: content
         ))
     }
 

@@ -1,11 +1,18 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Displays the message history for a selected inbox thread in a scrollable timeline.
+/// Displays the message history for a selected inbox thread in a scrollable timeline,
+/// with a reply composer bar at the bottom.
 struct InboxThreadDetailView: View {
     let thread: InboxThread
     @ObservedObject var viewModel: InboxViewModel
     let onBack: () -> Void
+
+    @State private var replyText: String = ""
+
+    private var canSend: Bool {
+        !replyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !viewModel.isSendingReply
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -73,16 +80,86 @@ struct InboxThreadDetailView: View {
                         .padding(VSpacing.lg)
                     }
                     .onAppear {
-                        // Scroll to the latest message
                         if let lastMessage = viewModel.messages.last {
                             proxy.scrollTo(lastMessage.id, anchor: .bottom)
                         }
                     }
+                    .onChange(of: viewModel.messages.count) { _ in
+                        if let lastMessage = viewModel.messages.last {
+                            withAnimation(VAnimation.fast) {
+                                proxy.scrollTo(lastMessage.id, anchor: .bottom)
+                            }
+                        }
+                    }
                 }
+            }
+
+            Divider()
+                .background(VColor.surfaceBorder)
+
+            // Reply composer bar
+            HStack(spacing: VSpacing.sm) {
+                TextField("Reply...", text: $replyText)
+                    .textFieldStyle(.plain)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                    .padding(.horizontal, VSpacing.md)
+                    .padding(.vertical, VSpacing.sm)
+                    .background(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .fill(VColor.surface)
+                    )
+                    .onSubmit {
+                        sendReply()
+                    }
+
+                Button(action: sendReply) {
+                    Group {
+                        if viewModel.isSendingReply {
+                            ProgressView()
+                                .controlSize(.small)
+                                .frame(width: 20, height: 20)
+                        } else {
+                            Image(systemName: "arrow.up.circle.fill")
+                                .font(.system(size: 24))
+                        }
+                    }
+                    .foregroundColor(canSend ? VColor.accent : VColor.textMuted)
+                }
+                .buttonStyle(.plain)
+                .disabled(!canSend)
+                .accessibilityLabel("Send reply")
+            }
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.sm)
+
+            // Send error display
+            if let sendError = viewModel.sendReplyError {
+                Text(sendError)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.error)
+                    .padding(.horizontal, VSpacing.lg)
+                    .padding(.bottom, VSpacing.xs)
             }
         }
         .task {
             await viewModel.loadMessages(conversationId: thread.conversationId)
+        }
+    }
+
+    private func sendReply() {
+        let content = replyText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !content.isEmpty, !viewModel.isSendingReply else { return }
+
+        let conversationId = thread.conversationId
+        replyText = ""
+
+        Task {
+            let success = await viewModel.sendReply(conversationId: conversationId, content: content)
+            if !success {
+                // Restore text so the user can retry
+                replyText = content
+            }
         }
     }
 }
@@ -97,6 +174,8 @@ struct InboxThreadDetailView_Preview: PreviewProvider {
 }
 
 private struct InboxThreadDetailPreviewWrapper: View {
+    @State private var previewReplyText: String = ""
+
     var body: some View {
         ZStack {
             VColor.background.ignoresSafeArea()
@@ -140,6 +219,28 @@ private struct InboxThreadDetailPreviewWrapper: View {
                     }
                     .padding(VSpacing.lg)
                 }
+
+                Divider().background(VColor.surfaceBorder)
+
+                // Simulated composer
+                HStack(spacing: VSpacing.sm) {
+                    TextField("Reply...", text: $previewReplyText)
+                        .textFieldStyle(.plain)
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                        .padding(.horizontal, VSpacing.md)
+                        .padding(.vertical, VSpacing.sm)
+                        .background(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .fill(VColor.surface)
+                        )
+
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 24))
+                        .foregroundColor(previewReplyText.isEmpty ? VColor.textMuted : VColor.accent)
+                }
+                .padding(.horizontal, VSpacing.lg)
+                .padding(.vertical, VSpacing.sm)
             }
         }
     }

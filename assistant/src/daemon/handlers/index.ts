@@ -96,9 +96,6 @@ const inlineHandlers = defineHandlers({
   assistant_inbox_escalation: (_msg, socket, ctx) => {
     ctx.send(socket, { type: 'assistant_inbox_escalation_response', success: false, error: 'Not yet implemented' });
   },
-  assistant_inbox_reply: (_msg, socket, ctx) => {
-    ctx.send(socket, { type: 'assistant_inbox_reply_response', success: false, error: 'Not yet implemented' });
-  },
 
 });
 

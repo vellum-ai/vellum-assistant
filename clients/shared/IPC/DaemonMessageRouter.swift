@@ -250,6 +250,8 @@ extension DaemonClient {
             onParentalControlUpdateResponse?(msg)
         case .assistantInboxResponse(let msg):
             onAssistantInboxResponse?(msg)
+        case .assistantInboxReplyResponse(let msg):
+            onAssistantInboxReplyResponse?(msg)
         default:
             break
         }
