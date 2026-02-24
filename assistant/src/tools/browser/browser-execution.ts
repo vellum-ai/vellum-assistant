@@ -93,6 +93,10 @@ export async function executeBrowserNavigate(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
+  if (context.signal?.aborted) {
+    return { content: 'Error: operation was cancelled', isError: true };
+  }
+
   const parsedUrl = parseUrl(input.url);
   if (!parsedUrl) {
     return { content: 'Error: url is required and must be a valid HTTP(S) URL', isError: true };
@@ -316,6 +320,7 @@ export async function executeBrowserNavigate(
       if (challenge?.type === 'captcha') {
         log.info('CAPTCHA detected, waiting up to 5s for auto-resolve');
         for (let i = 0; i < 5; i++) {
+          if (context.signal?.aborted) break;
           await new Promise((r) => setTimeout(r, 1000));
           const still = await detectCaptchaChallenge(page);
           if (!still) {
@@ -797,6 +802,10 @@ export async function executeBrowserWaitFor(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
+  if (context.signal?.aborted) {
+    return { content: 'Error: operation was cancelled', isError: true };
+  }
+
   const selector = typeof input.selector === 'string' && input.selector ? input.selector : null;
   const text = typeof input.text === 'string' && input.text ? input.text : null;
   const duration = typeof input.duration === 'number' ? input.duration : null;

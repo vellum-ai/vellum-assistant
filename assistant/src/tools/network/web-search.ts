@@ -115,6 +115,7 @@ async function executeBraveSearch(
   offset: number,
   freshness: string | undefined,
   apiKey: string,
+  signal?: AbortSignal,
 ): Promise<ToolExecutionResult> {
   const params = new URLSearchParams({
     q: query,
@@ -136,6 +137,7 @@ async function executeBraveSearch(
         'Accept-Encoding': 'gzip',
         'X-Subscription-Token': apiKey,
       },
+      signal,
     });
 
     if (response.ok) {
@@ -170,6 +172,7 @@ async function executeBraveSearch(
 async function executePerplexitySearch(
   query: string,
   apiKey: string,
+  signal?: AbortSignal,
 ): Promise<ToolExecutionResult> {
   for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
     const response = await fetch(PERPLEXITY_API_URL, {
@@ -184,6 +187,7 @@ async function executePerplexitySearch(
           { role: 'user', content: query },
         ],
       }),
+      signal,
     });
 
     if (response.ok) {
@@ -249,7 +253,7 @@ class WebSearchTool implements Tool {
     };
   }
 
-  async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
+  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
     const query = input.query;
     if (!query || typeof query !== 'string') {
       return { content: 'Error: query is required and must be a string', isError: true };
@@ -281,10 +285,10 @@ class WebSearchTool implements Tool {
         const count = typeof input.count === 'number' ? Math.min(20, Math.max(1, Math.round(input.count))) : 10;
         const offset = typeof input.offset === 'number' ? Math.min(9, Math.max(0, Math.round(input.offset))) : 0;
         const freshness = typeof input.freshness === 'string' ? input.freshness : undefined;
-        return await executeBraveSearch(query, count, offset, freshness, apiKey);
+        return await executeBraveSearch(query, count, offset, freshness, apiKey, context.signal);
       }
 
-      return await executePerplexitySearch(query, apiKey);
+      return await executePerplexitySearch(query, apiKey, context.signal);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       log.error({ err }, 'Web search failed');
