@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import VellumAssistantShared
 
 /// Loads avatar appearance from LOOKS.md, watches for changes, and provides
 /// the current DinoPalette for rendering. @Observable so SwiftUI views reactively update.

@@ -42,6 +42,8 @@ public final class TraceStore: ObservableObject {
     /// Maximum events retained per session.
     public static let retentionCap = 5000
 
+    public init() {}
+
     // MARK: - Ingestion
 
     /// Ingest a trace event message from the daemon.
