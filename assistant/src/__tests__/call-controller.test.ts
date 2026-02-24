@@ -542,8 +542,10 @@ describe('call-controller', () => {
 
         opts.signal?.addEventListener('abort', () => {
           clearTimeout(timeout);
-          const err = new Error('aborted');
-          err.name = 'AbortError';
+          // In the real system, generation_cancelled triggers
+          // onComplete via the event sink. The AbortSignal listener
+          // in call-controller also resolves turnComplete defensively.
+          opts.onComplete();
           resolve({ runId: 'run-1', abort: () => {} });
         }, { once: true });
       });
@@ -557,6 +559,39 @@ describe('call-controller', () => {
 
     const endTurnMarkers = relay.sentTokens.filter((t) => t.token === '' && t.last === true);
     expect(endTurnMarkers.length).toBeGreaterThan(0);
+
+    controller.destroy();
+  });
+
+  test('handleInterrupt: turnComplete settles even when event sink callbacks are not called', async () => {
+    // Simulate a turn that never calls onComplete or onError on abort —
+    // the defensive AbortSignal listener in runTurn() should settle the promise.
+    mockStartVoiceTurn.mockImplementation(async (opts: { signal?: AbortSignal; onTextDelta: (t: string) => void; onComplete: () => void }) => {
+      return new Promise((resolve) => {
+        const timeout = setTimeout(() => {
+          opts.onTextDelta('Long running turn');
+          opts.onComplete();
+          resolve({ runId: 'run-1', abort: () => {} });
+        }, 5000);
+
+        opts.signal?.addEventListener('abort', () => {
+          clearTimeout(timeout);
+          // Intentionally do NOT call onComplete — simulates the old
+          // broken path where generation_cancelled was not forwarded.
+          resolve({ runId: 'run-1', abort: () => {} });
+        }, { once: true });
+      });
+    });
+
+    const { controller } = setupController();
+    const turnPromise = controller.handleCallerUtterance('Start speaking');
+    await new Promise((r) => setTimeout(r, 5));
+    controller.handleInterrupt();
+
+    // Should not hang — the AbortSignal listener resolves the promise
+    await turnPromise;
+
+    expect(controller.getState()).toBe('idle');
 
     controller.destroy();
   });
@@ -581,6 +616,48 @@ describe('call-controller', () => {
     controller.destroy();
     // Second destroy should not throw
     expect(() => controller.destroy()).not.toThrow();
+  });
+
+  test('destroy: during active turn does not trigger post-turn side effects', async () => {
+    // Simulate a turn that completes after destroy() is called
+    mockStartVoiceTurn.mockImplementation(async (opts: { signal?: AbortSignal; onTextDelta: (t: string) => void; onComplete: () => void }) => {
+      return new Promise((resolve) => {
+        const timeout = setTimeout(() => {
+          opts.onTextDelta('This is a long response');
+          opts.onComplete();
+          resolve({ runId: 'run-1', abort: () => {} });
+        }, 1000);
+
+        opts.signal?.addEventListener('abort', () => {
+          clearTimeout(timeout);
+          // The defensive abort listener in runTurn resolves turnComplete
+          opts.onComplete();
+          resolve({ runId: 'run-1', abort: () => {} });
+        }, { once: true });
+      });
+    });
+
+    const { relay, controller } = setupController();
+    const turnPromise = controller.handleCallerUtterance('Start speaking');
+
+    // Let the turn start
+    await new Promise((r) => setTimeout(r, 5));
+
+    // Destroy the controller while the turn is active
+    controller.destroy();
+
+    // Wait for the turn to settle
+    await turnPromise;
+
+    // Verify that NO spurious post-turn side effects occurred after destroy:
+    // - No final empty-string sendTextToken('', true) call after abort
+    // The only end marker should be from handleInterrupt, not from post-turn logic
+    const endMarkers = relay.sentTokens.filter((t) => t.token === '' && t.last === true);
+
+    // destroy() increments llmRunVersion, so isCurrentRun() returns false
+    // for the aborted turn, preventing post-turn side effects including
+    // the spurious relay.sendTextToken('', true) on line 418.
+    expect(endMarkers.length).toBe(0);
   });
 
   // ── handleUserInstruction ─────────────────────────────────────────
