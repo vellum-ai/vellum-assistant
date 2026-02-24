@@ -31,4 +31,13 @@ struct ThreadModel: Identifiable, Hashable {
         self.kind = kind
         self.source = source
     }
+
+    /// Whether this thread was created by a schedule or reminder trigger.
+    /// Falls back to title prefix when source is nil (HTTP mode).
+    var isScheduleThread: Bool {
+        if let source = source {
+            return source == "schedule" || source == "reminder"
+        }
+        return title.hasPrefix("[Schedule]") || title.hasPrefix("[Reminder]")
+    }
 }

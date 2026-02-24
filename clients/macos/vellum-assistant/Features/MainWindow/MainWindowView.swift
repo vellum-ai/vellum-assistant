@@ -926,21 +926,12 @@ struct MainWindowView: View {
         .draggable(thread.id.uuidString)
     }
 
-    /// Whether a thread is a scheduled/reminder conversation, checking source field
-    /// with fallback to legacy title prefixes for HTTP mode where source may be nil.
-    private func isScheduleThread(_ thread: ThreadModel) -> Bool {
-        if let source = thread.source {
-            return source == "schedule" || source == "reminder"
-        }
-        return thread.title.hasPrefix("[Schedule]") || thread.title.hasPrefix("[Reminder]")
-    }
-
     private var regularThreads: [ThreadModel] {
-        threadManager.visibleThreads.filter { !isScheduleThread($0) }
+        threadManager.visibleThreads.filter { !$0.isScheduleThread }
     }
 
     private var scheduleThreads: [ThreadModel] {
-        threadManager.visibleThreads.filter { isScheduleThread($0) }
+        threadManager.visibleThreads.filter { $0.isScheduleThread }
     }
 
     private var displayedThreads: [ThreadModel] {
