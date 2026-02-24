@@ -76,7 +76,7 @@ async function analyzeChunk(
     undefined,
     {
       config: {
-        model: 'claude-sonnet-4-6',
+        modelIntent: 'vision-optimized',
         max_tokens: 4096,
       },
     },

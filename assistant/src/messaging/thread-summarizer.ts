@@ -5,7 +5,7 @@ import type { ThreadMessage, ThreadSummary } from './types.js';
 
 const log = getLogger('thread-summarizer');
 
-const SUMMARIZATION_MODEL = 'claude-haiku-4-5-20251001';
+const SUMMARIZATION_MODEL_INTENT = 'latency-optimized' as const;
 const SUMMARIZATION_TIMEOUT_MS = 20_000;
 const DEFAULT_MAX_TOKENS = 4000;
 const CHARS_PER_TOKEN = 4;
@@ -207,7 +207,7 @@ async function summarizeWithLLM(
         SYSTEM_PROMPT,
         {
           config: {
-            model: SUMMARIZATION_MODEL,
+            modelIntent: SUMMARIZATION_MODEL_INTENT,
             max_tokens: 1024,
             tool_choice: { type: 'tool' as const, name: 'store_thread_summary' },
           },

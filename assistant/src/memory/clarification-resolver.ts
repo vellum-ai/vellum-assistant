@@ -1,7 +1,8 @@
 import { getConfiguredProvider, createTimeout, extractToolUse, userMessage } from '../providers/anthropic-send-message.js';
+import type { ModelIntent } from '../providers/types.js';
 import { truncate } from '../util/truncate.js';
 
-const DEFAULT_RESOLVER_MODEL = 'claude-haiku-4-5-20251001';
+const DEFAULT_RESOLVER_MODEL_INTENT: ModelIntent = 'latency-optimized';
 const DEFAULT_RESOLVER_TIMEOUT_MS = 12_000;
 
 const DIRECTIONAL_EXISTING_CUES = ['existing', 'old', 'previous', 'first', 'earlier', 'original'];
@@ -37,6 +38,7 @@ export interface ClarificationResolverInput {
 export interface ClarificationResolverOptions {
   apiKey?: string;
   model?: string;
+  modelIntent?: ModelIntent;
   timeoutMs?: number;
 }
 
@@ -66,7 +68,8 @@ export async function resolveConflictClarification(
 
   try {
     return await resolveWithLlm(input, {
-      model: options?.model ?? DEFAULT_RESOLVER_MODEL,
+      model: options?.model,
+      modelIntent: options?.modelIntent ?? DEFAULT_RESOLVER_MODEL_INTENT,
       timeoutMs: options?.timeoutMs ?? DEFAULT_RESOLVER_TIMEOUT_MS,
     });
   } catch (err) {
@@ -165,7 +168,7 @@ function resolveWithHeuristics(input: ClarificationResolverInput): Clarification
 
 async function resolveWithLlm(
   input: ClarificationResolverInput,
-  options: { model: string; timeoutMs: number },
+  options: { model?: string; modelIntent: ModelIntent; timeoutMs: number },
 ): Promise<ClarificationResolverResult> {
   const provider = getConfiguredProvider()!;
   const userPrompt = [
@@ -213,7 +216,7 @@ async function resolveWithLlm(
       ].join('\n'),
       {
         config: {
-          model: options.model,
+          ...(options.model ? { model: options.model } : { modelIntent: options.modelIntent }),
           max_tokens: 256,
           tool_choice: { type: 'tool' as const, name: 'resolve_conflict_clarification' },
         },

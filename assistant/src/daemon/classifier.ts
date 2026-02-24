@@ -8,7 +8,7 @@ const CLASSIFICATION_TIMEOUT_MS = 5000;
 export type InteractionType = 'computer_use' | 'text_qa';
 
 /**
- * Classify a user task as computer_use or text_qa using a Haiku tool-use call,
+ * Classify a user task as computer_use or text_qa using an LLM tool-use call,
  * falling back to a heuristic if the API call fails or no API key is available.
  */
 export async function classifyInteraction(task: string, source?: 'voice' | 'text'): Promise<InteractionType> {
@@ -50,7 +50,7 @@ export async function classifyInteraction(task: string, source?: 'voice' | 'text
         'You are a classifier. Determine whether the user\'s request requires computer use (controlling the GUI — clicking, scrolling, typing into app windows, navigating between apps) or can be handled with local tools (answering questions, running terminal commands, creating/editing/reading files, web searches, writing code). GUI tasks → computer_use. Everything else → text_qa.',
         {
           config: {
-            model: 'claude-haiku-4-5-20251001',
+            modelIntent: 'latency-optimized',
             max_tokens: 128,
             tool_choice: { type: 'tool' as const, name: 'classify_interaction' },
           },
@@ -63,7 +63,7 @@ export async function classifyInteraction(task: string, source?: 'voice' | 'text
       if (toolBlock) {
         const input = toolBlock.input as { interaction_type?: string; reasoning?: string };
         const result = input.interaction_type === 'text_qa' ? 'text_qa' : 'computer_use';
-        log.info({ result, reasoning: input.reasoning }, 'Haiku classification');
+        log.info({ result, reasoning: input.reasoning }, 'LLM classification');
         return result;
       }
 
@@ -74,14 +74,14 @@ export async function classifyInteraction(task: string, source?: 'voice' | 'text
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.warn({ err: message }, 'Haiku classification failed, falling back to heuristic');
+    log.warn({ err: message }, 'LLM classification failed, falling back to heuristic');
     return classifyHeuristic(task);
   }
 }
 
 /**
  * Heuristic classifier — direct port of the Swift client's logic.
- * Used as fallback when the Haiku API call is unavailable or fails.
+ * Used as fallback when the LLM API call is unavailable or fails.
  */
 export function classifyHeuristic(task: string): InteractionType {
   const lower = task.toLowerCase().trim();

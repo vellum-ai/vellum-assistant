@@ -2,7 +2,7 @@
  * Channel-agnostic message triage engine.
  *
  * Classifies an inbound message by combining sender context from the
- * contact graph, matching action playbooks, and an LLM call (Haiku)
+ * contact graph, matching action playbooks, and an LLM call
  * for final classification. Results are persisted to the triageResults
  * table for accuracy review.
  */
@@ -23,7 +23,7 @@ import { DEFAULT_TRIAGE_CATEGORIES } from './types.js';
 
 const log = getLogger('triage-engine');
 
-const TRIAGE_MODEL = 'claude-haiku-4-5-20251001';
+const TRIAGE_MODEL_INTENT = 'latency-optimized' as const;
 const TRIAGE_CLASSIFICATION_TIMEOUT_MS = 15_000;
 
 // ── Playbook fetching ────────────────────────────────────────────────
@@ -229,7 +229,7 @@ async function classifyWithLLM(
       systemPrompt,
       {
         config: {
-          model: TRIAGE_MODEL,
+          modelIntent: TRIAGE_MODEL_INTENT,
           max_tokens: 1024,
           tool_choice: { type: 'tool' as const, name: 'store_triage_result' },
         },

@@ -1,6 +1,7 @@
 import type { Provider, ProviderResponse, SendMessageOptions, Message, ToolDefinition } from './types.js';
 import { ProviderError } from '../util/errors.js';
 import { getLogger, isDebug } from '../util/logger.js';
+import { isModelIntent, resolveModelIntent } from './model-intents.js';
 import {
   computeRetryDelay,
   isRetryableNetworkError,
@@ -16,6 +17,37 @@ function isRetryableError(error: unknown): boolean {
     if (error.statusCode === 429 || error.statusCode >= 500) return true;
   }
   return isRetryableNetworkError(error);
+}
+
+function normalizeSendMessageOptions(providerName: string, options?: SendMessageOptions): SendMessageOptions | undefined {
+  const config = options?.config;
+  if (!config) return options;
+
+  const explicitModel = typeof config.model === 'string' && config.model.trim().length > 0
+    ? config.model.trim()
+    : undefined;
+  const intent = isModelIntent(config.modelIntent) ? config.modelIntent : undefined;
+  const hasIntent = config.modelIntent !== undefined;
+
+  if (!hasIntent && explicitModel === config.model) {
+    return options;
+  }
+
+  const nextConfig: Record<string, unknown> = { ...config };
+  delete nextConfig.modelIntent;
+
+  if (explicitModel) {
+    nextConfig.model = explicitModel;
+  } else if (intent) {
+    nextConfig.model = resolveModelIntent(providerName, intent);
+  } else {
+    delete nextConfig.model;
+  }
+
+  return {
+    ...options,
+    config: nextConfig,
+  };
 }
 
 export class RetryProvider implements Provider {
@@ -42,10 +74,12 @@ export class RetryProvider implements Provider {
       }, 'Provider sendMessage start');
     }
 
+    const normalizedOptions = normalizeSendMessageOptions(this.name, options);
+
     for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
       try {
         const start = Date.now();
-        const result = await this.inner.sendMessage(messages, tools, systemPrompt, options);
+        const result = await this.inner.sendMessage(messages, tools, systemPrompt, normalizedOptions);
         if (debug) {
           log.debug({
             provider: this.name,

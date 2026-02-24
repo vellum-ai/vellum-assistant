@@ -70,6 +70,11 @@ export interface ToolDefinition {
   input_schema: object;
 }
 
+export type ModelIntent =
+  | 'latency-optimized'
+  | 'quality-optimized'
+  | 'vision-optimized';
+
 export interface ProviderResponse {
   content: ContentBlock[];
   model: string;
@@ -92,8 +97,14 @@ export type ProviderEvent =
   | { type: 'thinking_delta'; thinking: string }
   | { type: 'input_json_delta'; toolName: string; accumulatedJson: string };
 
+export interface SendMessageConfig {
+  model?: string;
+  modelIntent?: ModelIntent;
+  [key: string]: unknown;
+}
+
 export interface SendMessageOptions {
-  config?: object;
+  config?: SendMessageConfig;
   onEvent?: (event: ProviderEvent) => void;
   signal?: AbortSignal;
 }

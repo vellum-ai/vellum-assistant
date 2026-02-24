@@ -243,7 +243,7 @@ async function classifyRelationship(
       CONTRADICTION_SYSTEM_PROMPT,
       {
         config: {
-          model: 'claude-haiku-4-5-20251001',
+          modelIntent: 'latency-optimized',
           max_tokens: 256,
           tool_choice: { type: 'tool' as const, name: 'classify_relationship' },
         },

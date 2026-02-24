@@ -897,7 +897,7 @@ async function generateSkillIcon(name: string, description: string): Promise<str
     'You are a pixel art icon designer. When asked, return ONLY a single <svg> element — no explanation, no markdown, no code fences. The SVG must be a 16x16 grid pixel art icon using <rect> elements. Use a limited palette (3-5 colors). Keep it under 2KB. The viewBox should be "0 0 16 16" with each pixel being a 1x1 rect.',
     {
       config: {
-        model: 'claude-haiku-4-5-20251001',
+        modelIntent: 'latency-optimized',
         max_tokens: 1024,
       },
     },

@@ -62,7 +62,7 @@ export async function handleWatchObservation(
       'Observation added to session',
     );
 
-    // 4. Every 3 observations: call Haiku for live commentary (chat-initiated watch only)
+    // 4. Every 3 observations: call the LLM for live commentary (chat-initiated watch only)
     if (!session.isRideShotgun && session.observations.length % 3 === 0) {
       log.debug(
         { watchId: msg.watchId, observationCount: session.observations.length },
@@ -126,7 +126,7 @@ async function generateCommentary(session: WatchSession): Promise<void> {
       systemPrompt,
       {
         config: {
-          model: 'claude-haiku-4-5-20251001',
+          modelIntent: 'latency-optimized',
           max_tokens: 200,
         },
       },
@@ -155,7 +155,7 @@ export async function generateSummary(session: WatchSession): Promise<void> {
   try {
     log.debug(
       { watchId: session.watchId, sessionId: session.sessionId, observationCount: session.observations.length, commentaryCount: session.commentaryCount },
-      'generateSummary starting — calling Sonnet',
+      'generateSummary starting — calling LLM',
     );
     const provider = getConfiguredProvider();
     if (!provider) {
@@ -244,13 +244,13 @@ export async function generateSummary(session: WatchSession): Promise<void> {
       systemPrompt,
       {
         config: {
-          model: 'claude-sonnet-4-6',
+          modelIntent: 'quality-optimized',
           max_tokens: 2000,
         },
       },
     );
 
-    log.debug({ watchId: session.watchId }, 'Sonnet API call completed successfully');
+    log.debug({ watchId: session.watchId }, 'LLM API call completed successfully');
 
     const summaryText = extractText(response);
 
@@ -269,7 +269,7 @@ export async function generateSummary(session: WatchSession): Promise<void> {
       fireWatchCompletionNotifier(session.sessionId, session);
     }
   } catch (err) {
-    log.error({ err, watchId: session.watchId }, 'Error generating watch summary — Sonnet API call failed');
+    log.error({ err, watchId: session.watchId }, 'Error generating watch summary — LLM API call failed');
     const message = err instanceof Error ? err.message : String(err);
     lastSummaryBySession.set(session.sessionId, `[error] Summary generation failed: ${message}`);
     fireWatchCompletionNotifier(session.sessionId, session);

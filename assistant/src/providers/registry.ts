@@ -9,15 +9,7 @@ import { RetryProvider } from "./retry.js";
 import { FailoverProvider } from "./failover.js";
 import { wrapWithLogfire } from "../logfire.js";
 import { ConfigError } from "../util/errors.js";
-
-const DEFAULT_MODELS: Record<string, string> = {
-  anthropic: 'claude-opus-4-6',
-  openai: 'gpt-5.2',
-  gemini: 'gemini-3-flash',
-  ollama: 'llama3.2',
-  fireworks: 'accounts/fireworks/models/kimi-k2p5',
-  openrouter: 'x-ai/grok-4',
-};
+import { getProviderDefaultModel } from "./model-intents.js";
 
 const providers = new Map<string, Provider>();
 let cachedFailoverProvider: FailoverProvider | null = null;
@@ -82,7 +74,7 @@ export function listProviders(): string[] {
  * Falls back to the Anthropic default if the provider name is unknown.
  */
 export function getDefaultModel(providerName: string): string {
-  return DEFAULT_MODELS[providerName] ?? DEFAULT_MODELS.anthropic;
+  return getProviderDefaultModel(providerName);
 }
 
 export interface ProvidersConfig {
@@ -93,16 +85,16 @@ export interface ProvidersConfig {
   timeouts?: { providerStreamTimeoutSec?: number };
 }
 
-function resolveModel(config: ProvidersConfig, providerName: keyof typeof DEFAULT_MODELS): string {
+function resolveModel(config: ProvidersConfig, providerName: string): string {
   if (config.provider === providerName) {
     // If a non-Anthropic provider is selected with the untouched global default
     // model, use a provider-appropriate fallback instead.
-    if (providerName !== 'anthropic' && config.model === DEFAULT_MODELS.anthropic) {
-      return DEFAULT_MODELS[providerName];
+    if (providerName !== 'anthropic' && config.model === getProviderDefaultModel('anthropic')) {
+      return getProviderDefaultModel(providerName);
     }
     return config.model;
   }
-  return DEFAULT_MODELS[providerName];
+  return getProviderDefaultModel(providerName);
 }
 
 export function initializeProviders(config: ProvidersConfig): void {
