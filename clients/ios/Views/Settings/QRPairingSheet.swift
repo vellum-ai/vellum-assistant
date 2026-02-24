@@ -121,7 +121,7 @@ struct QRPairingSheet: View {
                 .cornerRadius(VRadius.md)
                 .padding(.horizontal, VSpacing.xl)
 
-                if payload.mode == "local" {
+                if payload.allowLocalHttp {
                     HStack(spacing: 6) {
                         Image(systemName: "laptopcomputer.and.iphone")
                             .foregroundColor(VColor.warning)
@@ -294,7 +294,10 @@ struct QRPairingSheet: View {
             return
         }
 
-        // Validate HTTP scheme — require HTTPS for non-local, or devLocalPairingEnabled for local HTTP
+        let allowLocalHttp = json["allowLocalHttp"] as? Bool ?? false
+        let localLanUrl = json["localLanUrl"] as? String
+
+        // Validate HTTP scheme — require HTTPS for non-local, or allowLocalHttp/devLocalPairingEnabled for local HTTP
         if let url = URL(string: gatewayURL), url.scheme?.lowercased() == "http" {
             guard let host = url.host, !host.isEmpty else {
                 errorMessage = "Invalid HTTP URL — no host found."
@@ -307,20 +310,22 @@ struct QRPairingSheet: View {
                 phase = .error
                 return
             }
-            if !devLocalPairingEnabled {
+            // v3: QR payload carries the permission
+            // v2 fallback: check iOS developer toggle
+            if !allowLocalHttp && !devLocalPairingEnabled {
                 errorMessage = "Enable 'Allow Local HTTP Connections' under Developer Options in connection settings."
                 phase = .error
                 return
             }
         }
 
-        let mode = json["m"] as? String
-
         let payload = DaemonQRPayload(
             gatewayURL: gatewayURL,
             bearerToken: bearerToken,
             hostId: hostId,
-            mode: mode
+            mode: json["m"] as? String,
+            allowLocalHttp: allowLocalHttp,
+            localLanUrl: localLanUrl
         )
         scannedPayload = payload
 
@@ -443,11 +448,13 @@ struct QRPairingSheet: View {
     }
 }
 
-/// Parsed QR code payload from the macOS pairing QR code (v2 gateway format).
+/// Parsed QR code payload from the macOS pairing QR code (v2/v3 gateway format).
 struct DaemonQRPayload {
     let gatewayURL: String
     let bearerToken: String
     let hostId: String
-    let mode: String?  // "gateway", "local", or nil (legacy)
+    let mode: String?           // v2 compat — "gateway", "local", or nil
+    let allowLocalHttp: Bool    // v3 — whether iOS should accept local HTTP
+    let localLanUrl: String?    // v3 — LAN URL for display
 }
 #endif

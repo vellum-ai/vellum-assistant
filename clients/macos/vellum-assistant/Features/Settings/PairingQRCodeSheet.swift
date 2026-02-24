@@ -2,8 +2,13 @@ import CryptoKit
 import SwiftUI
 import VellumAssistantShared
 
-/// Displays a QR code containing the v2 connection payload for iOS pairing.
-/// Payload format: `{"type":"vellum-daemon","v":2,"id":"<mac-hash>","g":"<gateway-url>","bt":"<bearer-token>"}`
+/// Displays a QR code containing the v3 connection payload for iOS pairing.
+///
+/// Normal gateway mode payload:
+/// `{"type":"vellum-daemon","v":3,"id":"<mac-hash>","g":"<gateway-url>","bt":"<bearer-token>"}`
+///
+/// Developer local pairing mode payload:
+/// `{"type":"vellum-daemon","v":3,"id":"<mac-hash>","g":"<lan-url>","bt":"<bearer-token>","localLanUrl":"<lan-url>","allowLocalHttp":true}`
 ///
 /// Below the QR code, shows the gateway URL and bearer token for manual entry on iOS.
 @MainActor
@@ -103,6 +108,9 @@ struct PairingQRCodeSheet: View {
                             Text("Developer mode — local network")
                                 .font(VFont.body)
                                 .foregroundColor(VColor.warning)
+                            Text("iOS will accept local HTTP")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.warning)
                             Text(gatewayUrl)
                                 .font(VFont.mono)
                                 .foregroundColor(VColor.textMuted)
@@ -123,7 +131,7 @@ struct PairingQRCodeSheet: View {
             }
 
             Text(isLocalOverride && canGenerateQR
-                 ? "Scan this QR code with the Vellum iOS app. Developer Local Pairing must be enabled on the iPhone."
+                 ? "Scan this QR code with the Vellum iOS app. iOS will automatically accept local HTTP from this QR code."
                  : "Scan this QR code with the Vellum iOS app to connect.")
                 .font(VFont.body)
                 .foregroundColor(VColor.textSecondary)
@@ -234,14 +242,18 @@ struct PairingQRCodeSheet: View {
     private func generateQRImage() -> NSImage? {
         guard canGenerateQR else { return nil }
 
-        let payload: [String: Any] = [
+        var payload: [String: Any] = [
             "type": "vellum-daemon",
-            "v": 2,
+            "v": 3,
             "id": hostId,
             "g": gatewayUrl,
             "bt": resolvedBearerToken,
-            "m": isLocalOverride ? "local" : "gateway",
         ]
+
+        if isLocalOverride {
+            payload["allowLocalHttp"] = true
+            payload["localLanUrl"] = gatewayUrl
+        }
 
         guard let jsonData = try? JSONSerialization.data(withJSONObject: payload),
               let jsonString = String(data: jsonData, encoding: .utf8) else {
