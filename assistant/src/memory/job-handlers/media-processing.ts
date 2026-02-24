@@ -36,14 +36,14 @@ export async function mediaProcessingJob(job: MemoryJob): Promise<void> {
   }
 
   const handlers: Record<PipelineStageName, StageHandler> = {
-    preprocess: { execute: (assetId, onProgress) => preprocessForAsset(assetId, {}, onProgress) },
-    map: { execute: (assetId, onProgress) => mapSegmentsForAsset(assetId, {
+    preprocess: { execute: async (assetId, onProgress) => { await preprocessForAsset(assetId, {}, onProgress); } },
+    map: { execute: async (assetId, onProgress) => { await mapSegmentsForAsset(assetId, {
       systemPrompt: 'Describe what you see in these video frames. For each frame, note: subjects present, actions occurring, scene context, and any text visible.',
       outputSchema: { type: 'object', properties: { frames: { type: 'array', items: { type: 'object', properties: { timestamp: { type: 'number' }, subjects: { type: 'array', items: { type: 'string' } }, actions: { type: 'array', items: { type: 'string' } }, scene: { type: 'string' }, text: { type: 'string' } } } } } }
-    }, onProgress) },
-    reduce: { execute: (assetId, onProgress) => reduceForAsset(assetId, {
+    }, onProgress); } },
+    reduce: { execute: async (assetId, onProgress) => { await reduceForAsset(assetId, {
       systemPrompt: 'Summarize the video content based on the structured observations.',
-    }, onProgress) },
+    }, onProgress); } },
   };
 
   const result = await runPipeline(mediaAssetId, handlers, {

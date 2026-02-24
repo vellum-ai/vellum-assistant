@@ -362,7 +362,7 @@ export function describeCronExpression(expr: string): string {
     const cron = new Cron(expr, { maxRuns: 0 });
     // Access Croner internal state to extract the parsed cron pattern.
     // This is fragile but necessary — Croner doesn't expose a public API for this.
-    const cronInternal = cron as Record<string, unknown>;
+    const cronInternal = cron as unknown as Record<string, unknown>;
     const states = cronInternal._states;
     if (!states || typeof states !== 'object') return expr;
     const p = (states as Record<string, unknown>).pattern;

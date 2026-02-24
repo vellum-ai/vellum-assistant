@@ -1,7 +1,7 @@
 import { join, dirname } from 'node:path';
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
 import { getMediaAssetById, getKeyframesForAsset } from '../../../../memory/media-store.js';
-import { preprocessForAsset, type PreprocessOptions, type PreprocessManifest } from '../services/preprocess.js';
+import { preprocessForAsset, type PreprocessOptions } from '../services/preprocess.js';
 
 export { preprocessForAsset } from '../services/preprocess.js';
 

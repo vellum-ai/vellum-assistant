@@ -5,9 +5,7 @@ import type {
 } from '../ipc-protocol.js';
 import { log, defineHandlers, type HandlerContext } from './shared.js';
 import {
-  isDeviceApproved,
   approveDevice,
-  refreshDevice,
   removeDevice,
   clearAllDevices,
   listDevices,
@@ -26,7 +24,7 @@ export function initPairingHandlers(store: PairingStore, bearerToken: string | u
 function handlePairingApprovalResponse(
   msg: PairingApprovalResponse,
   _socket: net.Socket,
-  ctx: HandlerContext,
+  _ctx: HandlerContext,
 ): void {
   if (!pairingStoreRef) {
     log.warn('Pairing store not initialized');

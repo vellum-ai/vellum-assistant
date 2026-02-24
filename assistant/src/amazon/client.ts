@@ -54,7 +54,7 @@ import {
 } from './session.js';
 import type { ExtractedCredential } from '../tools/browser/network-recording-types.js';
 import { extensionRelayServer } from '../browser-extension-relay/server.js';
-import type { ExtensionResponse } from '../browser-extension-relay/protocol.js';
+import type { ExtensionCommand, ExtensionResponse } from '../browser-extension-relay/protocol.js';
 import { readHttpToken } from '../util/platform.js';
 import { getRuntimeHttpPort } from '../config/env.js';
 
@@ -72,7 +72,7 @@ async function sendRelayCommand(command: Record<string, unknown>): Promise<Exten
   // Try in-process relay first (works when running inside the daemon)
   const status = extensionRelayServer.getStatus();
   if (status.connected) {
-    return extensionRelayServer.sendCommand(command as any);
+    return extensionRelayServer.sendCommand(command as Omit<ExtensionCommand, 'id'>);
   }
 
   // Fall back to HTTP relay endpoint on the daemon
@@ -163,7 +163,7 @@ async function findAmazonTab(): Promise<number> {
 let lastCookieSyncTime = 0;
 const COOKIE_SYNC_INTERVAL = 60_000; // re-sync at most once per minute
 
-async function syncCookiesToBrowser(cookies: ExtractedCredential[]): Promise<void> {
+async function _syncCookiesToBrowser(cookies: ExtractedCredential[]): Promise<void> {
   const now = Date.now();
   if (now - lastCookieSyncTime < COOKIE_SYNC_INTERVAL) return;
 
@@ -212,7 +212,7 @@ async function cdpEval(tabId: number, script: string): Promise<unknown> {
   }
 
   const value = resp.result;
-  if (value === undefined || value === null) {
+  if (value == null) {
     throw new Error('Empty browser eval response');
   }
 

@@ -183,6 +183,7 @@ export const AssistantConfigSchema = z.object({
   thinking: ThinkingConfigSchema.default({
     enabled: false,
     budgetTokens: 10000,
+    streamThinking: false,
   }),
   contextWindow: ContextWindowConfigSchema.default({
     enabled: true,

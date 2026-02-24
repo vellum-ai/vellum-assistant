@@ -639,6 +639,7 @@ describe('Shell tool input validation', () => {
 
   const baseContext = {
     workingDir: testTmpDir,
+    sessionId: 'test-session-1',
     conversationId: 'test-conv-1',
     onOutput: () => {},
   };
@@ -702,13 +703,14 @@ describe('Shell tool input validation', () => {
 
   test('tool definition includes required schema fields', () => {
     const def = shellTool.getDefinition();
+    const schema = def.input_schema as { required: string[]; properties: Record<string, unknown> };
     expect(def.name).toBe('bash');
-    expect(def.input_schema.required).toContain('command');
-    expect(def.input_schema.required).toContain('reason');
-    expect(def.input_schema.properties.command).toBeDefined();
-    expect(def.input_schema.properties.timeout_seconds).toBeDefined();
-    expect(def.input_schema.properties.network_mode).toBeDefined();
-    expect(def.input_schema.properties.credential_ids).toBeDefined();
+    expect(schema.required).toContain('command');
+    expect(schema.required).toContain('reason');
+    expect(schema.properties.command).toBeDefined();
+    expect(schema.properties.timeout_seconds).toBeDefined();
+    expect(schema.properties.network_mode).toBeDefined();
+    expect(schema.properties.credential_ids).toBeDefined();
   });
 });
 
@@ -786,6 +788,7 @@ describe('EvaluateTypescriptTool input validation', () => {
 
   const baseContext = {
     workingDir: testTmpDir,
+    sessionId: 'test-session-1',
     conversationId: 'test-conv-1',
     onOutput: () => {},
   };
@@ -831,12 +834,13 @@ describe('EvaluateTypescriptTool input validation', () => {
 
   test('tool definition has correct name and schema', () => {
     const def = evalTool.getDefinition();
+    const schema = def.input_schema as { required: string[]; properties: Record<string, unknown> };
     expect(def.name).toBe('evaluate_typescript_code');
-    expect(def.input_schema.required).toContain('code');
-    expect(def.input_schema.properties.code).toBeDefined();
-    expect(def.input_schema.properties.mock_input_json).toBeDefined();
-    expect(def.input_schema.properties.timeout_seconds).toBeDefined();
-    expect(def.input_schema.properties.filename).toBeDefined();
-    expect(def.input_schema.properties.entrypoint).toBeDefined();
+    expect(schema.required).toContain('code');
+    expect(schema.properties.code).toBeDefined();
+    expect(schema.properties.mock_input_json).toBeDefined();
+    expect(schema.properties.timeout_seconds).toBeDefined();
+    expect(schema.properties.filename).toBeDefined();
+    expect(schema.properties.entrypoint).toBeDefined();
   });
 });

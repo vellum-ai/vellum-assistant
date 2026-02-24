@@ -44,7 +44,7 @@ describe('WebSearchTool', () => {
       globalThis.fetch = (async () => {
         fetchCalled = true;
         return new Response('{}', { status: 200 });
-      }) as typeof fetch;
+      }) as unknown as typeof fetch;
 
       process.env.BRAVE_API_KEY = 'test-key';
 
@@ -73,7 +73,7 @@ describe('WebSearchTool', () => {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         });
-      }) as typeof fetch;
+      }) as unknown as typeof fetch;
 
       await executeWebSearch({ query: 'test', count: 50 }, 'test-key', 'brave');
       expect(capturedUrl).toContain('count=20');
@@ -90,7 +90,7 @@ describe('WebSearchTool', () => {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         });
-      }) as typeof fetch;
+      }) as unknown as typeof fetch;
 
       await executeWebSearch({ query: 'test', offset: 20 }, 'test-key', 'brave');
       expect(capturedUrl).toContain('offset=9');
@@ -104,7 +104,7 @@ describe('WebSearchTool', () => {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         });
-      }) as typeof fetch;
+      }) as unknown as typeof fetch;
 
       await executeWebSearch({ query: 'test', freshness: 'pw' }, 'test-key', 'brave');
       expect(capturedUrl).toContain('freshness=pw');
@@ -118,7 +118,7 @@ describe('WebSearchTool', () => {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         });
-      }) as typeof fetch;
+      }) as unknown as typeof fetch;
 
       await executeWebSearch({ query: 'test', freshness: 'invalid' }, 'test-key', 'brave');
       expect(capturedUrl).not.toContain('freshness');
@@ -141,7 +141,7 @@ describe('WebSearchTool', () => {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         })
-      ) as typeof fetch;
+      ) as unknown as typeof fetch;
 
       const result = await executeWebSearch({ query: 'test' }, 'test-key', 'brave');
       expect(result.isError).toBe(false);
@@ -158,7 +158,7 @@ describe('WebSearchTool', () => {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         })
-      ) as typeof fetch;
+      ) as unknown as typeof fetch;
 
       const result = await executeWebSearch({ query: 'noresults' }, 'test-key', 'brave');
       expect(result.isError).toBe(false);
@@ -171,7 +171,7 @@ describe('WebSearchTool', () => {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         })
-      ) as typeof fetch;
+      ) as unknown as typeof fetch;
 
       const result = await executeWebSearch({ query: 'empty' }, 'test-key', 'brave');
       expect(result.isError).toBe(false);
@@ -181,7 +181,7 @@ describe('WebSearchTool', () => {
     test('handles 401 unauthorized', async () => {
       globalThis.fetch = (async () =>
         new Response('Unauthorized', { status: 401 })
-      ) as typeof fetch;
+      ) as unknown as typeof fetch;
 
       const result = await executeWebSearch({ query: 'test' }, 'bad-key', 'brave');
       expect(result.isError).toBe(true);
@@ -199,7 +199,7 @@ describe('WebSearchTool', () => {
           JSON.stringify({ web: { results: [{ title: 'Result', url: 'https://example.com', description: 'Found it' }] } }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         );
-      }) as typeof fetch;
+      }) as unknown as typeof fetch;
 
       const result = await executeWebSearch({ query: 'test' }, 'test-key', 'brave');
       expect(result.isError).toBe(false);
@@ -210,7 +210,7 @@ describe('WebSearchTool', () => {
     test('returns error after exhausting 429 retries', async () => {
       globalThis.fetch = (async () =>
         new Response('Too Many Requests', { status: 429 })
-      ) as typeof fetch;
+      ) as unknown as typeof fetch;
 
       const result = await executeWebSearch({ query: 'test' }, 'test-key', 'brave');
       expect(result.isError).toBe(true);
@@ -234,7 +234,7 @@ describe('WebSearchTool', () => {
           JSON.stringify({ web: { results: [] } }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         );
-      }) as typeof fetch;
+      }) as unknown as typeof fetch;
 
       const result = await executeWebSearch({ query: 'test' }, 'test-key', 'brave');
       expect(result.isError).toBe(false);
@@ -244,7 +244,7 @@ describe('WebSearchTool', () => {
     test('handles network errors', async () => {
       globalThis.fetch = (async () => {
         throw new Error('Network unreachable');
-      }) as typeof fetch;
+      }) as unknown as typeof fetch;
 
       const result = await executeWebSearch({ query: 'test' }, 'test-key', 'brave');
       expect(result.isError).toBe(true);
@@ -261,7 +261,7 @@ describe('WebSearchTool', () => {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         });
-      }) as typeof fetch;
+      }) as unknown as typeof fetch;
 
       await executeWebSearch({ query: 'test' }, 'my-api-key', 'brave');
       expect(capturedHeaders['X-Subscription-Token']).toBe('my-api-key');
@@ -287,7 +287,7 @@ describe('WebSearchTool', () => {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         })
-      ) as typeof fetch;
+      ) as unknown as typeof fetch;
 
       const result = await executeWebSearch({ query: 'test' }, 'test-key', 'brave');
       expect(result.isError).toBe(false);
@@ -308,7 +308,7 @@ describe('WebSearchTool', () => {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         })
-      ) as typeof fetch;
+      ) as unknown as typeof fetch;
 
       const result = await executeWebSearch({ query: 'test' }, 'pplx-key', 'perplexity');
       expect(result.isError).toBe(false);
@@ -327,7 +327,7 @@ describe('WebSearchTool', () => {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         })
-      ) as typeof fetch;
+      ) as unknown as typeof fetch;
 
       const result = await executeWebSearch({ query: 'noresults' }, 'pplx-key', 'perplexity');
       expect(result.isError).toBe(false);
@@ -337,7 +337,7 @@ describe('WebSearchTool', () => {
     test('handles 401 unauthorized', async () => {
       globalThis.fetch = (async () =>
         new Response('Unauthorized', { status: 401 })
-      ) as typeof fetch;
+      ) as unknown as typeof fetch;
 
       const result = await executeWebSearch({ query: 'test' }, 'bad-key', 'perplexity');
       expect(result.isError).toBe(true);
@@ -346,7 +346,7 @@ describe('WebSearchTool', () => {
 
     test('sends correct headers', async () => {
       let capturedHeaders: Record<string, string> = {};
-      let capturedBody: Record<string, unknown>;
+      let capturedBody: Record<string, unknown> = {};
       globalThis.fetch = (async (_url: string, init: RequestInit) => {
         capturedHeaders = Object.fromEntries(
           Object.entries(init.headers as Record<string, string>),
@@ -356,13 +356,13 @@ describe('WebSearchTool', () => {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         });
-      }) as typeof fetch;
+      }) as unknown as typeof fetch;
 
       await executeWebSearch({ query: 'test query' }, 'pplx-my-key', 'perplexity');
       expect(capturedHeaders['Authorization']).toBe('Bearer pplx-my-key');
       expect(capturedHeaders['Content-Type']).toBe('application/json');
       expect(capturedBody.model).toBe('sonar');
-      expect(capturedBody.messages[0].content).toBe('test query');
+      expect((capturedBody.messages as Array<{ content: string }>)[0].content).toBe('test query');
     });
 
     test('retries on 429 and succeeds', async () => {
@@ -376,7 +376,7 @@ describe('WebSearchTool', () => {
           JSON.stringify({ choices: [{ message: { content: 'Found it' } }] }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         );
-      }) as typeof fetch;
+      }) as unknown as typeof fetch;
 
       const result = await executeWebSearch({ query: 'test' }, 'pplx-key', 'perplexity');
       expect(result.isError).toBe(false);
@@ -387,7 +387,7 @@ describe('WebSearchTool', () => {
     test('handles network errors', async () => {
       globalThis.fetch = (async () => {
         throw new Error('Network unreachable');
-      }) as typeof fetch;
+      }) as unknown as typeof fetch;
 
       const result = await executeWebSearch({ query: 'test' }, 'pplx-key', 'perplexity');
       expect(result.isError).toBe(true);

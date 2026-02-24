@@ -13,7 +13,7 @@ import { GoogleGenAI, ApiError } from '@google/genai';
 import { ConcurrencyPool } from './concurrency-pool.js';
 import { CostTracker, type CostSummary } from './cost-tracker.js';
 import { computeRetryDelay, sleep } from '../../../../util/retry.js';
-import type { Segment, SubjectRegistry } from './preprocess.js';
+import type { Segment } from './preprocess.js';
 
 // ---------------------------------------------------------------------------
 // Types

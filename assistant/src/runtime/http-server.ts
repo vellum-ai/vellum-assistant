@@ -499,7 +499,7 @@ export class RuntimeHttpServer {
       if (endpoint === 'browser-relay/command' && req.method === 'POST') {
         try {
           const body = await req.json() as Record<string, unknown>;
-          const resp = await extensionRelayServer.sendCommand(body as any);
+          const resp = await extensionRelayServer.sendCommand(body as Omit<import('../browser-extension-relay/protocol.js').ExtensionCommand, 'id'>);
           return Response.json(resp);
         } catch (err) {
           return Response.json({ success: false, error: err instanceof Error ? err.message : String(err) }, { status: 500 });

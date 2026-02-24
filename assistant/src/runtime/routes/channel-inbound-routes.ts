@@ -44,7 +44,6 @@ import type {
   ApprovalCopyGenerator,
   ApprovalConversationGenerator,
 } from '../http-types.js';
-import type { GuardianRuntimeContext } from '../../daemon/session-runtime-assembly.js';
 import { composeApprovalMessageGenerative } from '../approval-message-composer.js';
 import { refreshThreadEscalation } from '../../memory/inbox-escalation-projection.js';
 import {
@@ -58,7 +57,7 @@ import {
   RUN_POLL_INTERVAL_MS,
   getEffectivePollMaxWait,
 } from './channel-route-shared.js';
-import { deliverReplyViaCallback, schedulePostDecisionDelivery } from './channel-delivery-routes.js';
+import { deliverReplyViaCallback } from './channel-delivery-routes.js';
 import { handleApprovalInterception, deliverGeneratedApprovalPrompt } from './channel-guardian-routes.js';
 
 const log = getLogger('runtime-http');

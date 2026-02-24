@@ -89,7 +89,7 @@ function redactValue(value: unknown, depth: number): unknown {
     return value.map((item) => redactValue(item, depth + 1));
   }
 
-  if (value !== null && typeof value === 'object') {
+  if (value != null && typeof value === 'object') {
     const result: Record<string, unknown> = {};
     for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
       const lowerKey = key.toLowerCase();
