@@ -56,7 +56,7 @@ struct DaemonConnectionSection: View {
     @State private var manualAuthValue: String = ""
     @State private var isConnecting = false
 
-    @AppStorage("devLocalPairingEnabled") private var devLocalPairingEnabled: Bool = false
+    @AppStorage(PairingConfiguration.devLocalPairingKey) private var devLocalPairingEnabled: Bool = false
 
     /// The currently configured gateway URL, shown as read-only status.
     private var gatewayURL: String? {

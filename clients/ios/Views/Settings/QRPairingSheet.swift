@@ -11,7 +11,7 @@ struct QRPairingSheet: View {
     @State private var scannedPayload: DaemonQRPayload?
     @State private var errorMessage: String?
     @State private var showGatewayChangedAlert = false
-    @AppStorage("devLocalPairingEnabled") private var devLocalPairingEnabled: Bool = false
+    @AppStorage(PairingConfiguration.devLocalPairingKey) private var devLocalPairingEnabled: Bool = false
 
     enum PairingPhase {
         case scanning
