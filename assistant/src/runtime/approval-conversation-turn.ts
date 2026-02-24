@@ -81,16 +81,16 @@ export async function runApprovalConversationTurn(
     return failClosed();
   }
 
-  // When multiple approvals are pending and the user is making a decision,
-  // targetRunId must be present AND match a known pending approval so a
-  // hallucinated or stale ID cannot slip through.
-  if (
-    context.pendingApprovals.length > 1
-    && DECISION_BEARING_DISPOSITIONS.has(result.disposition)
-  ) {
-    if (!result.targetRunId) return failClosed();
-    const validRunIds = new Set(context.pendingApprovals.map((p) => p.runId));
-    if (!validRunIds.has(result.targetRunId)) return failClosed();
+  // Validate targetRunId for decision-bearing dispositions:
+  // 1. When multiple approvals are pending, targetRunId is required.
+  // 2. When targetRunId is present, it must match a known pending approval
+  //    regardless of how many approvals are pending.
+  if (DECISION_BEARING_DISPOSITIONS.has(result.disposition)) {
+    if (context.pendingApprovals.length > 1 && !result.targetRunId) return failClosed();
+    if (result.targetRunId) {
+      const validRunIds = new Set(context.pendingApprovals.map((p) => p.runId));
+      if (!validRunIds.has(result.targetRunId)) return failClosed();
+    }
   }
 
   return result;
