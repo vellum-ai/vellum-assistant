@@ -22,6 +22,7 @@ struct MainWindowView: View {
     @State private var requestedHomeBaseAtLaunch = false
     @State private var threadPendingDeletion: UUID?
     @State private var showAllThreads: Bool = false
+    @State private var showAllScheduleThreads: Bool = false
     @State private var showAllApps: Bool = false
     @State private var showControlCenterDrawer: Bool = false
     @AppStorage("isAppChatOpen") var isAppChatOpen: Bool = false
@@ -925,9 +926,28 @@ struct MainWindowView: View {
         .draggable(thread.id.uuidString)
     }
 
+    private static let schedulePrefixes = ["Schedule: ", "Schedule (manual): "]
+
+    private var regularThreads: [ThreadModel] {
+        threadManager.visibleThreads.filter { thread in
+            !Self.schedulePrefixes.contains(where: { thread.title.hasPrefix($0) })
+        }
+    }
+
+    private var scheduleThreads: [ThreadModel] {
+        threadManager.visibleThreads.filter { thread in
+            Self.schedulePrefixes.contains(where: { thread.title.hasPrefix($0) })
+        }
+    }
+
     private var displayedThreads: [ThreadModel] {
-        let all = threadManager.visibleThreads
+        let all = regularThreads
         return showAllThreads ? all : Array(all.prefix(5))
+    }
+
+    private var displayedScheduleThreads: [ThreadModel] {
+        let all = scheduleThreads
+        return showAllScheduleThreads ? all : Array(all.prefix(3))
     }
 
     private var displayedApps: [AppListManager.AppItem] {
@@ -993,7 +1013,7 @@ struct MainWindowView: View {
                             } isTargeted: { _ in }
                     }
 
-                    if threadManager.visibleThreads.count > 5 {
+                    if regularThreads.count > 5 {
                         Button {
                             withAnimation(VAnimation.standard) { showAllThreads.toggle() }
                         } label: {
@@ -1005,6 +1025,39 @@ struct MainWindowView: View {
                                 .padding(.vertical, VSpacing.xs)
                         }
                         .buttonStyle(.plain)
+                    }
+
+                    if !scheduleThreads.isEmpty {
+                        // Scheduled threads section
+                        HStack {
+                            Text("Scheduled")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                            Spacer()
+                        }
+                        .padding(.leading, 20)
+                        .padding(.trailing, VSpacing.md)
+                        .padding(.top, VSpacing.md)
+                        .padding(.bottom, VSpacing.xs)
+
+                        ForEach(displayedScheduleThreads) { thread in
+                            threadItem(thread)
+                                .padding(.bottom, VSpacing.xxs)
+                        }
+
+                        if scheduleThreads.count > 3 {
+                            Button {
+                                withAnimation(VAnimation.standard) { showAllScheduleThreads.toggle() }
+                            } label: {
+                                Text(showAllScheduleThreads ? "Show less" : "Show more")
+                                    .font(VFont.caption)
+                                    .foregroundColor(adaptiveColor(light: Forest._600, dark: Forest._400))
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.leading, 20)
+                                    .padding(.vertical, VSpacing.xs)
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
                 }
             }
