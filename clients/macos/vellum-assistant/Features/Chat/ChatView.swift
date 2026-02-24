@@ -715,9 +715,18 @@ private struct ScrollWheelDetector: NSViewRepresentable {
             guard view.bounds.width > 0, view.bounds.contains(locationInView) else { return event }
 
             if event.scrollingDeltaY > 3 && event.momentumPhase.isEmpty {
-                // Direct user scroll up (toward older content) — untether.
+                // Direct user scroll up (toward older content) — untether,
+                // but only if actually scrolled away from the bottom.
                 // Momentum events are excluded so a flick doesn't accidentally untether.
-                coordinator.onScrollUp?()
+                if let scrollView = coordinator.findEnclosingScrollView() {
+                    let clipBounds = scrollView.contentView.bounds
+                    let docHeight = scrollView.documentView?.frame.height ?? 0
+                    if docHeight - clipBounds.maxY >= 50 {
+                        coordinator.onScrollUp?()
+                    }
+                } else {
+                    coordinator.onScrollUp?()
+                }
             } else if event.scrollingDeltaY < -1 {
                 // Scrolling down (direct or momentum) — re-tether if at bottom.
                 // Scrolling down — check if the underlying NSScrollView is at the bottom
