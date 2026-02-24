@@ -174,6 +174,7 @@ export async function handleRideShotgunStart(
                   statusMessage: 'Recording network traffic...',
                   idleHint: false,
                 });
+                return;
               }
             }
 
