@@ -897,8 +897,10 @@ struct SettingsConnectTab: View {
             let trimmedOverrideToken = iosPairingTokenOverride.trimmingCharacters(in: .whitespacesAndNewlines)
             let hasToken = !bearerToken.isEmpty || (iosPairingUseOverride && !trimmedOverrideToken.isEmpty)
 
-            // Token is from daemon file (not from developer override)
-            let tokenFromDaemon = !bearerToken.isEmpty && !iosPairingUseOverride
+            // Token is from daemon file — true unless override mode is active WITH a
+            // custom token. When override only sets the URL (token override empty), the
+            // resolver falls back to the daemon token, so regeneration is still useful.
+            let tokenFromDaemon = !bearerToken.isEmpty && !(iosPairingUseOverride && !trimmedOverrideToken.isEmpty)
 
             if hasGateway && hasToken {
                 // "Ready to pair" — green checkmark + subtle regenerate (daemon token only)
