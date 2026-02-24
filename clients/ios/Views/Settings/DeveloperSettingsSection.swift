@@ -25,6 +25,9 @@ private struct DeveloperSettingsSectionContent: View {
     let clientProvider: ClientProvider
     @ObservedObject var traceStore: TraceStore
     @State private var showDebugPanel = false
+    // Captured once when the sheet opens so the panel stays on the same session
+    // even if newer trace events arrive while the sheet is visible.
+    @State private var selectedSessionId: String?
 
     private var sessionCount: Int {
         traceStore.eventsBySession.count
@@ -48,6 +51,9 @@ private struct DeveloperSettingsSectionContent: View {
 
             Section("Debug Panel") {
                 Button {
+                    // Snapshot the most recent session at open time so the panel
+                    // doesn't jump to a different session if newer events arrive.
+                    selectedSessionId = traceStore.mostRecentSessionId
                     showDebugPanel = true
                 } label: {
                     Label("Open Debug Panel", systemImage: "ladybug")
@@ -61,11 +67,9 @@ private struct DeveloperSettingsSectionContent: View {
         .navigationTitle("Developer")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showDebugPanel) {
-            // Use the most recently active session rather than an arbitrary dict key.
-            let sessionId = traceStore.mostRecentSessionId
             DebugPanelView(
                 traceStore: traceStore,
-                sessionId: sessionId,
+                sessionId: selectedSessionId,
                 onClose: { showDebugPanel = false }
             )
         }
