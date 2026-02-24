@@ -94,7 +94,7 @@ export function ensurePrebuiltHomeBaseSeeded(): { appId: string; created: boolea
 
   const metadata = loadSeedMetadata();
   const html = loadPrebuiltHtml();
-  if (html === null) {
+  if (html == null) {
     log.warn('Skipping Home Base seed — prebuilt HTML not available');
     return null;
   }

@@ -346,7 +346,7 @@ extension AppDelegate {
         do {
             try daemonClient.sendAppOpen(appId: appId)
         } catch {
-            log.error("Failed to send app open for \(appId): \(error)")
+            log.error("Failed to send app open for \(appId, privacy: .private): \(error)")
         }
     }
 
@@ -356,13 +356,13 @@ extension AppDelegate {
             do {
                 try daemonClient.disableSkill(name)
             } catch {
-                log.error("Failed to disable skill \(name): \(error)")
+                log.error("Failed to disable skill \(name, privacy: .private): \(error)")
             }
         } else {
             do {
                 try daemonClient.enableSkill(name)
             } catch {
-                log.error("Failed to enable skill \(name): \(error)")
+                log.error("Failed to enable skill \(name, privacy: .private): \(error)")
             }
         }
         refreshSkillsCache()

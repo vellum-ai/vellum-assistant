@@ -72,6 +72,7 @@ export async function handleTwitterAuthStart(
       clientId,
       clientSecret,
       extraParams: {},
+      tokenEndpointAuthMethod: clientSecret ? 'client_secret_basic' : undefined,
     };
 
     const result = await startOAuth2Flow(oauthConfig, {
@@ -131,6 +132,7 @@ export async function handleTwitterAuthStart(
       oauth2TokenUrl: 'https://api.x.com/2/oauth2/token',
       oauth2ClientId: clientId,
       oauth2ClientSecret: clientSecret ?? null,
+      oauth2TokenEndpointAuthMethod: clientSecret ? 'client_secret_basic' : undefined,
       grantedScopes: result.grantedScopes,
       expiresAt: result.tokens.expiresIn ? Date.now() + result.tokens.expiresIn * 1000 : null,
     });

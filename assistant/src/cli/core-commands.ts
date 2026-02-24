@@ -13,6 +13,7 @@ import {
 } from '../daemon/lifecycle.js';
 import { startCli } from '../cli.js';
 import { getSocketPath, getRootDir, getDataDir, getDbPath, getLogPath, getWorkspaceDir, getWorkspaceSkillsDir, getWorkspaceHooksDir } from '../util/platform.js';
+import { getQdrantUrlEnv } from '../config/env.js';
 import { IpcError } from '../util/errors.js';
 import { getCliLogger } from '../util/logger.js';
 import { timeAgo } from '../util/time.js';
@@ -271,7 +272,7 @@ export function registerSessionsCommand(program: Command): void {
       }
 
       const config = getConfig();
-      const qdrantUrl = process.env.QDRANT_URL?.trim() || config.memory.qdrant.url;
+      const qdrantUrl = getQdrantUrlEnv() || config.memory.qdrant.url;
       const qdrant = initQdrantClient({
         url: qdrantUrl,
         collection: config.memory.qdrant.collection,
@@ -526,7 +527,7 @@ export function registerDoctorCommand(program: Command): void {
         try {
           const rawTrust = readFileSync(trustPath, 'utf-8');
           const data = JSON.parse(rawTrust);
-          if (typeof data !== 'object' || data === null) {
+          if (typeof data !== 'object' || data == null) {
             fail('Trust rule syntax', 'trust.json is not a JSON object');
           } else if (typeof data.version !== 'number') {
             fail('Trust rule syntax', 'missing or invalid "version" field');
@@ -535,7 +536,7 @@ export function registerDoctorCommand(program: Command): void {
           } else {
             const invalid = data.rules.filter(
               (r: unknown) =>
-                typeof r !== 'object' || r === null ||
+                typeof r !== 'object' || r == null ||
                 typeof (r as Record<string, unknown>).tool !== 'string' ||
                 typeof (r as Record<string, unknown>).pattern !== 'string' ||
                 typeof (r as Record<string, unknown>).scope !== 'string',

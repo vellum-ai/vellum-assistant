@@ -77,6 +77,14 @@ export function listProviders(): string[] {
   return Array.from(providers.keys());
 }
 
+/**
+ * Return the default model for a given provider name.
+ * Falls back to the Anthropic default if the provider name is unknown.
+ */
+export function getDefaultModel(providerName: string): string {
+  return DEFAULT_MODELS[providerName] ?? DEFAULT_MODELS.anthropic;
+}
+
 export interface ProvidersConfig {
   apiKeys: Record<string, string>;
   provider: string;

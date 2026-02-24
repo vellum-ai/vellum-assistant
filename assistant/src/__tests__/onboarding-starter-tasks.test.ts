@@ -41,6 +41,8 @@ mock.module('../util/logger.js', () => ({
   getLogger: () => new Proxy({} as Record<string, unknown>, {
     get: () => () => {},
   }),
+  isDebug: () => false,
+  truncateForLog: (v: string) => v,
 }));
 
 const { buildStarterTaskPlaybookSection, buildSystemPrompt } = await import('../config/system-prompt.js');

@@ -409,10 +409,10 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isSending, "Disconnected send should not set isSending")
         XCTAssertFalse(viewModel.isThinking, "Disconnected send should not set isThinking")
 
-        // Error should mention the daemon
+        // Error should mention the assistant
         XCTAssertNotNil(viewModel.errorText)
-        XCTAssertTrue(viewModel.errorText?.contains("daemon") == true,
-                       "Disconnected error should mention daemon")
+        XCTAssertTrue(viewModel.errorText?.contains("assistant") == true,
+                       "Disconnected error should mention assistant")
     }
 
     func testRegenerateWhenDisconnectedShowsError() {
@@ -422,7 +422,7 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.regenerateLastMessage()
 
         XCTAssertNotNil(viewModel.errorText, "Regenerate when disconnected should show error")
-        XCTAssertTrue(viewModel.errorText?.contains("daemon") == true)
+        XCTAssertTrue(viewModel.errorText?.contains("assistant") == true)
         XCTAssertFalse(viewModel.isSending, "Regenerate should not set isSending when disconnected")
         XCTAssertFalse(viewModel.isThinking)
     }
@@ -1125,7 +1125,7 @@ final class ChatViewModelTests: XCTestCase {
 
         // Error text should be surfaced
         XCTAssertNotNil(viewModel.errorText)
-        XCTAssertTrue(viewModel.errorText?.contains("daemon") == true)
+        XCTAssertTrue(viewModel.errorText?.contains("assistant") == true)
     }
 
     // MARK: - Full Conversation Flow
@@ -1807,16 +1807,20 @@ final class ChatViewModelTests: XCTestCase {
         // a prior send failure.
         viewModel.sessionId = "sess-1"
 
-        // Simulate a prior send failure that cached the message
+        // Simulate a prior connection-error send failure that cached the message.
+        // Connection errors show the Doctor button (isConnectionError), not Retry.
         viewModel.inputText = "Hello"
         daemonClient.isConnected = false
         viewModel.sendMessage()
-        XCTAssertTrue(viewModel.isRetryableError,
-                       "Send failure should make error retryable")
+        XCTAssertTrue(viewModel.isConnectionError,
+                       "Send failure while disconnected should be a connection error")
+        XCTAssertFalse(viewModel.isRetryableError,
+                        "Connection errors show Doctor button, not Retry")
 
         // User dismisses the error
         viewModel.dismissError()
         XCTAssertFalse(viewModel.isRetryableError)
+        XCTAssertFalse(viewModel.isConnectionError)
 
         // Now a non-send error occurs (e.g. confirmation response failure)
         daemonClient.isConnected = true
@@ -1832,10 +1836,31 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.inputText = "Test message"
         viewModel.sendMessage()
 
-        // Send failure should set both lastFailedSendError and lastFailedMessageText
-        XCTAssertTrue(viewModel.isRetryableError,
-                       "Send failure should show retry button")
+        // Connection-error sends show Doctor button (isConnectionError),
+        // not the Retry button (isRetryableError).
+        XCTAssertTrue(viewModel.isConnectionError,
+                       "Send failure while disconnected should show Doctor button")
+        XCTAssertFalse(viewModel.isRetryableError,
+                        "Connection errors should not show Retry button")
         XCTAssertNotNil(viewModel.errorText)
+    }
+
+    func testRetryButtonAppearsForNonConnectionSendFailure() {
+        viewModel.sessionId = "sess-1"
+        daemonClient.isConnected = true
+        // Make the IPC send throw to simulate a non-connection send failure
+        // (e.g. socket write error while technically connected).
+        daemonClient.sendOverride = { _ in throw NSError(domain: "test", code: 1) }
+
+        viewModel.inputText = "Test message"
+        viewModel.sendMessage()
+
+        XCTAssertTrue(viewModel.isRetryableError,
+                       "Non-connection send failure should show Retry button")
+        XCTAssertFalse(viewModel.isConnectionError,
+                        "Non-connection send failure should not be a connection error")
+        XCTAssertNotNil(viewModel.errorText)
+        XCTAssertEqual(viewModel.lastFailedMessageText, "Test message")
     }
 
     func testRetryButtonNotShownForRegenerateFailure() {
@@ -1845,7 +1870,7 @@ final class ChatViewModelTests: XCTestCase {
         // First, simulate a send failure to cache a message
         viewModel.inputText = "Hello"
         viewModel.sendMessage()
-        XCTAssertTrue(viewModel.isRetryableError)
+        XCTAssertTrue(viewModel.isConnectionError)
 
         // Now dismiss and reconnect
         viewModel.dismissError()

@@ -12,6 +12,8 @@ import { createTwilioConnectActionWebhookHandler } from "./http/routes/twilio-co
 import { createTwilioRelayWebsocketHandler, getRelayWebsocketHandlers } from "./http/routes/twilio-relay-websocket.js";
 import { createTwilioSmsWebhookHandler } from "./http/routes/twilio-sms-webhook.js";
 import { createSmsDeliverHandler } from "./http/routes/sms-deliver.js";
+import { createWhatsAppWebhookHandler } from "./http/routes/whatsapp-webhook.js";
+import { createWhatsAppDeliverHandler } from "./http/routes/whatsapp-deliver.js";
 import { createOAuthCallbackHandler } from "./http/routes/oauth-callback.js";
 import { getLogger, initLogger } from "./logger.js";
 import { buildSchema } from "./schema.js";
@@ -39,12 +41,17 @@ function main() {
   const isTelegramConfigured = () =>
     !!(config.telegramBotToken && config.telegramWebhookSecret);
 
+  const isWhatsAppConfigured = () =>
+    !!(config.whatsappPhoneNumberId && config.whatsappAccessToken);
+
   const handleTwilioVoiceWebhook = createTwilioVoiceWebhookHandler(config);
   const handleTwilioStatusWebhook = createTwilioStatusWebhookHandler(config);
   const handleTwilioConnectActionWebhook = createTwilioConnectActionWebhookHandler(config);
   const handleTwilioRelayWs = createTwilioRelayWebsocketHandler(config);
   const handleTwilioSmsWebhook = createTwilioSmsWebhookHandler(config);
   const handleSmsDeliver = createSmsDeliverHandler(config);
+  const handleWhatsAppWebhook = createWhatsAppWebhookHandler(config);
+  const handleWhatsAppDeliver = createWhatsAppDeliverHandler(config);
   const handleOAuthCallback = createOAuthCallbackHandler(config);
 
   const handleRuntimeProxy = config.runtimeProxyEnabled
@@ -136,6 +143,26 @@ function main() {
         return handleSmsDeliver(tracedReq);
       }
 
+      if (url.pathname === "/webhooks/whatsapp") {
+        if (!isWhatsAppConfigured()) {
+          return Response.json(
+            { error: "WhatsApp integration not configured" },
+            { status: 503 },
+          );
+        }
+        return handleWhatsAppWebhook(tracedReq);
+      }
+
+      if (url.pathname === "/deliver/whatsapp") {
+        if (!isWhatsAppConfigured()) {
+          return Response.json(
+            { error: "WhatsApp integration not configured" },
+            { status: 503 },
+          );
+        }
+        return handleWhatsAppDeliver(tracedReq);
+      }
+
       if (url.pathname === "/webhooks/twilio/relay" || url.pathname === "/v1/calls/relay") {
         const upgradeResult = handleTwilioRelayWs(req, server);
         if (upgradeResult !== undefined) return upgradeResult;
@@ -145,6 +172,14 @@ function main() {
 
       if (url.pathname === "/webhooks/oauth/callback" && tracedReq.method === "GET") {
         return handleOAuthCallback(tracedReq);
+      }
+
+      if (url.pathname === "/integrations/status" && req.method === "GET") {
+        return Response.json({
+          email: {
+            address: config.assistantEmail ?? null,
+          },
+        });
       }
 
       if (handleRuntimeProxy) {
@@ -159,7 +194,10 @@ function main() {
 
   function registerTelegramCommands(): void {
     callTelegramApi(config, "setMyCommands", {
-      commands: [{ command: "new", description: "Start a new conversation" }],
+      commands: [
+        { command: "new", description: "Start a new conversation" },
+        { command: "help", description: "Show available commands" },
+      ],
     }).catch((err) => {
       log.error({ err }, "Failed to register Telegram bot commands");
     });
@@ -202,6 +240,22 @@ function main() {
         log.info("Twilio credentials cleared");
       }
     }
+
+    if (event.whatsappChanged) {
+      if (event.whatsappCredentials) {
+        config.whatsappPhoneNumberId = event.whatsappCredentials.phoneNumberId;
+        config.whatsappAccessToken = event.whatsappCredentials.accessToken;
+        config.whatsappAppSecret = event.whatsappCredentials.appSecret;
+        config.whatsappWebhookVerifyToken = event.whatsappCredentials.webhookVerifyToken;
+        log.info("WhatsApp credentials loaded from credential vault");
+      } else {
+        config.whatsappPhoneNumberId = undefined;
+        config.whatsappAccessToken = undefined;
+        config.whatsappAppSecret = undefined;
+        config.whatsappWebhookVerifyToken = undefined;
+        log.info("WhatsApp credentials cleared");
+      }
+    }
   });
 
   credentialWatcher.start();
@@ -213,6 +267,10 @@ function main() {
 
     if (event.assistantPhoneNumbersChanged) {
       config.assistantPhoneNumbers = event.assistantPhoneNumbers;
+    }
+
+    if (event.assistantEmailChanged) {
+      config.assistantEmail = event.assistantEmail;
     }
 
     if (event.ingressChanged) {

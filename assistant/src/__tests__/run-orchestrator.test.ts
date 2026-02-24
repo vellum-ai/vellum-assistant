@@ -51,6 +51,7 @@ function makeSessionWithConfirmation(message: ServerMessage): Session {
     setChannelCapabilities: () => {},
     setAssistantId: () => {},
     setGuardianContext: () => {},
+    setCommandIntent: () => {},
     updateClient: (handler: (msg: ServerMessage) => void) => {
       clientHandler = handler;
     },
@@ -74,6 +75,7 @@ function makeSessionWithEvent(message: ServerMessage): Session {
     setChannelCapabilities: () => {},
     setAssistantId: () => {},
     setGuardianContext: () => {},
+    setCommandIntent: () => {},
     updateClient: () => {},
     runAgentLoop: async (_content: string, _messageId: string, onEvent: (msg: ServerMessage) => void) => {
       onEvent(message);
@@ -240,6 +242,7 @@ describe('startRun channel capability resolution', () => {
       },
       setAssistantId: () => {},
       setGuardianContext: () => {},
+    setCommandIntent: () => {},
       updateClient: () => {},
       runAgentLoop: async () => {},
       handleConfirmationResponse: () => {},
@@ -276,6 +279,7 @@ describe('startRun channel capability resolution', () => {
       },
       setAssistantId: () => {},
       setGuardianContext: () => {},
+    setCommandIntent: () => {},
       updateClient: () => {},
       runAgentLoop: async () => {},
       handleConfirmationResponse: () => {},
@@ -308,6 +312,7 @@ describe('startRun channel capability resolution', () => {
       },
       setAssistantId: () => {},
       setGuardianContext: () => {},
+    setCommandIntent: () => {},
       updateClient: () => {},
       runAgentLoop: async () => {},
       handleConfirmationResponse: () => {},
@@ -353,6 +358,7 @@ describe('strictSideEffects re-derivation across runs', () => {
       setChannelCapabilities: () => {},
       setAssistantId: () => {},
       setGuardianContext: () => {},
+    setCommandIntent: () => {},
       updateClient: () => {},
       runAgentLoop: async () => {},
       handleConfirmationResponse: () => {},
@@ -389,6 +395,7 @@ describe('strictSideEffects re-derivation across runs', () => {
       setChannelCapabilities: () => {},
       setAssistantId: () => {},
       setGuardianContext: () => {},
+    setCommandIntent: () => {},
       updateClient: () => {},
       runAgentLoop: async () => {},
       handleConfirmationResponse: () => {},
@@ -426,6 +433,7 @@ describe('strictSideEffects re-derivation across runs', () => {
       setChannelCapabilities: () => {},
       setAssistantId: () => {},
       setGuardianContext: () => {},
+    setCommandIntent: () => {},
       updateClient: () => {},
       runAgentLoop: async () => {},
       handleConfirmationResponse: () => {},

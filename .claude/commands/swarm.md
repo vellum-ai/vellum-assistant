@@ -85,13 +85,6 @@ For "Address the feedback on <PR URL>" tasks:
   1. Comment on the original PR: `gh pr comment <original-PR-number> --body "Addressed in <new-PR-URL>"`
   2. Resolve all bot review threads: `.claude/gh-review resolve-threads <original-PR-number> "Addressed in <new-PR-URL>"`
 
-For "Fix CI failures from merged PR <PR URL> (run: <run URL>)" tasks:
-- Open the failed run URL and read the logs to understand what failed.
-- Read the referenced PR's diff (`gh pr diff <number>`) to understand what changes were introduced.
-- Diagnose the root cause of the CI failure.
-- Implement the fix in your worktree (on a new branch — this will become a new PR).
-- Follow the same PR creation and merge workflow above.
-- In the new PR body, reference the original PR and the failed run.
 ```
 
 ## Phase 4: When an agent finishes

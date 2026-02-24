@@ -6,6 +6,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { getDataDir } from '../util/platform.js';
+import { ConfigError } from '../util/errors.js';
 import type { SessionRecording, ExtractedCredential } from '../tools/browser/network-recording-types.js';
 
 export interface TwitterSession {
@@ -50,17 +51,17 @@ export function clearSession(): void {
  */
 export function importFromRecording(recordingPath: string): TwitterSession {
   if (!existsSync(recordingPath)) {
-    throw new Error(`Recording not found: ${recordingPath}`);
+    throw new ConfigError(`Recording not found: ${recordingPath}`);
   }
   const recording = JSON.parse(readFileSync(recordingPath, 'utf-8')) as SessionRecording;
   if (!recording.cookies?.length) {
-    throw new Error('Recording contains no cookies');
+    throw new ConfigError('Recording contains no cookies');
   }
   // Require the two cookies that prove a logged-in Twitter session:
   // the auth session cookie and the ct0 CSRF cookie.
   const cookieNames = new Set(recording.cookies.map(c => c.name));
   if (!cookieNames.has('ct0') || !cookieNames.has(`auth_${'token'}`)) {
-    throw new Error(
+    throw new ConfigError(
       'Recording is missing required Twitter session cookies. ' +
       'Make sure you are logged in to x.com before recording.',
     );

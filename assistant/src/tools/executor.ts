@@ -1,4 +1,5 @@
-import { readFileSync, existsSync, statSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
+import { pathExists, safeStatSync } from '../util/fs.js';
 import { getTool, getAllTools } from './registry.js';
 import type { ToolContext, ToolExecutionResult, ToolLifecycleEvent } from './types.js';
 import { RiskLevel } from '../permissions/types.js';
@@ -20,6 +21,7 @@ import { getTaskRunRules } from '../tasks/ephemeral-permissions.js';
 import { safeTimeoutMs, executeWithTimeout } from './execution-timeout.js';
 import { buildPolicyContext } from './policy-context.js';
 import { resolveExecutionTarget } from './execution-target.js';
+import { isToolBlocked } from '../security/parental-control-store.js';
 
 const log = getLogger('tool-executor');
 
@@ -51,6 +53,51 @@ export class ToolExecutor {
       requestId: context.requestId,
       startedAtMs: startTime,
     });
+
+    // Bail out immediately if the session was aborted before this tool started.
+    // Individual tool implementations check the signal themselves for mid-run
+    // cancellation, but a pre-execution check prevents expensive permission
+    // lookups and prompter interactions after the user has already cancelled.
+    if (context.signal?.aborted) {
+      const durationMs = Date.now() - startTime;
+      emitLifecycleEvent(context, {
+        type: 'error',
+        toolName: name,
+        executionTarget,
+        input,
+        workingDir: context.workingDir,
+        sessionId: context.sessionId,
+        conversationId: context.conversationId,
+        requestId: context.requestId,
+        riskLevel,
+        decision: 'error',
+        durationMs,
+        errorMessage: 'Cancelled',
+        isExpected: true,
+        errorCategory: 'tool_failure',
+      });
+      return { content: 'Cancelled', isError: true };
+    }
+
+    // Reject tools blocked by parental control settings before any permission check.
+    if (isToolBlocked(name)) {
+      const durationMs = Date.now() - startTime;
+      emitLifecycleEvent(context, {
+        type: 'permission_denied',
+        toolName: name,
+        executionTarget,
+        input,
+        workingDir: context.workingDir,
+        sessionId: context.sessionId,
+        conversationId: context.conversationId,
+        requestId: context.requestId,
+        riskLevel,
+        decision: 'deny',
+        reason: 'Blocked by parental control settings',
+        durationMs,
+      });
+      return { content: 'This tool is blocked by parental control settings.', isError: true };
+    }
 
     // Gate tools not active for the current turn
     if (context.allowedToolNames && !context.allowedToolNames.has(name)) {
@@ -790,10 +837,10 @@ function computePreviewDiff(
       const pathCheck = sandboxPolicy(rawPath, workingDir, { mustExist: false });
       if (!pathCheck.ok) return undefined;
       const filePath = pathCheck.resolved;
-      const isNewFile = !existsSync(filePath);
+      const isNewFile = !pathExists(filePath);
       if (!isNewFile) {
-        const stat = statSync(filePath);
-        if (stat.size > MAX_FILE_SIZE_BYTES) return undefined;
+        const stat = safeStatSync(filePath);
+        if (!stat || stat.size > MAX_FILE_SIZE_BYTES) return undefined;
       }
       const oldContent = isNewFile ? '' : readFileSync(filePath, 'utf-8');
       return { filePath, oldContent, newContent: content, isNewFile };
@@ -807,8 +854,8 @@ function computePreviewDiff(
       const pathCheck = sandboxPolicy(rawPath, workingDir);
       if (!pathCheck.ok) return undefined;
       const filePath = pathCheck.resolved;
-      if (!existsSync(filePath)) return undefined;
-      const stat = statSync(filePath);
+      const stat = safeStatSync(filePath);
+      if (!stat) return undefined;
       if (stat.size > MAX_FILE_SIZE_BYTES) return undefined;
       const content = readFileSync(filePath, 'utf-8');
       const replaceAll = input.replace_all === true;

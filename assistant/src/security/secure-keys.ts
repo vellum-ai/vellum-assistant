@@ -123,7 +123,7 @@ export function deleteSecureKey(account: string): boolean {
   // backend — saveConfig routinely deletes keys for unset providers.
   // getKey now returns null for "not found" and throws on runtime errors.
   try {
-    if (keychain.getKey(account) === null) {
+    if (keychain.getKey(account) == null) {
       return false;
     }
   } catch {

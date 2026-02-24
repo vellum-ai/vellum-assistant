@@ -25,17 +25,14 @@ import type {
 } from '../../provider-types.js';
 import { getSecureKey } from '../../../security/secure-keys.js';
 import { readHttpToken } from '../../../util/platform.js';
+import { getGatewayInternalBaseUrl } from '../../../config/env.js';
 import { getOrCreateConversation } from '../../../memory/conversation-key-store.js';
 import * as externalConversationStore from '../../../memory/external-conversation-store.js';
 import * as telegram from './client.js';
 
 /** Resolve the gateway base URL, preferring GATEWAY_INTERNAL_BASE_URL if set. */
 function getGatewayUrl(): string {
-  if (process.env.GATEWAY_INTERNAL_BASE_URL) {
-    return process.env.GATEWAY_INTERNAL_BASE_URL.replace(/\/+$/, "");
-  }
-  const port = Number(process.env.GATEWAY_PORT) || 7830;
-  return `http://127.0.0.1:${port}`;
+  return getGatewayInternalBaseUrl();
 }
 
 /** Read the runtime HTTP bearer token used to authenticate with the gateway. */

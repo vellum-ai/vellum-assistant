@@ -81,6 +81,32 @@ struct DebugPanel: View {
                 }
 
                 if let memory = daemonClient.latestMemoryStatus {
+                    let memoryDegraded = memory.enabled && memory.degraded
+                    metric(
+                        icon: memoryDegraded ? "memorychip.fill" : "memorychip",
+                        label: "Memory",
+                        value: !memory.enabled ? "Disabled"
+                            : memoryDegraded ? "Degraded"
+                            : "Healthy",
+                        color: !memory.enabled ? VColor.textMuted
+                            : memoryDegraded ? Amber._400
+                            : Emerald._400
+                    )
+                    if let provider = memory.provider {
+                        metric(
+                            icon: "cpu",
+                            label: "Embed Provider",
+                            value: memory.model.map { "\(provider)/\($0)" } ?? provider
+                        )
+                    }
+                    if memoryDegraded, let reason = memory.reason {
+                        metric(
+                            icon: "exclamationmark.triangle",
+                            label: "Degradation Reason",
+                            value: reason,
+                            color: Amber._400
+                        )
+                    }
                     metric(
                         icon: "memorychip",
                         label: "Pending Conflicts",

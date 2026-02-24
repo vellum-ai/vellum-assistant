@@ -157,7 +157,7 @@ extension AppDelegate {
                     break
                 }
                 if case .error(let err) = message {
-                    log.error("Task routing failed: \(err.message)")
+                    log.error("Task routing failed: \(err.message, privacy: .private)")
                     break
                 }
             }

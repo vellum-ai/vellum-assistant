@@ -448,6 +448,7 @@ extension MainWindowView {
         case .identity:
             IdentityPanel(onClose: { windowState.dismissOverlay() }, onCustomizeAvatar: { windowState.selection = .panel(.avatarCustomization) }, daemonClient: daemonClient)
                 .overlay(alignment: .topTrailing) { panelDismissButton }
+                .background(adaptiveColor(light: Color(hex: 0xF5F3EB), dark: Moss._900))
         case .avatarCustomization:
             AvatarCustomizationPanel(onClose: { windowState.selection = .panel(.identity) })
         case .generated:
@@ -561,7 +562,7 @@ struct ActiveChatViewWrapper: View {
     @ObservedObject var viewModel: ChatViewModel
     @ObservedObject var windowState: MainWindowState
     let daemonClient: DaemonClient
-    let ambientAgent: AmbientAgent
+    @ObservedObject var ambientAgent: AmbientAgent
     @ObservedObject var settingsStore: SettingsStore
     let onMicrophoneToggle: () -> Void
     var isTemporaryChat: Bool = false
@@ -580,6 +581,7 @@ struct ActiveChatViewWrapper: View {
             pendingQueuedCount: viewModel.pendingQueuedCount,
             suggestion: viewModel.suggestion,
             pendingAttachments: viewModel.pendingAttachments,
+            isLoadingAttachment: viewModel.isLoadingAttachment,
             isRecording: viewModel.isRecording,
             onOpenSettings: {
                 windowState.selection = .panel(.settings)
@@ -627,6 +629,9 @@ struct ActiveChatViewWrapper: View {
             onDismissSessionError: { viewModel.dismissSessionError() },
             onCopyDebugInfo: { viewModel.copySessionErrorDebugDetails() },
             watchSession: ambientAgent.activeWatchSession,
+            isLearnMode: ambientAgent.currentSession?.isLearnMode ?? false,
+            networkEntryCount: ambientAgent.currentSession?.networkEntryCount ?? 0,
+            idleHint: ambientAgent.currentSession?.idleHint ?? false,
             onStopWatch: { viewModel.stopWatchSession() },
             onReportMessage: { daemonMessageId in
                 guard let sessionId = viewModel.sessionId else { return }
@@ -659,7 +664,10 @@ struct ActiveChatViewWrapper: View {
             daemonHttpPort: daemonClient.httpPort,
             isHistoryLoaded: viewModel.isHistoryLoaded,
             dismissedDocumentSurfaceIds: viewModel.dismissedDocumentSurfaceIds,
-            onDismissDocumentWidget: { viewModel.dismissDocumentSurface(id: $0) }
+            onDismissDocumentWidget: { viewModel.dismissDocumentSurface(id: $0) },
+            isMemoryDegraded: viewModel.isMemoryDegraded,
+            memoryDegradedReason: viewModel.memoryDegradedReason,
+            connectionDiagnosticHint: viewModel.connectionDiagnosticHint
         )
     }
 }

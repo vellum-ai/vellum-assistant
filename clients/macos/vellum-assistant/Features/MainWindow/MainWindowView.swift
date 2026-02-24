@@ -22,6 +22,7 @@ struct MainWindowView: View {
     @State private var requestedHomeBaseAtLaunch = false
     @State private var threadPendingDeletion: UUID?
     @State private var showAllThreads: Bool = false
+    @State private var showAllScheduleThreads: Bool = false
     @State private var showAllApps: Bool = false
     @State private var showControlCenterDrawer: Bool = false
     @AppStorage("isAppChatOpen") var isAppChatOpen: Bool = false
@@ -574,12 +575,12 @@ struct MainWindowView: View {
                     // Main container: sidebar + content with uniform padding
                     HStack(spacing: 16) {
                         sidebarView
-                            .animation(VAnimation.panel, value: sidebarExpanded)
 
                         chatContentView(geometry: geometry)
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
                     }
                     .padding(16)
+                    .animation(VAnimation.panel, value: sidebarExpanded)
                 }
                 .overlay {
                     // Click-outside-to-dismiss background for control center drawer
@@ -596,6 +597,10 @@ struct MainWindowView: View {
                 .overlay(alignment: .bottomLeading) {
                     // Control center drawer rendered at top level so it floats above all content
                     if showControlCenterDrawer {
+                        let drawerWidth = sidebarExpandedWidth - VSpacing.sm * 2
+                        let drawerX = sidebarExpanded
+                            ? 16 + VSpacing.sm
+                            : 16 + sidebarCollapsedWidth - VSpacing.xs
                         DrawerMenuView(
                             onSettings: {
                                 showControlCenterDrawer = false
@@ -610,8 +615,8 @@ struct MainWindowView: View {
                                 windowState.selection = .panel(.doctor)
                             }
                         )
-                        .frame(width: sidebarExpandedWidth - VSpacing.sm * 2)
-                        .offset(x: 16 + VSpacing.sm, y: -52)
+                        .frame(width: drawerWidth)
+                        .offset(x: drawerX, y: -28)
                         .zIndex(10)
                         .transition(.opacity)
                     }
@@ -670,13 +675,6 @@ struct MainWindowView: View {
         .onReceive(daemonClient.$isConnected) { _ in
             windowState.refreshAPIKeyStatus(isConnected: daemonClient.isConnected)
             requestHomeBaseDashboardIfNeeded()
-        }
-        .onChange(of: sidebarExpanded) { _, isExpanded in
-            if !isExpanded && showControlCenterDrawer {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
-                    showControlCenterDrawer = false
-                }
-            }
         }
         .onChange(of: selectedThreadId) { _, newId in
             if let newId = newId {
@@ -925,9 +923,22 @@ struct MainWindowView: View {
         .draggable(thread.id.uuidString)
     }
 
+    private var regularThreads: [ThreadModel] {
+        threadManager.visibleThreads.filter { !$0.isScheduleThread }
+    }
+
+    private var scheduleThreads: [ThreadModel] {
+        threadManager.visibleThreads.filter { $0.isScheduleThread }
+    }
+
     private var displayedThreads: [ThreadModel] {
-        let all = threadManager.visibleThreads
+        let all = regularThreads
         return showAllThreads ? all : Array(all.prefix(5))
+    }
+
+    private var displayedScheduleThreads: [ThreadModel] {
+        let all = scheduleThreads
+        return showAllScheduleThreads ? all : Array(all.prefix(3))
     }
 
     private var displayedApps: [AppListManager.AppItem] {
@@ -947,15 +958,16 @@ struct MainWindowView: View {
             }
         }
         .padding(VSpacing.xs)
+        .frame(width: sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth, alignment: .leading)
         .background(adaptiveColor(light: Moss._50, dark: Moss._950))
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-        .frame(width: sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth)
+        .clipped()
     }
 
     @ViewBuilder
     private var expandedSidebarContent: some View {
-        VStack(spacing: 0) {
-            Spacer().frame(height: VSpacing.sm)
+        VStack(spacing: VSpacing.sm) {
+            Spacer().frame(height: 0)
 
             // MARK: Nav Items (fixed)
             SidebarNavRow(icon: "square.grid.2x2", label: "Home Base", isActive: windowState.activePanel == .directory) {
@@ -993,7 +1005,7 @@ struct MainWindowView: View {
                             } isTargeted: { _ in }
                     }
 
-                    if threadManager.visibleThreads.count > 5 {
+                    if regularThreads.count > 5 {
                         Button {
                             withAnimation(VAnimation.standard) { showAllThreads.toggle() }
                         } label: {
@@ -1005,6 +1017,45 @@ struct MainWindowView: View {
                                 .padding(.vertical, VSpacing.xs)
                         }
                         .buttonStyle(.plain)
+                    }
+
+                    if !scheduleThreads.isEmpty {
+                        // Scheduled threads section
+                        HStack {
+                            Text("Scheduled")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                            Spacer()
+                        }
+                        .padding(.leading, 20)
+                        .padding(.trailing, VSpacing.md)
+                        .padding(.top, VSpacing.md)
+                        .padding(.bottom, VSpacing.xs)
+
+                        ForEach(displayedScheduleThreads) { thread in
+                            threadItem(thread)
+                                .padding(.bottom, VSpacing.xxs)
+                                .dropDestination(for: String.self) { items, _ in
+                                    guard let droppedId = items.first,
+                                          let sourceUUID = UUID(uuidString: droppedId),
+                                          sourceUUID != thread.id else { return false }
+                                    return threadManager.moveThread(sourceId: sourceUUID, beforeId: thread.id)
+                                } isTargeted: { _ in }
+                        }
+
+                        if scheduleThreads.count > 3 {
+                            Button {
+                                withAnimation(VAnimation.standard) { showAllScheduleThreads.toggle() }
+                            } label: {
+                                Text(showAllScheduleThreads ? "Show less" : "Show more")
+                                    .font(VFont.caption)
+                                    .foregroundColor(adaptiveColor(light: Forest._600, dark: Forest._400))
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.leading, 20)
+                                    .padding(.vertical, VSpacing.xs)
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
                 }
             }
@@ -1026,13 +1077,15 @@ struct MainWindowView: View {
     @ViewBuilder
     private var collapsedSidebarContent: some View {
         VStack(spacing: VSpacing.sm) {
-            CollapsedNavIcon(icon: "square.grid.2x2", label: "Home Base", isActive: windowState.activePanel == .directory) {
+            Spacer().frame(height: 0)
+
+            SidebarNavRow(icon: "square.grid.2x2", label: "Home Base", isActive: windowState.activePanel == .directory, isExpanded: false) {
                 windowState.togglePanel(.directory)
             }
-            CollapsedNavIcon(icon: "person.crop.circle", label: "Identity", isActive: windowState.activePanel == .identity) {
+            SidebarNavRow(icon: "person.crop.circle", label: "Identity", isActive: windowState.activePanel == .identity, isExpanded: false) {
                 windowState.togglePanel(.identity)
             }
-            CollapsedNavIcon(icon: "sparkles", label: "Skills", isActive: windowState.activePanel == .agent) {
+            SidebarNavRow(icon: "sparkles", label: "Skills", isActive: windowState.activePanel == .agent, isExpanded: false) {
                 windowState.togglePanel(.agent)
             }
 
@@ -1040,23 +1093,20 @@ struct MainWindowView: View {
                 .frame(height: 1)
                 .padding(.horizontal, VSpacing.xs)
 
-            CollapsedNavIcon(icon: "square.and.pencil", label: "New Chat", isActive: false) {
+            SidebarNavRow(icon: "square.and.pencil", label: "New Chat", isActive: false, isExpanded: false) {
                 windowState.selection = nil
                 threadManager.createThread()
             }
 
             Spacer()
 
-            CollapsedNavIcon(icon: "gearshape", label: "Control Center", isActive: false) {
-                withAnimation(VAnimation.panel) {
-                    sidebarExpanded = true
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
-                        showControlCenterDrawer = true
-                    }
+            SidebarNavRow(icon: "gearshape", label: "Control Center", isActive: false, isExpanded: false) {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                    showControlCenterDrawer.toggle()
                 }
             }
+
+            Spacer().frame(height: 0)
         }
     }
 
@@ -1187,12 +1237,13 @@ private struct SidebarNavRow: View {
     let icon: String
     let label: String
     var isActive: Bool = false
+    var isExpanded: Bool = true
     let action: () -> Void
     @State private var isHovered = false
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: VSpacing.sm) {
+            HStack(spacing: isExpanded ? VSpacing.sm : 0) {
                 Image(systemName: icon)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._400))
@@ -1200,43 +1251,26 @@ private struct SidebarNavRow: View {
                 Text(label)
                     .font(VFont.bodyMedium)
                     .foregroundColor(VColor.textPrimary)
-                Spacer()
+                    .fixedSize()
+                    .frame(width: isExpanded ? nil : 0, alignment: .leading)
+                    .clipped()
+                    .opacity(isExpanded ? 1 : 0)
+                    .allowsHitTesting(false)
+                if isExpanded {
+                    Spacer()
+                }
             }
-            .padding(.leading, VSpacing.md)
-            .padding(.trailing, VSpacing.sm)
+            .padding(.leading, isExpanded ? VSpacing.md : 0)
+            .padding(.trailing, isExpanded ? VSpacing.sm : 0)
             .padding(.vertical, VSpacing.sm)
-            .background(isActive ? adaptiveColor(light: Moss._100, dark: Moss._700) : isHovered ? adaptiveColor(light: Moss._100, dark: Moss._700).opacity(0.5) : .clear)
+            .frame(maxWidth: .infinity, alignment: isExpanded ? .leading : .center)
+            .background(isActive ? adaptiveColor(light: Color(hex: 0xD4DFD0), dark: Moss._700) : isHovered ? adaptiveColor(light: Color(hex: 0xD4DFD0), dark: Moss._700).opacity(0.5) : .clear)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, VSpacing.sm)
-        .onHover { hovering in
-            isHovered = hovering
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-        }
-    }
-}
-
-private struct CollapsedNavIcon: View {
-    let icon: String
-    let label: String
-    var isActive: Bool = false
-    let action: () -> Void
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: 15, weight: .medium))
-                .foregroundColor(VColor.textPrimary)
-                .frame(width: 32, height: 32)
-                .background(isActive ? adaptiveColor(light: Moss._100, dark: Moss._700) : isHovered ? adaptiveColor(light: Moss._100, dark: Moss._700).opacity(0.5) : .clear)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help(label)
+        .padding(.horizontal, isExpanded ? VSpacing.sm : VSpacing.xs)
+        .help(isExpanded ? "" : label)
         .onHover { hovering in
             isHovered = hovering
             if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
@@ -1295,7 +1329,7 @@ private struct DrawerMenuView: View {
             DrawerMenuItem(icon: "stethoscope", label: "Vellum Doctor", action: onDoctor)
         }
         .padding(.vertical, VSpacing.sm)
-        .background(VColor.surface)
+        .background(VColor.surfaceSubtle)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.lg)

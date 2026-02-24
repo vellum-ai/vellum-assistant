@@ -1,4 +1,5 @@
 import type { EmbeddingBackend, EmbeddingRequestOptions } from './embedding-backend.js';
+import { getOllamaBaseUrlEnv } from '../config/env.js';
 
 interface OllamaEmbeddingsResponse {
   data?: Array<{ embedding: number[] }>;
@@ -49,7 +50,7 @@ export class OllamaEmbeddingBackend implements EmbeddingBackend {
 }
 
 function resolveBaseUrl(override?: string): string {
-  const value = (override ?? process.env.OLLAMA_BASE_URL ?? DEFAULT_OLLAMA_BASE_URL).trim();
+  const value = (override ?? getOllamaBaseUrlEnv() ?? DEFAULT_OLLAMA_BASE_URL).trim();
   if (value.endsWith('/')) return value.slice(0, -1);
   return value;
 }

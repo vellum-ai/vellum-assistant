@@ -81,7 +81,7 @@ export function registerConfigCommand(program: Command): void {
       const { validateAllowlistFile } = require('../security/secret-allowlist.js') as typeof import('../security/secret-allowlist.js');
       try {
         const errors = validateAllowlistFile();
-        if (errors === null) {
+        if (errors == null) {
           log.info('No secret-allowlist.json file found');
           return;
         }
@@ -256,7 +256,7 @@ export function registerMemoryCommand(program: Command): void {
       log.info(`Embeddings: ${status.counts.embeddings.toLocaleString()}`);
       log.info(`Pending conflicts: ${status.conflicts.pending.toLocaleString()}`);
       log.info(`Resolved conflicts: ${status.conflicts.resolved.toLocaleString()}`);
-      if (status.conflicts.oldestPendingAgeMs !== null) {
+      if (status.conflicts.oldestPendingAgeMs != null) {
         const oldestMinutes = Math.floor(status.conflicts.oldestPendingAgeMs / 60_000);
         log.info(`Oldest pending conflict age: ${oldestMinutes} min`);
       } else {

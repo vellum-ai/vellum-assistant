@@ -50,7 +50,7 @@ func readSessionToken(environment: [String: String]? = nil) -> String? {
     do {
         data = try Data(contentsOf: URL(fileURLWithPath: tokenPath))
     } catch {
-        log.error("Failed to read session token from \(tokenPath): \(error)")
+        log.error("Failed to read session token from \(tokenPath, privacy: .private): \(error)")
         return nil
     }
     guard let token = String(data: data, encoding: .utf8)?
@@ -93,7 +93,7 @@ public func readHttpToken(environment: [String: String]? = nil) -> String? {
     do {
         data = try Data(contentsOf: URL(fileURLWithPath: tokenPath))
     } catch {
-        log.error("Failed to read HTTP token from \(tokenPath): \(error)")
+        log.error("Failed to read HTTP token from \(tokenPath, privacy: .private): \(error)")
         return nil
     }
     guard let token = String(data: data, encoding: .utf8)?
@@ -288,6 +288,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `session_list_response` message.
     public var onSessionListResponse: ((SessionListResponseMessage) -> Void)?
 
+    /// Called when the daemon sends a `session_title_updated` message.
+    public var onSessionTitleUpdated: ((SessionTitleUpdatedMessage) -> Void)?
+
     /// Called when the daemon sends a `history_response` message.
     public var onHistoryResponse: ((HistoryResponseMessage) -> Void)?
 
@@ -311,6 +314,18 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// Called when the daemon sends a `twilio_config_response` message.
     public var onTwilioConfigResponse: ((TwilioConfigResponseMessage) -> Void)?
+
+    /// Called when the daemon sends a `parental_control_get_response` message.
+    public var onParentalControlGetResponse: ((ParentalControlGetResponseMessage) -> Void)?
+
+    /// Called when the daemon sends a `parental_control_verify_pin_response` message.
+    public var onParentalControlVerifyPinResponse: ((ParentalControlVerifyPinResponseMessage) -> Void)?
+
+    /// Called when the daemon sends a `parental_control_set_pin_response` message.
+    public var onParentalControlSetPinResponse: ((ParentalControlSetPinResponseMessage) -> Void)?
+
+    /// Called when the daemon sends a `parental_control_update_response` message.
+    public var onParentalControlUpdateResponse: ((ParentalControlUpdateResponseMessage) -> Void)?
 
     /// Called when the daemon sends a `twitter_integration_config_response` message.
     public var onTwitterIntegrationConfigResponse: ((TwitterIntegrationConfigResponseMessage) -> Void)?
@@ -392,6 +407,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// Called when a task run creates a conversation so the client can show it as a visible chat thread.
     public var onTaskRunThreadCreated: ((IPCTaskRunThreadCreated) -> Void)?
+
+    /// Called when a guardian action request creates a thread for the mac channel.
+    public var onGuardianRequestThreadCreated: ((IPCGuardianRequestThreadCreated) -> Void)?
 
     /// Called when the daemon wants us to open/focus the tasks window.
     public var onOpenTasksWindow: (() -> Void)?
@@ -748,6 +766,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Remove a schedule by its ID.
     public func sendRemoveSchedule(id: String) throws {
         try send(ScheduleRemoveMessage(id: id))
+    }
+
+    /// Run a schedule immediately as a one-off execution.
+    public func sendRunScheduleNow(id: String) throws {
+        try send(ScheduleRunNowMessage(id: id))
     }
 
     // MARK: - Reminders Management
@@ -1158,7 +1181,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             do {
                 bearerToken = try String(contentsOfFile: tokenPath, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
             } catch {
-                log.error("Failed to read HTTP bearer token from \(tokenPath): \(error)")
+                log.error("Failed to read HTTP bearer token from \(tokenPath, privacy: .private): \(error)")
                 bearerToken = nil
             }
         } else {
@@ -1217,6 +1240,48 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(DocumentListRequestMessage(
             type: "document_list",
             conversationId: conversationId
+        ))
+    }
+
+    // MARK: - Parental Control
+
+    /// Request the current parental control settings and PIN status.
+    public func sendParentalControlGet() throws {
+        try send(ParentalControlGetRequestMessage())
+    }
+
+    /// Verify a PIN attempt without changing any state.
+    public func sendParentalControlVerifyPin(pin: String) throws {
+        try send(ParentalControlVerifyPinRequestMessage(pin: pin))
+    }
+
+    /// Set the parental control PIN for the first time.
+    public func sendParentalControlSetPin(newPin: String) throws {
+        try send(ParentalControlSetPinRequestMessage.set(newPin: newPin))
+    }
+
+    /// Change the existing parental control PIN.
+    public func sendParentalControlChangePin(currentPin: String, newPin: String) throws {
+        try send(ParentalControlSetPinRequestMessage.change(currentPin: currentPin, newPin: newPin))
+    }
+
+    /// Clear the parental control PIN.
+    public func sendParentalControlClearPin(currentPin: String) throws {
+        try send(ParentalControlSetPinRequestMessage.clear(currentPin: currentPin))
+    }
+
+    /// Update parental control settings (enable/disable, content restrictions, tool blocks).
+    public func sendParentalControlUpdate(
+        pin: String? = nil,
+        enabled: Bool? = nil,
+        contentRestrictions: [String]? = nil,
+        blockedToolCategories: [String]? = nil
+    ) throws {
+        try send(ParentalControlUpdateRequestMessage(
+            pin: pin,
+            enabled: enabled,
+            contentRestrictions: contentRestrictions,
+            blockedToolCategories: blockedToolCategories
         ))
     }
 

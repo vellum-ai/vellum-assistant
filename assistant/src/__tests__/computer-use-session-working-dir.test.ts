@@ -8,6 +8,13 @@ mock.module('../util/logger.js', () => ({
   getLogger: () => new Proxy({} as Record<string, unknown>, {
     get: () => () => {},
   }),
+  getCliLogger: () => new Proxy({} as Record<string, unknown>, {
+    get: () => () => {},
+  }),
+  isDebug: () => false,
+  truncateForLog: (value: string, maxLen = 500) => value.length > maxLen ? value.slice(0, maxLen) + '...' : value,
+  initLogger: () => {},
+  pruneOldLogFiles: () => 0,
 }));
 
 mock.module('../util/platform.js', () => ({
@@ -38,6 +45,7 @@ mock.module('../util/platform.js', () => ({
   isMacOS: () => false,
   isLinux: () => true,
   isWindows: () => false,
+  readHttpToken: () => null,
 }));
 
 mock.module('../tools/executor.js', () => ({

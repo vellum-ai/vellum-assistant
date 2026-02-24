@@ -23,7 +23,7 @@ export interface SignatureVerificationResult {
  * Recursively sort object keys alphabetically for canonical JSON.
  */
 function sortKeysDeep(obj: unknown): unknown {
-  if (obj === null || obj === undefined || typeof obj !== 'object') {
+  if (obj == null || typeof obj !== 'object') {
     return obj;
   }
   if (Array.isArray(obj)) {

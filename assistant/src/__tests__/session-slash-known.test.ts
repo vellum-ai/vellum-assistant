@@ -16,6 +16,12 @@ mock.module('../util/platform.js', () => ({
   getDataDir: () => '/tmp',
 }));
 
+mock.module('../memory/guardian-action-store.js', () => ({
+  getPendingDeliveryByConversation: () => null,
+  getGuardianActionRequest: () => null,
+  resolveGuardianActionRequest: () => {},
+}));
+
 mock.module('../providers/registry.js', () => ({
   getProvider: () => ({ name: 'mock-provider' }),
   initializeProviders: () => {},

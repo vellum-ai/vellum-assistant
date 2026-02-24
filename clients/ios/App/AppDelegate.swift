@@ -1,8 +1,11 @@
 #if canImport(UIKit)
 import Combine
+import os
 import UIKit
 import UserNotifications
 import VellumAssistantShared
+
+private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "AppDelegate")
 
 /// Observable wrapper that holds the active DaemonClientProtocol implementation.
 /// Allows SwiftUI views to receive the client via @EnvironmentObject without
@@ -21,9 +24,14 @@ final class ClientProvider: ObservableObject {
     /// state to `isConnected`.
     private var isConnectedSubscription: AnyCancellable?
 
+    /// Shared trace store updated by the daemon client's onTraceEvent callback.
+    let traceStore: TraceStore
+
     init(client: any DaemonClientProtocol) {
         self.client = client
+        self.traceStore = TraceStore()
         bindCombineBridge()
+        bindTraceEvents()
     }
 
     /// Recreate the DaemonClient from current UserDefaults/Keychain settings.
@@ -35,6 +43,7 @@ final class ClientProvider: ObservableObject {
         self.client = DaemonClient(config: .fromUserDefaults())
         self.isConnected = false
         bindCombineBridge()
+        bindTraceEvents()
     }
 
     private func bindCombineBridge() {
@@ -51,12 +60,22 @@ final class ClientProvider: ObservableObject {
                 }
         }
     }
+
+    private func bindTraceEvents() {
+        guard let daemon = client as? DaemonClient else { return }
+        daemon.onTraceEvent = { [weak self] msg in
+            Task { @MainActor [weak self] in
+                self?.traceStore.ingest(msg)
+            }
+        }
+    }
 }
 
 @MainActor
 class AppDelegate: NSObject, UIApplicationDelegate {
     let clientProvider: ClientProvider
     let authManager = AuthManager()
+    let ambientAgentManager = AmbientAgentManager()
 
     override init() {
         self.clientProvider = ClientProvider(client: DaemonClient(config: .fromUserDefaults()))
@@ -81,7 +100,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             }
         }
 
-        // Register inline reply action
+        // Register inline reply action and Ride Shotgun notification category.
         let replyAction = UNTextInputNotificationAction(
             identifier: "REPLY_ACTION",
             title: "Reply",
@@ -89,13 +108,16 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             textInputButtonTitle: "Send",
             textInputPlaceholder: "Type a reply..."
         )
-        let category = UNNotificationCategory(
+        let chatCategory = UNNotificationCategory(
             identifier: "CHAT_MESSAGE",
             actions: [replyAction],
             intentIdentifiers: []
         )
-        UNUserNotificationCenter.current().setNotificationCategories([category])
+        UNUserNotificationCenter.current().setNotificationCategories([chatCategory])
         UNUserNotificationCenter.current().delegate = self
+
+        // Start the ambient agent trigger so it begins timing from launch.
+        ambientAgentManager.setup()
 
         return true
     }
@@ -112,7 +134,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
         // Log failure but don't crash — push is optional
-        print("[APNS] Failed to register: \(error.localizedDescription)")
+        log.error("APNS registration failed: \(error.localizedDescription)")
     }
 
     private func sendDeviceTokenToDaemon(_ token: String) async throws {

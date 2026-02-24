@@ -1,6 +1,14 @@
 import { describe, test, expect, mock, afterEach, beforeEach } from "bun:test";
 import type { GatewayConfig } from "../config.js";
-import { createTelegramWebhookHandler } from "../http/routes/telegram-webhook.js";
+
+type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(async () => new Response());
+
+mock.module("../fetch.js", () => ({
+  fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
+}));
+
+const { createTelegramWebhookHandler } = await import("../http/routes/telegram-webhook.js");
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
@@ -35,6 +43,14 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     smsDeliverAuthBypass: false,
     ingressPublicBaseUrl: undefined,
     gatewayInternalBaseUrl: "http://127.0.0.1:7830",
+    whatsappPhoneNumberId: undefined,
+    whatsappAccessToken: undefined,
+    whatsappAppSecret: undefined,
+    whatsappWebhookVerifyToken: undefined,
+    whatsappDeliverAuthBypass: false,
+    whatsappTimeoutMs: 15000,
+    whatsappMaxRetries: 3,
+    whatsappInitialBackoffMs: 1000,
     ...overrides,
   };
   if (merged.runtimeGatewayOriginSecret === undefined) {
@@ -66,7 +82,6 @@ function makeWebhookRequest(payload: unknown, secret = "test-webhook-secret"): R
   });
 }
 
-const originalFetch = globalThis.fetch;
 let fetchCalls: { url: string; method: string; body?: unknown; headers?: Record<string, string> }[];
 
 beforeEach(() => {
@@ -74,7 +89,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  globalThis.fetch = originalFetch;
+  fetchMock = mock(async () => new Response());
 });
 
 /** Extract headers from a fetch call into a plain object. */
@@ -101,7 +116,7 @@ function extractHeaders(input: string | URL | Request, init?: RequestInit): Reco
  * Runtime forward calls get an eventId response; Telegram API calls get { ok: true }.
  */
 function installFetchMock() {
-  globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+  fetchMock = mock(async (input: string | URL | Request, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     const method = init?.method ?? (typeof input === "object" && "method" in input ? input.method : "GET");
     let body: unknown;
@@ -137,7 +152,7 @@ function installFetchMock() {
     }
 
     return new Response("Not found", { status: 404 });
-  }) as any;
+  });
 }
 
 describe("telegram webhook handler: gatewayInternalBaseUrl", () => {
@@ -186,6 +201,58 @@ describe("telegram webhook handler: gatewayInternalBaseUrl", () => {
 });
 
 describe("telegram webhook handler: /new rejection", () => {
+  test("/start forwards command intent metadata, does not reset conversation, and sends start acknowledgement", async () => {
+    const config = makeConfig({
+      routingEntries: [{ type: "chat_id", key: "12345", assistantId: "assistant-a" }],
+    });
+    installFetchMock();
+    const handler = createTelegramWebhookHandler(config);
+
+    const payload = makeTelegramPayload("/start deep-link-token", 2501);
+    const req = makeWebhookRequest(payload);
+    const res = await handler(req);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+
+    const runtimeCall = fetchCalls.find((c) => c.url.includes("/inbound"));
+    expect(runtimeCall).toBeDefined();
+    expect((runtimeCall!.body as any).sourceMetadata.commandIntent).toEqual({
+      type: "start",
+      payload: "deep-link-token",
+    });
+
+    const resetCall = fetchCalls.find((c) => c.url.includes("/channels/conversation"));
+    expect(resetCall).toBeUndefined();
+
+    const sendMessageCall = fetchCalls.find((c) => c.url.includes("/sendMessage"));
+    expect(sendMessageCall).toBeDefined();
+    expect((sendMessageCall!.body as any).text).toContain("Starting up");
+  });
+
+  test("/start with routing rejection sends setup notice and does not forward", async () => {
+    const config = makeConfig({ unmappedPolicy: "reject" });
+    installFetchMock();
+    const handler = createTelegramWebhookHandler(config);
+
+    const payload = makeTelegramPayload("/start", 2502);
+    (payload.message as any).chat.id = 54321;
+    const req = makeWebhookRequest(payload);
+    const res = await handler(req);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+
+    const runtimeCall = fetchCalls.find((c) => c.url.includes("/inbound"));
+    expect(runtimeCall).toBeUndefined();
+
+    const sendMessageCall = fetchCalls.find((c) => c.url.includes("/sendMessage"));
+    expect(sendMessageCall).toBeDefined();
+    expect((sendMessageCall!.body as any).text).toContain("not fully set up");
+  });
+
   test("sends rejection notice when /new command routing is rejected", async () => {
     // No routing entries and unmappedPolicy is "reject" — routing will fail
     const config = makeConfig({ unmappedPolicy: "reject" });
@@ -266,7 +333,7 @@ describe("telegram webhook handler: in-flight dedup", () => {
     // Install a fetch mock where the runtime inbound call blocks on the first
     // invocation and responds immediately on subsequent ones.
     let inboundCallCount = 0;
-    globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+    fetchMock = mock(async (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       const method = init?.method ?? (typeof input === "object" && "method" in input ? input.method : "GET");
       let body: unknown;
@@ -293,7 +360,7 @@ describe("telegram webhook handler: in-flight dedup", () => {
         });
       }
       return new Response("Not found", { status: 404 });
-    }) as any;
+    });
 
     const handler = createTelegramWebhookHandler(config);
     const payload = makeTelegramPayload("hello", 9001);
@@ -325,7 +392,7 @@ describe("telegram webhook handler: in-flight dedup", () => {
     });
 
     let callCount = 0;
-    globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+    fetchMock = mock(async (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       const method = init?.method ?? (typeof input === "object" && "method" in input ? input.method : "GET");
       let body: unknown;
@@ -354,7 +421,7 @@ describe("telegram webhook handler: in-flight dedup", () => {
         });
       }
       return new Response("Not found", { status: 404 });
-    }) as any;
+    });
 
     const handler = createTelegramWebhookHandler(config);
     const payload = makeTelegramPayload("hello", 9002);

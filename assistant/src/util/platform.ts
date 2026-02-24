@@ -337,7 +337,7 @@ export function migratePath(source: string, destination: string): void {
  * not silently lost during upgrade.
  */
 function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return v !== null && typeof v === 'object' && !Array.isArray(v);
+  return v != null && typeof v === 'object' && !Array.isArray(v);
 }
 
 function mergeSkippedConfigKeys(legacyPath: string, workspacePath: string): void {

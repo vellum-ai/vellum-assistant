@@ -783,6 +783,7 @@ describe('Telegram config handler', () => {
     expect(setCommandsCalled).toBe(true);
     expect((setCommandsBody as { commands: Array<{ command: string; description: string }> }).commands).toEqual([
       { command: 'new', description: 'Start a new conversation' },
+      { command: 'help', description: 'Show available commands' },
       { command: 'guardian_verify', description: 'Verify your guardian identity' },
     ]);
   });
@@ -863,7 +864,7 @@ describe('Telegram config handler', () => {
     expect(res.error).toContain('Failed to set bot commands');
   });
 
-  test('default command registration includes /new and /guardian_verify', async () => {
+  test('default command registration includes /new, /help, and /guardian_verify', async () => {
     secureKeyStore['credential:telegram:bot_token'] = 'test-bot-token';
     secureKeyStore['credential:telegram:webhook_secret'] = 'test-webhook-secret';
 
@@ -891,9 +892,10 @@ describe('Telegram config handler', () => {
     expect(res.success).toBe(true);
 
     const commands = (setCommandsBody as { commands: Array<{ command: string; description: string }> }).commands;
-    expect(commands).toHaveLength(2);
+    expect(commands).toHaveLength(3);
     expect(commands).toEqual([
       { command: 'new', description: 'Start a new conversation' },
+      { command: 'help', description: 'Show available commands' },
       { command: 'guardian_verify', description: 'Verify your guardian identity' },
     ]);
   });

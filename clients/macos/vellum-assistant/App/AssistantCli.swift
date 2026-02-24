@@ -109,7 +109,7 @@ final class AssistantCli {
             return
         }
 
-        log.info("Running hatch via CLI at \(binaryURL.path)")
+        log.info("Running hatch via CLI at \(binaryURL.path, privacy: .private)")
 
         var arguments = ["hatch", "-d"]
         if daemonOnly {
@@ -122,7 +122,7 @@ final class AssistantCli {
         let (_, stderr, status) = try await runCLI(binaryURL: binaryURL, arguments: arguments)
 
         if status != 0 {
-            log.error("CLI hatch failed with exit code \(status): \(stderr)")
+            log.error("CLI hatch failed with exit code \(status, privacy: .public): \(stderr, privacy: .private)")
             throw CLIError.executionFailed(stderr)
         }
 
@@ -153,7 +153,7 @@ final class AssistantCli {
             throw CLIError.binaryNotFound
         }
 
-        log.info("Running retire via CLI at \(binaryURL.path) for '\(name)'")
+        log.info("Running retire via CLI at \(binaryURL.path, privacy: .private) for '\(name, privacy: .private)'")
 
         let (stderr, status) = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<(String, Int32), Error>) in
             let proc = Process()
@@ -172,7 +172,7 @@ final class AssistantCli {
                 guard !data.isEmpty, let line = String(data: data, encoding: .utf8) else { return }
                 let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmed.isEmpty {
-                    log.info("[retire stdout] \(trimmed)")
+                    log.info("[retire stdout] \(trimmed, privacy: .private)")
                 }
             }
             stderrPipe.fileHandleForReading.readabilityHandler = { handle in
@@ -180,7 +180,7 @@ final class AssistantCli {
                 guard !data.isEmpty, let line = String(data: data, encoding: .utf8) else { return }
                 let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmed.isEmpty {
-                    log.warning("[retire stderr] \(trimmed)")
+                    log.warning("[retire stderr] \(trimmed, privacy: .private)")
                 }
             }
 
@@ -241,7 +241,7 @@ final class AssistantCli {
         }
 
         if status != 0 {
-            log.error("CLI retire failed with exit code \(status): \(stderr)")
+            log.error("CLI retire failed with exit code \(status, privacy: .public): \(stderr, privacy: .private)")
             throw CLIError.executionFailed(stderr)
         }
 
@@ -261,7 +261,7 @@ final class AssistantCli {
             return
         }
 
-        log.info("Running stop via CLI at \(binaryURL.path)")
+        log.info("Running stop via CLI at \(binaryURL.path, privacy: .private)")
 
         // stop must be synchronous (called from applicationWillTerminate)
         let proc = Process()
@@ -297,7 +297,7 @@ final class AssistantCli {
         // Don't start monitoring if the assistant isn't in the lock file
         let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
         if let assistantId, !isAssistantInLockFile(assistantId: assistantId) {
-            log.info("Assistant '\(assistantId)' not in lock file — skipping monitor start")
+            log.info("Assistant '\(assistantId, privacy: .private)' not in lock file — skipping monitor start")
             return
         }
 
@@ -348,7 +348,7 @@ final class AssistantCli {
             throw CLIError.binaryNotFound
         }
 
-        log.info("Running remote hatch via CLI at \(binaryURL.path) --remote \(config.remote)")
+        log.info("Running remote hatch via CLI at \(binaryURL.path, privacy: .private) --remote \(config.remote, privacy: .private)")
 
         let proc = Process()
         proc.executableURL = binaryURL
@@ -479,7 +479,7 @@ final class AssistantCli {
         do {
             pidData = try Data(contentsOf: pidFileURL)
         } catch {
-            log.error("Failed to read PID file at \(self.pidFileURL.path): \(error)")
+            log.error("Failed to read PID file at \(self.pidFileURL.path, privacy: .private): \(error)")
             return false
         }
         guard let pidString = String(data: pidData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -538,7 +538,7 @@ final class AssistantCli {
         do {
             pidData = try Data(contentsOf: pidFileURL)
         } catch {
-            log.error("Failed to read PID file at \(self.pidFileURL.path): \(error)")
+            log.error("Failed to read PID file at \(self.pidFileURL.path, privacy: .private): \(error)")
             return
         }
         guard let pidString = String(data: pidData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),

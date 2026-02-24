@@ -1,5 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk';
-import { getConfig } from '../config/loader.js';
+import { getAnthropicProvider, createTimeout, extractToolUse, userMessage } from '../providers/anthropic-send-message.js';
 import { getLogger } from '../util/logger.js';
 import { truncate } from '../util/truncate.js';
 import type { ThreadMessage, ThreadSummary } from './types.js';
@@ -189,78 +188,71 @@ async function summarizeWithLLM(
   messages: ThreadMessage[],
   maxTokens: number,
 ): Promise<ThreadSummary> {
-  const config = getConfig();
-  const apiKey = config.apiKeys.anthropic ?? process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
+  const provider = getAnthropicProvider();
+  if (!provider) {
     log.warn('No Anthropic API key available for thread summarization, returning basic summary');
     return buildFallbackSummary(messages);
   }
 
-  const truncated = truncateMessages(messages, maxTokens);
-  const transcript = formatTranscript(truncated);
+  const truncatedMsgs = truncateMessages(messages, maxTokens);
+  const transcript = formatTranscript(truncatedMsgs);
 
   try {
-    const client = new Anthropic({ apiKey });
-    const abortController = new AbortController();
-    let timer: ReturnType<typeof setTimeout>;
-    const apiCall = client.messages.create({
-      model: SUMMARIZATION_MODEL,
-      max_tokens: 1024,
-      system: SYSTEM_PROMPT,
-      tools: [STORE_SUMMARY_TOOL],
-      tool_choice: { type: 'tool' as const, name: 'store_thread_summary' },
-      messages: [{
-        role: 'user' as const,
-        content: `Summarize this conversation thread (${messages.length} messages):\n\n${transcript}`,
-      }],
-    }, { signal: abortController.signal });
+    const { signal, cleanup } = createTimeout(SUMMARIZATION_TIMEOUT_MS);
 
-    // Swallow the abort rejection that fires when the timeout wins the race
-    apiCall.catch(() => {});
-    const response = await Promise.race([
-      apiCall.finally(() => clearTimeout(timer)),
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(() => {
-          abortController.abort();
-          reject(new Error('Thread summarization LLM timeout'));
-        }, SUMMARIZATION_TIMEOUT_MS);
-      }),
-    ]);
+    try {
+      const response = await provider.sendMessage(
+        [userMessage(`Summarize this conversation thread (${messages.length} messages):\n\n${transcript}`)],
+        [STORE_SUMMARY_TOOL],
+        SYSTEM_PROMPT,
+        {
+          config: {
+            model: SUMMARIZATION_MODEL,
+            max_tokens: 1024,
+            tool_choice: { type: 'tool' as const, name: 'store_thread_summary' },
+          },
+          signal,
+        },
+      );
+      cleanup();
 
-    const toolBlock = response.content.find((b) => b.type === 'tool_use');
-    if (!toolBlock || toolBlock.type !== 'tool_use') {
-      log.warn('No tool_use block in summarization response, returning fallback');
-      return buildFallbackSummary(messages);
+      const toolBlock = extractToolUse(response);
+      if (!toolBlock) {
+        log.warn('No tool_use block in summarization response, returning fallback');
+        return buildFallbackSummary(messages);
+      }
+
+      const input = toolBlock.input as {
+        summary?: string;
+        participants?: Array<{ name: string; role?: string }>;
+        openQuestions?: string[];
+        lastAction?: string;
+        sentiment?: string;
+      };
+
+      const validSentiments = new Set(['positive', 'neutral', 'negative', 'mixed']);
+      const sentiment = validSentiments.has(input.sentiment ?? '')
+        ? (input.sentiment as ThreadSummary['sentiment'])
+        : 'neutral';
+
+      return {
+        summary: truncate(String(input.summary ?? ''), 2000, ''),
+        participants: Array.isArray(input.participants)
+          ? input.participants.map((p) => ({
+              name: String(p.name),
+              ...(p.role ? { role: String(p.role) } : {}),
+            }))
+          : extractParticipants(messages),
+        openQuestions: Array.isArray(input.openQuestions)
+          ? input.openQuestions.map((q) => String(q))
+          : [],
+        lastAction: truncate(String(input.lastAction ?? ''), 500, ''),
+        sentiment,
+        messageCount: messages.length,
+      };
+    } finally {
+      cleanup();
     }
-
-    const input = toolBlock.input as {
-      summary?: string;
-      participants?: Array<{ name: string; role?: string }>;
-      openQuestions?: string[];
-      lastAction?: string;
-      sentiment?: string;
-    };
-
-    const validSentiments = new Set(['positive', 'neutral', 'negative', 'mixed']);
-    const sentiment = validSentiments.has(input.sentiment ?? '')
-      ? (input.sentiment as ThreadSummary['sentiment'])
-      : 'neutral';
-
-    return {
-      summary: truncate(String(input.summary ?? ''), 2000, ''),
-      participants: Array.isArray(input.participants)
-        ? input.participants.map((p) => ({
-            name: String(p.name),
-            ...(p.role ? { role: String(p.role) } : {}),
-          }))
-        : extractParticipants(messages),
-      openQuestions: Array.isArray(input.openQuestions)
-        ? input.openQuestions.map((q) => String(q))
-        : [],
-      lastAction: truncate(String(input.lastAction ?? ''), 500, ''),
-      sentiment,
-      messageCount: messages.length,
-    };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.warn({ err: message }, 'Thread summarization LLM call failed, returning fallback');

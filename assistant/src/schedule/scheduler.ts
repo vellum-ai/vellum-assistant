@@ -103,14 +103,14 @@ async function runScheduleOnce(
         const message = err instanceof Error ? err.message : String(err);
         log.warn({ err, jobId: job.id, name: job.name, taskId, syntax: job.syntax, expression: job.expression, isRruleSet }, 'Scheduled task execution failed');
         // Create a fallback conversation for the schedule run record
-        const fallbackConversation = createConversation(`Schedule: ${job.name}`);
+        const fallbackConversation = createConversation({ title: `Schedule: ${job.name}`, source: 'schedule' });
         const runId = createScheduleRun(job.id, fallbackConversation.id);
         completeScheduleRun(runId, { status: 'error', error: message });
       }
       continue;
     }
 
-    const conversation = createConversation(`Schedule: ${job.name}`);
+    const conversation = createConversation({ title: `Schedule: ${job.name}`, source: 'schedule' });
     const runId = createScheduleRun(job.id, conversation.id);
     const isRruleSetMsg = job.syntax === 'rrule' && hasSetConstructs(job.expression);
 
@@ -131,7 +131,7 @@ async function runScheduleOnce(
   const dueReminders = claimDueReminders(now);
   for (const reminder of dueReminders) {
     if (reminder.mode === 'execute') {
-      const conversation = createConversation(`Reminder: ${reminder.label}`);
+      const conversation = createConversation({ title: `Reminder: ${reminder.label}`, source: 'reminder' });
       setReminderConversationId(reminder.id, conversation.id);
       try {
         log.info({ reminderId: reminder.id, label: reminder.label, conversationId: conversation.id }, 'Executing reminder');

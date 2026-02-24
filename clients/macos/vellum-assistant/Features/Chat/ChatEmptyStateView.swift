@@ -13,6 +13,7 @@ struct ChatEmptyStateView: View {
     let isRecording: Bool
     let suggestion: String?
     let pendingAttachments: [ChatAttachment]
+    var isLoadingAttachment: Bool = false
     let errorText: String?
     let onSend: () -> Void
     let onStop: () -> Void
@@ -28,6 +29,8 @@ struct ChatEmptyStateView: View {
     @State private var visible = false
     @State private var title: String = titles.randomElement()!
     @State private var placeholder: String = placeholderTexts.randomElement()!
+
+    private let appearance = AvatarAppearanceManager.shared
 
     // MARK: - Greeting Data
 
@@ -59,21 +62,24 @@ struct ChatEmptyStateView: View {
             Spacer()
             Spacer()
 
-            Text("🍃")
-                .font(.system(size: 48))
-                .opacity(visible ? 1 : 0)
-                .scaleEffect(visible ? 1 : 0.8)
-                .padding(.bottom, VSpacing.lg)
+            HStack(spacing: VSpacing.md) {
+                Image(nsImage: appearance.chatAvatarImage)
+                    .interpolation(.none)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 32, height: 32)
+                    .clipShape(Circle())
 
-            Text(title)
-                .font(.custom("Fraunces", size: 28).weight(.regular))
-                .foregroundColor(VColor.textSecondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 500)
-                .opacity(visible ? 1 : 0)
-                .offset(y: visible ? 0 : 8)
-                .padding(.horizontal, VSpacing.xl)
-                .padding(.bottom, VSpacing.xl)
+                Text(title)
+                    .font(.custom("Fraunces", size: 28).weight(.regular))
+                    .foregroundColor(VColor.textSecondary)
+                    .multilineTextAlignment(.leading)
+            }
+            .frame(maxWidth: 500)
+            .opacity(visible ? 1 : 0)
+            .scaleEffect(visible ? 1 : 0.8)
+            .padding(.horizontal, VSpacing.xl)
+            .padding(.bottom, VSpacing.xl)
 
             VStack(spacing: 0) {
                 if let errorText {
@@ -99,6 +105,7 @@ struct ChatEmptyStateView: View {
                     isRecording: isRecording,
                     suggestion: suggestion,
                     pendingAttachments: pendingAttachments,
+                    isLoadingAttachment: isLoadingAttachment,
                     onSend: onSend,
                     onStop: onStop,
                     onAcceptSuggestion: onAcceptSuggestion,
@@ -142,6 +149,7 @@ struct ChatTemporaryChatEmptyStateView: View {
     let isRecording: Bool
     let suggestion: String?
     let pendingAttachments: [ChatAttachment]
+    var isLoadingAttachment: Bool = false
     let errorText: String?
     let onSend: () -> Void
     let onStop: () -> Void
@@ -201,6 +209,7 @@ struct ChatTemporaryChatEmptyStateView: View {
                     isRecording: isRecording,
                     suggestion: suggestion,
                     pendingAttachments: pendingAttachments,
+                    isLoadingAttachment: isLoadingAttachment,
                     onSend: onSend,
                     onStop: onStop,
                     onAcceptSuggestion: onAcceptSuggestion,

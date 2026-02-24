@@ -5,6 +5,7 @@ import { getLogger } from '../../util/logger.js';
 import { checkBrowserRuntime } from './runtime-check.js';
 import { authSessionCache } from './auth-cache.js';
 import type { ExtractedCredential } from './network-recording-types.js';
+import { silentlyWithLog } from '../../util/silently.js';
 
 const log = getLogger('browser-manager');
 
@@ -193,7 +194,7 @@ class BrowserManager {
     this.contextCreating = (async () => {
       // Deterministic test mode: when launch is injected via setLaunchFn,
       // bypass ambient CDP probing/negotiation and use the injected launcher.
-      const hasInjectedLaunchFn = launchPersistentContext !== null;
+      const hasInjectedLaunchFn = launchPersistentContext != null;
 
       if (!hasInjectedLaunchFn) {
         // Try to detect or negotiate CDP before falling back to headless.
@@ -477,7 +478,7 @@ class BrowserManager {
 
     cdp.on('Page.screencastFrame', (params) => {
       onFrame({ data: params.data as string, metadata: params.metadata as ScreencastFrameMetadata });
-      cdp.send('Page.screencastFrameAck', { sessionId: params.sessionId }).catch(() => {});
+      silentlyWithLog(cdp.send('Page.screencastFrameAck', { sessionId: params.sessionId }), 'screencast frame ack');
     });
 
     await cdp.send('Page.startScreencast', {
@@ -710,7 +711,7 @@ class BrowserManager {
   }
 
   hasContext(): boolean {
-    return this.context !== null;
+    return this.context != null;
   }
 }
 

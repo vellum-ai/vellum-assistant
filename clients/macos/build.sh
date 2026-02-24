@@ -92,8 +92,11 @@ case "$CMD" in
         # swift test may exit non-zero due to a WebKit SIGTRAP (signal 5) in
         # headless CI even when every test assertion passes.  Tolerate that
         # specific case so flaky WebKit process cleanup doesn't fail the build.
-        if echo "$TEST_OUTPUT" | grep -q "unexpected signal code 5" && \
-           ! echo "$TEST_OUTPUT" | grep -qE "with [1-9][0-9]* failure"; then
+        # Use grep with here-strings instead of piping from echo to avoid
+        # broken-pipe errors (SIGPIPE) when pipefail is set and the test
+        # output is very large — grep -q exits early, killing echo mid-write.
+        if grep -q "unexpected signal code 5" <<< "$TEST_OUTPUT" && \
+           ! grep -qE "with [1-9][0-9]* failure" <<< "$TEST_OUTPUT"; then
             echo "warning: swift test exited with signal code 5 (WebKit headless crash) but all test assertions passed."
             exit 0
         fi
@@ -125,9 +128,14 @@ SWIFT_FLAGS=""
 if [ "$CMD" = "release" ]; then
     CONFIG="release"
     SWIFT_FLAGS="-c release --arch arm64 --arch x86_64"
-    # Force clean for release builds to prevent stale artifacts in production
-    echo "Release build: forcing clean to ensure no stale artifacts..."
-    rm -rf "$SCRIPT_DIR/dist" "$SCRIPT_DIR/../.build"
+    if [ "${SKIP_CLEAN:-}" = "1" ]; then
+        echo "Release build: skipping .build clean (SKIP_CLEAN=1, using cached artifacts)"
+        rm -rf "$SCRIPT_DIR/dist"
+    else
+        # Force clean for release builds to prevent stale artifacts in production
+        echo "Release build: forcing clean to ensure no stale artifacts..."
+        rm -rf "$SCRIPT_DIR/dist" "$SCRIPT_DIR/../.build"
+    fi
 fi
 
 # 1. Build with SPM
@@ -187,6 +195,14 @@ if [ "$DAEMON_BIN_NEEDS_BUILD" = true ]; then
     cp "$ASSISTANT_SRC_DIR/node_modules/web-tree-sitter/web-tree-sitter.wasm" "$SCRIPT_DIR/daemon-bin/"
     cp "$ASSISTANT_SRC_DIR/node_modules/tree-sitter-bash/tree-sitter-bash.wasm" "$SCRIPT_DIR/daemon-bin/"
     echo "Daemon binary built: $SCRIPT_DIR/daemon-bin/vellum-daemon"
+fi
+
+# Always refresh bundled skills from source (skill assets like SKILL.md aren't
+# tracked by the daemon binary staleness check, so copy unconditionally)
+if [ -d "$ASSISTANT_SRC_DIR/src/config/bundled-skills" ]; then
+    mkdir -p "$SCRIPT_DIR/daemon-bin"
+    rm -rf "$SCRIPT_DIR/daemon-bin/bundled-skills"
+    cp -R "$ASSISTANT_SRC_DIR/src/config/bundled-skills" "$SCRIPT_DIR/daemon-bin/bundled-skills"
 fi
 
 # Also rebuild if daemon binary changed or newly added
@@ -319,6 +335,12 @@ if [ -d "$SPARKLE_FW" ]; then
     fi
 else
     echo "WARNING: Sparkle.framework not found at $SPARKLE_FW"
+fi
+
+# Always refresh bundled skills in app bundle (skill assets change independently of binaries)
+if [ -d "$SCRIPT_DIR/daemon-bin/bundled-skills" ]; then
+    rm -rf "$RESOURCES_DIR/bundled-skills"
+    cp -R "$SCRIPT_DIR/daemon-bin/bundled-skills" "$RESOURCES_DIR/bundled-skills"
 fi
 
 # Always check resource bundles (they change independently of binaries)

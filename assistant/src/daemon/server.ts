@@ -31,7 +31,6 @@ import { ensureBlobDir, sweepStaleBlobs } from './ipc-blob-store.js';
 import { bootstrapHomeBaseAppLink } from '../home-base/bootstrap.js';
 import { SessionEvictor } from './session-evictor.js';
 import { getSubagentManager } from '../subagent/index.js';
-import { tryRouteCallMessage } from '../calls/call-bridge.js';
 import { resolveSlash } from './session-slash.js';
 import { createUserMessage, createAssistantMessage } from '../agent/message-types.js';
 import { registerDaemonCallbacks } from '../work-items/work-item-runner.js';
@@ -358,7 +357,7 @@ export class DaemonServer {
       const parseDurationMs = Number(process.hrtime.bigint() - parseStartNs) / 1_000_000;
       for (const entry of parsed) {
         const msg = entry.msg;
-        if (typeof msg === 'object' && msg !== null && (msg as { type?: unknown }).type === 'cu_observation') {
+        if (typeof msg === 'object' && msg != null && (msg as { type?: unknown }).type === 'cu_observation') {
           const maybeSessionId = (msg as { sessionId?: unknown }).sessionId;
           const sessionId = typeof maybeSessionId === 'string' ? maybeSessionId : 'unknown';
           const previousSequence = this.cuObservationParseSequence.get(sessionId) ?? 0;
@@ -486,6 +485,20 @@ export class DaemonServer {
         session.markStale();
       }
     }
+  }
+
+  get lastConfigFingerprint(): string {
+    return this.configWatcher.lastFingerprint;
+  }
+
+  set lastConfigFingerprint(value: string) {
+    this.configWatcher.lastFingerprint = value;
+  }
+
+  refreshConfigFromSources(): boolean {
+    const changed = this.configWatcher.refreshConfigFromSources();
+    if (changed) this.evictSessionsForReload();
+    return changed;
   }
 
   private async sendInitialSession(socket: net.Socket): Promise<void> {
@@ -669,6 +682,7 @@ export class DaemonServer {
     session.setAssistantId(options?.assistantId ?? 'self');
     session.setGuardianContext(options?.guardianContext ?? null);
     session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel));
+    session.setCommandIntent(options?.commandIntent ?? null);
 
     const attachments = attachmentIds
       ? attachmentsStore.getAttachmentsByIds(attachmentIds).map((a) => ({
@@ -681,21 +695,6 @@ export class DaemonServer {
 
     const requestId = crypto.randomUUID();
     const messageId = session.persistUserMessage(content, attachments, requestId);
-
-    let bridgeHandled = false;
-    try {
-      const bridgeResult = await tryRouteCallMessage(conversationId, content, messageId);
-      bridgeHandled = bridgeResult.handled;
-    } catch (err) {
-      log.warn({ err, conversationId }, 'Call bridge check failed (non-fatal), proceeding with agent loop');
-    }
-
-    if (bridgeHandled) {
-      resetSessionProcessingState(session);
-      session.drainQueue('loop_complete');
-      log.info({ conversationId, messageId }, 'User message consumed by call bridge, skipping agent loop');
-      return { messageId };
-    }
 
     session.runAgentLoop(content, messageId, () => {}).catch((err) => {
       log.error({ err, conversationId }, 'Background agent loop failed');
@@ -725,6 +724,7 @@ export class DaemonServer {
     session.setAssistantId(options?.assistantId ?? 'self');
     session.setGuardianContext(options?.guardianContext ?? null);
     session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel));
+    session.setCommandIntent(options?.commandIntent ?? null);
 
     const attachments = attachmentIds
       ? attachmentsStore.getAttachmentsByIds(attachmentIds).map((a) => ({
@@ -771,22 +771,6 @@ export class DaemonServer {
       throw err;
     }
 
-    let bridgeHandled = false;
-    try {
-      const bridgeResult = await tryRouteCallMessage(conversationId, resolvedContent, messageId);
-      bridgeHandled = bridgeResult.handled;
-    } catch (err) {
-      log.warn({ err, conversationId }, 'Call bridge check failed (non-fatal), proceeding with agent loop');
-    }
-
-    if (bridgeHandled) {
-      (session as unknown as { preactivatedSkillIds?: string[] }).preactivatedSkillIds = undefined;
-      resetSessionProcessingState(session);
-      session.drainQueue('loop_complete');
-      log.info({ conversationId, messageId }, 'User message consumed by call bridge, skipping agent loop');
-      return { messageId };
-    }
-
     await session.runAgentLoop(resolvedContent, messageId, () => {});
 
     return { messageId };
@@ -808,15 +792,4 @@ export class DaemonServer {
     });
   }
 
-}
-
-function resetSessionProcessingState(session: Session): void {
-  const s = session as unknown as {
-    processing: boolean;
-    abortController: AbortController | null;
-    currentRequestId: string | undefined;
-  };
-  s.processing = false;
-  s.abortController = null;
-  s.currentRequestId = undefined;
 }

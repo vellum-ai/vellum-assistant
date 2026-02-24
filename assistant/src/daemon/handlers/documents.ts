@@ -2,11 +2,22 @@ import { defineHandlers } from './shared.js';
 import type { HandlerContext } from './shared.js';
 import type { DocumentSaveRequest, DocumentLoadRequest, DocumentListRequest } from '../ipc-protocol.js';
 import type * as net from 'node:net';
-import type { Database } from 'bun:sqlite';
-import { getDb } from '../../memory/db.js';
+import { rawRun, rawGet, rawAll } from '../../memory/db.js';
 import { getLogger } from '../../util/logger.js';
 
 const log = getLogger('documents');
+
+interface DocumentRow {
+  surface_id: string;
+  conversation_id: string;
+  title: string;
+  content: string;
+  word_count: number;
+  created_at: number;
+  updated_at: number;
+}
+
+type DocumentListRow = Omit<DocumentRow, 'content'>;
 
 export function handleDocumentSave(msg: DocumentSaveRequest, socket: net.Socket, ctx: HandlerContext): void {
   log.info({
@@ -18,13 +29,9 @@ export function handleDocumentSave(msg: DocumentSaveRequest, socket: net.Socket,
   }, 'Received save request');
 
   try {
-    const db = getDb();
-    // Get the raw SQLite client from Drizzle
-    const sqlite = (db as unknown as { $client: Database }).$client;
     const now = Date.now();
 
-    // Upsert document (insert or update if exists)
-    sqlite.run(
+    rawRun(
       `INSERT INTO documents (surface_id, conversation_id, title, content, word_count, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(surface_id) DO UPDATE SET
@@ -32,7 +39,7 @@ export function handleDocumentSave(msg: DocumentSaveRequest, socket: net.Socket,
          content = excluded.content,
          word_count = excluded.word_count,
          updated_at = excluded.updated_at`,
-      [msg.surfaceId, msg.conversationId, msg.title, msg.content, msg.wordCount, now, now]
+      msg.surfaceId, msg.conversationId, msg.title, msg.content, msg.wordCount, now, now,
     );
 
     ctx.send(socket, {
@@ -55,22 +62,11 @@ export function handleDocumentSave(msg: DocumentSaveRequest, socket: net.Socket,
 
 export function handleDocumentLoad(msg: DocumentLoadRequest, socket: net.Socket, ctx: HandlerContext): void {
   try {
-    const db = getDb();
-    const sqlite = (db as unknown as { $client: Database }).$client;
-
-    const result = sqlite.prepare(/*sql*/ `
+    const result = rawGet<DocumentRow>(/*sql*/ `
       SELECT surface_id, conversation_id, title, content, word_count, created_at, updated_at
       FROM documents
       WHERE surface_id = ?
-    `).get(msg.surfaceId) as {
-      surface_id: string;
-      conversation_id: string;
-      title: string;
-      content: string;
-      word_count: number;
-      created_at: number;
-      updated_at: number;
-    } | undefined;
+    `, msg.surfaceId);
 
     if (result) {
       ctx.send(socket, {
@@ -119,9 +115,6 @@ export function handleDocumentLoad(msg: DocumentLoadRequest, socket: net.Socket,
 
 export function handleDocumentList(msg: DocumentListRequest, socket: net.Socket, ctx: HandlerContext): void {
   try {
-    const db = getDb();
-    const sqlite = (db as unknown as { $client: Database }).$client;
-
     let query = /*sql*/ `
       SELECT surface_id, conversation_id, title, word_count, created_at, updated_at
       FROM documents
@@ -135,14 +128,7 @@ export function handleDocumentList(msg: DocumentListRequest, socket: net.Socket,
 
     query += ' ORDER BY updated_at DESC';
 
-    const results = sqlite.prepare(query).all(...params) as Array<{
-      surface_id: string;
-      conversation_id: string;
-      title: string;
-      word_count: number;
-      created_at: number;
-      updated_at: number;
-    }>;
+    const results = rawAll<DocumentListRow>(query, ...params);
 
     ctx.send(socket, {
       type: 'document_list_response',

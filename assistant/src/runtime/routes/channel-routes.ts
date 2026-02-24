@@ -19,6 +19,12 @@ import {
   validateAndConsumeChallenge,
 } from '../channel-guardian-service.js';
 import {
+  getPendingDeliveriesByDestination,
+  getGuardianActionRequest,
+  resolveGuardianActionRequest,
+} from '../../memory/guardian-action-store.js';
+import { answerCall } from '../../calls/call-domain.js';
+import {
   createApprovalRequest,
   getPendingApprovalByGuardianChat,
   getPendingApprovalByRunAndGuardianChat,
@@ -48,6 +54,7 @@ import type { RunOrchestrator } from '../run-orchestrator.js';
 import type {
   MessageProcessor,
   RuntimeAttachmentMetadata,
+  ApprovalCopyGenerator,
 } from '../http-types.js';
 import type { GuardianRuntimeContext } from '../../daemon/session-runtime-assembly.js';
 import { composeApprovalMessageGenerative } from '../approval-message-composer.js';
@@ -152,6 +159,7 @@ interface DeliverGeneratedApprovalPromptParams {
   prompt: ChannelApprovalPrompt;
   uiMetadata: ApprovalUIMetadata;
   messageContext: ApprovalMessageContext;
+  approvalCopyGenerator?: ApprovalCopyGenerator;
 }
 
 /**
@@ -170,6 +178,7 @@ async function deliverGeneratedApprovalPrompt(params: DeliverGeneratedApprovalPr
     prompt,
     uiMetadata,
     messageContext,
+    approvalCopyGenerator,
   } = params;
   const keywords = requiredDecisionKeywords(uiMetadata.actions);
 
@@ -177,6 +186,7 @@ async function deliverGeneratedApprovalPrompt(params: DeliverGeneratedApprovalPr
     const richText = await composeApprovalMessageGenerative(
       { ...messageContext, channel: sourceChannel, richUi: true },
       { fallbackText: prompt.promptText },
+      approvalCopyGenerator,
     );
 
     try {
@@ -199,12 +209,17 @@ async function deliverGeneratedApprovalPrompt(params: DeliverGeneratedApprovalPr
     const plainTextFallback = await composeApprovalMessageGenerative(
       { ...messageContext, channel: sourceChannel, richUi: false },
       { fallbackText: prompt.plainTextFallback, requiredKeywords: keywords },
+      approvalCopyGenerator,
     );
+
+    // Embed the run reference so plain-text replies can disambiguate when
+    // multiple approvals are pending for the same guardian chat.
+    const taggedFallback = `${plainTextFallback}\n[ref:${uiMetadata.runId}]`;
 
     try {
       await deliverChannelReply(replyCallbackUrl, {
         chatId,
-        text: plainTextFallback,
+        text: taggedFallback,
         assistantId,
       }, bearerToken);
       return true;
@@ -220,12 +235,16 @@ async function deliverGeneratedApprovalPrompt(params: DeliverGeneratedApprovalPr
   const plainText = await composeApprovalMessageGenerative(
     { ...messageContext, channel: sourceChannel, richUi: false },
     { fallbackText: prompt.plainTextFallback, requiredKeywords: keywords },
+    approvalCopyGenerator,
   );
+
+  // Embed the run reference for disambiguation in multi-pending scenarios.
+  const taggedPlainText = `${plainText}\n[ref:${uiMetadata.runId}]`;
 
   try {
     await deliverChannelReply(replyCallbackUrl, {
       chatId,
-      text: plainText,
+      text: taggedPlainText,
       assistantId,
     }, bearerToken);
     return true;
@@ -322,6 +341,7 @@ export async function handleChannelInbound(
   runOrchestrator?: RunOrchestrator,
   assistantId: string = 'self',
   gatewayOriginSecret?: string,
+  approvalCopyGenerator?: ApprovalCopyGenerator,
 ): Promise<Response> {
   // Reject requests that lack valid gateway-origin proof. This ensures
   // channel inbound messages can only arrive via the gateway (which
@@ -371,7 +391,7 @@ export async function handleChannelInbound(
   }
 
   // Reject non-string content regardless of whether attachments are present.
-  if (content !== undefined && content !== null && typeof content !== 'string') {
+  if (content != null && typeof content !== 'string') {
     return Response.json({ error: 'content must be a string' }, { status: 400 });
   }
 
@@ -495,6 +515,17 @@ export async function handleChannelInbound(
     ? sourceMetadata.uxBrief.trim()
     : undefined;
 
+  // Extract channel command intent (e.g. /start from Telegram)
+  const rawCommandIntent = sourceMetadata?.commandIntent;
+  const commandIntent = rawCommandIntent && typeof rawCommandIntent === 'object' && !Array.isArray(rawCommandIntent)
+    ? rawCommandIntent as Record<string, unknown>
+    : undefined;
+
+  // Preserve locale from sourceMetadata so the model can greet in the user's language
+  const sourceLanguageCode = typeof sourceMetadata?.languageCode === 'string' && sourceMetadata.languageCode.trim().length > 0
+    ? sourceMetadata.languageCode.trim()
+    : undefined;
+
   const replyCallbackUrl = body.replyCallbackUrl;
 
   // ── Guardian verification command intercept ──
@@ -521,12 +552,12 @@ export async function handleChannelInbound(
         ? await composeApprovalMessageGenerative({
           scenario: 'guardian_verify_success',
           channel: sourceChannel,
-        })
+        }, {}, approvalCopyGenerator)
         : await composeApprovalMessageGenerative({
           scenario: 'guardian_verify_failed',
           channel: sourceChannel,
           failureReason: stripVerificationFailurePrefix(verifyResult.reason),
-        });
+        }, {}, approvalCopyGenerator);
 
       try {
         await deliverChannelReply(replyCallbackUrl, {
@@ -544,6 +575,131 @@ export async function handleChannelInbound(
         eventId: result.eventId,
         guardianVerification: verifyResult.success ? 'verified' : 'failed',
       });
+    }
+  }
+
+  // ── Guardian action answer interception ──
+  // Check if this inbound message is a reply to a cross-channel guardian
+  // action request (from a voice call). Must run before approval interception
+  // so guardian answers are not mistakenly routed into the approval flow.
+  if (
+    !result.duplicate &&
+    trimmedContent.length > 0 &&
+    body.senderExternalUserId &&
+    replyCallbackUrl
+  ) {
+    const pendingDeliveries = getPendingDeliveriesByDestination(assistantId, sourceChannel, externalChatId);
+    if (pendingDeliveries.length > 0) {
+      // Identity check: only the designated guardian can answer
+      const validDeliveries = pendingDeliveries.filter(
+        (d) => d.destinationExternalUserId === body.senderExternalUserId,
+      );
+
+      if (validDeliveries.length > 0) {
+        let matchedDelivery = validDeliveries.length === 1 ? validDeliveries[0] : null;
+        let answerText = trimmedContent;
+
+        // Multiple pending deliveries: require request code prefix for disambiguation
+        if (validDeliveries.length > 1) {
+          for (const d of validDeliveries) {
+            const req = getGuardianActionRequest(d.requestId);
+            if (req && trimmedContent.toUpperCase().startsWith(req.requestCode)) {
+              matchedDelivery = d;
+              answerText = trimmedContent.slice(req.requestCode.length).trim();
+              break;
+            }
+          }
+
+          if (!matchedDelivery) {
+            // Send disambiguation message listing the request codes
+            const codes = validDeliveries
+              .map((d) => {
+                const req = getGuardianActionRequest(d.requestId);
+                return req ? req.requestCode : null;
+              })
+              .filter(Boolean);
+            try {
+              await deliverChannelReply(replyCallbackUrl, {
+                chatId: externalChatId,
+                text: `You have multiple pending guardian questions. Please prefix your reply with the reference code (${codes.join(', ')}) to indicate which question you are answering.`,
+                assistantId,
+              }, bearerToken);
+            } catch (err) {
+              log.error({ err, externalChatId }, 'Failed to deliver guardian action disambiguation message');
+            }
+            return Response.json({
+              accepted: true,
+              duplicate: false,
+              eventId: result.eventId,
+              guardianAnswer: 'disambiguation_sent',
+            });
+          }
+        }
+
+        if (matchedDelivery) {
+          const request = getGuardianActionRequest(matchedDelivery.requestId);
+          if (request) {
+            // Attempt to deliver the answer to the call first. Only resolve
+            // the guardian action request if answerCall succeeds, so that a
+            // failed delivery (e.g. pending question timed out) leaves the
+            // request pending for retry from another channel.
+            const answerResult = await answerCall({ callSessionId: request.callSessionId, answer: answerText });
+
+            if (!('ok' in answerResult) || !answerResult.ok) {
+              const errorMsg = 'error' in answerResult ? answerResult.error : 'Unknown error';
+              log.warn({ callSessionId: request.callSessionId, error: errorMsg }, 'answerCall failed for guardian answer');
+              try {
+                await deliverChannelReply(replyCallbackUrl, {
+                  chatId: externalChatId,
+                  text: 'Failed to deliver your answer to the call. Please try again.',
+                  assistantId,
+                }, bearerToken);
+              } catch (deliverErr) {
+                log.error({ err: deliverErr, externalChatId }, 'Failed to deliver guardian answer failure notice');
+              }
+              return Response.json({
+                accepted: true,
+                duplicate: false,
+                eventId: result.eventId,
+                guardianAnswer: 'answer_failed',
+              });
+            }
+
+            const resolved = resolveGuardianActionRequest(
+              request.id,
+              answerText,
+              sourceChannel,
+              body.senderExternalUserId,
+            );
+
+            if (resolved) {
+              return Response.json({
+                accepted: true,
+                duplicate: false,
+                eventId: result.eventId,
+                guardianAnswer: 'resolved',
+              });
+            } else {
+              // Already answered from another channel
+              try {
+                await deliverChannelReply(replyCallbackUrl, {
+                  chatId: externalChatId,
+                  text: 'This question has already been answered from another channel.',
+                  assistantId,
+                }, bearerToken);
+              } catch (err) {
+                log.error({ err, externalChatId }, 'Failed to deliver guardian action stale notice');
+              }
+              return Response.json({
+                accepted: true,
+                duplicate: false,
+                eventId: result.eventId,
+                guardianAnswer: 'stale',
+              });
+            }
+          }
+        }
+      }
     }
   }
 
@@ -624,6 +780,7 @@ export async function handleChannelInbound(
       orchestrator: runOrchestrator,
       guardianCtx,
       assistantId,
+      approvalCopyGenerator,
     });
 
     if (approvalResult.handled) {
@@ -703,6 +860,9 @@ export async function handleChannelInbound(
         assistantId,
         metadataHints,
         metadataUxBrief,
+        commandIntent,
+        sourceLanguageCode,
+        approvalCopyGenerator,
       });
     } else {
       // Fire-and-forget: process the message and deliver the reply in the background.
@@ -718,6 +878,8 @@ export async function handleChannelInbound(
         guardianCtx,
         metadataHints,
         metadataUxBrief,
+        commandIntent,
+        sourceLanguageCode,
         replyCallbackUrl,
         bearerToken,
         assistantId,
@@ -746,6 +908,8 @@ interface BackgroundProcessingParams {
   replyCallbackUrl?: string;
   bearerToken?: string;
   assistantId?: string;
+  commandIntent?: Record<string, unknown>;
+  sourceLanguageCode?: string;
 }
 
 function processChannelMessageInBackground(params: BackgroundProcessingParams): void {
@@ -763,10 +927,15 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
     replyCallbackUrl,
     bearerToken,
     assistantId,
+    commandIntent,
+    sourceLanguageCode,
   } = params;
 
   (async () => {
     try {
+      const cmdIntent = commandIntent && typeof commandIntent.type === 'string'
+        ? { type: commandIntent.type as string, ...(typeof commandIntent.payload === 'string' ? { payload: commandIntent.payload } : {}), ...(sourceLanguageCode ? { languageCode: sourceLanguageCode } : {}) }
+        : undefined;
       const { messageId: userMessageId } = await processMessage(
         conversationId,
         content,
@@ -779,6 +948,7 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
           },
           assistantId,
           guardianContext: toGuardianRuntimeContext(sourceChannel, guardianCtx),
+          ...(cmdIntent ? { commandIntent: cmdIntent } : {}),
         },
         sourceChannel,
       );
@@ -843,6 +1013,9 @@ interface ApprovalProcessingParams {
   assistantId: string;
   metadataHints: string[];
   metadataUxBrief?: string;
+  commandIntent?: Record<string, unknown>;
+  sourceLanguageCode?: string;
+  approvalCopyGenerator?: ApprovalCopyGenerator;
 }
 
 /**
@@ -872,10 +1045,17 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
     assistantId,
     metadataHints,
     metadataUxBrief,
+    commandIntent,
+    sourceLanguageCode,
+    approvalCopyGenerator,
   } = params;
 
   const isNonGuardian = guardianCtx.actorRole === 'non-guardian';
   const isUnverifiedChannel = guardianCtx.actorRole === 'unverified_channel';
+
+  const cmdIntent = commandIntent && typeof commandIntent.type === 'string'
+    ? { type: commandIntent.type as string, ...(typeof commandIntent.payload === 'string' ? { payload: commandIntent.payload } : {}), ...(sourceLanguageCode ? { languageCode: sourceLanguageCode } : {}) }
+    : undefined;
 
   (async () => {
     try {
@@ -890,6 +1070,7 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
           uxBrief: metadataUxBrief,
           assistantId,
           guardianContext: toGuardianRuntimeContext(sourceChannel, guardianCtx),
+          ...(cmdIntent ? { commandIntent: cmdIntent } : {}),
         },
       );
 
@@ -965,6 +1146,7 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
                 toolName: pending[0].toolName,
                 requesterIdentifier: guardianCtx.requesterIdentifier ?? 'Unknown user',
               },
+              approvalCopyGenerator,
             });
 
             if (guardianNotified) {
@@ -990,7 +1172,7 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
                   scenario: 'guardian_request_forwarded',
                   toolName: pending[0].toolName,
                   channel: sourceChannel,
-                });
+                }, {}, approvalCopyGenerator);
                 await deliverChannelReply(replyCallbackUrl, {
                   chatId: guardianCtx.requesterChatId ?? externalChatId,
                   text: forwardedText,
@@ -1018,6 +1200,7 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
                   scenario: 'standard_prompt',
                   toolName: pending[0].toolName,
                 },
+                approvalCopyGenerator,
               });
               if (delivered) {
                 hasPostDecisionDelivery = true;
@@ -1156,6 +1339,7 @@ interface ApprovalInterceptionParams {
   orchestrator: RunOrchestrator;
   guardianCtx: GuardianContext;
   assistantId: string;
+  approvalCopyGenerator?: ApprovalCopyGenerator;
 }
 
 interface ApprovalInterceptionResult {
@@ -1188,6 +1372,7 @@ async function handleApprovalInterception(
     orchestrator,
     guardianCtx,
     assistantId,
+    approvalCopyGenerator,
   } = params;
 
   // ── Guardian approval decision path ──
@@ -1216,10 +1401,12 @@ async function handleApprovalInterception(
       ? getPendingApprovalByRunAndGuardianChat(decision.runId, sourceChannel, externalChatId, assistantId)
       : null;
 
-    // For plain-text decisions (no run ID), check how many pending
-    // approvals exist for this guardian chat. If there are multiple,
-    // the guardian must use buttons to disambiguate.
-    if (!guardianApproval && decision && !decision.runId) {
+    // When the scoped lookup didn't resolve an approval (either because
+    // the decision had no runId, or the runId pointed to a stale/expired
+    // run), fall back to checking all pending approvals for this guardian
+    // chat. If there are multiple, the guardian must use buttons to
+    // disambiguate.
+    if (!guardianApproval && decision) {
       const allPending = getAllPendingApprovalsByGuardianChat(sourceChannel, externalChatId, assistantId);
       if (allPending.length > 1) {
         try {
@@ -1227,7 +1414,7 @@ async function handleApprovalInterception(
             scenario: 'guardian_disambiguation',
             pendingCount: allPending.length,
             channel: sourceChannel,
-          });
+          }, {}, approvalCopyGenerator);
           await deliverChannelReply(replyCallbackUrl, {
             chatId: externalChatId,
             text: disambiguationText,
@@ -1264,7 +1451,7 @@ async function handleApprovalInterception(
           const mismatchText = await composeApprovalMessageGenerative({
             scenario: 'guardian_identity_mismatch',
             channel: sourceChannel,
-          });
+          }, {}, approvalCopyGenerator);
           await deliverChannelReply(replyCallbackUrl, {
             chatId: externalChatId,
             text: mismatchText,
@@ -1306,7 +1493,7 @@ async function handleApprovalInterception(
             decision: decision.action === 'reject' ? 'denied' : 'approved',
             toolName: guardianApproval.toolName,
             channel: sourceChannel,
-          });
+          }, {}, approvalCopyGenerator);
           try {
             await deliverChannelReply(replyCallbackUrl, {
               chatId: guardianApproval.requesterChatId,
@@ -1358,6 +1545,7 @@ async function handleApprovalInterception(
               channel: sourceChannel,
               toolName: pendingInfo[0].toolName,
             },
+            approvalCopyGenerator,
           });
           if (!delivered) {
             log.error(
@@ -1420,7 +1608,7 @@ async function handleApprovalInterception(
           const pendingText = await composeApprovalMessageGenerative({
             scenario: 'request_pending_guardian',
             channel: sourceChannel,
-          });
+          }, {}, approvalCopyGenerator);
           await deliverChannelReply(replyCallbackUrl, {
             chatId: externalChatId,
             text: pendingText,
@@ -1452,7 +1640,7 @@ async function handleApprovalInterception(
             scenario: 'guardian_expired_requester',
             toolName: pending[0].toolName,
             channel: sourceChannel,
-          });
+          }, {}, approvalCopyGenerator);
           await deliverChannelReply(replyCallbackUrl, {
             chatId: externalChatId,
             text: expiredText,
@@ -1534,6 +1722,7 @@ async function handleApprovalInterception(
           channel: sourceChannel,
           toolName: pending[0].toolName,
         },
+        approvalCopyGenerator,
       });
       if (!delivered) {
         log.error({ conversationId, externalChatId }, 'Failed to deliver approval reminder');
@@ -1709,6 +1898,7 @@ export function sweepExpiredGuardianApprovals(
   orchestrator: RunOrchestrator,
   gatewayBaseUrl: string,
   bearerToken?: string,
+  approvalCopyGenerator?: ApprovalCopyGenerator,
 ): void {
   const expired = getExpiredPendingApprovals();
   for (const approval of expired) {
@@ -1731,7 +1921,7 @@ export function sweepExpiredGuardianApprovals(
         scenario: 'guardian_expired_requester',
         toolName: approval.toolName,
         channel: approval.channel,
-      });
+      }, {}, approvalCopyGenerator);
       await deliverChannelReply(deliverUrl, {
         chatId: approval.requesterChatId,
         text: requesterText,
@@ -1748,7 +1938,7 @@ export function sweepExpiredGuardianApprovals(
         toolName: approval.toolName,
         requesterIdentifier: approval.requesterExternalUserId,
         channel: approval.channel,
-      });
+      }, {}, approvalCopyGenerator);
       await deliverChannelReply(deliverUrl, {
         chatId: approval.guardianChatId,
         text: guardianText,
@@ -1773,11 +1963,12 @@ export function startGuardianExpirySweep(
   orchestrator: RunOrchestrator,
   gatewayBaseUrl: string,
   bearerToken?: string,
+  approvalCopyGenerator?: ApprovalCopyGenerator,
 ): void {
   if (expirySweepTimer) return;
   expirySweepTimer = setInterval(() => {
     try {
-      sweepExpiredGuardianApprovals(orchestrator, gatewayBaseUrl, bearerToken);
+      sweepExpiredGuardianApprovals(orchestrator, gatewayBaseUrl, bearerToken, approvalCopyGenerator);
     } catch (err) {
       log.error({ err }, 'Guardian expiry sweep failed');
     }

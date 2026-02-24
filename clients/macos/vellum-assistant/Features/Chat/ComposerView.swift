@@ -22,7 +22,6 @@ enum SlashNavigation {
 }
 
 struct ComposerView: View {
-    private let composerCompactHeight: CGFloat = 34
     private let composerMaxHeight: CGFloat = 200
     private let composerActionButtonSize: CGFloat = 34
     private let composerActionIconSize: CGFloat = 14
@@ -41,6 +40,7 @@ struct ComposerView: View {
     let isRecording: Bool
     let suggestion: String?
     let pendingAttachments: [ChatAttachment]
+    var isLoadingAttachment: Bool = false
     let onSend: () -> Void
     let onStop: () -> Void
     let onAcceptSuggestion: () -> Void
@@ -49,6 +49,7 @@ struct ComposerView: View {
     let onPaste: () -> Void
     let onMicrophoneToggle: () -> Void
     var placeholderText: String = "What would you like to do?"
+    var composerCompactHeight: CGFloat = 34
     /// Bound to ChatView's state so it can compute composerReservedHeight for safe area insets.
     @Binding var editorContentHeight: CGFloat
 
@@ -160,7 +161,6 @@ struct ComposerView: View {
         .padding(.top, VSpacing.sm)
         .frame(maxWidth: 700)
         .frame(maxWidth: .infinity)
-        .animation(VAnimation.fast, value: editorContentHeight)
         .animation(VAnimation.fast, value: isComposerExpanded)
         .animation(VAnimation.fast, value: isComposerFocused)
         .onAppear {
@@ -244,10 +244,12 @@ struct ComposerView: View {
             }
         }
         .onChange(of: editorContentHeight) {
+            // Only expand — never collapse based on height alone.
+            // Collapsing is handled when inputText becomes empty (see above).
+            // This prevents layout oscillation: expand → buttons move → text
+            // has more width → unwrap → collapse → buttons back → re-wrap → loop.
             if editorContentHeight > composerCompactHeight && !isComposerExpanded {
                 withAnimation(VAnimation.fast) { isComposerExpanded = true }
-            } else if editorContentHeight <= composerCompactHeight && isComposerExpanded {
-                withAnimation(VAnimation.fast) { isComposerExpanded = false }
             }
         }
     }
@@ -474,7 +476,11 @@ struct ComposerView: View {
     }
 
     var canSend: Bool {
-        hasAPIKey && (!inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pendingAttachments.isEmpty)
+        // Block send while an attachment is still loading: the user tapping Send
+        // before the async load completes would drop the attachment from the message.
+        hasAPIKey
+            && !isLoadingAttachment
+            && (!inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pendingAttachments.isEmpty)
     }
 
     // MARK: - Slash Command Logic
@@ -576,9 +582,8 @@ private struct ComposerTextView: NSViewRepresentable {
         let scrollView = NSScrollView()
         scrollView.drawsBackground = false
         scrollView.borderType = .noBorder
-        scrollView.hasVerticalScroller = true
+        scrollView.hasVerticalScroller = false
         scrollView.hasHorizontalScroller = false
-        scrollView.autohidesScrollers = true
         // Ensure text content is clipped to the scroll view frame so it
         // never renders outside the composer box.
         scrollView.wantsLayer = true

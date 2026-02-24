@@ -70,6 +70,7 @@ function makeSessionEmittingViaClient(...messages: ServerMessage[]): Session {
     setChannelCapabilities: () => {},
     setAssistantId: () => {},
     setGuardianContext: () => {},
+    setCommandIntent: () => {},
     updateClient: (handler: (msg: ServerMessage) => void) => {
       clientHandler = handler;
     },
@@ -94,6 +95,7 @@ function makeSessionEmittingViaAgentLoop(...messages: ServerMessage[]): Session 
     setChannelCapabilities: () => {},
     setAssistantId: () => {},
     setGuardianContext: () => {},
+    setCommandIntent: () => {},
     updateClient: () => {},
     runAgentLoop: async (_content: string, _messageId: string, onEvent: (msg: ServerMessage) => void) => {
       for (const msg of messages) {

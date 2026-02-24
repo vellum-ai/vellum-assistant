@@ -12,6 +12,12 @@ import { timingSafeEqual } from 'node:crypto';
 import { ConfigError, IngressBlockedError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
 import { getWorkspacePromptPath, readLockfile } from '../util/platform.js';
+import {
+  getGatewayInternalBaseUrl,
+  isTwilioWebhookValidationDisabled,
+  isHttpAuthDisabled,
+  getRuntimeGatewayOriginSecret,
+} from '../config/env.js';
 import { TwilioConversationRelayProvider } from '../calls/twilio-provider.js';
 import { loadConfig } from '../config/loader.js';
 import { getPublicBaseUrl } from '../inbound/public-ingress-urls.js';
@@ -22,6 +28,7 @@ import {
   handleListMessages,
   handleSendMessage,
   handleGetSuggestion,
+  handleSearchConversations,
 } from './routes/conversation-routes.js';
 import {
   handleUploadAttachment,
@@ -44,6 +51,10 @@ import {
   startGuardianExpirySweep,
   stopGuardianExpirySweep,
 } from './routes/channel-routes.js';
+import {
+  startGuardianActionSweep,
+  stopGuardianActionSweep,
+} from '../calls/guardian-action-sweep.js';
 import * as channelDeliveryStore from '../memory/channel-delivery-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import * as externalConversationStore from '../memory/external-conversation-store.js';
@@ -83,12 +94,14 @@ export type {
   NonBlockingMessageProcessor,
   RuntimeHttpServerOptions,
   RuntimeAttachmentMetadata,
+  ApprovalCopyGenerator,
 } from './http-types.js';
 
 import type {
   MessageProcessor,
   NonBlockingMessageProcessor,
   RuntimeHttpServerOptions,
+  ApprovalCopyGenerator,
 } from './http-types.js';
 
 const log = getLogger('runtime-http');
@@ -98,11 +111,7 @@ const DEFAULT_HOSTNAME = '127.0.0.1';
 
 /** Resolve the gateway base URL for internal delivery callbacks. */
 function getGatewayBaseUrl(): string {
-  if (process.env.GATEWAY_INTERNAL_BASE_URL) {
-    return process.env.GATEWAY_INTERNAL_BASE_URL.replace(/\/+$/, '');
-  }
-  const port = Number(process.env.GATEWAY_PORT) || 7830;
-  return `http://127.0.0.1:${port}`;
+  return getGatewayInternalBaseUrl();
 }
 
 /** Global hard cap on request body size (50 MB). Bun rejects larger payloads before they reach handlers. */
@@ -304,7 +313,7 @@ async function validateTwilioWebhook(
   const rawBody = await req.text();
 
   // Allow explicit local-dev bypass — must be exactly "true"
-  if (process.env.TWILIO_WEBHOOK_VALIDATION_DISABLED === 'true') {
+  if (isTwilioWebhookValidationDisabled()) {
     log.warn('Twilio webhook signature validation explicitly disabled via TWILIO_WEBHOOK_VALIDATION_DISABLED');
     return { body: rawBody };
   }
@@ -380,6 +389,7 @@ export class RuntimeHttpServer {
   private processMessage?: MessageProcessor;
   private persistAndProcessMessage?: NonBlockingMessageProcessor;
   private runOrchestrator?: RunOrchestrator;
+  private approvalCopyGenerator?: ApprovalCopyGenerator;
   private interfacesDir: string | null;
   private suggestionCache = new Map<string, string>();
   private suggestionInFlight = new Map<string, Promise<string | null>>();
@@ -393,6 +403,7 @@ export class RuntimeHttpServer {
     this.processMessage = options.processMessage;
     this.persistAndProcessMessage = options.persistAndProcessMessage;
     this.runOrchestrator = options.runOrchestrator;
+    this.approvalCopyGenerator = options.approvalCopyGenerator;
     this.interfacesDir = options.interfacesDir ?? null;
   }
 
@@ -449,9 +460,13 @@ export class RuntimeHttpServer {
     // support is available. Guardian approvals can be created even when the
     // generic channel-approval UX flag is disabled.
     if (this.runOrchestrator) {
-      startGuardianExpirySweep(this.runOrchestrator, getGatewayBaseUrl(), this.bearerToken);
+      startGuardianExpirySweep(this.runOrchestrator, getGatewayBaseUrl(), this.bearerToken, this.approvalCopyGenerator);
       log.info('Guardian approval expiry sweep started');
     }
+
+    // Start guardian action request expiry sweep (cross-channel voice guardian)
+    startGuardianActionSweep(getGatewayBaseUrl(), this.bearerToken);
+    log.info('Guardian action expiry sweep started');
 
     // Startup guard: log gateway-only mode warnings
     log.info('Running in gateway-only ingress mode. Direct webhook routes disabled.');
@@ -464,6 +479,7 @@ export class RuntimeHttpServer {
 
   async stop(): Promise<void> {
     stopGuardianExpirySweep();
+    stopGuardianActionSweep();
     if (this.retrySweepTimer) {
       clearInterval(this.retrySweepTimer);
       this.retrySweepTimer = null;
@@ -565,7 +581,7 @@ export class RuntimeHttpServer {
     }
 
     // Require bearer token when configured
-    if ((process.env.DISABLE_HTTP_AUTH ?? "").toLowerCase() !== "true" && this.bearerToken) {
+    if (!isHttpAuthDisabled() && this.bearerToken) {
       const authHeader = req.headers.get('authorization');
       const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
       if (!token || !this.verifyToken(token)) {
@@ -706,6 +722,10 @@ export class RuntimeHttpServer {
         return handleListMessages(url, this.interfacesDir);
       }
 
+      if (endpoint === 'search' && req.method === 'GET') {
+        return handleSearchConversations(url);
+      }
+
       if (endpoint === 'messages' && req.method === 'POST') {
         return await handleSendMessage(req, {
           processMessage: this.processMessage,
@@ -776,8 +796,8 @@ export class RuntimeHttpServer {
       }
 
       if (endpoint === 'channels/inbound' && req.method === 'POST') {
-        const gatewayOriginSecret = process.env.RUNTIME_GATEWAY_ORIGIN_SECRET || undefined;
-        return await handleChannelInbound(req, this.processMessage, this.bearerToken, this.runOrchestrator, assistantId, gatewayOriginSecret);
+        const gatewayOriginSecret = getRuntimeGatewayOriginSecret();
+        return await handleChannelInbound(req, this.processMessage, this.bearerToken, this.runOrchestrator, assistantId, gatewayOriginSecret, this.approvalCopyGenerator);
       }
 
       if (endpoint === 'channels/delivery-ack' && req.method === 'POST') {

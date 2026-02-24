@@ -251,6 +251,11 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     callerIdentity: {
       allowPerCallOverride: true,
     },
+    verification: {
+      enabled: false,
+      maxAttempts: 3,
+      codeLength: 6,
+    },
   },
   sms: {
     enabled: false,

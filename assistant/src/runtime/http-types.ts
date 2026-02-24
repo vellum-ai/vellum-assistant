@@ -3,6 +3,16 @@
  */
 import type { RunOrchestrator } from './run-orchestrator.js';
 import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
+import type { ApprovalMessageContext, ComposeApprovalMessageGenerativeOptions } from './approval-message-composer.js';
+
+/**
+ * Daemon-injected function that generates approval copy using a provider.
+ * Returns generated text or `null` on failure (caller falls back to deterministic text).
+ */
+export type ApprovalCopyGenerator = (
+  context: ApprovalMessageContext,
+  options?: ComposeApprovalMessageGenerativeOptions,
+) => Promise<string | null>;
 
 export interface RuntimeMessageSessionOptions {
   transport?: {
@@ -12,6 +22,8 @@ export interface RuntimeMessageSessionOptions {
   };
   assistantId?: string;
   guardianContext?: GuardianRuntimeContext;
+  /** Channel command intent metadata (e.g. Telegram /start). */
+  commandIntent?: { type: string; payload?: string; languageCode?: string };
 }
 
 export type MessageProcessor = (
@@ -48,6 +60,8 @@ export interface RuntimeHttpServerOptions {
   runOrchestrator?: RunOrchestrator;
   /** Root directory for interface files on disk. */
   interfacesDir?: string;
+  /** Daemon-injected generator for approval copy (provider-backed). */
+  approvalCopyGenerator?: ApprovalCopyGenerator;
 }
 
 export interface RuntimeAttachmentMetadata {

@@ -6,8 +6,9 @@
  * streams text tokens back through the RelayConnection for real-time TTS.
  */
 
-import Anthropic from '@anthropic-ai/sdk';
 import { getConfig } from '../config/loader.js';
+import { getDefaultModel, getFailoverProvider, listProviders } from '../providers/registry.js';
+import type { ProviderEvent } from '../providers/types.js';
 import { resolveUserReference } from '../config/user-reference.js';
 import { getLogger } from '../util/logger.js';
 import {
@@ -21,23 +22,34 @@ import { getMaxCallDurationMs, getUserConsultationTimeoutMs, SILENCE_TIMEOUT_MS 
 import type { RelayConnection } from './relay-server.js';
 import { registerCallOrchestrator, unregisterCallOrchestrator, fireCallQuestionNotifier, fireCallCompletionNotifier, fireCallTranscriptNotifier } from './call-state.js';
 import type { PromptSpeakerContext } from './speaker-identification.js';
+import { addPointerMessage, formatDuration } from './call-pointer-messages.js';
+import { persistCallCompletionMessage } from './call-conversation-messages.js';
+import * as conversationStore from '../memory/conversation-store.js';
+import { dispatchGuardianQuestion } from './guardian-dispatch.js';
+import type { ServerMessage } from '../daemon/ipc-contract.js';
 
 const log = getLogger('call-orchestrator');
 
 type OrchestratorState = 'idle' | 'processing' | 'waiting_on_user' | 'speaking';
 
-const ASK_USER_CAPTURE_REGEX = /\[ASK_USER:\s*(.+?)\]/;
-const ASK_USER_MARKER_REGEX = /\[ASK_USER:\s*.+?\]/g;
+const ASK_GUARDIAN_CAPTURE_REGEX = /\[ASK_GUARDIAN:\s*(.+?)\]/;
+const ASK_GUARDIAN_MARKER_REGEX = /\[ASK_GUARDIAN:\s*.+?\]/g;
 const USER_ANSWERED_MARKER_REGEX = /\[USER_ANSWERED:\s*.+?\]/g;
 const USER_INSTRUCTION_MARKER_REGEX = /\[USER_INSTRUCTION:\s*.+?\]/g;
+const CALL_OPENING_MARKER_REGEX = /\[CALL_OPENING\]/g;
+const CALL_OPENING_ACK_MARKER_REGEX = /\[CALL_OPENING_ACK\]/g;
 const END_CALL_MARKER_REGEX = /\[END_CALL\]/g;
+const CALL_OPENING_MARKER = '[CALL_OPENING]';
+const CALL_OPENING_ACK_MARKER = '[CALL_OPENING_ACK]';
 const END_CALL_MARKER = '[END_CALL]';
 
 function stripInternalSpeechMarkers(text: string): string {
   return text
-    .replace(ASK_USER_MARKER_REGEX, '')
+    .replace(ASK_GUARDIAN_MARKER_REGEX, '')
     .replace(USER_ANSWERED_MARKER_REGEX, '')
     .replace(USER_INSTRUCTION_MARKER_REGEX, '')
+    .replace(CALL_OPENING_MARKER_REGEX, '')
+    .replace(CALL_OPENING_ACK_MARKER_REGEX, '')
     .replace(END_CALL_MARKER_REGEX, '');
 }
 
@@ -47,7 +59,6 @@ export class CallOrchestrator {
   private state: OrchestratorState = 'idle';
   private conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }> = [];
   private abortController: AbortController = new AbortController();
-  private callStartTime: number = Date.now();
   private silenceTimer: ReturnType<typeof setTimeout> | null = null;
   private durationTimer: ReturnType<typeof setTimeout> | null = null;
   private durationWarningTimer: ReturnType<typeof setTimeout> | null = null;
@@ -56,13 +67,23 @@ export class CallOrchestrator {
   private task: string | null;
   /** Instructions queued while an LLM turn is in-flight or during waiting_on_user */
   private pendingInstructions: string[] = [];
+  /** Ensures the outbound-call opener is triggered at most once per call. */
+  private initialGreetingStarted = false;
+  /** Marks that the next caller turn should be treated as an opening acknowledgment. */
+  private awaitingOpeningAck = false;
   /** Monotonic run id used to suppress stale turn side effects after interruption. */
   private llmRunVersion = 0;
+  /** Optional broadcast function for emitting IPC events to connected clients. */
+  private broadcast?: (msg: ServerMessage) => void;
+  /** Assistant identity for scoping guardian bindings. */
+  private assistantId: string;
 
-  constructor(callSessionId: string, relay: RelayConnection, task: string | null) {
+  constructor(callSessionId: string, relay: RelayConnection, task: string | null, opts?: { broadcast?: (msg: ServerMessage) => void; assistantId?: string }) {
     this.callSessionId = callSessionId;
     this.relay = relay;
     this.task = task;
+    this.broadcast = opts?.broadcast;
+    this.assistantId = opts?.assistantId ?? 'self';
     this.startDurationTimer();
     this.resetSilenceTimer();
     registerCallOrchestrator(callSessionId, this);
@@ -76,6 +97,23 @@ export class CallOrchestrator {
   }
 
   /**
+   * Kick off the first outbound call utterance from the assistant.
+   */
+  async startInitialGreeting(): Promise<void> {
+    if (this.initialGreetingStarted) return;
+    if (this.state !== 'idle') return;
+
+    this.initialGreetingStarted = true;
+    this.resetSilenceTimer();
+    this.conversationHistory.push({ role: 'user', content: CALL_OPENING_MARKER });
+    await this.runLlm();
+    const lastMessage = this.conversationHistory[this.conversationHistory.length - 1];
+    if (lastMessage?.role === 'assistant') {
+      this.awaitingOpeningAck = true;
+    }
+  }
+
+  /**
    * Handle a final caller utterance from the ConversationRelay.
    */
   async handleCallerUtterance(transcript: string, speaker?: PromptSpeakerContext): Promise<void> {
@@ -86,9 +124,42 @@ export class CallOrchestrator {
       this.abortController = new AbortController();
     }
 
+    // Strip the one-shot [CALL_OPENING] marker from conversation history
+    // so it doesn't leak into subsequent LLM requests after barge-in.
+    // This runs unconditionally because the standard Twilio barge-in path
+    // calls handleInterrupt() first (setting state to 'idle') before
+    // handleCallerUtterance — so interruptedInFlight would be false even
+    // though an interrupt just occurred.
+    // Without this, the consecutive-user merge path below would append
+    // the caller's transcript to the synthetic "[CALL_OPENING]" message,
+    // causing the model to re-run opener behavior instead of responding
+    // directly to the caller.
+    // If the marker-only seed message becomes empty, remove it entirely:
+    // Anthropic rejects any user turn with empty content.
+    for (let i = 0; i < this.conversationHistory.length; i++) {
+      const entry = this.conversationHistory[i];
+      if (!entry.content.includes(CALL_OPENING_MARKER)) continue;
+      const stripped = entry.content.replace(CALL_OPENING_MARKER_REGEX, '').trim();
+      if (stripped.length === 0) {
+        this.conversationHistory.splice(i, 1);
+        i--;
+      } else {
+        entry.content = stripped;
+      }
+    }
+
     this.state = 'processing';
     this.resetSilenceTimer();
     const callerContent = this.formatCallerUtterance(transcript, speaker);
+    const shouldMarkOpeningAck = this.awaitingOpeningAck;
+    if (shouldMarkOpeningAck) {
+      this.awaitingOpeningAck = false;
+    }
+    const callerTurnContent = shouldMarkOpeningAck
+      ? callerContent.length > 0
+        ? `${CALL_OPENING_ACK_MARKER}\n${callerContent}`
+        : CALL_OPENING_ACK_MARKER
+      : callerContent;
 
     // Preserve strict role alternation for Anthropic. If the last message
     // is already user-role (e.g. interrupted run never appended assistant,
@@ -96,11 +167,14 @@ export class CallOrchestrator {
     // this utterance into that same user turn.
     const lastMessage = this.conversationHistory[this.conversationHistory.length - 1];
     if (lastMessage?.role === 'user') {
-      lastMessage.content = `${lastMessage.content}\n${callerContent}`;
+      const existingContent = lastMessage.content.trim();
+      lastMessage.content = existingContent.length > 0
+        ? `${lastMessage.content}\n${callerTurnContent}`
+        : callerTurnContent;
     } else {
       this.conversationHistory.push({
         role: 'user',
-        content: callerContent,
+        content: callerTurnContent,
       });
     }
 
@@ -238,13 +312,16 @@ export class CallOrchestrator {
       '0. When introducing yourself, refer to yourself as an assistant. Avoid the phrase "AI assistant" unless directly asked.',
       disclosureRule,
       '2. Be concise — phone conversations should be brief and natural.',
-      '3. If the callee asks something you don\'t know, include [ASK_USER: your question here] in your response along with a hold message like "Let me check on that for you."',
+      '3. If the callee asks something you don\'t know, include [ASK_GUARDIAN: your question here] in your response along with a hold message like "Let me check on that for you."',
       '4. If the callee provides information preceded by [USER_ANSWERED: ...], use that answer naturally in the conversation.',
       '5. If you see [USER_INSTRUCTION: ...], treat it as a high-priority steering directive from your user. Follow the instruction immediately, adjusting your approach or response accordingly.',
       '6. When the call\'s purpose is fulfilled, include [END_CALL] in your response along with a polite goodbye.',
       '7. Do not make up information — ask the user if unsure.',
       '8. Keep responses short — 1-3 sentences is ideal for phone conversation.',
       '9. When caller text includes [SPEAKER id="..." label="..."], treat each speaker as a distinct person and personalize responses using that speaker\'s prior context in this call.',
+      '10. If the latest user turn is [CALL_OPENING], generate a natural, context-specific opener: briefly introduce yourself once as an assistant, state why you are calling using the Task context, and ask a short permission/check-in question. Vary the wording; do not use a fixed template.',
+      '11. If the latest user turn includes [CALL_OPENING_ACK], treat it as the callee acknowledging your opener and continue the conversation naturally without re-introducing yourself or repeating the initial check-in question.',
+      '12. Do not repeat your introduction within the same call unless the callee explicitly asks who you are.',
     ]
       .filter(Boolean)
       .join('\n');
@@ -254,7 +331,7 @@ export class CallOrchestrator {
     if (!speaker) return transcript;
     const safeId = speaker.speakerId.replaceAll('"', '\'');
     const safeLabel = speaker.speakerLabel.replaceAll('"', '\'');
-    const confidencePart = speaker.speakerConfidence !== null ? ` confidence="${speaker.speakerConfidence.toFixed(2)}"` : '';
+    const confidencePart = speaker.speakerConfidence != null ? ` confidence="${speaker.speakerConfidence.toFixed(2)}"` : '';
     return `[SPEAKER id="${safeId}" label="${safeLabel}" source="${speaker.source}"${confidencePart}] ${transcript}`;
   }
 
@@ -263,37 +340,25 @@ export class CallOrchestrator {
    * the response back through the relay.
    */
   private async runLlm(): Promise<void> {
-    const apiKey = getConfig().apiKeys.anthropic ?? process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
-      log.error({ callSessionId: this.callSessionId }, 'No Anthropic API key available');
+    const config = getConfig();
+    const providerName = config.provider;
+    if (!listProviders().includes(providerName)) {
+      log.error({ callSessionId: this.callSessionId }, 'No provider available');
       this.relay.sendTextToken('I\'m sorry, I\'m having a technical issue. Please try again later.', true);
       this.state = 'idle';
       return;
     }
+    const provider = getFailoverProvider(providerName, config.providerOrder);
 
-    const client = new Anthropic({ apiKey });
     const runVersion = ++this.llmRunVersion;
     const runSignal = this.abortController.signal;
 
     try {
       this.state = 'speaking';
 
-      const callModel = getConfig().calls.model?.trim() || 'claude-sonnet-4-20250514';
+      const callModel = config.calls.model?.trim() || getDefaultModel(providerName);
 
-      const stream = client.messages.stream(
-        {
-          model: callModel,
-          max_tokens: 512,
-          system: this.buildSystemPrompt(),
-          messages: this.conversationHistory.map((m) => ({
-            role: m.role,
-            content: m.content,
-          })),
-        },
-        { signal: runSignal },
-      );
-
-      // Buffer incoming tokens so we can strip control markers ([ASK_USER:...], [END_CALL])
+      // Buffer incoming tokens so we can strip control markers ([ASK_GUARDIAN:...], [END_CALL])
       // before they reach TTS. We hold text whenever an unmatched '[' appears, since it
       // could be the start of a control marker.
       let ttsBuffer = '';
@@ -320,18 +385,24 @@ export class CallOrchestrator {
           // The check must be bidirectional:
           //  - When the buffer is shorter than the prefix (e.g. "[ASK"), the
           //    buffer is a prefix of the control tag → hold it.
-          //  - When the buffer is longer than the prefix (e.g. "[ASK_USER: what"),
+          //  - When the buffer is longer than the prefix (e.g. "[ASK_GUARDIAN: what"),
           //    the buffer starts with the control tag prefix → hold it (the
           //    variable-length payload hasn't been closed yet).
           const afterBracket = ttsBuffer;
           const couldBeControl =
-            '[ASK_USER:'.startsWith(afterBracket) ||
+            '[ASK_GUARDIAN:'.startsWith(afterBracket) ||
             '[USER_ANSWERED:'.startsWith(afterBracket) ||
             '[USER_INSTRUCTION:'.startsWith(afterBracket) ||
+            '[CALL_OPENING]'.startsWith(afterBracket) ||
+            '[CALL_OPENING_ACK]'.startsWith(afterBracket) ||
             '[END_CALL]'.startsWith(afterBracket) ||
-            afterBracket.startsWith('[ASK_USER:') ||
+            afterBracket.startsWith('[ASK_GUARDIAN:') ||
             afterBracket.startsWith('[USER_ANSWERED:') ||
             afterBracket.startsWith('[USER_INSTRUCTION:') ||
+            afterBracket === '[CALL_OPENING' ||
+            afterBracket.startsWith('[CALL_OPENING]') ||
+            afterBracket === '[CALL_OPENING_ACK' ||
+            afterBracket.startsWith('[CALL_OPENING_ACK]') ||
             afterBracket === '[END_CALL' ||
             afterBracket.startsWith('[END_CALL]');
 
@@ -351,17 +422,29 @@ export class CallOrchestrator {
         }
       };
 
-      stream.on('text', (text) => {
-        if (!this.isCurrentRun(runVersion)) return;
-        ttsBuffer += text;
-
-        // Remove complete control markers before text reaches TTS.
-        ttsBuffer = stripInternalSpeechMarkers(ttsBuffer);
-
-        flushSafeText(false);
-      });
-
-      const finalMessage = await stream.finalMessage();
+      const response = await provider.sendMessage(
+        this.conversationHistory.map((m) => ({
+          role: m.role as 'user' | 'assistant',
+          content: [{ type: 'text' as const, text: m.content }],
+        })),
+        [],  // no tools
+        this.buildSystemPrompt(),
+        {
+          config: {
+            model: callModel,
+            max_tokens: 512,
+          },
+          onEvent: (event: ProviderEvent) => {
+            if (!this.isCurrentRun(runVersion)) return;
+            if (event.type === 'text_delta') {
+              ttsBuffer += event.text;
+              ttsBuffer = stripInternalSpeechMarkers(ttsBuffer);
+              flushSafeText(false);
+            }
+          },
+          signal: runSignal,
+        },
+      );
       if (!this.isCurrentRun(runVersion)) return;
 
       // Final sweep: strip any remaining control markers from the buffer
@@ -373,11 +456,10 @@ export class CallOrchestrator {
       // Signal end of this turn's speech
       this.relay.sendTextToken('', true);
 
-      const responseText =
-        finalMessage.content
-          .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-          .map((b) => b.text)
-          .join('') || '';
+      const responseText = response.content
+        .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
+        .map((b) => b.text)
+        .join('') || '';
 
       // Record the assistant response
       this.conversationHistory.push({ role: 'assistant', content: responseText });
@@ -386,15 +468,22 @@ export class CallOrchestrator {
       if (spokenText.length > 0) {
         const session = getCallSession(this.callSessionId);
         if (session) {
+          // Persist assistant transcript to the voice conversation so it
+          // survives even when no live daemon Session is listening.
+          conversationStore.addMessage(
+            session.conversationId,
+            'assistant',
+            JSON.stringify([{ type: 'text', text: spokenText }]),
+          );
           fireCallTranscriptNotifier(session.conversationId, this.callSessionId, 'assistant', spokenText);
         }
       }
 
-      // Check for ASK_USER pattern
-      const askMatch = responseText.match(ASK_USER_CAPTURE_REGEX);
+      // Check for ASK_GUARDIAN pattern
+      const askMatch = responseText.match(ASK_GUARDIAN_CAPTURE_REGEX);
       if (askMatch) {
         const questionText = askMatch[1];
-        createPendingQuestion(this.callSessionId, questionText);
+        const pendingQuestion = createPendingQuestion(this.callSessionId, questionText);
         this.state = 'waiting_on_user';
         updateCallSession(this.callSessionId, { status: 'waiting_on_user' });
         recordCallEvent(this.callSessionId, 'user_question_asked', { question: questionText });
@@ -403,6 +492,15 @@ export class CallOrchestrator {
         const session = getCallSession(this.callSessionId);
         if (session) {
           fireCallQuestionNotifier(session.conversationId, this.callSessionId, questionText);
+
+          // Dispatch guardian action request to all configured channels
+          void dispatchGuardianQuestion({
+            callSessionId: this.callSessionId,
+            conversationId: session.conversationId,
+            assistantId: this.assistantId,
+            pendingQuestion,
+            broadcast: this.broadcast,
+          });
         }
 
         // Set a consultation timeout
@@ -433,10 +531,18 @@ export class CallOrchestrator {
         updateCallSession(this.callSessionId, { status: 'completed', endedAt: Date.now() });
         recordCallEvent(this.callSessionId, 'call_ended', { reason: 'completed' });
 
-        // Notify the conversation when this is the first transition
-        // into a terminal call state.
+        // Notify the voice conversation
         if (shouldNotifyCompletion && currentSession) {
+          persistCallCompletionMessage(currentSession.conversationId, this.callSessionId);
           fireCallCompletionNotifier(currentSession.conversationId, this.callSessionId);
+        }
+
+        // Post a pointer message in the initiating conversation
+        if (currentSession?.initiatedFromConversationId) {
+          const durationMs = currentSession.startedAt ? Date.now() - currentSession.startedAt : 0;
+          addPointerMessage(currentSession.initiatedFromConversationId, 'completed', currentSession.toNumber, {
+            duration: durationMs > 0 ? formatDuration(durationMs) : undefined,
+          });
         }
         this.state = 'idle';
         return;
@@ -545,7 +651,16 @@ export class CallOrchestrator {
         updateCallSession(this.callSessionId, { status: 'completed', endedAt: Date.now() });
         recordCallEvent(this.callSessionId, 'call_ended', { reason: 'max_duration' });
         if (shouldNotifyCompletion && currentSession) {
+          persistCallCompletionMessage(currentSession.conversationId, this.callSessionId);
           fireCallCompletionNotifier(currentSession.conversationId, this.callSessionId);
+        }
+
+        // Post a pointer message in the initiating conversation
+        if (currentSession?.initiatedFromConversationId) {
+          const durationMs = currentSession.startedAt ? Date.now() - currentSession.startedAt : 0;
+          addPointerMessage(currentSession.initiatedFromConversationId, 'completed', currentSession.toNumber, {
+            duration: durationMs > 0 ? formatDuration(durationMs) : undefined,
+          });
         }
       }, 3000);
     }, maxDurationMs);

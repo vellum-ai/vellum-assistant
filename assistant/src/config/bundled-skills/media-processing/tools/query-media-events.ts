@@ -227,7 +227,7 @@ export async function run(
 
   // Filter events by allowed capabilities, then apply the user-requested limit
   let filteredEvents = result.events;
-  if (allowedEventTypes !== null) {
+  if (allowedEventTypes != null) {
     filteredEvents = filteredEvents.filter((e) => allowedEventTypes!.has(e.eventType));
   }
   if (userLimit && filteredEvents.length > userLimit) {

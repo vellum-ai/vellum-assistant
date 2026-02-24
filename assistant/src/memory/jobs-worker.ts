@@ -1,7 +1,7 @@
 import type { AssistantConfig } from '../config/types.js';
 import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
-import { getDb } from './db.js';
+import { rawRun } from './db.js';
 import {
   claimMemoryJobs,
   completeMemoryJob,
@@ -139,10 +139,12 @@ export async function runMemoryJobsOnce(
     for (const result of groupResults) {
       if (result.status === 'fulfilled') {
         processed += result.value;
+      } else {
+        // This branch is only reached by an unexpected error in the group
+        // runner itself (not per-job errors, which handleJobError already covers).
+        // Log it so dropped job batches are never silently swallowed.
+        log.error({ err: result.reason }, 'Memory job group rejected unexpectedly — jobs in this batch may have been dropped');
       }
-      // Errors within groups are already handled per-job above;
-      // a rejected group promise would only come from an unexpected
-      // error in the loop itself, which is unlikely.
     }
   }
   if (enableScheduledCleanup) {
@@ -296,16 +298,13 @@ export function sweepStaleItems(config: AssistantConfig): number {
   if (now - lastStaleSweepMs < STALE_SWEEP_INTERVAL_MS) return 0;
   lastStaleSweepMs = now;
 
-  const db = getDb();
-  const raw = (db as unknown as { $client: { query: (q: string) => { run: (...params: unknown[]) => { changes: number } } } }).$client;
-
   let totalMarked = 0;
   for (const [kind, maxAgeDays] of Object.entries(freshness.maxAgeDays)) {
     if (maxAgeDays <= 0) continue;
     // Mark invalid if: past 2x window, no access in the shield period, and not already invalid
     const cutoffMs = now - maxAgeDays * 2 * 86_400_000;
     const shieldCutoffMs = now - freshness.reinforcementShieldDays * 86_400_000;
-    const result = raw.query(`
+    const changes = rawRun(`
       UPDATE memory_items
       SET invalid_at = ?
       WHERE kind = ?
@@ -313,10 +312,10 @@ export function sweepStaleItems(config: AssistantConfig): number {
         AND invalid_at IS NULL
         AND last_seen_at < ?
         AND (access_count = 0 OR COALESCE(last_used_at, 0) < ?)
-    `).run(now, kind, cutoffMs, shieldCutoffMs);
-    if (result.changes > 0) {
-      log.info({ kind, marked: result.changes, cutoffMs }, 'Marked stale memory items as invalid');
-      totalMarked += result.changes;
+    `, now, kind, cutoffMs, shieldCutoffMs);
+    if (changes > 0) {
+      log.info({ kind, marked: changes, cutoffMs }, 'Marked stale memory items as invalid');
+      totalMarked += changes;
     }
   }
   return totalMarked;

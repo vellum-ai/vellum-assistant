@@ -105,6 +105,8 @@ export interface SessionCreateOptions {
   memoryScopeId?: string;
   isPrivateThread?: boolean;
   strictPrivateSideEffects?: boolean;
+  /** Channel command intent metadata (e.g. Telegram /start). */
+  commandIntent?: { type: string; payload?: string; languageCode?: string };
 }
 
 /**
@@ -252,7 +254,7 @@ export function wireEscalationHandler(
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
+  return typeof value === 'object' && value != null;
 }
 
 export function formatBytes(sizeBytes: number): string {

@@ -66,7 +66,7 @@ export function extractPromptSpeakerMetadata(message: Record<string, unknown>): 
   const pickNumber = (...values: unknown[]): number | undefined => {
     for (const value of values) {
       const parsed = toNumber(value);
-      if (parsed !== null) return parsed;
+      if (parsed != null) return parsed;
     }
     return undefined;
   };

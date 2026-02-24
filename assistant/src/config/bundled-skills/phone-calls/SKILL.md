@@ -181,6 +181,25 @@ credential_store action=store service=twilio field=user_phone_number value=+1415
 | `calls.callerIdentity.allowPerCallOverride` | Whether per-call mode selection is allowed | `true` |
 | `calls.callerIdentity.userNumber` | Optional E.164 phone number for user-number mode (alternative to storing via `credential_store`) | *(empty)* |
 
+## DTMF Callee Verification
+
+An optional verification step where the callee must enter a numeric code via their phone's keypad (DTMF tones) before the call proceeds. This ensures the intended person has answered the phone.
+
+### How it works
+
+1. When the call connects and DTMF verification is enabled, a random numeric code is generated (length configured by `calls.verification.codeLength`).
+2. The verification code is shared with the guardian in the initiating conversation so they know what code was issued.
+3. The AI voice agent speaks the code digit-by-digit to the callee and asks them to enter it on their keypad.
+4. The callee enters the code via DTMF (phone keypad tones).
+5. If the code matches, the call proceeds normally. If the code is incorrect, the agent may re-prompt or end the call depending on configuration.
+
+### Configuration
+
+| Setting | Description | Default |
+|---|---|---|
+| `calls.verification.enabled` | Enable DTMF callee verification | `false` |
+| `calls.verification.codeLength` | Number of digits in the verification code | `6` |
+
 ## Optional: Higher Quality Voice with ElevenLabs
 
 ElevenLabs integration is entirely optional. The standard Twilio-only setup works unchanged — this section is only relevant if you want to improve voice quality.
@@ -343,37 +362,31 @@ By default, always show the live transcript of the call as it happens. When a ca
 
 ### Interacting with a live call
 
-During an active call, the user can type messages in the chat thread to interact with the AI voice agent in real time. Messages are automatically routed to the call via the call bridge, which decides how to handle them based on the call's current state:
+During an active call, the user can interact with the AI voice agent via the HTTP API endpoints:
 
-#### Mode 1: Answering questions
+#### Answering questions
 
-When the AI voice agent encounters something it needs user input for, a **pending question** appears in the chat. The call status changes to `waiting_on_user`.
+When the AI voice agent encounters something it needs user input for, it dispatches an **ASK_GUARDIAN** request to all configured guardian channels (mac desktop, Telegram, SMS). The call status changes to `waiting_on_user`.
 
-1. A **pending question** appears in `call_status` output
-2. Present the question prominently to the user:
-
-```
-❓ The person on the call asked something the assistant needs your help with:
-   "They're asking if you'd prefer the smoking or non-smoking section?"
-```
-
-3. The user replies directly in the chat — since there is a pending question, the reply is automatically routed as an **answer** to the AI voice agent
-4. The AI voice agent receives the answer and continues the conversation naturally
+1. The question is delivered simultaneously to every configured channel. The first channel to respond wins (first-response-wins semantics) -- once one channel provides an answer, the other channels receive a "already answered" notice.
+2. On the mac desktop, a guardian request thread is created with the question. On Telegram/SMS, the question text and a request code are delivered via the gateway.
+3. If DTMF callee verification is enabled, the callee must enter a verification code before the call proceeds (see the **DTMF Callee Verification** section above).
+4. The guardian provides an answer through whichever channel they prefer. The answer is routed to the AI voice agent, which continues the conversation naturally.
 
 **Important:** Respond to pending questions quickly. There is a consultation timeout (default: 2 minutes). If no answer is provided in time, the AI voice agent will move on.
 
-#### Mode 2: Steering with instructions
+#### Steering with instructions
 
-When there is **no pending question** but the call is still active, any message the user types in the chat is treated as a **steering instruction**. This lets the user proactively guide the call in real time — for example:
+When there is **no pending question** but the call is still active, the user can send steering instructions via the HTTP API (`POST /v1/calls/:id/instruction`) to proactively guide the call in real time — for example:
 
 - "Ask them about their cancellation policy too"
 - "Wrap up the call, we have what we need"
 - "Switch to asking about weekend availability instead"
 - "Be more assertive about getting a discount"
 
-The instruction is injected into the AI voice agent's conversation context as high-priority input, and the agent adjusts its behavior accordingly. A confirmation message ("Instruction relayed to active call.") appears in the chat thread.
+The instruction is injected into the AI voice agent's conversation context as high-priority input, and the agent adjusts its behavior accordingly.
 
-**The user does not need to do anything special** — just type a message. The system automatically determines whether it should be an answer or an instruction based on whether a question is pending.
+**Note:** Mid-call steering via the desktop chat thread is no longer supported. The desktop thread only receives pointer/status messages about the call. To steer a call, use the HTTP API endpoints directly.
 
 ### Call status values
 
@@ -469,6 +482,14 @@ vellum config set calls.disclosure.text "Just so you know, this is an assistant 
 # Give more time for user consultation
 vellum config set calls.userConsultTimeoutSeconds 300
 ```
+
+## Accepted Regressions
+
+The following behavioral changes were introduced with the cross-channel guardian architecture (voice-cross-guardian):
+
+- **No more mid-call steering via desktop chat.** The call bridge that routed desktop chat messages to the active call has been removed. The desktop chat thread only receives pointer/status messages about the call. To steer a call, use the HTTP API endpoints directly (`POST /v1/calls/:id/instruction`).
+- **No live transcript mirror in the initiating chat.** The initiating desktop conversation no longer receives a real-time mirror of the call transcript. The initiating chat only gets pointer/status messages (call started, call ended, question asked, etc.).
+- **Guardian questions are dispatched cross-channel.** Rather than appearing only in the initiating desktop thread, ASK_GUARDIAN questions are now dispatched to all configured guardian channels (mac desktop, Telegram, SMS) simultaneously. The first channel to respond wins.
 
 ## Troubleshooting
 

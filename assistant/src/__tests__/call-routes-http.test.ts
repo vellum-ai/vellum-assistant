@@ -23,6 +23,7 @@ mock.module('../util/platform.js', () => ({
   getDbPath: () => join(testDir, 'test.db'),
   getLogPath: () => join(testDir, 'test.log'),
   ensureDataDir: () => {},
+  readHttpToken: () => null,
 }));
 
 mock.module('../util/logger.js', () => ({
@@ -130,9 +131,13 @@ function ensureConversation(id: string): void {
 
 function resetTables() {
   const db = getDb();
+  db.run('DELETE FROM guardian_action_deliveries');
+  db.run('DELETE FROM guardian_action_requests');
   db.run('DELETE FROM call_pending_questions');
   db.run('DELETE FROM call_events');
   db.run('DELETE FROM call_sessions');
+  db.run('DELETE FROM tool_invocations');
+  db.run('DELETE FROM messages');
   db.run('DELETE FROM conversations');
   ensuredConvIds = new Set();
 }

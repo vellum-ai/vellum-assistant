@@ -1,4 +1,5 @@
 import { OpenAIProvider } from '../openai/client.js';
+import { getOllamaBaseUrlEnv } from '../../config/env.js';
 
 export interface OllamaProviderOptions {
   apiKey?: string;
@@ -20,7 +21,7 @@ export class OllamaProvider extends OpenAIProvider {
 }
 
 function resolveBaseUrl(optionBaseUrl?: string): string {
-  for (const candidate of [optionBaseUrl, process.env.OLLAMA_BASE_URL]) {
+  for (const candidate of [optionBaseUrl, getOllamaBaseUrlEnv()]) {
     if (typeof candidate === 'string') {
       const trimmed = candidate.trim();
       if (trimmed.length > 0) return trimmed;

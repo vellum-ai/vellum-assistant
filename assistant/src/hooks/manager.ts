@@ -1,4 +1,5 @@
-import { watch, existsSync, type FSWatcher } from 'node:fs';
+import { watch, type FSWatcher } from 'node:fs';
+import { pathExists } from '../util/fs.js';
 import { discoverHooks } from './discovery.js';
 import { runHookScript } from './runner.js';
 import { getLogger, isDebug } from '../util/logger.js';
@@ -49,7 +50,7 @@ export class HookManager {
     for (const hook of hooks) {
       try {
         const result = await runHookScript(hook, eventData);
-        if (result.exitCode !== null && result.exitCode !== 0) {
+        if (result.exitCode != null && result.exitCode !== 0) {
           // Blocking hooks on pre-* events cancel the action
           if (isPreEvent && hook.manifest.blocking) {
             log.info({ hook: hook.name, event, exitCode: result.exitCode }, 'Blocking hook rejected action');
@@ -77,7 +78,7 @@ export class HookManager {
 
   watch(): void {
     const hooksDir = getHooksDir();
-    if (!existsSync(hooksDir)) return;
+    if (!pathExists(hooksDir)) return;
 
     this.stopWatching();
 

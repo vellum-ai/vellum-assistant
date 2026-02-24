@@ -25,7 +25,7 @@ export interface TaskRunResult {
 export function renderTemplate(template: string, inputs: Record<string, string>): string {
   return template.replace(/\{\{(\w+)\}\}/g, (match, key) => {
     if (key in inputs) return inputs[key];
-    return match;
+    return `<MISSING: ${key}>`;
   });
 }
 

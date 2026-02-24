@@ -23,6 +23,16 @@ struct ChatContentView: View {
     @State private var emptyStateVisible = false
     @State private var greeting: String = greetingChoices.randomElement()!
 
+    /// The slice of messages shown in the view, honoring the pagination window.
+    private var visibleMessages: [ChatMessage] {
+        let all = viewModel.displayedMessages
+        // When the user has scrolled back through the full history (displayedMessageCount
+        // reaches all.count), keep showing everything — don't clamp the window back down
+        // as new messages arrive, which would cause previously loaded history to vanish.
+        guard viewModel.displayedMessageCount < all.count else { return all }
+        return Array(all.suffix(viewModel.displayedMessageCount))
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Messages area — empty state when no messages, otherwise scrollable list
@@ -32,7 +42,37 @@ struct ChatContentView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: VSpacing.md) {
-                        let messages = viewModel.messages.filter { !$0.isSubagentNotification }
+                        // Loading indicator shown at the very top when fetching an older page.
+                        if viewModel.isLoadingMoreMessages {
+                            HStack {
+                                Spacer()
+                                VLoadingIndicator(size: 18)
+                                Spacer()
+                            }
+                            .padding(.vertical, VSpacing.sm)
+                            .id("page-loading-indicator")
+                        } else if viewModel.hasMoreMessages {
+                            // Invisible sentinel: fires when the user scrolls to the top,
+                            // triggering the next-older page of messages to be revealed.
+                            Color.clear
+                                .frame(height: 1)
+                                .id("page-load-trigger")
+                                .onAppear {
+                                    // Capture the current first-visible message ID before the
+                                    // pagination window expands so we can restore scroll position.
+                                    let anchorId = visibleMessages.first?.id
+                                    Task {
+                                        let hadMore = await viewModel.loadPreviousMessagePage()
+                                        // Restore position to the message that was previously at
+                                        // the top so the content doesn't jump unexpectedly.
+                                        if hadMore, let id = anchorId {
+                                            proxy.scrollTo(id, anchor: .top)
+                                        }
+                                    }
+                                }
+                        }
+
+                        let messages = visibleMessages
                         ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
                             if message.modelPicker != nil {
                                 ModelPickerBubble(
@@ -43,12 +83,24 @@ struct ChatContentView: View {
                                     }
                                 )
                                 .id(message.id)
+                                .transition(.asymmetric(
+                                    insertion: .move(edge: .bottom).combined(with: .opacity),
+                                    removal: .opacity
+                                ))
                             } else if message.modelList != nil {
                                 ModelListBubble(currentModel: viewModel.selectedModel, configuredProviders: viewModel.configuredProviders)
                                     .id(message.id)
+                                    .transition(.asymmetric(
+                                        insertion: .move(edge: .bottom).combined(with: .opacity),
+                                        removal: .opacity
+                                    ))
                             } else if message.commandList != nil {
                                 CommandListBubble()
                                     .id(message.id)
+                                    .transition(.asymmetric(
+                                        insertion: .move(edge: .bottom).combined(with: .opacity),
+                                        removal: .opacity
+                                    ))
                             } else {
                                 let isLastAssistant = message.role == .assistant
                                     && !message.isStreaming
@@ -72,6 +124,10 @@ struct ChatContentView: View {
                                     }
                                 )
                                 .id(message.id)
+                                .transition(.asymmetric(
+                                    insertion: .move(edge: .bottom).combined(with: .opacity),
+                                    removal: .opacity
+                                ))
 
                                 // Inline media embeds (images, videos)
                                 if !message.text.isEmpty && !message.isStreaming {
@@ -94,23 +150,54 @@ struct ChatContentView: View {
                                 .id("subagent-\(subagent.id)")
                         }
 
-                        // Current step indicator shown while generating
+                        // Typing / step indicator shown while generating
                         let hasPendingConfirmation = viewModel.messages.last?.confirmation?.state == .pending
                         if viewModel.isSending && !hasPendingConfirmation {
-                            let allToolCalls = viewModel.messages.last?.toolCalls ?? []
-                            CurrentStepIndicator(
-                                toolCalls: allToolCalls,
-                                isStreaming: viewModel.isSending,
-                                onTap: {}
-                            )
-                            .padding(.horizontal, VSpacing.lg)
-                            .id("step-indicator")
+                            let lastMessage = viewModel.messages.last
+                            let allToolCalls = lastMessage?.toolCalls ?? []
+                            let isStreaming = lastMessage?.isStreaming == true
+                            let hasActiveToolCall = allToolCalls.contains { !$0.isComplete }
+                            // True when the assistant is streaming but has not yet emitted any text.
+                            // This happens between tool-call completion and the next text chunk.
+                            let isStreamingWithoutText = isStreaming && (lastMessage?.text.isEmpty ?? true)
+
+                            if !isStreaming && !hasActiveToolCall {
+                                // No streaming text or active tool call yet — show typing dots
+                                HStack {
+                                    TypingIndicatorView()
+                                    Spacer()
+                                }
+                                .padding(.horizontal, VSpacing.lg)
+                                .id("step-indicator")
+                                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                            } else if hasActiveToolCall {
+                                // Tool execution in progress — show step indicator
+                                CurrentStepIndicator(
+                                    toolCalls: allToolCalls,
+                                    isStreaming: viewModel.isSending,
+                                    onTap: {}
+                                )
+                                .padding(.horizontal, VSpacing.lg)
+                                .id("step-indicator")
+                            } else if isStreamingWithoutText {
+                                // Tool call just finished but no text has arrived yet — show
+                                // typing dots so the user isn't left without feedback.
+                                HStack {
+                                    TypingIndicatorView()
+                                    Spacer()
+                                }
+                                .padding(.horizontal, VSpacing.lg)
+                                .id("step-indicator")
+                                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                            }
+                            // Otherwise isStreaming with text: the growing message bubble is the indicator
                         }
 
                         // Invisible anchor at the very bottom of all content
                         Color.clear.frame(height: 1)
                             .id("scroll-bottom-anchor")
                     }
+                    .animation(VAnimation.standard, value: viewModel.messages.count)
                     .padding(VSpacing.lg)
                 }
                 .scrollDismissesKeyboard(.interactively)
@@ -145,6 +232,12 @@ struct ChatContentView: View {
                 genericErrorBanner(errorText)
             }
 
+            // Memory degradation banner — shown when embedding fails and recall
+            // falls back to lexical-only search so users aren't caught off guard.
+            if viewModel.isMemoryDegraded {
+                memoryDegradedBanner
+            }
+
             // Input bar
             InputBarView(
                 text: $viewModel.inputText,
@@ -162,8 +255,9 @@ struct ChatContentView: View {
         }
         .background(alignment: .bottom) { chatBackground }
         .background(VColor.chatBackground)
-        .animation(.easeInOut(duration: 0.2), value: viewModel.sessionError != nil)
-        .animation(.easeInOut(duration: 0.2), value: viewModel.errorText)
+        .animation(VAnimation.standard, value: viewModel.sessionError != nil)
+        .animation(VAnimation.standard, value: viewModel.errorText)
+        .animation(VAnimation.standard, value: viewModel.isMemoryDegraded)
         .onChange(of: viewModel.messages.isEmpty) { _, isEmpty in
             if isEmpty {
                 greeting = greetingChoices.randomElement()!
@@ -210,6 +304,7 @@ struct ChatContentView: View {
                     .font(.system(size: 10, weight: .medium))
                     .foregroundColor(VColor.textMuted)
             }
+            .accessibilityLabel("Dismiss")
         }
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.sm)
@@ -229,10 +324,18 @@ struct ChatContentView: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundColor(.white)
                 .font(VFont.caption)
-            Text(errorText)
-                .font(VFont.caption)
-                .foregroundColor(.white)
-                .lineLimit(2)
+            VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                Text(errorText)
+                    .font(VFont.caption)
+                    .foregroundColor(.white)
+                    .lineLimit(2)
+                if viewModel.isConnectionError, let hint = viewModel.connectionDiagnosticHint {
+                    Text(hint)
+                        .font(VFont.small)
+                        .foregroundColor(.white.opacity(0.8))
+                        .lineLimit(2)
+                }
+            }
             Spacer()
             if viewModel.isSecretBlockError {
                 Button(action: { viewModel.sendAnyway() }) {
@@ -260,10 +363,42 @@ struct ChatContentView: View {
                     .font(VFont.caption)
                     .foregroundColor(.white)
             }
+            .accessibilityLabel("Dismiss")
         }
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.sm)
         .background(VColor.error)
+        .transition(.move(edge: .top).combined(with: .opacity))
+    }
+
+    /// Subtle banner shown when memory embedding fails so users know recall is lexical-only.
+    private var memoryDegradedBanner: some View {
+        HStack(spacing: VSpacing.sm) {
+            Image(systemName: "memorychip")
+                .font(VFont.caption)
+                .foregroundColor(VColor.warning)
+            VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                Text("Memory search limited")
+                    .font(VFont.captionMedium)
+                    .foregroundColor(VColor.textPrimary)
+                if let reason = viewModel.memoryDegradedReason {
+                    Text(reason)
+                        .font(VFont.small)
+                        .foregroundColor(VColor.textSecondary)
+                        .lineLimit(1)
+                }
+            }
+            Spacer()
+        }
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.vertical, VSpacing.sm)
+        .background(VColor.warning.opacity(0.1))
+        .overlay(
+            Rectangle()
+                .fill(VColor.warning)
+                .frame(width: 3),
+            alignment: .leading
+        )
         .transition(.move(edge: .top).combined(with: .opacity))
     }
 

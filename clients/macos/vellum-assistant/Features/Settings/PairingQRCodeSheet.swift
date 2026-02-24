@@ -25,6 +25,7 @@ struct PairingQRCodeSheet: View {
     @State private var hostId: String = ""
     @State private var isTokenRevealed: Bool = false
     @State private var copiedField: String? = nil
+    @State private var manualPairingExpanded: Bool = false
 
     /// Whether the configuration is sufficient for pairing.
     private var canGenerateQR: Bool {
@@ -138,89 +139,90 @@ struct PairingQRCodeSheet: View {
                 .multilineTextAlignment(.center)
 
             // Manual pairing info
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
-                Text("Manual Pairing")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-                    .textCase(.uppercase)
-
-                // Gateway URL row
-                HStack {
-                    Text("Gateway URL")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-                        .frame(width: 90, alignment: .leading)
-                    Text(gatewayUrl.isEmpty ? "Not configured" : gatewayUrl)
-                        .font(VFont.mono)
-                        .foregroundColor(VColor.textPrimary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Spacer()
-                    Button {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(gatewayUrl, forType: .string)
-                        withAnimation { copiedField = "url" }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                            withAnimation { if copiedField == "url" { copiedField = nil } }
-                        }
-                    } label: {
-                        Text(copiedField == "url" ? "Copied" : "Copy")
+            VDisclosureSection(
+                title: "Manual Pairing",
+                icon: "link",
+                isExpanded: $manualPairingExpanded
+            ) {
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    // Gateway URL row
+                    HStack {
+                        Text("Gateway URL")
                             .font(VFont.caption)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(gatewayUrl.isEmpty)
-                }
-
-                Divider()
-
-                // Bearer token row
-                HStack {
-                    Text("Bearer Token")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-                        .frame(width: 90, alignment: .leading)
-                    if resolvedBearerToken.isEmpty {
-                        Text("Not available")
-                            .font(VFont.mono)
-                            .foregroundColor(VColor.textPrimary)
-                    } else if isTokenRevealed {
-                        Text(resolvedBearerToken)
+                            .foregroundColor(VColor.textMuted)
+                            .frame(width: 90, alignment: .leading)
+                        Text(gatewayUrl.isEmpty ? "Not configured" : gatewayUrl)
                             .font(VFont.mono)
                             .foregroundColor(VColor.textPrimary)
                             .lineLimit(1)
                             .truncationMode(.middle)
-                    } else {
-                        Text(String(repeating: "\u{2022}", count: min(resolvedBearerToken.count, 24)))
-                            .font(VFont.mono)
-                            .foregroundColor(VColor.textPrimary)
-                            .lineLimit(1)
-                    }
-                    Spacer()
-                    Button {
-                        isTokenRevealed.toggle()
-                    } label: {
-                        Image(systemName: isTokenRevealed ? "eye.slash" : "eye")
-                            .font(VFont.caption)
-                    }
-                    .buttonStyle(.borderless)
-                    .help(isTokenRevealed ? "Hide token" : "Reveal token")
-                    .disabled(resolvedBearerToken.isEmpty)
-
-                    Button {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(resolvedBearerToken, forType: .string)
-                        withAnimation { copiedField = "token" }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                            withAnimation { if copiedField == "token" { copiedField = nil } }
+                        Spacer()
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(gatewayUrl, forType: .string)
+                            withAnimation { copiedField = "url" }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                withAnimation { if copiedField == "url" { copiedField = nil } }
+                            }
+                        } label: {
+                            Text(copiedField == "url" ? "Copied" : "Copy")
+                                .font(VFont.caption)
                         }
-                    } label: {
-                        Text(copiedField == "token" ? "Copied" : "Copy")
-                            .font(VFont.caption)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(gatewayUrl.isEmpty)
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(resolvedBearerToken.isEmpty)
+
+                    Divider()
+
+                    // Bearer token row
+                    HStack {
+                        Text("Bearer Token")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                            .frame(width: 90, alignment: .leading)
+                        if resolvedBearerToken.isEmpty {
+                            Text("Not available")
+                                .font(VFont.mono)
+                                .foregroundColor(VColor.textPrimary)
+                        } else if isTokenRevealed {
+                            Text(resolvedBearerToken)
+                                .font(VFont.mono)
+                                .foregroundColor(VColor.textPrimary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        } else {
+                            Text(String(repeating: "\u{2022}", count: min(resolvedBearerToken.count, 24)))
+                                .font(VFont.mono)
+                                .foregroundColor(VColor.textPrimary)
+                                .lineLimit(1)
+                        }
+                        Spacer()
+                        Button {
+                            isTokenRevealed.toggle()
+                        } label: {
+                            Image(systemName: isTokenRevealed ? "eye.slash" : "eye")
+                                .font(VFont.caption)
+                        }
+                        .buttonStyle(.borderless)
+                        .help(isTokenRevealed ? "Hide token" : "Reveal token")
+                        .disabled(resolvedBearerToken.isEmpty)
+
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(resolvedBearerToken, forType: .string)
+                            withAnimation { copiedField = "token" }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                withAnimation { if copiedField == "token" { copiedField = nil } }
+                            }
+                        } label: {
+                            Text(copiedField == "token" ? "Copied" : "Copy")
+                                .font(VFont.caption)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(resolvedBearerToken.isEmpty)
+                    }
                 }
             }
             .padding(VSpacing.md)
