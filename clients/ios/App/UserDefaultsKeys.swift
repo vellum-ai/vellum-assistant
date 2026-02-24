@@ -12,6 +12,11 @@ enum UserDefaultsKeys {
     static let gatewayBaseURL = "gateway_base_url"
     static let conversationKey = "conversation_key"
 
+    // Voice mode settings
+    static let voiceListeningTimeout = "voice_listening_timeout"
+    static let voiceTTSProvider = "voice_tts_provider"
+    static let voiceSilenceThreshold = "voice_silence_threshold"
+
     // Per-host:port keys for multi-Mac QR pairing support.
     // Actual keys are namespaced: "daemon_fingerprint:<host>:<port>", etc.
     static func daemonCertFingerprint(host: String, port: UInt16) -> String {

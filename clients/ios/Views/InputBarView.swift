@@ -29,6 +29,18 @@ struct InputBarView: View {
     @State private var showPhotosPicker = false
     @State private var showDocumentPicker = false
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
+    /// Timer that fires after the listening timeout to auto-stop recording.
+    @State private var listeningTimeoutTimer: Timer?
+    /// Timer that drives silence detection by comparing last-speech time to the threshold.
+    @State private var silenceTimer: Timer?
+    /// Tracks the last time meaningful audio amplitude was observed.
+    @State private var lastSpeechTime: Date = .distantPast
+    /// Set to true once audible speech has been detected during the current recording.
+    @State private var hasSpeechOccurred = false
+
+    // Voice settings read from UserDefaults — updated live without restart.
+    @AppStorage(UserDefaultsKeys.voiceListeningTimeout) private var listeningTimeout: Double = 30.0
+    @AppStorage(UserDefaultsKeys.voiceSilenceThreshold) private var silenceThreshold: Double = 1.0
 
     /// Current audio input amplitude [0,1] — updated while recording for the orb animation.
     @State private var micAmplitude: Float = 0
@@ -311,21 +323,33 @@ struct InputBarView: View {
             return
         }
 
+        // Reset silence-detection state for the new recording session.
+        lastSpeechTime = Date()
+        hasSpeechOccurred = false
+
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
             request.append(buffer)
 
-            // Compute RMS amplitude so the voice orb can react to input level
-            if let floatData = buffer.floatChannelData {
-                let frameCount = Int(buffer.frameLength)
-                guard frameCount > 0 else { return }
-                var sum: Float = 0
-                for i in 0..<frameCount {
-                    let s = floatData[0][i]
-                    sum += s * s
-                }
-                let rms = (sum / Float(frameCount)).squareRoot()
-                Task { @MainActor in
-                    micAmplitude = min(rms * 5, 1.0)
+            // Compute RMS amplitude for both voice orb animation and silence detection.
+            guard let floatData = buffer.floatChannelData else { return }
+            let frameCount = Int(buffer.frameLength)
+            guard frameCount > 0 else { return }
+            var sum: Float = 0
+            for i in 0..<frameCount {
+                let s = floatData[0][i]
+                sum += s * s
+            }
+            let rms = (sum / Float(frameCount)).squareRoot()
+
+            Task { @MainActor in
+                // Drive the orb animation with the scaled amplitude.
+                micAmplitude = min(rms * 5, 1.0)
+
+                // Update last-speech timestamp whenever the mic picks up audible signal
+                // (used by the silence detection timer to decide when to auto-stop).
+                if rms > 0.015 {
+                    self.lastSpeechTime = Date()
+                    self.hasSpeechOccurred = true
                 }
             }
         }
@@ -359,6 +383,31 @@ struct InputBarView: View {
             try audioEngine.start()
             isRecording = true
             log.info("Voice recording started")
+
+            // Silence detection timer: polls every 0.25 s to check how long
+            // the mic has been quiet. Stops recording once the threshold is met
+            // and at least some speech has occurred (avoids cutting off immediately).
+            let capturedThreshold = silenceThreshold
+            silenceTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in
+                DispatchQueue.main.async {
+                    guard self.isRecording, self.hasSpeechOccurred else { return }
+                    let silenceDuration = Date().timeIntervalSince(self.lastSpeechTime)
+                    if silenceDuration >= capturedThreshold {
+                        log.info("Silence threshold reached (\(capturedThreshold, privacy: .public)s), stopping recording")
+                        self.stopRecording()
+                    }
+                }
+            }
+
+            // Listening timeout: hard upper bound on recording duration.
+            let capturedTimeout = listeningTimeout
+            listeningTimeoutTimer = Timer.scheduledTimer(withTimeInterval: capturedTimeout, repeats: false) { _ in
+                DispatchQueue.main.async {
+                    guard self.isRecording else { return }
+                    log.info("Listening timeout (\(capturedTimeout, privacy: .public)s), stopping recording")
+                    self.stopRecording()
+                }
+            }
         } catch {
             log.error("Audio engine failed to start: \(error.localizedDescription)")
             viewModel.errorText = "Voice input failed: \(error.localizedDescription)"
@@ -373,6 +422,13 @@ struct InputBarView: View {
     private func stopRecording() {
         guard isRecording else { return }
         log.info("Voice recording stopped")
+
+        // Cancel auto-stop timers before tearing down the session.
+        listeningTimeoutTimer?.invalidate()
+        listeningTimeoutTimer = nil
+        silenceTimer?.invalidate()
+        silenceTimer = nil
+
         audioEngine.stop()
         audioEngine.inputNode.removeTap(onBus: 0)
         recognitionRequest?.endAudio()
