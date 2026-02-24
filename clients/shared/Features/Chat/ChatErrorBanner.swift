@@ -13,22 +13,22 @@ public struct ChatErrorBanner: View {
     public var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
+                .foregroundStyle(VColor.warning)
             Text(message)
                 .font(.footnote)
-                .foregroundStyle(.primary)
+                .foregroundStyle(VColor.textPrimary)
             Spacer()
             if let onDismiss {
                 Button(action: onDismiss) {
                     Image(systemName: "xmark")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(VColor.textSecondary)
                 }
                 .buttonStyle(.plain)
             }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+        .background(VColor.surface, in: RoundedRectangle(cornerRadius: 8))
         .padding(.horizontal)
     }
 }
