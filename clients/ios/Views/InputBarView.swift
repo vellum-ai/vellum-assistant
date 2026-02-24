@@ -209,7 +209,9 @@ struct InputBarView: View {
     private var canSend: Bool {
         let hasText = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let hasAttachments = !viewModel.pendingAttachments.isEmpty
-        return (hasText || hasAttachments) && !isGenerating
+        // Block send while an attachment is still loading so the attachment
+        // isn't dropped from the message if the user taps Send too quickly.
+        return (hasText || hasAttachments) && !isGenerating && !viewModel.isLoadingAttachment
     }
 
     private func handlePhotoSelection(_ items: [PhotosPickerItem]) {

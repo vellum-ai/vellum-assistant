@@ -20,6 +20,14 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 public final class ChatAttachmentManager: ObservableObject {
 
     @Published public var pendingAttachments: [ChatAttachment] = []
+    /// True while at least one attachment is being loaded in the background.
+    /// The send button checks this so a user can't send before async load finishes.
+    @Published public var isLoadingAttachment: Bool = false
+
+    // Counts in-flight background loads; isLoadingAttachment is true when > 0.
+    private var loadingCount: Int = 0 {
+        didSet { isLoadingAttachment = loadingCount > 0 }
+    }
 
     // MARK: - Limits
 
@@ -57,12 +65,21 @@ public final class ChatAttachmentManager: ObservableObject {
         // Move file reading, compression, and thumbnail generation off the main
         // thread — Data(contentsOf:) is a blocking syscall that can stall the UI
         // for up to 20 MB worth of I/O before we even begin image processing.
+        loadingCount += 1
         Task {
+            defer { self.loadingCount -= 1 }
             let result = await Self.loadAttachment(url: url)
             switch result {
             case .failure(let attachmentError):
                 self.onError?(attachmentError.message)
             case .success(let attachment):
+                // Re-check cap here: multiple concurrent adds may have all passed
+                // the guard above before any of them appended, so we must verify
+                // again inside the async task before committing.
+                guard self.pendingAttachments.count < Self.maxAttachments else {
+                    self.onError?("Maximum \(Self.maxAttachments) attachments per message.")
+                    return
+                }
                 self.pendingAttachments.append(attachment)
             }
         }
@@ -113,12 +130,20 @@ public final class ChatAttachmentManager: ObservableObject {
         // Move image conversion, compression, and thumbnail generation off the
         // main thread — these are CPU-bound and can take tens of milliseconds
         // for large images.
+        loadingCount += 1
         Task {
+            defer { self.loadingCount -= 1 }
             let result = await Self.loadAttachment(imageData: imageData, filename: filename)
             switch result {
             case .failure(let attachmentError):
                 self.onError?(attachmentError.message)
             case .success(let attachment):
+                // Re-check cap: multiple concurrent adds may all pass the guard
+                // above before any appends occur.
+                guard self.pendingAttachments.count < Self.maxAttachments else {
+                    self.onError?("Maximum \(Self.maxAttachments) attachments per message.")
+                    return
+                }
                 self.pendingAttachments.append(attachment)
             }
         }
@@ -303,13 +328,19 @@ public final class ChatAttachmentManager: ObservableObject {
         guard size.width > 0 && size.height > 0 else { return nil }
         let scale = min(maxDimension / size.width, maxDimension / size.height, 1.0)
         let newSize = NSSize(width: size.width * scale, height: size.height * scale)
-        let resized = NSImage(size: newSize)
-        resized.lockFocus()
-        image.draw(in: NSRect(origin: .zero, size: newSize),
-                   from: NSRect(origin: .zero, size: size),
-                   operation: .copy, fraction: 1.0)
-        resized.unlockFocus()
-        guard let tiffData = resized.tiffRepresentation,
+        // NSImage.lockFocus()/draw()/unlockFocus() must run on the main thread.
+        // This helper may be called from a Task.detached context, so we hop to
+        // MainActor explicitly before touching the AppKit drawing APIs.
+        let tiffData: Data? = DispatchQueue.main.sync {
+            let resized = NSImage(size: newSize)
+            resized.lockFocus()
+            image.draw(in: NSRect(origin: .zero, size: newSize),
+                       from: NSRect(origin: .zero, size: size),
+                       operation: .copy, fraction: 1.0)
+            resized.unlockFocus()
+            return resized.tiffRepresentation
+        }
+        guard let tiffData,
               let bitmap = NSBitmapImageRep(data: tiffData),
               let png = bitmap.representation(using: .png, properties: [:]) else { return nil }
         return png

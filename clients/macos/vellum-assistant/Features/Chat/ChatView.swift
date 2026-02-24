@@ -12,6 +12,7 @@ struct ChatView: View {
     let pendingQueuedCount: Int
     let suggestion: String?
     let pendingAttachments: [ChatAttachment]
+    var isLoadingAttachment: Bool = false
     let isRecording: Bool
     let onOpenSettings: () -> Void
     let onSend: () -> Void
@@ -112,6 +113,7 @@ struct ChatView: View {
                             isRecording: isRecording,
                             suggestion: suggestion,
                             pendingAttachments: pendingAttachments,
+                            isLoadingAttachment: isLoadingAttachment,
                             errorText: errorText,
                             onSend: onSend,
                             onStop: onStop,
@@ -132,6 +134,7 @@ struct ChatView: View {
                             isRecording: isRecording,
                             suggestion: suggestion,
                             pendingAttachments: pendingAttachments,
+                            isLoadingAttachment: isLoadingAttachment,
                             errorText: errorText,
                             onSend: onSend,
                             onStop: onStop,
@@ -255,6 +258,7 @@ struct ChatView: View {
                 isRecording: isRecording,
                 suggestion: suggestion,
                 pendingAttachments: pendingAttachments,
+                isLoadingAttachment: isLoadingAttachment,
                 onSend: onSend,
                 onStop: onStop,
                 onAcceptSuggestion: onAcceptSuggestion,

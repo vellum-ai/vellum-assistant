@@ -40,6 +40,7 @@ struct ComposerView: View {
     let isRecording: Bool
     let suggestion: String?
     let pendingAttachments: [ChatAttachment]
+    var isLoadingAttachment: Bool = false
     let onSend: () -> Void
     let onStop: () -> Void
     let onAcceptSuggestion: () -> Void
@@ -475,7 +476,11 @@ struct ComposerView: View {
     }
 
     var canSend: Bool {
-        hasAPIKey && (!inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pendingAttachments.isEmpty)
+        // Block send while an attachment is still loading: the user tapping Send
+        // before the async load completes would drop the attachment from the message.
+        hasAPIKey
+            && !isLoadingAttachment
+            && (!inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pendingAttachments.isEmpty)
     }
 
     // MARK: - Slash Command Logic

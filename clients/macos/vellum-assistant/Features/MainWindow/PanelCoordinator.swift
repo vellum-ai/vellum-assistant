@@ -581,6 +581,7 @@ struct ActiveChatViewWrapper: View {
             pendingQueuedCount: viewModel.pendingQueuedCount,
             suggestion: viewModel.suggestion,
             pendingAttachments: viewModel.pendingAttachments,
+            isLoadingAttachment: viewModel.isLoadingAttachment,
             isRecording: viewModel.isRecording,
             onOpenSettings: {
                 windowState.selection = .panel(.settings)
