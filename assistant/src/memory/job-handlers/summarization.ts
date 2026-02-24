@@ -1,9 +1,9 @@
-import Anthropic from '@anthropic-ai/sdk';
 import { and, desc, eq, gte, isNull, lt } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import type { AssistantConfig } from '../../config/types.js';
 import { estimateTextTokens } from '../../context/token-estimator.js';
 import { getLogger } from '../../util/logger.js';
+import { getAnthropicProvider, createTimeout, extractText, userMessage } from '../../providers/anthropic-send-message.js';
 import { getConversationMemoryScopeId } from '../conversation-store.js';
 import { getDb } from '../db.js';
 import { enqueueMemoryJob, type MemoryJob } from '../jobs-store.js';
@@ -230,8 +230,8 @@ async function summarizeWithLLM(
     return buildFallbackSummary(existingSummary, newContent, label);
   }
 
-  const apiKey = config.apiKeys.anthropic ?? process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
+  const provider = getAnthropicProvider();
+  if (!provider) {
     log.debug({ label }, 'No Anthropic API key available for summarization, using fallback');
     return buildFallbackSummary(existingSummary, newContent, label);
   }
@@ -247,30 +247,36 @@ async function summarizeWithLLM(
   userParts.push('### New Data', newContent);
 
   try {
-    const client = new Anthropic({ apiKey });
-    const response = await Promise.race([
-      client.messages.create({
-        model: summarizationConfig.model,
-        max_tokens: SUMMARY_MAX_TOKENS,
-        system: systemPrompt,
-        messages: [{ role: 'user' as const, content: userParts.join('\n') }],
-      }),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Summarization LLM timeout')), SUMMARY_LLM_TIMEOUT_MS),
-      ),
-    ]);
-
-    const textBlock = response.content.find((b) => b.type === 'text');
-    if (textBlock && textBlock.type === 'text' && textBlock.text.trim().length > 0) {
-      log.debug(
-        { label, inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens },
-        'LLM summarization completed',
+    const { signal, cleanup } = createTimeout(SUMMARY_LLM_TIMEOUT_MS);
+    try {
+      const response = await provider.sendMessage(
+        [userMessage(userParts.join('\n'))],
+        undefined,
+        systemPrompt,
+        {
+          config: {
+            model: summarizationConfig.model,
+            max_tokens: SUMMARY_MAX_TOKENS,
+          },
+          signal,
+        },
       );
-      return textBlock.text.trim();
-    }
+      cleanup();
 
-    log.warn({ label }, 'LLM summarization returned empty text, using fallback');
-    return buildFallbackSummary(existingSummary, newContent, label);
+      const text = extractText(response);
+      if (text.length > 0) {
+        log.debug(
+          { label, inputTokens: response.usage.inputTokens, outputTokens: response.usage.outputTokens },
+          'LLM summarization completed',
+        );
+        return text;
+      }
+
+      log.warn({ label }, 'LLM summarization returned empty text, using fallback');
+      return buildFallbackSummary(existingSummary, newContent, label);
+    } finally {
+      cleanup();
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.warn({ err: message, label }, 'LLM summarization failed, using fallback');

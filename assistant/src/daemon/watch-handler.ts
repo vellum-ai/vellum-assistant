@@ -1,6 +1,5 @@
 import type * as net from 'node:net';
-import Anthropic from '@anthropic-ai/sdk';
-import { getConfig } from '../config/loader.js';
+import { getAnthropicProvider, extractText, userMessage } from '../providers/anthropic-send-message.js';
 import { getLogger } from '../util/logger.js';
 import type { WatchObservation } from './ipc-protocol.js';
 import type { HandlerContext } from './handlers.js';
@@ -85,12 +84,11 @@ export async function handleWatchObservation(
 
 async function generateCommentary(session: WatchSession): Promise<void> {
   try {
-    const apiKey = getConfig().apiKeys.anthropic ?? process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
+    const provider = getAnthropicProvider();
+    if (!provider) {
       log.warn({ watchId: session.watchId }, 'No Anthropic API key available for commentary generation');
       return;
     }
-    const client = new Anthropic({ apiKey });
     const lastThree = session.observations.slice(-3);
     const previousCommentary = lastCommentaryBySession.get(session.sessionId);
 
@@ -122,16 +120,19 @@ async function generateCommentary(session: WatchSession): Promise<void> {
       '- If nothing interesting or meaningfully different has happened since the last observations, respond with exactly "SKIP" (no quotes, no extra text).',
     ].join('\n');
 
-    const response = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 200,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: userContent }],
-    });
+    const response = await provider.sendMessage(
+      [userMessage(userContent)],
+      undefined,
+      systemPrompt,
+      {
+        config: {
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 200,
+        },
+      },
+    );
 
-    const textBlock = response.content.find((b) => b.type === 'text');
-    const commentaryText =
-      textBlock && 'text' in textBlock ? textBlock.text.trim() : '';
+    const commentaryText = extractText(response);
 
     if (commentaryText && commentaryText !== 'SKIP') {
       lastCommentaryBySession.set(session.sessionId, commentaryText);
@@ -156,14 +157,13 @@ export async function generateSummary(session: WatchSession): Promise<void> {
       { watchId: session.watchId, sessionId: session.sessionId, observationCount: session.observations.length, commentaryCount: session.commentaryCount },
       'generateSummary starting — calling Sonnet',
     );
-    const apiKey = getConfig().apiKeys.anthropic ?? process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
+    const provider = getAnthropicProvider();
+    if (!provider) {
       log.warn({ watchId: session.watchId }, 'No Anthropic API key available for summary generation');
       lastSummaryBySession.set(session.sessionId, '[error] No Anthropic API key configured. Check your settings.');
       fireWatchCompletionNotifier(session.sessionId, session);
       return;
     }
-    const client = new Anthropic({ apiKey });
 
     // Build observations text with truncation (keep most recent if >50K chars)
     let observations = session.observations;
@@ -238,18 +238,21 @@ export async function generateSummary(session: WatchSession): Promise<void> {
         : []),
     ].join('\n');
 
-    const response = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 2000,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: userContent }],
-    });
+    const response = await provider.sendMessage(
+      [userMessage(userContent)],
+      undefined,
+      systemPrompt,
+      {
+        config: {
+          model: 'claude-sonnet-4-6',
+          max_tokens: 2000,
+        },
+      },
+    );
 
     log.debug({ watchId: session.watchId }, 'Sonnet API call completed successfully');
 
-    const textBlock = response.content.find((b) => b.type === 'text');
-    const summaryText =
-      textBlock && 'text' in textBlock ? textBlock.text.trim() : '';
+    const summaryText = extractText(response);
 
     log.debug(
       { watchId: session.watchId, summaryLength: summaryText.length },

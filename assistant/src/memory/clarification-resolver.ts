@@ -1,5 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk';
-import { getConfig } from '../config/loader.js';
+import { getAnthropicProvider, createTimeout, extractToolUse, userMessage } from '../providers/anthropic-send-message.js';
 import { truncate } from '../util/truncate.js';
 
 const DEFAULT_RESOLVER_MODEL = 'claude-haiku-4-5-20251001';
@@ -55,9 +54,8 @@ export async function resolveConflictClarification(
   const heuristicResult = resolveWithHeuristics(input);
   if (heuristicResult) return heuristicResult;
 
-  const config = getConfig();
-  const apiKey = options?.apiKey ?? config.apiKeys.anthropic ?? process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
+  const provider = getAnthropicProvider();
+  if (!provider) {
     return {
       resolution: 'still_unclear',
       strategy: 'no_llm_key',
@@ -68,7 +66,6 @@ export async function resolveConflictClarification(
 
   try {
     return await resolveWithLlm(input, {
-      apiKey,
       model: options?.model ?? DEFAULT_RESOLVER_MODEL,
       timeoutMs: options?.timeoutMs ?? DEFAULT_RESOLVER_TIMEOUT_MS,
     });
@@ -168,9 +165,9 @@ function resolveWithHeuristics(input: ClarificationResolverInput): Clarification
 
 async function resolveWithLlm(
   input: ClarificationResolverInput,
-  options: { apiKey: string; model: string; timeoutMs: number },
+  options: { model: string; timeoutMs: number },
 ): Promise<ClarificationResolverResult> {
-  const client = new Anthropic({ apiKey: options.apiKey });
+  const provider = getAnthropicProvider()!;
   const userPrompt = [
     'You are resolving a memory clarification response.',
     '',
@@ -179,22 +176,12 @@ async function resolveWithLlm(
     `User clarification: ${input.userMessage}`,
   ].join('\n');
 
-  const abortController = new AbortController();
-  const timer = setTimeout(() => abortController.abort(), options.timeoutMs);
+  const { signal, cleanup } = createTimeout(options.timeoutMs);
 
   try {
-  const response = await client.messages.create({
-      model: options.model,
-      max_tokens: 256,
-      system: [
-        'Classify the user clarification for conflicting memory statements.',
-        'Return exactly one resolution:',
-        '- keep_existing',
-        '- keep_candidate',
-        '- merge',
-        '- still_unclear',
-      ].join('\n'),
-      tools: [{
+    const response = await provider.sendMessage(
+      [userMessage(userPrompt)],
+      [{
         name: 'resolve_conflict_clarification',
         description: 'Resolve a pending memory contradiction using user clarification.',
         input_schema: {
@@ -216,13 +203,27 @@ async function resolveWithLlm(
           required: ['resolution', 'explanation'],
         },
       }],
-      tool_choice: { type: 'tool' as const, name: 'resolve_conflict_clarification' },
-      messages: [{ role: 'user' as const, content: userPrompt }],
-    }, { signal: abortController.signal });
-    clearTimeout(timer);
+      [
+        'Classify the user clarification for conflicting memory statements.',
+        'Return exactly one resolution:',
+        '- keep_existing',
+        '- keep_candidate',
+        '- merge',
+        '- still_unclear',
+      ].join('\n'),
+      {
+        config: {
+          model: options.model,
+          max_tokens: 256,
+          tool_choice: { type: 'tool' as const, name: 'resolve_conflict_clarification' },
+        },
+        signal,
+      },
+    );
+    cleanup();
 
-    const toolBlock = response.content.find((block) => block.type === 'tool_use');
-    if (!toolBlock || toolBlock.type !== 'tool_use') {
+    const toolBlock = extractToolUse(response);
+    if (!toolBlock) {
       throw new Error('No tool_use block in clarification resolver response.');
     }
 
@@ -247,8 +248,8 @@ async function resolveWithLlm(
       explanation: truncate(normalize(parsed.explanation ?? 'Resolved via LLM fallback.'), 500, ''),
     };
   } catch (err) {
-    clearTimeout(timer);
-    if (abortController.signal.aborted) {
+    cleanup();
+    if (signal.aborted) {
       throw new Error('clarification_resolver_timeout');
     }
     throw err;
