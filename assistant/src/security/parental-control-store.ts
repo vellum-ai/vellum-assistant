@@ -174,6 +174,9 @@ export function isToolBlocked(toolName: string): boolean {
 
   for (const category of blockedToolCategories) {
     const prefixes = TOOL_CATEGORY_PREFIXES[category];
+    // Guard against unknown categories that may appear after deserialization of
+    // settings written by a newer client version — skip rather than throw.
+    if (!prefixes) continue;
     if (prefixes.some((p) => toolName.startsWith(p))) return true;
   }
   return false;

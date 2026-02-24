@@ -27,6 +27,9 @@ struct SettingsParentalTab: View {
     // -- Unlock overlay (shown when settings are locked) --
     @State private var showingUnlockSheet: Bool = false
     @State private var isUnlocked: Bool = false
+    // Retained after a successful unlock so that subsequent update calls can
+    // forward the PIN to the daemon (required when parental mode is enabled).
+    @State private var unlockedPIN: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
@@ -73,6 +76,7 @@ struct SettingsParentalTab: View {
                         case .clear:
                             hasPIN = false
                             isUnlocked = false
+                            unlockedPIN = nil
                             successMessage = "PIN cleared."
                         }
                     case .failure(let msg):
@@ -84,12 +88,14 @@ struct SettingsParentalTab: View {
         }
         .sheet(isPresented: $showingUnlockSheet) {
             UnlockSheet(
-                onComplete: { unlocked in
+                onComplete: { result in
                     showingUnlockSheet = false
-                    if unlocked {
+                    switch result {
+                    case .success(let pin):
                         isUnlocked = true
+                        unlockedPIN = pin
                         errorMessage = nil
-                    } else {
+                    case .failure:
                         errorMessage = "Incorrect PIN."
                     }
                 },
@@ -313,9 +319,10 @@ struct SettingsParentalTab: View {
         successMessage = nil
 
         let stream = daemonClient?.subscribe()
+        let pin = unlockedPIN
         Task {
             do {
-                try daemonClient?.sendParentalControlUpdate(enabled: enabled)
+                try daemonClient?.sendParentalControlUpdate(pin: pin, enabled: enabled)
             } catch {
                 await MainActor.run {
                     isLoading = false
@@ -365,9 +372,10 @@ struct SettingsParentalTab: View {
         successMessage = nil
 
         let stream = daemonClient?.subscribe()
+        let pin = unlockedPIN
         Task {
             do {
-                try daemonClient?.sendParentalControlUpdate(contentRestrictions: restrictions)
+                try daemonClient?.sendParentalControlUpdate(pin: pin, contentRestrictions: restrictions)
             } catch {
                 await MainActor.run { isLoading = false; errorMessage = error.localizedDescription }
                 return
@@ -409,9 +417,10 @@ struct SettingsParentalTab: View {
         successMessage = nil
 
         let stream = daemonClient?.subscribe()
+        let pin = unlockedPIN
         Task {
             do {
-                try daemonClient?.sendParentalControlUpdate(blockedToolCategories: categories)
+                try daemonClient?.sendParentalControlUpdate(pin: pin, blockedToolCategories: categories)
             } catch {
                 await MainActor.run { isLoading = false; errorMessage = error.localizedDescription }
                 return
@@ -605,9 +614,14 @@ private struct PINSheet: View {
 
 // MARK: - Unlock Sheet
 
+private enum UnlockResult {
+    case success(pin: String)
+    case failure
+}
+
 @MainActor
 private struct UnlockSheet: View {
-    let onComplete: (Bool) -> Void
+    let onComplete: (UnlockResult) -> Void
     var daemonClient: DaemonClient?
 
     @State private var pin: String = ""
@@ -686,8 +700,12 @@ private struct UnlockSheet: View {
             await MainActor.run {
                 isLoading = false
                 if let r = response {
-                    onComplete(r.verified)
-                    if !r.verified { errorMessage = "Incorrect PIN." }
+                    if r.verified {
+                        onComplete(.success(pin: pin))
+                    } else {
+                        onComplete(.failure)
+                        errorMessage = "Incorrect PIN."
+                    }
                 } else {
                     errorMessage = "No response from daemon."
                 }

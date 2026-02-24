@@ -23,6 +23,9 @@ struct IOSParentalControlSection: View {
     @State private var showingClearPIN: Bool = false
     @State private var showingUnlock: Bool = false
     @State private var isUnlocked: Bool = false
+    // Retained after a successful unlock so that subsequent update calls can
+    // forward the PIN to the daemon (required when parental mode is enabled).
+    @State private var unlockedPIN: String?
 
     private var daemon: DaemonClient? { clientProvider.client as? DaemonClient }
 
@@ -101,12 +104,14 @@ struct IOSParentalControlSection: View {
             }
         }
         .sheet(isPresented: $showingUnlock) {
-            IOSUnlockSheet(daemon: daemon) { unlocked in
+            IOSUnlockSheet(daemon: daemon) { result in
                 showingUnlock = false
-                if unlocked {
+                switch result {
+                case .success(let pin):
                     isUnlocked = true
+                    unlockedPIN = pin
                     errorMessage = nil
-                } else {
+                case .failure:
                     errorMessage = "Incorrect PIN."
                 }
             }
@@ -209,8 +214,9 @@ struct IOSParentalControlSection: View {
     private func updateEnabled(_ enabled: Bool) {
         isLoading = true; errorMessage = nil; successMessage = nil
         let stream = daemon?.subscribe()
+        let pin = unlockedPIN
         Task {
-            do { try daemon?.sendParentalControlUpdate(enabled: enabled) } catch {
+            do { try daemon?.sendParentalControlUpdate(pin: pin, enabled: enabled) } catch {
                 await MainActor.run { isLoading = false; errorMessage = error.localizedDescription }
                 return
             }
@@ -239,8 +245,9 @@ struct IOSParentalControlSection: View {
     private func updateContentRestrictions(_ restrictions: [String]) {
         isLoading = true; errorMessage = nil; successMessage = nil
         let stream = daemon?.subscribe()
+        let pin = unlockedPIN
         Task {
-            do { try daemon?.sendParentalControlUpdate(contentRestrictions: restrictions) } catch {
+            do { try daemon?.sendParentalControlUpdate(pin: pin, contentRestrictions: restrictions) } catch {
                 await MainActor.run { isLoading = false; errorMessage = error.localizedDescription }
                 return
             }
@@ -265,8 +272,9 @@ struct IOSParentalControlSection: View {
     private func updateToolCategories(_ categories: [String]) {
         isLoading = true; errorMessage = nil; successMessage = nil
         let stream = daemon?.subscribe()
+        let pin = unlockedPIN
         Task {
-            do { try daemon?.sendParentalControlUpdate(blockedToolCategories: categories) } catch {
+            do { try daemon?.sendParentalControlUpdate(pin: pin, blockedToolCategories: categories) } catch {
                 await MainActor.run { isLoading = false; errorMessage = error.localizedDescription }
                 return
             }
@@ -294,7 +302,7 @@ struct IOSParentalControlSection: View {
             switch mode {
             case .set: hasPIN = true; successMessage = "PIN set."
             case .change: successMessage = "PIN changed."
-            case .clear: hasPIN = false; isUnlocked = false; successMessage = "PIN cleared."
+            case .clear: hasPIN = false; isUnlocked = false; unlockedPIN = nil; successMessage = "PIN cleared."
             }
         case .failure(let msg):
             errorMessage = msg
@@ -409,9 +417,11 @@ struct IOSPINSheet: View {
 
 // MARK: - Unlock Sheet (iOS)
 
+enum IOSUnlockResult { case success(pin: String); case failure }
+
 struct IOSUnlockSheet: View {
     let daemon: DaemonClient?
-    let onComplete: (Bool) -> Void
+    let onComplete: (IOSUnlockResult) -> Void
 
     @State private var pin: String = ""
     @State private var isLoading: Bool = false
@@ -466,8 +476,10 @@ struct IOSUnlockSheet: View {
             }
             await MainActor.run {
                 isLoading = false
-                if let r = response { onComplete(r.verified); if !r.verified { errorMessage = "Incorrect PIN." } }
-                else { errorMessage = "No response from assistant." }
+                if let r = response {
+                    if r.verified { onComplete(.success(pin: pin)) }
+                    else { onComplete(.failure); errorMessage = "Incorrect PIN." }
+                } else { errorMessage = "No response from assistant." }
             }
         }
     }
