@@ -8,6 +8,7 @@ struct SettingsAppearanceTab: View {
     @State private var newAllowlistDomain = ""
     @State private var isRecordingShortcut = false
     @State private var shortcutMonitor: Any?
+    @State private var shortcutConflictWarning: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
@@ -74,6 +75,12 @@ struct SettingsAppearanceTab: View {
                             startRecording()
                         }
                     }
+                }
+
+                if let shortcutConflictWarning {
+                    Text(shortcutConflictWarning)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.warning)
                 }
 
                 // Open Vellum (fixed, non-editable)
@@ -183,8 +190,12 @@ struct SettingsAppearanceTab: View {
 
     // MARK: - Shortcut Recording
 
+    /// The fixed "Open Vellum" shortcut in normalized form for conflict detection.
+    private static let openVellumShortcut = "cmd+shift+g"
+
     private func startRecording() {
         isRecordingShortcut = true
+        shortcutConflictWarning = nil
         // Use local monitor so we capture key events while the settings window is focused
         shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
@@ -206,6 +217,15 @@ struct SettingsAppearanceTab: View {
             let shortcut = ShortcutHelper.shortcutString(
                 from: mods, key: chars, keyCode: event.keyCode
             )
+
+            // Check for conflict with the fixed "Open Vellum" shortcut
+            if shortcut.lowercased() == Self.openVellumShortcut {
+                shortcutConflictWarning = "This shortcut conflicts with the Open Vellum shortcut (\u{2318}\u{21E7}G). Choose a different shortcut."
+                stopRecording()
+                return nil
+            }
+
+            shortcutConflictWarning = nil
             store.quickChatShortcut = shortcut
             stopRecording()
             return nil // consume the event

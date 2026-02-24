@@ -8,6 +8,7 @@ import VellumAssistantShared
 @MainActor
 final class QuickChatPanel {
     private var panel: NSPanel?
+    private var toastPanel: NSPanel?
     private var resignObserver: Any?
 
     /// Callback invoked when the user submits a message.
@@ -23,7 +24,12 @@ final class QuickChatPanel {
         let view = QuickChatView(
             onSubmit: { [weak self] message in
                 self?.onSubmit?(message)
+                // Capture position before dismissing so the toast appears in the same spot
+                let panelFrame = self?.panel?.frame
                 self?.dismiss()
+                if let frame = panelFrame {
+                    self?.showSentToast(near: frame)
+                }
             },
             onDismiss: { [weak self] in
                 self?.dismiss()
@@ -53,9 +59,16 @@ final class QuickChatPanel {
         // Center on the active screen
         centerOnScreen(panel)
 
-        // Become key so the text editor receives focus
+        // Animate in: start transparent and slightly scaled down, then animate to full
+        panel.alphaValue = 0
         panel.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = VAnimation.durationFast
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            panel.animator().alphaValue = 1
+        }
 
         // Dismiss when the panel loses focus
         resignObserver = NotificationCenter.default.addObserver(
@@ -76,8 +89,17 @@ final class QuickChatPanel {
             NotificationCenter.default.removeObserver(resignObserver)
         }
         resignObserver = nil
-        panel?.close()
-        panel = nil
+
+        guard let panel else { return }
+        // Animate out: fade to transparent, then close
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = VAnimation.durationFast
+            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            panel.animator().alphaValue = 0
+        }, completionHandler: { [weak self] in
+            panel.close()
+            self?.panel = nil
+        })
     }
 
     var isVisible: Bool {
@@ -85,6 +107,75 @@ final class QuickChatPanel {
     }
 
     // MARK: - Private
+
+    /// Shows a brief "Message sent" toast near the given frame, then auto-dismisses.
+    private func showSentToast(near frame: NSRect) {
+        let toastView = HStack(spacing: VSpacing.sm) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundColor(VColor.success)
+            Text("Message sent")
+                .font(VFont.body)
+                .foregroundColor(VColor.textPrimary)
+        }
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.vertical, VSpacing.md)
+        .background(
+            VisualEffectBlur(material: .hudWindow, blendingMode: .behindWindow)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+
+        let hosting = NSHostingController(rootView: toastView)
+
+        let toast = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 180, height: 40),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        toast.contentViewController = hosting
+        toast.level = .floating
+        toast.titleVisibility = .hidden
+        toast.titlebarAppearsTransparent = true
+        toast.isReleasedWhenClosed = false
+        toast.backgroundColor = .clear
+        toast.isOpaque = false
+        toast.hasShadow = true
+        toast.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+
+        // Position just below where the Quick Chat panel was
+        if let fittingSize = toast.contentView?.fittingSize {
+            let x = frame.midX - fittingSize.width / 2
+            let y = frame.origin.y - fittingSize.height - 8
+            toast.setFrame(
+                NSRect(x: x, y: y, width: fittingSize.width, height: fittingSize.height),
+                display: true
+            )
+        }
+
+        toast.alphaValue = 0
+        toast.orderFrontRegardless()
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = VAnimation.durationFast
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            toast.animator().alphaValue = 1
+        }
+
+        self.toastPanel = toast
+
+        // Auto-dismiss after 1.5 seconds
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            guard let toast = self?.toastPanel else { return }
+            NSAnimationContext.runAnimationGroup({ context in
+                context.duration = VAnimation.durationFast
+                context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+                toast.animator().alphaValue = 0
+            }, completionHandler: {
+                toast.close()
+                self?.toastPanel = nil
+            })
+        }
+    }
 
     private func centerOnScreen(_ panel: NSPanel) {
         let screen = NSScreen.main ?? NSScreen.screens.first
