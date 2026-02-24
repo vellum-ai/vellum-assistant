@@ -557,8 +557,9 @@ struct MainWindowView: View {
                                 toggleVoiceMode()
                             }
 
-                            // Temporary chat toggle — only visible on brand new threads with no messages
-                            if threadManager.activeViewModel?.messages.contains(where: {
+                            // Temporary chat toggle — always visible on private threads (so users can exit temp chat),
+                            // only visible on normal threads when no messages exist yet
+                            if threadManager.activeThread?.kind == .private || threadManager.activeViewModel?.messages.contains(where: {
                                 !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                             }) != true {
                                 TemporaryChatToggle(
