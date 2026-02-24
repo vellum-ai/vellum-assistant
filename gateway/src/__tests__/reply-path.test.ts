@@ -3,7 +3,7 @@ import {
   buildTelegramTransportMetadata,
   TELEGRAM_CHANNEL_TRANSPORT_HINTS,
   TELEGRAM_CHANNEL_TRANSPORT_UX_BRIEF,
-} from "../http/routes/telegram-webhook.js";
+} from "../channels/transport-hints.js";
 import { splitText } from "../telegram/send.js";
 
 describe("splitText", () => {

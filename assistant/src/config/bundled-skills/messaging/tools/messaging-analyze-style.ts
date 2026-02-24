@@ -7,11 +7,8 @@ import { memoryItems } from '../../../../memory/schema.js';
 import { enqueueMemoryJob } from '../../../../memory/jobs-store.js';
 import { extractStylePatterns } from '../../../../messaging/style-analyzer.js';
 import { truncate } from '../../../../util/truncate.js';
+import { clampUnitInterval } from '../../../../memory/validation.js';
 import { resolveProvider, withProviderToken, ok, err } from './shared.js';
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
-}
 
 function upsertMemoryItem(opts: {
   kind: string;
@@ -35,7 +32,7 @@ function upsertMemoryItem(opts: {
       .set({
         statement: opts.statement,
         status: 'active',
-        importance: Math.max(existing.importance ?? 0, opts.importance),
+        importance: clampUnitInterval(Math.max(existing.importance ?? 0, opts.importance)),
         lastSeenAt: now,
         verificationState: 'assistant_inferred',
       })
@@ -51,7 +48,7 @@ function upsertMemoryItem(opts: {
       statement: opts.statement,
       status: 'active',
       confidence: 0.8,
-      importance: opts.importance,
+      importance: clampUnitInterval(opts.importance),
       fingerprint,
       verificationState: 'assistant_inferred',
       scopeId: opts.scopeId,
@@ -90,7 +87,7 @@ export async function run(input: Record<string, unknown>, context: ToolContext):
 
       for (const pattern of result.stylePatterns) {
         const subject = `${provider.id} writing style: ${pattern.aspect}`;
-        const importance = clamp(pattern.importance ?? 0.65, 0.55, 0.85);
+        const importance = clampUnitInterval(Math.min(0.85, Math.max(0.55, pattern.importance ?? 0.65)));
         upsertMemoryItem({ kind: 'style', subject, statement: pattern.summary, importance, scopeId });
         savedCount++;
       }

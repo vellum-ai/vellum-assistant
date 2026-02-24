@@ -90,7 +90,7 @@ struct DaemonConnectionSection: View {
                     }
                 } else {
                     // Not configured state
-                    Text("Scan a QR code or enter your Mac's gateway URL to connect.")
+                    Text("Scan a QR code from your Mac to connect.")
                         .font(VFont.body)
                         .foregroundColor(VColor.textSecondary)
                 }
@@ -120,172 +120,11 @@ struct DaemonConnectionSection: View {
                 Text("Open Vellum on your Mac, go to Settings \u{2192} Connect, and tap Show QR Code.")
             }
 
-            // Manual setup — NavigationLink to sub-view
-            Section {
-                NavigationLink("Manual Setup") {
-                    ManualSetupView(clientProvider: clientProvider)
-                }
-            } footer: {
-                Text("Enter the gateway URL and bearer token manually if you can't scan the QR code.")
-            }
-
         }
         .navigationTitle("Connect")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showingQRPairing) {
             QRPairingSheet()
-        }
-    }
-
-    // MARK: - Local Host Detection
-
-    /// Checks whether a host string refers to a local or private-network address.
-    /// Used to allow plain HTTP for LAN/loopback endpoints while requiring HTTPS
-    /// for public hosts (ATS policy). Comparison is case-insensitive.
-    static func isLocalHost(_ rawHost: String) -> Bool {
-        let host = rawHost.lowercased()
-
-        // Loopback & mDNS
-        if host == "localhost" || host == "::1" || host.hasSuffix(".local") {
-            return true
-        }
-
-        // IPv6 link-local (fe80::…)
-        if host.hasPrefix("fe80:") {
-            return true
-        }
-
-        let parts = host.split(separator: ".")
-        let octets = parts.compactMap { UInt8($0) }
-        if parts.count == 4 && octets.count == 4 {
-            // 127.0.0.0/8 — full loopback range
-            if octets[0] == 127 { return true }
-            // 10.0.0.0/8 — private
-            if octets[0] == 10 { return true }
-            // 172.16.0.0/12 — private (172.16.x.x through 172.31.x.x)
-            if octets[0] == 172 && (16...31).contains(octets[1]) { return true }
-            // 192.168.0.0/16 — private
-            if octets[0] == 192 && octets[1] == 168 { return true }
-        }
-
-        return false
-    }
-
-}
-
-// MARK: - Manual Setup Sub-View
-
-struct ManualSetupView: View {
-    @ObservedObject var clientProvider: ClientProvider
-    @State private var manualGatewayURL: String = ""
-    @State private var manualAuthValue: String = ""
-    @State private var isConnecting = false
-    @State private var showingAlert = false
-    @State private var alertMessage = ""
-
-    var body: some View {
-        Form {
-            Section {
-                TextField("Gateway URL", text: $manualGatewayURL)
-                    .keyboardType(.URL)
-                    .textContentType(.URL)
-                    .autocapitalization(.none)
-                    .disableAutocorrection(true)
-
-                SecureField("Bearer Token", text: $manualAuthValue)
-                    .textContentType(.password)
-                    .autocapitalization(.none)
-                    .disableAutocorrection(true)
-
-                Button { connectManually() } label: {
-                    HStack {
-                        Spacer()
-                        if isConnecting {
-                            ProgressView().controlSize(.small).padding(.trailing, 4)
-                        }
-                        Text("Connect").font(.headline)
-                        Spacer()
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(manualGatewayURL.isEmpty || manualAuthValue.isEmpty || isConnecting)
-            } footer: {
-                Text("Enter the gateway URL and bearer token shown in your Mac's Settings.")
-            }
-        }
-        .navigationTitle("Manual Setup")
-        .navigationBarTitleDisplayMode(.inline)
-        .alert("Connection", isPresented: $showingAlert) {
-            Button("OK") {}
-        } message: {
-            Text(alertMessage)
-        }
-    }
-
-    // MARK: - Manual Connection
-
-    private func connectManually() {
-        // Validate the URL format
-        let trimmedURL = manualGatewayURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = URL(string: trimmedURL),
-              url.scheme == "https" || url.scheme == "http",
-              url.host != nil && !url.host!.isEmpty else {
-            alertMessage = "Please enter a valid URL (e.g., https://my-mac.example.com)."
-            showingAlert = true
-            return
-        }
-
-        // Require HTTPS for non-local connections (ATS policy)
-        if url.scheme == "http" {
-            if !DaemonConnectionSection.isLocalHost(url.host ?? "") {
-                alertMessage = "HTTPS is required for non-local connections."
-                showingAlert = true
-                return
-            }
-        }
-
-        let trimmedAuth = manualAuthValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedAuth.isEmpty else {
-            alertMessage = "Please enter a bearer token."
-            showingAlert = true
-            return
-        }
-
-        isConnecting = true
-
-        // Store gateway URL
-        UserDefaults.standard.set(trimmedURL, forKey: UserDefaultsKeys.gatewayBaseURL)
-
-        // Store bearer token in Keychain
-        _ = APIKeyManager.shared.setAPIKey(trimmedAuth, provider: "runtime-bearer-token")
-
-        // Generate and store a conversation key automatically
-        if UserDefaults.standard.string(forKey: UserDefaultsKeys.conversationKey)?.isEmpty != false {
-            UserDefaults.standard.set(UUID().uuidString, forKey: UserDefaultsKeys.conversationKey)
-        }
-
-        // Rebuild the client so the new gateway config takes effect
-        clientProvider.rebuildClient()
-
-        // Connect
-        Task {
-            do {
-                try await clientProvider.client.connect()
-                await MainActor.run {
-                    isConnecting = false
-                    alertMessage = "Connected successfully!"
-                    showingAlert = true
-                    // Clear the manual input fields
-                    manualGatewayURL = ""
-                    manualAuthValue = ""
-                }
-            } catch {
-                await MainActor.run {
-                    isConnecting = false
-                    alertMessage = "Connection failed: \(error.localizedDescription)"
-                    showingAlert = true
-                }
-            }
         }
     }
 }

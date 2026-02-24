@@ -9,6 +9,14 @@ import { silentlyWithLog } from '../../util/silently.js';
 
 const log = getLogger('browser-manager');
 
+function getDownloadsDir(): string {
+  const dir = join(getDataDir(), 'browser-downloads');
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+export type DownloadInfo = { path: string; filename: string };
+
 type BrowserContext = {
   newPage(): Promise<Page>;
   close(): Promise<void>;
@@ -52,7 +60,7 @@ export type Page = {
     move(x: number, y: number): Promise<void>;
     wheel(deltaX: number, deltaY: number): Promise<void>;
   };
-  bringToFront(): Promise<void>;
+  on(event: string, handler: (...args: unknown[]) => void): void;
 };
 
 type ScreencastFrameMetadata = {
@@ -109,6 +117,8 @@ class BrowserManager {
   private interactiveModeSessions = new Set<string>();
   private handoffResolvers = new Map<string, () => void>();
   private sessionSenders = new Map<string, (msg: { type: string; sessionId: string }) => void>();
+  private downloads = new Map<string, DownloadInfo[]>();
+  private pendingDownloads = new Map<string, { resolve: (info: DownloadInfo) => void; reject: (err: Error) => void }[]>();
 
   get browserMode(): 'headless' | 'cdp' {
     return this._browserMode;
@@ -340,6 +350,11 @@ class BrowserManager {
           this.cdpSessions.clear();
           this.screencastCallbacks.clear();
           this.snapshotMaps.clear();
+          this.downloads.clear();
+          for (const pending of this.pendingDownloads.values()) {
+            for (const waiter of pending) waiter.reject(new Error('Browser closed'));
+          }
+          this.pendingDownloads.clear();
         };
         rawCtx.on('close', this.contextCloseHandler);
       }
@@ -366,6 +381,9 @@ class BrowserManager {
     this.pages.set(sessionId, page);
     this.rawPages.set(sessionId, page);
 
+    // Track downloads for this page
+    this.setupDownloadTracking(sessionId, page);
+
     // In CDP mode, keep the window minimized unless we're in an active handoff.
     if (this._browserMode === 'cdp' && !this.interactiveModeSessions.has(sessionId)) {
       await this.moveWindowOffscreen();
@@ -391,6 +409,13 @@ class BrowserManager {
     this.pages.delete(sessionId);
     this.rawPages.delete(sessionId);
     this.snapshotMaps.delete(sessionId);
+    this.downloads.delete(sessionId);
+    // Reject any pending download waiters
+    const pending = this.pendingDownloads.get(sessionId);
+    if (pending) {
+      for (const waiter of pending) waiter.reject(new Error('Session closed'));
+      this.pendingDownloads.delete(sessionId);
+    }
     log.debug({ sessionId }, 'Session page closed');
   }
 
@@ -416,6 +441,11 @@ class BrowserManager {
     this.pages.clear();
     this.rawPages.clear();
     this.snapshotMaps.clear();
+    this.downloads.clear();
+    for (const pending of this.pendingDownloads.values()) {
+      for (const waiter of pending) waiter.reject(new Error('Browser closed'));
+    }
+    this.pendingDownloads.clear();
 
     if (this.context) {
       // Remove the close listener before intentional close to avoid
@@ -708,6 +738,90 @@ class BrowserManager {
       log.warn({ err }, 'Failed to extract cookies via CDP');
       return [];
     }
+  }
+
+  private setupDownloadTracking(sessionId: string, page: Page): void {
+    page.on('download', async (download: unknown) => {
+      const dl = download as {
+        suggestedFilename(): string;
+        path(): Promise<string | null>;
+        saveAs(path: string): Promise<void>;
+        failure(): Promise<string | null>;
+      };
+      try {
+        const filename = dl.suggestedFilename();
+        const destPath = join(getDownloadsDir(), `${Date.now()}-${filename}`);
+        await dl.saveAs(destPath);
+        const info: DownloadInfo = { path: destPath, filename };
+
+        // Resolve a pending waiter if one exists, otherwise store for later retrieval
+        const pending = this.pendingDownloads.get(sessionId);
+        if (pending && pending.length > 0) {
+          const waiter = pending.shift()!;
+          waiter.resolve(info);
+          if (pending.length === 0) this.pendingDownloads.delete(sessionId);
+        } else {
+          const list = this.downloads.get(sessionId) ?? [];
+          list.push(info);
+          this.downloads.set(sessionId, list);
+        }
+
+        log.info({ sessionId, filename, path: destPath }, 'Download completed');
+      } catch (err) {
+        const failure = await dl.failure();
+        log.warn({ err, failure, sessionId }, 'Download failed');
+
+        // Reject any pending waiters
+        const pending = this.pendingDownloads.get(sessionId);
+        if (pending && pending.length > 0) {
+          const waiter = pending.shift()!;
+          waiter.reject(new Error(`Download failed: ${failure ?? String(err)}`));
+          if (pending.length === 0) this.pendingDownloads.delete(sessionId);
+        }
+      }
+    });
+  }
+
+  getLastDownload(sessionId: string): DownloadInfo | null {
+    const list = this.downloads.get(sessionId);
+    if (!list || list.length === 0) return null;
+    return list[list.length - 1];
+  }
+
+  waitForDownload(sessionId: string, timeoutMs: number = 30_000): Promise<DownloadInfo> {
+    // Check if an unconsumed download already completed for this session
+    const existing = this.downloads.get(sessionId);
+    if (existing && existing.length > 0) {
+      const info = existing.pop()!;
+      if (existing.length === 0) this.downloads.delete(sessionId);
+      return Promise.resolve(info);
+    }
+
+    return new Promise<DownloadInfo>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        // Remove this waiter from the pending list
+        const pending = this.pendingDownloads.get(sessionId);
+        if (pending) {
+          const idx = pending.findIndex(w => w.resolve === wrappedResolve);
+          if (idx >= 0) pending.splice(idx, 1);
+          if (pending.length === 0) this.pendingDownloads.delete(sessionId);
+        }
+        reject(new Error(`Download timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+
+      const wrappedResolve = (info: DownloadInfo) => {
+        clearTimeout(timer);
+        resolve(info);
+      };
+      const wrappedReject = (err: Error) => {
+        clearTimeout(timer);
+        reject(err);
+      };
+
+      const pending = this.pendingDownloads.get(sessionId) ?? [];
+      pending.push({ resolve: wrappedResolve, reject: wrappedReject });
+      this.pendingDownloads.set(sessionId, pending);
+    });
   }
 
   hasContext(): boolean {

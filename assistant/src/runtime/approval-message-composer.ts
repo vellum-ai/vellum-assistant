@@ -33,7 +33,9 @@ export type ApprovalMessageScenario =
   | 'guardian_verify_status_bound'
   | 'guardian_verify_status_unbound'
   | 'guardian_deny_no_identity'
-  | 'guardian_deny_no_binding';
+  | 'guardian_deny_no_binding'
+  | 'requester_cancel'
+  | 'approval_already_resolved';
 
 export interface ApprovalMessageContext {
   scenario: ApprovalMessageScenario;
@@ -180,7 +182,7 @@ export function getFallbackMessage(context: ApprovalMessageContext): string {
       return `${context.requesterIdentifier ?? 'A user'} is requesting to use "${context.toolName ?? 'unknown'}". Please approve or deny this request.`;
 
     case 'reminder_prompt':
-      return "I'm still waiting for your decision on the pending approval request.";
+      return 'There is a pending approval request. Ask a follow-up question or say approve/deny when you are ready.';
 
     case 'guardian_delivery_failed':
       return context.toolName
@@ -233,6 +235,14 @@ export function getFallbackMessage(context: ApprovalMessageContext): string {
 
     case 'guardian_deny_no_binding':
       return 'This action requires guardian approval, but no guardian has been configured for this channel. The request has been denied for safety.';
+
+    case 'requester_cancel':
+      return context.toolName
+        ? `Your request to use "${context.toolName}" has been cancelled.`
+        : 'Your pending request has been cancelled.';
+
+    case 'approval_already_resolved':
+      return 'This approval request has already been resolved.';
 
     default: {
       // Exhaustive check — TypeScript will flag if a scenario is missing.

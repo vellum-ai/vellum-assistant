@@ -81,6 +81,16 @@ export class ToolExecutor {
 
     // Reject tools blocked by parental control settings before any permission check.
     if (isToolBlocked(name)) {
+      log.warn(
+        {
+          toolName: name,
+          sessionId: context.sessionId,
+          conversationId: context.conversationId,
+          principal: context.principal,
+          reason: 'blocked_by_parental_controls',
+        },
+        'Parental control blocked tool invocation',
+      );
       const durationMs = Date.now() - startTime;
       emitLifecycleEvent(context, {
         type: 'permission_denied',
@@ -176,14 +186,14 @@ export class ToolExecutor {
 
     try {
       // Check permissions
-      const risk = await classifyRisk(name, input, context.workingDir);
+      const risk = await classifyRisk(name, input, context.workingDir, undefined, undefined, context.signal);
       riskLevel = risk;
 
       // Build principal context from tool metadata so policy rules can
       // distinguish skill-provided tools from core built-ins. Also includes
       // ephemeral rules when executing within a task run.
       const policyContext = buildPolicyContext(tool, context);
-      const result = await check(name, input, context.workingDir, policyContext);
+      const result = await check(name, input, context.workingDir, policyContext, undefined, context.signal);
 
       // Private threads force prompting for side-effect tools even when a
       // trust/allow rule would auto-allow. Deny decisions are preserved —
@@ -245,7 +255,7 @@ export class ToolExecutor {
         }
 
         // Need user approval
-        const allowlistOptions = await generateAllowlistOptions(name, input);
+        const allowlistOptions = await generateAllowlistOptions(name, input, context.signal);
         const scopeOptions = generateScopeOptions(context.workingDir, name);
 
         // Compute preview diff for file tools so the user sees what will change
@@ -303,6 +313,7 @@ export class ToolExecutor {
           context.conversationId,
           executionTarget,
           persistentDecisionsAllowed,
+          context.signal,
         );
 
         decision = response.decision;
@@ -622,6 +633,7 @@ export class ToolExecutor {
               context.conversationId,
               executionTarget,
               false, // no persistent decisions
+              context.signal,
             );
 
             if (response.decision === 'deny' || response.decision === 'always_deny') {

@@ -647,6 +647,21 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     conversationId: 'conv-001',
     content: 'Hello from the assistant',
   },
+  pairing_approval_response: {
+    type: 'pairing_approval_response',
+    pairingRequestId: 'pair-001',
+    decision: 'approve_once',
+  },
+  approved_devices_list: {
+    type: 'approved_devices_list',
+  },
+  approved_device_remove: {
+    type: 'approved_device_remove',
+    hashedDeviceId: 'hashed-device-001',
+  },
+  approved_devices_clear: {
+    type: 'approved_devices_clear',
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -1685,6 +1700,7 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     requestId: 'req-guardian-001',
     callSessionId: 'call-001',
     title: 'Guardian action request',
+    questionText: 'What is the gate code?',
   },
   subagent_spawned: {
     type: 'subagent_spawned',
@@ -1863,6 +1879,24 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     type: 'assistant_inbox_reply_response',
     success: true,
     messageId: 'msg-reply-001',
+  },
+  pairing_approval_request: {
+    type: 'pairing_approval_request',
+    pairingRequestId: 'pair-001',
+    deviceId: 'device-001',
+    deviceName: 'iPhone 15',
+  },
+  approved_devices_list_response: {
+    type: 'approved_devices_list_response',
+    devices: [{
+      hashedDeviceId: 'hashed-device-001',
+      deviceName: 'iPhone 15',
+      lastPairedAt: 1700000000000,
+    }],
+  },
+  approved_device_remove_response: {
+    type: 'approved_device_remove_response',
+    success: true,
   },
 };
 

@@ -2205,6 +2205,9 @@ public enum ServerMessage: Decodable, Sendable {
     case assistantInboxResponse(IPCAssistantInboxResponse)
     case assistantInboxReplyResponse(IPCAssistantInboxReplyResponse)
     case assistantInboxEscalationResponse(IPCAssistantInboxEscalationResponse)
+    case pairingApprovalRequest(PairingApprovalRequestMessage)
+    case approvedDevicesListResponse(ApprovedDevicesListResponseMessage)
+    case approvedDeviceRemoveResponse(ApprovedDeviceRemoveResponseMessage)
     case pong
     case unknown(String)
 
@@ -2601,6 +2604,15 @@ public enum ServerMessage: Decodable, Sendable {
         case "assistant_inbox_escalation_response":
             let message = try IPCAssistantInboxEscalationResponse(from: decoder)
             self = .assistantInboxEscalationResponse(message)
+        case "pairing_approval_request":
+            let message = try PairingApprovalRequestMessage(from: decoder)
+            self = .pairingApprovalRequest(message)
+        case "approved_devices_list_response":
+            let message = try ApprovedDevicesListResponseMessage(from: decoder)
+            self = .approvedDevicesListResponse(message)
+        case "approved_device_remove_response":
+            let message = try ApprovedDeviceRemoveResponseMessage(from: decoder)
+            self = .approvedDeviceRemoveResponse(message)
         case "pong":
             self = .pong
         default:
@@ -2747,6 +2759,66 @@ public struct SlotContentWire: Decodable, Sendable {
     public let type: String
     public let panel: String?
     public let surfaceId: String?
+}
+
+// MARK: - Pairing Messages
+
+/// Server → Client: daemon asks macOS to show a pairing approval prompt.
+public struct PairingApprovalRequestMessage: Decodable, Sendable {
+    public let pairingRequestId: String
+    public let deviceId: String
+    public let deviceName: String
+}
+
+/// Server → Client: list of always-allowed devices.
+public struct ApprovedDevicesListResponseMessage: Decodable, Sendable {
+    public struct Device: Decodable, Sendable {
+        public let hashedDeviceId: String
+        public let deviceName: String
+        public let lastPairedAt: Int
+    }
+    public let devices: [Device]
+}
+
+/// Server → Client: confirmation of device removal.
+public struct ApprovedDeviceRemoveResponseMessage: Decodable, Sendable {
+    public let success: Bool
+}
+
+/// Client → Server: Mac user's decision on a pairing request.
+public struct PairingApprovalResponseMessage: Encodable, Sendable {
+    public let type: String = "pairing_approval_response"
+    public let pairingRequestId: String
+    public let decision: String
+
+    public init(pairingRequestId: String, decision: String) {
+        self.pairingRequestId = pairingRequestId
+        self.decision = decision
+    }
+}
+
+/// Client → Server: request list of always-allowed devices.
+public struct ApprovedDevicesListMessage: Encodable, Sendable {
+    public let type: String = "approved_devices_list"
+
+    public init() {}
+}
+
+/// Client → Server: revoke a device's always-allow status.
+public struct ApprovedDeviceRemoveMessage: Encodable, Sendable {
+    public let type: String = "approved_device_remove"
+    public let hashedDeviceId: String
+
+    public init(hashedDeviceId: String) {
+        self.hashedDeviceId = hashedDeviceId
+    }
+}
+
+/// Client → Server: clear all approved devices.
+public struct ApprovedDevicesClearMessage: Encodable, Sendable {
+    public let type: String = "approved_devices_clear"
+
+    public init() {}
 }
 
 // MARK: - Work Item Helpers

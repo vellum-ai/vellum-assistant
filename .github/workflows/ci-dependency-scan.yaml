@@ -1,0 +1,43 @@
+name: Dependency Vulnerability Scan
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**/bun.lock'
+      - '**/package.json'
+      - '**/Package.resolved'
+      - '.github/workflows/ci-dependency-scan.yaml'
+  pull_request:
+    paths:
+      - '**/bun.lock'
+      - '**/package.json'
+      - '**/Package.resolved'
+      - '.github/workflows/ci-dependency-scan.yaml'
+  schedule:
+    # Run weekly on Monday at 08:00 UTC to catch newly disclosed vulnerabilities
+    - cron: '0 8 * * 1'
+
+concurrency:
+  group: dep-scan-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    name: Trivy Dependency Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          exit-code: 1
+          format: table

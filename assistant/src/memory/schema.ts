@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real, blob } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, real, blob, index } from 'drizzle-orm/sqlite-core';
 
 export const conversations = sqliteTable('conversations', {
   id: text('id').primaryKey(),
@@ -26,7 +26,9 @@ export const messages = sqliteTable('messages', {
   content: text('content').notNull(),
   createdAt: integer('created_at').notNull(),
   metadata: text('metadata'),
-});
+}, (table) => [
+  index('idx_messages_conversation_id').on(table.conversationId),
+]);
 
 export const toolInvocations = sqliteTable('tool_invocations', {
   id: text('id').primaryKey(),
@@ -40,7 +42,9 @@ export const toolInvocations = sqliteTable('tool_invocations', {
   riskLevel: text('risk_level').notNull(),
   durationMs: integer('duration_ms').notNull(),
   createdAt: integer('created_at').notNull(),
-});
+}, (table) => [
+  index('idx_tool_invocations_conversation_id').on(table.conversationId),
+]);
 
 export const memorySegments = sqliteTable('memory_segments', {
   id: text('id').primaryKey(),
@@ -58,7 +62,10 @@ export const memorySegments = sqliteTable('memory_segments', {
   contentHash: text('content_hash'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
-});
+}, (table) => [
+  index('idx_memory_segments_scope_id').on(table.scopeId),
+  index('idx_memory_segments_conversation_id').on(table.conversationId),
+]);
 
 export const memoryItems = sqliteTable('memory_items', {
   id: text('id').primaryKey(),
@@ -77,7 +84,10 @@ export const memoryItems = sqliteTable('memory_items', {
   lastUsedAt: integer('last_used_at'),
   validFrom: integer('valid_from'),
   invalidAt: integer('invalid_at'),
-});
+}, (table) => [
+  index('idx_memory_items_scope_id').on(table.scopeId),
+  index('idx_memory_items_fingerprint').on(table.fingerprint),
+]);
 
 export const memoryItemSources = sqliteTable('memory_item_sources', {
   memoryItemId: text('memory_item_id')
@@ -107,7 +117,9 @@ export const memoryItemConflicts = sqliteTable('memory_item_conflicts', {
   resolvedAt: integer('resolved_at'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
-});
+}, (table) => [
+  index('idx_memory_item_conflicts_scope_id').on(table.scopeId),
+]);
 
 export const memorySummaries = sqliteTable('memory_summaries', {
   id: text('id').primaryKey(),
@@ -121,7 +133,9 @@ export const memorySummaries = sqliteTable('memory_summaries', {
   endAt: integer('end_at').notNull(),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
-});
+}, (table) => [
+  index('idx_memory_summaries_scope_id').on(table.scopeId),
+]);
 
 export const memoryEmbeddings = sqliteTable('memory_embeddings', {
   id: text('id').primaryKey(),

@@ -2,41 +2,42 @@ import CryptoKit
 import SwiftUI
 import VellumAssistantShared
 
-/// Displays a QR code containing the v3 connection payload for iOS pairing.
+/// Displays a QR code containing the v4 connection payload for iOS pairing.
 ///
-/// Normal gateway mode payload:
-/// `{"type":"vellum-daemon","v":3,"id":"<mac-hash>","g":"<gateway-url>","bt":"<bearer-token>"}`
+/// v4 payload:
+/// `{"type":"vellum-daemon","v":4,"id":"<mac-hash>","g":"<gateway-url>","pairingRequestId":"<uuid>","pairingSecret":"<32-byte-hex>","localLanUrl":"http://<lan-ip>:7830"}`
 ///
-/// Developer local pairing mode payload:
-/// `{"type":"vellum-daemon","v":3,"id":"<mac-hash>","g":"<lan-url>","bt":"<bearer-token>","localLanUrl":"<lan-url>","allowLocalHttp":true}`
-///
-/// Below the QR code, shows the gateway URL and bearer token for manual entry on iOS.
+/// Key differences from v3:
+/// - No bearer token in QR code (secured by pairing secret + Mac approval)
+/// - Includes pairingRequestId + pairingSecret for the handshake
+/// - Pre-registers the pairing request with the daemon via local HTTP
+/// - localLanUrl is nullable (omitted when no LAN IP available)
 @MainActor
 struct PairingQRCodeSheet: View {
     @Environment(\.dismiss) var dismiss
 
-    let ingressEnabled: Bool
     let gatewayUrl: String
-    let resolvedBearerToken: String
-
-    /// Whether the developer local pairing override is active.
-    let isLocalOverride: Bool
+    let daemonClient: DaemonClient?
 
     @State private var hostId: String = ""
-    @State private var isTokenRevealed: Bool = false
-    @State private var copiedField: String? = nil
-    @State private var manualPairingExpanded: Bool = false
+    @State private var pairingRequestId: String = UUID().uuidString
+    @State private var pairingSecret: String = generatePairingSecret()
+    @State private var localLanUrl: String? = nil
+    @State private var registrationState: RegistrationState = .idle
+    @State private var registrationError: String? = nil
+    @State private var refreshTask: Task<Void, Never>? = nil
+    @State private var consecutiveRefreshFailures: Int = 0
+
+    /// Re-register every 4 minutes to stay ahead of the 5-minute TTL.
+    private static let refreshInterval: UInt64 = 4 * 60 * 1_000_000_000
+
+    enum RegistrationState {
+        case idle, registering, registered, failed
+    }
 
     /// Whether the configuration is sufficient for pairing.
     private var canGenerateQR: Bool {
-        let hasRequiredFields = !gatewayUrl.isEmpty && !resolvedBearerToken.isEmpty
-        if isLocalOverride {
-            // For developer local pairing, the ingress-enabled flag is not required
-            // but the URL must be a local/private address
-            guard let url = URL(string: gatewayUrl), let host = url.host else { return false }
-            return hasRequiredFields && LocalAddressValidator.isLocalAddress(host)
-        }
-        return ingressEnabled && hasRequiredFields
+        !gatewayUrl.isEmpty && registrationState == .registered
     }
 
     var body: some View {
@@ -49,77 +50,40 @@ struct PairingQRCodeSheet: View {
                 Button("Done") { dismiss() }
             }
 
-            if canGenerateQR, let qrImage = generateQRImage() {
-                Image(nsImage: qrImage)
-                    .resizable()
-                    .interpolation(.none)
-                    .scaledToFit()
-                    .frame(width: 220, height: 220)
-                    .padding(VSpacing.md)
-                    .background(Color.white)
-                    .cornerRadius(VRadius.md)
+            if daemonClient == nil {
+                errorContent("Cannot generate QR code \u{2014} daemon not connected. Please wait for the daemon to start and try again.")
             } else {
-                VStack(spacing: VSpacing.sm) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 32))
-                        .foregroundColor(VColor.error)
-                    if isLocalOverride && gatewayUrl.isEmpty {
-                        Text("Set an override URL in Developer Local Pairing settings.")
+                switch registrationState {
+                case .idle, .registering:
+                    VStack(spacing: VSpacing.sm) {
+                        ProgressView()
+                            .controlSize(.large)
+                        Text("Registering pairing request...")
                             .font(VFont.body)
-                            .foregroundColor(VColor.error)
-                            .multilineTextAlignment(.center)
-                    } else if isLocalOverride && resolvedBearerToken.isEmpty {
-                        Text("Bearer token not found. Restart the daemon to generate it.")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.error)
-                            .multilineTextAlignment(.center)
-                    } else if isLocalOverride {
-                        Text("The override URL must be a local/private network address for developer pairing.")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.error)
-                            .multilineTextAlignment(.center)
-                    } else if gatewayUrl.isEmpty {
-                        Text("Set up a gateway URL in the Connect tab to enable pairing.")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.error)
-                            .multilineTextAlignment(.center)
-                    } else if !ingressEnabled {
-                        Text("Gateway is configured but not active. Check your tunnel or gateway configuration.")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.error)
-                            .multilineTextAlignment(.center)
-                    } else {
-                        Text("Bearer token not found. Restart the daemon to generate it.")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.error)
-                            .multilineTextAlignment(.center)
+                            .foregroundColor(VColor.textSecondary)
                     }
-                }
-                .frame(width: 220, height: 220)
-            }
+                    .frame(width: 220, height: 220)
 
-            // State indicator
-            if canGenerateQR {
-                if isLocalOverride {
-                    HStack(spacing: VSpacing.sm) {
-                        Image(systemName: "laptopcomputer.and.iphone")
-                            .foregroundColor(VColor.warning)
-                            .font(.system(size: 14))
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Developer mode — local network")
-                                .font(VFont.body)
-                                .foregroundColor(VColor.warning)
-                            Text("iOS will accept local HTTP")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.warning)
-                            Text(gatewayUrl)
-                                .font(VFont.mono)
-                                .foregroundColor(VColor.textMuted)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                        }
+                case .registered:
+                    if let qrImage = generateQRImage() {
+                        Image(nsImage: qrImage)
+                            .resizable()
+                            .interpolation(.none)
+                            .scaledToFit()
+                            .frame(width: 220, height: 220)
+                            .padding(VSpacing.md)
+                            .background(Color.white)
+                            .cornerRadius(VRadius.md)
+                    } else {
+                        errorContent("Failed to generate QR code.")
                     }
-                } else {
+
+                case .failed:
+                    errorContent(registrationError ?? "Could not register pairing request. Ensure the daemon is running.")
+                }
+
+                // State indicator
+                if canGenerateQR {
                     HStack(spacing: VSpacing.sm) {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundColor(VColor.success)
@@ -128,134 +92,211 @@ struct PairingQRCodeSheet: View {
                             .font(VFont.body)
                             .foregroundColor(VColor.success)
                     }
+
+                    if localLanUrl != nil {
+                        HStack(spacing: VSpacing.xs) {
+                            Image(systemName: "wifi")
+                                .foregroundColor(VColor.textMuted)
+                                .font(.system(size: 12))
+                            Text("LAN pairing available")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                        }
+                    }
                 }
             }
 
-            Text(isLocalOverride && canGenerateQR
-                 ? "Scan this QR code with the Vellum iOS app. iOS will automatically accept local HTTP from this QR code."
-                 : "Scan this QR code with the Vellum iOS app to connect.")
+            Text("Scan this QR code with the Vellum iOS app. You will be asked to approve the pairing on this Mac.")
                 .font(VFont.body)
                 .foregroundColor(VColor.textSecondary)
                 .multilineTextAlignment(.center)
 
-            // Manual pairing info
-            VDisclosureSection(
-                title: "Manual Pairing",
-                icon: "link",
-                isExpanded: $manualPairingExpanded
-            ) {
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    // Gateway URL row
-                    HStack {
-                        Text("Gateway URL")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                            .frame(width: 90, alignment: .leading)
-                        Text(gatewayUrl.isEmpty ? "Not configured" : gatewayUrl)
-                            .font(VFont.mono)
-                            .foregroundColor(VColor.textPrimary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        Spacer()
-                        Button {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(gatewayUrl, forType: .string)
-                            withAnimation { copiedField = "url" }
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                                withAnimation { if copiedField == "url" { copiedField = nil } }
-                            }
-                        } label: {
-                            Text(copiedField == "url" ? "Copied" : "Copy")
-                                .font(VFont.caption)
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .disabled(gatewayUrl.isEmpty)
-                    }
-
-                    Divider()
-
-                    // Bearer token row
-                    HStack {
-                        Text("Bearer Token")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                            .frame(width: 90, alignment: .leading)
-                        if resolvedBearerToken.isEmpty {
-                            Text("Not available")
-                                .font(VFont.mono)
-                                .foregroundColor(VColor.textPrimary)
-                        } else if isTokenRevealed {
-                            Text(resolvedBearerToken)
-                                .font(VFont.mono)
-                                .foregroundColor(VColor.textPrimary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                        } else {
-                            Text(String(repeating: "\u{2022}", count: min(resolvedBearerToken.count, 24)))
-                                .font(VFont.mono)
-                                .foregroundColor(VColor.textPrimary)
-                                .lineLimit(1)
-                        }
-                        Spacer()
-                        Button {
-                            isTokenRevealed.toggle()
-                        } label: {
-                            Image(systemName: isTokenRevealed ? "eye.slash" : "eye")
-                                .font(VFont.caption)
-                        }
-                        .buttonStyle(.borderless)
-                        .help(isTokenRevealed ? "Hide token" : "Reveal token")
-                        .disabled(resolvedBearerToken.isEmpty)
-
-                        Button {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(resolvedBearerToken, forType: .string)
-                            withAnimation { copiedField = "token" }
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                                withAnimation { if copiedField == "token" { copiedField = nil } }
-                            }
-                        } label: {
-                            Text(copiedField == "token" ? "Copied" : "Copy")
-                                .font(VFont.caption)
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .disabled(resolvedBearerToken.isEmpty)
-                    }
+            if registrationState == .failed && daemonClient != nil {
+                Button("Retry") {
+                    consecutiveRefreshFailures = 0
+                    pairingRequestId = UUID().uuidString
+                    pairingSecret = Self.generatePairingSecret()
+                    registerWithDaemon()
+                    startRefreshTimer()
                 }
-                .textSelection(.enabled)
+                .buttonStyle(.bordered)
             }
-            .padding(VSpacing.md)
-            .background(VColor.surfaceSubtle)
-            .cornerRadius(VRadius.md)
-
-            Text("Pairing persists until you regenerate the bearer token.")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
-                .multilineTextAlignment(.center)
         }
         .padding(VSpacing.xl)
         .frame(width: 380)
         .onAppear {
             hostId = Self.computeHostId()
+            localLanUrl = computeLocalLanUrl()
+            guard daemonClient != nil else { return }
+            registerWithDaemon()
+            startRefreshTimer()
+        }
+        .onDisappear {
+            stopRefreshTimer()
         }
     }
+
+    private func errorContent(_ message: String) -> some View {
+        VStack(spacing: VSpacing.sm) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 32))
+                .foregroundColor(VColor.error)
+            Text(message)
+                .font(VFont.body)
+                .foregroundColor(VColor.error)
+                .multilineTextAlignment(.center)
+        }
+        .frame(width: 220, height: 220)
+    }
+
+    // MARK: - Refresh Timer
+
+    private func startRefreshTimer() {
+        stopRefreshTimer()
+        refreshTask = Task { @MainActor in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: Self.refreshInterval)
+                guard !Task.isCancelled else { break }
+                // Generate new credentials into locals so the old QR stays visible
+                // while the re-registration HTTP request is in-flight.
+                let newRequestId = UUID().uuidString
+                let newSecret = Self.generatePairingSecret()
+                await refreshRegistration(newRequestId: newRequestId, newSecret: newSecret)
+            }
+        }
+    }
+
+    private func stopRefreshTimer() {
+        refreshTask?.cancel()
+        refreshTask = nil
+    }
+
+    // MARK: - Registration
+
+    private func registerWithDaemon() {
+        registrationState = .registering
+        registrationError = nil
+
+        guard let port = daemonClient?.httpPort else {
+            registrationState = .failed
+            registrationError = "Daemon HTTP server not running."
+            return
+        }
+
+        let reqId = pairingRequestId
+        let secret = pairingSecret
+
+        Task {
+            let result = await performRegistrationRequest(port: port, requestId: reqId, secret: secret)
+            switch result {
+            case .success:
+                registrationState = .registered
+            case .failure(let error):
+                registrationState = .failed
+                registrationError = error.message
+            }
+        }
+    }
+
+    /// Re-register with new credentials without disrupting the visible QR code.
+    /// Only swaps pairingRequestId, pairingSecret, and registrationState atomically
+    /// once the HTTP 200 response comes back. On failure the old QR stays visible.
+    private func refreshRegistration(newRequestId: String, newSecret: String) async {
+        guard let port = daemonClient?.httpPort else { return }
+
+        let result = await performRegistrationRequest(port: port, requestId: newRequestId, secret: newSecret)
+        switch result {
+        case .success:
+            pairingRequestId = newRequestId
+            pairingSecret = newSecret
+            registrationState = .registered
+            consecutiveRefreshFailures = 0
+        case .failure:
+            consecutiveRefreshFailures += 1
+            if consecutiveRefreshFailures >= 2 {
+                registrationState = .failed
+                registrationError = "Re-registration failed. Close and reopen to try again."
+                stopRefreshTimer()
+            }
+            // On first failure, keep old QR visible; the next timer tick will retry.
+        }
+    }
+
+    private struct RegistrationError: Error { let message: String }
+
+    /// Shared HTTP request logic for pairing registration.
+    private func performRegistrationRequest(port: Int, requestId: String, secret: String) async -> Result<Void, RegistrationError> {
+        let tokenPath = resolveHttpTokenPath()
+        let bearerToken: String? = {
+            guard let path = tokenPath else { return nil }
+            return try? String(contentsOfFile: path, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
+        }()
+
+        let url = URL(string: "http://localhost:\(port)/v1/pairing/register")!
+
+        var body: [String: Any] = [
+            "pairingRequestId": requestId,
+            "pairingSecret": secret,
+            "gatewayUrl": gatewayUrl,
+        ]
+        if let lan = localLanUrl {
+            body["localLanUrl"] = lan
+        }
+
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: body) else {
+            return .failure(RegistrationError(message: "Failed to serialize registration payload."))
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = jsonData
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let token = bearerToken, !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 {
+                return .success(())
+            } else {
+                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+                return .failure(RegistrationError(message: "Registration failed (HTTP \(statusCode))."))
+            }
+        } catch {
+            return .failure(RegistrationError(message: "Could not reach daemon: \(error.localizedDescription)"))
+        }
+    }
+
+    private func resolveHttpTokenPath() -> String? {
+        if let envPath = ProcessInfo.processInfo.environment["VELLUM_HTTP_TOKEN_PATH"], !envPath.isEmpty {
+            return envPath
+        }
+        let base = ProcessInfo.processInfo.environment["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? NSHomeDirectory()
+        return "\(base)/.vellum/http-token"
+    }
+
+    private func computeLocalLanUrl() -> String? {
+        guard let lanIP = LANIPHelper.currentLANAddress() else { return nil }
+        return "http://\(lanIP):7830"
+    }
+
+    // MARK: - QR Generation
 
     private func generateQRImage() -> NSImage? {
         guard canGenerateQR else { return nil }
 
         var payload: [String: Any] = [
             "type": "vellum-daemon",
-            "v": 3,
+            "v": 4,
             "id": hostId,
             "g": gatewayUrl,
-            "bt": resolvedBearerToken,
+            "pairingRequestId": pairingRequestId,
+            "pairingSecret": pairingSecret,
         ]
 
-        if isLocalOverride {
-            payload["allowLocalHttp"] = true
-            payload["localLanUrl"] = gatewayUrl
+        if let lan = localLanUrl {
+            payload["localLanUrl"] = lan
         }
 
         guard let jsonData = try? JSONSerialization.data(withJSONObject: payload),
@@ -264,6 +305,12 @@ struct PairingQRCodeSheet: View {
         }
 
         return QRCodeGenerator.generate(from: jsonString, size: 220)
+    }
+
+    static func generatePairingSecret() -> String {
+        var bytes = [UInt8](repeating: 0, count: 32)
+        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        return bytes.map { String(format: "%02x", $0) }.joined()
     }
 
     /// Compute a stable, privacy-safe host identifier.

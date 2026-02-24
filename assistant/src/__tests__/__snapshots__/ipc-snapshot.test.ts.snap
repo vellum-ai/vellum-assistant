@@ -2614,6 +2614,7 @@ exports[`IPC message snapshots ServerMessage types guardian_request_thread_creat
 {
   "callSessionId": "call-001",
   "conversationId": "conv-guardian-001",
+  "questionText": "What is the gate code?",
   "requestId": "req-guardian-001",
   "title": "Guardian action request",
   "type": "guardian_request_thread_created",
@@ -2877,5 +2878,61 @@ exports[`IPC message snapshots ServerMessage types assistant_inbox_reply_respons
   "messageId": "msg-reply-001",
   "success": true,
   "type": "assistant_inbox_reply_response",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types pairing_approval_response serializes to expected JSON 1`] = `
+{
+  "decision": "approve_once",
+  "pairingRequestId": "pair-001",
+  "type": "pairing_approval_response",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types approved_devices_list serializes to expected JSON 1`] = `
+{
+  "type": "approved_devices_list",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types approved_device_remove serializes to expected JSON 1`] = `
+{
+  "hashedDeviceId": "hashed-device-001",
+  "type": "approved_device_remove",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types approved_devices_clear serializes to expected JSON 1`] = `
+{
+  "type": "approved_devices_clear",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types pairing_approval_request serializes to expected JSON 1`] = `
+{
+  "deviceId": "device-001",
+  "deviceName": "iPhone 15",
+  "pairingRequestId": "pair-001",
+  "type": "pairing_approval_request",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types approved_devices_list_response serializes to expected JSON 1`] = `
+{
+  "devices": [
+    {
+      "deviceName": "iPhone 15",
+      "hashedDeviceId": "hashed-device-001",
+      "lastPairedAt": 1700000000000,
+    },
+  ],
+  "type": "approved_devices_list_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types approved_device_remove_response serializes to expected JSON 1`] = `
+{
+  "success": true,
+  "type": "approved_device_remove_response",
 }
 `;

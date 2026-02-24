@@ -1,129 +1,36 @@
+import { join, dirname } from 'node:path';
 import { readFile } from 'node:fs/promises';
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import { getConfiguredProvider, extractText, userMessageWithImages } from '../../../../providers/provider-send-message.js';
-import { initializeProviders } from '../../../../providers/registry.js';
-import { loadConfig, invalidateConfigCache } from '../../../../config/loader.js';
+import { getConfig } from '../../../../config/loader.js';
 import {
   getMediaAssetById,
-  getKeyframesForAsset,
-  getVisionOutputsForAsset,
-  insertVisionOutputsBatch,
-  createProcessingStage,
-  updateProcessingStage,
-  getProcessingStagesForAsset,
-  type MediaKeyframe,
-  type ProcessingStage,
 } from '../../../../memory/media-store.js';
+import { mapSegments, type MapOutput } from '../services/gemini-map.js';
+import type { PreprocessManifest } from '../services/preprocess.js';
 
-const CHUNKED_VLM_PROMPT = `You are analyzing a sequence of {N} consecutive video frames extracted at regular intervals from a video. The frames are in chronological order.
+// ---------------------------------------------------------------------------
+// Exported function for job handler use
+// ---------------------------------------------------------------------------
 
-For EACH frame, provide a JSON object with:
-- "frameIndex": the 0-based index within this chunk
-- "sceneDescription": concise description of the scene in this frame
-- "subjects": array of identifiable subjects/objects/people
-- "actions": array of actions or activities occurring
-- "context": environmental or situational context
-- "transitions": any notable changes from the previous frame (empty string for the first frame)
-
-Return a JSON array of these objects, one per frame. Return ONLY the JSON array, no additional text.`;
-
-function buildChunks(keyframes: MediaKeyframe[], chunkSize: number, overlap: number): MediaKeyframe[][] {
-  const chunks: MediaKeyframe[][] = [];
-  const step = Math.max(1, chunkSize - overlap);
-  for (let i = 0; i < keyframes.length; i += step) {
-    chunks.push(keyframes.slice(i, i + chunkSize));
-  }
-  return chunks;
+export interface MapSegmentsOptions {
+  systemPrompt: string;
+  outputSchema: Record<string, unknown>;
+  context?: Record<string, unknown>;
+  model?: string;
+  concurrency?: number;
+  maxRetries?: number;
 }
 
-async function analyzeChunk(
-  provider: import('../../../../providers/types.js').Provider,
-  chunk: MediaKeyframe[],
-): Promise<Array<{ keyframeId: string; output: Record<string, unknown>; confidence: number }>> {
-  const images: Array<{ base64: string; mediaType: string }> = [];
-
-  for (const keyframe of chunk) {
-    const imageData = await readFile(keyframe.filePath);
-    const base64 = imageData.toString('base64');
-    const ext = keyframe.filePath.split('.').pop()?.toLowerCase() ?? 'jpg';
-    const mediaTypeMap: Record<string, string> = {
-      jpg: 'image/jpeg',
-      jpeg: 'image/jpeg',
-      png: 'image/png',
-      gif: 'image/gif',
-      webp: 'image/webp',
-    };
-    const mediaType = mediaTypeMap[ext] ?? 'image/jpeg';
-    images.push({ base64, mediaType });
-  }
-
-  const prompt = CHUNKED_VLM_PROMPT.replace('{N}', String(chunk.length));
-
-  const response = await provider.sendMessage(
-    [userMessageWithImages(images, prompt)],
-    undefined,
-    undefined,
-    {
-      config: {
-        modelIntent: 'vision-optimized',
-        max_tokens: 4096,
-      },
-    },
-  );
-
-  const responseText = extractText(response);
-
-  let parsed: Array<Record<string, unknown>>;
-  try {
-    const jsonMatch = responseText.match(/```(?:json)?\s*([\s\S]*?)```/) ?? [null, responseText];
-    parsed = JSON.parse(jsonMatch[1]!.trim()) as Array<Record<string, unknown>>;
-  } catch {
-    // If parsing fails, return a single entry wrapping the raw text
-    parsed = chunk.map((_, idx) => ({
-      frameIndex: idx,
-      sceneDescription: idx === 0 ? responseText : '',
-      subjects: [],
-      actions: [],
-      context: '',
-      transitions: '',
-    }));
-  }
-
-  return chunk.map((keyframe, idx) => {
-    const entry = parsed[idx] ?? {
-      frameIndex: idx,
-      sceneDescription: '',
-      subjects: [],
-      actions: [],
-      context: '',
-      transitions: '',
-    };
-    // Add timestamp context
-    entry.timestamp = keyframe.timestamp;
-    return { keyframeId: keyframe.id, output: entry, confidence: 0.8 };
-  });
-}
-
-export async function analyzeKeyframesForAsset(
+export async function mapSegmentsForAsset(
   assetId: string,
-  analysisType?: string,
-  batchSize?: number,
+  options: MapSegmentsOptions,
   onProgress?: (msg: string) => void,
-  signal?: AbortSignal,
-  chunkSize?: number,
-  overlap?: number,
-): Promise<void> {
-  const type = analysisType ?? 'scene_description';
-  const batch = batchSize ?? 10;
+): Promise<MapOutput> {
+  const config = getConfig();
+  const apiKey = config.apiKeys.gemini;
 
-  if (batch <= 0) {
-    throw new Error('batch_size must be greater than 0.');
-  }
-  if (chunkSize !== undefined && chunkSize <= 0) {
-    throw new Error('chunk_size must be at least 1.');
-  }
-  if (overlap !== undefined && overlap < 0) {
-    throw new Error('overlap must be non-negative.');
+  if (!apiKey) {
+    throw new Error('No Gemini API key configured. Please set your Gemini API key to use keyframe analysis.');
   }
 
   const asset = getMediaAssetById(assetId);
@@ -131,132 +38,36 @@ export async function analyzeKeyframesForAsset(
     throw new Error(`Media asset not found: ${assetId}`);
   }
 
-  // Get all keyframes for this asset
-  const keyframes = getKeyframesForAsset(assetId);
-  if (keyframes.length === 0) {
-    throw new Error('No keyframes found for this asset. Run extract_keyframes first.');
-  }
+  // Load preprocess manifest
+  const pipelineDir = join(dirname(asset.filePath), 'pipeline', assetId);
+  const manifestPath = join(pipelineDir, 'manifest.json');
 
-  // Resumability: find already-analyzed keyframe IDs for this analysis type
-  const existingOutputs = getVisionOutputsForAsset(assetId, type);
-  const analyzedKeyframeIds = new Set(existingOutputs.map((o) => o.keyframeId));
-  const pendingKeyframes = keyframes.filter((kf) => !analyzedKeyframeIds.has(kf.id));
-
-  if (pendingKeyframes.length === 0) {
-    // Nothing to do — all keyframes already analyzed
-    return;
-  }
-
-  // Find or create the vision_analysis processing stage
-  let stage: ProcessingStage | undefined;
-  const existingStages = getProcessingStagesForAsset(assetId);
-  stage = existingStages.find((s) => s.stage === 'vision_analysis');
-  if (!stage) {
-    stage = createProcessingStage({ assetId, stage: 'vision_analysis' });
-  }
-
-  updateProcessingStage(stage.id, { status: 'running', startedAt: Date.now() });
-
-  // Use the same provider the main agent uses. If the provider registry
-  // was cleared or not yet initialized, force-reload the config from
-  // keychain/secure storage and re-initialize providers.
-  let provider = getConfiguredProvider();
-  if (!provider) {
-    invalidateConfigCache();
-    const freshConfig = loadConfig();
-    initializeProviders(freshConfig);
-    provider = getConfiguredProvider();
-  }
-  if (!provider) {
-    updateProcessingStage(stage.id, {
-      status: 'failed',
-      lastError: 'Configured provider unavailable',
-    });
-    throw new Error('No configured provider available. Check your provider settings in Settings → Integrations.');
-  }
-
-  const effectiveChunkSize = chunkSize ?? 10;
-  const effectiveOverlap = overlap ?? 2;
-
-  let analyzedCount = analyzedKeyframeIds.size;
-  const totalKeyframes = keyframes.length;
-
-  const chunks = buildChunks(pendingKeyframes, effectiveChunkSize, effectiveOverlap);
-
-  onProgress?.(`Analyzing ${pendingKeyframes.length} keyframes in ${chunks.length} chunks (${analyzedKeyframeIds.size} already done)...\n`);
-
-  let aborted = false;
-
+  let manifest: PreprocessManifest;
   try {
-    for (let chunkIdx = 0; chunkIdx < chunks.length; chunkIdx++) {
-      if (signal?.aborted) {
-        onProgress?.('Aborted.\n');
-        aborted = true;
-        break;
-      }
-
-      const chunk = chunks[chunkIdx]!;
-
-      try {
-        const chunkResults = await analyzeChunk(provider, chunk);
-
-        const batchResults: Array<{
-          assetId: string;
-          keyframeId: string;
-          analysisType: string;
-          output: Record<string, unknown>;
-          confidence?: number;
-        }> = [];
-
-        for (const result of chunkResults) {
-          // Overlap dedup: skip keyframes already inserted from a previous chunk
-          if (analyzedKeyframeIds.has(result.keyframeId)) {
-            continue;
-          }
-          analyzedKeyframeIds.add(result.keyframeId);
-          analyzedCount++;
-          batchResults.push({
-            assetId,
-            keyframeId: result.keyframeId,
-            analysisType: type,
-            output: result.output,
-            confidence: result.confidence,
-          });
-        }
-
-        if (batchResults.length > 0) {
-          insertVisionOutputsBatch(batchResults);
-        }
-      } catch (err) {
-        onProgress?.(`  Warning: failed to analyze chunk ${chunkIdx + 1}: ${(err as Error).message}\n`);
-      }
-
-      const progress = Math.round((analyzedCount / totalKeyframes) * 100);
-      updateProcessingStage(stage.id, { progress });
-
-      onProgress?.(`  Chunk ${chunkIdx + 1}/${chunks.length}: ${chunk.length} frames (${progress}% total)\n`);
-    }
-
-    if (aborted) {
-      throw new Error('Analysis aborted');
-    }
-
-    const finalProgress = Math.round((analyzedCount / totalKeyframes) * 100);
-    const isComplete = analyzedCount >= totalKeyframes;
-
-    updateProcessingStage(stage.id, {
-      status: isComplete ? 'completed' : 'running',
-      progress: finalProgress,
-      ...(isComplete ? { completedAt: Date.now() } : {}),
-    });
-  } catch (err) {
-    updateProcessingStage(stage.id, {
-      status: 'failed',
-      lastError: (err as Error).message.slice(0, 500),
-    });
-    throw err;
+    const raw = await readFile(manifestPath, 'utf-8');
+    manifest = JSON.parse(raw) as PreprocessManifest;
+  } catch {
+    throw new Error('No preprocess manifest found. Run extract_keyframes first.');
   }
+
+  if (manifest.segments.length === 0) {
+    throw new Error('No segments found in preprocess manifest. Run extract_keyframes first.');
+  }
+
+  return mapSegments(assetId, pipelineDir, manifest.segments, {
+    apiKey,
+    systemPrompt: options.systemPrompt,
+    outputSchema: options.outputSchema,
+    context: options.context,
+    model: options.model,
+    concurrency: options.concurrency,
+    maxRetries: options.maxRetries,
+  }, onProgress);
 }
+
+// ---------------------------------------------------------------------------
+// Tool entry point
+// ---------------------------------------------------------------------------
 
 export async function run(
   input: Record<string, unknown>,
@@ -267,73 +78,59 @@ export async function run(
     return { content: 'asset_id is required.', isError: true };
   }
 
-  const analysisType = (input.analysis_type as string) || 'scene_description';
-  const batchSize = (input.batch_size as number) ?? 10;
-  const chunkSizeInput = (input.chunk_size as number) ?? 10;
-  const overlapInput = (input.overlap as number) ?? 2;
-
-  // Validate: chunk_size must be at least 1, overlap must be non-negative
-  if (chunkSizeInput < 1) {
-    return { content: 'chunk_size must be at least 1.', isError: true };
+  const systemPrompt = input.system_prompt as string | undefined;
+  if (!systemPrompt) {
+    return { content: 'system_prompt is required.', isError: true };
   }
-  if (overlapInput < 0) {
-    return { content: 'overlap must be non-negative.', isError: true };
+
+  const outputSchema = input.output_schema as Record<string, unknown> | undefined;
+  if (!outputSchema) {
+    return { content: 'output_schema is required.', isError: true };
+  }
+
+  const contextObj = input.context as Record<string, unknown> | undefined;
+  const model = input.model as string | undefined;
+  const concurrency = input.concurrency as number | undefined;
+  const maxRetries = input.max_retries as number | undefined;
+
+  if (concurrency !== undefined && concurrency < 1) {
+    return { content: 'concurrency must be at least 1.', isError: true };
+  }
+  if (maxRetries !== undefined && maxRetries < 0) {
+    return { content: 'max_retries must be non-negative.', isError: true };
   }
 
   try {
-    // Check if all keyframes are already analyzed before calling the core function
-    const keyframes = getKeyframesForAsset(assetId);
-    const existingOutputs = getVisionOutputsForAsset(assetId, analysisType);
-    const analyzedKeyframeIds = new Set(existingOutputs.map((o) => o.keyframeId));
-    const pendingKeyframes = keyframes.filter((kf) => !analyzedKeyframeIds.has(kf.id));
-
-    if (keyframes.length > 0 && pendingKeyframes.length === 0) {
-      return {
-        content: JSON.stringify({
-          message: 'All keyframes already analyzed',
-          assetId,
-          analysisType,
-          totalKeyframes: keyframes.length,
-          alreadyAnalyzed: existingOutputs.length,
-        }, null, 2),
-        isError: false,
-      };
-    }
-
-    await analyzeKeyframesForAsset(assetId, analysisType, batchSize, context.onOutput, context.signal, chunkSizeInput, overlapInput);
-
-    // Gather final stats
-    const allKeyframes = getKeyframesForAsset(assetId);
-    const allOutputs = getVisionOutputsForAsset(assetId, analysisType);
-    const totalKeyframes = allKeyframes.length;
-    const analyzedCount = allOutputs.length;
-    const finalProgress = Math.round((analyzedCount / totalKeyframes) * 100);
-    const isComplete = analyzedCount >= totalKeyframes;
+    const output = await mapSegmentsForAsset(
+      assetId,
+      {
+        systemPrompt,
+        outputSchema,
+        context: contextObj,
+        model,
+        concurrency,
+        maxRetries,
+      },
+      context.onOutput,
+    );
 
     return {
       content: JSON.stringify({
-        message: `Vision analysis ${isComplete ? 'completed' : 'in progress'}`,
+        message: `Map ${output.failedCount === 0 ? 'completed' : 'completed with errors'}`,
         assetId,
-        analysisType,
-        totalKeyframes,
-        analyzedCount,
-        newlyAnalyzed: analyzedCount - analyzedKeyframeIds.size,
-        errorCount: pendingKeyframes.length - (analyzedCount - analyzedKeyframeIds.size),
-        progress: finalProgress,
+        model: output.model,
+        segmentCount: output.segmentCount,
+        successCount: output.successCount,
+        failedCount: output.failedCount,
+        skippedCount: output.skippedCount,
+        totalInputTokens: output.costSummary.totalInputTokens,
+        totalOutputTokens: output.costSummary.totalOutputTokens,
+        estimatedCostUSD: output.costSummary.totalEstimatedUSD,
       }, null, 2),
       isError: false,
     };
   } catch (err) {
     const msg = (err as Error).message;
-    // Preserve original error message format
-    if (
-      msg === 'batch_size must be greater than 0.' ||
-      msg.startsWith('Media asset not found:') ||
-      msg === 'No keyframes found for this asset. Run extract_keyframes first.' ||
-      msg === 'No configured provider available. Check your provider settings in Settings → Integrations.'
-    ) {
-      return { content: msg, isError: true };
-    }
-    return { content: `Vision analysis failed: ${(err as Error).message}`, isError: true };
+    return { content: msg, isError: true };
   }
 }

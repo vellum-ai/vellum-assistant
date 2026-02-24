@@ -1,15 +1,92 @@
 import { eq, desc, asc, and, count, sql, inArray, or, isNull } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
+import { z } from 'zod';
 import { getDb, rawGet, rawExec } from './db.js';
 import { conversations, messages, toolInvocations, messageRuns, channelInboundEvents, memoryItemSources, memoryItems, memoryEmbeddings, memoryItemEntities, memorySegments, messageAttachments, llmRequestLogs } from './schema.js';
 import { getConfig } from '../config/loader.js';
 import { indexMessageNow } from './indexer.js';
 import { parseChannelId } from '../channels/types.js';
 import type { ChannelId } from '../channels/types.js';
+import { isChannelId, CHANNEL_IDS } from '../channels/types.js';
 import { getLogger } from '../util/logger.js';
 import { deleteOrphanAttachments } from './attachments-store.js';
+import { createRowMapper } from '../util/row-mapper.js';
 
 const log = getLogger('conversation-store');
+
+// ── Message metadata Zod schema ──────────────────────────────────────
+// Validates the JSON stored in messages.metadata. Known fields are typed;
+// extra keys are allowed via passthrough so callers can attach ad-hoc data.
+
+const channelIdSchema = z.enum(CHANNEL_IDS);
+
+const subagentNotificationSchema = z.object({
+  subagentId: z.string(),
+  label: z.string(),
+  status: z.enum(['completed', 'failed', 'aborted']),
+  error: z.string().optional(),
+  conversationId: z.string().optional(),
+});
+
+export const messageMetadataSchema = z.object({
+  userMessageChannel: channelIdSchema.optional(),
+  assistantMessageChannel: channelIdSchema.optional(),
+  subagentNotification: subagentNotificationSchema.optional(),
+}).passthrough();
+
+export type MessageMetadata = z.infer<typeof messageMetadataSchema>;
+
+export interface ConversationRow {
+  id: string;
+  title: string | null;
+  createdAt: number;
+  updatedAt: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalEstimatedCost: number;
+  contextSummary: string | null;
+  contextCompactedMessageCount: number;
+  contextCompactedAt: number | null;
+  threadType: string;
+  source: string;
+  memoryScopeId: string;
+  originChannel: string | null;
+}
+
+const parseConversation = createRowMapper<typeof conversations.$inferSelect, ConversationRow>({
+  id: 'id',
+  title: 'title',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt',
+  totalInputTokens: 'totalInputTokens',
+  totalOutputTokens: 'totalOutputTokens',
+  totalEstimatedCost: 'totalEstimatedCost',
+  contextSummary: 'contextSummary',
+  contextCompactedMessageCount: 'contextCompactedMessageCount',
+  contextCompactedAt: 'contextCompactedAt',
+  threadType: 'threadType',
+  source: 'source',
+  memoryScopeId: 'memoryScopeId',
+  originChannel: 'originChannel',
+});
+
+export interface MessageRow {
+  id: string;
+  conversationId: string;
+  role: string;
+  content: string;
+  createdAt: number;
+  metadata: string | null;
+}
+
+const parseMessage = createRowMapper<typeof messages.$inferSelect, MessageRow>({
+  id: 'id',
+  conversationId: 'conversationId',
+  role: 'role',
+  content: 'content',
+  createdAt: 'createdAt',
+  metadata: 'metadata',
+});
 
 /**
  * Monotonic timestamp source for message ordering. Two messages saved within
@@ -52,14 +129,14 @@ export function createConversation(titleOrOpts?: string | { title?: string; thre
   return conversation;
 }
 
-export function getConversation(id: string) {
+export function getConversation(id: string): ConversationRow | null {
   const db = getDb();
-  const result = db
+  const row = db
     .select()
     .from(conversations)
     .where(eq(conversations.id, id))
     .get();
-  return result ?? null;
+  return row ? parseConversation(row) : null;
 }
 
 export function getConversationThreadType(conversationId: string): 'standard' | 'private' {
@@ -88,7 +165,7 @@ export function deleteConversation(id: string): void {
   });
 }
 
-export function listConversations(limit?: number, includeBackground = false, offset = 0) {
+export function listConversations(limit?: number, includeBackground = false, offset = 0): ConversationRow[] {
   const db = getDb();
   const where = includeBackground ? undefined : sql`${conversations.threadType} != 'background'`;
   const query = db
@@ -98,7 +175,7 @@ export function listConversations(limit?: number, includeBackground = false, off
     .orderBy(desc(conversations.updatedAt))
     .limit(limit ?? 100)
     .offset(offset);
-  return query.all();
+  return query.all().map(parseConversation);
 }
 
 export function countConversations(includeBackground = false): number {
@@ -112,22 +189,34 @@ export function countConversations(includeBackground = false): number {
   return total;
 }
 
-export function getLatestConversation() {
+export function getLatestConversation(): ConversationRow | null {
   const db = getDb();
-  const result = db
+  const row = db
     .select()
     .from(conversations)
     .where(sql`${conversations.threadType} != 'background'`)
     .orderBy(desc(conversations.updatedAt))
     .limit(1)
     .get();
-  return result ?? null;
+  return row ? parseConversation(row) : null;
 }
 
 export function addMessage(conversationId: string, role: string, content: string, metadata?: Record<string, unknown>) {
   const db = getDb();
   const messageId = uuid();
+
+  if (metadata) {
+    const result = messageMetadataSchema.safeParse(metadata);
+    if (!result.success) {
+      log.warn({ conversationId, messageId, issues: result.error.issues }, 'Invalid message metadata, storing as-is');
+    }
+  }
+
   const metadataStr = metadata ? JSON.stringify(metadata) : undefined;
+  const originChannelCandidate =
+    metadata && isChannelId(metadata.userMessageChannel)
+      ? metadata.userMessageChannel
+      : null;
   // Wrap insert + updatedAt bump in a transaction so they're atomic.
   // Retry on SQLITE_BUSY in case busy_timeout is exhausted under heavy contention.
   // Timestamp is recomputed each attempt so a late retry doesn't persist a stale updatedAt.
@@ -146,6 +235,12 @@ export function addMessage(conversationId: string, role: string, content: string
       };
       db.transaction((tx) => {
         tx.insert(messages).values(values).run();
+        if (originChannelCandidate) {
+          tx.update(conversations)
+            .set({ originChannel: originChannelCandidate })
+            .where(and(eq(conversations.id, conversationId), isNull(conversations.originChannel)))
+            .run();
+        }
         tx.update(conversations)
           .set({ updatedAt: now })
           .where(eq(conversations.id, conversationId))
@@ -181,14 +276,15 @@ export function addMessage(conversationId: string, role: string, content: string
   return message;
 }
 
-export function getMessages(conversationId: string) {
+export function getMessages(conversationId: string): MessageRow[] {
   const db = getDb();
   return db
     .select()
     .from(messages)
     .where(eq(messages.conversationId, conversationId))
     .orderBy(asc(messages.createdAt))
-    .all();
+    .all()
+    .map(parseMessage);
 }
 
 export function updateConversationTitle(id: string, title: string): void {

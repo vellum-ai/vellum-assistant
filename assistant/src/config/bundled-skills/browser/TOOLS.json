@@ -197,6 +197,23 @@
       "execution_target": "host"
     },
     {
+      "name": "browser_wait_for_download",
+      "description": "Wait for a file download to complete on the current page. Use after clicking a download button or link. Returns the filename and local file path.",
+      "category": "browser",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "timeout": {
+            "type": "number",
+            "description": "Maximum wait time in milliseconds (default: 30000, max: 120000)."
+          }
+        }
+      },
+      "executor": "tools/browser-wait-for-download.ts",
+      "execution_target": "host"
+    },
+    {
       "name": "browser_fill_credential",
       "description": "Fill a stored credential into a form field without exposing the value. Target by element_id (from browser_snapshot) or CSS selector.",
       "category": "browser",

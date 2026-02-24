@@ -56,6 +56,7 @@ export interface EventHandlerDeps {
   readonly reqId: string;
   readonly isFirstMessage: boolean;
   readonly rlog: pino.Logger;
+  readonly turnChannelContext: TurnChannelContext;
 }
 
 // ── Factory ──────────────────────────────────────────────────────────
@@ -120,6 +121,7 @@ export function handleThinkingDelta(
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: 'thinking_delta' }>,
 ): void {
+  if (!deps.ctx.streamThinking) return;
   emitLlmCallStartedIfNeeded(state, deps);
   deps.onEvent({ type: 'assistant_thinking_delta', thinking: event.thinking });
 }
@@ -272,10 +274,15 @@ export function handleMessageComplete(
         ...(result.contentBlocks ? { contentBlocks: result.contentBlocks } : {}),
       }),
     );
+    const toolResultMetadata = {
+      userMessageChannel: deps.turnChannelContext.userMessageChannel,
+      assistantMessageChannel: deps.turnChannelContext.assistantMessageChannel,
+    };
     conversationStore.addMessage(
       deps.ctx.conversationId,
       'user',
       JSON.stringify(toolResultBlocks),
+      toolResultMetadata,
     );
     for (const id of state.pendingToolResults.keys()) {
       state.persistedToolUseIds.add(id);
@@ -309,10 +316,10 @@ export function handleMessageComplete(
     } as unknown as ContentBlock);
   }
 
-  const turnCtx: TurnChannelContext | null = deps.ctx.getTurnChannelContext();
-  const assistantChannelMetadata = turnCtx
-    ? { userMessageChannel: turnCtx.userMessageChannel, assistantMessageChannel: turnCtx.assistantMessageChannel }
-    : undefined;
+  const assistantChannelMetadata = {
+    userMessageChannel: deps.turnChannelContext.userMessageChannel,
+    assistantMessageChannel: deps.turnChannelContext.assistantMessageChannel,
+  };
   const assistantMsg = conversationStore.addMessage(
     deps.ctx.conversationId,
     'assistant',

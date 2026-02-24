@@ -83,7 +83,20 @@ export async function handleUserMessage(
       attributes: { source: 'user_message' },
     });
 
-    const result = session.enqueueMessage(msg.content ?? '', msg.attachments ?? [], sendEvent, requestId, msg.activeSurfaceId, msg.currentPage);
+    const ipcChannel = parseChannelId(msg.channel) ?? 'macos';
+    const queuedChannelMetadata = {
+      userMessageChannel: ipcChannel,
+      assistantMessageChannel: ipcChannel,
+    };
+    const result = session.enqueueMessage(
+      msg.content ?? '',
+      msg.attachments ?? [],
+      sendEvent,
+      requestId,
+      msg.activeSurfaceId,
+      msg.currentPage,
+      queuedChannelMetadata,
+    );
     if (result.rejected) {
       rlog.warn('Message rejected — queue is full');
       session.traceEmitter.emit('request_error', 'Message rejected — queue is full', {
@@ -117,7 +130,6 @@ export async function handleUserMessage(
     }
 
     rlog.info('Processing user message');
-    const ipcChannel = parseChannelId(msg.channel) ?? 'macos';
     session.setTurnChannelContext({
       userMessageChannel: ipcChannel,
       assistantMessageChannel: ipcChannel,
@@ -288,6 +300,11 @@ export async function handleSessionCreate(
     ctx.socketToSession.set(socket, conversation.id);
     const sendEvent = (event: ServerMessage) => ctx.send(socket, event);
     const requestId = uuid();
+    const transportChannel = parseChannelId(msg.transport?.channelId) ?? 'macos';
+    session.setTurnChannelContext({
+      userMessageChannel: transportChannel,
+      assistantMessageChannel: transportChannel,
+    });
     session.processMessage(msg.initialMessage, [], sendEvent, requestId).catch((err) => {
       const message = err instanceof Error ? err.message : String(err);
       log.error({ err, sessionId: conversation.id }, 'Error processing initial message');

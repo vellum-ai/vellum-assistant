@@ -100,9 +100,13 @@ export async function run(
     }
 
     const conversation = createConversation(conv.title);
+    const importChannelMetadata = {
+      userMessageChannel: 'macos',
+      assistantMessageChannel: 'macos',
+    } as const;
 
     for (const msg of conv.messages) {
-      addMessage(conversation.id, msg.role, JSON.stringify(msg.content));
+      addMessage(conversation.id, msg.role, JSON.stringify(msg.content), importChannelMetadata);
     }
 
     // Override timestamps to match ChatGPT originals

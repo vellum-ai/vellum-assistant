@@ -9,6 +9,7 @@ import VellumAssistantShared
 struct SettingsConnectTab: View {
     @ObservedObject var store: SettingsStore
     var daemonClient: DaemonClient?
+    var authManager: AuthManager
 
     @State private var gatewayUrlText: String = ""
     @FocusState private var isGatewayUrlFocused: Bool
@@ -40,21 +41,23 @@ struct SettingsConnectTab: View {
     // Guardian copy state (tracks which channel's command was just copied)
     @State private var guardianCommandCopiedChannel: String?
 
-    // Developer local pairing state
-    @AppStorage(PairingConfiguration.overrideEnabledKey) private var iosPairingUseOverride: Bool = false
+    // Override fields for power users / debugging
     @AppStorage(PairingConfiguration.gatewayOverrideKey) private var iosPairingGatewayOverride: String = ""
     @AppStorage(PairingConfiguration.tokenOverrideKey) private var iosPairingTokenOverride: String = ""
-    @State private var lanUrlCopied: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
             pairingSection
+            ApprovedDevicesSection(store: store)
             gatewaySection
+            vellumSection
             advancedSection
             diagnosticsSection
             channelsSection
         }
         .onAppear {
+            Task { await authManager.checkSession() }
+            if store.isDevMode { Task { await store.checkVellumPlatform() } }
             store.refreshIngressConfig()
             store.refreshAssistantEmail()
             gatewayUrlText = store.ingressPublicBaseUrl
@@ -90,12 +93,97 @@ struct SettingsConnectTab: View {
         }
         .sheet(isPresented: $showingPairingQR) {
             PairingQRCodeSheet(
-                ingressEnabled: store.ingressEnabled,
                 gatewayUrl: store.resolvedIosGatewayUrl,
-                resolvedBearerToken: store.resolvedIosBearerToken,
-                isLocalOverride: PairingConfiguration.isOverrideEnabled
+                daemonClient: daemonClient
             )
         }
+    }
+
+    // MARK: - Vellum Section
+
+    private var platformHealthIcon: String {
+        if store.isCheckingVellumPlatform {
+            return "arrow.trianglehead.2.counterclockwise"
+        }
+        switch store.vellumPlatformReachable {
+        case .some(true): return "checkmark.circle.fill"
+        case .some(false): return "xmark.circle.fill"
+        case .none: return "questionmark.circle"
+        }
+    }
+
+    private var platformHealthIconColor: Color {
+        if store.isCheckingVellumPlatform {
+            return VColor.textMuted
+        }
+        switch store.vellumPlatformReachable {
+        case .some(true): return VColor.success
+        case .some(false): return VColor.error
+        case .none: return VColor.textMuted
+        }
+    }
+
+    private var vellumSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            Text("Vellum")
+                .font(VFont.sectionTitle)
+                .foregroundColor(VColor.textPrimary)
+
+            if authManager.isLoading {
+                channelStatusRow(
+                    label: "Account",
+                    icon: "arrow.trianglehead.2.counterclockwise",
+                    iconColor: VColor.textMuted,
+                    value: "Checking..."
+                )
+            } else if let user = authManager.currentUser {
+                channelStatusRow(
+                    label: "Account",
+                    icon: "checkmark.circle.fill",
+                    iconColor: VColor.success,
+                    value: user.email ?? user.display ?? "Signed in",
+                    action: .init(label: "Log Out", style: .danger) {
+                        Task { await authManager.logout() }
+                    }
+                )
+            } else {
+                channelStatusRow(
+                    label: "Account",
+                    icon: "xmark.circle",
+                    iconColor: VColor.textMuted,
+                    value: "Not signed in",
+                    action: .init(
+                        label: authManager.isSubmitting ? "Signing in..." : "Log In",
+                        style: .primary,
+                        disabled: authManager.isSubmitting
+                    ) {
+                        Task { await authManager.startWorkOSLogin() }
+                    }
+                )
+            }
+
+            if let error = authManager.errorMessage {
+                Text(error)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.error)
+            }
+
+            if store.isDevMode {
+                Divider().background(VColor.surfaceBorder)
+
+                channelStatusRow(
+                    label: "Platform URL",
+                    icon: platformHealthIcon,
+                    iconColor: platformHealthIconColor,
+                    value: AuthService.shared.baseURL,
+                    valueFont: VFont.mono
+                )
+                .help(store.vellumPlatformError ?? "")
+            }
+        }
+        .padding(VSpacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .vCard(background: VColor.surfaceSubtle)
     }
 
     // MARK: - Gateway Section
@@ -341,7 +429,7 @@ struct SettingsConnectTab: View {
         VDisclosureSection(
             title: "Advanced",
             icon: "gearshape",
-            subtitle: "Bearer token, developer options",
+            subtitle: "Bearer token, overrides",
             isExpanded: $advancedExpanded
         ) {
             VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -349,7 +437,28 @@ struct SettingsConnectTab: View {
 
                 Divider().background(VColor.surfaceBorder)
 
-                developerLocalPairingContent
+                // Developer local pairing content removed in v4 — LAN pairing is automatic via localLanUrl in QR payload.
+
+                // Simple override fields for power users / debugging
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("URL Override (optional)")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                    TextField("Custom gateway URL", text: $iosPairingGatewayOverride)
+                        .vInputStyle()
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                }
+
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Token Override (optional)")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                    SecureField("Custom bearer token", text: $iosPairingTokenOverride)
+                        .vInputStyle()
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                }
             }
         }
         .padding(VSpacing.lg)
@@ -1098,12 +1207,12 @@ struct SettingsConnectTab: View {
             // cached bearerToken + override for token (avoids synchronous disk read).
             let hasGateway = !store.resolvedIosGatewayUrl.isEmpty
             let trimmedOverrideToken = iosPairingTokenOverride.trimmingCharacters(in: .whitespacesAndNewlines)
-            let hasToken = !bearerToken.isEmpty || (iosPairingUseOverride && !trimmedOverrideToken.isEmpty)
+            // Has a usable token — either the daemon file token or a non-empty override.
+            let hasToken = !bearerToken.isEmpty || !trimmedOverrideToken.isEmpty
 
-            // Token is from daemon file — true unless override mode is active WITH a
-            // custom token. When override only sets the URL (token override empty), the
-            // resolver falls back to the daemon token, so regeneration is still useful.
-            let tokenFromDaemon = !bearerToken.isEmpty && !(iosPairingUseOverride && !trimmedOverrideToken.isEmpty)
+            // Token originates from the daemon file — true when the daemon token
+            // is present and no override token has been entered.
+            let tokenFromDaemon = !bearerToken.isEmpty && trimmedOverrideToken.isEmpty
 
             if hasGateway && hasToken {
                 // "Ready to pair" — green checkmark + subtle regenerate (daemon token only)
@@ -1271,131 +1380,6 @@ struct SettingsConnectTab: View {
         Text("Gateway checks the local daemon. Tunnel checks the public URL.")
             .font(VFont.caption)
             .foregroundColor(VColor.textMuted)
-    }
-
-    // MARK: - Developer Local Pairing Content
-
-    private var suggestedLanUrl: String? {
-        guard let ip = LANIPHelper.currentLANAddress() else { return nil }
-        let port = URL(string: store.localGatewayTarget)?.port ?? 7830
-        return "http://\(ip):\(port)"
-    }
-
-    private var developerLocalPairingContent: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            // Enable toggle
-            HStack {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Enable developer local pairing")
-                        .font(VFont.bodyMedium)
-                        .foregroundColor(VColor.textPrimary)
-                    Text("Override the iOS pairing gateway URL for LAN development.")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-                }
-                Spacer()
-                Toggle("", isOn: $iosPairingUseOverride)
-                    .toggleStyle(.switch)
-                    .labelsHidden()
-            }
-
-            if iosPairingUseOverride {
-                // Warning banner
-                HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(VColor.warning)
-                        .font(.system(size: 14))
-                    Text("Debug only. Uses unencrypted HTTP over your local network. Do not use in production.")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.warning)
-                }
-                .padding(VSpacing.md)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(VColor.warning.opacity(0.1))
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-
-                // Suggested LAN URL with copy button
-                if let lanUrl = suggestedLanUrl {
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        Text("Suggested URL")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
-
-                        HStack(spacing: VSpacing.sm) {
-                            Text(lanUrl)
-                                .font(VFont.mono)
-                                .foregroundColor(VColor.textPrimary)
-                                .textSelection(.enabled)
-                                .padding(VSpacing.md)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(VColor.surface.opacity(0.5))
-                                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: VRadius.md)
-                                        .stroke(VColor.surfaceBorder.opacity(0.3), lineWidth: 1)
-                                )
-
-                            Button {
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(lanUrl, forType: .string)
-                                lanUrlCopied = true
-                                Task {
-                                    try? await Task.sleep(nanoseconds: 2_000_000_000)
-                                    lanUrlCopied = false
-                                }
-                            } label: {
-                                Image(systemName: lanUrlCopied ? "checkmark" : "doc.on.doc")
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundColor(lanUrlCopied ? VColor.success : VColor.textSecondary)
-                                    .frame(width: 28, height: 28)
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Copy suggested LAN URL")
-                            .help("Copy URL")
-                        }
-                    }
-                } else {
-                    HStack(spacing: VSpacing.sm) {
-                        Image(systemName: "wifi.slash")
-                            .foregroundColor(VColor.textMuted)
-                            .font(.system(size: 12))
-                        Text("No LAN address detected. Connect to a Wi-Fi or Ethernet network.")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                    }
-                }
-
-                // Editable override URL
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Override URL")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                    TextField("http://192.168.1.x:7830", text: $iosPairingGatewayOverride)
-                        .vInputStyle()
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
-                }
-
-                // Token Override
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Token Override (optional)")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                    SecureField("Custom bearer token", text: $iosPairingTokenOverride)
-                        .vInputStyle()
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
-                }
-
-                // Reset / disable button
-                VButton(label: "Disable & Reset", style: .danger) {
-                    iosPairingGatewayOverride = ""
-                    iosPairingTokenOverride = ""
-                    iosPairingUseOverride = false
-                }
-            }
-        }
     }
 
     // MARK: - Connection Status Helpers

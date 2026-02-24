@@ -36,6 +36,28 @@ export interface ParsedCommand {
 }
 
 const SHELL_PROGRAMS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish']);
+// Script interpreters that can execute arbitrary code from stdin — piping
+// untrusted data into these is as dangerous as piping into a shell.
+const SCRIPT_INTERPRETERS = new Set([
+  'python', 'python3', 'ruby', 'perl', 'node', 'deno', 'bun',
+]);
+// Flags that make an interpreter execute code from an inline argument or stdin
+// rather than from a file (e.g. `python -c 'code'`, `node -e 'code'`).
+const STDIN_EXEC_FLAGS = new Set(['-c', '-e', '-']);
+// Per-interpreter flags that consume the next argument as a value (not a filename).
+// Mapped by interpreter name since flags differ across interpreters
+// (e.g. -I is standalone in Python but takes a value in Ruby).
+// Note: `-m` is intentionally excluded — it means "run module", so the next arg
+// is a module name and the interpreter is NOT in stdin-exec mode.
+const INTERPRETER_VALUE_FLAGS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+  ['python', new Set(['-W', '-X', '-Q'])],
+  ['python3', new Set(['-W', '-X', '-Q'])],
+  ['ruby', new Set(['-r', '--require', '-I'])],
+  ['node', new Set(['-r', '--require', '--import', '--conditions'])],
+  ['deno', new Set()],
+  ['bun', new Set()],
+  ['perl', new Set(['-I'])],
+]);
 const OPAQUE_PROGRAMS = new Set(['eval', 'source', 'alias']);
 const DANGEROUS_ENV_VARS = new Set([
   'LD_PRELOAD', 'LD_LIBRARY_PATH',
@@ -239,6 +261,28 @@ function extractSegments(node: TSNode): CommandSegment[] {
   return segments;
 }
 
+/**
+ * Returns true when the interpreter args indicate stdin-exec mode — i.e. the
+ * interpreter will read code from stdin (or from an inline -c/-e argument)
+ * rather than from a file.  Concretely:
+ *   - Any STDIN_EXEC_FLAGS present → stdin-exec
+ *   - No positional (non-flag) arguments at all → stdin-exec (bare `python`)
+ *   - Otherwise the first positional arg is a filename → NOT stdin-exec
+ */
+function isStdinExecMode(interpreter: string, args: string[]): boolean {
+  const valueFlags = INTERPRETER_VALUE_FLAGS.get(interpreter) ?? new Set<string>();
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (STDIN_EXEC_FLAGS.has(arg)) return true;
+    // First non-flag argument is a filename/module → file mode
+    if (!arg.startsWith('-')) return false;
+    // Flags like -W, -X consume the next token as their value — skip it
+    if (valueFlags.has(arg)) i++;
+  }
+  // No positional arguments at all → interpreter reads from stdin
+  return true;
+}
+
 function detectDangerousPatterns(node: TSNode, segments: CommandSegment[]): DangerousPattern[] {
   const patterns: DangerousPattern[] = [];
 
@@ -246,6 +290,12 @@ function detectDangerousPatterns(node: TSNode, segments: CommandSegment[]): Dang
     if (segments[i].operator === '|') {
       const prog = segments[i].program;
       if (SHELL_PROGRAMS.has(prog) || prog === 'eval' || prog === 'xargs') {
+        patterns.push({
+          type: 'pipe_to_shell',
+          description: `Pipeline into ${prog}`,
+          text: segments[i].command,
+        });
+      } else if (SCRIPT_INTERPRETERS.has(prog) && isStdinExecMode(prog, segments[i].args)) {
         patterns.push({
           type: 'pipe_to_shell',
           description: `Pipeline into ${prog}`,

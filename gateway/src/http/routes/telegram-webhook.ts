@@ -1,7 +1,9 @@
+import { buildTelegramTransportMetadata } from "../../channels/transport-hints.js";
 import type { GatewayConfig } from "../../config.js";
 import { DedupCache } from "../../dedup-cache.js";
 import { handleInbound } from "../../handlers/handle-inbound.js";
 import { getLogger } from "../../logger.js";
+import { RejectionRateLimiter } from "../../rejection-rate-limiter.js";
 import { resolveAssistant, isRejection } from "../../routing/resolve-assistant.js";
 import { AttachmentValidationError, resetConversation, uploadAttachment } from "../../runtime/client.js";
 import { callTelegramApi } from "../../telegram/api.js";
@@ -11,21 +13,6 @@ import { sendTelegramReply } from "../../telegram/send.js";
 import { verifyWebhookSecret } from "../../telegram/verify.js";
 
 const log = getLogger("telegram-webhook");
-
-export const TELEGRAM_CHANNEL_TRANSPORT_HINTS = [
-  "chat-first-medium",
-  "channel-safe-onboarding",
-  "defer-dashboard-only-tasks",
-] as const;
-export const TELEGRAM_CHANNEL_TRANSPORT_UX_BRIEF =
-  "Telegram is chat-only. Complete channel-safe steps in-channel and defer dashboard-only Home Base tasks to desktop.";
-
-export function buildTelegramTransportMetadata(): { hints: string[]; uxBrief: string } {
-  return {
-    hints: [...TELEGRAM_CHANNEL_TRANSPORT_HINTS],
-    uxBrief: TELEGRAM_CHANNEL_TRANSPORT_UX_BRIEF,
-  };
-}
 
 /**
  * Parse `/start` or `/start <payload>` from Telegram message content.
@@ -39,54 +26,8 @@ export function parseTelegramStartCommand(content: string): { payload?: string }
   return null;
 }
 
-// Rate limiter for routing rejection notices — at most one reply per chat
-// within the cooldown window to avoid spamming the user.
-const REJECTION_NOTICE_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
-const MAX_REJECTION_CACHE_SIZE = 10_000;
-const SWEEP_INTERVAL = 100; // sweep every N calls
-const rejectionNoticeTimestamps = new Map<string, number>();
-let rejectionCallCount = 0;
+const rejectionLimiter = new RejectionRateLimiter();
 const START_COMMAND_ACK_TEXT = "Starting up... you'll get my first message in a moment.";
-
-/**
- * Evict expired entries from the rejection notice cache. If the map still
- * exceeds MAX_REJECTION_CACHE_SIZE after removing stale entries, drop the
- * oldest entries until it fits.
- */
-function sweepRejectionCache(now: number): void {
-  for (const [key, ts] of rejectionNoticeTimestamps) {
-    if (now - ts >= REJECTION_NOTICE_COOLDOWN_MS) {
-      rejectionNoticeTimestamps.delete(key);
-    }
-  }
-
-  if (rejectionNoticeTimestamps.size > MAX_REJECTION_CACHE_SIZE) {
-    // Sort by timestamp ascending and drop the oldest entries
-    const sorted = [...rejectionNoticeTimestamps.entries()].sort((a, b) => a[1] - b[1]);
-    const toRemove = sorted.length - MAX_REJECTION_CACHE_SIZE;
-    for (let i = 0; i < toRemove; i++) {
-      rejectionNoticeTimestamps.delete(sorted[i][0]);
-    }
-  }
-}
-
-function shouldSendRejectionNotice(chatId: string): boolean {
-  const now = Date.now();
-
-  // Periodically sweep expired entries to bound memory growth
-  rejectionCallCount++;
-  if (rejectionCallCount >= SWEEP_INTERVAL) {
-    rejectionCallCount = 0;
-    sweepRejectionCache(now);
-  }
-
-  const lastSent = rejectionNoticeTimestamps.get(chatId);
-  if (lastSent !== undefined && now - lastSent < REJECTION_NOTICE_COOLDOWN_MS) {
-    return false;
-  }
-  rejectionNoticeTimestamps.set(chatId, now);
-  return true;
-}
 
 export function createTelegramWebhookHandler(config: GatewayConfig) {
   const dedupCache = new DedupCache();
@@ -283,7 +224,7 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
           { chatId: normalized.message.externalChatId, reason: startRouting.reason },
           "Routing rejected /start command",
         );
-        if (shouldSendRejectionNotice(normalized.message.externalChatId)) {
+        if (rejectionLimiter.shouldSend(normalized.message.externalChatId)) {
           sendTelegramReply(
             config,
             normalized.message.externalChatId,
@@ -327,7 +268,7 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
             { chatId: normalized.message.externalChatId, reason: result.rejectionReason },
             "Routing rejected /start forward",
           );
-          if (shouldSendRejectionNotice(normalized.message.externalChatId)) {
+          if (rejectionLimiter.shouldSend(normalized.message.externalChatId)) {
             sendTelegramReply(
               config,
               normalized.message.externalChatId,
@@ -376,7 +317,7 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
           { chatId: normalized.message.externalChatId, reason: routing.reason },
           "Routing rejected /new command",
         );
-        if (shouldSendRejectionNotice(normalized.message.externalChatId)) {
+        if (rejectionLimiter.shouldSend(normalized.message.externalChatId)) {
           sendTelegramReply(
             config,
             normalized.message.externalChatId,
@@ -495,7 +436,7 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
           { chatId, reason: result.rejectionReason },
           "Routing rejected inbound Telegram message",
         );
-        if (shouldSendRejectionNotice(chatId)) {
+        if (rejectionLimiter.shouldSend(chatId)) {
           sendTelegramReply(
             config,
             chatId,

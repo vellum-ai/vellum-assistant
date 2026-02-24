@@ -1,7 +1,9 @@
+import { buildSmsTransportMetadata } from "../../channels/transport-hints.js";
 import type { GatewayConfig } from "../../config.js";
 import { StringDedupCache } from "../../dedup-cache.js";
 import { handleInbound } from "../../handlers/handle-inbound.js";
 import { getLogger } from "../../logger.js";
+import { RejectionRateLimiter } from "../../rejection-rate-limiter.js";
 import { resolveAssistant, resolveAssistantByPhoneNumber, isRejection } from "../../routing/resolve-assistant.js";
 import type { RouteResult } from "../../routing/types.js";
 import { resetConversation } from "../../runtime/client.js";
@@ -11,62 +13,7 @@ import type { GatewayInboundEventV1 } from "../../types.js";
 
 const log = getLogger("twilio-sms-webhook");
 
-// Rate limiter for routing rejection notices — at most one reply per phone
-// number within the cooldown window to avoid spamming the user.
-const REJECTION_NOTICE_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
-const MAX_REJECTION_CACHE_SIZE = 10_000;
-const SWEEP_INTERVAL = 100; // sweep every N calls
-const rejectionNoticeTimestamps = new Map<string, number>();
-let rejectionCallCount = 0;
-
-function sweepRejectionCache(now: number): void {
-  for (const [key, ts] of rejectionNoticeTimestamps) {
-    if (now - ts >= REJECTION_NOTICE_COOLDOWN_MS) {
-      rejectionNoticeTimestamps.delete(key);
-    }
-  }
-
-  if (rejectionNoticeTimestamps.size > MAX_REJECTION_CACHE_SIZE) {
-    const sorted = [...rejectionNoticeTimestamps.entries()].sort((a, b) => a[1] - b[1]);
-    const toRemove = sorted.length - MAX_REJECTION_CACHE_SIZE;
-    for (let i = 0; i < toRemove; i++) {
-      rejectionNoticeTimestamps.delete(sorted[i][0]);
-    }
-  }
-}
-
-function shouldSendRejectionNotice(phoneNumber: string): boolean {
-  const now = Date.now();
-
-  rejectionCallCount++;
-  if (rejectionCallCount >= SWEEP_INTERVAL) {
-    rejectionCallCount = 0;
-    sweepRejectionCache(now);
-  }
-
-  const lastSent = rejectionNoticeTimestamps.get(phoneNumber);
-  if (lastSent !== undefined && now - lastSent < REJECTION_NOTICE_COOLDOWN_MS) {
-    return false;
-  }
-  rejectionNoticeTimestamps.set(phoneNumber, now);
-  return true;
-}
-
-export const SMS_CHANNEL_TRANSPORT_HINTS = [
-  "chat-first-medium",
-  "channel-safe-onboarding",
-  "defer-dashboard-only-tasks",
-  "sms-character-limits",
-] as const;
-export const SMS_CHANNEL_TRANSPORT_UX_BRIEF =
-  "SMS is text-only with carrier-imposed message length limits. Keep responses concise and defer rich-media tasks to desktop.";
-
-export function buildSmsTransportMetadata(): { hints: string[]; uxBrief: string } {
-  return {
-    hints: [...SMS_CHANNEL_TRANSPORT_HINTS],
-    uxBrief: SMS_CHANNEL_TRANSPORT_UX_BRIEF,
-  };
-}
+const rejectionLimiter = new RejectionRateLimiter();
 
 function normalizeSmsPayload(
   params: Record<string, string>,
@@ -210,7 +157,7 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
         { from: params.From, reason: routing.reason },
         "Routing rejected inbound SMS",
       );
-      if (shouldSendRejectionNotice(params.From)) {
+      if (rejectionLimiter.shouldSend(params.From)) {
         sendSmsReply(
           config,
           params.From,
@@ -236,7 +183,7 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
           { from: params.From, reason: result.rejectionReason },
           "Routing rejected inbound SMS",
         );
-        if (shouldSendRejectionNotice(params.From)) {
+        if (rejectionLimiter.shouldSend(params.From)) {
           sendSmsReply(
             config,
             params.From,

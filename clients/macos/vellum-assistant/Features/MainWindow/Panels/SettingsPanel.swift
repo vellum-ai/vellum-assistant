@@ -6,6 +6,7 @@ enum SettingsTab: String, CaseIterable {
     case integrations = "Integrations"
     case trust = "Trust"
     case reminders = "Schedules"
+    case wakeWord = "Wake Word"
     case appearance = "Appearance"
     case advanced = "Advanced"
     case parental = "Parental"
@@ -17,6 +18,7 @@ struct SettingsPanel: View {
     @ObservedObject var store: SettingsStore
     var daemonClient: DaemonClient?
     @ObservedObject var threadManager: ThreadManager
+    var authManager: AuthManager
 
     @State private var apiKeyText: String = ""
     @State private var braveKeyText: String = ""
@@ -174,13 +176,15 @@ struct SettingsPanel: View {
     private var selectedTabContent: some View {
         switch selectedTab {
         case .connect:
-            SettingsConnectTab(store: store, daemonClient: daemonClient)
+            SettingsConnectTab(store: store, daemonClient: daemonClient, authManager: authManager)
         case .integrations:
             integrationsContent
         case .trust:
             trustContent
         case .reminders:
             remindersContent
+        case .wakeWord:
+            WakeWordSettingsView()
         case .appearance:
             SettingsAppearanceTab(store: store)
         case .advanced:
@@ -1179,9 +1183,8 @@ private struct ModelPickerItem: View {
     }
 }
 
-// MARK: - Environment Variables Sheet (Debug Only)
+// MARK: - Environment Variables Sheet
 
-#if DEBUG
 struct SettingsPanelEnvVarsSheet: View {
     let appEnvVars: [(String, String)]
     let daemonEnvVars: [(String, String)]
@@ -1239,14 +1242,13 @@ struct SettingsPanelEnvVarsSheet: View {
         }
     }
 }
-#endif
 
 struct SettingsPanel_Previews: PreviewProvider {
     static var previews: some View {
         let dc = DaemonClient()
         ZStack {
             VColor.background.ignoresSafeArea()
-            SettingsPanel(onClose: {}, store: SettingsStore(daemonClient: dc), threadManager: ThreadManager(daemonClient: dc))
+            SettingsPanel(onClose: {}, store: SettingsStore(daemonClient: dc), threadManager: ThreadManager(daemonClient: dc), authManager: AuthManager())
         }
         .frame(width: 600, height: 700)
     }

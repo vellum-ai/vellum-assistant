@@ -602,10 +602,9 @@ final class AssistantCli {
                     env[key] = val
                 }
             }
-            // Forward RUNTIME_HTTP_PORT only when the localHttpEnabled flag
-            // is active, so the daemon doesn't start its HTTP server by default.
-            if FeatureFlagManager.shared.isEnabled(.localHttpEnabled),
-               let port = fullEnv["RUNTIME_HTTP_PORT"] ?? getenv("RUNTIME_HTTP_PORT").flatMap({ String(cString: $0) }) {
+            // Always forward RUNTIME_HTTP_PORT so the daemon starts its
+            // HTTP server — required for iOS pairing via the gateway.
+            if let port = fullEnv["RUNTIME_HTTP_PORT"] ?? getenv("RUNTIME_HTTP_PORT").flatMap({ String(cString: $0) }) {
                 env["RUNTIME_HTTP_PORT"] = port
             }
             proc.environment = env

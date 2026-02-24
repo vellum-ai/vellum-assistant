@@ -404,7 +404,7 @@ while IFS= read -r -d '' FILE; do
                     # on the same line (e.g. minified JSON) must not be masked.
                     STRIPPED="$CONTENT"
                     for sp in "${SAFE_LINE_PATTERNS[@]}"; do
-                        STRIPPED=$(printf '%s\n' "$STRIPPED" | sed -E "s/$sp//g" 2>/dev/null || printf '%s\n' "$STRIPPED")
+                        STRIPPED=$(printf '%s\n' "$STRIPPED" | sed -E "s"$'\x01'"$sp"$'\x01\x01'"g" 2>/dev/null || printf '%s\n' "$STRIPPED")
                     done
                     if ! printf '%s\n' "$STRIPPED" | grep -iE -- "$PATTERN" >/dev/null 2>&1; then
                         continue

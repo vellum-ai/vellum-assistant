@@ -6,9 +6,10 @@ import { getConfiguredProvider, createTimeout, extractToolUse, userMessage } fro
 import { areStatementsCoherent } from './conflict-intent.js';
 import { isConflictKindEligible, isStatementConflictEligible } from './conflict-policy.js';
 import { createOrUpdatePendingConflict } from './conflict-store.js';
-import { getDb, rawAll } from './db.js';
+import { getDb, getSqlite, rawAll } from './db.js';
 import { enqueueMemoryJob } from './jobs-store.js';
 import { memoryItems } from './schema.js';
+import { clampUnitInterval } from './validation.js';
 
 const log = getLogger('memory-contradiction-checker');
 
@@ -93,13 +94,13 @@ export async function checkContradictions(newItemId: string): Promise<void> {
 
     try {
       const result = await classifyRelationship(existing, newItem);
-      await handleRelationship(result, existing, newItem);
-      // Only stop when the new item itself is invalidated (update case).
-      // For contradiction, the old item is invalidated but the new item remains
-      // active and should continue to be checked against remaining candidates.
-      // For ambiguous contradiction, we pause retrieval eligibility for the new
-      // item and ask for clarification on a later turn.
-      if (result.relationship === 'update' || result.relationship === 'ambiguous_contradiction') break;
+      const mutated = handleRelationship(result, existing, newItem);
+      // Only stop when the new item itself was actually invalidated (update case)
+      // or gated (ambiguous_contradiction). For contradiction, the old item is
+      // invalidated but the new item remains active and should continue to be
+      // checked against remaining candidates. Skip the break when the transaction
+      // detected stale data and performed no mutation.
+      if (mutated && (result.relationship === 'update' || result.relationship === 'ambiguous_contradiction')) break;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log.warn({ err: message, newItemId, existingId: existing.id }, 'Contradiction classification failed for pair');
@@ -274,82 +275,100 @@ async function classifyRelationship(
 
 /**
  * Handle the classified relationship between an existing and new memory item.
+ *
+ * Wrapped in a SQLite transaction so that multi-row mutations (e.g. invalidating
+ * the old item AND setting validFrom on the new one) are atomic. The transaction
+ * also re-verifies both items are still active before mutating, preventing a
+ * TOCTOU race when multiple workers process contradictions concurrently.
  */
-async function handleRelationship(
+function handleRelationship(
   result: ClassifyResult,
   existingItem: MemoryItemRow,
   newItem: MemoryItemRow,
-): Promise<void> {
-  const db = getDb();
-  const now = Date.now();
-
-  switch (result.relationship) {
-    case 'contradiction': {
-      // Invalidate the old item (don't delete for audit trail), set validFrom on new item
-      log.info(
-        { existingId: existingItem.id, newId: newItem.id, explanation: result.explanation },
-        'Contradiction detected — invalidating old item',
-      );
-      db.update(memoryItems)
-        .set({ invalidAt: now })
-        .where(eq(memoryItems.id, existingItem.id))
-        .run();
-      db.update(memoryItems)
-        .set({ validFrom: now })
-        .where(eq(memoryItems.id, newItem.id))
-        .run();
-      break;
-    }
-    case 'update': {
-      // Merge info — update old item's statement, bump lastSeenAt
-      log.debug(
-        { existingId: existingItem.id, newId: newItem.id, explanation: result.explanation },
-        'Update detected — merging into existing item',
-      );
-      db.update(memoryItems)
-        .set({
-          statement: newItem.statement,
-          lastSeenAt: Math.max(existingItem.lastSeenAt, newItem.lastSeenAt),
-          confidence: Math.max(existingItem.confidence, newItem.confidence),
-        })
-        .where(eq(memoryItems.id, existingItem.id))
-        .run();
-      // Re-embed the existing item so its vector matches the updated statement
-      enqueueMemoryJob('embed_item', { itemId: existingItem.id });
-      // Invalidate the new item since its content has been merged into the existing one
-      db.update(memoryItems)
-        .set({ invalidAt: now })
-        .where(eq(memoryItems.id, newItem.id))
-        .run();
-      break;
-    }
-    case 'complement': {
-      // Both items can coexist — no changes needed
-      log.debug(
-        { existingId: existingItem.id, newId: newItem.id, explanation: result.explanation },
-        'Complement detected — keeping both items',
-      );
-      break;
-    }
-    case 'ambiguous_contradiction': {
-      log.info(
-        { existingId: existingItem.id, newId: newItem.id, explanation: result.explanation },
-        'Ambiguous contradiction detected — gating candidate pending clarification',
-      );
-      db.update(memoryItems)
-        .set({ status: 'pending_clarification' })
-        .where(eq(memoryItems.id, newItem.id))
-        .run();
-      createOrUpdatePendingConflict({
-        scopeId: newItem.scopeId,
-        existingItemId: existingItem.id,
-        candidateItemId: newItem.id,
-        relationship: 'ambiguous_contradiction',
-        clarificationQuestion: buildClarificationQuestion(existingItem.statement, newItem.statement),
-      });
-      break;
-    }
+): boolean {
+  if (result.relationship === 'complement') {
+    log.debug(
+      { existingId: existingItem.id, newId: newItem.id, explanation: result.explanation },
+      'Complement detected — keeping both items',
+    );
+    return false;
   }
+
+  return getSqlite().transaction(() => {
+    const db = getDb();
+    const now = Date.now();
+
+    // Re-check both items inside the transaction to guard against concurrent mutations
+    const freshExisting = db.select().from(memoryItems).where(eq(memoryItems.id, existingItem.id)).get();
+    const freshNew = db.select().from(memoryItems).where(eq(memoryItems.id, newItem.id)).get();
+
+    if (!freshExisting || freshExisting.status !== 'active' || freshExisting.invalidAt != null) {
+      log.debug({ existingId: existingItem.id }, 'Existing item no longer active — skipping');
+      return false;
+    }
+    if (!freshNew || (freshNew.status !== 'active' && result.relationship !== 'ambiguous_contradiction') || freshNew.invalidAt != null) {
+      log.debug({ newId: newItem.id }, 'New item no longer active — skipping');
+      return false;
+    }
+
+    switch (result.relationship) {
+      case 'contradiction': {
+        log.info(
+          { existingId: existingItem.id, newId: newItem.id, explanation: result.explanation },
+          'Contradiction detected — invalidating old item',
+        );
+        db.update(memoryItems)
+          .set({ invalidAt: now })
+          .where(eq(memoryItems.id, existingItem.id))
+          .run();
+        db.update(memoryItems)
+          .set({ validFrom: now })
+          .where(eq(memoryItems.id, newItem.id))
+          .run();
+        return true;
+      }
+      case 'update': {
+        log.debug(
+          { existingId: existingItem.id, newId: newItem.id, explanation: result.explanation },
+          'Update detected — merging into existing item',
+        );
+        db.update(memoryItems)
+          .set({
+            statement: newItem.statement,
+            lastSeenAt: Math.max(freshExisting.lastSeenAt, freshNew!.lastSeenAt),
+            confidence: clampUnitInterval(Math.max(freshExisting.confidence, freshNew!.confidence)),
+          })
+          .where(eq(memoryItems.id, existingItem.id))
+          .run();
+        enqueueMemoryJob('embed_item', { itemId: existingItem.id });
+        db.update(memoryItems)
+          .set({ invalidAt: now })
+          .where(eq(memoryItems.id, newItem.id))
+          .run();
+        return true;
+      }
+      case 'ambiguous_contradiction': {
+        log.info(
+          { existingId: existingItem.id, newId: newItem.id, explanation: result.explanation },
+          'Ambiguous contradiction detected — gating candidate pending clarification',
+        );
+        db.update(memoryItems)
+          .set({ status: 'pending_clarification' })
+          .where(eq(memoryItems.id, newItem.id))
+          .run();
+        createOrUpdatePendingConflict({
+          scopeId: newItem.scopeId,
+          existingItemId: existingItem.id,
+          candidateItemId: newItem.id,
+          relationship: 'ambiguous_contradiction',
+          clarificationQuestion: buildClarificationQuestion(existingItem.statement, newItem.statement),
+        });
+        return true;
+      }
+      default:
+        return false;
+    }
+  }).immediate();
 }
 
 function escapeSqlLike(s: string): string {

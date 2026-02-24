@@ -27,6 +27,10 @@ import { persistCallCompletionMessage } from './call-conversation-messages.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { dispatchGuardianQuestion } from './guardian-dispatch.js';
 import type { ServerMessage } from '../daemon/ipc-contract.js';
+import {
+  buildGuardianContextBlock,
+  type GuardianRuntimeContext,
+} from '../daemon/session-runtime-assembly.js';
 
 const log = getLogger('call-orchestrator');
 
@@ -79,14 +83,26 @@ export class CallOrchestrator {
   private broadcast?: (msg: ServerMessage) => void;
   /** Assistant identity for scoping guardian bindings. */
   private assistantId: string;
+  /** Guardian trust context for the current caller, when available. */
+  private guardianContext: GuardianRuntimeContext | null;
 
-  constructor(callSessionId: string, relay: RelayConnection, task: string | null, opts?: { broadcast?: (msg: ServerMessage) => void; assistantId?: string }) {
+  constructor(
+    callSessionId: string,
+    relay: RelayConnection,
+    task: string | null,
+    opts?: {
+      broadcast?: (msg: ServerMessage) => void;
+      assistantId?: string;
+      guardianContext?: GuardianRuntimeContext;
+    },
+  ) {
     this.callSessionId = callSessionId;
     this.relay = relay;
     this.task = task;
     this.isInbound = !task;
     this.broadcast = opts?.broadcast;
     this.assistantId = opts?.assistantId ?? 'self';
+    this.guardianContext = opts?.guardianContext ?? null;
     this.startDurationTimer();
     this.resetSilenceTimer();
     registerCallOrchestrator(callSessionId, this);
@@ -97,6 +113,13 @@ export class CallOrchestrator {
    */
   getState(): OrchestratorState {
     return this.state;
+  }
+
+  /**
+   * Update guardian trust context for subsequent LLM turns.
+   */
+  setGuardianContext(ctx: GuardianRuntimeContext | null): void {
+    this.guardianContext = ctx;
   }
 
   /**
@@ -298,6 +321,18 @@ export class CallOrchestrator {
 
   // ── Private ──────────────────────────────────────────────────────
 
+  private buildGuardianPromptSection(): string[] {
+    if (!this.guardianContext) return [];
+    return [
+      '',
+      'GUARDIAN ACTOR CONTEXT (authoritative):',
+      buildGuardianContextBlock(this.guardianContext),
+      '- Treat `actor_role` as source-of-truth for whether this caller is the verified guardian.',
+      '- If `actor_role` is `guardian`, the current caller is verified for this assistant on voice.',
+      '- If `actor_role` is `non-guardian` or `unverified_channel`, do not imply the caller is verified.',
+    ];
+  }
+
   private buildSystemPrompt(): string {
     const config = getConfig();
     const disclosureRule = config.calls.disclosure.enabled
@@ -314,6 +349,7 @@ export class CallOrchestrator {
       '',
       'You are speaking directly to the person who answered the phone.',
       'Respond naturally and conversationally — speak as you would in a real phone conversation.',
+      ...this.buildGuardianPromptSection(),
       '',
       'IMPORTANT RULES:',
       '0. When introducing yourself, refer to yourself as an assistant. Avoid the phrase "AI assistant" unless directly asked.',
@@ -346,6 +382,7 @@ export class CallOrchestrator {
       '',
       'The caller dialed in to reach you. You do not have a specific task — your role is to greet them warmly, find out what they need, and assist them.',
       'Respond naturally and conversationally — speak as you would in a real phone conversation.',
+      ...this.buildGuardianPromptSection(),
       '',
       'IMPORTANT RULES:',
       '0. When introducing yourself, refer to yourself as an assistant. Avoid the phrase "AI assistant" unless directly asked.',

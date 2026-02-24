@@ -1,6 +1,7 @@
-import { eq, inArray } from 'drizzle-orm';
+import { inArray } from 'drizzle-orm';
 import { getDb } from '../db.js';
 import { getQdrantClient } from '../qdrant-client.js';
+import type { QdrantSearchResult } from '../qdrant-client.js';
 import {
   memoryItems,
   memoryItemSources,
@@ -9,6 +10,84 @@ import {
 } from '../schema.js';
 import type { Candidate } from './types.js';
 import { computeRecencyScore } from './ranking.js';
+import { getLogger } from '../../util/logger.js';
+
+const log = getLogger('qdrant-circuit-breaker');
+
+// ── Qdrant circuit breaker ───────────────────────────────────────────
+// After FAILURE_THRESHOLD consecutive Qdrant failures, stop sending
+// requests (open state). After COOLDOWN_MS, allow a single probe
+// request (half-open). If the probe succeeds, close the circuit; if it
+// fails, re-open and restart the cooldown.
+
+const FAILURE_THRESHOLD = 5;
+const COOLDOWN_MS = 60_000;
+
+type BreakerState = 'closed' | 'open' | 'half-open';
+
+let breakerState: BreakerState = 'closed';
+let consecutiveFailures = 0;
+let openedAt = 0;
+// Ensures only one request passes through during half-open state
+let halfOpenProbeInFlight = false;
+
+function qdrantBreakerAllows(): boolean {
+  if (breakerState === 'closed') return true;
+  if (breakerState === 'open') {
+    if (Date.now() - openedAt >= COOLDOWN_MS) {
+      breakerState = 'half-open';
+      halfOpenProbeInFlight = true;
+      log.info('Qdrant circuit breaker entering half-open state — allowing probe request');
+      return true;
+    }
+    return false;
+  }
+  // half-open: only allow through if no probe is already in flight
+  if (halfOpenProbeInFlight) return false;
+  halfOpenProbeInFlight = true;
+  return true;
+}
+
+function qdrantBreakerRecordSuccess(): void {
+  if (breakerState !== 'closed') {
+    log.info({ previousFailures: consecutiveFailures }, 'Qdrant circuit breaker closed — search succeeded');
+  }
+  consecutiveFailures = 0;
+  breakerState = 'closed';
+  openedAt = 0;
+  halfOpenProbeInFlight = false;
+}
+
+function qdrantBreakerRecordFailure(): void {
+  consecutiveFailures++;
+  halfOpenProbeInFlight = false;
+  if (consecutiveFailures >= FAILURE_THRESHOLD) {
+    breakerState = 'open';
+    openedAt = Date.now();
+    log.warn(
+      { consecutiveFailures, cooldownMs: COOLDOWN_MS },
+      'Qdrant circuit breaker opened — semantic search disabled until probe succeeds',
+    );
+  } else if (breakerState === 'half-open') {
+    // Probe failed — re-open
+    breakerState = 'open';
+    openedAt = Date.now();
+    log.warn('Qdrant circuit breaker re-opened — half-open probe failed');
+  }
+}
+
+/** @internal Test-only: reset circuit breaker state */
+export function _resetQdrantBreaker(): void {
+  breakerState = 'closed';
+  consecutiveFailures = 0;
+  openedAt = 0;
+  halfOpenProbeInFlight = false;
+}
+
+/** @internal Test-only: get breaker state */
+export function _getQdrantBreakerState(): { state: BreakerState; consecutiveFailures: number } {
+  return { state: breakerState, consecutiveFailures };
+}
 
 export async function semanticSearch(
   queryVector: number[],
@@ -20,23 +99,50 @@ export async function semanticSearch(
 ): Promise<Candidate[]> {
   if (limit <= 0) return [];
 
+  // Circuit breaker: throw so the caller's .catch() marks the result as degraded
+  if (!qdrantBreakerAllows()) {
+    log.debug('Qdrant circuit breaker open — skipping semantic search');
+    throw new Error('Qdrant circuit breaker open');
+  }
+
   const qdrant = getQdrantClient();
 
   // Overfetch to account for items filtered out post-query (invalidated, excluded, etc.)
-  const fetchLimit = limit * 2;
-  const results = await qdrant.searchWithFilter(
-    queryVector,
-    fetchLimit,
-    ['item', 'summary', 'segment'],
-    excludedMessageIds,
-  );
+  // Use 3x when exclusions are active to ensure enough results survive filtering
+  const overfetchMultiplier = excludedMessageIds.length > 0 ? 3 : 2;
+  const fetchLimit = limit * overfetchMultiplier;
+  let results: QdrantSearchResult[];
+  try {
+    results = await qdrant.searchWithFilter(
+      queryVector,
+      fetchLimit,
+      ['item', 'summary', 'segment'],
+      excludedMessageIds,
+    );
+    qdrantBreakerRecordSuccess();
+  } catch (err) {
+    qdrantBreakerRecordFailure();
+    throw err;
+  }
 
   const db = getDb();
 
-  // Batch-fetch sources for all item-type results to avoid N+1 queries
-  const itemTargetIds = results
-    .filter((r) => r.payload.target_type === 'item')
-    .map((r) => r.payload.target_id);
+  // Batch-fetch all backing records upfront to avoid N+1 queries per result
+  const itemTargetIds: string[] = [];
+  const summaryTargetIds: string[] = [];
+  const segmentTargetIds: string[] = [];
+  for (const r of results) {
+    if (r.payload.target_type === 'item') itemTargetIds.push(r.payload.target_id);
+    else if (r.payload.target_type === 'summary') summaryTargetIds.push(r.payload.target_id);
+    else segmentTargetIds.push(r.payload.target_id);
+  }
+
+  const itemsMap = new Map<string, typeof memoryItems.$inferSelect>();
+  if (itemTargetIds.length > 0) {
+    const allItems = db.select().from(memoryItems).where(inArray(memoryItems.id, itemTargetIds)).all();
+    for (const item of allItems) itemsMap.set(item.id, item);
+  }
+
   const sourcesMap = new Map<string, string[]>();
   if (itemTargetIds.length > 0) {
     const allSources = db.select({
@@ -51,6 +157,19 @@ export async function semanticSearch(
       else sourcesMap.set(s.memoryItemId, [s.messageId]);
     }
   }
+
+  const summariesMap = new Map<string, typeof memorySummaries.$inferSelect>();
+  if (scopeIds && summaryTargetIds.length > 0) {
+    const allSummaries = db.select().from(memorySummaries).where(inArray(memorySummaries.id, summaryTargetIds)).all();
+    for (const s of allSummaries) summariesMap.set(s.id, s);
+  }
+
+  const segmentsMap = new Map<string, typeof memorySegments.$inferSelect>();
+  if (scopeIds && segmentTargetIds.length > 0) {
+    const allSegments = db.select().from(memorySegments).where(inArray(memorySegments.id, segmentTargetIds)).all();
+    for (const seg of allSegments) segmentsMap.set(seg.id, seg);
+  }
+
   const excludedSet = excludedMessageIds.length > 0 ? new Set(excludedMessageIds) : null;
 
   const candidates: Candidate[] = [];
@@ -60,8 +179,7 @@ export async function semanticSearch(
     const createdAt = payload.created_at ?? Date.now();
 
     if (payload.target_type === 'item') {
-      // Validate the backing memory item is still active and has non-excluded evidence
-      const item = db.select().from(memoryItems).where(eq(memoryItems.id, payload.target_id)).get();
+      const item = itemsMap.get(payload.target_id);
       if (!item || item.status !== 'active' || item.invalidAt != null) continue;
       if (scopeIds && !scopeIds.includes(item.scopeId)) continue;
       const sources = sourcesMap.get(payload.target_id);
@@ -87,7 +205,7 @@ export async function semanticSearch(
       });
     } else if (payload.target_type === 'summary') {
       if (scopeIds) {
-        const summary = db.select().from(memorySummaries).where(eq(memorySummaries.id, payload.target_id)).get();
+        const summary = summariesMap.get(payload.target_id);
         if (!summary || !scopeIds.includes(summary.scopeId)) continue;
       }
       candidates.push({
@@ -107,7 +225,7 @@ export async function semanticSearch(
       });
     } else {
       if (scopeIds) {
-        const segment = db.select().from(memorySegments).where(eq(memorySegments.id, payload.target_id)).get();
+        const segment = segmentsMap.get(payload.target_id);
         if (!segment || !scopeIds.includes(segment.scopeId)) continue;
       }
       candidates.push({

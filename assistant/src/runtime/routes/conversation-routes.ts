@@ -1,7 +1,7 @@
 /**
  * Route handlers for conversation messages and suggestions.
  */
-import { parseChannelId } from '../../channels/types.js';
+import { CHANNEL_IDS, parseChannelId } from '../../channels/types.js';
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import {
@@ -149,7 +149,20 @@ export async function handleSendMessage(
   };
 
   const { conversationKey, content, attachmentIds } = body;
-  const sourceChannel = parseChannelId(body.sourceChannel) ?? undefined;
+  if (!body.sourceChannel || typeof body.sourceChannel !== 'string') {
+    return Response.json(
+      { error: 'sourceChannel is required' },
+      { status: 400 },
+    );
+  }
+  const sourceChannel = parseChannelId(body.sourceChannel);
+
+  if (!sourceChannel) {
+    return Response.json(
+      { error: `Invalid sourceChannel: ${body.sourceChannel}. Valid values: ${CHANNEL_IDS.join(', ')}` },
+      { status: 400 },
+    );
+  }
 
   if (!conversationKey) {
     return Response.json(

@@ -5,6 +5,7 @@ import VellumAssistantShared
 @MainActor
 public final class AppServices {
     public private(set) var daemonClient: DaemonClient
+    public let authManager = AuthManager()
     public let ambientAgent = AmbientAgent()
     let surfaceManager = SurfaceManager()
     let browserPiPManager = BrowserPiPManager()

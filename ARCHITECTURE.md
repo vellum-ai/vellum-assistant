@@ -427,6 +427,16 @@ graph TB
 - Daemon startup runs `ensurePrebuiltHomeBaseSeeded()` to provision one idempotent prebuilt Home Base app in `~/.vellum/workspace/data/apps`.
 - Home Base onboarding buttons relay prefilled natural-language prompts to the main assistant; permission setup remains user-initiated and hatch + first-conversation flows avoid proactive permission asks.
 
+### Guardian Actor Context (Unified Across Channels)
+
+- Guardian/non-guardian/unverified classification is centralized in `assistant/src/runtime/guardian-context-resolver.ts`.
+- The same resolver is used by:
+  - `/channels/inbound` (Telegram/SMS/WhatsApp path) before run orchestration.
+  - Inbound Twilio voice setup (`RelayConnection.handleSetup`) to seed call-time actor context.
+- Runtime channel runs pass this as `guardianContext`, and session runtime assembly injects `<guardian_context>` into provider-facing prompts.
+- Voice call orchestration mirrors the same prompt contract: `CallOrchestrator` receives guardian context on setup and refreshes it immediately after successful voice challenge verification, so the first post-verification turn is grounded as `actor_role: guardian`.
+- Voice-specific behavior (DTMF/speech verification flow, relay state machine) remains voice-local; only actor-role resolution is shared.
+
 ### SMS Channel (Twilio)
 
 The SMS channel provides text-only messaging via Twilio, sharing the same telephony provider as voice calls. It follows the same ingress/egress pattern as Telegram but uses Twilio's HMAC-SHA1 signature validation instead of a secret header.
@@ -3586,22 +3596,51 @@ iOS App  --HTTPS-->  Ingress (tunnel/public URL)  -->  Gateway  -->  Runtime
          <--SSE---                                 <--          <--
 ```
 
-1. **Pairing** provides the iOS app with an ingress URL and bearer token, either via QR code scan or manual entry.
+1. **Pairing** provides the iOS app with an ingress URL and bearer token via QR code scan with Mac-side approval.
 2. **HTTP+SSE transport**: The iOS `HTTPDaemonClient` sends commands via HTTP POST to the gateway and receives events via Server-Sent Events (SSE). All communication is authenticated with the bearer token.
 3. **Gateway proxy**: The gateway's runtime proxy forwards `/v1/*` requests to the local runtime, validating the bearer token on each request.
 
-### Pairing Methods
+### Pairing Flow (v4)
 
-| Method | Flow |
-|--------|------|
-| **QR code** (primary) | macOS generates a v2 QR payload containing `{"type":"vellum-daemon","v":2,"id":"<host-hash>","g":"<ingress-url>","bt":"<bearer-token>"}`. iOS scans, parses, stores config, and connects. |
-| **Manual entry** | User copies the gateway URL and bearer token from the macOS pairing sheet into the iOS manual setup fields. iOS stores config and connects. |
+iOS pairing uses a v4 QR code protocol with Mac-side approval. There is no manual entry option.
+
+**QR payload (v4):**
+```json
+{
+  "type": "vellum-daemon", "v": 4,
+  "id": "<mac-hash>",
+  "g": "<resolved-gateway-url>",
+  "pairingRequestId": "<uuid>",
+  "pairingSecret": "<random-32b-hex>",
+  "localLanUrl": "http://<lan-ip>:7830"
+}
+```
+
+**Flow:**
+1. macOS generates a v4 QR code (no bearer token in QR) and pre-registers the pairing request with the daemon via `POST /v1/pairing/register`.
+2. iOS scans the QR code, extracts the `pairingRequestId` and `pairingSecret`, and sends a pairing request to the gateway (`POST /pairing/request`). Tries `localLanUrl` first (3s timeout), falls back to cloud gateway URL (`g`).
+3. The daemon validates the secret and either auto-approves (if the device is in the allowlist) or sends an IPC message to macOS to show an approval prompt.
+4. macOS shows a floating approval window with three options: Deny, Approve Once, Always Allow.
+5. iOS polls `GET /pairing/status?id=<id>&secret=<secret>` every 2.5s until approved, denied, or expired (5-min TTL).
+6. On approval, the response includes the bearer token and gateway URL. iOS saves these and connects.
+
+**Daemon endpoints:**
+- `POST /v1/pairing/register` -- macOS pre-registers a pairing request (bearer-authenticated).
+- `POST /v1/pairing/request` -- iOS initiates pairing (unauthenticated, secret-gated).
+- `GET /v1/pairing/status` -- iOS polls for approval status (unauthenticated, secret-gated).
+
+**Gateway proxy endpoints** (unauthenticated, proxied to daemon):
+- `POST /pairing/request` -> daemon `/v1/pairing/request`
+- `GET /pairing/status` -> daemon `/v1/pairing/status`
+
+**Approved devices:** Devices paired with "Always Allow" are persisted to `~/.vellum/protected/approved-devices.json` (keyed by hashed deviceId). Future pairings from allowlisted devices auto-approve without a prompt. The macOS Connect tab shows an Approved Devices list with remove/clear actions.
 
 ### Prerequisites
 
-- **Ingress must be enabled** on the Mac for iOS pairing. The gateway must be reachable at a public URL (via ngrok, Cloudflare Tunnel, or similar).
+- A gateway URL must be configured (cloud tunnel or LAN). LAN pairing works automatically via `localLanUrl` in the QR payload.
 - The bearer token is read from `~/.vellum/http-token` and persists across daemon restarts.
 - A conversation key is auto-generated on first connect and stored in UserDefaults.
+- iOS maintains a stable `deviceId` (UUID) in the Keychain across reinstalls.
 
 ### Configuration Storage (iOS)
 
@@ -3610,17 +3649,22 @@ iOS App  --HTTPS-->  Ingress (tunnel/public URL)  -->  Gateway  -->  Runtime
 | Gateway URL | UserDefaults | `gateway_base_url` |
 | Bearer token | Keychain | provider: `runtime-bearer-token` |
 | Conversation key | UserDefaults | `conversation_key` |
-| Host ID (migration) | UserDefaults | `gateway_host_id` |
+| Host ID | UserDefaults | `gateway_host_id` |
+| Device ID | Keychain | provider: `pairing-device-id` |
 
 ### Key Files
 
 | File | Purpose |
 |------|---------|
-| `clients/ios/Views/Settings/QRPairingSheet.swift` | QR scan, parse v2 payload, store config, connect |
-| `clients/ios/Views/Settings/ConnectionSettingsSection.swift` | Manual gateway URL + bearer token entry |
-| `clients/macos/vellum-assistant/Features/Settings/PairingQRCodeSheet.swift` | macOS QR generation + manual pairing info display |
-| `clients/shared/IPC/DaemonConfig.swift` | Transport config; iOS uses `.http` exclusively |
-| `clients/shared/IPC/HTTPDaemonClient.swift` | HTTP+SSE client implementation |
+| `clients/ios/Views/Settings/QRPairingSheet.swift` | QR scan, v4 parsing, pairing handshake, polling |
+| `clients/ios/Views/Settings/ConnectionSettingsSection.swift` | Connection status and QR scan entry point |
+| `clients/macos/vellum-assistant/Features/Settings/PairingQRCodeSheet.swift` | macOS v4 QR generation, pre-registration with daemon |
+| `clients/macos/vellum-assistant/Features/Settings/PairingApprovalWindow.swift` | Floating approval prompt window |
+| `clients/macos/vellum-assistant/Features/Settings/ApprovedDevicesSection.swift` | Approved devices list UI |
+| `assistant/src/daemon/pairing-store.ts` | In-memory pairing request store with TTL |
+| `assistant/src/daemon/approved-devices-store.ts` | Persistent approved devices allowlist |
+| `assistant/src/daemon/handlers/pairing.ts` | IPC handlers for pairing approval |
+| `gateway/src/http/routes/pairing-proxy.ts` | Gateway proxy for pairing endpoints |
 
 ### Offline Message Queue (iOS)
 
@@ -3765,9 +3809,9 @@ Runtime detects needs_confirmation
 
 **Stale callback blocking:** When inbound `callbackData` does not match any pending approval (e.g., a button from an old prompt), the runtime returns `stale_ignored` and does not process the payload as a regular message. This prevents stale button presses from triggering unrelated agent loops.
 
-**Plain-text fallback:** When no button click is detected (e.g., non-Telegram channels or user typing a reply), the text parser matches approval phrases case-insensitively: `yes`, `approve`, `allow`, `go ahead` (approve once), `always`, `approve always`, `allow always` (approve always), `no`, `reject`, `deny`, `cancel` (reject). If the user sends a non-decision message while an approval is pending, a reminder prompt is re-sent with the approval buttons. The `channelSupportsRichApprovalUI()` function determines whether to send the structured `promptText` (for rich channels like Telegram) or the `plainTextFallback` string (for all other channels). Currently only `telegram` is classified as a rich channel.
+**Conversational approval turn:** When a text message arrives while an approval is pending (e.g., non-Telegram channels or user typing a reply instead of clicking a button), a **conversational approval turn** is run via `runApprovalConversationTurn()` from `approval-conversation-turn.ts`. The conversational engine uses LLM structured output (native `tool_use`) to classify user intent as: `keep_pending` (reply without deciding), `approve_once`, `approve_always`, or `reject`. Non-decision messages receive a natural assistant reply and the run stays pending — no reminder spam. The engine fails closed: any model failure returns `keep_pending` with a deterministic fallback asking the user to try again. Callback/button handling remains deterministic and unchanged. The `channelSupportsRichApprovalUI()` function determines whether to send the structured `promptText` (for rich channels like Telegram) or the `plainTextFallback` string (for all other channels). Currently only `telegram` is classified as a rich channel.
 
-**Guardian-aware routing:** When a guardian binding exists for the channel, the approval flow resolves the sender's actor role (`guardian` vs `non-guardian`). Non-guardian actors have `forceStrictSideEffects` set on the session so all side-effect tools trigger approval prompts regardless of existing allow rules. Approval prompts for non-guardian actions are routed to the guardian's delivery chat (not the requester's chat), and a `channelGuardianApprovalRequest` record is created. When the guardian approves or denies, the decision is applied to the underlying run and the requester's chat is notified of the outcome. Guardian actors follow the standard approval flow. All guardian state (bindings, challenges, approval requests) is scoped to the `(assistantId, channel)` pair -- the `assistantId` parameter flows through `handleChannelInbound`, `validateAndConsumeChallenge`, `isGuardian`, `getGuardianBinding`, and `createApprovalRequest`.
+**Guardian-aware routing:** When a guardian binding exists for the channel, the approval flow resolves the sender's actor role (`guardian` vs `non-guardian`). Non-guardian actors have `forceStrictSideEffects` set on the session so all side-effect tools trigger approval prompts regardless of existing allow rules. Approval prompts for non-guardian actions are routed to the guardian's delivery chat (not the requester's chat), and a `channelGuardianApprovalRequest` record is created. When the guardian approves or denies, the decision is applied to the underlying run and the requester's chat is notified of the outcome. Guardian actors follow the standard approval flow. Guardian approval follow-ups also use the conversational engine with role-specific context; `approve_always` is downgraded to `approve_once` for guardian approvals since permanent allow-rules require guardian authority. All guardian state (bindings, challenges, approval requests) is scoped to the `(assistantId, channel)` pair -- the `assistantId` parameter flows through `handleChannelInbound`, `validateAndConsumeChallenge`, `isGuardian`, `getGuardianBinding`, and `createApprovalRequest`.
 
 **Proactive expiry sweep:** The runtime runs a periodic sweep every 60 seconds (`sweepExpiredGuardianApprovals`) that finds guardian approval requests past the 30-minute TTL, auto-denies the underlying runs, and notifies both the requester and guardian via the gateway's per-channel `/deliver/<channel>` endpoint. This ensures expired approvals are closed without waiting for follow-up traffic from either party. The sweep is started automatically whenever a run orchestrator is available.
 
@@ -3777,9 +3821,10 @@ Runtime detects needs_confirmation
 
 | Module | Purpose |
 |--------|---------|
+| `assistant/src/runtime/approval-conversation-turn.ts` | Conversational approval turn engine: LLM-based intent classification (structured output) for pending approval follow-ups, with fail-closed safety |
 | `assistant/src/runtime/approval-message-composer.ts` | Centralized approval message composition: layered source selection (assistant preface → deterministic fallback) for all approval/guardian/verification user-facing copy |
-| `assistant/src/runtime/channel-approvals.ts` | Orchestration: detect pending confirmations, build prompts (including guardian-aware prompts), apply decisions, build reminders, plain-text fallback selection |
-| `assistant/src/runtime/channel-approval-parser.ts` | Plain-text decision parser (phrase matching) |
+| `assistant/src/runtime/channel-approvals.ts` | Orchestration: detect pending confirmations, build prompts (including guardian-aware prompts), apply decisions, plain-text fallback selection |
+| `assistant/src/runtime/channel-approval-parser.ts` | Legacy plain-text decision parser (phrase matching); retained as fallback when no conversational engine is injected |
 | `assistant/src/runtime/channel-approval-types.ts` | Shared types: actions, prompts, UI metadata, decisions |
 | `assistant/src/runtime/routes/channel-routes.ts` | Integration point: approval interception, actor role resolution, guardian approval routing, deliver-once guard, fail-closed prompt delivery |
 | `assistant/src/runtime/channel-guardian-service.ts` | Guardian binding lookups: `isGuardian()`, `getGuardianBinding()` |
@@ -3894,11 +3939,11 @@ The assistant inbox extends the guardian security model to support controlled cr
 
 The channel inbound handler (`channel-routes.ts`) enforces an access control layer between message receipt and agent processing:
 
-1. When `inbox_enabled` is true and the sender is not the guardian, the handler looks up the sender in `assistant_ingress_members` by `(sourceChannel, externalUserId)`.
-2. If no member record exists, the `inbox_default_policy` config determines behavior (allow, deny, or escalate).
-3. If a member exists, their individual `policy` field takes precedence.
+1. When `senderExternalUserId` is present and the sender is not the guardian, the handler looks up the sender in `assistant_ingress_members` by `(sourceChannel, externalUserId)`.
+2. If no member record exists, the message is denied (`not_a_member`).
+3. If a member exists, their individual `policy` field determines behavior (allow, deny, or escalate).
 
-Invite tokens are created via the `ingress_invite` IPC contract. Each token is SHA-256 hashed before storage — the raw token is returned exactly once at creation time. External users redeem invites by sending the token as a channel message, which creates a member record with the default policy.
+Invite tokens are created via the `ingress_invite` IPC contract. Each token is SHA-256 hashed before storage — the raw token is returned exactly once at creation time. External users redeem invites by sending the token as a channel message, which creates a member record with `allow` policy.
 
 #### Escalation Data Flow
 
@@ -4157,7 +4202,7 @@ sequenceDiagram
     TwilioAPI->>Gateway: WebSocket /webhooks/twilio/relay
     Gateway->>WS: proxy WS to runtime /v1/calls/relay
     WS->>WS: setup message (callSid)
-    WS->>WS: detect isInbound (session.task == null)
+    WS->>WS: detect isInbound (`session.initiatedFromConversationId == null`)
 
     alt Pending voice guardian challenge exists
         WS->>GuardianSvc: getPendingChallenge(assistantId, 'voice')
@@ -4197,7 +4242,7 @@ sequenceDiagram
     end
 ```
 
-**Inbound vs. outbound detection**: The relay server determines call direction by checking `session.task`. Outbound calls always have a task (the user-provided objective). Inbound calls have `task == null` because the caller dialed in — the assistant's role is to greet and assist rather than execute a specific task.
+**Inbound vs. outbound detection**: The relay server determines call direction by checking `session.initiatedFromConversationId`. Outbound calls are initiated from an existing conversation (`initiatedFromConversationId` set). Inbound calls are bootstrapped from Twilio webhooks and therefore have `initiatedFromConversationId == null`.
 
 **Inbound system prompt**: The `CallOrchestrator.buildInboundSystemPrompt()` generates a receptionist-style prompt: "You are on a live phone call, answering an incoming call on behalf of [user]. The caller dialed in to reach you. You do not have a specific task -- your role is to greet them warmly, find out what they need, and assist them."
 
@@ -4275,6 +4320,14 @@ When the LLM emits `[ASK_GUARDIAN: question]` during a voice call, the orchestra
 6. **Expiry sweep**: The `guardian-action-sweep.ts` module runs a periodic 60-second interval sweep. It finds requests that have passed their expiry timestamp and transitions them to `expired` status. Expiry notices are sent to all delivery channels associated with the expired request.
 
 7. **Separation from channel guardian approvals**: Guardian action requests are SEPARATE from `channelGuardianApprovalRequests` (the existing channel tool-approval system). The channel guardian approval system handles tool-use permission grants (approve/deny a specific tool invocation). Guardian action requests handle free-form questions from voice calls that require human input to continue the conversation.
+
+#### Guardian Request Copy Generation Pipeline
+
+Thread titles and initial messages for guardian question threads are generated via `guardian-question-copy.ts`. The module calls the configured LLM provider (with `modelIntent: 'latency-optimized'`) to produce an emoji-prefixed, attention-oriented title and a richer initial message that explains the live-call context. A 5-second timeout guards the generation call. When no provider is configured, generation times out, or parsing fails, the module falls back to deterministic copy (`buildFallbackCopy`) that uses a warning emoji prefix and a simple template containing the question text. The generative copy is awaited only in the macOS delivery branch so that Telegram/SMS deliveries dispatch without LLM latency.
+
+#### macOS Notification + Deep-Link Flow
+
+When a guardian question is dispatched while the macOS app is backgrounded, the Swift client posts a native `UNUserNotificationCenter` notification under the `GUARDIAN_REQUEST` category. The notification title mirrors the emoji-prefixed thread title from the copy generation pipeline. Tapping the notification triggers the `openConversationThread` deep-link handler, which switches the main window to the guardian question thread so the user can reply immediately.
 
 ### SQLite Tables
 

@@ -260,6 +260,64 @@ public struct IPCAppRestoreResponse: Codable, Sendable {
     }
 }
 
+public struct IPCApprovedDeviceRemove: Codable, Sendable {
+    public let type: String
+    public let hashedDeviceId: String
+
+    public init(type: String, hashedDeviceId: String) {
+        self.type = type
+        self.hashedDeviceId = hashedDeviceId
+    }
+}
+
+public struct IPCApprovedDeviceRemoveResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+
+    public init(type: String, success: Bool) {
+        self.type = type
+        self.success = success
+    }
+}
+
+public struct IPCApprovedDevicesClear: Codable, Sendable {
+    public let type: String
+
+    public init(type: String) {
+        self.type = type
+    }
+}
+
+public struct IPCApprovedDevicesList: Codable, Sendable {
+    public let type: String
+
+    public init(type: String) {
+        self.type = type
+    }
+}
+
+public struct IPCApprovedDevicesListResponse: Codable, Sendable {
+    public let type: String
+    public let devices: [IPCApprovedDevicesListResponseDevice]
+
+    public init(type: String, devices: [IPCApprovedDevicesListResponseDevice]) {
+        self.type = type
+        self.devices = devices
+    }
+}
+
+public struct IPCApprovedDevicesListResponseDevice: Codable, Sendable {
+    public let hashedDeviceId: String
+    public let deviceName: String
+    public let lastPairedAt: Int
+
+    public init(hashedDeviceId: String, deviceName: String, lastPairedAt: Int) {
+        self.hashedDeviceId = hashedDeviceId
+        self.deviceName = deviceName
+        self.lastPairedAt = lastPairedAt
+    }
+}
+
 public struct IPCAppsListRequest: Codable, Sendable {
     public let type: String
 
@@ -1853,13 +1911,15 @@ public struct IPCGuardianRequestThreadCreated: Codable, Sendable {
     public let requestId: String
     public let callSessionId: String
     public let title: String
+    public let questionText: String
 
-    public init(type: String, conversationId: String, requestId: String, callSessionId: String, title: String) {
+    public init(type: String, conversationId: String, requestId: String, callSessionId: String, title: String, questionText: String) {
         self.type = type
         self.conversationId = conversationId
         self.requestId = requestId
         self.callSessionId = callSessionId
         self.title = title
+        self.questionText = questionText
     }
 }
 
@@ -2769,6 +2829,32 @@ public struct IPCOpenUrl: Codable, Sendable {
         self.type = type
         self.url = url
         self.title = title
+    }
+}
+
+public struct IPCPairingApprovalRequest: Codable, Sendable {
+    public let type: String
+    public let pairingRequestId: String
+    public let deviceId: String
+    public let deviceName: String
+
+    public init(type: String, pairingRequestId: String, deviceId: String, deviceName: String) {
+        self.type = type
+        self.pairingRequestId = pairingRequestId
+        self.deviceId = deviceId
+        self.deviceName = deviceName
+    }
+}
+
+public struct IPCPairingApprovalResponse: Codable, Sendable {
+    public let type: String
+    public let pairingRequestId: String
+    public let decision: String
+
+    public init(type: String, pairingRequestId: String, decision: String) {
+        self.type = type
+        self.pairingRequestId = pairingRequestId
+        self.decision = decision
     }
 }
 

@@ -15,7 +15,9 @@ import { createSmsDeliverHandler } from "./http/routes/sms-deliver.js";
 import { createWhatsAppWebhookHandler } from "./http/routes/whatsapp-webhook.js";
 import { createWhatsAppDeliverHandler } from "./http/routes/whatsapp-deliver.js";
 import { createOAuthCallbackHandler } from "./http/routes/oauth-callback.js";
+import { createPairingProxyHandler } from "./http/routes/pairing-proxy.js";
 import { getLogger, initLogger } from "./logger.js";
+import { CircuitBreakerOpenError } from "./runtime/client.js";
 import { buildSchema } from "./schema.js";
 import { callTelegramApi } from "./telegram/api.js";
 import { reconcileTelegramWebhook } from "./telegram/webhook-manager.js";
@@ -53,6 +55,7 @@ function main() {
   const handleWhatsAppWebhook = createWhatsAppWebhookHandler(config);
   const handleWhatsAppDeliver = createWhatsAppDeliverHandler(config);
   const handleOAuthCallback = createOAuthCallbackHandler(config);
+  const pairingProxy = createPairingProxyHandler(config);
 
   const handleRuntimeProxy = config.runtimeProxyEnabled
     ? createRuntimeProxyHandler(config)
@@ -62,6 +65,12 @@ function main() {
     port: config.port,
     websocket: getRelayWebsocketHandlers(),
     error(err) {
+      if (err instanceof CircuitBreakerOpenError) {
+        return Response.json(
+          { error: "Service temporarily unavailable — runtime is unreachable" },
+          { status: 503, headers: { "Retry-After": String(err.retryAfterSecs) } },
+        );
+      }
       log.error({ err }, "Unhandled gateway error");
       return Response.json({ error: "Internal server error" }, { status: 500 });
     },
@@ -180,6 +189,14 @@ function main() {
             address: config.assistantEmail ?? null,
           },
         });
+      }
+
+      // ── Pairing proxy (unauthenticated at gateway, secret-gated) ──
+      if (url.pathname === "/pairing/request" && tracedReq.method === "POST") {
+        return pairingProxy.handlePairingRequest(tracedReq);
+      }
+      if (url.pathname === "/pairing/status" && tracedReq.method === "GET") {
+        return pairingProxy.handlePairingStatus(tracedReq);
       }
 
       if (handleRuntimeProxy) {

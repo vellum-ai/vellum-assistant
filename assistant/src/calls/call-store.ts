@@ -5,54 +5,49 @@ import { callSessions, callEvents, callPendingQuestions } from '../memory/schema
 import type { CallSession, CallEvent, CallPendingQuestion, CallEventType, CallStatus } from './types.js';
 import { validateTransition } from './call-state-machine.js';
 import { getLogger } from '../util/logger.js';
+import { createRowMapper, cast } from '../util/row-mapper.js';
 
 const log = getLogger('call-store');
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-function parseCallSession(row: typeof callSessions.$inferSelect): CallSession {
-  return {
-    id: row.id,
-    conversationId: row.conversationId,
-    provider: row.provider,
-    providerCallSid: row.providerCallSid,
-    fromNumber: row.fromNumber,
-    toNumber: row.toNumber,
-    task: row.task,
-    status: row.status as CallSession['status'],
-    callerIdentityMode: row.callerIdentityMode,
-    callerIdentitySource: row.callerIdentitySource,
-    assistantId: row.assistantId,
-    initiatedFromConversationId: row.initiatedFromConversationId,
-    startedAt: row.startedAt,
-    endedAt: row.endedAt,
-    lastError: row.lastError,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-  };
-}
+const parseCallSession = createRowMapper<typeof callSessions.$inferSelect, CallSession>({
+  id: 'id',
+  conversationId: 'conversationId',
+  provider: 'provider',
+  providerCallSid: 'providerCallSid',
+  fromNumber: 'fromNumber',
+  toNumber: 'toNumber',
+  task: 'task',
+  status: { from: 'status', transform: cast<CallSession['status']>() },
+  callerIdentityMode: 'callerIdentityMode',
+  callerIdentitySource: 'callerIdentitySource',
+  assistantId: 'assistantId',
+  initiatedFromConversationId: 'initiatedFromConversationId',
+  startedAt: 'startedAt',
+  endedAt: 'endedAt',
+  lastError: 'lastError',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt',
+});
 
-function parseCallEvent(row: typeof callEvents.$inferSelect): CallEvent {
-  return {
-    id: row.id,
-    callSessionId: row.callSessionId,
-    eventType: row.eventType as CallEvent['eventType'],
-    payloadJson: row.payloadJson,
-    createdAt: row.createdAt,
-  };
-}
+const parseCallEvent = createRowMapper<typeof callEvents.$inferSelect, CallEvent>({
+  id: 'id',
+  callSessionId: 'callSessionId',
+  eventType: { from: 'eventType', transform: cast<CallEvent['eventType']>() },
+  payloadJson: 'payloadJson',
+  createdAt: 'createdAt',
+});
 
-function parsePendingQuestion(row: typeof callPendingQuestions.$inferSelect): CallPendingQuestion {
-  return {
-    id: row.id,
-    callSessionId: row.callSessionId,
-    questionText: row.questionText,
-    status: row.status as CallPendingQuestion['status'],
-    askedAt: row.askedAt,
-    answeredAt: row.answeredAt,
-    answerText: row.answerText,
-  };
-}
+const parsePendingQuestion = createRowMapper<typeof callPendingQuestions.$inferSelect, CallPendingQuestion>({
+  id: 'id',
+  callSessionId: 'callSessionId',
+  questionText: 'questionText',
+  status: { from: 'status', transform: cast<CallPendingQuestion['status']>() },
+  askedAt: 'askedAt',
+  answeredAt: 'answeredAt',
+  answerText: 'answerText',
+});
 
 // ── Call Sessions ────────────────────────────────────────────────────
 

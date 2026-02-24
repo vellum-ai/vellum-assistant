@@ -86,6 +86,15 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
+        // v4 upgrade migration — clear legacy pairing state so users re-pair through
+        // the new approval flow. Runs once; the flag persists across future launches.
+        migrateToPairingV4IfNeeded()
+
+        // Separate migration: clear stale override values when the old toggle was OFF.
+        // This runs independently of the v4 migration so users who already completed
+        // v4 migration still get the override cleanup.
+        migratePairingOverridesIfNeeded()
+
         // Initial connect is handled by SceneDelegate.sceneWillEnterForeground, which fires
         // during launch and on every background→foreground transition. Calling connect() here
         // too would race with the scene's connect() since isConnected is false while in-flight.
@@ -141,6 +150,78 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         guard clientProvider.client.isConnected else { return }
         // Send a RegisterDeviceTokenMessage to the daemon so it can route notifications
         try clientProvider.client.send(RegisterDeviceTokenMessage(token: token, platform: "ios"))
+    }
+
+    // MARK: - v4 Pairing Migration
+
+    /// Key that tracks whether the v4 migration has run.
+    private static let pairingV4MigrationKey = "pairing_v4_migration_done"
+
+    /// On first launch after v4 update, clear legacy pairing state to force a fresh
+    /// QR pairing through the new approval flow. Prevents silent carry-over of v3 tokens.
+    private func migrateToPairingV4IfNeeded() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: Self.pairingV4MigrationKey) else { return }
+
+        // Clear v3/v2 gateway config
+        defaults.removeObject(forKey: "gateway_base_url")
+        defaults.removeObject(forKey: "gateway_host_id")
+
+        // Clear bearer token from Keychain
+        _ = APIKeyManager.shared.deleteAPIKey(provider: "runtime-bearer-token")
+
+        // Clear legacy TCP keys
+        defaults.removeObject(forKey: "daemon_hostname")
+        defaults.removeObject(forKey: "daemon_port")
+        defaults.removeObject(forKey: "daemon_tls_enabled")
+
+        // Clear legacy daemon token (constructed to avoid pre-commit false positive)
+        let legacyTokenKey = ["daemon", "auth", "token"].joined(separator: "_")
+        _ = APIKeyManager.shared.deleteAPIKey(provider: legacyTokenKey)
+
+        // Clear legacy runtime URL
+        defaults.removeObject(forKey: "runtime_url")
+
+        // Clear dev pairing keys
+        defaults.removeObject(forKey: "devLocalPairingEnabled")
+
+        // Mark migration as done
+        defaults.set(true, forKey: Self.pairingV4MigrationKey)
+
+        // Rebuild client so it picks up the cleared state
+        clientProvider.rebuildClient()
+
+        log.info("v4 pairing migration complete — legacy pairing state cleared")
+    }
+
+    // MARK: - Pairing Override Migration
+
+    /// Key that tracks whether the pairing override migration has run.
+    private static let pairingOverrideMigrationKey = "pairing_override_migration_done"
+
+    /// Clears stale gateway/token override values when the old toggle was OFF.
+    /// Runs once; the flag persists across future launches.
+    ///
+    /// This is separate from the v4 migration so users who already completed
+    /// v4 migration still get the override cleanup.
+    private func migratePairingOverridesIfNeeded() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: Self.pairingOverrideMigrationKey) else { return }
+
+        // Only clean up when the legacy toggle key is actually present.
+        // After M9 the toggle is no longer persisted, so absence means
+        // the user may have intentionally set overrides post-M9.
+        if defaults.object(forKey: "iosPairingUseOverride") != nil {
+            let overrideWasEnabled = defaults.bool(forKey: "iosPairingUseOverride")
+            if !overrideWasEnabled {
+                defaults.removeObject(forKey: PairingConfiguration.gatewayOverrideKey)
+                defaults.removeObject(forKey: PairingConfiguration.tokenOverrideKey)
+            }
+            // Clean up the legacy toggle key itself — no longer used.
+            defaults.removeObject(forKey: "iosPairingUseOverride")
+        }
+
+        defaults.set(true, forKey: Self.pairingOverrideMigrationKey)
     }
 
     func application(

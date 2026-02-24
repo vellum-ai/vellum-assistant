@@ -77,22 +77,15 @@ cd clients/ios
 
 Requires the Vellum daemon running on your Mac (via the macOS desktop app or `cd assistant && bun run src/index.ts daemon start` from the repo root). The iOS app connects to the daemon through an HTTP gateway using a bearer token for authentication.
 
-**QR Code Pairing (recommended):**
+**QR Code Pairing:**
 
 1. On your Mac, open **Settings → Connect → Show QR Code**
 2. On your iPhone, go to **Settings → Connect → Scan QR Code**
-3. Scan the QR code — the app auto-configures the gateway URL and bearer token
+3. Scan the QR code — your Mac will show an approval prompt
+4. Tap **Approve Once** or **Always Allow** on your Mac
+5. The app auto-configures the gateway URL and bearer token
 
-The QR code contains a v3 payload with the gateway URL, bearer token, and local network settings. For LAN-only connections (e.g., development), the QR code includes an `allowLocalHttp` flag that permits plain HTTP for local/private addresses.
-
-**Manual Setup:**
-
-1. On your iPhone, go to **Settings → Connect → Manual Setup**
-2. Enter the gateway URL shown in your Mac's **Settings → Connect → Gateway** section
-3. Enter the bearer token shown in your Mac's **Settings → Connect → Advanced** section
-4. Tap **Connect**
-
-HTTPS is required for non-local connections. HTTP is permitted only for loopback, mDNS `.local`, link-local, and RFC 1918 private addresses.
+The QR code uses a v4 payload with a one-time pairing secret (no bearer token in the QR). All pairings require Mac-side approval. Devices approved with "Always Allow" auto-approve on future pairings. LAN pairing works automatically when both devices are on the same network — the QR code includes the local gateway URL for direct LAN connections.
 
 ## Running Tests
 
@@ -131,12 +124,11 @@ swift test --filter VellumAssistantSharedTests
 
 | Setting | Storage | Default | Description |
 |---------|---------|---------|-------------|
-| Gateway URL | UserDefaults `gateway_base_url` | — | HTTP(S) gateway URL from QR code or manual entry |
+| Gateway URL | UserDefaults `gateway_base_url` | — | HTTP(S) gateway URL from QR code pairing |
 | Bearer token | Keychain (device) / UserDefaults (sim), provider `"runtime-bearer-token"` | — | Authentication token for gateway requests |
+| Device ID | Keychain (device) / UserDefaults (sim), provider `"pairing-device-id"` | — | Stable UUID for pairing identity (survives reinstalls) |
 | Conversation key | UserDefaults `conversation_key` | — | Auto-generated UUID for session identification |
 | Anthropic API key | Keychain (device) / UserDefaults (sim) | — | For standalone mode (direct API) |
-| Daemon hostname | UserDefaults `daemon_hostname` | `localhost` | Legacy TCP hostname (still used for cert pinning) |
-| Daemon port | UserDefaults `daemon_port` | `8765` | Legacy TCP port |
 
 ## Dependencies
 
@@ -148,7 +140,9 @@ The iOS app depends only on `VellumAssistantShared`. It must **not** import `Vel
 |---------|-------|-----|
 | "Cannot connect" | Daemon not running or wrong gateway URL | Start the macOS app, verify gateway URL in Settings → Connect |
 | "Connection failed" after QR scan | Gateway unreachable from iPhone | Ensure both devices are on the same network; check firewall settings |
-| "HTTPS is required" on manual entry | Non-local URL with `http://` scheme | Use `https://` or connect via QR code for local HTTP |
-| Auth timeout / immediate disconnect | Missing or wrong bearer token | Re-scan QR code or re-enter token from Mac's Settings → Connect → Advanced |
+| "Pairing was denied" | User tapped Deny on Mac | Show a new QR code and approve the pairing |
+| "Pairing request expired" | QR code older than 5 minutes | Show a new QR code on your Mac |
+| "This QR code is outdated" | Scanned a v2/v3 QR code | Update Vellum on your Mac and generate a new QR code |
+| Auth timeout / immediate disconnect | Missing or wrong bearer token | Re-scan QR code to obtain a fresh token |
 | "Failed to save API Key" | Keychain unavailable (simulator) | Expected — key saved to UserDefaults instead |
 | Old version still showing in simulator | Cached build | `xcrun simctl uninstall <UDID> ai.vellum.assistant.ios` then reinstall |

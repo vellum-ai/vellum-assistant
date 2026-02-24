@@ -3,6 +3,7 @@ import type { AssistantConfig } from '../config/types.js';
 import { estimateTextTokens } from '../context/token-estimator.js';
 import { getLogger } from '../util/logger.js';
 import { embedWithBackend, getMemoryBackendStatus, logMemoryEmbeddingWarning } from './embedding-backend.js';
+import { computeRetryDelay, isRetryableNetworkError, abortableSleep } from '../util/retry.js';
 import { getDb } from './db.js';
 import { memoryItemSources } from './schema.js';
 import type {
@@ -35,6 +36,37 @@ export {
 } from './search/formatting.js';
 
 const log = getLogger('memory-retriever');
+
+const EMBED_MAX_RETRIES = 3;
+const EMBED_BASE_DELAY_MS = 500;
+
+/**
+ * Wrap embedWithBackend with retry + exponential backoff for transient failures
+ * (network errors, 429s, 5xx). Aborts immediately if the caller's signal fires.
+ */
+async function embedWithRetry(
+  config: AssistantConfig,
+  texts: string[],
+  opts?: { signal?: AbortSignal },
+): ReturnType<typeof embedWithBackend> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= EMBED_MAX_RETRIES; attempt++) {
+    try {
+      return await embedWithBackend(config, texts, opts);
+    } catch (err) {
+      lastError = err;
+      if (opts?.signal?.aborted || isAbortError(err)) throw err;
+      const isTransient = isRetryableNetworkError(err)
+        || isHttpStatusError(err);
+      if (!isTransient || attempt === EMBED_MAX_RETRIES) throw err;
+      const delay = computeRetryDelay(attempt, EMBED_BASE_DELAY_MS);
+      log.warn({ err, attempt: attempt + 1, delayMs: Math.round(delay) }, 'Transient embedding failure, retrying');
+      await abortableSleep(delay, opts?.signal);
+      if (opts?.signal?.aborted) throw err;
+    }
+  }
+  throw lastError;
+}
 
 /**
  * Build the list of scope IDs to include in queries.
@@ -136,17 +168,39 @@ async function collectAndMergeCandidates(
 
   let directItems: Candidate[];
   if (excludeMessageIds.length > 0) {
-    // Adaptive loop: double fetch size on each iteration until quota met or DB exhausted.
-    const MAX_FETCH_MULTIPLIER = 8;
-    let fetchSize = Math.max(directLimit * 2, directLimit + 24);
-    directItems = [];
-    while (true) {
-      const fetched = directItemSearch(query, fetchSize, scopeIds);
+    const MAX_FETCH = directLimit * 8;
+
+    // Probe: fetch directLimit items and measure how many survive filtering.
+    const probe = directItemSearch(query, directLimit, scopeIds);
+    const probeFiltered = filterDirectItems(probe);
+    const probeExhausted = probe.length < directLimit;
+
+    if (probeFiltered.length >= directLimit || probeExhausted) {
+      directItems = probeFiltered.slice(0, directLimit);
+    } else {
+      // Compute exclusion ratio from probe and extrapolate the fetch size
+      // needed to yield directLimit surviving items in a single query.
+      const exclusionRatio = probe.length > 0
+        ? 1 - probeFiltered.length / probe.length
+        : 0;
+      // Fetch enough to compensate for the observed exclusion rate, with
+      // a 1.5x safety margin to avoid a second round in most cases.
+      const estimatedFetch = exclusionRatio < 1
+        ? Math.ceil((directLimit / (1 - exclusionRatio)) * 1.5)
+        : MAX_FETCH;
+      let fetchSize = Math.min(Math.max(estimatedFetch, directLimit + 24), MAX_FETCH);
+
+      let fetched = directItemSearch(query, fetchSize, scopeIds);
       directItems = filterDirectItems(fetched).slice(0, directLimit);
-      if (directItems.length >= directLimit || fetched.length < fetchSize || fetchSize >= directLimit * MAX_FETCH_MULTIPLIER) {
-        break;
+
+      // Retry loop: when the estimate under-fetched (uneven exclusion
+      // distribution), keep increasing fetchSize until quota is met or
+      // the DB is exhausted.
+      while (directItems.length < directLimit && fetched.length === fetchSize && fetchSize < MAX_FETCH) {
+        fetchSize = Math.min(fetchSize * 2, MAX_FETCH);
+        fetched = directItemSearch(query, fetchSize, scopeIds);
+        directItems = filterDirectItems(fetched).slice(0, directLimit);
       }
-      fetchSize = Math.min(fetchSize * 2, directLimit * MAX_FETCH_MULTIPLIER);
     }
   } else {
     directItems = directItemSearch(query, directLimit, scopeIds);
@@ -293,7 +347,7 @@ export async function buildMemoryRecall(
 
   if (backendStatus.provider) {
     try {
-      const embedded = await embedWithBackend(config, [query], { signal });
+      const embedded = await embedWithRetry(config, [query], { signal });
       queryVector = embedded.vectors[0] ?? null;
       provider = embedded.provider;
       model = embedded.model;
@@ -645,7 +699,7 @@ export async function searchMemoryItems(
   const backendStatus = getMemoryBackendStatus(config);
   if (backendStatus.provider) {
     try {
-      const embedded = await embedWithBackend(config, [trimmed]);
+      const embedded = await embedWithRetry(config, [trimmed]);
       queryVector = embedded.vectors[0] ?? null;
       provider = embedded.provider;
       model = embedded.model;
@@ -716,4 +770,31 @@ function truncate(text: string, max: number): string {
 function isAbortError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   return err.name === 'AbortError' || err.name === 'APIUserAbortError';
+}
+
+/**
+ * Check if an error represents a retryable HTTP status (429 or 5xx).
+ * Checks the error's `status` or `statusCode` property first (set by most
+ * HTTP/API clients), then falls back to looking for "status <code>" patterns
+ * in the message. This avoids false positives from dimension numbers like 512.
+ */
+function getErrorStatusCode(err: Error): unknown {
+  if ('status' in err) return (err as { status: unknown }).status;
+  if ('statusCode' in err) return (err as { statusCode: unknown }).statusCode;
+  return undefined;
+}
+
+function isHttpStatusError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const status = getErrorStatusCode(err);
+  if (typeof status === 'number') {
+    return status === 429 || (status >= 500 && status < 600);
+  }
+  // Fall back to message matching, but only for patterns that clearly
+  // indicate an HTTP status code rather than arbitrary numbers.
+  // Matches: "status 503", "HTTP 500", "status code: 502", parenthesized
+  // codes like "failed (503)" from Gemini/Ollama (requires "failed" or
+  // "error" context to avoid false positives from dimension numbers like
+  // 512), and bare "429" (rate-limit).
+  return /\b429\b|(?:failed|error)\s*\((?:429|5\d{2})\)|(?:status|http)\s*(?:code\s*)?:?\s*5\d{2}\b/i.test(err.message);
 }

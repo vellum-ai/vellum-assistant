@@ -8,14 +8,14 @@
  * - Fail-fast validation via validateEnv() at startup
  * - Shared derived values (e.g. gateway base URL) instead of duplicated logic
  *
- * Variables NOT centralized here (must resolve before this module loads):
- * - BASE_DATA_DIR, VELLUM_DAEMON_* — bootstrap/platform layer (util/platform.ts)
- * - VELLUM_DEBUG, BUN_TEST, NODE_ENV log flags — logger init (util/logger.ts)
- * - APP_VERSION — compile-time embedding (version.ts)
- * - __EVAL_INPUT_JSON, __SKILL_*_JSON — internal sandbox IPC
+ * Bootstrap-level env vars (BASE_DATA_DIR, VELLUM_DAEMON_*, VELLUM_DEBUG,
+ * VELLUM_LOG_STDERR, DEBUG_STDOUT_LOGS) are defined in config/env-registry.ts
+ * which has no internal dependencies and can be imported from platform/logger
+ * without circular imports.
  */
 
 import { getLogger } from '../util/logger.js';
+import { getEnableMonitoring, checkUnrecognizedEnvVars } from './env-registry.js';
 
 const log = getLogger('env');
 
@@ -38,12 +38,6 @@ function int(name: string, fallback?: number): number | undefined {
     throw new Error(`Invalid integer for ${name}: "${raw}"${fallback !== undefined ? ` (fallback: ${fallback})` : ''}`);
   }
   return n;
-}
-
-/** Read an env var as a boolean flag ('true'/'1' → true, everything else → false). */
-function flag(name: string): boolean {
-  const raw = str(name);
-  return raw === 'true' || raw === '1';
 }
 
 // ── Gateway ──────────────────────────────────────────────────────────────────
@@ -134,7 +128,7 @@ export function getLogfireToken(): string | undefined {
 }
 
 export function isMonitoringEnabled(): boolean {
-  return flag('VELLUM_ENABLE_MONITORING');
+  return getEnableMonitoring();
 }
 
 export function getSentryDsn(): string | undefined {
@@ -173,5 +167,9 @@ export function validateEnv(): void {
 
   if (getTwilioWssBaseUrl()) {
     log.warn('TWILIO_WSS_BASE_URL env var is deprecated. Relay URL is now derived from ingress.publicBaseUrl.');
+  }
+
+  for (const warning of checkUnrecognizedEnvVars()) {
+    log.warn(warning);
   }
 }

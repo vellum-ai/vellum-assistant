@@ -1,0 +1,621 @@
+import { describe, test, expect, mock } from 'bun:test';
+import { resolve } from 'node:path';
+
+const retryModulePath = resolve(import.meta.dir, '../util/retry.ts');
+
+mock.module('../util/logger.js', () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
+  isDebug: () => false,
+}));
+
+// Only mock sleep so retries complete instantly; keep real retry logic
+mock.module('../util/retry.js', async () => {
+  const real = await import(retryModulePath);
+  return {
+    ...real,
+    sleep: () => Promise.resolve(),
+  };
+});
+
+import { RetryProvider } from '../providers/retry.js';
+import { FailoverProvider } from '../providers/failover.js';
+import { createStreamTimeout } from '../providers/stream-timeout.js';
+import { ProviderError } from '../util/errors.js';
+import { DEFAULT_MAX_RETRIES } from '../util/retry.js';
+import type {
+  Provider,
+  ProviderResponse,
+  Message,
+  ProviderEvent,
+} from '../providers/types.js';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const MESSAGES: Message[] = [
+  { role: 'user', content: [{ type: 'text', text: 'Hello' }] },
+];
+
+function successResponse(overrides?: Partial<ProviderResponse>): ProviderResponse {
+  return {
+    content: [{ type: 'text', text: 'ok' }],
+    model: 'test-model',
+    usage: { inputTokens: 10, outputTokens: 5 },
+    stopReason: 'end_turn',
+    ...overrides,
+  };
+}
+
+function makeProvider(name = 'mock'): Provider & { calls: number } {
+  const p = {
+    name,
+    calls: 0,
+    async sendMessage(): Promise<ProviderResponse> {
+      p.calls++;
+      return successResponse();
+    },
+  };
+  return p;
+}
+
+/** Provider that fails N times then succeeds. */
+function makeFlaky(
+  failCount: number,
+  error: Error,
+  name = 'flaky',
+): Provider & { calls: number } {
+  const p = {
+    name,
+    calls: 0,
+    async sendMessage(): Promise<ProviderResponse> {
+      p.calls++;
+      if (p.calls <= failCount) throw error;
+      return successResponse();
+    },
+  };
+  return p;
+}
+
+/** Provider that always fails. */
+function makeFailing(error: Error, name = 'failing'): Provider & { calls: number } {
+  const p = {
+    name,
+    calls: 0,
+    async sendMessage(): Promise<ProviderResponse> {
+      p.calls++;
+      throw error;
+    },
+  };
+  return p;
+}
+
+// ---------------------------------------------------------------------------
+// RetryProvider — rate limit backoff
+// ---------------------------------------------------------------------------
+
+describe('RetryProvider — rate limit backoff', () => {
+  test('retries on 429 and succeeds after transient rate limit', async () => {
+    const inner = makeFlaky(2, new ProviderError('rate limited', 'test', 429));
+    const provider = new RetryProvider(inner);
+
+    const result = await provider.sendMessage(MESSAGES);
+
+    expect(result.content[0]).toMatchObject({ type: 'text', text: 'ok' });
+    // 2 failures + 1 success = 3 calls
+    expect(inner.calls).toBe(3);
+  });
+
+  test('throws after exhausting all retries on persistent 429', async () => {
+    const inner = makeFailing(new ProviderError('rate limited', 'test', 429));
+    const provider = new RetryProvider(inner);
+
+    await expect(provider.sendMessage(MESSAGES)).rejects.toThrow('rate limited');
+    // 1 initial + DEFAULT_MAX_RETRIES retries
+    expect(inner.calls).toBe(DEFAULT_MAX_RETRIES + 1);
+  });
+
+  test('preserves ProviderError properties through retry exhaustion', async () => {
+    const inner = makeFailing(new ProviderError('quota exceeded', 'anthropic', 429));
+    const provider = new RetryProvider(inner);
+
+    try {
+      await provider.sendMessage(MESSAGES);
+      expect(true).toBe(false); // should not reach
+    } catch (err) {
+      expect(err).toBeInstanceOf(ProviderError);
+      const pe = err as ProviderError;
+      expect(pe.provider).toBe('anthropic');
+      expect(pe.statusCode).toBe(429);
+      expect(pe.message).toBe('quota exceeded');
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RetryProvider — server error retries
+// ---------------------------------------------------------------------------
+
+describe('RetryProvider — server error retries', () => {
+  test('retries on 500 Internal Server Error', async () => {
+    const inner = makeFlaky(1, new ProviderError('internal error', 'test', 500));
+    const provider = new RetryProvider(inner);
+
+    const result = await provider.sendMessage(MESSAGES);
+    expect(result.stopReason).toBe('end_turn');
+    expect(inner.calls).toBe(2);
+  });
+
+  test('retries on 502 Bad Gateway', async () => {
+    const inner = makeFlaky(1, new ProviderError('bad gateway', 'test', 502));
+    const provider = new RetryProvider(inner);
+
+    const result = await provider.sendMessage(MESSAGES);
+    expect(inner.calls).toBe(2);
+    expect(result.model).toBe('test-model');
+  });
+
+  test('retries on 503 Service Unavailable', async () => {
+    const inner = makeFlaky(1, new ProviderError('unavailable', 'test', 503));
+    const provider = new RetryProvider(inner);
+
+    const result = await provider.sendMessage(MESSAGES);
+    expect(inner.calls).toBe(2);
+    expect(result.content).toHaveLength(1);
+  });
+
+  test('does not retry on 400 Bad Request', async () => {
+    const inner = makeFailing(new ProviderError('bad request', 'test', 400));
+    const provider = new RetryProvider(inner);
+
+    await expect(provider.sendMessage(MESSAGES)).rejects.toThrow('bad request');
+    expect(inner.calls).toBe(1);
+  });
+
+  test('does not retry on 401 Unauthorized', async () => {
+    const inner = makeFailing(new ProviderError('unauthorized', 'test', 401));
+    const provider = new RetryProvider(inner);
+
+    await expect(provider.sendMessage(MESSAGES)).rejects.toThrow('unauthorized');
+    expect(inner.calls).toBe(1);
+  });
+
+  test('does not retry on 403 Forbidden', async () => {
+    const inner = makeFailing(new ProviderError('forbidden', 'test', 403));
+    const provider = new RetryProvider(inner);
+
+    await expect(provider.sendMessage(MESSAGES)).rejects.toThrow('forbidden');
+    expect(inner.calls).toBe(1);
+  });
+
+  test('does not retry on 422 Unprocessable Entity', async () => {
+    const inner = makeFailing(new ProviderError('invalid input', 'test', 422));
+    const provider = new RetryProvider(inner);
+
+    await expect(provider.sendMessage(MESSAGES)).rejects.toThrow('invalid input');
+    expect(inner.calls).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RetryProvider — network error retries
+// ---------------------------------------------------------------------------
+
+describe('RetryProvider — network error retries', () => {
+  test('retries on ECONNRESET', async () => {
+    const err = new Error('connection reset');
+    (err as NodeJS.ErrnoException).code = 'ECONNRESET';
+    const inner = makeFlaky(1, err);
+    const provider = new RetryProvider(inner);
+
+    const result = await provider.sendMessage(MESSAGES);
+    expect(inner.calls).toBe(2);
+    expect(result.stopReason).toBe('end_turn');
+  });
+
+  test('retries on ECONNREFUSED', async () => {
+    const err = new Error('connection refused');
+    (err as NodeJS.ErrnoException).code = 'ECONNREFUSED';
+    const inner = makeFlaky(1, err);
+    const provider = new RetryProvider(inner);
+
+    const result = await provider.sendMessage(MESSAGES);
+    expect(inner.calls).toBe(2);
+    expect(result.model).toBe('test-model');
+  });
+
+  test('retries on ETIMEDOUT', async () => {
+    const err = new Error('timed out');
+    (err as NodeJS.ErrnoException).code = 'ETIMEDOUT';
+    const inner = makeFlaky(1, err);
+    const provider = new RetryProvider(inner);
+
+    const _result = await provider.sendMessage(MESSAGES);
+    expect(inner.calls).toBe(2);
+  });
+
+  test('retries on ECONNRESET in error cause chain', async () => {
+    const cause = new Error('socket hangup');
+    (cause as NodeJS.ErrnoException).code = 'ECONNRESET';
+    const outer = new Error('fetch failed', { cause });
+    const inner = makeFlaky(1, outer);
+    const provider = new RetryProvider(inner);
+
+    const result = await provider.sendMessage(MESSAGES);
+    expect(inner.calls).toBe(2);
+    expect(result.content[0]).toMatchObject({ type: 'text', text: 'ok' });
+  });
+
+  test('does not retry on non-retryable errors', async () => {
+    const inner = makeFailing(new Error('unexpected error'));
+    const provider = new RetryProvider(inner);
+
+    await expect(provider.sendMessage(MESSAGES)).rejects.toThrow('unexpected error');
+    expect(inner.calls).toBe(1);
+  });
+
+  test('does not retry on ProviderError without status code (non-network)', async () => {
+    // ProviderError without a statusCode and without a retryable network code
+    const err = new ProviderError('model not found', 'test');
+    const inner = makeFailing(err);
+    const provider = new RetryProvider(inner);
+
+    await expect(provider.sendMessage(MESSAGES)).rejects.toThrow('model not found');
+    expect(inner.calls).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RetryProvider — streaming + options passthrough
+// ---------------------------------------------------------------------------
+
+describe('RetryProvider — streaming response handling', () => {
+  test('passes onEvent callback through to inner provider', async () => {
+    const events: ProviderEvent[] = [];
+    const inner: Provider = {
+      name: 'streaming-mock',
+      async sendMessage(_m, _t, _s, options) {
+        options?.onEvent?.({ type: 'text_delta', text: 'hello ' });
+        options?.onEvent?.({ type: 'text_delta', text: 'world' });
+        return successResponse();
+      },
+    };
+    const provider = new RetryProvider(inner);
+
+    await provider.sendMessage(MESSAGES, undefined, undefined, {
+      onEvent: (e) => events.push(e),
+    });
+
+    expect(events).toHaveLength(2);
+    expect(events[0]).toMatchObject({ type: 'text_delta', text: 'hello ' });
+    expect(events[1]).toMatchObject({ type: 'text_delta', text: 'world' });
+  });
+
+  test('passes signal through to inner provider', async () => {
+    let receivedSignal: AbortSignal | undefined;
+    const inner: Provider = {
+      name: 'signal-mock',
+      async sendMessage(_m, _t, _s, options) {
+        receivedSignal = options?.signal;
+        return successResponse();
+      },
+    };
+    const provider = new RetryProvider(inner);
+    const controller = new AbortController();
+
+    await provider.sendMessage(MESSAGES, undefined, undefined, {
+      signal: controller.signal,
+    });
+
+    expect(receivedSignal).toBe(controller.signal);
+  });
+
+  test('events accumulate across retries (each attempt delivers events independently)', async () => {
+    let callCount = 0;
+    const inner: Provider = {
+      name: 'retry-stream',
+      async sendMessage(_m, _t, _s, options) {
+        callCount++;
+        options?.onEvent?.({ type: 'text_delta', text: `attempt${callCount} ` });
+        if (callCount <= 1) {
+          throw new ProviderError('overloaded', 'test', 529);
+        }
+        return successResponse();
+      },
+    };
+    const provider = new RetryProvider(inner);
+    const events: ProviderEvent[] = [];
+
+    await provider.sendMessage(MESSAGES, undefined, undefined, {
+      onEvent: (e) => events.push(e),
+    });
+
+    // Events from both attempts are delivered
+    expect(events).toHaveLength(2);
+    expect(events[0]).toMatchObject({ type: 'text_delta', text: 'attempt1 ' });
+    expect(events[1]).toMatchObject({ type: 'text_delta', text: 'attempt2 ' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FailoverProvider — model unavailability fallback
+// ---------------------------------------------------------------------------
+
+describe('FailoverProvider — model unavailability fallback', () => {
+  test('falls back to secondary when primary returns 500', async () => {
+    const primary = makeFailing(new ProviderError('down', 'primary', 500), 'primary');
+    const secondary = makeProvider('secondary');
+    const provider = new FailoverProvider([primary, secondary]);
+
+    const result = await provider.sendMessage(MESSAGES);
+
+    expect(primary.calls).toBe(1);
+    expect(secondary.calls).toBe(1);
+    expect(result.stopReason).toBe('end_turn');
+  });
+
+  test('falls back to secondary when primary returns 429', async () => {
+    const primary = makeFailing(new ProviderError('rate limited', 'primary', 429), 'primary');
+    const secondary = makeProvider('secondary');
+    const provider = new FailoverProvider([primary, secondary]);
+
+    const result = await provider.sendMessage(MESSAGES);
+
+    expect(primary.calls).toBe(1);
+    expect(secondary.calls).toBe(1);
+    expect(result.model).toBe('test-model');
+  });
+
+  test('falls back on ECONNREFUSED network error', async () => {
+    const err = new Error('connection refused');
+    (err as NodeJS.ErrnoException).code = 'ECONNREFUSED';
+    const primary = makeFailing(err, 'primary');
+    const secondary = makeProvider('secondary');
+    const provider = new FailoverProvider([primary, secondary]);
+
+    const result = await provider.sendMessage(MESSAGES);
+
+    expect(primary.calls).toBe(1);
+    expect(secondary.calls).toBe(1);
+    expect(result.content[0]).toMatchObject({ type: 'text', text: 'ok' });
+  });
+
+  test('falls back on ProviderError without status code (connection failure)', async () => {
+    const primary = makeFailing(new ProviderError('connection failed', 'primary'), 'primary');
+    const secondary = makeProvider('secondary');
+    const provider = new FailoverProvider([primary, secondary]);
+
+    const _result = await provider.sendMessage(MESSAGES);
+    expect(primary.calls).toBe(1);
+    expect(secondary.calls).toBe(1);
+  });
+
+  test('does NOT fall back on 400 Bad Request', async () => {
+    const primary = makeFailing(new ProviderError('bad request', 'primary', 400), 'primary');
+    const secondary = makeProvider('secondary');
+    const provider = new FailoverProvider([primary, secondary]);
+
+    await expect(provider.sendMessage(MESSAGES)).rejects.toThrow('bad request');
+    expect(primary.calls).toBe(1);
+    expect(secondary.calls).toBe(0);
+  });
+
+  test('does NOT fall back on 401 Unauthorized', async () => {
+    const primary = makeFailing(new ProviderError('unauthorized', 'primary', 401), 'primary');
+    const secondary = makeProvider('secondary');
+    const provider = new FailoverProvider([primary, secondary]);
+
+    await expect(provider.sendMessage(MESSAGES)).rejects.toThrow('unauthorized');
+    expect(secondary.calls).toBe(0);
+  });
+
+  test('throws last error when all providers fail', async () => {
+    const p1 = makeFailing(new ProviderError('p1 down', 'p1', 500), 'p1');
+    const p2 = makeFailing(new ProviderError('p2 down', 'p2', 503), 'p2');
+    const p3 = makeFailing(new ProviderError('p3 down', 'p3', 502), 'p3');
+    const provider = new FailoverProvider([p1, p2, p3]);
+
+    try {
+      await provider.sendMessage(MESSAGES);
+      expect(true).toBe(false);
+    } catch (err) {
+      expect(err).toBeInstanceOf(ProviderError);
+      // Last provider's error is thrown
+      expect((err as ProviderError).message).toBe('p3 down');
+    }
+    expect(p1.calls).toBe(1);
+    expect(p2.calls).toBe(1);
+    expect(p3.calls).toBe(1);
+  });
+
+  test('chains through three providers when first two fail', async () => {
+    const p1 = makeFailing(new ProviderError('p1 error', 'p1', 500), 'p1');
+    const p2 = makeFailing(new ProviderError('p2 error', 'p2', 502), 'p2');
+    const p3 = makeProvider('p3');
+    const provider = new FailoverProvider([p1, p2, p3]);
+
+    const result = await provider.sendMessage(MESSAGES);
+
+    expect(p1.calls).toBe(1);
+    expect(p2.calls).toBe(1);
+    expect(p3.calls).toBe(1);
+    expect(result.stopReason).toBe('end_turn');
+  });
+
+  test('requires at least one provider', () => {
+    expect(() => new FailoverProvider([])).toThrow(
+      'FailoverProvider requires at least one provider',
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FailoverProvider — cooldown and recovery
+// ---------------------------------------------------------------------------
+
+describe('FailoverProvider — cooldown and recovery', () => {
+  test('skips provider in cooldown period', async () => {
+    const primary = makeFailing(new ProviderError('down', 'primary', 500), 'primary');
+    const secondary = makeProvider('secondary');
+    // Use a long cooldown so primary stays unhealthy
+    const provider = new FailoverProvider([primary, secondary], 60_000);
+
+    // First call: primary fails, secondary succeeds
+    await provider.sendMessage(MESSAGES);
+    expect(primary.calls).toBe(1);
+    expect(secondary.calls).toBe(1);
+
+    // Second call: primary is in cooldown, skipped — goes straight to secondary
+    await provider.sendMessage(MESSAGES);
+    expect(primary.calls).toBe(1); // not called again
+    expect(secondary.calls).toBe(2);
+  });
+
+  test('retries provider after cooldown expires', async () => {
+    let primaryCallCount = 0;
+    const primary: Provider = {
+      name: 'primary',
+      async sendMessage() {
+        primaryCallCount++;
+        if (primaryCallCount === 1) {
+          throw new ProviderError('temporarily down', 'primary', 500);
+        }
+        return successResponse();
+      },
+    };
+    const secondary = makeProvider('secondary');
+    // Very short cooldown
+    const provider = new FailoverProvider([primary, secondary], 1);
+
+    // First call: primary fails, marked unhealthy, secondary succeeds
+    await provider.sendMessage(MESSAGES);
+    expect(primaryCallCount).toBe(1);
+
+    // Wait for cooldown to expire
+    await new Promise((r) => setTimeout(r, 10));
+
+    // Second call: primary should be retried after cooldown expired
+    await provider.sendMessage(MESSAGES);
+    expect(primaryCallCount).toBe(2);
+  });
+
+  test('marks provider healthy after successful recovery', async () => {
+    let primaryCallCount = 0;
+    const primary: Provider = {
+      name: 'primary',
+      async sendMessage() {
+        primaryCallCount++;
+        if (primaryCallCount === 1) {
+          throw new ProviderError('blip', 'primary', 500);
+        }
+        return successResponse();
+      },
+    };
+    const secondary = makeProvider('secondary');
+    const provider = new FailoverProvider([primary, secondary], 1);
+
+    // First call: primary fails
+    await provider.sendMessage(MESSAGES);
+    expect(primaryCallCount).toBe(1);
+
+    // Wait for cooldown
+    await new Promise((r) => setTimeout(r, 10));
+
+    // Second call: primary recovers
+    await provider.sendMessage(MESSAGES);
+    expect(primaryCallCount).toBe(2);
+
+    // Third call: primary is healthy, used directly
+    await provider.sendMessage(MESSAGES);
+    expect(primaryCallCount).toBe(3);
+    expect(secondary.calls).toBe(1); // only called once during initial failover
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createStreamTimeout — edge cases
+// ---------------------------------------------------------------------------
+
+describe('createStreamTimeout — edge cases', () => {
+  test('propagates already-aborted external signal immediately', () => {
+    const external = new AbortController();
+    external.abort(new Error('already cancelled'));
+
+    const { signal, cleanup } = createStreamTimeout(60_000, external.signal);
+
+    expect(signal.aborted).toBe(true);
+    expect(signal.reason).toBeInstanceOf(Error);
+    expect((signal.reason as Error).message).toBe('already cancelled');
+    cleanup();
+  });
+
+  test('cleanup prevents timeout from firing', async () => {
+    const { signal, cleanup } = createStreamTimeout(50);
+    cleanup();
+
+    await new Promise((r) => setTimeout(r, 100));
+    expect(signal.aborted).toBe(false);
+  });
+
+  test('cleanup removes external signal listener', () => {
+    const external = new AbortController();
+    const { signal, cleanup } = createStreamTimeout(60_000, external.signal);
+
+    cleanup();
+
+    // Aborting external after cleanup should NOT propagate
+    external.abort(new Error('late abort'));
+    expect(signal.aborted).toBe(false);
+  });
+
+  test('timeout error message includes duration', async () => {
+    const { signal, cleanup } = createStreamTimeout(100);
+
+    await new Promise<void>((resolve) => {
+      signal.addEventListener('abort', () => resolve(), { once: true });
+    });
+
+    expect(signal.reason).toBeInstanceOf(Error);
+    expect((signal.reason as Error).message).toContain('0.1s');
+    cleanup();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RetryProvider + FailoverProvider — combined scenarios
+// ---------------------------------------------------------------------------
+
+describe('RetryProvider + FailoverProvider — combined', () => {
+  test('failover wrapping retry: each provider in the chain retries independently', async () => {
+    // Primary always fails with 500, secondary succeeds
+    const primary = makeFailing(new ProviderError('primary down', 'primary', 500), 'primary');
+    const secondary = makeProvider('secondary');
+
+    // Wrap each in RetryProvider, then combine with FailoverProvider
+    const retryPrimary = new RetryProvider(primary);
+    const retrySecondary = new RetryProvider(secondary);
+    const failover = new FailoverProvider([retryPrimary, retrySecondary]);
+
+    const result = await failover.sendMessage(MESSAGES);
+    expect(result.stopReason).toBe('end_turn');
+    // Primary should have been retried MAX_RETRIES + 1 times before failover
+    expect(primary.calls).toBe(DEFAULT_MAX_RETRIES + 1);
+    expect(secondary.calls).toBe(1);
+  });
+
+  test('single provider: retry exhaustion produces the original error', async () => {
+    const inner = makeFailing(new ProviderError('always fail', 'solo', 500));
+    const retrying = new RetryProvider(inner);
+
+    try {
+      await retrying.sendMessage(MESSAGES);
+      expect(true).toBe(false);
+    } catch (err) {
+      expect(err).toBeInstanceOf(ProviderError);
+      expect((err as ProviderError).message).toBe('always fail');
+      expect((err as ProviderError).statusCode).toBe(500);
+    }
+    expect(inner.calls).toBe(DEFAULT_MAX_RETRIES + 1);
+  });
+});

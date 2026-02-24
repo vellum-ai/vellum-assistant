@@ -1,11 +1,14 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Appearance settings tab — theme selection and media embed configuration.
+/// Appearance settings tab — theme selection, keyboard shortcuts, and media embed configuration.
 struct SettingsAppearanceTab: View {
     @ObservedObject var store: SettingsStore
     @AppStorage("themePreference") private var themePreference: String = "system"
     @State private var newAllowlistDomain = ""
+    @State private var isRecordingGlobalHotkey = false
+    @State private var shortcutMonitor: Any?
+    @State private var shortcutConflictWarning: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
@@ -38,6 +41,53 @@ struct SettingsAppearanceTab: View {
             }
             .padding(VSpacing.lg)
             .vCard(background: VColor.surfaceSubtle)
+
+            // KEYBOARD SHORTCUTS section
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                Text("Keyboard Shortcuts")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+
+                // Open Vellum (configurable)
+                HStack {
+                    Text("Open Vellum")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
+                    Spacer()
+                    Text(ShortcutHelper.displayString(for: store.globalHotkeyShortcut))
+                        .font(VFont.mono)
+                        .foregroundColor(VColor.textPrimary)
+                        .padding(.horizontal, VSpacing.sm)
+                        .padding(.vertical, VSpacing.xs)
+                        .background(VColor.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.sm)
+                                .stroke(VColor.surfaceBorder, lineWidth: 1)
+                        )
+
+                    if isRecordingGlobalHotkey {
+                        VButton(label: "Press shortcut...", style: .tertiary) {
+                            stopRecording()
+                        }
+                    } else {
+                        VButton(label: "Record", style: .tertiary) {
+                            startRecording()
+                        }
+                    }
+                }
+
+                if let shortcutConflictWarning {
+                    Text(shortcutConflictWarning)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.warning)
+                }
+            }
+            .padding(VSpacing.lg)
+            .vCard(background: VColor.surfaceSubtle)
+            .onDisappear {
+                stopRecording()
+            }
 
             // MEDIA EMBEDS section
             VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -118,4 +168,53 @@ struct SettingsAppearanceTab: View {
             .vCard(background: VColor.surfaceSubtle)
         }
     }
+
+    // MARK: - Shortcut Recording
+
+    private func startRecording() {
+        isRecordingGlobalHotkey = true
+        shortcutConflictWarning = nil
+
+        shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+
+            if event.keyCode == 53 {
+                stopRecording()
+                return nil
+            }
+
+            let hasModifier = mods.contains(.command) || mods.contains(.control)
+                || mods.contains(.option)
+            guard hasModifier,
+                  let chars = event.charactersIgnoringModifiers, !chars.isEmpty else {
+                return nil
+            }
+
+            let shortcut = ShortcutHelper.shortcutString(
+                from: mods, key: chars, keyCode: event.keyCode
+            )
+
+            shortcutConflictWarning = nil
+            store.globalHotkeyShortcut = shortcut
+            stopRecording()
+            return nil
+        }
+    }
+
+    private func stopRecording() {
+        isRecordingGlobalHotkey = false
+        if let monitor = shortcutMonitor {
+            NSEvent.removeMonitor(monitor)
+            shortcutMonitor = nil
+        }
+    }
+}
+
+#Preview("Appearance Tab") {
+    ZStack {
+        VColor.background.ignoresSafeArea()
+        SettingsAppearanceTab(store: SettingsStore())
+            .padding()
+    }
+    .frame(width: 500, height: 600)
 }

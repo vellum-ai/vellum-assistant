@@ -1,7 +1,9 @@
+import { buildWhatsAppTransportMetadata } from "../../channels/transport-hints.js";
 import type { GatewayConfig } from "../../config.js";
 import { StringDedupCache } from "../../dedup-cache.js";
 import { handleInbound } from "../../handlers/handle-inbound.js";
 import { getLogger } from "../../logger.js";
+import { RejectionRateLimiter } from "../../rejection-rate-limiter.js";
 import { resolveAssistant, isRejection } from "../../routing/resolve-assistant.js";
 import { resetConversation } from "../../runtime/client.js";
 import { markWhatsAppMessageRead } from "../../whatsapp/api.js";
@@ -11,60 +13,7 @@ import { verifyWhatsAppWebhookSignature } from "../../whatsapp/verify.js";
 
 const log = getLogger("whatsapp-webhook");
 
-// Rate limiter for routing rejection notices — at most one reply per sender
-// within the cooldown window to avoid spamming the user.
-const REJECTION_NOTICE_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
-const MAX_REJECTION_CACHE_SIZE = 10_000;
-const SWEEP_INTERVAL = 100;
-const rejectionNoticeTimestamps = new Map<string, number>();
-let rejectionCallCount = 0;
-
-function sweepRejectionCache(now: number): void {
-  for (const [key, ts] of rejectionNoticeTimestamps) {
-    if (now - ts >= REJECTION_NOTICE_COOLDOWN_MS) {
-      rejectionNoticeTimestamps.delete(key);
-    }
-  }
-  if (rejectionNoticeTimestamps.size > MAX_REJECTION_CACHE_SIZE) {
-    const sorted = [...rejectionNoticeTimestamps.entries()].sort((a, b) => a[1] - b[1]);
-    const toRemove = sorted.length - MAX_REJECTION_CACHE_SIZE;
-    for (let i = 0; i < toRemove; i++) {
-      rejectionNoticeTimestamps.delete(sorted[i][0]);
-    }
-  }
-}
-
-function shouldSendRejectionNotice(senderId: string): boolean {
-  const now = Date.now();
-  rejectionCallCount++;
-  if (rejectionCallCount >= SWEEP_INTERVAL) {
-    rejectionCallCount = 0;
-    sweepRejectionCache(now);
-  }
-  const lastSent = rejectionNoticeTimestamps.get(senderId);
-  if (lastSent !== undefined && now - lastSent < REJECTION_NOTICE_COOLDOWN_MS) {
-    return false;
-  }
-  rejectionNoticeTimestamps.set(senderId, now);
-  return true;
-}
-
-export const WHATSAPP_CHANNEL_TRANSPORT_HINTS = [
-  "chat-first-medium",
-  "channel-safe-onboarding",
-  "defer-dashboard-only-tasks",
-  "whatsapp-formatting",
-] as const;
-
-export const WHATSAPP_CHANNEL_TRANSPORT_UX_BRIEF =
-  "WhatsApp is a mobile messaging channel. Keep responses concise and use plain text; avoid markdown tables and complex formatting.";
-
-export function buildWhatsAppTransportMetadata(): { hints: string[]; uxBrief: string } {
-  return {
-    hints: [...WHATSAPP_CHANNEL_TRANSPORT_HINTS],
-    uxBrief: WHATSAPP_CHANNEL_TRANSPORT_UX_BRIEF,
-  };
-}
+const rejectionLimiter = new RejectionRateLimiter();
 
 export function createWhatsAppWebhookHandler(config: GatewayConfig) {
   // 24-hour TTL — WhatsApp message IDs are globally unique and never reused
@@ -212,7 +161,7 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
 
       if (isRejection(routing)) {
         tlog.warn({ from, reason: routing.reason }, "Routing rejected inbound WhatsApp message");
-        if (shouldSendRejectionNotice(from)) {
+        if (rejectionLimiter.shouldSend(from)) {
           sendWhatsAppReply(
             config,
             from,
@@ -235,7 +184,7 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
 
         if (result.rejected) {
           tlog.warn({ from, reason: result.rejectionReason }, "Routing rejected inbound WhatsApp message");
-          if (shouldSendRejectionNotice(from)) {
+          if (rejectionLimiter.shouldSend(from)) {
             sendWhatsAppReply(
               config,
               from,

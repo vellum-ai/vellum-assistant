@@ -371,10 +371,9 @@ export function injectChannelTurnContext(message: Message, params: ChannelTurnCo
 }
 
 /**
- * Prepend guardian trust/identity facts to the last user message so the
- * model can reason about guardian status from deterministic runtime facts.
+ * Build the `<guardian_context>` text block used for model grounding.
  */
-export function injectGuardianContext(message: Message, ctx: GuardianRuntimeContext): Message {
+export function buildGuardianContextBlock(ctx: GuardianRuntimeContext): string {
   const lines: string[] = ['<guardian_context>'];
   lines.push(`source_channel: ${ctx.sourceChannel}`);
   lines.push(`actor_role: ${ctx.actorRole}`);
@@ -385,8 +384,15 @@ export function injectGuardianContext(message: Message, ctx: GuardianRuntimeCont
   lines.push(`requester_chat_id: ${ctx.requesterChatId ?? 'unknown'}`);
   lines.push(`denial_reason: ${ctx.denialReason ?? 'none'}`);
   lines.push('</guardian_context>');
+  return lines.join('\n');
+}
 
-  const block = lines.join('\n');
+/**
+ * Prepend guardian trust/identity facts to the last user message so the
+ * model can reason about guardian status from deterministic runtime facts.
+ */
+export function injectGuardianContext(message: Message, ctx: GuardianRuntimeContext): Message {
+  const block = buildGuardianContextBlock(ctx);
   return {
     ...message,
     content: [

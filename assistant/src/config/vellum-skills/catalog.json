@@ -21,13 +21,6 @@
       "emoji": "\ud83d\udcdd"
     },
     {
-      "id": "google-oauth-setup",
-      "name": "Google OAuth Setup",
-      "description": "Create Google Cloud OAuth credentials for Gmail integration using browser automation",
-      "emoji": "\ud83d\udd11",
-      "includes": ["browser", "public-ingress"]
-    },
-    {
       "id": "slack-oauth-setup",
       "name": "Slack OAuth Setup",
       "description": "Create Slack App and OAuth credentials for Slack integration using browser automation",

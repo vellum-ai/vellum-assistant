@@ -154,7 +154,7 @@ export function handleIngressInvite(
       }
 
       default: {
-        ctx.send(socket, { type: 'ingress_invite_response', success: false, error: `Unknown action: ${String((msg as Record<string, unknown>).action)}` });
+        ctx.send(socket, { type: 'ingress_invite_response', success: false, error: `Unknown action: ${String((msg as unknown as Record<string, unknown>).action)}` });
       }
     }
   } catch (err) {
@@ -263,7 +263,7 @@ export function handleIngressMember(
       }
 
       default: {
-        ctx.send(socket, { type: 'ingress_member_response', success: false, error: `Unknown action: ${String((msg as Record<string, unknown>).action)}` });
+        ctx.send(socket, { type: 'ingress_member_response', success: false, error: `Unknown action: ${String((msg as unknown as Record<string, unknown>).action)}` });
       }
     }
   } catch (err) {
@@ -344,7 +344,7 @@ export function handleInboxEscalation(
       }
 
       default: {
-        ctx.send(socket, { type: 'assistant_inbox_escalation_response', success: false, error: `Unknown action: ${String((msg as Record<string, unknown>).action)}` });
+        ctx.send(socket, { type: 'assistant_inbox_escalation_response', success: false, error: `Unknown action: ${String((msg as unknown as Record<string, unknown>).action)}` });
       }
     }
   } catch (err) {
@@ -477,7 +477,10 @@ async function executeDeny(
   }, bearerToken);
 
   // Store a system note about the denial in the conversation
-  addMessage(conversationId, 'assistant', denialText);
+  addMessage(conversationId, 'assistant', denialText, {
+    userMessageChannel: sourceChannel,
+    assistantMessageChannel: sourceChannel,
+  });
   updateThreadActivity(conversationId, 'outbound');
 
   log.info({ conversationId, approvalId: approval.id }, 'Denied escalation refusal sent');
@@ -504,7 +507,15 @@ export function handleAssistantInboxReply(
     }
 
     // Store the reply as an assistant message
-    const message = addMessage(conversationId, 'assistant', content);
+    const bindingChannel = isChannelId(binding.sourceChannel) ? binding.sourceChannel : null;
+    const message = addMessage(
+      conversationId,
+      'assistant',
+      content,
+      bindingChannel
+        ? { userMessageChannel: bindingChannel, assistantMessageChannel: bindingChannel }
+        : undefined,
+    );
 
     // Update thread activity timestamps (resets unread count, updates last_outbound_at)
     updateThreadActivity(conversationId, 'outbound');

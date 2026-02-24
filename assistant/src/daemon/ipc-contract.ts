@@ -26,6 +26,7 @@ export * from './ipc-contract/schedules.js';
 export * from './ipc-contract/diagnostics.js';
 export * from './ipc-contract/parental-control.js';
 export * from './ipc-contract/inbox.js';
+export * from './ipc-contract/pairing.js';
 
 // Import types needed for aggregate unions and SubagentEvent
 import type { AuthMessage, PingMessage, CancelRequest, DeleteQueuedMessage, ModelGetRequest, ModelSetRequest, ImageGenModelSetRequest, HistoryRequest, UndoRequest, RegenerateRequest, UsageRequest, SandboxSetRequest, SessionListRequest, SessionCreateRequest, SessionSwitchRequest, SessionsClearRequest, ConversationSearchRequest } from './ipc-contract/sessions.js';
@@ -62,6 +63,7 @@ import type { DiagnosticsExportResponse, EnvVarsResponse, IpcBlobProbeResult, Di
 import type { SchedulesList, ScheduleToggle, ScheduleRemove, ScheduleRunNow, RemindersList, ReminderCancel } from './ipc-contract/schedules.js';
 import type { ParentalControlGetRequest, ParentalControlVerifyPinRequest, ParentalControlSetPinRequest, ParentalControlUpdateRequest, ParentalControlGetResponse, ParentalControlVerifyPinResponse, ParentalControlSetPinResponse, ParentalControlUpdateResponse } from './ipc-contract/parental-control.js';
 import type { IngressInviteRequest, IngressMemberRequest, AssistantInboxRequest, AssistantInboxEscalationRequest, AssistantInboxReplyRequest, IngressInviteResponse, IngressMemberResponse, AssistantInboxResponse, AssistantInboxEscalationResponse, AssistantInboxReplyResponse } from './ipc-contract/inbox.js';
+import type { PairingApprovalResponse, ApprovedDevicesList, ApprovedDeviceRemove, ApprovedDevicesClear, PairingApprovalRequest, ApprovedDevicesListResponse, ApprovedDeviceRemoveResponse } from './ipc-contract/pairing.js';
 
 // === SubagentEvent — defined here because it references ServerMessage ===
 
@@ -203,7 +205,11 @@ export type ClientMessage =
   | IngressMemberRequest
   | AssistantInboxRequest
   | AssistantInboxEscalationRequest
-  | AssistantInboxReplyRequest;
+  | AssistantInboxReplyRequest
+  | PairingApprovalResponse
+  | ApprovedDevicesList
+  | ApprovedDeviceRemove
+  | ApprovedDevicesClear;
 
 // === Server → Client aggregate union ===
 
@@ -351,7 +357,10 @@ export type ServerMessage =
   | IngressMemberResponse
   | AssistantInboxResponse
   | AssistantInboxEscalationResponse
-  | AssistantInboxReplyResponse;
+  | AssistantInboxReplyResponse
+  | PairingApprovalRequest
+  | ApprovedDevicesListResponse
+  | ApprovedDeviceRemoveResponse;
 
 // === Contract schema ===
 

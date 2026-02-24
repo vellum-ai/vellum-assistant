@@ -47,6 +47,7 @@ struct MainWindowView: View {
     let surfaceManager: SurfaceManager
     let ambientAgent: AmbientAgent
     let settingsStore: SettingsStore
+    let authManager: AuthManager
     @ObservedObject var documentManager: DocumentManager
     let avatarEvolutionState: AvatarEvolutionState?
     @State private var lastAppliedBootstrapTurn: Int = 0
@@ -60,7 +61,7 @@ struct MainWindowView: View {
     /// Whether the "coming alive" overlay is currently showing.
     @State private var showComingAlive: Bool
 
-    init(threadManager: ThreadManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, windowState: MainWindowState, documentManager: DocumentManager, avatarEvolutionState: AvatarEvolutionState? = nil, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager = VoiceModeManager(), onSendWakeUp: (() -> Void)? = nil) {
+    init(threadManager: ThreadManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, avatarEvolutionState: AvatarEvolutionState? = nil, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager = VoiceModeManager(), onSendWakeUp: (() -> Void)? = nil) {
         self.threadManager = threadManager
         self.appListManager = appListManager
         self.zoomManager = zoomManager
@@ -69,6 +70,7 @@ struct MainWindowView: View {
         self.surfaceManager = surfaceManager
         self.ambientAgent = ambientAgent
         self.settingsStore = settingsStore
+        self.authManager = authManager
         self.windowState = windowState
         self.documentManager = documentManager
         self.avatarEvolutionState = avatarEvolutionState
@@ -869,19 +871,21 @@ struct MainWindowView: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel(thread.isPinned ? "Unpin \(thread.title)" : "Pin \(thread.title)")
 
-                    Button {
-                        threadPendingDeletion = thread.id
-                    } label: {
-                        Image(systemName: "archivebox")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(VColor.textSecondary)
-                            .frame(width: 20, height: 20)
-                            .background(VColor.backgroundSubtle)
-                            .clipShape(Circle())
-                            .contentShape(Rectangle())
+                    if threadManager.visibleThreads.count > 1 {
+                        Button {
+                            threadPendingDeletion = thread.id
+                        } label: {
+                            Image(systemName: "archivebox")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(VColor.textSecondary)
+                                .frame(width: 20, height: 20)
+                                .background(VColor.backgroundSubtle)
+                                .clipShape(Circle())
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Archive \(thread.title)")
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Archive \(thread.title)")
                 }
                 .padding(.trailing, VSpacing.xs)
             } else if thread.isPinned {
@@ -906,10 +910,12 @@ struct MainWindowView: View {
             } label: {
                 Label(thread.isPinned ? "Unpin" : "Pin to Top", systemImage: thread.isPinned ? "pin.slash" : "pin")
             }
-            Button {
-                threadManager.archiveThread(id: thread.id)
-            } label: {
-                Label("Archive", systemImage: "archivebox")
+            if threadManager.visibleThreads.count > 1 {
+                Button {
+                    threadManager.archiveThread(id: thread.id)
+                } label: {
+                    Label("Archive", systemImage: "archivebox")
+                }
             }
         }
         .onHover { hovering in
@@ -982,10 +988,8 @@ struct MainWindowView: View {
             SidebarNavRow(icon: "sparkles", label: "Skills", isActive: windowState.activePanel == .agent) {
                 windowState.togglePanel(.agent)
             }
-            if FeatureFlagManager.shared.isEnabled(.assistantInboxEnabled) {
-                SidebarNavRow(icon: "tray.fill", label: "Inbox", isActive: windowState.activePanel == .assistantInbox) {
-                    windowState.togglePanel(.assistantInbox)
-                }
+            SidebarNavRow(icon: "tray.fill", label: "Inbox", isActive: windowState.activePanel == .assistantInbox) {
+                windowState.togglePanel(.assistantInbox)
             }
 
             // Divider between nav items and threads
@@ -1096,10 +1100,8 @@ struct MainWindowView: View {
             SidebarNavRow(icon: "sparkles", label: "Skills", isActive: windowState.activePanel == .agent, isExpanded: false) {
                 windowState.togglePanel(.agent)
             }
-            if FeatureFlagManager.shared.isEnabled(.assistantInboxEnabled) {
-                SidebarNavRow(icon: "tray.fill", label: "Inbox", isActive: windowState.activePanel == .assistantInbox, isExpanded: false) {
-                    windowState.togglePanel(.assistantInbox)
-                }
+            SidebarNavRow(icon: "tray.fill", label: "Inbox", isActive: windowState.activePanel == .assistantInbox, isExpanded: false) {
+                windowState.togglePanel(.assistantInbox)
             }
 
             VColor.divider

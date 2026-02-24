@@ -63,6 +63,7 @@ type WebFetchRequestExecutor = (
 type ExecuteWebFetchOptions = {
   resolveHostAddresses?: ResolveHostAddresses;
   requestExecutor?: WebFetchRequestExecutor;
+  signal?: AbortSignal;
 };
 
 type NodeHttpResponseLike = {
@@ -451,6 +452,17 @@ export async function executeWebFetch(
     controller.abort();
   }, timeoutSeconds * 1000);
 
+  // Forward external cancellation signal to our controller
+  const externalSignal = options?.signal;
+  const onExternalAbort = () => controller.abort();
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      controller.abort();
+    } else {
+      externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+    }
+  }
+
   try {
     log.debug({ url: safeRequestedUrl, timeoutSeconds, maxChars, startIndex, rawMode }, 'Fetching webpage');
 
@@ -651,6 +663,9 @@ export async function executeWebFetch(
     };
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
+      if (externalSignal?.aborted) {
+        return { content: 'Error: web fetch was cancelled', isError: true };
+      }
       return { content: `Error: web fetch timed out after ${timeoutSeconds}s`, isError: true };
     }
 
@@ -659,6 +674,7 @@ export async function executeWebFetch(
     return { content: `Error: Web fetch failed: ${msg}`, isError: true };
   } finally {
     clearTimeout(timeoutHandle);
+    externalSignal?.removeEventListener('abort', onExternalAbort);
   }
 }
 
@@ -705,8 +721,8 @@ class WebFetchTool implements Tool {
     };
   }
 
-  async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
-    return executeWebFetch(input);
+  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
+    return executeWebFetch(input, { signal: context.signal });
   }
 }
 

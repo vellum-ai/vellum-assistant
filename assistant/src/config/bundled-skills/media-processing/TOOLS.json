@@ -55,7 +55,7 @@
     },
     {
       "name": "extract_keyframes",
-      "description": "Extract keyframes from a video asset at regular intervals using ffmpeg. Stores frame images and registers each in the database for subsequent vision analysis.",
+      "description": "Preprocess a video asset: detect dead time, segment into windows, extract downscaled keyframes, build a subject registry, and write a pipeline manifest. Replaces the old simple keyframe extraction with a full Phase 0 preprocess pipeline.",
       "category": "media",
       "risk": "low",
       "input_schema": {
@@ -68,6 +68,26 @@
           "interval_seconds": {
             "type": "number",
             "description": "Interval between keyframes in seconds. Default: 3"
+          },
+          "segment_duration": {
+            "type": "number",
+            "description": "Duration of each segment window in seconds. Default: 20"
+          },
+          "dead_time_threshold": {
+            "type": "number",
+            "description": "Sensitivity threshold for mpdecimate dead-time detection. Default: 0.02"
+          },
+          "section_config": {
+            "type": "string",
+            "description": "Path to a JSON file with manual section boundary definitions"
+          },
+          "skip_dead_time": {
+            "type": "boolean",
+            "description": "Whether to detect and skip dead time. Default: true"
+          },
+          "short_edge": {
+            "type": "number",
+            "description": "Short edge resolution for downscaled frames in pixels. Default: 480"
           }
         },
         "required": ["asset_id"]
@@ -77,7 +97,7 @@
     },
     {
       "name": "analyze_keyframes",
-      "description": "Analyze extracted keyframes using Claude VLM (vision language model). Groups frames into overlapping chunks and analyzes each chunk in a single multi-image API call, providing temporal context for better event detection. Supports resumability — skips already-analyzed frames.",
+      "description": "Map video segments through Gemini's structured output API for vision-based analysis. Reads frames from the preprocess manifest, sends each segment to Gemini with assistant-provided extraction instructions and a JSON Schema for guaranteed structured output. Supports concurrency pooling, cost tracking, resumability (skips segments with existing results), and automatic retries with exponential backoff.",
       "category": "media",
       "risk": "medium",
       "input_schema": {
@@ -85,35 +105,43 @@
         "properties": {
           "asset_id": {
             "type": "string",
-            "description": "ID of the media asset whose keyframes to analyze"
+            "description": "ID of the media asset whose segments to analyze"
           },
-          "analysis_type": {
+          "system_prompt": {
             "type": "string",
-            "description": "Type of analysis to perform. Default: 'scene_description'"
+            "description": "Assistant-provided extraction instructions for Gemini (e.g., what to look for in the frames)"
           },
-          "batch_size": {
-            "type": "number",
-            "description": "Number of keyframes to process per batch. Default: 10"
+          "output_schema": {
+            "type": "object",
+            "description": "JSON Schema for structured output — Gemini will enforce this schema on the response"
           },
-          "chunk_size": {
+          "context": {
+            "type": "object",
+            "description": "Additional context to include in the prompt (e.g., subject registry, domain-specific info)"
+          },
+          "model": {
+            "type": "string",
+            "description": "Gemini model to use. Default: 'gemini-2.5-flash'"
+          },
+          "concurrency": {
             "type": "number",
             "minimum": 1,
-            "description": "Number of frames per analysis chunk. Default: 10"
+            "description": "Maximum concurrent Gemini API requests. Default: 10"
           },
-          "overlap": {
+          "max_retries": {
             "type": "number",
             "minimum": 0,
-            "description": "Number of overlapping frames between adjacent chunks to avoid missing boundary events. Default: 2"
+            "description": "Maximum retry attempts per segment on failure. Default: 3"
           }
         },
-        "required": ["asset_id"]
+        "required": ["asset_id", "system_prompt", "output_schema"]
       },
       "executor": "tools/analyze-keyframes.ts",
       "execution_target": "host"
     },
     {
-      "name": "detect_events",
-      "description": "Detect events from a media asset's timeline segments using configurable detection rules with weighted confidence ranking. Supports built-in rule types: segment_transition (field changes between adjacent segments), short_segment (segments below a duration threshold), and attribute_match (regex matching on segment attributes). If no rules are provided, sensible defaults are used based on the event type.",
+      "name": "query_media",
+      "description": "Query video analysis data using natural language. Sends map output (from analyze_keyframes) to Claude for intelligent analysis and Q&A. Supports arbitrary questions about video content — Claude reads the full structured analysis and answers based on the data.",
       "category": "media",
       "risk": "low",
       "input_schema": {
@@ -121,83 +149,24 @@
         "properties": {
           "asset_id": {
             "type": "string",
-            "description": "ID of the media asset to detect events in"
+            "description": "ID of the media asset to query"
           },
-          "event_type": {
-            "type": "string",
-            "description": "Type label for detected events (e.g., 'turnover', 'scene_change', 'highlight')"
-          },
-          "detection_rules": {
-            "type": "array",
-            "description": "Optional array of detection rule objects. Each rule has: ruleType (string: 'segment_transition', 'short_segment', or 'attribute_match'), params (object with rule-specific parameters), and weight (number: contribution to confidence score). If omitted, defaults are used based on event_type.",
-            "items": {
-              "type": "object",
-              "properties": {
-                "ruleType": {
-                  "type": "string",
-                  "description": "Rule type: 'segment_transition', 'short_segment', or 'attribute_match'"
-                },
-                "params": {
-                  "type": "object",
-                  "description": "Rule-specific parameters (e.g., { field: 'subjects' }, { maxDurationSeconds: 5 }, { field: 'actions', pattern: 'steal|turnover' })"
-                },
-                "weight": {
-                  "type": "number",
-                  "description": "Weight for this rule's contribution to the confidence score"
-                }
-              },
-              "required": ["ruleType", "params", "weight"]
-            }
-          }
-        },
-        "required": ["asset_id", "event_type"]
-      },
-      "executor": "tools/detect-events.ts",
-      "execution_target": "host"
-    },
-    {
-      "name": "query_media_events",
-      "description": "Query media events using natural language. Parses the query into structured filters (event type, count, confidence threshold, time range) and retrieves matching events ranked by confidence. Supports domain-specific keyword mapping (e.g., 'turnovers' → eventType='turnover').",
-      "category": "media",
-      "risk": "low",
-      "input_schema": {
-        "type": "object",
-        "properties": {
           "query": {
             "type": "string",
-            "description": "Natural language query describing the events to find (e.g., 'top 5 turnovers', 'high confidence goals in the first half')"
+            "description": "Natural language query about the video data (e.g., 'What happens at the 5 minute mark?', 'Summarize the key events', 'Are there any scoring plays?')"
           },
-          "asset_id": {
+          "system_prompt": {
             "type": "string",
-            "description": "ID of the media asset to search within"
+            "description": "Optional system prompt for Claude to customize analysis behavior"
+          },
+          "model": {
+            "type": "string",
+            "description": "LLM model to use for analysis. Default: 'claude-sonnet-4-6'"
           }
         },
-        "required": ["query", "asset_id"]
+        "required": ["asset_id", "query"]
       },
       "executor": "tools/query-media-events.ts",
-      "execution_target": "host"
-    },
-    {
-      "name": "select_tracking_profile",
-      "description": "Select and persist a tracking profile for a media asset. When called without capabilities, returns available capabilities organized by tier (ready, beta, experimental). When called with capabilities, validates them against the registry and stores the profile. The capability tier system is generic and extensible across domains.",
-      "category": "media",
-      "risk": "low",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "asset_id": {
-            "type": "string",
-            "description": "ID of the media asset to configure tracking for"
-          },
-          "capabilities": {
-            "type": "array",
-            "items": { "type": "string" },
-            "description": "Optional array of capability names to enable (e.g., ['turnover', 'field_goal']). If omitted, returns the available capabilities for selection."
-          }
-        },
-        "required": ["asset_id"]
-      },
-      "executor": "tools/select-tracking-profile.ts",
       "execution_target": "host"
     },
     {
@@ -240,59 +209,8 @@
       "execution_target": "host"
     },
     {
-      "name": "submit_feedback",
-      "description": "Submit feedback on a detected media event. Supports four feedback types: 'correct' (confirms accuracy), 'incorrect' (marks false positive), 'boundary_edit' (adjusts start/end times), and 'missed' (reports an event the system failed to detect, creating a new event). Works for any event type.",
-      "category": "media",
-      "risk": "low",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "event_id": {
-            "type": "string",
-            "description": "ID of the event to provide feedback on. Required for all types except 'missed'."
-          },
-          "feedback_type": {
-            "type": "string",
-            "enum": ["correct", "incorrect", "boundary_edit", "missed"],
-            "description": "Type of feedback: correct, incorrect, boundary_edit, or missed"
-          },
-          "corrected_start_time": {
-            "type": "number",
-            "description": "Corrected start time in seconds (for boundary_edit feedback)"
-          },
-          "corrected_end_time": {
-            "type": "number",
-            "description": "Corrected end time in seconds (for boundary_edit feedback)"
-          },
-          "notes": {
-            "type": "string",
-            "description": "Optional free-text notes about the feedback"
-          },
-          "asset_id": {
-            "type": "string",
-            "description": "ID of the media asset (required for 'missed' type)"
-          },
-          "event_type": {
-            "type": "string",
-            "description": "Event type label for the missed event (required for 'missed' type)"
-          },
-          "start_time": {
-            "type": "number",
-            "description": "Start time in seconds for the missed event (required for 'missed' type)"
-          },
-          "end_time": {
-            "type": "number",
-            "description": "End time in seconds for the missed event (required for 'missed' type)"
-          }
-        },
-        "required": ["feedback_type"]
-      },
-      "executor": "tools/submit-feedback.ts",
-      "execution_target": "host"
-    },
-    {
       "name": "media_diagnostics",
-      "description": "Get a diagnostic report for a media asset including processing stats, per-stage timing, failure reasons, cost estimation, and feedback summary.",
+      "description": "Get a diagnostic report for a media asset including processing stats, per-stage timing (preprocess/map/reduce), failure reasons, and Gemini-based cost estimation.",
       "category": "media",
       "risk": "low",
       "input_schema": {
@@ -306,24 +224,6 @@
         "required": ["asset_id"]
       },
       "executor": "tools/media-diagnostics.ts",
-      "execution_target": "host"
-    },
-    {
-      "name": "recalibrate",
-      "description": "Recalibrate event detection for a media asset based on accumulated feedback. Analyzes correction patterns (false positive rates, missed events, boundary adjustments), re-ranks existing events by adjusting confidence scores, and returns a summary of adjustments made. Works for any event type.",
-      "category": "media",
-      "risk": "low",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "asset_id": {
-            "type": "string",
-            "description": "ID of the media asset to recalibrate"
-          }
-        },
-        "required": ["asset_id"]
-      },
-      "executor": "tools/recalibrate.ts",
       "execution_target": "host"
     }
   ]

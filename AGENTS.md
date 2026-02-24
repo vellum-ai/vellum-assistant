@@ -45,6 +45,10 @@ Comments should explain **why** something is done and provide non-obvious contex
 
 Whenever you introduce, remove, or significantly modify a service, module, or data flow, you MUST update `ARCHITECTURE.md` to reflect the change. The Mermaid diagrams should always accurately represent the current system architecture, including new services, IPC message types, storage locations, and data flows.
 
+## Keep AGENTS.md up to date
+
+When your PR establishes a new mandatory pattern, convention, or architectural constraint that other agents must follow, update `AGENTS.md` in the same PR. Examples: introducing a new abstraction layer that all callsites must use, adding a guard test that enforces an import rule, or changing how a subsystem handles failure modes. If the pattern is only relevant within a single file or module, a code comment is sufficient — only add to `AGENTS.md` when the rule applies project-wide.
+
 ## Slash Commands — TLDR
 
 These are the most commonly used slash commands defined in `.claude/commands/`:
@@ -123,6 +127,47 @@ After creating a PR, consider whether it contains anything that genuinely warran
 
 **Risk level:** <Medium | High> — <one-sentence explanation of overall risk>
 ```
+
+## Public API / Webhook Ingress
+
+All inbound HTTP endpoints — APIs, webhooks, OAuth callbacks, or any route that receives requests from the internet — **MUST** be routed through the **gateway** (`gateway/`). Never add ingresses, routes, or listeners directly to the daemon runtime (`assistant/`).
+
+Concretely:
+- Define new routes in the gateway and have the gateway forward requests to the assistant over the internal IPC/transport.
+- The gateway's public URL is controlled by the **public ingress URL** setting. All externally-facing URLs you generate or advertise (callback URLs, webhook registration URLs, etc.) must be derived from this setting — never hardcode a hostname or port.
+- The daemon should remain unreachable from the public internet. It only receives traffic from the gateway over the internal network.
+
+Why: the gateway is the single point of ingress, handling TLS termination, auth, rate limiting, and routing. Exposing the daemon directly bypasses these protections and breaks the deployment model.
+
+## LLM Provider Abstraction
+
+All LLM calls in production code **MUST** go through the provider abstraction layer — never import `@anthropic-ai/sdk` (or any other provider SDK) directly.
+
+- Use `getConfiguredProvider()` from `providers/provider-send-message.ts` to obtain a provider instance, then call `provider.sendMessage(...)`.
+- Use the helper utilities (`extractText`, `extractToolUse`, `userMessage`, `createTimeout`, etc.) from the same module.
+- A guard test (`no-direct-anthropic-sdk-imports.test.ts`) enforces this — any new direct SDK import in production code will fail CI.
+- The only file allowed to import `@anthropic-ai/sdk` directly is `providers/anthropic/client.ts`.
+
+### Model intents over hardcoded model IDs
+
+Do not hardcode provider-specific model names (e.g., `claude-haiku-4-5-20251001`, `gpt-4o-mini`). Instead, use `modelIntent` in the config to express **what you need** from the model:
+
+- `'latency-optimized'` — fastest response (e.g., classifiers, triage, icon generation)
+- `'quality-optimized'` — best reasoning (e.g., summaries, complex analysis)
+- `'vision-optimized'` — best vision/multimodal capabilities
+
+The `RetryProvider` resolves intents to provider-specific models automatically. An explicit `model` in config takes precedence over `modelIntent`.
+
+### Provider-agnostic language
+
+Use generic terms in comments, logs, and variable names — write "LLM" instead of "Haiku"/"Sonnet"/"Claude". The system is multi-provider; naming should reflect that.
+
+## Approval Flow Resilience
+
+- **Rich delivery failures must degrade gracefully.** If delivering a rich approval prompt (e.g., Telegram inline buttons) fails, fall back to plain text with parser-compatible instructions (e.g., `Reply "yes" to approve`) — never auto-deny.
+- **Non-rich channels** (SMS, http-api) receive plain-text approval prompts without approval metadata payloads.
+- **Race conditions:** Always check whether a decision has already been resolved before delivering the engine's optimistic reply. If `handleChannelDecision` returns `applied: false`, deliver an "already resolved" notice and return `stale_ignored`.
+- **Requester self-cancel:** A requester with a pending guardian approval must be able to cancel their own request (but not self-approve).
 
 ## Tooling Direction
 

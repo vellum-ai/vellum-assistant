@@ -116,6 +116,7 @@ export interface AgentLoopSessionContext {
   lastAttachmentWarnings: string[];
 
   hasNoClient: boolean;
+  readonly streamThinking: boolean;
   readonly prompter: PermissionPrompter;
   readonly queue: MessageQueue;
 
@@ -332,7 +333,14 @@ export async function runAgentLoopImpl(
 
     let preRunHistoryLength = runMessages.length;
 
-    const deps: EventHandlerDeps = { ctx, onEvent, reqId, isFirstMessage, rlog };
+    const deps: EventHandlerDeps = {
+      ctx,
+      onEvent,
+      reqId,
+      isFirstMessage,
+      rlog,
+      turnChannelContext: capturedTurnChannelContext,
+    };
     const eventHandler = (event: AgentEvent) => dispatchAgentEvent(state, deps, event);
 
     const onCheckpoint = (): CheckpointDecision => {
@@ -513,10 +521,15 @@ export async function runAgentLoopImpl(
           ...(result.contentBlocks ? { contentBlocks: result.contentBlocks } : {}),
         }),
       );
+      const toolResultMetadata = {
+        userMessageChannel: capturedTurnChannelContext.userMessageChannel,
+        assistantMessageChannel: capturedTurnChannelContext.assistantMessageChannel,
+      };
       conversationStore.addMessage(
         ctx.conversationId,
         'user',
         JSON.stringify(toolResultBlocks),
+        toolResultMetadata,
       );
       state.pendingToolResults.clear();
     }
@@ -613,13 +626,10 @@ export async function runAgentLoopImpl(
     }
 
     if (isFirstMessage) {
-      void (async () => {
-        try {
-          await generateTitle(ctx, content, state.firstAssistantText, onEvent);
-        } catch (err) {
+      generateTitle(ctx, content, state.firstAssistantText, onEvent, abortController.signal)
+        .catch((err) => {
           log.warn({ err, conversationId: ctx.conversationId }, 'Failed to generate conversation title (non-fatal, using default title)');
-        }
-      })();
+        });
     }
   } catch (err) {
     const errorCtx = { phase: 'agent_loop' as const, aborted: abortController.signal.aborted };
@@ -700,13 +710,18 @@ async function generateTitle(
   userMessage: string,
   assistantResponse: string,
   onEvent: (msg: ServerMessage) => void,
+  sessionSignal?: AbortSignal,
 ): Promise<void> {
+  const config = getConfig();
   const prompt = `Generate a very short title for this conversation. Rules: at most 5 words, at most 40 characters, no quotes.\n\nUser: ${truncate(userMessage, 200, '')}\nAssistant: ${truncate(assistantResponse, 200, '')}`;
+  const signal = sessionSignal
+    ? AbortSignal.any([sessionSignal, AbortSignal.timeout(10_000)])
+    : AbortSignal.timeout(10_000);
   const response = await ctx.provider.sendMessage(
     [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
     [],
     undefined,
-    { config: { max_tokens: 30 } },
+    { config: { max_tokens: config.daemon.titleGenerationMaxTokens }, signal },
   );
 
   const textBlock = response.content.find((b) => b.type === 'text');

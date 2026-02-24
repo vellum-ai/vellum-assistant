@@ -12,12 +12,14 @@ enum AssistantStatus {
     case idle
     case thinking
     case error(String)
+    case disconnected
 
     var menuTitle: String {
         switch self {
         case .idle: return "Assistant is idle"
         case .thinking: return "Assistant is thinking..."
         case .error(let msg): return "Error: \(msg)"
+        case .disconnected: return "Disconnected from daemon"
         }
     }
 
@@ -26,6 +28,7 @@ enum AssistantStatus {
         case .idle: return .systemGray
         case .thinking: return .systemGreen
         case .error: return .systemRed
+        case .disconnected: return .systemOrange
         }
     }
 
@@ -37,6 +40,12 @@ enum AssistantStatus {
         NSBezierPath(ovalIn: NSRect(x: 0, y: 0, width: size, height: size)).fill()
         image.unlockFocus()
         return image
+    }
+
+    /// Whether the dot should pulse (animate opacity)
+    var shouldPulse: Bool {
+        if case .thinking = self { return true }
+        return false
     }
 }
 
@@ -54,6 +63,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     var statusItem: NSStatusItem!
     private var hotKeyMonitor: Any?
+    private var lastRegisteredGlobalHotkey: String?
+    private var globalHotkeyObserver: AnyCancellable?
     private var escapeMonitor: Any?
     var overlayWindow: SessionOverlayWindow?
     var currentSession: ComputerUseSession?
@@ -62,6 +73,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var startSessionTask: Task<Void, Never>?
     var textResponseWindow: TextResponseWindow?
     private var voiceInput: VoiceInputManager?
+    private var wakeWordCoordinator: WakeWordCoordinator?
     private var voiceTranscriptionWindow: VoiceTranscriptionWindow?
     var thinkingWindow: ThinkingIndicatorWindow?
     public let services = AppServices()
@@ -82,10 +94,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var onboardingWindow: OnboardingWindow?
     private var authWindow: NSWindow?
-    let authManager = AuthManager()
+    var authManager: AuthManager { services.authManager }
     var mainWindow: MainWindow?
     var bundleConfirmationWindow: BundleConfirmationWindow?
     private var tasksWindow: TasksWindow?
+    private var pairingApprovalWindow: PairingApprovalWindow?
     /// Tracks file paths of .vellumapp bundles awaiting daemon responses (FIFO).
     /// Each call to sendOpenBundle appends a path; handleOpenBundleResponse
     /// pops the first entry so concurrent opens are correctly paired.
@@ -96,6 +109,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var windowObserver: Any?
     private weak var recordingViewModel: ChatViewModel?
     private var statusIconCancellable: AnyCancellable?
+    var connectionStatusCancellable: AnyCancellable?
+    var pulseTimer: Timer?
+    var pulsePhase: CGFloat = 1.0
     var cachedSkills: [SkillInfo] = []
     var refreshSkillsTask: Task<Void, Never>?
     var cachedApps: [AppItem] = []
@@ -123,6 +139,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // window from being restored on launch (the Settings scene now
         // renders EmptyView — we handle settings in the main window panel).
         UserDefaults.standard.removeObject(forKey: "NSWindow Frame com_apple_SwiftUI_Settings_window")
+
+        // Migration: clear stale pairing override values when the toggle was OFF.
+        // M9 removed the isOverrideEnabled gate — any non-empty override now
+        // applies unconditionally. Users who had override values typed in but
+        // the toggle OFF would have those stale values silently activate.
+        migratePairingOverridesIfNeeded()
 
         if let envPath = FeatureFlagManager.findRepoEnvFile() {
             FeatureFlagManager.shared.loadFromFile(at: envPath)
@@ -220,10 +242,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                         style: .warning
                     )
                 }
+                setupWakeWordCoordinator()
                 debugStateWriter.start(appDelegate: self)
             }
         } else {
             showMainWindow()
+            setupWakeWordCoordinator()
             debugStateWriter.start(appDelegate: self)
         }
     }
@@ -333,12 +357,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 NSEvent.removeMonitor(hotKeyMonitor)
                 self.hotKeyMonitor = nil
             }
+            lastRegisteredGlobalHotkey = nil
+            globalHotkeyObserver?.cancel()
+            globalHotkeyObserver = nil
             if let escapeMonitor {
                 NSEvent.removeMonitor(escapeMonitor)
                 self.escapeMonitor = nil
             }
             voiceInput?.stop()
             voiceInput = nil
+            wakeWordCoordinator = nil
             ambientAgent.teardown()
 
             if let observer = windowObserver {
@@ -347,6 +375,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             statusIconCancellable?.cancel()
             statusIconCancellable = nil
+            connectionStatusCancellable?.cancel()
+            connectionStatusCancellable = nil
+            pulseTimer?.invalidate()
+            pulseTimer = nil
 
             if let item = statusItem {
                 NSStatusBar.system.removeStatusItem(item)
@@ -432,12 +464,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             NSEvent.removeMonitor(hotKeyMonitor)
             self.hotKeyMonitor = nil
         }
+        lastRegisteredGlobalHotkey = nil
+        globalHotkeyObserver?.cancel()
+        globalHotkeyObserver = nil
         if let escapeMonitor {
             NSEvent.removeMonitor(escapeMonitor)
             self.escapeMonitor = nil
         }
         voiceInput?.stop()
         voiceInput = nil
+        wakeWordCoordinator = nil
         ambientAgent.teardown()
 
         if let observer = windowObserver {
@@ -446,6 +482,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         statusIconCancellable?.cancel()
         statusIconCancellable = nil
+        connectionStatusCancellable?.cancel()
+        connectionStatusCancellable = nil
+        pulseTimer?.invalidate()
+        pulseTimer = nil
 
         if let item = statusItem {
             NSStatusBar.system.removeStatusItem(item)
@@ -551,18 +591,47 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         log.info("Configured HTTP transport for remote assistant \(assistant.assistantId) at \(runtimeUrl, privacy: .public)")
     }
 
+    // MARK: - Pairing Override Migration
+
+    /// Key that tracks whether the pairing override migration has run.
+    private static let pairingOverrideMigrationKey = "pairing_override_migration_done"
+
+    /// Clears stale gateway/token override values when the old toggle was OFF.
+    /// Runs once; the flag persists across future launches.
+    ///
+    /// Only acts when the legacy `iosPairingUseOverride` key is actually present.
+    /// After M9 the toggle is no longer persisted, so absence means the user
+    /// may have intentionally set overrides post-M9 — skip cleanup to preserve them.
+    private func migratePairingOverridesIfNeeded() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: Self.pairingOverrideMigrationKey) else { return }
+
+        // Only clean up when the legacy toggle key is actually present.
+        // After M9 the toggle is no longer persisted, so absence means
+        // the user may have intentionally set overrides post-M9.
+        if defaults.object(forKey: "iosPairingUseOverride") != nil {
+            let overrideWasEnabled = defaults.bool(forKey: "iosPairingUseOverride")
+            if !overrideWasEnabled {
+                defaults.removeObject(forKey: PairingConfiguration.gatewayOverrideKey)
+                defaults.removeObject(forKey: PairingConfiguration.tokenOverrideKey)
+            }
+            // Clean up the legacy toggle key itself — no longer used.
+            defaults.removeObject(forKey: "iosPairingUseOverride")
+        }
+
+        defaults.set(true, forKey: Self.pairingOverrideMigrationKey)
+    }
+
     func setupDaemonClient() {
         guard !hasSetupDaemon else { return }
         hasSetupDaemon = true
 
         let assistant = loadAssistantFromLockfile()
 
-        // Ensure the daemon starts its runtime HTTP server so the app
-        // can communicate over HTTP instead of IPC.
-        if FeatureFlagManager.shared.isEnabled(.localHttpEnabled) {
-            if ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] == nil {
-                setenv("RUNTIME_HTTP_PORT", "7821", 0)
-            }
+        // Ensure the daemon starts its runtime HTTP server so the
+        // gateway can proxy iOS traffic to it.
+        if ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] == nil {
+            setenv("RUNTIME_HTTP_PORT", "7821", 0)
         }
 
         configureDaemonTransport(for: assistant)
@@ -632,6 +701,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.showTasksWindow()
         }
 
+        daemonClient.onPairingApprovalRequest = { [weak self] msg in
+            guard let self else { return }
+            if self.pairingApprovalWindow == nil {
+                self.pairingApprovalWindow = PairingApprovalWindow(daemonClient: self.daemonClient)
+            }
+            self.pairingApprovalWindow?.show(
+                pairingRequestId: msg.pairingRequestId,
+                deviceName: msg.deviceName
+            )
+        }
+
         // Automatically surface threads created by scheduled task runs so
         // the user sees them in the sidebar without restarting the app.
         daemonClient.onTaskRunThreadCreated = { [weak self] msg in
@@ -653,10 +733,20 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 callSessionId: msg.callSessionId,
                 title: msg.title
             )
-            if let thread = self.mainWindow?.threadManager.threads.first(where: { $0.sessionId == msg.conversationId }) {
-                self.mainWindow?.threadManager.activeThreadId = thread.id
+            if NSApp.isActive {
+                // App is in foreground — select thread and show window immediately
+                if let thread = self.mainWindow?.threadManager.threads.first(where: { $0.sessionId == msg.conversationId }) {
+                    self.mainWindow?.threadManager.activeThreadId = thread.id
+                }
+                self.showMainWindow()
+            } else {
+                // App is backgrounded — post native notification
+                self.deliverGuardianRequestNotification(
+                    title: msg.title,
+                    questionText: msg.questionText,
+                    conversationId: msg.conversationId
+                )
             }
-            self.showMainWindow()
         }
 
         // Handle escalation: text_qa -> computer_use via computer_use_request_control
@@ -1013,20 +1103,45 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Hotkey
 
     private func setupHotKey() {
+        registerGlobalHotkeyMonitor()
+
+        globalHotkeyObserver = NotificationCenter.default
+            .publisher(for: UserDefaults.didChangeNotification)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.registerGlobalHotkeyMonitor()
+            }
+    }
+
+    /// Tears down and re-registers the global "Open Vellum" hotkey based on
+    /// the current `globalHotkeyShortcut` UserDefaults value. Skips
+    /// re-registration if the shortcut hasn't changed.
+    private func registerGlobalHotkeyMonitor() {
+        let shortcut = UserDefaults.standard.string(forKey: "globalHotkeyShortcut") ?? "cmd+shift+g"
+
+        if shortcut == lastRegisteredGlobalHotkey { return }
+
+        if let existing = hotKeyMonitor {
+            NSEvent.removeMonitor(existing)
+            hotKeyMonitor = nil
+        }
+
+        let (targetModifiers, targetKey) = ShortcutHelper.parseShortcut(shortcut)
+
         // Use NSEvent global monitor instead of Carbon RegisterEventHotKey (HotKey package).
         // Carbon hotkeys consume the event globally, preventing other apps from seeing the
-        // keystroke. NSEvent.addGlobalMonitorForEvents observes without consuming, so Cmd+Shift+G
-        // still reaches the frontmost app.
+        // keystroke. NSEvent.addGlobalMonitorForEvents observes without consuming.
         hotKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard event.modifierFlags.intersection(.deviceIndependentFlagsMask) == [.command, .shift],
-                  event.charactersIgnoringModifiers?.lowercased() == "g" else { return }
+            let eventMods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.numericPad)
+            guard eventMods == targetModifiers,
+                  event.charactersIgnoringModifiers?.lowercased() == targetKey.lowercased() else { return }
             Task { @MainActor in
-                // Don't create the main window while the first-launch
-                // readiness gate is in progress.
                 guard self?.isAwaitingFirstLaunchReady != true else { return }
                 self?.showMainWindow()
             }
         }
+
+        lastRegisteredGlobalHotkey = shortcut
     }
 
     private func setupEscapeMonitor() {
@@ -1130,6 +1245,33 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         voiceInput?.start()
+    }
+
+    // MARK: - Wake Word Coordinator
+
+    private func setupWakeWordCoordinator() {
+        guard let mainWindow else {
+            log.warning("Cannot set up wake word coordinator — main window not available")
+            return
+        }
+
+        let sensitivity = UserDefaults.standard.float(forKey: "wakeWordSensitivity")
+        let engine = PorcupineWakeWordEngine(sensitivity: sensitivity > 0 ? sensitivity : 0.5)
+        let audioMonitor = AlwaysOnAudioMonitor(engine: engine)
+
+        let coordinator = WakeWordCoordinator(
+            audioMonitor: audioMonitor,
+            voiceModeManager: mainWindow.voiceModeManager,
+            threadManager: mainWindow.threadManager,
+            voiceInputManager: voiceInput
+        )
+
+        if UserDefaults.standard.bool(forKey: "wakeWordEnabled") {
+            audioMonitor.startMonitoring()
+        }
+
+        coordinator.markReady()
+        wakeWordCoordinator = coordinator
     }
 
     // MARK: - Ambient Agent
@@ -1372,6 +1514,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         if let monitor = hotKeyMonitor {
             NSEvent.removeMonitor(monitor)
         }
+        globalHotkeyObserver?.cancel()
         if let monitor = escapeMonitor {
             NSEvent.removeMonitor(monitor)
         }
@@ -1379,6 +1522,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             NotificationCenter.default.removeObserver(observer)
         }
         statusIconCancellable?.cancel()
+        connectionStatusCancellable?.cancel()
+        pulseTimer?.invalidate()
+        pulseTimer = nil
         voiceInput?.stop()
         ambientAgent.teardown()
         surfaceManager.dismissAll()

@@ -9,17 +9,10 @@ const DEFAULT_VELLUM_API_URL = "https://api.vellum.ai";
 // Types
 // ---------------------------------------------------------------------------
 
-export interface EmailInbox {
+export interface AssistantEmailAddress {
   id: string;
   address: string;
-  displayName?: string;
-  createdAt: string;
-}
-
-export interface EmailStatus {
-  provider: string;
-  ok: boolean;
-  inboxes: EmailInbox[];
+  created_at: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -63,8 +56,10 @@ async function vellumFetch(
 export class VellumEmailClient {
   private apiKey: string;
   private baseUrl: string;
+  private assistantId: string;
 
-  constructor(apiKey?: string, baseUrl?: string) {
+  constructor(assistantId: string, apiKey?: string, baseUrl?: string) {
+    this.assistantId = assistantId;
     const resolvedKey = apiKey ?? process.env.VELLUM_API_KEY;
     if (!resolvedKey) {
       throw new Error(
@@ -77,27 +72,26 @@ export class VellumEmailClient {
   }
 
   /** List existing email addresses and check connectivity. */
-  async status(): Promise<EmailStatus> {
+  async status(): Promise<AssistantEmailAddress[]> {
     const result = await vellumFetch(
       this.apiKey,
       this.baseUrl,
-      "/v1/email-addresses",
+      `/v1/assistants/${this.assistantId}/email-addresses/`,
     );
-    const inboxes = (result as { inboxes: EmailInbox[] }).inboxes;
-    return { provider: "vellum", ok: true, inboxes };
+    return result as AssistantEmailAddress[];
   }
 
   /** Provision a new email address for the given username. */
-  async createInbox(username: string): Promise<EmailInbox> {
+  async createInbox(username: string): Promise<AssistantEmailAddress> {
     const result = await vellumFetch(
       this.apiKey,
       this.baseUrl,
-      "/v1/email-addresses",
+      `/v1/assistants/${this.assistantId}/email-addresses/`,
       {
         method: "POST",
         body: { username },
       },
     );
-    return result as EmailInbox;
+    return result as AssistantEmailAddress;
   }
 }

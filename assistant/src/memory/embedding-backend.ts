@@ -15,8 +15,17 @@ const backendCache = new Map<string, EmbeddingBackend>();
 // ── In-memory embedding vector cache ──────────────────────────────
 // LRU cache keyed by sha256(provider + model + text) → embedding vector.
 // Avoids redundant API calls / local compute for identical content.
-const VECTOR_CACHE_MAX_ENTRIES = 4096;
+// Eviction is based on estimated byte size (32 MB cap) rather than entry count,
+// since vector dimensions vary across providers/models.
+const VECTOR_CACHE_MAX_BYTES = 33_554_432; // 32 MB
 const vectorCache = new Map<string, number[]>();
+let vectorCacheBytes = 0;
+
+/** Estimate in-memory byte cost of a single cache entry. */
+function estimateEntryBytes(key: string, vector: number[]): number {
+  // key: UTF-16 chars (2 bytes each) + vector: 8 bytes per float64
+  return key.length * 2 + vector.length * 8;
+}
 
 function vectorCacheKey(provider: string, model: string, text: string): string {
   return createHash('sha256').update(`${provider}\0${model}\0${text}`).digest('hex');
@@ -35,18 +44,30 @@ function getFromVectorCache(provider: string, model: string, text: string): numb
 
 function putInVectorCache(provider: string, model: string, text: string, vector: number[]): void {
   const key = vectorCacheKey(provider, model, text);
-  vectorCache.delete(key);
-  if (vectorCache.size >= VECTOR_CACHE_MAX_ENTRIES) {
+  // If replacing an existing entry, subtract its old cost first
+  const existing = vectorCache.get(key);
+  if (existing !== undefined) {
+    vectorCacheBytes -= estimateEntryBytes(key, existing);
+    vectorCache.delete(key);
+  }
+  const entryBytes = estimateEntryBytes(key, vector);
+  // Evict oldest entries until we have room
+  while (vectorCacheBytes + entryBytes > VECTOR_CACHE_MAX_BYTES && vectorCache.size > 0) {
     const oldest = vectorCache.keys().next().value;
-    if (oldest !== undefined) vectorCache.delete(oldest);
+    if (oldest === undefined) break;
+    const oldVec = vectorCache.get(oldest)!;
+    vectorCacheBytes -= estimateEntryBytes(oldest, oldVec);
+    vectorCache.delete(oldest);
   }
   vectorCache.set(key, vector);
+  vectorCacheBytes += entryBytes;
 }
 
 /** Clear cached embedding backends and the in-memory vector cache. */
 export function clearEmbeddingBackendCache(): void {
   backendCache.clear();
   vectorCache.clear();
+  vectorCacheBytes = 0;
 }
 
 function cacheKey(provider: string, model: string): string {

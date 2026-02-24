@@ -169,7 +169,7 @@ export class EvaluateTypescriptTool implements Tool {
     timeoutSec: number,
     timeoutMs: number,
     maxOutputChars: number,
-    _context: ToolContext,
+    context: ToolContext,
   ): Promise<EvalResult> {
     return new Promise<EvalResult>((resolve) => {
       const startTime = Date.now();
@@ -197,11 +197,24 @@ export class EvaluateTypescriptTool implements Tool {
         child.kill('SIGKILL');
       }, timeoutMs);
 
+      // Cooperative cancellation via AbortSignal
+      const onAbort = () => {
+        child.kill('SIGKILL');
+      };
+      if (context.signal) {
+        if (context.signal.aborted) {
+          child.kill('SIGKILL');
+        } else {
+          context.signal.addEventListener('abort', onAbort, { once: true });
+        }
+      }
+
       child.stdout.on('data', (data: Buffer) => stdoutChunks.push(data));
       child.stderr.on('data', (data: Buffer) => stderrChunks.push(data));
 
       child.on('close', (code) => {
         clearTimeout(timer);
+        context.signal?.removeEventListener('abort', onAbort);
         const durationMs = Date.now() - startTime;
 
         let stdout = Buffer.concat(stdoutChunks).toString();
@@ -251,6 +264,7 @@ export class EvaluateTypescriptTool implements Tool {
 
       child.on('error', (err) => {
         clearTimeout(timer);
+        context.signal?.removeEventListener('abort', onAbort);
         const durationMs = Date.now() - startTime;
         resolve({
           ok: false,
