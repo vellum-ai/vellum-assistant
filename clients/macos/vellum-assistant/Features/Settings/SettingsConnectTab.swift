@@ -88,12 +88,10 @@ struct SettingsConnectTab: View {
             Text("This will replace the current bearer token and restart the daemon. Any paired devices will need to reconnect.")
         }
         .sheet(isPresented: $showingPairingQR) {
-            if let client = daemonClient {
-                PairingQRCodeSheet(
-                    gatewayUrl: store.resolvedIosGatewayUrl,
-                    daemonClient: client
-                )
-            }
+            PairingQRCodeSheet(
+                gatewayUrl: store.resolvedIosGatewayUrl,
+                daemonClient: daemonClient
+            )
         }
     }
 
