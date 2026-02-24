@@ -87,11 +87,49 @@ function redactValue(value: unknown, depth: number): unknown {
 }
 
 // ---------------------------------------------------------------------------
+// Error serialization — extracts non-enumerable Error fields and cause chain
+// ---------------------------------------------------------------------------
+
+function serializeError(err: unknown, depth: number): unknown {
+  if (depth > 8 || err == null) return err;
+
+  if (!(err instanceof Error)) {
+    return err;
+  }
+
+  const serialized: Record<string, unknown> = {
+    name: err.name,
+    message: err.message,
+  };
+
+  if ("code" in err && typeof (err as { code: unknown }).code === "string") {
+    serialized.code = (err as { code: string }).code;
+  }
+
+  if (err.stack) {
+    serialized.stack = err.stack;
+  }
+
+  if (err.cause !== undefined) {
+    serialized.cause = serializeError(err.cause, depth + 1);
+  }
+
+  // Preserve any additional enumerable properties
+  for (const [key, val] of Object.entries(err)) {
+    if (!(key in serialized)) {
+      serialized[key] = val;
+    }
+  }
+
+  return serialized;
+}
+
+// ---------------------------------------------------------------------------
 // Pino serializers
 // ---------------------------------------------------------------------------
 
 export const logSerializers: Record<string, (value: unknown) => unknown> = {
-  err: (err) => redactValue(err, 0),
+  err: (err) => redactValue(serializeError(err, 0), 0),
   req: (req) => redactValue(req, 0),
   res: (res) => redactValue(res, 0),
 };
