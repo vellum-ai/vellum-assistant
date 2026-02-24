@@ -203,9 +203,12 @@ export class ContextWindowManager {
     // Removing the redundant MIN_GAIN_TOKENS_DURING_COOLDOWN guard here lets
     // that shorter cooldown actually gate compaction: high-growth conversations
     // break out of the cooldown sooner and compact more frequently.
+    // force=true bypasses the cooldown so context-too-large recovery can always
+    // attempt a compaction even within the cooldown window.
     if (
       withinCooldown
       && !severePressure
+      && !options?.force
     ) {
       log.debug(
         { projectedGainTokens, adaptiveCooldownMs, growthRateMultiplier, msSinceCompaction: typeof lastCompactedAt === 'number' ? Date.now() - lastCompactedAt : null },

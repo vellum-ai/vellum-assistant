@@ -287,7 +287,7 @@ describe('ContextWindowManager', () => {
     expect(getSummaryFromContextMessage(userMessage)).toBeNull();
   });
 
-  test('skips compaction during cooldown when projected gain is too low', async () => {
+  test('skips compaction during cooldown', async () => {
     const provider = createProvider(() => {
       throw new Error('summarizer should not be called while cooldown skip is active');
     });
@@ -307,7 +307,7 @@ describe('ContextWindowManager', () => {
       lastCompactedAt: Date.now() - 30_000,
     });
     expect(result.compacted).toBe(false);
-    expect(result.reason).toBe('compaction cooldown active with low projected gain');
+    expect(result.reason).toBe('compaction cooldown active');
   });
 
   test('ignores cooldown and compacts under severe token pressure', async () => {
@@ -333,6 +333,34 @@ describe('ContextWindowManager', () => {
 
     const result = await manager.maybeCompact(history, undefined, {
       lastCompactedAt: Date.now() - 30_000,
+    });
+    expect(result.compacted).toBe(true);
+    expect(result.reason).toBeUndefined();
+  });
+
+  test('force=true bypasses cooldown for context-too-large recovery', async () => {
+    const provider = createProvider(() => ({
+      content: [{ type: 'text', text: '## Goals\n- forced compaction' }],
+      model: 'mock-model',
+      usage: { inputTokens: 60, outputTokens: 12 },
+      stopReason: 'end_turn',
+    }));
+    const manager = new ContextWindowManager(
+      provider,
+      'system prompt',
+      makeConfig({ maxInputTokens: 260, targetInputTokens: 180, preserveRecentUserTurns: 1 }),
+    );
+    const long = 'c'.repeat(220);
+    const history: Message[] = [
+      message('user', `u1 ${long}`),
+      message('assistant', `a1 ${long}`),
+      message('user', `u2 ${long}`),
+    ];
+
+    // Same setup as the cooldown test, but with force=true — should compact.
+    const result = await manager.maybeCompact(history, undefined, {
+      lastCompactedAt: Date.now() - 30_000,
+      force: true,
     });
     expect(result.compacted).toBe(true);
     expect(result.reason).toBeUndefined();
