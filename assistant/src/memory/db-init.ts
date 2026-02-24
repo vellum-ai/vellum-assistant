@@ -566,7 +566,6 @@ export function initializeDb(): void {
     WHERE status = 'pending_clarification'
   `);
   database.run(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_items_fingerprint_scope ON memory_items(fingerprint, scope_id)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_items_fingerprint ON memory_items(fingerprint)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_items_kind_status ON memory_items(kind, status)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_items_status_invalid_at ON memory_items(status, invalid_at)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_items_scope_status_kind ON memory_items(scope_id, status, kind)`);
