@@ -294,29 +294,18 @@ struct ChatBubble: View {
             }
             .frame(maxWidth: 520, alignment: .leading)
         } else if hasActuallyRunningTool && !permissionWasDenied {
-            // In progress — show running indicator or claude_code progress view
+            // In progress — show live progress view with completed + running steps
             let current = message.toolCalls.first(where: { !$0.isComplete })!
             if current.toolName == "claude_code" && !current.claudeCodeSteps.isEmpty {
                 ClaudeCodeProgressView(steps: current.claudeCodeSteps, isRunning: true)
                     .frame(maxWidth: 520, alignment: .leading)
             } else {
-                let progressive = current.buildingStatus != nil ? [] : Self.progressiveLabels(for: current.toolName)
-                RunningIndicator(
-                    label: Self.friendlyRunningLabel(current.toolName, inputSummary: current.inputSummary, buildingStatus: current.buildingStatus),
-                    progressiveLabels: progressive,
-                    labelInterval: progressive.isEmpty ? 6 : 15,
-                    onTap: nil
-                )
+                LiveToolProgressView(toolCalls: message.toolCalls, isRunning: true)
                     .frame(maxWidth: 520, alignment: .leading)
             }
         } else if toolsCompleteButStillStreaming && !permissionWasDenied {
             // All tools done but model is still working (generating next tool call)
-            RunningIndicator(
-                label: "Thinking",
-                progressiveLabels: ["Thinking", "Figuring out next steps", "Almost ready"],
-                labelInterval: 8,
-                onTap: nil
-            )
+            LiveToolProgressView(toolCalls: message.toolCalls, isRunning: true, thinkingLabel: "Thinking")
                 .frame(maxWidth: 520, alignment: .leading)
         } else if hasCompletedTools || hasPermission || (hasInProgressTools && permissionWasDenied) {
             // All done (or denied) — steps pill + permission chip on one row,
