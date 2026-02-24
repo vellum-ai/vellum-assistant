@@ -1809,11 +1809,16 @@ export async function handleTwilioConfig(
         }
       }
 
+      const updateParams = { ...(msg.verificationParams ?? {}) };
+      if (updateParams.useCaseCategories) {
+        updateParams.useCaseCategories = normalizeUseCaseCategories(updateParams.useCaseCategories);
+      }
+
       const verification = await updateTollFreeVerification(
         accountSid,
         authToken,
         msg.verificationSid,
-        msg.verificationParams ?? {},
+        updateParams,
       );
 
       ctx.send(socket, {
@@ -2070,7 +2075,7 @@ export async function handleTwilioConfig(
       const readinessIssues: string[] = [];
       try {
         const readinessService = getReadinessService();
-        const snapshots = await readinessService.getReadiness('sms', true, msg.assistantId);
+        const snapshots = await readinessService.getReadiness('sms', false, msg.assistantId);
         const snapshot = snapshots[0];
         if (snapshot) {
           readinessReady = snapshot.ready;
