@@ -63,6 +63,7 @@ import type {
 import type { GuardianRuntimeContext } from '../../daemon/session-runtime-assembly.js';
 import { composeApprovalMessageGenerative } from '../approval-message-composer.js';
 import type { ApprovalMessageContext } from '../approval-message-composer.js';
+import { refreshThreadEscalation } from '../../memory/inbox-escalation-projection.js';
 
 const log = getLogger('runtime-http');
 
@@ -577,6 +578,41 @@ export async function handleChannelInbound(
       reason: 'Ingress policy requires guardian approval',
       expiresAt: Date.now() + GUARDIAN_APPROVAL_TTL_MS,
     });
+
+    // Update inbox thread escalation state so the desktop UI badge is accurate
+    refreshThreadEscalation(result.conversationId, assistantId);
+
+    // Notify the guardian about the pending escalation via channel delivery
+    const senderIdentifier = body.senderName || body.senderUsername || body.senderExternalUserId || 'Unknown sender';
+    if (body.replyCallbackUrl) {
+      try {
+        const notificationText = await composeApprovalMessageGenerative(
+          {
+            scenario: 'guardian_prompt',
+            channel: sourceChannel,
+            toolName: 'ingress_message',
+            requesterIdentifier: senderIdentifier,
+          },
+          {
+            fallbackText: `New message from ${senderIdentifier} requires your review. Reply with "approve" or "deny".`,
+          },
+          approvalCopyGenerator,
+        );
+
+        await deliverChannelReply(
+          body.replyCallbackUrl,
+          { chatId: binding.guardianDeliveryChatId, text: notificationText, assistantId },
+          bearerToken,
+        );
+      } catch (err) {
+        // Fail-closed: approval request is already created in the DB and
+        // thread escalation state is updated — the desktop UI will show
+        // the pending escalation even if channel notification failed.
+        log.error({ err, conversationId: result.conversationId, guardianChatId: binding.guardianDeliveryChatId }, 'Failed to notify guardian of ingress escalation');
+      }
+    } else {
+      log.warn({ conversationId: result.conversationId }, 'Ingress escalation created but no replyCallbackUrl to notify guardian');
+    }
 
     return Response.json({ accepted: true, escalated: true, reason: 'policy_escalate' });
   }
