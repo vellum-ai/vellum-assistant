@@ -709,8 +709,20 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
       - name: Build Slack payload
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
+          VERSION="${{ inputs.version }}"
+          VERSION_TAG="v${VERSION}"
+
           # Determine release status from core jobs
           RELEASE_FAILED="false"
           for result in \
@@ -727,10 +739,10 @@ jobs:
           done
 
           if [ "$RELEASE_FAILED" = "true" ]; then
-            HEADER="❌ Release v${{ inputs.version }} Failed"
+            HEADER="❌ Release ${VERSION_TAG} Failed"
             STYLE="danger"
           else
-            HEADER="✅ Release v${{ inputs.version }} Succeeded"
+            HEADER="✅ Release ${VERSION_TAG} Succeeded"
             STYLE=""
           fi
 
@@ -742,24 +754,82 @@ jobs:
           G=$(ci_icon "${{ needs.ci-gateway.outcome }}")
           D=$(ci_icon "${{ needs.build-macos.result }}")
 
-          BODY="*CI Checks:*  ${A} assistant    ${C} cli    ${G} gateway    ${D} desktop\n\n*Version:* \`${{ inputs.version }}\`\n*Triggered by:* ${{ github.actor }}"
+          CI_LINE="*CI Checks:*  ${A} assistant    ${C} cli    ${G} gateway    ${D} desktop"
+          META_LINE="*Version:* \`${VERSION}\`\n*Triggered by:* ${{ github.actor }}"
+
+          # Fetch release notes from GitHub release
+          RELEASE_BODY=$(gh release view "$VERSION_TAG" --repo "${{ github.repository }}" --json body -q .body 2>/dev/null || echo "")
+
+          RELEASE_NOTES_SECTION=""
+          RELEASE_SUMMARY=""
+          if [ -n "$RELEASE_BODY" ]; then
+            # Count items per section
+            features=$(echo "$RELEASE_BODY" | awk '/^## Features/{f=1; next} /^## /{f=0} f' | grep -c '^- ' || true)
+            fixes=$(echo "$RELEASE_BODY" | awk '/^## Fixes/{f=1; next} /^## /{f=0} f' | grep -c '^- ' || true)
+            infra=$(echo "$RELEASE_BODY" | awk '/^## Infrastructure/{f=1; next} /^## /{f=0} f' | grep -c '^- ' || true)
+
+            summary=""
+            [ "$features" -gt 0 ] 2>/dev/null && summary="${features} features"
+            [ "$fixes" -gt 0 ] 2>/dev/null && summary="${summary:+$summary, }${fixes} fixes"
+            [ "$infra" -gt 0 ] 2>/dev/null && summary="${summary:+$summary, }${infra} infra changes"
+
+            if [ -n "$summary" ]; then
+              RELEASE_SUMMARY="$summary"
+            fi
+
+            # Convert ## headings to Slack bold
+            RELEASE_NOTES_SECTION=$(echo "$RELEASE_BODY" | sed 's/^## \(.*\)/*\1*/g')
+          fi
+
+          RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/${VERSION_TAG}"
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
           # Build JSON payload with jq
-          BUTTON=$(jq -n --arg style "$STYLE" --arg url "$RUN_URL" '{
+          BLOCKS="[]"
+
+          # Header
+          BLOCKS=$(echo "$BLOCKS" | jq --arg header "$HEADER" '. + [{ type: "header", text: { type: "plain_text", text: $header } }]')
+
+          # Release summary (if available)
+          if [ -n "$RELEASE_SUMMARY" ]; then
+            BLOCKS=$(echo "$BLOCKS" | jq --arg summary "$RELEASE_SUMMARY" '. + [{ type: "section", text: { type: "mrkdwn", text: $summary } }]')
+          fi
+
+          # CI checks + metadata
+          BODY="${CI_LINE}\n\n${META_LINE}"
+          BLOCKS=$(echo "$BLOCKS" | jq --arg body "$BODY" '. + [{ type: "section", text: { type: "mrkdwn", text: $body } }]')
+
+          # Release notes body (if available)
+          if [ -n "$RELEASE_NOTES_SECTION" ]; then
+            BLOCKS=$(echo "$BLOCKS" | jq --arg notes "$RELEASE_NOTES_SECTION" '. + [{ type: "divider" }, { type: "section", text: { type: "mrkdwn", text: $notes } }]')
+          fi
+
+          # Buttons
+          VIEW_RUN=$(jq -n --arg url "$RUN_URL" --arg style "$STYLE" '{
             type: "button",
             text: { type: "plain_text", text: "View Run" },
             url: $url
           } + (if $style != "" then { style: $style } else {} end)')
 
-          jq -n --arg header "$HEADER" --arg body "$BODY" --argjson button "$BUTTON" '{
+          VIEW_RELEASE=$(jq -n --arg url "$RELEASE_URL" '{
+            type: "button",
+            text: { type: "plain_text", text: "View Release" },
+            url: $url,
+            style: "primary"
+          }')
+
+          if [ "$RELEASE_FAILED" = "true" ]; then
+            BUTTONS=$(jq -n --argjson run "$VIEW_RUN" '[$run]')
+          else
+            BUTTONS=$(jq -n --argjson run "$VIEW_RUN" --argjson release "$VIEW_RELEASE" '[$run, $release]')
+          fi
+
+          BLOCKS=$(echo "$BLOCKS" | jq --argjson buttons "$BUTTONS" '. + [{ type: "actions", elements: $buttons }]')
+
+          jq -n --argjson blocks "$BLOCKS" '{
             unfurl_links: false,
             unfurl_media: false,
-            blocks: [
-              { type: "header", text: { type: "plain_text", text: $header } },
-              { type: "section", text: { type: "mrkdwn", text: $body } },
-              { type: "actions", elements: [$button] }
-            ]
+            blocks: $blocks
           }' > /tmp/slack-payload.json
 
       - name: Notify Slack
