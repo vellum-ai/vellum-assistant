@@ -86,11 +86,14 @@ export async function analyzeKeyframesForAsset(
 
   onProgress?.(`Analyzing ${pendingKeyframes.length} keyframes (${analyzedKeyframeIds.size} already done)...\n`);
 
+  let aborted = false;
+
   try {
     // Process in batches
     for (let i = 0; i < pendingKeyframes.length; i += batch) {
       if (signal?.aborted) {
         onProgress?.('Aborted.\n');
+        aborted = true;
         break;
       }
 
@@ -106,6 +109,7 @@ export async function analyzeKeyframesForAsset(
       for (const keyframe of currentBatch) {
         if (signal?.aborted) {
           onProgress?.('Aborted.\n');
+          aborted = true;
           break;
         }
 
@@ -134,6 +138,10 @@ export async function analyzeKeyframesForAsset(
       updateProcessingStage(stage.id, { progress });
 
       onProgress?.(`  Batch ${Math.floor(i / batch) + 1}: analyzed ${batchResults.length}/${currentBatch.length} frames (${progress}% total)\n`);
+    }
+
+    if (aborted) {
+      throw new Error('Analysis aborted');
     }
 
     const finalProgress = Math.round((analyzedCount / totalKeyframes) * 100);

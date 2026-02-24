@@ -41,8 +41,8 @@ function formatBytes(bytes: number): string {
 /**
  * Load an attachment row (including base64 data) by its primary key.
  *
- * Not scoped by assistantId because ToolContext doesn't carry it.
- * Cross-thread isolation is enforced by the visibility check in execute().
+ * Not scoped by assistantId because attachment access is enforced by
+ * conversation visibility checks in execute().
  */
 function loadAttachmentById(
   attachmentId: string,

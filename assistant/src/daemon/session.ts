@@ -38,7 +38,7 @@ import { getHookManager } from '../hooks/manager.js';
 import { ConflictGate } from './session-conflict-gate.js';
 import { MessageQueue } from './session-queue-manager.js';
 import type { QueueDrainReason } from './session-queue-manager.js';
-import type { ChannelCapabilities } from './session-runtime-assembly.js';
+import type { ChannelCapabilities, GuardianRuntimeContext } from './session-runtime-assembly.js';
 import type { AssistantAttachmentDraft } from './assistant-attachments.js';
 import {
   handleSurfaceAction as handleSurfaceActionImpl,
@@ -127,6 +127,8 @@ export class Session {
   /** @internal */ currentActiveSurfaceId?: string;
   /** @internal */ currentPage?: string;
   /** @internal */ channelCapabilities?: ChannelCapabilities;
+  /** @internal */ guardianContext?: GuardianRuntimeContext;
+  /** @internal */ assistantId?: string;
   /** @internal */ pendingSurfaceActions = new Map<string, { surfaceType: SurfaceType }>();
   /** @internal */ lastSurfaceAction = new Map<string, { actionId: string; data?: Record<string, unknown> }>();
   /** @internal */ surfaceState = new Map<string, { surfaceType: SurfaceType; data: SurfaceData }>();
@@ -325,6 +327,14 @@ export class Session {
 
   setChannelCapabilities(caps: ChannelCapabilities | null): void {
     this.channelCapabilities = caps ?? undefined;
+  }
+
+  setGuardianContext(ctx: GuardianRuntimeContext | null): void {
+    this.guardianContext = ctx ?? undefined;
+  }
+
+  setAssistantId(assistantId: string | null): void {
+    this.assistantId = assistantId ?? undefined;
   }
 
   persistUserMessage(

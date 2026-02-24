@@ -11,6 +11,7 @@ struct QRPairingSheet: View {
     @State private var scannedPayload: DaemonQRPayload?
     @State private var errorMessage: String?
     @State private var showGatewayChangedAlert = false
+    @AppStorage(PairingConfiguration.devLocalPairingKey) private var devLocalPairingEnabled: Bool = false
 
     enum PairingPhase {
         case scanning
@@ -88,7 +89,7 @@ struct QRPairingSheet: View {
             .cornerRadius(VRadius.md)
             .padding(.horizontal, VSpacing.lg)
 
-            Text("Open Vellum on your Mac > Settings > Show QR Code. Ingress must be enabled on the Mac for pairing.")
+            Text("Open Vellum on your Mac, go to Settings \u{2192} Connect, and tap Show QR Code. Ingress must be enabled on the Mac for pairing.")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textMuted)
                 .multilineTextAlignment(.center)
@@ -119,6 +120,22 @@ struct QRPairingSheet: View {
                 .background(VColor.surface)
                 .cornerRadius(VRadius.md)
                 .padding(.horizontal, VSpacing.xl)
+
+                if payload.mode == "local" {
+                    HStack(spacing: 6) {
+                        Image(systemName: "laptopcomputer.and.iphone")
+                            .foregroundColor(VColor.warning)
+                            .font(.system(size: 14))
+                        Text("Local network connection (developer mode)")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.warning)
+                    }
+                    .padding(VSpacing.md)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(VColor.warning.opacity(0.1))
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                    .padding(.horizontal, VSpacing.xl)
+                }
             }
 
             Spacer()
@@ -255,7 +272,7 @@ struct QRPairingSheet: View {
         }
 
         guard json["type"] as? String == "vellum-daemon" else {
-            errorMessage = "This QR code is not from Vellum. Open Vellum on your Mac and scan the QR code from Settings."
+            errorMessage = "This QR code is not from Vellum. Open Vellum on your Mac and scan the QR code from Settings \u{2192} Connect."
             phase = .error
             return
         }
@@ -277,10 +294,33 @@ struct QRPairingSheet: View {
             return
         }
 
+        // Validate HTTP scheme — require HTTPS for non-local, or devLocalPairingEnabled for local HTTP
+        if let url = URL(string: gatewayURL), url.scheme?.lowercased() == "http" {
+            guard let host = url.host, !host.isEmpty else {
+                errorMessage = "Invalid HTTP URL — no host found."
+                phase = .error
+                return
+            }
+            let isLocal = DaemonConnectionSection.isLocalHost(host)
+            if !isLocal {
+                errorMessage = "HTTPS is required for non-local connections."
+                phase = .error
+                return
+            }
+            if !devLocalPairingEnabled {
+                errorMessage = "Enable Developer Local Pairing in connection settings to use local HTTP gateways."
+                phase = .error
+                return
+            }
+        }
+
+        let mode = json["m"] as? String
+
         let payload = DaemonQRPayload(
             gatewayURL: gatewayURL,
             bearerToken: bearerToken,
-            hostId: hostId
+            hostId: hostId,
+            mode: mode
         )
         scannedPayload = payload
 
@@ -408,5 +448,6 @@ struct DaemonQRPayload {
     let gatewayURL: String
     let bearerToken: String
     let hostId: String
+    let mode: String?  // "gateway", "local", or nil (legacy)
 }
 #endif

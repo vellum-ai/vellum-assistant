@@ -77,4 +77,6 @@ export interface SendOptions {
   subject?: string;
   /** For email: in-reply-to message ID */
   inReplyTo?: string;
+  /** Optional assistant scope for multi-assistant channels. */
+  assistantId?: string;
 }

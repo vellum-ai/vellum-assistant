@@ -174,7 +174,8 @@ public final class WatchSession: ObservableObject {
         guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
         let appRef = AXUIElementCreateApplication(app.processIdentifier)
         var value: AnyObject?
-        guard AXUIElementCopyAttributeValue(appRef, kAXFocusedWindowAttribute as CFString, &value) == .success else {
+        guard AXUIElementCopyAttributeValue(appRef, kAXFocusedWindowAttribute as CFString, &value) == .success,
+              let value = value, CFGetTypeID(value) == AXUIElementGetTypeID() else {
             return nil
         }
         let window = value as! AXUIElement

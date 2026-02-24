@@ -47,6 +47,12 @@
       "description": "Configure Twilio credentials and phone numbers for voice calls and SMS messaging",
       "emoji": "\ud83d\udcf1",
       "includes": ["public-ingress"]
+    },
+    {
+      "id": "sms-setup",
+      "name": "SMS Setup",
+      "description": "Set up and troubleshoot SMS messaging with guided Twilio configuration, compliance, and verification",
+      "emoji": "\ud83d\udce8"
     }
   ]
 }

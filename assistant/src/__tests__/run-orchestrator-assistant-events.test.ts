@@ -68,6 +68,8 @@ function makeSessionEmittingViaClient(...messages: ServerMessage[]): Session {
     persistUserMessage: () => undefined as unknown as string,
     memoryPolicy: { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false },
     setChannelCapabilities: () => {},
+    setAssistantId: () => {},
+    setGuardianContext: () => {},
     updateClient: (handler: (msg: ServerMessage) => void) => {
       clientHandler = handler;
     },
@@ -90,6 +92,8 @@ function makeSessionEmittingViaAgentLoop(...messages: ServerMessage[]): Session 
     persistUserMessage: () => undefined as unknown as string,
     memoryPolicy: { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false },
     setChannelCapabilities: () => {},
+    setAssistantId: () => {},
+    setGuardianContext: () => {},
     updateClient: () => {},
     runAgentLoop: async (_content: string, _messageId: string, onEvent: (msg: ServerMessage) => void) => {
       for (const msg of messages) {

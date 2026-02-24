@@ -451,6 +451,10 @@ All three paths are best-effort: webhook sync failures do not prevent the primar
 
 **Limitations (v1)**: Text-only — MMS payloads are explicitly rejected with a user-facing notice rather than silently dropped.
 
+**Channel Readiness**: The `channel_readiness` IPC contract (`ChannelReadinessService` in `src/runtime/channel-readiness-service.ts`) provides a unified readiness subsystem for all channels. Each channel registers a `ChannelProbe` that runs synchronous local checks (credential presence, phone number, ingress config) and optional async remote checks with a 5-minute TTL cache. Built-in probes: SMS (Twilio credentials, phone number, ingress; remote checks query Twilio toll-free verification status for toll-free numbers) and Telegram (bot token, webhook secret, ingress). The `get` action returns cached snapshots; `refresh` invalidates the cache first. Unknown channels return `unsupported_channel`.
+
+**SMS Compliance & Admin**: The `twilio_config` IPC contract extends beyond credential and number management with compliance and admin actions: `sms_compliance_status` detects toll-free vs local number type and fetches verification status; `sms_submit_tollfree_verification`, `sms_update_tollfree_verification`, and `sms_delete_tollfree_verification` manage the Twilio toll-free verification lifecycle; `release_number` removes a phone number from the Twilio account and clears all local references. All compliance actions validate required fields and Twilio enum values before calling the API.
+
 ---
 
 ## macOS App — Service and State Ownership
@@ -3688,6 +3692,7 @@ Runtime detects needs_confirmation
 
 | Module | Purpose |
 |--------|---------|
+| `assistant/src/runtime/approval-message-composer.ts` | Centralized approval message composition: layered source selection (assistant preface → deterministic fallback) for all approval/guardian/verification user-facing copy |
 | `assistant/src/runtime/channel-approvals.ts` | Orchestration: detect pending confirmations, build prompts (including guardian-aware prompts), apply decisions, build reminders, plain-text fallback selection |
 | `assistant/src/runtime/channel-approval-parser.ts` | Plain-text decision parser (phrase matching) |
 | `assistant/src/runtime/channel-approval-types.ts` | Shared types: actions, prompts, UI metadata, decisions |
@@ -3698,6 +3703,15 @@ Runtime detects needs_confirmation
 | `assistant/src/runtime/gateway-client.ts` | `deliverApprovalPrompt()` — sends approval payload to gateway |
 | `gateway/src/telegram/send.ts` | `buildInlineKeyboard()` — renders approval actions as Telegram inline buttons |
 | `gateway/src/telegram/normalize.ts` | `callback_query` normalization into `GatewayInboundEventV1` (DM-only, drops callbacks without data) |
+
+### Approval Message Composer
+
+The `approval-message-composer.ts` module provides a centralized system for generating approval lifecycle messages across channels. It uses a layered source selection:
+
+1. **Assistant preface** — reuses existing assistant text (macOS parity)
+2. **Deterministic fallback** — scenario-specific templates with required semantic content
+
+All approval/guardian/verification user-facing copy routes through this composer. Deterministic behavior (action IDs, callback payloads, plain-text parsing) remains separate and unchanged. A guard test (`approval-hardcoded-copy-guard.test.ts`) scans the route/service files for banned hard-coded copy literals to prevent regressions.
 
 ### Channel Guardian Security
 

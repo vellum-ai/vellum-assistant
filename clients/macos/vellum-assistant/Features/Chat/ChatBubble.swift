@@ -838,12 +838,16 @@ struct ChatBubble: View {
     }
 
     private func attachmentImageGrid(_ images: [(ChatAttachment, NSImage)]) -> some View {
-        HStack(alignment: .top, spacing: VSpacing.sm) {
+        let columns = images.count == 1
+            ? [GridItem(.flexible())]
+            : [GridItem(.flexible(), spacing: VSpacing.sm), GridItem(.flexible(), spacing: VSpacing.sm)]
+        return LazyVGrid(columns: columns, alignment: .leading, spacing: VSpacing.sm) {
             ForEach(images, id: \.0.id) { attachment, nsImage in
                 Image(nsImage: nsImage)
                     .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(maxWidth: 280)
+                    .aspectRatio(contentMode: images.count == 1 ? .fit : .fill)
+                    .frame(maxHeight: images.count == 1 ? 320 : 180)
+                    .clipped()
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                     .onTapGesture {
                         openImageInPreview(attachment)

@@ -42,14 +42,14 @@ The telegram-setup skill handles: verifying the bot token from @BotFather, gener
 The telegram-setup skill also includes **guardian verification**, which links your Telegram account as the trusted guardian for the bot.
 
 ### SMS (Twilio)
-SMS messaging uses Twilio as the telephony provider. Twilio credentials and phone number configuration are shared with the **phone-calls** skill. Load the **twilio-setup** skill to configure Twilio:
-   - Call `vellum_skills_catalog` with `action: "install"` and `skill_id: "twilio-setup"`.
-   - Then call `skill_load` with `skill: "twilio-setup"`.
-   - Tell the user: *"I've loaded a setup guide for Twilio. It will walk you through configuring your Twilio account for SMS and voice calls."*
+SMS messaging uses Twilio as the telephony provider. Twilio credentials and phone number configuration are shared with the **phone-calls** skill. Load the **sms-setup** skill for complete SMS configuration including compliance and testing:
+   - Call `vellum_skills_catalog` with `action: "install"` and `skill_id: "sms-setup"`.
+   - Then call `skill_load` with `skill: "sms-setup"`.
+   - Tell the user: *"I've loaded the SMS setup guide. It will walk you through configuring Twilio, handling compliance requirements, and testing SMS delivery."*
 
-The twilio-setup skill handles: credential storage (Account SID + Auth Token), phone number provisioning or assignment, and public ingress setup. Once Twilio is configured, SMS is available automatically — no additional feature flag is needed. The assistant's Twilio phone number is used for both outbound SMS and voice calls.
+The sms-setup skill handles: Twilio credential storage (Account SID + Auth Token), phone number provisioning or assignment, public ingress setup, SMS compliance verification, and end-to-end test sending. Once SMS is set up, messaging is available automatically — no additional feature flag is needed.
 
-The twilio-setup skill also includes optional **guardian verification** for SMS, which links your phone number as the trusted guardian. This is the same guardian concept used by Telegram — it ensures only verified users can approve sensitive operations via SMS.
+The sms-setup skill also includes optional **guardian verification** for SMS (inherited from twilio-setup), which links your phone number as the trusted guardian.
 
 ## Platform Selection
 

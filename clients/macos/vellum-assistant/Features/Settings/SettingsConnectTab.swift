@@ -18,6 +18,9 @@ struct SettingsConnectTab: View {
     @State private var gatewayTargetCopied: Bool = false
     @State private var showingPairingQR: Bool = false
     @State private var showingRegenerateConfirmation: Bool = false
+    @State private var iosPairingEnabled: Bool = false
+    @State private var showingPairingWarning: Bool = false
+    @State private var devPairingExpanded: Bool = false
 
     // Telegram credential entry
     @State private var telegramBotTokenText = ""
@@ -34,15 +37,22 @@ struct SettingsConnectTab: View {
     // Guardian copy state (tracks which channel's command was just copied)
     @State private var guardianCommandCopiedChannel: String?
 
+    // Developer local pairing state
+    @AppStorage(PairingConfiguration.overrideEnabledKey) private var iosPairingUseOverride: Bool = false
+    @AppStorage(PairingConfiguration.gatewayOverrideKey) private var iosPairingGatewayOverride: String = ""
+    @AppStorage(PairingConfiguration.tokenOverrideKey) private var iosPairingTokenOverride: String = ""
+    @State private var lanUrlCopied: Bool = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
+            pairingSection
             gatewaySection
             bearerTokenSection
             telegramCard
             twilioCard
-            pairingSection
             statusSection
             testConnectionSection
+            developerLocalPairingSection
         }
         .onAppear {
             store.refreshIngressConfig()
@@ -50,6 +60,7 @@ struct SettingsConnectTab: View {
             refreshBearerToken()
             store.refreshChannelGuardianStatus(channel: "telegram")
             store.refreshChannelGuardianStatus(channel: "sms")
+            iosPairingEnabled = FileManager.default.fileExists(atPath: NSHomeDirectory() + "/.vellum/ios-pairing-enabled")
         }
         .onChange(of: store.ingressPublicBaseUrl) { _, newValue in
             if !isGatewayUrlFocused {
@@ -69,11 +80,23 @@ struct SettingsConnectTab: View {
         } message: {
             Text("This will replace the current bearer token and restart the daemon. Any paired devices will need to reconnect.")
         }
+        .alert("Enable iOS Pairing", isPresented: $showingPairingWarning) {
+            Button("Cancel", role: .cancel) {
+                iosPairingEnabled = false
+            }
+            Button("Enable") {
+                UserDefaults.standard.set(true, forKey: "ios_pairing_warning_shown")
+                setIOSPairingEnabled(true)
+            }
+        } message: {
+            Text("Your iPhone will connect through the gateway. Only devices with a valid session token can reach your assistant.")
+        }
         .sheet(isPresented: $showingPairingQR) {
             PairingQRCodeSheet(
                 ingressEnabled: store.ingressEnabled,
                 gatewayUrl: store.resolvedIosGatewayUrl,
-                resolvedBearerToken: store.resolvedIosBearerToken
+                resolvedBearerToken: store.resolvedIosBearerToken,
+                isLocalOverride: PairingConfiguration.isOverrideEnabled
             )
         }
     }
@@ -95,16 +118,9 @@ struct SettingsConnectTab: View {
 
             TextField("https://your-tunnel.example.com", text: $gatewayUrlText)
                 .focused($isGatewayUrlFocused)
-                .textFieldStyle(.plain)
+                .vInputStyle()
                 .font(VFont.body)
                 .foregroundColor(VColor.textPrimary)
-                .padding(VSpacing.md)
-                .background(VColor.surface)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                )
 
             VButton(label: "Save", style: .primary) {
                 store.saveIngressPublicBaseUrl(gatewayUrlText)
@@ -317,16 +333,9 @@ struct SettingsConnectTab: View {
             }
 
             SecureField("Telegram bot token", text: $telegramBotTokenText)
-                .textFieldStyle(.plain)
+                .vInputStyle()
                 .font(VFont.body)
                 .foregroundColor(VColor.textPrimary)
-                .padding(VSpacing.md)
-                .background(VColor.surface)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                )
 
             Text("Get your bot token from @BotFather on Telegram")
                 .font(VFont.caption)
@@ -457,28 +466,14 @@ struct SettingsConnectTab: View {
             }
 
             TextField("Account SID", text: $twilioAccountSidText)
-                .textFieldStyle(.plain)
+                .vInputStyle()
                 .font(VFont.body)
                 .foregroundColor(VColor.textPrimary)
-                .padding(VSpacing.md)
-                .background(VColor.surface)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                )
 
             SecureField("Auth Token", text: $twilioAuthTokenText)
-                .textFieldStyle(.plain)
+                .vInputStyle()
                 .font(VFont.body)
                 .foregroundColor(VColor.textPrimary)
-                .padding(VSpacing.md)
-                .background(VColor.surface)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                )
 
             if store.twilioSaveInProgress {
                 HStack(spacing: VSpacing.sm) {
@@ -614,15 +609,47 @@ struct SettingsConnectTab: View {
 
     private var guardianLabel: some View {
         HStack(spacing: VSpacing.xs) {
-            Text("Guardian")
+            Text("Verification")
             Image(systemName: "info.circle")
                 .font(.system(size: 10))
                 .foregroundColor(VColor.textMuted)
-                .help("Guardian verifies your identity so only you can interact with your assistant on this channel.")
+                .help("Guardian verification links your account identity for this channel.")
         }
         .font(VFont.caption)
         .foregroundColor(VColor.textSecondary)
         .frame(width: 90, alignment: .leading)
+    }
+
+    private func guardianPrimaryIdentity(channel: String, identity: String?) -> String? {
+        if channel == "telegram" {
+            if let username = store.telegramGuardianUsername?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !username.isEmpty {
+                return username.hasPrefix("@") ? username : "@\(username)"
+            }
+            if let displayName = store.telegramGuardianDisplayName?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !displayName.isEmpty {
+                return displayName
+            }
+        } else if channel == "sms" {
+            if let displayName = store.smsGuardianDisplayName?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !displayName.isEmpty {
+                return displayName
+            }
+        }
+        return identity
+    }
+
+    private func guardianSecondaryIdentity(primary: String?, identity: String?) -> String? {
+        guard let identity = identity?.trimmingCharacters(in: .whitespacesAndNewlines), !identity.isEmpty else {
+            return nil
+        }
+        if let primary {
+            let normalizedPrimary = primary.trimmingCharacters(in: .whitespacesAndNewlines)
+            if normalizedPrimary.caseInsensitiveCompare(identity) == .orderedSame {
+                return nil
+            }
+        }
+        return "ID: \(identity)"
     }
 
     @ViewBuilder
@@ -632,6 +659,8 @@ struct SettingsConnectTab: View {
         let inProgress: Bool = channel == "telegram" ? store.telegramGuardianVerificationInProgress : store.smsGuardianVerificationInProgress
         let instruction: String? = channel == "telegram" ? store.telegramGuardianInstruction : store.smsGuardianInstruction
         let error: String? = channel == "telegram" ? store.telegramGuardianError : store.smsGuardianError
+        let primaryIdentity = guardianPrimaryIdentity(channel: channel, identity: identity)
+        let secondaryIdentity = guardianSecondaryIdentity(primary: primaryIdentity, identity: identity)
 
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             if verified {
@@ -640,10 +669,18 @@ struct SettingsConnectTab: View {
                     Image(systemName: "checkmark.shield.fill")
                         .foregroundColor(VColor.success)
                         .font(.system(size: 12))
-                    Text(identity.map { "Verified: \($0)" } ?? "Verified")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
-                        .lineLimit(1)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(primaryIdentity ?? "Verified")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textSecondary)
+                            .lineLimit(1)
+                        if let secondaryIdentity {
+                            Text(secondaryIdentity)
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                                .lineLimit(1)
+                        }
+                    }
                     Spacer()
                     VButton(label: "Revoke", style: .danger) {
                         store.revokeChannelGuardian(channel: channel)
@@ -800,6 +837,34 @@ struct SettingsConnectTab: View {
                 .font(VFont.sectionTitle)
                 .foregroundColor(VColor.textPrimary)
 
+            // Enable iOS Pairing toggle
+            HStack {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Enable iOS Pairing")
+                        .font(VFont.bodyMedium)
+                        .foregroundColor(VColor.textPrimary)
+                    Text("Allow your iPhone to connect via the gateway (bearer-token authenticated).")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                }
+                Spacer()
+                Toggle("", isOn: $iosPairingEnabled)
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+                    .onChange(of: iosPairingEnabled) { _, enabled in
+                        if enabled {
+                            if !UserDefaults.standard.bool(forKey: "ios_pairing_warning_shown") {
+                                showingPairingWarning = true
+                            } else {
+                                setIOSPairingEnabled(true)
+                            }
+                        } else {
+                            setIOSPairingEnabled(false)
+                        }
+                    }
+            }
+
+            // QR code button
             HStack {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text("Pair an iOS device")
@@ -813,6 +878,46 @@ struct SettingsConnectTab: View {
                 VButton(label: "Show QR Code", style: .primary) {
                     showingPairingQR = true
                 }
+            }
+
+            // Gateway & token readout (when pairing is enabled)
+            if iosPairingEnabled {
+                Divider().background(VColor.surfaceBorder)
+
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    HStack(alignment: .top) {
+                        Text("Gateway URL")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                            .frame(width: 90, alignment: .leading)
+                        Text(store.resolvedIosGatewayUrl.isEmpty ? "Not configured" : store.resolvedIosGatewayUrl)
+                            .font(VFont.mono)
+                            .foregroundColor(store.resolvedIosGatewayUrl.isEmpty ? VColor.textMuted : VColor.textPrimary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer()
+                    }
+
+                    HStack(alignment: .top) {
+                        Text("Bearer Token")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                            .frame(width: 90, alignment: .leading)
+                        Text(store.resolvedIosBearerToken.isEmpty
+                             ? "Not configured"
+                             : String(repeating: "\u{2022}", count: 8))
+                            .font(VFont.mono)
+                            .foregroundColor(store.resolvedIosBearerToken.isEmpty ? VColor.textMuted : VColor.textPrimary)
+                        Spacer()
+                    }
+                }
+                .padding(VSpacing.md)
+                .background(VColor.surface.opacity(0.5))
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .stroke(VColor.surfaceBorder.opacity(0.3), lineWidth: 1)
+                )
             }
         }
         .padding(VSpacing.lg)
@@ -933,6 +1038,134 @@ struct SettingsConnectTab: View {
         .vCard(background: VColor.surfaceSubtle)
     }
 
+    // MARK: - Developer Local Pairing Section
+
+    private var suggestedLanUrl: String? {
+        guard let ip = LANIPHelper.currentLANAddress() else { return nil }
+        let port = URL(string: store.localGatewayTarget)?.port ?? 7830
+        return "http://\(ip):\(port)"
+    }
+
+    private var developerLocalPairingSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            DisclosureGroup(isExpanded: $devPairingExpanded) {
+                developerLocalPairingContent
+            } label: {
+                Text("Developer Local Pairing (LAN-only)")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+            }
+        }
+        .padding(VSpacing.lg)
+        .vCard(background: VColor.surfaceSubtle)
+    }
+
+    private var developerLocalPairingContent: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            // Enable toggle
+            HStack {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Enable developer local pairing")
+                        .font(VFont.bodyMedium)
+                        .foregroundColor(VColor.textPrimary)
+                    Text("Override the iOS pairing gateway URL for LAN development.")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
+                Spacer()
+                Toggle("", isOn: $iosPairingUseOverride)
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+            }
+
+            if iosPairingUseOverride {
+                // Warning banner
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(VColor.warning)
+                        .font(.system(size: 14))
+                    Text("Debug only. Uses unencrypted HTTP over your local network. Do not use in production.")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.warning)
+                }
+                .padding(VSpacing.md)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(VColor.warning.opacity(0.1))
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+
+                // Suggested LAN URL with copy button
+                if let lanUrl = suggestedLanUrl {
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        Text("Suggested URL")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+
+                        HStack(spacing: VSpacing.sm) {
+                            Text(lanUrl)
+                                .font(VFont.mono)
+                                .foregroundColor(VColor.textPrimary)
+                                .textSelection(.enabled)
+                                .padding(VSpacing.md)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(VColor.surface.opacity(0.5))
+                                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: VRadius.md)
+                                        .stroke(VColor.surfaceBorder.opacity(0.3), lineWidth: 1)
+                                )
+
+                            Button {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(lanUrl, forType: .string)
+                                lanUrlCopied = true
+                                Task {
+                                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                                    lanUrlCopied = false
+                                }
+                            } label: {
+                                Image(systemName: lanUrlCopied ? "checkmark" : "doc.on.doc")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(lanUrlCopied ? VColor.success : VColor.textSecondary)
+                                    .frame(width: 28, height: 28)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Copy suggested LAN URL")
+                            .help("Copy URL")
+                        }
+                    }
+                } else {
+                    HStack(spacing: VSpacing.sm) {
+                        Image(systemName: "wifi.slash")
+                            .foregroundColor(VColor.textMuted)
+                            .font(.system(size: 12))
+                        Text("No LAN address detected. Connect to a Wi-Fi or Ethernet network.")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                    }
+                }
+
+                // Editable override URL
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Override URL")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                    TextField("http://192.168.1.x:7830", text: $iosPairingGatewayOverride)
+                        .vInputStyle()
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                }
+
+                // Reset / disable button
+                VButton(label: "Disable & Reset", style: .danger) {
+                    iosPairingGatewayOverride = ""
+                    iosPairingTokenOverride = ""
+                    iosPairingUseOverride = false
+                }
+            }
+        }
+    }
+
     // MARK: - Connection Status Helpers
 
     private struct ConnectionStatusInfo {
@@ -1007,6 +1240,17 @@ struct SettingsConnectTab: View {
         let hours = minutes / 60
         if hours == 1 { return "1 hour ago" }
         return "\(hours) hours ago"
+    }
+
+    // MARK: - iOS Pairing Helpers
+
+    private func setIOSPairingEnabled(_ enabled: Bool) {
+        let flagPath = NSHomeDirectory() + "/.vellum/ios-pairing-enabled"
+        if enabled {
+            FileManager.default.createFile(atPath: flagPath, contents: nil)
+        } else {
+            try? FileManager.default.removeItem(atPath: flagPath)
+        }
     }
 
     // MARK: - Token Helpers

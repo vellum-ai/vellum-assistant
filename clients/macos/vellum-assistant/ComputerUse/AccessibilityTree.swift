@@ -140,6 +140,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
             }
             return nil
         }
+        guard CFGetTypeID(windowRef) == AXUIElementGetTypeID() else { return nil }
         let windowElement = windowRef as! AXUIElement
 
         let windowTitle = getStringAttribute(windowElement, kAXTitleAttribute as CFString) ?? "Untitled"
@@ -207,6 +208,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
             log.debug("enumerateAppByPID: no focused window for \(appName, privacy: .public) (pid \(pid)): AXError \(result.rawValue)")
             return nil
         }
+        guard CFGetTypeID(windowRef) == AXUIElementGetTypeID() else { return nil }
         let windowElement = windowRef as! AXUIElement
 
         let windowTitle = getStringAttribute(windowElement, kAXTitleAttribute as CFString) ?? "Untitled"
@@ -424,11 +426,10 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
         var point = CGPoint.zero
         var size = CGSize.zero
 
-        // Extract values from AXValue refs (force cast is safe here since we validated success above)
-        if let posRef = positionValue {
+        if let posRef = positionValue, CFGetTypeID(posRef) == AXValueGetTypeID() {
             AXValueGetValue(posRef as! AXValue, .cgPoint, &point)
         }
-        if let sizeRef = sizeValue {
+        if let sizeRef = sizeValue, CFGetTypeID(sizeRef) == AXValueGetTypeID() {
             AXValueGetValue(sizeRef as! AXValue, .cgSize, &size)
         }
 

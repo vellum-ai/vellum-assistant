@@ -18,6 +18,7 @@ import type { Run } from '../memory/runs-store.js';
 import type { Session } from '../daemon/session.js';
 import type { ServerMessage } from '../daemon/ipc-protocol.js';
 import { resolveChannelCapabilities } from '../daemon/session-runtime-assembly.js';
+import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
 import type { UserDecision } from '../permissions/types.js';
 import { checkIngressForSecrets } from '../security/secret-ingress.js';
 import { IngressBlockedError } from '../util/errors.js';
@@ -81,6 +82,10 @@ export interface RunStartOptions {
    * Forwarded to the session so the agent loop can tailor its response.
    */
   uxBrief?: string;
+  /** Assistant scope for multi-assistant channels. */
+  assistantId?: string;
+  /** Guardian trust/identity context for the inbound actor. */
+  guardianContext?: GuardianRuntimeContext;
 }
 
 // ---------------------------------------------------------------------------
@@ -145,6 +150,8 @@ export class RunOrchestrator {
       ...session.memoryPolicy,
       strictSideEffects,
     };
+    session.setAssistantId(options?.assistantId ?? 'self');
+    session.setGuardianContext(options?.guardianContext ?? null);
 
     const attachments = attachmentIds
       ? this.deps.resolveAttachments(attachmentIds)
@@ -225,6 +232,8 @@ export class RunOrchestrator {
       // Reset channel capabilities so a subsequent IPC/desktop session on the
       // same conversation is not incorrectly treated as an HTTP-API client.
       session.setChannelCapabilities(null);
+      session.setGuardianContext(null);
+      session.setAssistantId('self');
       // Reset the session's client callback to a no-op so the stale
       // closure doesn't intercept events from future runs on the same session.
       // Set hasNoClient=true here since the run is done and no HTTP caller

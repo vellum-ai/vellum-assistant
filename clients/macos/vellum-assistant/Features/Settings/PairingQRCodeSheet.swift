@@ -14,13 +14,23 @@ struct PairingQRCodeSheet: View {
     let gatewayUrl: String
     let resolvedBearerToken: String
 
+    /// Whether the developer local pairing override is active.
+    let isLocalOverride: Bool
+
     @State private var hostId: String = ""
     @State private var isTokenRevealed: Bool = false
     @State private var copiedField: String? = nil
 
-    /// Whether the ingress configuration is sufficient for pairing.
+    /// Whether the configuration is sufficient for pairing.
     private var canGenerateQR: Bool {
-        ingressEnabled && !gatewayUrl.isEmpty && !resolvedBearerToken.isEmpty
+        let hasRequiredFields = !gatewayUrl.isEmpty && !resolvedBearerToken.isEmpty
+        if isLocalOverride {
+            // For developer local pairing, ingress is not required
+            // but the URL must be a local/private address
+            guard let url = URL(string: gatewayUrl), let host = url.host else { return false }
+            return hasRequiredFields && LocalAddressValidator.isLocalAddress(host)
+        }
+        return ingressEnabled && hasRequiredFields
     }
 
     var body: some View {
@@ -47,8 +57,23 @@ struct PairingQRCodeSheet: View {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.system(size: 32))
                         .foregroundColor(VColor.error)
-                    if !ingressEnabled || gatewayUrl.isEmpty {
-                        Text("Enable ingress and set a public URL in Settings to pair with iOS")
+                    if isLocalOverride && gatewayUrl.isEmpty {
+                        Text("Set an override URL in Developer Local Pairing settings.")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.error)
+                            .multilineTextAlignment(.center)
+                    } else if isLocalOverride && resolvedBearerToken.isEmpty {
+                        Text("Bearer token not found. Restart the daemon to generate it.")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.error)
+                            .multilineTextAlignment(.center)
+                    } else if isLocalOverride {
+                        Text("The override URL must be a local/private network address for developer pairing.")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.error)
+                            .multilineTextAlignment(.center)
+                    } else if !ingressEnabled || gatewayUrl.isEmpty {
+                        Text("Set up a gateway URL in the Connect tab to enable pairing.")
                             .font(VFont.body)
                             .foregroundColor(VColor.error)
                             .multilineTextAlignment(.center)
@@ -62,7 +87,39 @@ struct PairingQRCodeSheet: View {
                 .frame(width: 220, height: 220)
             }
 
-            Text("Scan this QR code with the Vellum iOS app to connect.")
+            // State indicator
+            if canGenerateQR {
+                if isLocalOverride {
+                    HStack(spacing: VSpacing.sm) {
+                        Image(systemName: "laptopcomputer.and.iphone")
+                            .foregroundColor(VColor.warning)
+                            .font(.system(size: 14))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Developer mode — local network")
+                                .font(VFont.body)
+                                .foregroundColor(VColor.warning)
+                            Text(gatewayUrl)
+                                .font(VFont.mono)
+                                .foregroundColor(VColor.textMuted)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                    }
+                } else {
+                    HStack(spacing: VSpacing.sm) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(VColor.success)
+                            .font(.system(size: 14))
+                        Text("Ready to pair with iOS")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.success)
+                    }
+                }
+            }
+
+            Text(isLocalOverride && canGenerateQR
+                 ? "Scan this QR code with the Vellum iOS app. Developer Local Pairing must be enabled on the iPhone."
+                 : "Scan this QR code with the Vellum iOS app to connect.")
                 .font(VFont.body)
                 .foregroundColor(VColor.textSecondary)
                 .multilineTextAlignment(.center)
@@ -178,6 +235,7 @@ struct PairingQRCodeSheet: View {
             "id": hostId,
             "g": gatewayUrl,
             "bt": resolvedBearerToken,
+            "m": isLocalOverride ? "local" : "gateway",
         ]
 
         guard let jsonData = try? JSONSerialization.data(withJSONObject: payload),

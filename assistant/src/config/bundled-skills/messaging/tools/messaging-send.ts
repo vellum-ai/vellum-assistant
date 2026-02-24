@@ -1,7 +1,7 @@
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
 import { resolveProvider, withProviderToken, ok, err } from './shared.js';
 
-export async function run(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
+export async function run(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
   const platform = input.platform as string | undefined;
   const conversationId = input.conversation_id as string;
   const text = input.text as string;
@@ -21,8 +21,12 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
       const result = await provider.sendMessage(token, conversationId, text, {
         subject,
         inReplyTo,
+        assistantId: context.assistantId,
       });
 
+      if (provider.id === 'sms') {
+        return ok(`SMS accepted by Twilio (ID: ${result.id}). Note: "accepted" means Twilio received it for delivery — it has not yet been confirmed as delivered to the handset.`);
+      }
       return ok(`Message sent (ID: ${result.id}).`);
     });
   } catch (e) {

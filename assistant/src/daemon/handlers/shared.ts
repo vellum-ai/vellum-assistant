@@ -11,6 +11,7 @@ import { getConfig } from '../../config/loader.js';
 import type { DebouncerMap } from '../../util/debounce.js';
 import { detectQaIntent, detectQaOptOut } from '../qa-intent.js';
 import { resolveComputerUseTargetAppHint } from '../target-app-hints.js';
+import type { GuardianRuntimeContext } from '../session-runtime-assembly.js';
 
 const log = getLogger('handlers');
 
@@ -129,6 +130,8 @@ export interface SessionCreateOptions {
   systemPromptOverride?: string;
   maxResponseTokens?: number;
   transport?: SessionTransportMetadata;
+  assistantId?: string;
+  guardianContext?: GuardianRuntimeContext;
   memoryScopeId?: string;
   isPrivateThread?: boolean;
   strictPrivateSideEffects?: boolean;

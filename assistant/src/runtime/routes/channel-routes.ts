@@ -44,6 +44,8 @@ import type {
   MessageProcessor,
   RuntimeAttachmentMetadata,
 } from '../http-types.js';
+import type { GuardianRuntimeContext } from '../../daemon/session-runtime-assembly.js';
+import { composeApprovalMessage } from '../approval-message-composer.js';
 
 const log = getLogger('runtime-http');
 
@@ -110,6 +112,19 @@ export interface GuardianContext {
   denialReason?: DenialReason;
 }
 
+function toGuardianRuntimeContext(sourceChannel: string, ctx: GuardianContext): GuardianRuntimeContext {
+  return {
+    sourceChannel,
+    actorRole: ctx.actorRole,
+    guardianChatId: ctx.guardianChatId,
+    guardianExternalUserId: ctx.guardianExternalUserId,
+    requesterIdentifier: ctx.requesterIdentifier,
+    requesterExternalUserId: ctx.requesterExternalUserId,
+    requesterChatId: ctx.requesterChatId,
+    denialReason: ctx.denialReason,
+  };
+}
+
 /** Guardian approval request expiry (30 minutes). */
 const GUARDIAN_APPROVAL_TTL_MS = 30 * 60 * 1000;
 
@@ -138,10 +153,10 @@ function buildGuardianDenyContext(
   sourceChannel: string,
 ): string {
   if (denialReason === 'no_identity') {
-    return `Permission denied: the action "${toolName}" requires guardian approval, but your identity could not be verified on ${sourceChannel}. Do not retry yet. Explain this clearly, ask the user to message from a verifiable direct account/chat, and then retry after identity is available.`;
+    return `Permission denied: ${composeApprovalMessage({ scenario: 'guardian_deny_no_identity', toolName, channel: sourceChannel })} Do not retry yet. Ask the user to message from a verifiable direct account/chat, and then retry after identity is available.`;
   }
 
-  return `Permission denied: the action "${toolName}" requires guardian approval, but no guardian is configured for this ${sourceChannel} channel. Do not retry yet. Explain that a guardian must be set up first. Offer to set up guardian verification right here in the chat — the setup flow will provide a verification token to send as /guardian_verify <token> in the ${sourceChannel} chat. The guardian can also manage this later from the Settings page.`;
+  return `Permission denied: ${composeApprovalMessage({ scenario: 'guardian_deny_no_binding', toolName, channel: sourceChannel })} Do not retry yet. Offer to set up guardian verification. The setup flow will provide a verification token to send as /guardian_verify <token>.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -396,11 +411,13 @@ export async function handleChannelInbound(
         token,
         body.senderExternalUserId,
         externalChatId,
+        body.senderUsername,
+        body.senderName,
       );
 
       const replyText = verifyResult.success
-        ? 'Guardian verified successfully. Your identity is now linked to this bot.'
-        : 'Verification failed. Please try again later.';
+        ? composeApprovalMessage({ scenario: 'guardian_verify_success' })
+        : verifyResult.reason;
 
       try {
         await deliverChannelReply(replyCallbackUrl, {
@@ -427,15 +444,25 @@ export async function handleChannelInbound(
   // side-effect controls and their approvals route to the guardian's chat.
   //
   // Guardian actor-role resolution always runs.
-  let guardianCtx: GuardianContext = { actorRole: 'guardian' };
+  let guardianCtx: GuardianContext;
   if (body.senderExternalUserId) {
+    const requesterLabel = body.senderUsername
+      ? `@${body.senderUsername}`
+      : body.senderExternalUserId;
     const senderIsGuardian = isGuardian(assistantId, sourceChannel, body.senderExternalUserId);
-    if (!senderIsGuardian) {
+    if (senderIsGuardian) {
+      const binding = getGuardianBinding(assistantId, sourceChannel);
+      guardianCtx = {
+        actorRole: 'guardian',
+        guardianChatId: binding?.guardianDeliveryChatId ?? externalChatId,
+        guardianExternalUserId: binding?.guardianExternalUserId ?? body.senderExternalUserId,
+        requesterIdentifier: requesterLabel,
+        requesterExternalUserId: body.senderExternalUserId,
+        requesterChatId: externalChatId,
+      };
+    } else {
       const binding = getGuardianBinding(assistantId, sourceChannel);
       if (binding) {
-        const requesterLabel = body.senderUsername
-          ? `@${body.senderUsername}`
-          : body.senderExternalUserId;
         guardianCtx = {
           actorRole: 'non-guardian',
           guardianChatId: binding.guardianDeliveryChatId,
@@ -450,6 +477,7 @@ export async function handleChannelInbound(
         guardianCtx = {
           actorRole: 'unverified_channel',
           denialReason: 'no_binding',
+          requesterIdentifier: requesterLabel,
           requesterExternalUserId: body.senderExternalUserId,
           requesterChatId: externalChatId,
         };
@@ -462,6 +490,7 @@ export async function handleChannelInbound(
     guardianCtx = {
       actorRole: 'unverified_channel',
       denialReason: 'no_identity',
+      requesterIdentifier: body.senderUsername ? `@${body.senderUsername}` : undefined,
       requesterExternalUserId: undefined,
       requesterChatId: externalChatId,
     };
@@ -524,6 +553,7 @@ export async function handleChannelInbound(
       senderName: body.senderName,
       senderExternalUserId: body.senderExternalUserId,
       senderUsername: body.senderUsername,
+      guardianCtx,
       replyCallbackUrl,
       assistantId,
     });
@@ -576,6 +606,7 @@ export async function handleChannelInbound(
         attachmentIds: hasAttachments ? attachmentIds : undefined,
         sourceChannel,
         externalChatId,
+        guardianCtx,
         metadataHints,
         metadataUxBrief,
         replyCallbackUrl,
@@ -600,6 +631,7 @@ interface BackgroundProcessingParams {
   attachmentIds?: string[];
   sourceChannel: string;
   externalChatId: string;
+  guardianCtx: GuardianContext;
   metadataHints: string[];
   metadataUxBrief?: string;
   replyCallbackUrl?: string;
@@ -616,6 +648,7 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
     attachmentIds,
     sourceChannel,
     externalChatId,
+    guardianCtx,
     metadataHints,
     metadataUxBrief,
     replyCallbackUrl,
@@ -635,6 +668,8 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
             hints: metadataHints.length > 0 ? metadataHints : undefined,
             uxBrief: metadataUxBrief,
           },
+          assistantId,
+          guardianContext: toGuardianRuntimeContext(sourceChannel, guardianCtx),
         },
         sourceChannel,
       );
@@ -744,6 +779,8 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
           sourceChannel,
           hints: metadataHints.length > 0 ? metadataHints : undefined,
           uxBrief: metadataUxBrief,
+          assistantId,
+          guardianContext: toGuardianRuntimeContext(sourceChannel, guardianCtx),
         },
       );
 
@@ -834,7 +871,7 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
               try {
                 await deliverChannelReply(replyCallbackUrl, {
                   chatId: guardianCtx.requesterChatId ?? externalChatId,
-                  text: `Your request to run "${pending[0].toolName}" could not be sent to the guardian for approval. The action has been denied.`,
+                  text: composeApprovalMessage({ scenario: 'guardian_delivery_failed', toolName: pending[0].toolName }),
                   assistantId,
                 }, bearerToken);
               } catch (notifyErr) {
@@ -847,7 +884,7 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
               try {
                 await deliverChannelReply(replyCallbackUrl, {
                   chatId: guardianCtx.requesterChatId ?? externalChatId,
-                  text: `Your request to run "${pending[0].toolName}" has been sent to the guardian for approval.`,
+                  text: composeApprovalMessage({ scenario: 'guardian_request_forwarded', toolName: pending[0].toolName }),
                   assistantId,
                 }, bearerToken);
               } catch (err) {
@@ -1074,7 +1111,7 @@ async function handleApprovalInterception(
         try {
           await deliverChannelReply(replyCallbackUrl, {
             chatId: externalChatId,
-            text: `You have ${allPending.length} pending approval requests. Please use the approval buttons to respond to a specific request.`,
+            text: composeApprovalMessage({ scenario: 'guardian_disambiguation', pendingCount: allPending.length }),
             assistantId,
           }, bearerToken);
         } catch (err) {
@@ -1107,7 +1144,7 @@ async function handleApprovalInterception(
         try {
           await deliverChannelReply(replyCallbackUrl, {
             chatId: externalChatId,
-            text: 'Only the verified guardian can approve or deny this request.',
+            text: composeApprovalMessage({ scenario: 'guardian_identity_mismatch' }),
             assistantId,
           }, bearerToken);
         } catch (err) {
@@ -1141,10 +1178,11 @@ async function handleApprovalInterception(
 
         if (result.applied) {
           // Notify the requester's chat about the outcome with the tool name
-          const toolLabel = guardianApproval.toolName;
-          const outcomeText = decision.action === 'reject'
-            ? `Your request to run "${toolLabel}" was denied by the guardian.`
-            : `Your request to run "${toolLabel}" was approved by the guardian.`;
+          const outcomeText = composeApprovalMessage({
+            scenario: 'guardian_decision_outcome',
+            decision: decision.action === 'reject' ? 'denied' : 'approved',
+            toolName: guardianApproval.toolName,
+          });
           try {
             await deliverChannelReply(replyCallbackUrl, {
               chatId: guardianApproval.requesterChatId,
@@ -1250,7 +1288,7 @@ async function handleApprovalInterception(
         try {
           await deliverChannelReply(replyCallbackUrl, {
             chatId: externalChatId,
-            text: 'Your request is pending guardian approval. Only the verified guardian can approve or deny this request.',
+            text: composeApprovalMessage({ scenario: 'request_pending_guardian' }),
             assistantId,
           }, bearerToken);
         } catch (err) {
@@ -1277,7 +1315,7 @@ async function handleApprovalInterception(
         try {
           await deliverChannelReply(replyCallbackUrl, {
             chatId: externalChatId,
-            text: 'Your guardian approval request has expired and the action has been denied. Please try again.',
+            text: composeApprovalMessage({ scenario: 'guardian_expired_requester', toolName: pending[0].toolName }),
             assistantId,
           }, bearerToken);
         } catch (err) {
@@ -1546,7 +1584,7 @@ export function sweepExpiredGuardianApprovals(
     // Notify the requester that the approval expired
     deliverChannelReply(deliverUrl, {
       chatId: approval.requesterChatId,
-      text: `Your guardian approval request for "${approval.toolName}" has expired and the action has been denied. Please try again.`,
+      text: composeApprovalMessage({ scenario: 'guardian_expired_requester', toolName: approval.toolName }),
       assistantId: approval.assistantId,
     }, bearerToken).catch((err) => {
       log.error({ err, runId: approval.runId }, 'Failed to notify requester of guardian approval expiry');
@@ -1555,7 +1593,7 @@ export function sweepExpiredGuardianApprovals(
     // Notify the guardian that the approval expired
     deliverChannelReply(deliverUrl, {
       chatId: approval.guardianChatId,
-      text: `The approval request for "${approval.toolName}" from user ${approval.requesterExternalUserId} has expired and was automatically denied.`,
+      text: composeApprovalMessage({ scenario: 'guardian_expired_guardian', toolName: approval.toolName, requesterIdentifier: approval.requesterExternalUserId }),
       assistantId: approval.assistantId,
     }, bearerToken).catch((err) => {
       log.error({ err, runId: approval.runId }, 'Failed to notify guardian of approval expiry');

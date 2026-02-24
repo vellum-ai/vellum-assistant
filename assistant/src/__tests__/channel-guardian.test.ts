@@ -311,28 +311,32 @@ describe('guardian service challenge validation', () => {
     resetTables();
   });
 
-  test('createVerificationChallenge returns a secret and instruction', () => {
+  test('createVerificationChallenge returns a secret, verifyCommand, ttlSeconds, and instruction', () => {
     const result = createVerificationChallenge('asst-1', 'telegram');
 
     expect(result.challengeId).toBeDefined();
     expect(result.secret).toBeDefined();
     expect(result.secret.length).toBe(64); // 32 bytes hex-encoded
+    expect(result.verifyCommand).toBe(`/guardian_verify ${result.secret}`);
+    expect(result.ttlSeconds).toBe(600);
+    expect(result.instruction).toBeDefined();
+    expect(result.instruction.length).toBeGreaterThan(0);
     expect(result.instruction).toContain('/guardian_verify');
-    expect(result.instruction).toContain(result.secret);
   });
 
-  test('createVerificationChallenge instruction mentions Telegram for telegram channel', () => {
+  test('createVerificationChallenge produces a non-empty instruction for telegram channel', () => {
     const result = createVerificationChallenge('asst-1', 'telegram');
-    expect(result.instruction).toContain('via Telegram');
-    expect(result.instruction).not.toContain('via SMS');
+    expect(result.instruction).toBeDefined();
+    expect(result.instruction.length).toBeGreaterThan(0);
+    expect(result.instruction).toContain(result.verifyCommand);
   });
 
-  test('createVerificationChallenge instruction mentions SMS for sms channel', () => {
+  test('createVerificationChallenge produces a non-empty instruction for sms channel', () => {
     const result = createVerificationChallenge('asst-1', 'sms');
-    expect(result.instruction).toContain('via SMS');
-    expect(result.instruction).not.toContain('via Telegram');
+    expect(result.instruction).toBeDefined();
+    expect(result.instruction.length).toBeGreaterThan(0);
     expect(result.instruction).toContain('/guardian_verify');
-    expect(result.instruction).toContain(result.secret);
+    expect(result.instruction).toContain(result.verifyCommand);
   });
 
   test('validateAndConsumeChallenge succeeds with correct secret', () => {
@@ -377,8 +381,10 @@ describe('guardian service challenge validation', () => {
 
     expect(result.success).toBe(false);
     if (!result.success) {
-      // Generic message to prevent oracle leakage
-      expect(result.reason).toContain('try again later');
+      // Composed failure message — check it is non-empty and contains "failed"
+      expect(result.reason).toBeDefined();
+      expect(result.reason.length).toBeGreaterThan(0);
+      expect(result.reason.toLowerCase()).toContain('failed');
     }
   });
 
@@ -404,8 +410,10 @@ describe('guardian service challenge validation', () => {
 
     expect(result.success).toBe(false);
     if (!result.success) {
-      // Generic message to prevent oracle leakage
-      expect(result.reason).toContain('try again later');
+      // Composed failure message — check it is non-empty and contains "failed"
+      expect(result.reason).toBeDefined();
+      expect(result.reason.length).toBeGreaterThan(0);
+      expect(result.reason.toLowerCase()).toContain('failed');
     }
   });
 
@@ -943,7 +951,9 @@ describe('guardian service rate limiting', () => {
       'asst-1', 'telegram', 'another-wrong', 'user-42', 'chat-42',
     );
     expect(result.success).toBe(false);
-    expect((result as { reason: string }).reason).toContain('try again later');
+    expect((result as { reason: string }).reason).toBeDefined();
+    expect((result as { reason: string }).reason.length).toBeGreaterThan(0);
+    expect((result as { reason: string }).reason.toLowerCase()).toContain('failed');
 
     // Verify the rate limit record
     const rl = getRateLimit('asst-1', 'telegram', 'user-42', 'chat-42');
@@ -975,21 +985,38 @@ describe('guardian service rate limiting', () => {
   test('rate-limit uses generic failure message (no oracle leakage)', () => {
     createVerificationChallenge('asst-1', 'telegram');
 
-    // Trigger rate limit
-    for (let i = 0; i < 5; i++) {
+    // Capture a normal invalid-code failure response
+    const normalFailure = validateAndConsumeChallenge(
+      'asst-1', 'telegram', 'wrong-first', 'user-42', 'chat-42',
+    );
+    expect(normalFailure.success).toBe(false);
+    const normalReason = (normalFailure as { reason: string }).reason;
+
+    // Trigger rate limit (4 more attempts to reach 5 total)
+    for (let i = 0; i < 4; i++) {
       validateAndConsumeChallenge(
         'asst-1', 'telegram', `wrong-${i}`, 'user-42', 'chat-42',
       );
     }
 
-    const result = validateAndConsumeChallenge(
+    // Verify lockout is actually active before testing the rate-limited response
+    const rl = getRateLimit('asst-1', 'telegram', 'user-42', 'chat-42');
+    expect(rl).not.toBeNull();
+    expect(rl!.lockedUntil).toBeGreaterThan(Date.now());
+
+    // The rate-limited response should be indistinguishable from normal failure
+    const rateLimitedResult = validateAndConsumeChallenge(
       'asst-1', 'telegram', 'anything', 'user-42', 'chat-42',
     );
-    expect(result.success).toBe(false);
-    // Must NOT reveal "invalid", "expired", or "rate limit" specifically
-    expect((result as { reason: string }).reason).not.toContain('Invalid');
-    expect((result as { reason: string }).reason).not.toContain('expired');
-    expect((result as { reason: string }).reason).not.toContain('rate limit');
+    expect(rateLimitedResult.success).toBe(false);
+    const rateLimitedReason = (rateLimitedResult as { reason: string }).reason;
+
+    // Anti-oracle: both responses must be identical
+    expect(rateLimitedReason).toBe(normalReason);
+
+    // Neither should reveal rate-limiting info
+    expect(rateLimitedReason).not.toContain('rate limit');
+    expect(normalReason).not.toContain('rate limit');
   });
 
   test('rate limit does not affect different actors', () => {
@@ -1293,6 +1320,31 @@ describe('IPC handler channel-aware guardian status', () => {
     expect(resp!.guardianDeliveryChatId).toBe('chat-42');
     expect(resp!.channel).toBe('telegram');
     expect(resp!.assistantId).toBe('self');
+  });
+
+  test('status action returns guardian username/displayName from binding metadata', () => {
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'user-43',
+      guardianDeliveryChatId: 'chat-43',
+      metadataJson: JSON.stringify({ username: 'guardian_handle', displayName: 'Guardian Name' }),
+    });
+
+    const { ctx, lastResponse } = createMockCtx();
+    const msg: GuardianVerificationRequest = {
+      type: 'guardian_verification',
+      action: 'status',
+      channel: 'telegram',
+      assistantId: 'self',
+    };
+
+    handleGuardianVerification(msg, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.guardianUsername).toBe('guardian_handle');
+    expect(resp!.guardianDisplayName).toBe('Guardian Name');
   });
 
   test('status action defaults channel to telegram when omitted (backward compat)', () => {

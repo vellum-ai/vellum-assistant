@@ -1,6 +1,6 @@
 import { getLogger } from '../../util/logger.js';
 import { asString } from '../job-utils.js';
-import { getMediaAssetById } from '../media-store.js';
+import { getMediaAssetById, updateMediaAssetStatus } from '../media-store.js';
 import type { MemoryJob } from '../jobs-store.js';
 import {
   runPipeline,
@@ -46,6 +46,7 @@ export async function mediaProcessingJob(job: MemoryJob): Promise<void> {
       { assetId: mediaAssetId, mediaType: asset.mediaType },
       'Skipping media processing pipeline — only video assets are supported',
     );
+    updateMediaAssetStatus(mediaAssetId, 'indexed');
     return;
   }
 

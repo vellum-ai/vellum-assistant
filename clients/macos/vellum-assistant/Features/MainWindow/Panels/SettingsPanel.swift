@@ -183,8 +183,7 @@ struct SettingsPanel: View {
                 store: store,
                 threadManager: threadManager,
                 onClose: onClose,
-                daemonClient: daemonClient,
-                onNavigateToConnect: { selectedTab = .connect }
+                daemonClient: daemonClient
             )
         }
     }

@@ -26,8 +26,20 @@ interface DeliverPayload {
   assistantId?: string;
 }
 
+/** Result returned by sendMessage with Twilio acceptance details. */
+export interface SmsSendResult {
+  messageSid?: string;
+  status?: string;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+}
+
 /**
  * Send an SMS message via the gateway's /deliver/sms endpoint.
+ *
+ * Returns Twilio acceptance details propagated from the gateway.
+ * "Accepted" means Twilio received it for delivery -- it has NOT yet
+ * been confirmed as delivered to the handset.
  */
 export async function sendMessage(
   gatewayUrl: string,
@@ -35,7 +47,7 @@ export async function sendMessage(
   to: string,
   text: string,
   assistantId?: string,
-): Promise<void> {
+): Promise<SmsSendResult> {
   const payload: DeliverPayload = { to, text };
   if (assistantId) {
     payload.assistantId = assistantId;
@@ -58,5 +70,24 @@ export async function sendMessage(
       resp.status,
       `Gateway /deliver/sms failed (${resp.status}): ${body}`,
     );
+  }
+
+  try {
+    const data = (await resp.json()) as {
+      ok?: boolean;
+      messageSid?: string;
+      status?: string;
+      errorCode?: string | null;
+      errorMessage?: string | null;
+    };
+    return {
+      messageSid: data.messageSid,
+      status: data.status,
+      errorCode: data.errorCode,
+      errorMessage: data.errorMessage,
+    };
+  } catch {
+    // Older gateway versions may not return JSON with Twilio details
+    return {};
   }
 }

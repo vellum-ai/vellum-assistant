@@ -98,14 +98,6 @@ public struct SubagentThreadView: View {
 
     private var threadBar: some View {
         HStack(spacing: VSpacing.sm) {
-            // Subagent avatar circle
-            Image(systemName: "cpu")
-                .font(.system(size: 10, weight: .medium))
-                .foregroundColor(statusColor)
-                .frame(width: 22, height: 22)
-                .background(statusColor.opacity(0.12))
-                .clipShape(Circle())
-
             // Label (clickable, turns blue on hover like Slack)
             Text(subagent.label)
                 .font(VFont.captionMedium)
@@ -119,15 +111,6 @@ public struct SubagentThreadView: View {
             // Animated dots while running
             if isRunning {
                 animatedDots
-            }
-
-            // Preview of latest reply
-            if let preview = lastReplyPreview {
-                Text(preview)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
             }
 
             Spacer(minLength: VSpacing.xs)

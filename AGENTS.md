@@ -67,7 +67,7 @@ These are the most commonly used slash commands defined in `.claude/commands/`:
 | `/safe-check-review [file]` | Check the active plan PR for review feedback from codex/devin/humans. Addresses requested changes, waits if reviews are pending. |
 | `/resume-plan [file]` | Merge the current plan PR, implement the next one, create it, and stop again. Repeats until the plan is complete. The PR body includes the full plan content for traceability. |
 
-| `/update` | Pull latest from main, restart the backend daemon, and rebuild/launch the macOS app. |
+| `/update` | Pull latest from main, restart the backend daemon, verify gateway health (fail fast on startup failure), rebuild/launch the macOS app, and print a startup summary. |
 
 
 ## Track merged PRs

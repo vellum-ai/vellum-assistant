@@ -194,7 +194,7 @@ The `/channels/inbound` endpoint requires a valid `X-Gateway-Origin` header to p
 
 ## Twilio Setup Primitive
 
-Twilio is the shared telephony provider for both voice calls and SMS messaging. Configuration is managed through the `twilio_config` IPC contract and the `twilio-setup` skill.
+Twilio is the shared telephony provider for both voice calls and SMS messaging. Configuration is managed through the `twilio_config` IPC contract and the `twilio-setup` skill. For SMS-specific onboarding (including compliance verification and test sending), the `sms-setup` skill provides a guided conversational flow that layers on top of `twilio-setup`.
 
 ### `twilio_config` IPC Contract
 
@@ -208,8 +208,15 @@ The daemon handles `twilio_config` messages with the following actions:
 | `provision_number` | Purchases a new phone number via the Twilio API. Accepts optional `areaCode` and `country` (ISO 3166-1 alpha-2, default `US`). Auto-assigns the number to the assistant (persists to config and secure storage) and configures Twilio webhooks (voice, status callback, SMS) when a public ingress URL is available. |
 | `assign_number` | Assigns an existing Twilio phone number (E.164 format) to the assistant and auto-configures webhooks when ingress is available |
 | `list_numbers` | Lists all incoming phone numbers on the Twilio account with their capabilities (voice, SMS) |
+| `sms_compliance_status` | Returns the SMS compliance posture for the assigned phone number. Determines number type (toll-free vs local 10DLC) and retrieves toll-free verification status from Twilio. |
+| `sms_submit_tollfree_verification` | Submits a new toll-free verification request to Twilio. Validates required fields and enum values. Defaults `businessType` to `SOLE_PROPRIETOR`. |
+| `sms_update_tollfree_verification` | Updates an existing toll-free verification by SID. Requires `verificationSid`. |
+| `sms_delete_tollfree_verification` | Deletes a toll-free verification by SID. Includes warning about queue priority reset. |
+| `release_number` | Releases (deletes) a phone number from the Twilio account. Clears the number from config and secure storage. Includes warning about toll-free verification context loss. |
+| `sms_send_test` | Sends a test SMS to the specified `phoneNumber` with the given `text`, polls Twilio for delivery status (up to 3 retries at 2-second intervals), and returns the result in `testResult`. Stores the last result in memory for use by `sms_doctor`. |
+| `sms_doctor` | Runs a comprehensive SMS health diagnostic. Checks channel readiness, compliance/toll-free verification status, and the last `sms_send_test` result. Returns structured diagnostics in `diagnostics` with an overall `status` ("healthy", "degraded", or "unhealthy") and actionable `items`. |
 
-Response type: `twilio_config_response` with `success`, `hasCredentials`, optional `phoneNumber`, optional `numbers` array, optional `error`, and optional `warning` (for non-fatal webhook sync failures).
+Response type: `twilio_config_response` with `success`, `hasCredentials`, optional `phoneNumber`, optional `numbers` array, optional `error`, optional `warning` (for non-fatal webhook sync failures), optional `compliance` object (for compliance status actions, containing `numberType`, `verificationSid`, `verificationStatus`, `rejectionReason`, `rejectionReasons`, `errorCode`, `editAllowed`, `editExpiration`), optional `testResult` (for `sms_send_test`), and optional `diagnostics` (for `sms_doctor`).
 
 ### Ingress Webhook Reconciliation
 
@@ -250,6 +257,34 @@ Guardian bindings, verification challenges, and approval requests are all scoped
 ### Channel-Aware Guardian Challenges
 
 The channel guardian service generates verification challenge instructions with channel-appropriate wording. The `channelLabel()` function maps `sourceChannel` values to human-readable labels (e.g., `"telegram"` -> `"Telegram"`, `"sms"` -> `"SMS"`), so challenge prompts reference the correct channel name.
+
+## Channel Readiness
+
+The `channel_readiness` IPC contract provides a unified way to check whether a channel (SMS, Telegram, etc.) is fully configured and operational. It runs local checks (credential presence, phone number assignment, ingress config) synchronously and optional remote checks (API reachability) asynchronously with a 5-minute TTL cache.
+
+### `channel_readiness` IPC Contract
+
+| Action | Description |
+|--------|-------------|
+| `get` | Returns readiness snapshots for the specified channel (or all channels if omitted). Local checks always run; remote checks run only when `includeRemote=true` and cache is stale. |
+| `refresh` | Invalidates the cache for the specified channel (or all channels), then returns fresh snapshots. |
+
+Request fields: `action` (required), `channel` (optional filter), `assistantId` (optional), `includeRemote` (optional boolean).
+
+Response type: `channel_readiness_response` with `success`, optional `snapshots` array (each with `channel`, `ready`, `checkedAt`, `stale`, `reasons`, `localChecks`, optional `remoteChecks`), and optional `error`.
+
+### Built-in Channel Probes
+
+- **SMS**: Checks Twilio credentials, phone number assignment, and public ingress URL.
+- **Telegram**: Checks bot token, webhook secret, and public ingress URL.
+
+### Key modules
+
+| File | Purpose |
+|------|---------|
+| `src/runtime/channel-readiness-types.ts` | Shared types: `ChannelId`, `ReadinessCheckResult`, `ChannelReadinessSnapshot`, `ChannelProbe` |
+| `src/runtime/channel-readiness-service.ts` | Service class with probe registration, cached readiness evaluation, and built-in SMS/Telegram probes |
+| `src/daemon/handlers/config.ts` | `handleChannelReadiness` — IPC handler for `channel_readiness` messages |
 
 ## Database
 

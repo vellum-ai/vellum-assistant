@@ -64,7 +64,7 @@ declare -a SAFE_LINE_PATTERNS=(
     "client[Ss]ecret:[[:space:]]*(String[?]?[[:space:]]*($|[,){;]|=[[:space:]]*nil)|client[Ss]ecret[[:space:]]*[,)])"
     "[Pp]rivate[_-]?[Kk]ey['\"]?:[[:space:]]*(String|string|Data|data)[?]?[[:space:]]*($|[,){;]|=[[:space:]]*nil|=[[:space:]]*['\"]['\"])"
     "(secret|Secret)['\"]?[[:space:]]*[:=][[:space:]]*['\"]<(optional|required|placeholder|none|empty|unset|redacted|your-[a-z-]+-here|[a-zA-Z][a-zA-Z_/ '-]*[A-Z_/][a-zA-Z_/ '.-]*)>['\"]"
-    "[a-zA-Z_-]*[[:space:]]*[:=][[:space:]]*\\\$\\{\\{[[:space:]]*secrets\\.[a-zA-Z_][a-zA-Z0-9_]*[[:space:]]*\\}\\}[[:space:]]*(#.*)?$"
+    "[a-zA-Z_-]*[[:space:]]*[:=][[:space:]]*\\\$\\{\\{[[:space:]]*secrets\\.[a-zA-Z_][a-zA-Z0-9_]*[[:space:]]*\\}\\}([[:space:]]+#.*)?[[:space:]]*$"
 )
 
 matches_safe_line_pattern() {

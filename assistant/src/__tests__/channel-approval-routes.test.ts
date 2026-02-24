@@ -1635,7 +1635,9 @@ describe('SMS guardian verify intercept', () => {
     const replyArgs = deliverSpy.mock.calls[0];
     const replyPayload = replyArgs[1] as { chatId: string; text: string };
     expect(replyPayload.chatId).toBe('sms-chat-verify');
-    expect(replyPayload.text).toContain('Guardian verified successfully');
+    expect(typeof replyPayload.text).toBe('string');
+    expect(replyPayload.text.toLowerCase()).toContain('guardian');
+    expect(replyPayload.text.toLowerCase()).toContain('verif');
 
     deliverSpy.mockRestore();
   });
@@ -1668,7 +1670,9 @@ describe('SMS guardian verify intercept', () => {
     expect(deliverSpy).toHaveBeenCalled();
     const replyArgs = deliverSpy.mock.calls[0];
     const replyPayload = replyArgs[1] as { chatId: string; text: string };
-    expect(replyPayload.text).toContain('Verification failed');
+    expect(typeof replyPayload.text).toBe('string');
+    expect(replyPayload.text.toLowerCase()).toContain('verif');
+    expect(replyPayload.text.toLowerCase()).toContain('failed');
 
     deliverSpy.mockRestore();
   });
@@ -1944,11 +1948,11 @@ describe('fail-closed guardian gate — unverified channel', () => {
 
     // The deny decision should carry guardian setup context for assistant reply generation.
     expect(typeof decisionArgs[2]).toBe('string');
-    expect((decisionArgs[2] as string)).toContain('no guardian is configured');
+    expect((decisionArgs[2] as string).toLowerCase()).toContain('no guardian');
 
     // The runtime should not send a second deterministic denial notice.
     const deterministicNoticeCalls = deliverSpy.mock.calls.filter(
-      (call) => typeof call[1] === 'object' && (call[1] as { text?: string }).text?.includes('no guardian has been set up'),
+      (call) => typeof call[1] === 'object' && (call[1] as { text?: string }).text?.toLowerCase().includes('no guardian'),
     );
     expect(deterministicNoticeCalls.length).toBe(0);
 
@@ -2045,11 +2049,11 @@ describe('fail-closed guardian gate — unverified channel', () => {
     const lastDecision = submitCalls[submitCalls.length - 1];
     expect(lastDecision[1]).toBe('deny');
     expect(typeof lastDecision[2]).toBe('string');
-    expect((lastDecision[2] as string)).toContain('no guardian is configured');
+    expect((lastDecision[2] as string).toLowerCase()).toContain('no guardian');
 
     // Interception should not emit a separate deterministic denial notice.
     const denialCalls = deliverSpy.mock.calls.filter(
-      (call) => typeof call[1] === 'object' && (call[1] as { text?: string }).text?.includes('no guardian has been set up'),
+      (call) => typeof call[1] === 'object' && (call[1] as { text?: string }).text?.toLowerCase().includes('no guardian'),
     );
     expect(denialCalls.length).toBe(0);
 
@@ -2092,9 +2096,9 @@ describe('guardian-with-binding path regression', () => {
     const approvalArgs = approvalSpy.mock.calls[0];
     expect(approvalArgs[1]).toBe('guardian-chat-1');
 
-    // Requester should have been notified the request was sent to the guardian
+    // Requester should have been notified the request was forwarded to the guardian
     const notifyCalls = deliverSpy.mock.calls.filter(
-      (call) => typeof call[1] === 'object' && (call[1] as { text?: string }).text?.includes('has been sent to the guardian for approval'),
+      (call) => typeof call[1] === 'object' && (call[1] as { text?: string }).text?.toLowerCase().includes('guardian'),
     );
     expect(notifyCalls.length).toBeGreaterThanOrEqual(1);
 
@@ -2223,14 +2227,14 @@ describe('guardian delivery failure → denial', () => {
 
     // Requester should have been notified that delivery failed
     const failureCalls = deliverSpy.mock.calls.filter(
-      (call) => typeof call[1] === 'object' && (call[1] as { text?: string }).text?.includes('could not be sent to the guardian for approval'),
+      (call) => typeof call[1] === 'object' && (call[1] as { text?: string }).text?.toLowerCase().includes('denied'),
     );
     expect(failureCalls.length).toBeGreaterThanOrEqual(1);
 
-    // The "has been sent to the guardian for approval" success notice should
-    // NOT have been delivered (since delivery failed).
+    // The guardian_request_forwarded success notice should NOT have been
+    // delivered (since delivery failed).
     const successCalls = deliverSpy.mock.calls.filter(
-      (call) => typeof call[1] === 'object' && (call[1] as { text?: string }).text?.includes('has been sent to the guardian for approval'),
+      (call) => typeof call[1] === 'object' && (call[1] as { text?: string }).text?.toLowerCase().includes('forwarded'),
     );
     expect(successCalls.length).toBe(0);
 
@@ -2487,7 +2491,7 @@ describe('ambiguous plain-text decision with multiple pending requests', () => {
 
     // A disambiguation message should have been sent to the guardian
     const disambigCalls = deliverSpy.mock.calls.filter(
-      (call) => typeof call[1] === 'object' && (call[1] as { text?: string }).text?.includes('pending approval requests'),
+      (call) => typeof call[1] === 'object' && (call[1] as { text?: string }).text?.toLowerCase().includes('pending'),
     );
     expect(disambigCalls.length).toBeGreaterThanOrEqual(1);
 
@@ -3178,12 +3182,12 @@ describe('guardian enforcement behavior', () => {
     const lastDecision = submitCalls[submitCalls.length - 1];
     expect(lastDecision[1]).toBe('deny');
     expect(typeof lastDecision[2]).toBe('string');
-    expect((lastDecision[2] as string)).toContain('identity could not be verified');
+    expect((lastDecision[2] as string).toLowerCase()).toContain('identity');
 
     // No separate deterministic denial notice should be emitted here.
     const denialCalls = deliverSpy.mock.calls.filter(
       (call) => typeof call[1] === 'object'
-        && ((call[1] as { text?: string }).text ?? '').includes('identity could not be determined'),
+        && ((call[1] as { text?: string }).text ?? '').toLowerCase().includes('identity'),
     );
     expect(denialCalls.length).toBe(0);
 
@@ -3217,11 +3221,11 @@ describe('guardian enforcement behavior', () => {
     const lastDecision = submitCalls[submitCalls.length - 1];
     expect(lastDecision[1]).toBe('deny');
     expect(typeof lastDecision[2]).toBe('string');
-    expect((lastDecision[2] as string)).toContain('identity could not be verified');
+    expect((lastDecision[2] as string).toLowerCase()).toContain('identity');
 
     const denialCalls = deliverSpy.mock.calls.filter(
       (call) => typeof call[1] === 'object'
-        && ((call[1] as { text?: string }).text ?? '').includes('identity could not be determined'),
+        && ((call[1] as { text?: string }).text ?? '').toLowerCase().includes('identity'),
     );
     expect(denialCalls.length).toBe(0);
     expect(approvalSpy).not.toHaveBeenCalled();

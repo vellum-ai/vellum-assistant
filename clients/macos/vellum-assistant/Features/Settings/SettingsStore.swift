@@ -104,6 +104,8 @@ public final class SettingsStore: ObservableObject {
     // MARK: - Channel Guardian State (Telegram)
 
     @Published var telegramGuardianIdentity: String?
+    @Published var telegramGuardianUsername: String?
+    @Published var telegramGuardianDisplayName: String?
     @Published var telegramGuardianVerified: Bool = false
     @Published var telegramGuardianVerificationInProgress: Bool = false
     @Published var telegramGuardianInstruction: String?
@@ -112,6 +114,8 @@ public final class SettingsStore: ObservableObject {
     // MARK: - Channel Guardian State (SMS)
 
     @Published var smsGuardianIdentity: String?
+    @Published var smsGuardianUsername: String?
+    @Published var smsGuardianDisplayName: String?
     @Published var smsGuardianVerified: Bool = false
     @Published var smsGuardianVerificationInProgress: Bool = false
     @Published var smsGuardianInstruction: String?
@@ -177,6 +181,14 @@ public final class SettingsStore: ObservableObject {
             return stored
         }
         return "self"
+    }
+
+    private static func reflectedString(_ value: Any, key: String) -> String? {
+        for child in Mirror(reflecting: value).children {
+            guard child.label == key else { continue }
+            return child.value as? String
+        }
+        return nil
     }
 
     init(
@@ -371,6 +383,8 @@ public final class SettingsStore: ObservableObject {
                 self.telegramGuardianVerificationInProgress = false
                 if response.success {
                     self.telegramGuardianIdentity = response.guardianExternalUserId
+                    self.telegramGuardianUsername = Self.reflectedString(response, key: "guardianUsername")
+                    self.telegramGuardianDisplayName = Self.reflectedString(response, key: "guardianDisplayName")
                     let isVerified = response.bound ?? false
                     self.telegramGuardianVerified = isVerified
                     if isVerified {
@@ -386,6 +400,8 @@ public final class SettingsStore: ObservableObject {
                 self.smsGuardianVerificationInProgress = false
                 if response.success {
                     self.smsGuardianIdentity = response.guardianExternalUserId
+                    self.smsGuardianUsername = Self.reflectedString(response, key: "guardianUsername")
+                    self.smsGuardianDisplayName = Self.reflectedString(response, key: "guardianDisplayName")
                     let isVerified = response.bound ?? false
                     self.smsGuardianVerified = isVerified
                     if isVerified {
@@ -1107,19 +1123,12 @@ public final class SettingsStore: ObservableObject {
 
     /// Resolved gateway URL for iOS pairing — uses per-integration override if enabled, else global.
     var resolvedIosGatewayUrl: String {
-        UserDefaults.standard.bool(forKey: "iosPairingUseOverride")
-            ? (nonEmpty(UserDefaults.standard.string(forKey: "iosPairingGatewayOverride")) ?? ingressPublicBaseUrl)
-            : ingressPublicBaseUrl
+        PairingConfiguration.resolvedGatewayURL(fallback: ingressPublicBaseUrl)
     }
 
     /// Resolved bearer token for iOS pairing — uses per-integration override if enabled, else global.
     var resolvedIosBearerToken: String {
-        if UserDefaults.standard.bool(forKey: "iosPairingUseOverride") {
-            if let override = nonEmpty(UserDefaults.standard.string(forKey: "iosPairingTokenOverride")) {
-                return override
-            }
-        }
-        return readHttpToken() ?? ""
+        PairingConfiguration.resolvedBearerToken(fallback: readHttpToken() ?? "")
     }
 
     /// Resolved gateway URL for public ingress — uses per-integration override if enabled, else global.

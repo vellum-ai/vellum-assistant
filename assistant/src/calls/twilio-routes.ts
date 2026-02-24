@@ -29,6 +29,10 @@ import { resolveVoiceQualityProfile, isVoiceProfileValid } from './voice-quality
 
 const log = getLogger('twilio-routes');
 
+const CONTEXT_BLOCK_SPLIT_REGEX = /\n\s*\nContext:\s*/i;
+const MAX_TASK_SUMMARY_CHARS = 120;
+const DEFAULT_WELCOME_GREETING = 'Hello, this is an assistant calling. Is now a good time to talk?';
+
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function escapeXml(str: string): string {
@@ -61,6 +65,40 @@ export function generateTwiML(
     />
   </Connect>
 </Response>`;
+}
+
+function summarizeTaskForGreeting(task: string | null): string | null {
+  if (!task) return null;
+  const primaryTask = task.split(CONTEXT_BLOCK_SPLIT_REGEX)[0]?.trim() ?? '';
+  if (!primaryTask) return null;
+
+  const compact = primaryTask.replace(/\s+/g, ' ').trim().replace(/[.!?]+$/, '');
+  if (!compact) return null;
+  if (compact.length <= MAX_TASK_SUMMARY_CHARS) return compact;
+  return `${compact.slice(0, MAX_TASK_SUMMARY_CHARS - 3).trimEnd()}...`;
+}
+
+function formatTaskAsCallPurpose(taskSummary: string): string {
+  const lower = taskSummary.toLowerCase();
+  if (
+    lower.startsWith('about ') ||
+    lower.startsWith('to ') ||
+    lower.startsWith('for ') ||
+    lower.startsWith('regarding ')
+  ) {
+    return taskSummary;
+  }
+  return `about ${taskSummary}`;
+}
+
+export function buildWelcomeGreeting(task: string | null, configuredGreeting?: string): string {
+  const override = configuredGreeting?.trim();
+  if (override) return override;
+
+  const taskSummary = summarizeTaskForGreeting(task);
+  if (!taskSummary) return DEFAULT_WELCOME_GREETING;
+
+  return `Hello, I am calling ${formatTaskAsCallPurpose(taskSummary)}. Is now a good time to talk?`;
 }
 
 /**
@@ -183,7 +221,7 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
     // Fallback to legacy resolution when ingress is not configured
     relayUrl = resolveRelayUrl(twilioConfig.wssBaseUrl, twilioConfig.webhookBaseUrl);
   }
-  const welcomeGreeting = process.env.CALL_WELCOME_GREETING ?? 'Hello, how can I help you today?';
+  const welcomeGreeting = buildWelcomeGreeting(session.task, process.env.CALL_WELCOME_GREETING);
 
   const twiml = generateTwiML(callSessionId, relayUrl, welcomeGreeting, profile);
 

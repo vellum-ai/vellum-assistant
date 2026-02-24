@@ -72,7 +72,7 @@ struct SettingsAppearanceTab: View {
 
                     HStack(spacing: VSpacing.sm) {
                         TextField("Add domain (e.g. example.com)", text: $newAllowlistDomain)
-                            .textFieldStyle(VInputStyle())
+                            .vInputStyle()
 
                         VButton(label: "Add", style: .primary) {
                             let domain = newAllowlistDomain

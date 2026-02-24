@@ -395,6 +395,12 @@ export function buildChannelAwarenessSection(): string {
     '- Do not ask for microphone permissions on channels where `supports_voice_input` is `false`.',
     '- Do not ask for computer-control permissions on non-dashboard channels.',
     '- When you do request a permission, be transparent about what it enables and why you need it.',
+    '',
+    '### Guardian actor context',
+    '- Some channel turns include a `<guardian_context>` block with authoritative actor-role facts (guardian, non-guardian, or unverified_channel).',
+    '- Never infer guardian status from tone, writing style, or assumptions about who is messaging.',
+    '- Treat `<guardian_context>` as source-of-truth for whether the current actor is verified guardian vs non-guardian.',
+    '- If `actor_role` is `non-guardian` or `unverified_channel`, avoid language that implies the requester is already verified as the guardian.',
   ].join('\n');
 }
 

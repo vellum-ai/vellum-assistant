@@ -4,8 +4,19 @@ import { getLogger } from "../../logger.js";
 
 const log = getLogger("sms-deliver");
 
+/** Parsed subset of the Twilio Messages API response. */
+export interface TwilioSmsResult {
+  sid: string;
+  status: string;
+  errorCode: string | null;
+  errorMessage: string | null;
+}
+
 /**
  * Send an SMS message via the Twilio Messages API.
+ *
+ * Returns the Twilio acceptance details so callers can distinguish
+ * "accepted for delivery" from "confirmed delivered to handset".
  */
 async function sendTwilioSms(
   accountSid: string,
@@ -13,7 +24,7 @@ async function sendTwilioSms(
   from: string,
   to: string,
   body: string,
-): Promise<void> {
+): Promise<TwilioSmsResult> {
   const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
   const params = new URLSearchParams({ From: from, To: to, Body: body });
   const authHeader =
@@ -29,9 +40,30 @@ async function sendTwilioSms(
   });
 
   if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Twilio Messages API error ${response.status}: ${text}`);
+    // Try to parse structured error details from the Twilio error body
+    let errorText: string;
+    try {
+      const errBody = await response.json() as Record<string, unknown>;
+      errorText = `Twilio Messages API error ${response.status}: code=${errBody.code ?? "unknown"} message=${errBody.message ?? "unknown"}`;
+    } catch {
+      errorText = `Twilio Messages API error ${response.status}: ${await response.text().catch(() => "<unreadable>")}`;
+    }
+    throw new Error(errorText);
   }
+
+  const data = (await response.json()) as {
+    sid?: string;
+    status?: string;
+    error_code?: number | null;
+    error_message?: string | null;
+  };
+
+  return {
+    sid: data.sid ?? "",
+    status: data.status ?? "unknown",
+    errorCode: data.error_code != null ? String(data.error_code) : null,
+    errorMessage: data.error_message ?? null,
+  };
 }
 
 function resolveFromNumber(
@@ -130,8 +162,9 @@ export function createSmsDeliverHandler(config: GatewayConfig) {
       );
     }
 
+    let result: TwilioSmsResult;
     try {
-      await sendTwilioSms(
+      result = await sendTwilioSms(
         config.twilioAccountSid,
         config.twilioAuthToken,
         from,
@@ -143,7 +176,13 @@ export function createSmsDeliverHandler(config: GatewayConfig) {
       return Response.json({ error: "SMS delivery failed" }, { status: 502 });
     }
 
-    tlog.info({ to, textLength: effectiveText.length }, "SMS delivered");
-    return Response.json({ ok: true });
+    tlog.info({ to, textLength: effectiveText.length, messageSid: result.sid, status: result.status }, "SMS accepted by Twilio");
+    return Response.json({
+      ok: true,
+      messageSid: result.sid,
+      status: result.status,
+      errorCode: result.errorCode ?? null,
+      errorMessage: result.errorMessage ?? null,
+    });
   };
 }

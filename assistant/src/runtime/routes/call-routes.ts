@@ -17,7 +17,7 @@ import { VALID_CALLER_IDENTITY_MODES } from '../../config/schema.js';
  *
  * Body: { phoneNumber: string; task: string; context?: string; conversationId: string; callerIdentityMode?: 'assistant_number' | 'user_number' }
  */
-export async function handleStartCall(req: Request): Promise<Response> {
+export async function handleStartCall(req: Request, assistantId: string = 'self'): Promise<Response> {
   if (!getConfig().calls.enabled) {
     return Response.json(
       { error: 'Calls feature is disabled via configuration. Set calls.enabled to true to use this feature.' },
@@ -59,6 +59,7 @@ export async function handleStartCall(req: Request): Promise<Response> {
     task: body.task ?? '',
     context: body.context,
     conversationId: body.conversationId,
+    assistantId,
     callerIdentityMode: body.callerIdentityMode,
   });
 

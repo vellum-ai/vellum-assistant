@@ -670,6 +670,8 @@ export class DaemonServer {
       throw new Error('Session is already processing a message');
     }
 
+    session.setAssistantId(options?.assistantId ?? 'self');
+    session.setGuardianContext(options?.guardianContext ?? null);
     session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel));
 
     const attachments = attachmentIds
@@ -724,6 +726,8 @@ export class DaemonServer {
       throw new Error('Session is already processing a message');
     }
 
+    session.setAssistantId(options?.assistantId ?? 'self');
+    session.setGuardianContext(options?.guardianContext ?? null);
     session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel));
 
     const attachments = attachmentIds

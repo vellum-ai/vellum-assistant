@@ -41,6 +41,7 @@ import {
   buildApprovalUIMetadata,
   handleChannelDecision,
   buildReminderPrompt,
+  buildGuardianApprovalPrompt,
   channelSupportsRichApprovalUI,
 } from '../runtime/channel-approvals.js';
 import type { ApprovalDecisionResult, ChannelApprovalPrompt } from '../runtime/channel-approval-types.js';
@@ -547,7 +548,53 @@ describe('buildReminderPrompt', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 5. channelSupportsRichApprovalUI
+// 5. buildGuardianApprovalPrompt
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('buildGuardianApprovalPrompt', () => {
+  test('prompt includes requester identifier and tool name', () => {
+    const runInfo: PendingRunInfo = {
+      runId: 'run-g1',
+      requestId: 'req-g1',
+      toolName: 'deploy',
+      input: {},
+      riskLevel: 'high',
+    };
+    const prompt = buildGuardianApprovalPrompt(runInfo, 'alice');
+    expect(prompt.promptText).toContain('alice');
+    expect(prompt.promptText).toContain('deploy');
+  });
+
+  test('excludes approve_always action', () => {
+    const runInfo: PendingRunInfo = {
+      runId: 'run-g2',
+      requestId: 'req-g2',
+      toolName: 'shell',
+      input: {},
+      riskLevel: 'medium',
+    };
+    const prompt = buildGuardianApprovalPrompt(runInfo, 'bob');
+    expect(prompt.actions.map((a) => a.id)).not.toContain('approve_always');
+    expect(prompt.actions.map((a) => a.id)).toContain('approve_once');
+    expect(prompt.actions.map((a) => a.id)).toContain('reject');
+  });
+
+  test('plainTextFallback contains parser-compatible keywords', () => {
+    const runInfo: PendingRunInfo = {
+      runId: 'run-g3',
+      requestId: 'req-g3',
+      toolName: 'write_file',
+      input: {},
+      riskLevel: 'high',
+    };
+    const prompt = buildGuardianApprovalPrompt(runInfo, 'charlie');
+    expect(prompt.plainTextFallback).toContain('yes');
+    expect(prompt.plainTextFallback).toContain('no');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 6. channelSupportsRichApprovalUI
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('channelSupportsRichApprovalUI', () => {

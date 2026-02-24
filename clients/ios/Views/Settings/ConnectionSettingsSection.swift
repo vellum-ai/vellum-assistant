@@ -56,6 +56,8 @@ struct DaemonConnectionSection: View {
     @State private var manualAuthValue: String = ""
     @State private var isConnecting = false
 
+    @AppStorage(PairingConfiguration.devLocalPairingKey) private var devLocalPairingEnabled: Bool = false
+
     /// The currently configured gateway URL, shown as read-only status.
     private var gatewayURL: String? {
         UserDefaults.standard.string(forKey: UserDefaultsKeys.gatewayBaseURL).flatMap { $0.isEmpty ? nil : $0 }
@@ -126,8 +128,10 @@ struct DaemonConnectionSection: View {
                     }
                     .padding(.vertical, 12)
                 }
+            } header: {
+                Text("Pair with Mac")
             } footer: {
-                Text("Open Vellum on your Mac, then go to Settings > Show QR Code.")
+                Text("Open Vellum on your Mac, go to Settings \u{2192} Connect, and tap Show QR Code.")
             }
 
             // Manual setup section
@@ -168,6 +172,35 @@ struct DaemonConnectionSection: View {
                 Text("Enter the gateway URL and bearer token shown in your Mac's Settings.")
             }
 
+            // Developer options
+            Section {
+                DisclosureGroup("Developer Options") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Toggle("Allow Local HTTP Connections", isOn: $devLocalPairingEnabled)
+                            .font(VFont.body)
+
+                        Text("When enabled, QR pairing accepts local HTTP gateway URLs for LAN debugging. Keep disabled unless you're developing locally.")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+
+                        if devLocalPairingEnabled {
+                            HStack(spacing: 6) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundColor(VColor.warning)
+                                    .font(.system(size: 12))
+                                Text("Local HTTP connections are unencrypted. Only use on trusted networks.")
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.warning)
+                            }
+                            .padding(8)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(VColor.warning.opacity(0.1))
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                        }
+                    }
+                }
+            }
+
         }
         .navigationTitle("Connect")
         .navigationBarTitleDisplayMode(.inline)
@@ -181,6 +214,40 @@ struct DaemonConnectionSection: View {
         }
     }
 
+    // MARK: - Local Host Detection
+
+    /// Checks whether a host string refers to a local or private-network address.
+    /// Used to allow plain HTTP for LAN/loopback endpoints while requiring HTTPS
+    /// for public hosts (ATS policy). Comparison is case-insensitive.
+    static func isLocalHost(_ rawHost: String) -> Bool {
+        let host = rawHost.lowercased()
+
+        // Loopback & mDNS
+        if host == "localhost" || host == "::1" || host.hasSuffix(".local") {
+            return true
+        }
+
+        // IPv6 link-local (fe80::…)
+        if host.hasPrefix("fe80:") {
+            return true
+        }
+
+        let parts = host.split(separator: ".")
+        let octets = parts.compactMap { UInt8($0) }
+        if parts.count == 4 && octets.count == 4 {
+            // 127.0.0.0/8 — full loopback range
+            if octets[0] == 127 { return true }
+            // 10.0.0.0/8 — private
+            if octets[0] == 10 { return true }
+            // 172.16.0.0/12 — private (172.16.x.x through 172.31.x.x)
+            if octets[0] == 172 && (16...31).contains(octets[1]) { return true }
+            // 192.168.0.0/16 — private
+            if octets[0] == 192 && octets[1] == 168 { return true }
+        }
+
+        return false
+    }
+
     // MARK: - Manual Connection
 
     private func connectManually() {
@@ -192,6 +259,15 @@ struct DaemonConnectionSection: View {
             alertMessage = "Please enter a valid URL (e.g., https://my-mac.example.com)."
             showingAlert = true
             return
+        }
+
+        // Require HTTPS for non-local connections (ATS policy)
+        if url.scheme == "http" {
+            if !Self.isLocalHost(url.host ?? "") {
+                alertMessage = "HTTPS is required for non-local connections."
+                showingAlert = true
+                return
+            }
         }
 
         let trimmedAuth = manualAuthValue.trimmingCharacters(in: .whitespacesAndNewlines)
