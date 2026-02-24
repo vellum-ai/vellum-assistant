@@ -25,6 +25,7 @@ export * from './ipc-contract/workspace.js';
 export * from './ipc-contract/schedules.js';
 export * from './ipc-contract/diagnostics.js';
 export * from './ipc-contract/parental-control.js';
+export * from './ipc-contract/inbox.js';
 
 // Import types needed for aggregate unions and SubagentEvent
 import type { AuthMessage, PingMessage, CancelRequest, DeleteQueuedMessage, ModelGetRequest, ModelSetRequest, ImageGenModelSetRequest, HistoryRequest, UndoRequest, RegenerateRequest, UsageRequest, SandboxSetRequest, SessionListRequest, SessionCreateRequest, SessionSwitchRequest, SessionsClearRequest, ConversationSearchRequest } from './ipc-contract/sessions.js';
@@ -60,6 +61,7 @@ import type { SchedulesListResponse, RemindersListResponse, ReminderFired, Sched
 import type { DiagnosticsExportResponse, EnvVarsResponse, IpcBlobProbeResult, DictationResponse } from './ipc-contract/diagnostics.js';
 import type { SchedulesList, ScheduleToggle, ScheduleRemove, ScheduleRunNow, RemindersList, ReminderCancel } from './ipc-contract/schedules.js';
 import type { ParentalControlGetRequest, ParentalControlVerifyPinRequest, ParentalControlSetPinRequest, ParentalControlUpdateRequest, ParentalControlGetResponse, ParentalControlVerifyPinResponse, ParentalControlSetPinResponse, ParentalControlUpdateResponse } from './ipc-contract/parental-control.js';
+import type { IngressInviteRequest, IngressMemberRequest, AssistantInboxRequest, AssistantInboxEscalationRequest, AssistantInboxReplyRequest, IngressInviteResponse, IngressMemberResponse, AssistantInboxResponse, AssistantInboxEscalationResponse, AssistantInboxReplyResponse } from './ipc-contract/inbox.js';
 
 // === SubagentEvent — defined here because it references ServerMessage ===
 
@@ -196,7 +198,12 @@ export type ClientMessage =
   | ParentalControlGetRequest
   | ParentalControlVerifyPinRequest
   | ParentalControlSetPinRequest
-  | ParentalControlUpdateRequest;
+  | ParentalControlUpdateRequest
+  | IngressInviteRequest
+  | IngressMemberRequest
+  | AssistantInboxRequest
+  | AssistantInboxEscalationRequest
+  | AssistantInboxReplyRequest;
 
 // === Server → Client aggregate union ===
 
@@ -339,7 +346,12 @@ export type ServerMessage =
   | ParentalControlGetResponse
   | ParentalControlVerifyPinResponse
   | ParentalControlSetPinResponse
-  | ParentalControlUpdateResponse;
+  | ParentalControlUpdateResponse
+  | IngressInviteResponse
+  | IngressMemberResponse
+  | AssistantInboxResponse
+  | AssistantInboxEscalationResponse
+  | AssistantInboxReplyResponse;
 
 // === Contract schema ===
 

@@ -37,7 +37,7 @@ exports[`IPC message snapshots ClientMessage types session_create serializes to 
   "threadType": "standard",
   "title": "New session",
   "transport": {
-    "channelId": "desktop",
+    "channelId": "macos",
     "hints": [
       "dashboard-capable",
     ],
@@ -981,6 +981,58 @@ exports[`IPC message snapshots ClientMessage types parental_control_update seria
   "enabled": true,
   "pin": "123456",
   "type": "parental_control_update",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types ingress_invite serializes to expected JSON 1`] = `
+{
+  "action": "create",
+  "expiresInMs": 86400000,
+  "maxUses": 5,
+  "note": "Test invite",
+  "sourceChannel": "telegram",
+  "type": "ingress_invite",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types ingress_member serializes to expected JSON 1`] = `
+{
+  "action": "upsert",
+  "displayName": "Test User",
+  "externalChatId": "chat-456",
+  "externalUserId": "user-123",
+  "policy": "allow",
+  "sourceChannel": "telegram",
+  "status": "active",
+  "type": "ingress_member",
+  "username": "testuser",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types assistant_inbox serializes to expected JSON 1`] = `
+{
+  "action": "list_threads",
+  "assistantId": "asst-001",
+  "limit": 20,
+  "offset": 0,
+  "type": "assistant_inbox",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types assistant_inbox_escalation serializes to expected JSON 1`] = `
+{
+  "action": "list",
+  "assistantId": "asst-001",
+  "status": "pending",
+  "type": "assistant_inbox_escalation",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types assistant_inbox_reply serializes to expected JSON 1`] = `
+{
+  "content": "Hello from the assistant",
+  "conversationId": "conv-001",
+  "type": "assistant_inbox_reply",
 }
 `;
 
@@ -2737,5 +2789,93 @@ exports[`IPC message snapshots ServerMessage types parental_control_update_respo
   "has_pin": true,
   "success": true,
   "type": "parental_control_update_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types ingress_invite_response serializes to expected JSON 1`] = `
+{
+  "invite": {
+    "createdAt": 1700000000,
+    "expiresAt": 1700100000000,
+    "id": "inv-001",
+    "maxUses": 5,
+    "note": "Test invite",
+    "sourceChannel": "telegram",
+    "status": "active",
+    "token": "tok-abc123",
+    "tokenHash": "hash-abc123",
+    "useCount": 0,
+  },
+  "success": true,
+  "type": "ingress_invite_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types ingress_member_response serializes to expected JSON 1`] = `
+{
+  "member": {
+    "createdAt": 1700000000,
+    "displayName": "Test User",
+    "externalChatId": "chat-456",
+    "externalUserId": "user-123",
+    "id": "mem-001",
+    "lastSeenAt": 1700000000,
+    "policy": "allow",
+    "sourceChannel": "telegram",
+    "status": "active",
+    "username": "testuser",
+  },
+  "success": true,
+  "type": "ingress_member_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types assistant_inbox_response serializes to expected JSON 1`] = `
+{
+  "success": true,
+  "threads": [
+    {
+      "conversationId": "conv-001",
+      "displayName": "Test User",
+      "externalChatId": "chat-456",
+      "externalUserId": "user-123",
+      "hasPendingEscalation": false,
+      "lastInboundAt": 1700000000,
+      "lastMessageAt": 1700000000,
+      "lastOutboundAt": 1699999000,
+      "sourceChannel": "telegram",
+      "unreadCount": 3,
+      "username": "testuser",
+    },
+  ],
+  "type": "assistant_inbox_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types assistant_inbox_escalation_response serializes to expected JSON 1`] = `
+{
+  "escalations": [
+    {
+      "channel": "telegram",
+      "conversationId": "conv-001",
+      "createdAt": 1700000000,
+      "id": "esc-001",
+      "requestSummary": "User wants to delete their account",
+      "requesterChatId": "chat-456",
+      "requesterExternalUserId": "user-123",
+      "runId": "run-001",
+      "status": "pending",
+    },
+  ],
+  "success": true,
+  "type": "assistant_inbox_escalation_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types assistant_inbox_reply_response serializes to expected JSON 1`] = `
+{
+  "messageId": "msg-reply-001",
+  "success": true,
+  "type": "assistant_inbox_reply_response",
 }
 `;

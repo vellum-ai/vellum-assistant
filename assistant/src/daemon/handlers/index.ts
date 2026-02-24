@@ -88,6 +88,23 @@ const inlineHandlers = defineHandlers({
   },
   integration_disconnect: () => { /* no-op — integration registry removed */ },
 
+  // Stub handlers: inbox operations — real implementations will be added in a follow-up PR.
+  ingress_invite: (_msg, socket, ctx) => {
+    ctx.send(socket, { type: 'ingress_invite_response', success: false, error: 'Not yet implemented' });
+  },
+  ingress_member: (_msg, socket, ctx) => {
+    ctx.send(socket, { type: 'ingress_member_response', success: false, error: 'Not yet implemented' });
+  },
+  assistant_inbox: (_msg, socket, ctx) => {
+    ctx.send(socket, { type: 'assistant_inbox_response', success: false, error: 'Not yet implemented' });
+  },
+  assistant_inbox_escalation: (_msg, socket, ctx) => {
+    ctx.send(socket, { type: 'assistant_inbox_escalation_response', success: false, error: 'Not yet implemented' });
+  },
+  assistant_inbox_reply: (_msg, socket, ctx) => {
+    ctx.send(socket, { type: 'assistant_inbox_reply_response', success: false, error: 'Not yet implemented' });
+  },
+
 });
 
 const handlers = {
