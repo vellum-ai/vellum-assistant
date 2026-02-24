@@ -416,8 +416,8 @@ export async function handleChannelInbound(
       );
 
       const replyText = verifyResult.success
-        ? 'Guardian verified successfully. Your identity is now linked to this bot.'
-        : 'Verification failed. Please try again later.';
+        ? composeApprovalMessage({ scenario: 'guardian_verify_success' })
+        : verifyResult.reason;
 
       try {
         await deliverChannelReply(replyCallbackUrl, {
