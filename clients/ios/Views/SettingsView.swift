@@ -92,7 +92,7 @@ struct SettingsView: View {
                         .onTapGesture {
                             versionTapCount += 1
                             if versionTapCount >= 7 {
-                                developerModeEnabled.toggle()
+                                developerModeEnabled = true
                                 versionTapCount = 0
                             }
                         }

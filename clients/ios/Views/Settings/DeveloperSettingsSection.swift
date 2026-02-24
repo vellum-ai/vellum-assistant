@@ -9,14 +9,29 @@ import VellumAssistantShared
 /// the version label 7 times.
 struct DeveloperSettingsSection: View {
     @EnvironmentObject var clientProvider: ClientProvider
+
+    var body: some View {
+        // Forward clientProvider.traceStore into a child view that holds it as
+        // @ObservedObject so SwiftUI re-renders when trace events arrive
+        // (keeps counts and the Clear button's enabled state live).
+        DeveloperSettingsSectionContent(
+            clientProvider: clientProvider,
+            traceStore: clientProvider.traceStore
+        )
+    }
+}
+
+private struct DeveloperSettingsSectionContent: View {
+    let clientProvider: ClientProvider
+    @ObservedObject var traceStore: TraceStore
     @State private var showDebugPanel = false
 
     private var sessionCount: Int {
-        clientProvider.traceStore.eventsBySession.count
+        traceStore.eventsBySession.count
     }
 
     private var totalEventCount: Int {
-        clientProvider.traceStore.eventsBySession.values.reduce(0) { $0 + $1.count }
+        traceStore.eventsBySession.values.reduce(0) { $0 + $1.count }
     }
 
     var body: some View {
@@ -26,7 +41,7 @@ struct DeveloperSettingsSection: View {
                 LabeledContent("Total events", value: "\(totalEventCount)")
 
                 Button("Clear All Trace Events", role: .destructive) {
-                    clientProvider.traceStore.resetAll()
+                    traceStore.resetAll()
                 }
                 .disabled(totalEventCount == 0)
             }
@@ -46,10 +61,10 @@ struct DeveloperSettingsSection: View {
         .navigationTitle("Developer")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showDebugPanel) {
-            // Show most recent session's traces, or nil if none.
-            let sessionId = clientProvider.traceStore.eventsBySession.keys.first
+            // Use the most recently active session rather than an arbitrary dict key.
+            let sessionId = traceStore.mostRecentSessionId
             DebugPanelView(
-                traceStore: clientProvider.traceStore,
+                traceStore: traceStore,
                 sessionId: sessionId,
                 onClose: { showDebugPanel = false }
             )

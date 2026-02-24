@@ -185,6 +185,21 @@ public final class TraceStore: ObservableObject {
         return events.filter { $0.kind == "tool_failed" }.count
     }
 
+    // MARK: - Session Selection
+
+    /// Returns the session ID whose last event has the highest `timestampMs`,
+    /// i.e. the most recently active session. Returns `nil` if no events exist.
+    ///
+    /// Used by developer tooling to auto-select a relevant session when no
+    /// explicit selection context is available (e.g. when opening the debug panel
+    /// from the Settings screen rather than from an active chat thread).
+    public var mostRecentSessionId: String? {
+        eventsBySession
+            .compactMapValues { $0.last?.timestampMs }
+            .max(by: { $0.value < $1.value })
+            .map(\.key)
+    }
+
     // MARK: - Reset
 
     /// Remove all events for a given session.
