@@ -1,6 +1,7 @@
 import { mkdirSync, existsSync, statSync, unlinkSync, renameSync, readFileSync, writeFileSync, readdirSync, chmodSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
+import { isPlainObject } from './object.js';
 /**
  * Stderr-only logger for migration code. Using the pino logger during
  * migration is unsafe because pino initialization calls ensureDataDir(),
@@ -364,10 +365,6 @@ export function migratePath(source: string, destination: string): void {
  * top-level keys from the legacy file into the workspace file so they are
  * not silently lost during upgrade.
  */
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return v != null && typeof v === 'object' && !Array.isArray(v);
-}
-
 function mergeSkippedConfigKeys(legacyPath: string, workspacePath: string): void {
   if (!existsSync(legacyPath) || !existsSync(workspacePath)) return;
 
