@@ -1257,11 +1257,15 @@ private struct SidebarNavRow: View {
                     .foregroundColor(VColor.textPrimary)
                     .fixedSize()
                     .opacity(isExpanded ? 1 : 0)
-                Spacer()
+                    .allowsHitTesting(false)
+                if isExpanded {
+                    Spacer()
+                }
             }
             .padding(.leading, VSpacing.md)
             .padding(.trailing, VSpacing.sm)
             .padding(.vertical, VSpacing.sm)
+            .frame(maxWidth: isExpanded ? .infinity : nil)
             .background(isActive ? adaptiveColor(light: Moss._100, dark: Moss._700) : isHovered ? adaptiveColor(light: Moss._100, dark: Moss._700).opacity(0.5) : .clear)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .contentShape(Rectangle())
