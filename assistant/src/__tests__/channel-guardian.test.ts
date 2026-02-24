@@ -1295,6 +1295,31 @@ describe('IPC handler channel-aware guardian status', () => {
     expect(resp!.assistantId).toBe('self');
   });
 
+  test('status action returns guardian username/displayName from binding metadata', () => {
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'user-43',
+      guardianDeliveryChatId: 'chat-43',
+      metadataJson: JSON.stringify({ username: 'guardian_handle', displayName: 'Guardian Name' }),
+    });
+
+    const { ctx, lastResponse } = createMockCtx();
+    const msg: GuardianVerificationRequest = {
+      type: 'guardian_verification',
+      action: 'status',
+      channel: 'telegram',
+      assistantId: 'self',
+    };
+
+    handleGuardianVerification(msg, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.guardianUsername).toBe('guardian_handle');
+    expect(resp!.guardianDisplayName).toBe('Guardian Name');
+  });
+
   test('status action defaults channel to telegram when omitted (backward compat)', () => {
     const { ctx, lastResponse } = createMockCtx();
     const msg: GuardianVerificationRequest = {

@@ -129,6 +129,8 @@ export function validateAndConsumeChallenge(
   secret: string,
   actorExternalUserId: string,
   actorChatId: string,
+  actorUsername?: string,
+  actorDisplayName?: string,
 ): ValidateChallengeResult {
   // ── Rate-limit check ──
   const existing = getRateLimit(assistantId, channel, actorExternalUserId, actorChatId);
@@ -166,6 +168,14 @@ export function validateAndConsumeChallenge(
   // Revoke any existing active binding before creating a new one
   storeRevokeBinding(assistantId, channel);
 
+  const metadata: Record<string, string> = {};
+  if (actorUsername && actorUsername.trim().length > 0) {
+    metadata.username = actorUsername.trim();
+  }
+  if (actorDisplayName && actorDisplayName.trim().length > 0) {
+    metadata.displayName = actorDisplayName.trim();
+  }
+
   // Create the new guardian binding
   const binding = createBinding({
     assistantId,
@@ -173,6 +183,7 @@ export function validateAndConsumeChallenge(
     guardianExternalUserId: actorExternalUserId,
     guardianDeliveryChatId: actorChatId,
     verifiedVia: 'challenge',
+    metadataJson: Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : null,
   });
 
   return { success: true, bindingId: binding.id };

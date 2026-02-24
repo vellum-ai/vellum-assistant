@@ -74,6 +74,7 @@ import { RelayConnection, activeRelayConnections } from '../calls/relay-server.j
 import type { RelayWebSocketData } from '../calls/relay-server.js';
 import { handleSubscribeAssistantEvents } from './routes/events-routes.js';
 import { consumeCallback, consumeCallbackError } from '../security/oauth-callback-registry.js';
+import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
 
 // Re-export shared types so existing consumers don't need to update imports
 export type {
@@ -106,6 +107,37 @@ function getGatewayBaseUrl(): string {
 
 /** Global hard cap on request body size (50 MB). Bun rejects larger payloads before they reach handlers. */
 const MAX_REQUEST_BODY_BYTES = 50 * 1024 * 1024;
+
+function parseGuardianRuntimeContext(value: unknown): GuardianRuntimeContext | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const raw = value as Record<string, unknown>;
+  const actorRole = raw.actorRole;
+  if (
+    actorRole !== 'guardian'
+    && actorRole !== 'non-guardian'
+    && actorRole !== 'unverified_channel'
+  ) {
+    return undefined;
+  }
+  const sourceChannel = typeof raw.sourceChannel === 'string' && raw.sourceChannel.trim().length > 0
+    ? raw.sourceChannel
+    : undefined;
+  if (!sourceChannel) return undefined;
+  const denialReason =
+    raw.denialReason === 'no_binding' || raw.denialReason === 'no_identity'
+      ? raw.denialReason
+      : undefined;
+  return {
+    sourceChannel,
+    actorRole,
+    guardianChatId: typeof raw.guardianChatId === 'string' ? raw.guardianChatId : undefined,
+    guardianExternalUserId: typeof raw.guardianExternalUserId === 'string' ? raw.guardianExternalUserId : undefined,
+    requesterIdentifier: typeof raw.requesterIdentifier === 'string' ? raw.requesterIdentifier : undefined,
+    requesterExternalUserId: typeof raw.requesterExternalUserId === 'string' ? raw.requesterExternalUserId : undefined,
+    requesterChatId: typeof raw.requesterChatId === 'string' ? raw.requesterChatId : undefined,
+    denialReason,
+  };
+}
 
 interface DiskSpaceInfo {
   path: string;
@@ -907,6 +939,10 @@ export class RuntimeHttpServer {
       const attachmentIds = Array.isArray(payload.attachmentIds) ? payload.attachmentIds as string[] : undefined;
       const sourceChannel = payload.sourceChannel as string;
       const sourceMetadata = payload.sourceMetadata as Record<string, unknown> | undefined;
+      const assistantId = typeof payload.assistantId === 'string'
+        ? payload.assistantId
+        : undefined;
+      const guardianContext = parseGuardianRuntimeContext(payload.guardianCtx);
 
       const metadataHintsRaw = sourceMetadata?.hints;
       const metadataHints = Array.isArray(metadataHintsRaw)
@@ -927,6 +963,8 @@ export class RuntimeHttpServer {
               hints: metadataHints.length > 0 ? metadataHints : undefined,
               uxBrief: metadataUxBrief,
             },
+            assistantId,
+            guardianContext,
           },
         );
         channelDeliveryStore.linkMessage(event.id, userMessageId);
@@ -939,9 +977,6 @@ export class RuntimeHttpServer {
         if (replyCallbackUrl) {
           const externalChatId = typeof payload.externalChatId === 'string'
             ? payload.externalChatId
-            : undefined;
-          const assistantId = typeof payload.assistantId === 'string'
-            ? payload.assistantId
             : undefined;
           if (externalChatId) {
             await this.deliverReplyViaCallback(

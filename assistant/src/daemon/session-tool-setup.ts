@@ -41,6 +41,7 @@ import { projectSkillTools, type SkillProjectionCache } from './session-skill-to
  */
 export interface ToolSetupContext extends SurfaceSessionContext {
   readonly conversationId: string;
+  assistantId?: string;
   currentRequestId?: string;
   workingDir: string;
   sandboxOverride?: boolean;
@@ -186,6 +187,7 @@ export function createToolExecutor(
       workingDir: ctx.workingDir,
       sessionId: ctx.conversationId,
       conversationId: ctx.conversationId,
+      assistantId: ctx.assistantId,
       requestId: ctx.currentRequestId,
       taskRunId: ctx.taskRunId,
       onOutput,

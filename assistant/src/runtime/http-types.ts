@@ -2,6 +2,7 @@
  * Shared types for the runtime HTTP server and its route handlers.
  */
 import type { RunOrchestrator } from './run-orchestrator.js';
+import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
 
 export interface RuntimeMessageSessionOptions {
   transport?: {
@@ -9,6 +10,8 @@ export interface RuntimeMessageSessionOptions {
     hints?: string[];
     uxBrief?: string;
   };
+  assistantId?: string;
+  guardianContext?: GuardianRuntimeContext;
 }
 
 export type MessageProcessor = (

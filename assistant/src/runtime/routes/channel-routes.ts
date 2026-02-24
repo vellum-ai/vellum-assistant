@@ -44,6 +44,7 @@ import type {
   MessageProcessor,
   RuntimeAttachmentMetadata,
 } from '../http-types.js';
+import type { GuardianRuntimeContext } from '../../daemon/session-runtime-assembly.js';
 
 const log = getLogger('runtime-http');
 
@@ -108,6 +109,19 @@ export interface GuardianContext {
   requesterChatId?: string;
   /** Sub-reason when actorRole is 'unverified_channel'. */
   denialReason?: DenialReason;
+}
+
+function toGuardianRuntimeContext(sourceChannel: string, ctx: GuardianContext): GuardianRuntimeContext {
+  return {
+    sourceChannel,
+    actorRole: ctx.actorRole,
+    guardianChatId: ctx.guardianChatId,
+    guardianExternalUserId: ctx.guardianExternalUserId,
+    requesterIdentifier: ctx.requesterIdentifier,
+    requesterExternalUserId: ctx.requesterExternalUserId,
+    requesterChatId: ctx.requesterChatId,
+    denialReason: ctx.denialReason,
+  };
 }
 
 /** Guardian approval request expiry (30 minutes). */
@@ -396,6 +410,8 @@ export async function handleChannelInbound(
         token,
         body.senderExternalUserId,
         externalChatId,
+        body.senderUsername,
+        body.senderName,
       );
 
       const replyText = verifyResult.success
@@ -427,15 +443,25 @@ export async function handleChannelInbound(
   // side-effect controls and their approvals route to the guardian's chat.
   //
   // Guardian actor-role resolution always runs.
-  let guardianCtx: GuardianContext = { actorRole: 'guardian' };
+  let guardianCtx: GuardianContext;
   if (body.senderExternalUserId) {
+    const requesterLabel = body.senderUsername
+      ? `@${body.senderUsername}`
+      : body.senderExternalUserId;
     const senderIsGuardian = isGuardian(assistantId, sourceChannel, body.senderExternalUserId);
-    if (!senderIsGuardian) {
+    if (senderIsGuardian) {
+      const binding = getGuardianBinding(assistantId, sourceChannel);
+      guardianCtx = {
+        actorRole: 'guardian',
+        guardianChatId: binding?.guardianDeliveryChatId ?? externalChatId,
+        guardianExternalUserId: binding?.guardianExternalUserId ?? body.senderExternalUserId,
+        requesterIdentifier: requesterLabel,
+        requesterExternalUserId: body.senderExternalUserId,
+        requesterChatId: externalChatId,
+      };
+    } else {
       const binding = getGuardianBinding(assistantId, sourceChannel);
       if (binding) {
-        const requesterLabel = body.senderUsername
-          ? `@${body.senderUsername}`
-          : body.senderExternalUserId;
         guardianCtx = {
           actorRole: 'non-guardian',
           guardianChatId: binding.guardianDeliveryChatId,
@@ -450,6 +476,7 @@ export async function handleChannelInbound(
         guardianCtx = {
           actorRole: 'unverified_channel',
           denialReason: 'no_binding',
+          requesterIdentifier: requesterLabel,
           requesterExternalUserId: body.senderExternalUserId,
           requesterChatId: externalChatId,
         };
@@ -462,6 +489,7 @@ export async function handleChannelInbound(
     guardianCtx = {
       actorRole: 'unverified_channel',
       denialReason: 'no_identity',
+      requesterIdentifier: body.senderUsername ? `@${body.senderUsername}` : undefined,
       requesterExternalUserId: undefined,
       requesterChatId: externalChatId,
     };
@@ -524,6 +552,7 @@ export async function handleChannelInbound(
       senderName: body.senderName,
       senderExternalUserId: body.senderExternalUserId,
       senderUsername: body.senderUsername,
+      guardianCtx,
       replyCallbackUrl,
       assistantId,
     });
@@ -576,6 +605,7 @@ export async function handleChannelInbound(
         attachmentIds: hasAttachments ? attachmentIds : undefined,
         sourceChannel,
         externalChatId,
+        guardianCtx,
         metadataHints,
         metadataUxBrief,
         replyCallbackUrl,
@@ -600,6 +630,7 @@ interface BackgroundProcessingParams {
   attachmentIds?: string[];
   sourceChannel: string;
   externalChatId: string;
+  guardianCtx: GuardianContext;
   metadataHints: string[];
   metadataUxBrief?: string;
   replyCallbackUrl?: string;
@@ -616,6 +647,7 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
     attachmentIds,
     sourceChannel,
     externalChatId,
+    guardianCtx,
     metadataHints,
     metadataUxBrief,
     replyCallbackUrl,
@@ -635,6 +667,8 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
             hints: metadataHints.length > 0 ? metadataHints : undefined,
             uxBrief: metadataUxBrief,
           },
+          assistantId,
+          guardianContext: toGuardianRuntimeContext(sourceChannel, guardianCtx),
         },
         sourceChannel,
       );
@@ -744,6 +778,8 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
           sourceChannel,
           hints: metadataHints.length > 0 ? metadataHints : undefined,
           uxBrief: metadataUxBrief,
+          assistantId,
+          guardianContext: toGuardianRuntimeContext(sourceChannel, guardianCtx),
         },
       );
 

@@ -3,12 +3,14 @@ import type { Message } from '../providers/types.js';
 import {
   applyRuntimeInjections,
   injectChannelCapabilityContext,
+  injectGuardianContext,
   injectTemporalContext,
   resolveChannelCapabilities,
   stripChannelCapabilityContext,
+  stripGuardianContext,
   stripTemporalContext,
 } from '../daemon/session-runtime-assembly.js';
-import type { ChannelCapabilities } from '../daemon/session-runtime-assembly.js';
+import type { ChannelCapabilities, GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
 import { buildChannelAwarenessSection } from '../config/system-prompt.js';
 
 // ---------------------------------------------------------------------------
@@ -277,6 +279,12 @@ describe('buildChannelAwarenessSection', () => {
     const section = buildChannelAwarenessSection();
     expect(section).toContain('computer-control permissions on non-dashboard');
   });
+
+  test('includes guardian context contract for channel actors', () => {
+    const section = buildChannelAwarenessSection();
+    expect(section).toContain('<guardian_context>');
+    expect(section).toContain('Never infer guardian status');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -472,5 +480,81 @@ describe('applyRuntimeInjections with temporalContext', () => {
 
     expect(result.length).toBe(1);
     expect(result[0].content.length).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// guardian_context
+// ---------------------------------------------------------------------------
+
+describe('injectGuardianContext', () => {
+  const baseUserMessage: Message = {
+    role: 'user',
+    content: [{ type: 'text', text: 'Can you text me updates?' }],
+  };
+
+  test('prepends guardian_context block to user message', () => {
+    const ctx: GuardianRuntimeContext = {
+      sourceChannel: 'sms',
+      actorRole: 'guardian',
+      guardianExternalUserId: 'guardian-user-1',
+      guardianChatId: '+15550001111',
+      requesterIdentifier: '+15550001111',
+      requesterExternalUserId: 'guardian-user-1',
+      requesterChatId: '+15550001111',
+    };
+
+    const result = injectGuardianContext(baseUserMessage, ctx);
+    expect(result.content.length).toBe(2);
+    const injected = result.content[0];
+    expect(injected.type).toBe('text');
+    const text = (injected as { type: 'text'; text: string }).text;
+    expect(text).toContain('<guardian_context>');
+    expect(text).toContain('actor_role: guardian');
+    expect(text).toContain('source_channel: sms');
+    expect(text).toContain('</guardian_context>');
+  });
+});
+
+describe('stripGuardianContext', () => {
+  test('strips guardian_context blocks from user messages', () => {
+    const messages: Message[] = [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: '<guardian_context>\nactor_role: guardian\n</guardian_context>' },
+          { type: 'text', text: 'Hello' },
+        ],
+      },
+    ];
+    const result = stripGuardianContext(messages);
+    expect(result).toHaveLength(1);
+    expect(result[0].content).toHaveLength(1);
+    expect((result[0].content[0] as { type: 'text'; text: string }).text).toBe('Hello');
+  });
+});
+
+describe('applyRuntimeInjections with guardianContext', () => {
+  const baseMessages: Message[] = [
+    {
+      role: 'user',
+      content: [{ type: 'text', text: 'Help me send this over SMS.' }],
+    },
+  ];
+
+  test('injects guardian context when provided', () => {
+    const result = applyRuntimeInjections(baseMessages, {
+      guardianContext: {
+        sourceChannel: 'sms',
+        actorRole: 'non-guardian',
+        guardianExternalUserId: 'guardian-1',
+        requesterExternalUserId: 'requester-1',
+        requesterIdentifier: '+15550002222',
+        requesterChatId: '+15550002222',
+      },
+    });
+    expect(result).toHaveLength(1);
+    expect(result[0].content).toHaveLength(2);
+    expect((result[0].content[0] as { type: 'text'; text: string }).text).toContain('<guardian_context>');
   });
 });

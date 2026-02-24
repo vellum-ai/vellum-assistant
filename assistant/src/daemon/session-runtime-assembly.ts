@@ -25,6 +25,18 @@ export interface ChannelCapabilities {
   supportsVoiceInput: boolean;
 }
 
+/** Guardian identity/trust context for external chat channels. */
+export interface GuardianRuntimeContext {
+  sourceChannel: string;
+  actorRole: 'guardian' | 'non-guardian' | 'unverified_channel';
+  guardianChatId?: string;
+  guardianExternalUserId?: string;
+  requesterIdentifier?: string;
+  requesterExternalUserId?: string;
+  requesterChatId?: string;
+  denialReason?: 'no_binding' | 'no_identity';
+}
+
 /** Derive channel capabilities from a raw source channel identifier. */
 export function resolveChannelCapabilities(sourceChannel?: string | null): ChannelCapabilities {
   const channel = sourceChannel ?? 'dashboard';
@@ -264,6 +276,32 @@ export function injectChannelCapabilityContext(message: Message, caps: ChannelCa
   };
 }
 
+/**
+ * Prepend guardian trust/identity facts to the last user message so the
+ * model can reason about guardian status from deterministic runtime facts.
+ */
+export function injectGuardianContext(message: Message, ctx: GuardianRuntimeContext): Message {
+  const lines: string[] = ['<guardian_context>'];
+  lines.push(`source_channel: ${ctx.sourceChannel}`);
+  lines.push(`actor_role: ${ctx.actorRole}`);
+  lines.push(`guardian_external_user_id: ${ctx.guardianExternalUserId ?? 'unknown'}`);
+  lines.push(`guardian_chat_id: ${ctx.guardianChatId ?? 'unknown'}`);
+  lines.push(`requester_identifier: ${ctx.requesterIdentifier ?? 'unknown'}`);
+  lines.push(`requester_external_user_id: ${ctx.requesterExternalUserId ?? 'unknown'}`);
+  lines.push(`requester_chat_id: ${ctx.requesterChatId ?? 'unknown'}`);
+  lines.push(`denial_reason: ${ctx.denialReason ?? 'none'}`);
+  lines.push('</guardian_context>');
+
+  const block = lines.join('\n');
+  return {
+    ...message,
+    content: [
+      { type: 'text', text: block },
+      ...message.content,
+    ],
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Prefix-based stripping primitive
 // ---------------------------------------------------------------------------
@@ -296,6 +334,11 @@ export function stripUserTextBlocksByPrefix(messages: Message[], prefixes: strin
 /** Strip `<channel_capabilities>` blocks injected by `injectChannelCapabilityContext`. */
 export function stripChannelCapabilityContext(messages: Message[]): Message[] {
   return stripUserTextBlocksByPrefix(messages, ['<channel_capabilities>']);
+}
+
+/** Strip `<guardian_context>` blocks injected by `injectGuardianContext`. */
+export function stripGuardianContext(messages: Message[]): Message[] {
+  return stripUserTextBlocksByPrefix(messages, ['<guardian_context>']);
 }
 
 /**
@@ -358,6 +401,7 @@ export function stripActiveSurfaceContext(messages: Message[]): Message[] {
 /** Prefixes stripped by the pipeline (order doesn't matter — single pass). */
 const RUNTIME_INJECTION_PREFIXES = [
   '<channel_capabilities>',
+  '<guardian_context>',
   '<workspace_top_level>',
   TEMPORAL_INJECTED_PREFIX,
   '<active_workspace>',
@@ -398,6 +442,7 @@ export function applyRuntimeInjections(
     activeSurface?: ActiveSurfaceContext | null;
     workspaceTopLevelContext?: string | null;
     channelCapabilities?: ChannelCapabilities | null;
+    guardianContext?: GuardianRuntimeContext | null;
     temporalContext?: string | null;
   },
 ): Message[] {
@@ -429,6 +474,16 @@ export function applyRuntimeInjections(
       result = [
         ...result.slice(0, -1),
         injectChannelCapabilityContext(userTail, options.channelCapabilities),
+      ];
+    }
+  }
+
+  if (options.guardianContext) {
+    const userTail = result[result.length - 1];
+    if (userTail && userTail.role === 'user') {
+      result = [
+        ...result.slice(0, -1),
+        injectGuardianContext(userTail, options.guardianContext),
       ];
     }
   }

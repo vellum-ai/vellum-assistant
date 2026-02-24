@@ -1,7 +1,7 @@
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
 import { resolveProvider, withProviderToken, ok, err } from './shared.js';
 
-export async function run(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
+export async function run(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
   const platform = input.platform as string | undefined;
   const conversationId = input.conversation_id as string;
   const text = input.text as string;
@@ -21,6 +21,7 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
       const result = await provider.sendMessage(token, conversationId, text, {
         subject,
         inReplyTo,
+        assistantId: context.assistantId,
       });
 
       return ok(`Message sent (ID: ${result.id}).`);

@@ -605,6 +605,10 @@ export interface GuardianVerificationResponse {
   assistantId?: string;
   /** The delivery chat ID for the guardian (e.g. Telegram chat ID). Present when action is 'status' and bound is true. */
   guardianDeliveryChatId?: string;
+  /** Optional channel username/handle for the bound guardian (for UI display). */
+  guardianUsername?: string;
+  /** Optional display name for the bound guardian (for UI display). */
+  guardianDisplayName?: string;
   error?: string;
 }
 

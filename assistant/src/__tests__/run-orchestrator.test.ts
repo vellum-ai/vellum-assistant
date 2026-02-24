@@ -26,6 +26,12 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
+mock.module('../config/loader.js', () => ({
+  getConfig: () => ({
+    secretDetection: { enabled: false },
+  }),
+}));
+
 import { initializeDb, getDb, resetDb } from '../memory/db.js';
 import { createConversation } from '../memory/conversation-store.js';
 import { createRun, getRun, setRunConfirmation } from '../memory/runs-store.js';
@@ -43,6 +49,8 @@ function makeSessionWithConfirmation(message: ServerMessage): Session {
     persistUserMessage: () => undefined as unknown as string,
     memoryPolicy: { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false },
     setChannelCapabilities: () => {},
+    setAssistantId: () => {},
+    setGuardianContext: () => {},
     updateClient: (handler: (msg: ServerMessage) => void) => {
       clientHandler = handler;
     },
@@ -64,6 +72,8 @@ function makeSessionWithEvent(message: ServerMessage): Session {
     persistUserMessage: () => undefined as unknown as string,
     memoryPolicy: { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false },
     setChannelCapabilities: () => {},
+    setAssistantId: () => {},
+    setGuardianContext: () => {},
     updateClient: () => {},
     runAgentLoop: async (_content: string, _messageId: string, onEvent: (msg: ServerMessage) => void) => {
       onEvent(message);
@@ -228,6 +238,8 @@ describe('startRun channel capability resolution', () => {
       setChannelCapabilities: (caps: ChannelCapabilities | null) => {
         if (caps) capturedCapabilities = caps;
       },
+      setAssistantId: () => {},
+      setGuardianContext: () => {},
       updateClient: () => {},
       runAgentLoop: async () => {},
       handleConfirmationResponse: () => {},
@@ -262,6 +274,8 @@ describe('startRun channel capability resolution', () => {
       setChannelCapabilities: (caps: ChannelCapabilities | null) => {
         if (caps) capturedCapabilities = caps;
       },
+      setAssistantId: () => {},
+      setGuardianContext: () => {},
       updateClient: () => {},
       runAgentLoop: async () => {},
       handleConfirmationResponse: () => {},
@@ -292,6 +306,8 @@ describe('startRun channel capability resolution', () => {
       setChannelCapabilities: (caps: ChannelCapabilities | null) => {
         if (caps) capturedCapabilities = caps;
       },
+      setAssistantId: () => {},
+      setGuardianContext: () => {},
       updateClient: () => {},
       runAgentLoop: async () => {},
       handleConfirmationResponse: () => {},
@@ -335,6 +351,8 @@ describe('strictSideEffects re-derivation across runs', () => {
       persistUserMessage: () => undefined as unknown as string,
       memoryPolicy: { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false },
       setChannelCapabilities: () => {},
+      setAssistantId: () => {},
+      setGuardianContext: () => {},
       updateClient: () => {},
       runAgentLoop: async () => {},
       handleConfirmationResponse: () => {},
@@ -369,6 +387,8 @@ describe('strictSideEffects re-derivation across runs', () => {
       persistUserMessage: () => undefined as unknown as string,
       memoryPolicy: { scopeId: 'private-scope', includeDefaultFallback: true, strictSideEffects: true },
       setChannelCapabilities: () => {},
+      setAssistantId: () => {},
+      setGuardianContext: () => {},
       updateClient: () => {},
       runAgentLoop: async () => {},
       handleConfirmationResponse: () => {},
@@ -404,6 +424,8 @@ describe('strictSideEffects re-derivation across runs', () => {
       persistUserMessage: () => undefined as unknown as string,
       memoryPolicy: { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: true },
       setChannelCapabilities: () => {},
+      setAssistantId: () => {},
+      setGuardianContext: () => {},
       updateClient: () => {},
       runAgentLoop: async () => {},
       handleConfirmationResponse: () => {},

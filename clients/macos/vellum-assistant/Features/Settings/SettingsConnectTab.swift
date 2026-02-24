@@ -614,15 +614,47 @@ struct SettingsConnectTab: View {
 
     private var guardianLabel: some View {
         HStack(spacing: VSpacing.xs) {
-            Text("Guardian")
+            Text("Verification")
             Image(systemName: "info.circle")
                 .font(.system(size: 10))
                 .foregroundColor(VColor.textMuted)
-                .help("Guardian verifies your identity so only you can interact with your assistant on this channel.")
+                .help("Guardian verification links your account identity for this channel.")
         }
         .font(VFont.caption)
         .foregroundColor(VColor.textSecondary)
         .frame(width: 90, alignment: .leading)
+    }
+
+    private func guardianPrimaryIdentity(channel: String, identity: String?) -> String? {
+        if channel == "telegram" {
+            if let username = store.telegramGuardianUsername?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !username.isEmpty {
+                return username.hasPrefix("@") ? username : "@\(username)"
+            }
+            if let displayName = store.telegramGuardianDisplayName?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !displayName.isEmpty {
+                return displayName
+            }
+        } else if channel == "sms" {
+            if let displayName = store.smsGuardianDisplayName?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !displayName.isEmpty {
+                return displayName
+            }
+        }
+        return identity
+    }
+
+    private func guardianSecondaryIdentity(primary: String?, identity: String?) -> String? {
+        guard let identity = identity?.trimmingCharacters(in: .whitespacesAndNewlines), !identity.isEmpty else {
+            return nil
+        }
+        if let primary {
+            let normalizedPrimary = primary.trimmingCharacters(in: .whitespacesAndNewlines)
+            if normalizedPrimary.caseInsensitiveCompare(identity) == .orderedSame {
+                return nil
+            }
+        }
+        return "ID: \(identity)"
     }
 
     @ViewBuilder
@@ -632,6 +664,8 @@ struct SettingsConnectTab: View {
         let inProgress: Bool = channel == "telegram" ? store.telegramGuardianVerificationInProgress : store.smsGuardianVerificationInProgress
         let instruction: String? = channel == "telegram" ? store.telegramGuardianInstruction : store.smsGuardianInstruction
         let error: String? = channel == "telegram" ? store.telegramGuardianError : store.smsGuardianError
+        let primaryIdentity = guardianPrimaryIdentity(channel: channel, identity: identity)
+        let secondaryIdentity = guardianSecondaryIdentity(primary: primaryIdentity, identity: identity)
 
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             if verified {
@@ -640,10 +674,18 @@ struct SettingsConnectTab: View {
                     Image(systemName: "checkmark.shield.fill")
                         .foregroundColor(VColor.success)
                         .font(.system(size: 12))
-                    Text(identity.map { "Verified: \($0)" } ?? "Verified")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
-                        .lineLimit(1)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(primaryIdentity ?? "Verified")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textSecondary)
+                            .lineLimit(1)
+                        if let secondaryIdentity {
+                            Text(secondaryIdentity)
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                                .lineLimit(1)
+                        }
+                    }
                     Spacer()
                     VButton(label: "Revoke", style: .danger) {
                         store.revokeChannelGuardian(channel: channel)

@@ -142,6 +142,7 @@ export function createBinding(params: {
   guardianExternalUserId: string;
   guardianDeliveryChatId: string;
   verifiedVia?: string;
+  metadataJson?: string | null;
 }): GuardianBinding {
   const db = getDb();
   const now = Date.now();
@@ -156,7 +157,7 @@ export function createBinding(params: {
     status: 'active' as const,
     verifiedAt: now,
     verifiedVia: params.verifiedVia ?? 'challenge',
-    metadataJson: null,
+    metadataJson: params.metadataJson ?? null,
     createdAt: now,
     updatedAt: now,
   };

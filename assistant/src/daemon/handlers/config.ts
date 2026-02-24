@@ -12,6 +12,7 @@ import { getSecureKey, setSecureKey, deleteSecureKey } from '../../security/secu
 import { upsertCredentialMetadata, deleteCredentialMetadata, getCredentialMetadata } from '../../tools/credentials/metadata-store.js';
 import { postToSlackWebhook } from '../../slack/slack-webhook.js';
 import { getApp } from '../../memory/app-store.js';
+import * as externalConversationStore from '../../memory/external-conversation-store.js';
 import { readHttpToken } from '../../util/platform.js';
 import type {
   ModelSetRequest,
@@ -1518,11 +1519,40 @@ export function handleGuardianVerification(
       });
     } else if (msg.action === 'status') {
       const binding = getGuardianBinding(assistantId, channel);
+      let guardianUsername: string | undefined;
+      let guardianDisplayName: string | undefined;
+      if (binding?.metadataJson) {
+        try {
+          const parsed = JSON.parse(binding.metadataJson) as Record<string, unknown>;
+          if (typeof parsed.username === 'string' && parsed.username.trim().length > 0) {
+            guardianUsername = parsed.username.trim();
+          }
+          if (typeof parsed.displayName === 'string' && parsed.displayName.trim().length > 0) {
+            guardianDisplayName = parsed.displayName.trim();
+          }
+        } catch {
+          // ignore malformed metadata
+        }
+      }
+      if (binding?.guardianDeliveryChatId && (!guardianUsername || !guardianDisplayName)) {
+        const ext = externalConversationStore.getBindingByChannelChat(
+          channel,
+          binding.guardianDeliveryChatId,
+        );
+        if (!guardianUsername && ext?.username) {
+          guardianUsername = ext.username;
+        }
+        if (!guardianDisplayName && ext?.displayName) {
+          guardianDisplayName = ext.displayName;
+        }
+      }
       ctx.send(socket, {
         type: 'guardian_verification_response',
         success: true,
         bound: binding !== null,
         guardianExternalUserId: binding?.guardianExternalUserId,
+        guardianUsername,
+        guardianDisplayName,
         channel,
         assistantId,
         guardianDeliveryChatId: binding?.guardianDeliveryChatId,

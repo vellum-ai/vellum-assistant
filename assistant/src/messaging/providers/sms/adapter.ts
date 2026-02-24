@@ -27,7 +27,7 @@ import type {
   SendOptions,
 } from '../../provider-types.js';
 import { getSecureKey } from '../../../security/secure-keys.js';
-import { readHttpToken, readLockfile } from '../../../util/platform.js';
+import { readHttpToken } from '../../../util/platform.js';
 import { loadConfig } from '../../../config/loader.js';
 import { getOrCreateConversation } from '../../../memory/conversation-key-store.js';
 import * as externalConversationStore from '../../../memory/external-conversation-store.js';
@@ -60,28 +60,6 @@ function hasTwilioCredentials(): boolean {
 }
 
 /**
- * Read the current assistantId from the lockfile.
- * Returns the most recently hatched assistant's ID, or undefined if unavailable.
- */
-function getAssistantId(): string | undefined {
-  try {
-    const lockData = readLockfile();
-    const assistants = lockData?.assistants as Array<Record<string, unknown>> | undefined;
-    if (assistants && assistants.length > 0) {
-      const sorted = [...assistants].sort((a, b) => {
-        const dateA = new Date(a.hatchedAt as string || 0).getTime();
-        const dateB = new Date(b.hatchedAt as string || 0).getTime();
-        return dateB - dateA;
-      });
-      return sorted[0].assistantId as string | undefined;
-    }
-  } catch {
-    // ignore — lockfile may not exist
-  }
-  return undefined;
-}
-
-/**
  * Resolve the configured SMS phone number.
  * Priority: assistant-scoped phone number > TWILIO_PHONE_NUMBER env > config sms.phoneNumber > secure key fallback.
  */
@@ -110,6 +88,15 @@ function getPhoneNumber(assistantId?: string): string | undefined {
   return getSecureKey('credential:twilio:phone_number') || undefined;
 }
 
+function hasAnyAssistantPhoneNumber(): boolean {
+  try {
+    const config = loadConfig();
+    return Object.keys(config.sms?.assistantPhoneNumbers ?? {}).length > 0;
+  } catch {
+    return false;
+  }
+}
+
 export const smsMessagingProvider: MessagingProvider = {
   id: 'sms',
   displayName: 'SMS',
@@ -122,7 +109,7 @@ export const smsMessagingProvider: MessagingProvider = {
    * the `from` for outbound messages.
    */
   isConnected(): boolean {
-    return hasTwilioCredentials() && !!getPhoneNumber(getAssistantId());
+    return hasTwilioCredentials() && (!!getPhoneNumber() || hasAnyAssistantPhoneNumber());
   },
 
   async testConnection(_token: string): Promise<ConnectionInfo> {
@@ -135,8 +122,8 @@ export const smsMessagingProvider: MessagingProvider = {
       };
     }
 
-    const phoneNumber = getPhoneNumber(getAssistantId());
-    if (!phoneNumber) {
+    const phoneNumber = getPhoneNumber();
+    if (!phoneNumber && !hasAnyAssistantPhoneNumber()) {
       return {
         connected: false,
         user: 'unknown',
@@ -149,19 +136,20 @@ export const smsMessagingProvider: MessagingProvider = {
 
     return {
       connected: true,
-      user: phoneNumber,
+      user: phoneNumber ?? 'assistant-scoped numbers configured',
       platform: 'sms',
       metadata: {
         accountSid: accountSid.slice(0, 6) + '...',
-        phoneNumber,
+        ...(phoneNumber ? { phoneNumber } : {}),
+        hasAssistantScopedPhoneNumbers: hasAnyAssistantPhoneNumber(),
       },
     };
   },
 
-  async sendMessage(_token: string, conversationId: string, text: string, _options?: SendOptions): Promise<SendResult> {
+  async sendMessage(_token: string, conversationId: string, text: string, options?: SendOptions): Promise<SendResult> {
     const gatewayUrl = getGatewayUrl();
     const bearerToken = getBearerToken();
-    const assistantId = getAssistantId();
+    const assistantId = options?.assistantId;
 
     await sms.sendMessage(gatewayUrl, bearerToken, conversationId, text, assistantId);
 
@@ -169,13 +157,20 @@ export const smsMessagingProvider: MessagingProvider = {
     // exists for the next inbound SMS from this number.
     try {
       const sourceChannel = 'sms';
-      const conversationKey = `${sourceChannel}:${conversationId}`;
+      const conversationKey = assistantId && assistantId !== 'self'
+        ? `asst:${assistantId}:${sourceChannel}:${conversationId}`
+        : `${sourceChannel}:${conversationId}`;
       const { conversationId: internalId } = getOrCreateConversation(conversationKey);
-      externalConversationStore.upsertOutboundBinding({
-        conversationId: internalId,
-        sourceChannel,
-        externalChatId: conversationId,
-      });
+      // external_conversation_bindings is assistant-agnostic (unique by
+      // sourceChannel + externalChatId). Restrict proactive writes to self so
+      // multi-assistant sends cannot clobber each other's binding metadata.
+      if (!assistantId || assistantId === 'self') {
+        externalConversationStore.upsertOutboundBinding({
+          conversationId: internalId,
+          sourceChannel,
+          externalChatId: conversationId,
+        });
+      }
     } catch {
       // Best-effort — don't fail the send if binding upsert fails
     }
