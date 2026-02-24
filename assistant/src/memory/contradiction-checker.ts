@@ -93,13 +93,13 @@ export async function checkContradictions(newItemId: string): Promise<void> {
 
     try {
       const result = await classifyRelationship(existing, newItem);
-      handleRelationship(result, existing, newItem);
-      // Only stop when the new item itself is invalidated (update case).
-      // For contradiction, the old item is invalidated but the new item remains
-      // active and should continue to be checked against remaining candidates.
-      // For ambiguous contradiction, we pause retrieval eligibility for the new
-      // item and ask for clarification on a later turn.
-      if (result.relationship === 'update' || result.relationship === 'ambiguous_contradiction') break;
+      const mutated = handleRelationship(result, existing, newItem);
+      // Only stop when the new item itself was actually invalidated (update case)
+      // or gated (ambiguous_contradiction). For contradiction, the old item is
+      // invalidated but the new item remains active and should continue to be
+      // checked against remaining candidates. Skip the break when the transaction
+      // detected stale data and performed no mutation.
+      if (mutated && (result.relationship === 'update' || result.relationship === 'ambiguous_contradiction')) break;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log.warn({ err: message, newItemId, existingId: existing.id }, 'Contradiction classification failed for pair');
@@ -284,16 +284,16 @@ function handleRelationship(
   result: ClassifyResult,
   existingItem: MemoryItemRow,
   newItem: MemoryItemRow,
-): void {
+): boolean {
   if (result.relationship === 'complement') {
     log.debug(
       { existingId: existingItem.id, newId: newItem.id, explanation: result.explanation },
       'Complement detected — keeping both items',
     );
-    return;
+    return false;
   }
 
-  getSqlite().transaction(() => {
+  return getSqlite().transaction(() => {
     const db = getDb();
     const now = Date.now();
 
@@ -303,11 +303,11 @@ function handleRelationship(
 
     if (!freshExisting || freshExisting.status !== 'active' || freshExisting.invalidAt !== undefined) {
       log.debug({ existingId: existingItem.id }, 'Existing item no longer active — skipping');
-      return;
+      return false;
     }
     if (!freshNew || (freshNew.status !== 'active' && result.relationship !== 'ambiguous_contradiction') || freshNew.invalidAt !== undefined) {
       log.debug({ newId: newItem.id }, 'New item no longer active — skipping');
-      return;
+      return false;
     }
 
     switch (result.relationship) {
@@ -324,7 +324,7 @@ function handleRelationship(
           .set({ validFrom: now })
           .where(eq(memoryItems.id, newItem.id))
           .run();
-        break;
+        return true;
       }
       case 'update': {
         log.debug(
@@ -333,9 +333,9 @@ function handleRelationship(
         );
         db.update(memoryItems)
           .set({
-            statement: newItem.statement,
-            lastSeenAt: Math.max(existingItem.lastSeenAt, newItem.lastSeenAt),
-            confidence: Math.max(existingItem.confidence, newItem.confidence),
+            statement: freshNew!.statement,
+            lastSeenAt: Math.max(freshExisting.lastSeenAt, freshNew!.lastSeenAt),
+            confidence: Math.max(freshExisting.confidence, freshNew!.confidence),
           })
           .where(eq(memoryItems.id, existingItem.id))
           .run();
@@ -344,7 +344,7 @@ function handleRelationship(
           .set({ invalidAt: now })
           .where(eq(memoryItems.id, newItem.id))
           .run();
-        break;
+        return true;
       }
       case 'ambiguous_contradiction': {
         log.info(
@@ -362,10 +362,10 @@ function handleRelationship(
           relationship: 'ambiguous_contradiction',
           clarificationQuestion: buildClarificationQuestion(existingItem.statement, newItem.statement),
         });
-        break;
+        return true;
       }
     }
-  })();
+  }).immediate();
 }
 
 function escapeSqlLike(s: string): string {
