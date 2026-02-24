@@ -408,9 +408,11 @@ describe('very wide fan-outs', () => {
       runTask: async (input) => {
         const isRoot = input.prompt.includes('Root task');
         if (isRoot) {
-          completionOrder.push('root');
           // Introduce a tiny delay so leaves clearly start after root ends.
           await new Promise((r) => setTimeout(r, 10));
+          // Record completion only after the delay finishes so completionOrder
+          // reflects actual completion time, not when execution started.
+          completionOrder.push('root');
         }
         return { success: true, output: SUCCESS_OUTPUT, durationMs: 2 };
       },
