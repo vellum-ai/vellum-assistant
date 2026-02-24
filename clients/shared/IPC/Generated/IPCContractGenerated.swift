@@ -3020,6 +3020,18 @@ public struct IPCSessionSwitchRequest: Codable, Sendable {
     }
 }
 
+public struct IPCSessionTitleUpdated: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let title: String
+
+    public init(type: String, sessionId: String, title: String) {
+        self.type = type
+        self.sessionId = sessionId
+        self.title = title
+    }
+}
+
 /// Lightweight session transport metadata for channel identity and natural-language guidance.
 public struct IPCSessionTransportMetadata: Codable, Sendable {
     /// Logical channel identifier (e.g. "desktop", "telegram", "mobile").

@@ -741,6 +741,16 @@ extension IPCSessionInfo {
     }
 }
 
+/// Session title update push message emitted after first-turn auto-titling.
+/// Backed by generated `IPCSessionTitleUpdated`.
+public typealias SessionTitleUpdatedMessage = IPCSessionTitleUpdated
+
+extension IPCSessionTitleUpdated {
+    public init(sessionId: String, title: String) {
+        self.init(type: "session_title_updated", sessionId: sessionId, title: title)
+    }
+}
+
 /// Memory recall telemetry event.
 /// Backed by generated `IPCMemoryRecalled`.
 public typealias MemoryRecalledMessage = IPCMemoryRecalled
@@ -2068,6 +2078,7 @@ public enum ServerMessage: Decodable, Sendable {
     case assistantThinkingDelta(AssistantThinkingDeltaMessage)
     case messageComplete(MessageCompleteMessage)
     case sessionInfo(SessionInfoMessage)
+    case sessionTitleUpdated(SessionTitleUpdatedMessage)
     case sessionListResponse(SessionListResponseMessage)
     case historyResponse(HistoryResponseMessage)
     case memoryStatus(MemoryStatusMessage)
@@ -2224,6 +2235,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "session_info":
             let message = try SessionInfoMessage(from: decoder)
             self = .sessionInfo(message)
+        case "session_title_updated":
+            let message = try SessionTitleUpdatedMessage(from: decoder)
+            self = .sessionTitleUpdated(message)
         case "session_list_response":
             let message = try SessionListResponseMessage(from: decoder)
             self = .sessionListResponse(message)

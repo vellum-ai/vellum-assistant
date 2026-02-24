@@ -103,6 +103,13 @@ private func makeHistoryResponse(sessionId: String, messages: [(role: String, te
     return try! JSONDecoder().decode(HistoryResponseMessage.self, from: data)
 }
 
+/// Build an IPCSessionTitleUpdated via JSON round-trip.
+private func makeSessionTitleUpdated(sessionId: String, title: String) -> SessionTitleUpdatedMessage {
+    let dict: [String: Any] = ["type": "session_title_updated", "sessionId": sessionId, "title": title]
+    let data = try! JSONSerialization.data(withJSONObject: dict)
+    return try! JSONDecoder().decode(SessionTitleUpdatedMessage.self, from: data)
+}
+
 // MARK: - Tests
 
 @Suite("ThreadSessionRestorer")
@@ -210,6 +217,40 @@ struct ThreadSessionRestorerTests {
         #expect(vmB.messages.count == 1)
         #expect(vmA.isHistoryLoaded)
         #expect(vmB.isHistoryLoaded)
+    }
+
+    // MARK: - Session Title Updates
+
+    @Test @MainActor
+    func sessionTitleUpdatedUpdatesMatchingThread() {
+        let dc = DaemonClient()
+        let restorer = ThreadSessionRestorer(daemonClient: dc)
+        let delegate = MockThreadRestorerDelegate(daemonClient: dc)
+        restorer.delegate = delegate
+
+        let thread = ThreadModel(title: "Untitled", sessionId: "session-1")
+        delegate.threads = [thread]
+        delegate.viewModels[thread.id] = delegate.makeViewModel()
+
+        restorer.handleSessionTitleUpdated(makeSessionTitleUpdated(sessionId: "session-1", title: "Plan sprint rollout"))
+
+        #expect(delegate.threads[0].title == "Plan sprint rollout")
+    }
+
+    @Test @MainActor
+    func sessionTitleUpdatedIgnoresUnknownSessionId() {
+        let dc = DaemonClient()
+        let restorer = ThreadSessionRestorer(daemonClient: dc)
+        let delegate = MockThreadRestorerDelegate(daemonClient: dc)
+        restorer.delegate = delegate
+
+        let thread = ThreadModel(title: "Untitled", sessionId: "session-1")
+        delegate.threads = [thread]
+        delegate.viewModels[thread.id] = delegate.makeViewModel()
+
+        restorer.handleSessionTitleUpdated(makeSessionTitleUpdated(sessionId: "other-session", title: "Should not apply"))
+
+        #expect(delegate.threads[0].title == "Untitled")
     }
 
     // MARK: - Session List Restoration

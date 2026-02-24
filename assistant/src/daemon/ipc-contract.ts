@@ -43,7 +43,7 @@ import type { WorkspaceFilesListRequest, WorkspaceFileReadRequest, IdentityGetRe
 import type { DiagnosticsExportRequest, EnvVarsRequest, IpcBlobProbe, DictationRequest } from './ipc-contract/diagnostics.js';
 
 // Server-side imports for ServerMessage union
-import type { AuthResult, PongMessage, DaemonStatusMessage, GenerationCancelled, GenerationHandoff, ModelInfo, HistoryResponse, UndoComplete, UsageUpdate, UsageResponse, ContextCompacted, SessionErrorMessage, SessionInfo, SessionListResponse, SessionsClearResponse, ConversationSearchResponse } from './ipc-contract/sessions.js';
+import type { AuthResult, PongMessage, DaemonStatusMessage, GenerationCancelled, GenerationHandoff, ModelInfo, HistoryResponse, UndoComplete, UsageUpdate, UsageResponse, ContextCompacted, SessionErrorMessage, SessionInfo, SessionTitleUpdated, SessionListResponse, SessionsClearResponse, ConversationSearchResponse } from './ipc-contract/sessions.js';
 import type { UserMessageEcho, AssistantTextDelta, AssistantThinkingDelta, ToolUseStart, ToolOutputChunk, ToolInputDelta, ToolResult, ConfirmationRequest, SecretRequest, MessageComplete, ErrorMessage, SecretDetected, MessageQueued, MessageDequeued, MessageQueuedDeleted, SuggestionResponse, TraceEvent } from './ipc-contract/messages.js';
 import type { UiSurfaceShow, UiSurfaceUpdate, UiSurfaceDismiss, UiSurfaceComplete, UiSurfaceUndoResult } from './ipc-contract/surfaces.js';
 import type { SkillsListResponse, SkillDetailResponse, SkillStateChanged, SkillsOperationResponse, SkillsInspectResponse } from './ipc-contract/skills.js';
@@ -213,6 +213,7 @@ export type ServerMessage =
   | SecretRequest
   | MessageComplete
   | SessionInfo
+  | SessionTitleUpdated
   | SessionListResponse
   | SessionsClearResponse
   | ConversationSearchResponse

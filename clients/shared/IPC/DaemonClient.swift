@@ -288,6 +288,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `session_list_response` message.
     public var onSessionListResponse: ((SessionListResponseMessage) -> Void)?
 
+    /// Called when the daemon sends a `session_title_updated` message.
+    public var onSessionTitleUpdated: ((SessionTitleUpdatedMessage) -> Void)?
+
     /// Called when the daemon sends a `history_response` message.
     public var onHistoryResponse: ((HistoryResponseMessage) -> Void)?
 

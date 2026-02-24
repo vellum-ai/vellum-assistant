@@ -125,6 +125,8 @@ extension DaemonClient {
             onOpenBundleResponse?(msg)
         case .sessionListResponse(let msg):
             onSessionListResponse?(msg)
+        case .sessionTitleUpdated(let msg):
+            onSessionTitleUpdated?(msg)
         case .historyResponse(let msg):
             onHistoryResponse?(msg)
         case .shareToSlackResponse(let msg):

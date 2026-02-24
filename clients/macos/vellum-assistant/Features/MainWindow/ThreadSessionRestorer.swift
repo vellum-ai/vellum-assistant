@@ -51,6 +51,9 @@ final class ThreadSessionRestorer {
         daemonClient.onHistoryResponse = { [weak self] response in
             self?.handleHistoryResponse(response)
         }
+        daemonClient.onSessionTitleUpdated = { [weak self] response in
+            self?.handleSessionTitleUpdated(response)
+        }
         daemonClient.onSubagentDetailResponse = { [weak self] response in
             self?.handleSubagentDetailResponse(response)
         }
@@ -182,6 +185,12 @@ final class ThreadSessionRestorer {
         guard let viewModel = delegate?.chatViewModel(for: threadId) else { return }
         viewModel.populateFromHistory(response.messages)
         log.info("Loaded \(response.messages.count) history messages for thread \(threadId)")
+    }
+
+    func handleSessionTitleUpdated(_ response: SessionTitleUpdatedMessage) {
+        guard let delegate else { return }
+        guard let index = delegate.threads.firstIndex(where: { $0.sessionId == response.sessionId }) else { return }
+        delegate.threads[index].title = response.title
     }
 
     func handleSubagentDetailResponse(_ response: IPCSubagentDetailResponse) {

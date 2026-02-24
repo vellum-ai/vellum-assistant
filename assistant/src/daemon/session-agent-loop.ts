@@ -579,7 +579,7 @@ export async function runAgentLoopImpl(
     if (isFirstMessage) {
       void (async () => {
         try {
-          await generateTitle(ctx, content, state.firstAssistantText);
+          await generateTitle(ctx, content, state.firstAssistantText, onEvent);
         } catch (err) {
           log.warn({ err, conversationId: ctx.conversationId }, 'Failed to generate conversation title (non-fatal, using default title)');
         }
@@ -663,6 +663,7 @@ async function generateTitle(
   ctx: Pick<AgentLoopSessionContext, 'conversationId' | 'provider'>,
   userMessage: string,
   assistantResponse: string,
+  onEvent: (msg: ServerMessage) => void,
 ): Promise<void> {
   const prompt = `Generate a very short title for this conversation. Rules: at most 5 words, at most 40 characters, no quotes.\n\nUser: ${truncate(userMessage, 200, '')}\nAssistant: ${truncate(assistantResponse, 200, '')}`;
   const response = await ctx.provider.sendMessage(
@@ -678,7 +679,13 @@ async function generateTitle(
     const words = title.split(/\s+/);
     if (words.length > 5) title = words.slice(0, 5).join(' ');
     if (title.length > 40) title = title.slice(0, 40).trimEnd();
+    if (!title) return;
     conversationStore.updateConversationTitle(ctx.conversationId, title);
+    onEvent({
+      type: 'session_title_updated',
+      sessionId: ctx.conversationId,
+      title,
+    });
     log.info({ conversationId: ctx.conversationId, title }, 'Auto-generated conversation title');
   }
 }
