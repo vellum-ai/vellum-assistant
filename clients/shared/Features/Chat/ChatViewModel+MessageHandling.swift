@@ -747,7 +747,7 @@ extension ChatViewModel {
             }
 
         case .error(let err):
-            log.error("Server error: \(err.message)")
+            log.error("Server error: \(err.message, privacy: .private)")
             // Only process errors relevant to this chat session. Generic daemon
             // errors (e.g., IPC validation failures from unrelated message types
             // like work_item_delete) should not pollute the chat UI.
@@ -1169,7 +1169,7 @@ extension ChatViewModel {
 
         case .sessionError(let msg):
             guard sessionId != nil, belongsToSession(msg.sessionId) else { return }
-            log.error("Session error [\(msg.code.rawValue)]: \(msg.userMessage)")
+            log.error("Session error [\(msg.code.rawValue, privacy: .public)]: \(msg.userMessage, privacy: .private)")
             isWorkspaceRefinementInFlight = false
             refinementMessagePreview = nil
             refinementStreamingText = nil

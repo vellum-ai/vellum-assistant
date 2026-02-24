@@ -50,7 +50,7 @@ func readSessionToken(environment: [String: String]? = nil) -> String? {
     do {
         data = try Data(contentsOf: URL(fileURLWithPath: tokenPath))
     } catch {
-        log.error("Failed to read session token from \(tokenPath): \(error)")
+        log.error("Failed to read session token from \(tokenPath, privacy: .private): \(error)")
         return nil
     }
     guard let token = String(data: data, encoding: .utf8)?
@@ -93,7 +93,7 @@ public func readHttpToken(environment: [String: String]? = nil) -> String? {
     do {
         data = try Data(contentsOf: URL(fileURLWithPath: tokenPath))
     } catch {
-        log.error("Failed to read HTTP token from \(tokenPath): \(error)")
+        log.error("Failed to read HTTP token from \(tokenPath, privacy: .private): \(error)")
         return nil
     }
     guard let token = String(data: data, encoding: .utf8)?
@@ -1178,7 +1178,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             do {
                 bearerToken = try String(contentsOfFile: tokenPath, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
             } catch {
-                log.error("Failed to read HTTP bearer token from \(tokenPath): \(error)")
+                log.error("Failed to read HTTP bearer token from \(tokenPath, privacy: .private): \(error)")
                 bearerToken = nil
             }
         } else {

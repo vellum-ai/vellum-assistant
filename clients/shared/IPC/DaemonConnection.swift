@@ -45,7 +45,7 @@ extension DaemonClient {
             parameters = NWParameters()
             parameters.defaultProtocolStack.transportProtocol = NWProtocolTCP.Options()
         } else if case .tcp(let h, let p, let tls, _) = config.transport {
-            log.info("Connecting to daemon at \(h):\(p) (tls=\(tls))")
+            log.info("Connecting to daemon at \(h, privacy: .private):\(p, privacy: .public) (tls=\(tls, privacy: .public))")
             endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(h), port: NWEndpoint.Port(integerLiteral: p))
             parameters = tls ? .tls : .tcp
         } else {
