@@ -186,7 +186,7 @@ describe("telegram webhook handler: gatewayInternalBaseUrl", () => {
 });
 
 describe("telegram webhook handler: /new rejection", () => {
-  test("/start forwards command intent metadata and does not reset conversation", async () => {
+  test("/start forwards command intent metadata, does not reset conversation, and sends start acknowledgement", async () => {
     const config = makeConfig({
       routingEntries: [{ type: "chat_id", key: "12345", assistantId: "assistant-a" }],
     });
@@ -212,7 +212,8 @@ describe("telegram webhook handler: /new rejection", () => {
     expect(resetCall).toBeUndefined();
 
     const sendMessageCall = fetchCalls.find((c) => c.url.includes("/sendMessage"));
-    expect(sendMessageCall).toBeUndefined();
+    expect(sendMessageCall).toBeDefined();
+    expect((sendMessageCall!.body as any).text).toContain("Starting up");
   });
 
   test("/start with routing rejection sends setup notice and does not forward", async () => {

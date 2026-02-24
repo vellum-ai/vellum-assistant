@@ -46,6 +46,7 @@ const MAX_REJECTION_CACHE_SIZE = 10_000;
 const SWEEP_INTERVAL = 100; // sweep every N calls
 const rejectionNoticeTimestamps = new Map<string, number>();
 let rejectionCallCount = 0;
+const START_COMMAND_ACK_TEXT = "Starting up... you'll get my first message in a moment.";
 
 /**
  * Evict expired entries from the rejection notice cache. If the map still
@@ -297,6 +298,16 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
 
       // Forward to runtime with command-intent metadata so the assistant
       // generates a natural greeting via the normal agent loop.
+      if (!normalized.message.callbackQueryId) {
+        sendTelegramReply(
+          config,
+          normalized.message.externalChatId,
+          START_COMMAND_ACK_TEXT,
+        ).catch((err) => {
+          tlog.error({ err, chatId: normalized.message.externalChatId }, "Failed to send /start acknowledgement");
+        });
+      }
+
       try {
         const result = await handleInbound(config, normalized, {
           transportMetadata: buildTelegramTransportMetadata(),
