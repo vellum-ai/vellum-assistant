@@ -232,16 +232,9 @@ struct SettingsPanel: View {
                     }
 
                     SecureField("This is your private generated key", text: $apiKeyText)
-                        .textFieldStyle(.plain)
+                        .vInputStyle()
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
-                        .padding(VSpacing.md)
-                        .background(VColor.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                        )
 
                     Text("Get your API key at console.anthropic.com")
                         .font(VFont.caption)
@@ -377,16 +370,9 @@ struct SettingsPanel: View {
                     }
 
                     SecureField("Your Perplexity API key", text: $perplexityKeyText)
-                        .textFieldStyle(.plain)
+                        .vInputStyle()
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
-                        .padding(VSpacing.md)
-                        .background(VColor.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                        )
 
                     Text("Get your API key at perplexity.ai/settings/api")
                         .font(VFont.caption)
@@ -432,16 +418,9 @@ struct SettingsPanel: View {
                     }
 
                     SecureField("Your Brave Search API key", text: $braveKeyText)
-                        .textFieldStyle(.plain)
+                        .vInputStyle()
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
-                        .padding(VSpacing.md)
-                        .background(VColor.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                        )
 
                     Text("Get your API key at brave.com/search/api")
                         .font(VFont.caption)
@@ -505,16 +484,9 @@ struct SettingsPanel: View {
                     }
 
                     SecureField("Your Gemini API key", text: $imageGenKeyText)
-                        .textFieldStyle(.plain)
+                        .vInputStyle()
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
-                        .padding(VSpacing.md)
-                        .background(VColor.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                        )
 
                     Text("Get your API key at aistudio.google.com/apikey")
                         .font(VFont.caption)
@@ -560,16 +532,9 @@ struct SettingsPanel: View {
                     }
 
                     SecureField("Your OpenAI API key", text: $openaiKeyText)
-                        .textFieldStyle(.plain)
+                        .vInputStyle()
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
-                        .padding(VSpacing.md)
-                        .background(VColor.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                        )
 
                     Text("Used for Voice Mode (Whisper transcription). Get your key at platform.openai.com/api-keys")
                         .font(VFont.caption)
@@ -615,16 +580,9 @@ struct SettingsPanel: View {
                     }
 
                     SecureField("Your ElevenLabs API key", text: $elevenLabsKeyText)
-                        .textFieldStyle(.plain)
+                        .vInputStyle()
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
-                        .padding(VSpacing.md)
-                        .background(VColor.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                        )
 
                     Text("Used for Voice Mode (text-to-speech). Get your key at elevenlabs.io/app/settings/api-keys")
                         .font(VFont.caption)
@@ -702,28 +660,14 @@ struct SettingsPanel: View {
                     // Client credentials entry (when not yet configured)
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
                         TextField("OAuth Client ID", text: $twitterClientId)
-                            .textFieldStyle(.plain)
+                            .vInputStyle()
                             .font(VFont.body)
                             .foregroundColor(VColor.textPrimary)
-                            .padding(VSpacing.md)
-                            .background(VColor.surface)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: VRadius.md)
-                                    .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                            )
 
                         SecureField("OAuth Client Secret (optional)", text: $twitterClientSecret)
-                            .textFieldStyle(.plain)
+                            .vInputStyle()
                             .font(VFont.body)
                             .foregroundColor(VColor.textPrimary)
-                            .padding(VSpacing.md)
-                            .background(VColor.surface)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: VRadius.md)
-                                    .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                            )
 
                         HStack {
                             Text("Create an app at developer.x.com")
@@ -1129,8 +1073,14 @@ struct SettingsPanel: View {
     }
 
     /// Collapsed override section for per-integration gateway URL customization.
+    @State private var ingressOverrideExpanded: Bool = false
+
     private var ingressOverrideSection: some View {
-        DisclosureGroup("Override") {
+        VDisclosureSection(
+            title: "Override",
+            icon: "arrow.triangle.swap",
+            isExpanded: $ingressOverrideExpanded
+        ) {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 Toggle("Use custom gateway URL", isOn: $ingressUseOverride)
                     .toggleStyle(.switch)
@@ -1143,23 +1093,13 @@ struct SettingsPanel: View {
                             .font(VFont.caption)
                             .foregroundColor(VColor.textSecondary)
                         TextField("https://custom-gateway.example.com", text: $ingressGatewayOverride)
-                            .textFieldStyle(.plain)
+                            .vInputStyle()
                             .font(VFont.body)
                             .foregroundColor(VColor.textPrimary)
-                            .padding(VSpacing.md)
-                            .background(VColor.surface)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: VRadius.md)
-                                    .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                            )
                     }
                 }
             }
-            .padding(.top, VSpacing.sm)
         }
-        .font(VFont.caption)
-        .foregroundColor(VColor.textSecondary)
     }
 
     // MARK: - Permission Row
