@@ -48,8 +48,10 @@ final class WakeWordErrorRecovery: ObservableObject {
 
     /// Call when the microphone becomes unavailable (e.g., disconnected or claimed by another app).
     func handleMicUnavailable() {
-        log.warning("Microphone unavailable, stopping engine")
+        restartTask?.cancel()
+        restartTask = nil
         engine.stop()
+        log.info("Mic unavailable — paused wake word engine")
         errorHistory.append((date: Date(), description: "Microphone unavailable"))
     }
 
