@@ -43,12 +43,24 @@ struct ChatContentView: View {
                                     }
                                 )
                                 .id(message.id)
+                                .transition(.asymmetric(
+                                    insertion: .move(edge: .bottom).combined(with: .opacity),
+                                    removal: .opacity
+                                ))
                             } else if message.modelList != nil {
                                 ModelListBubble(currentModel: viewModel.selectedModel, configuredProviders: viewModel.configuredProviders)
                                     .id(message.id)
+                                    .transition(.asymmetric(
+                                        insertion: .move(edge: .bottom).combined(with: .opacity),
+                                        removal: .opacity
+                                    ))
                             } else if message.commandList != nil {
                                 CommandListBubble()
                                     .id(message.id)
+                                    .transition(.asymmetric(
+                                        insertion: .move(edge: .bottom).combined(with: .opacity),
+                                        removal: .opacity
+                                    ))
                             } else {
                                 let isLastAssistant = message.role == .assistant
                                     && !message.isStreaming
@@ -72,6 +84,10 @@ struct ChatContentView: View {
                                     }
                                 )
                                 .id(message.id)
+                                .transition(.asymmetric(
+                                    insertion: .move(edge: .bottom).combined(with: .opacity),
+                                    removal: .opacity
+                                ))
 
                                 // Inline media embeds (images, videos)
                                 if !message.text.isEmpty && !message.isStreaming {
@@ -111,6 +127,7 @@ struct ChatContentView: View {
                         Color.clear.frame(height: 1)
                             .id("scroll-bottom-anchor")
                     }
+                    .animation(VAnimation.standard, value: viewModel.messages.count)
                     .padding(VSpacing.lg)
                 }
                 .scrollDismissesKeyboard(.interactively)
