@@ -141,6 +141,7 @@ struct PairingQRCodeSheet: View {
             // Manual pairing info
             VDisclosureSection(
                 title: "Manual Pairing",
+                icon: "link",
                 isExpanded: $manualPairingExpanded
             ) {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {

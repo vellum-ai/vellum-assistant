@@ -8,23 +8,26 @@ import SwiftUI
 ///
 /// Usage:
 /// ```swift
-/// VDisclosureSection(title: "Advanced", subtitle: "Bearer token, developer options", isExpanded: $expanded) {
+/// VDisclosureSection(title: "Advanced", icon: "gearshape", subtitle: "Bearer token, developer options", isExpanded: $expanded) {
 ///     Text("Content here")
 /// }
 /// ```
 public struct VDisclosureSection<Content: View>: View {
     public let title: String
+    public var icon: String? = nil
     public var subtitle: String? = nil
     @Binding public var isExpanded: Bool
     @ViewBuilder public let content: () -> Content
 
     public init(
         title: String,
+        icon: String? = nil,
         subtitle: String? = nil,
         isExpanded: Binding<Bool>,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.title = title
+        self.icon = icon
         self.subtitle = subtitle
         self._isExpanded = isExpanded
         self.content = content
@@ -38,6 +41,13 @@ public struct VDisclosureSection<Content: View>: View {
                 }
             } label: {
                 HStack(spacing: VSpacing.sm) {
+                    if let icon {
+                        Image(systemName: icon)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(VColor.textMuted)
+                            .frame(width: 20)
+                    }
+
                     VStack(alignment: .leading, spacing: VSpacing.xxs) {
                         Text(title)
                             .font(VFont.bodyBold)
@@ -87,6 +97,7 @@ public struct VDisclosureSection<Content: View>: View {
                 VStack(spacing: VSpacing.lg) {
                     VDisclosureSection(
                         title: "Gateway",
+                        icon: "network",
                         isExpanded: $basicExpanded
                     ) {
                         Text("Gateway content goes here")
@@ -98,6 +109,7 @@ public struct VDisclosureSection<Content: View>: View {
 
                     VDisclosureSection(
                         title: "Advanced",
+                        icon: "gearshape",
                         subtitle: "Bearer token, developer options",
                         isExpanded: $subtitleExpanded
                     ) {
@@ -110,6 +122,7 @@ public struct VDisclosureSection<Content: View>: View {
 
                     VDisclosureSection(
                         title: "Diagnostics",
+                        icon: "stethoscope",
                         isExpanded: $collapsedExpanded
                     ) {
                         Text("Diagnostics content goes here")

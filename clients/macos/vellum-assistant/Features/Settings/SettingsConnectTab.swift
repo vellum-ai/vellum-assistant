@@ -98,6 +98,7 @@ struct SettingsConnectTab: View {
     private var gatewaySection: some View {
         VDisclosureSection(
             title: "Gateway",
+            icon: "network",
             subtitle: !gatewayExpanded && !store.ingressPublicBaseUrl.isEmpty ? store.ingressPublicBaseUrl : nil,
             isExpanded: $gatewayExpanded
         ) {
@@ -276,6 +277,7 @@ struct SettingsConnectTab: View {
     private var advancedSection: some View {
         VDisclosureSection(
             title: "Advanced",
+            icon: "gearshape",
             subtitle: "Bearer token, developer options",
             isExpanded: $advancedExpanded
         ) {
@@ -1008,6 +1010,7 @@ struct SettingsConnectTab: View {
     private var diagnosticsSection: some View {
         VDisclosureSection(
             title: "Diagnostics",
+            icon: "stethoscope",
             isExpanded: $diagnosticsExpanded
         ) {
             VStack(alignment: .leading, spacing: VSpacing.md) {

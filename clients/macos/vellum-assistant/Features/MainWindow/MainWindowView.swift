@@ -600,7 +600,7 @@ struct MainWindowView: View {
                         let drawerWidth = sidebarExpandedWidth - VSpacing.sm * 2
                         let drawerX = sidebarExpanded
                             ? 16 + VSpacing.sm
-                            : 16 + sidebarCollapsedWidth + VSpacing.sm
+                            : 16 + sidebarCollapsedWidth - VSpacing.xs
                         DrawerMenuView(
                             onSettings: {
                                 showControlCenterDrawer = false
@@ -1239,7 +1239,7 @@ private struct SidebarNavRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: VSpacing.sm) {
+            HStack(spacing: isExpanded ? VSpacing.sm : 0) {
                 Image(systemName: icon)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._400))
@@ -1248,22 +1248,24 @@ private struct SidebarNavRow: View {
                     .font(VFont.bodyMedium)
                     .foregroundColor(VColor.textPrimary)
                     .fixedSize()
+                    .frame(width: isExpanded ? nil : 0, alignment: .leading)
+                    .clipped()
                     .opacity(isExpanded ? 1 : 0)
                     .allowsHitTesting(false)
                 if isExpanded {
                     Spacer()
                 }
             }
-            .padding(.leading, VSpacing.md)
-            .padding(.trailing, VSpacing.sm)
+            .padding(.leading, isExpanded ? VSpacing.md : 0)
+            .padding(.trailing, isExpanded ? VSpacing.sm : 0)
             .padding(.vertical, VSpacing.sm)
-            .frame(maxWidth: isExpanded ? .infinity : nil)
+            .frame(maxWidth: .infinity, alignment: isExpanded ? .leading : .center)
             .background(isActive ? adaptiveColor(light: Moss._100, dark: Moss._700) : isHovered ? adaptiveColor(light: Moss._100, dark: Moss._700).opacity(0.5) : .clear)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, VSpacing.sm)
+        .padding(.horizontal, isExpanded ? VSpacing.sm : VSpacing.xs)
         .help(isExpanded ? "" : label)
         .onHover { hovering in
             isHovered = hovering

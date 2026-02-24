@@ -1078,6 +1078,7 @@ struct SettingsPanel: View {
     private var ingressOverrideSection: some View {
         VDisclosureSection(
             title: "Override",
+            icon: "arrow.triangle.swap",
             isExpanded: $ingressOverrideExpanded
         ) {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
