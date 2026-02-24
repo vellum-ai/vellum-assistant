@@ -6,6 +6,7 @@ struct VoiceModePanel: View {
     @ObservedObject var voiceService: OpenAIVoiceService
     @ObservedObject var settingsStore: SettingsStore
     let onClose: () -> Void
+    var onKeySaved: (() -> Void)?
 
     @State private var showingInfo = false
     @State private var spinAngle: Double = 0
@@ -101,13 +102,14 @@ struct VoiceModePanel: View {
                                 guard !openaiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
                                 settingsStore.saveOpenAIKey(openaiKeyText)
                                 openaiKeyText = ""
+                                onKeySaved?()
                             }
 
-                        VButton(label: "Save", style: .primary) {
+                        VButton(label: "Save", style: .primary, isDisabled: openaiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
                             settingsStore.saveOpenAIKey(openaiKeyText)
                             openaiKeyText = ""
+                            onKeySaved?()
                         }
-                        .disabled(openaiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
                     .padding(.horizontal, VSpacing.xl)
                 }

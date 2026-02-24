@@ -103,6 +103,12 @@ extension MainWindowView {
                 onClose: {
                     voiceModeManager.deactivate()
                     windowState.selection = nil
+                },
+                onKeySaved: {
+                    if let viewModel = threadManager.activeViewModel {
+                        voiceModeManager.activate(chatViewModel: viewModel, settingsStore: settingsStore)
+                        voiceModeManager.startListening()
+                    }
                 }
             )
         }
