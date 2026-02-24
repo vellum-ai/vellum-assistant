@@ -172,7 +172,7 @@ export const AssistantConfigSchema = z.object({
     .number({ error: 'maxTokens must be a number' })
     .int('maxTokens must be an integer')
     .positive('maxTokens must be a positive integer')
-    .default(64000),
+    .default(16000),
   thinking: ThinkingConfigSchema.default({
     enabled: false,
     budgetTokens: 10000,

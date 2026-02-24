@@ -74,7 +74,7 @@ describe('AssistantConfigSchema', () => {
     const result = AssistantConfigSchema.parse({});
     expect(result.provider).toBe('anthropic');
     expect(result.model).toBe('claude-opus-4-6');
-    expect(result.maxTokens).toBe(64000);
+    expect(result.maxTokens).toBe(16000);
     expect(result.apiKeys).toEqual({});
     expect(result.thinking).toEqual({ enabled: false, budgetTokens: 10000 });
     expect(result.contextWindow).toEqual({
@@ -1193,7 +1193,7 @@ describe('loadConfig with schema validation', () => {
     const config = loadConfig();
     expect(config.provider).toBe('anthropic');
     expect(config.model).toBe('claude-opus-4-6');
-    expect(config.maxTokens).toBe(64000);
+    expect(config.maxTokens).toBe(16000);
     expect(config.thinking).toEqual({ enabled: false, budgetTokens: 10000 });
     expect(config.contextWindow).toEqual({
       enabled: true,
@@ -1215,7 +1215,7 @@ describe('loadConfig with schema validation', () => {
   test('falls back to default for invalid maxTokens', () => {
     writeConfig({ maxTokens: -100 });
     const config = loadConfig();
-    expect(config.maxTokens).toBe(64000);
+    expect(config.maxTokens).toBe(16000);
   });
 
   test('falls back to defaults for invalid nested values', () => {
@@ -1240,13 +1240,13 @@ describe('loadConfig with schema validation', () => {
     expect(config.model).toBe('gpt-4');
     expect(config.thinking.enabled).toBe(true);
     expect(config.thinking.budgetTokens).toBe(5000);
-    expect(config.maxTokens).toBe(64000);
+    expect(config.maxTokens).toBe(16000);
   });
 
   test('handles no config file', () => {
     const config = loadConfig();
     expect(config.provider).toBe('anthropic');
-    expect(config.maxTokens).toBe(64000);
+    expect(config.maxTokens).toBe(16000);
   });
 
   test('partial nested objects get defaults for missing fields', () => {
