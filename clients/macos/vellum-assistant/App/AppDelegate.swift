@@ -695,7 +695,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 // App is backgrounded — post native notification
                 self.deliverGuardianRequestNotification(
                     title: msg.title,
-                    questionText: msg.title,
+                    questionText: msg.questionText,
                     conversationId: msg.conversationId
                 )
             }
