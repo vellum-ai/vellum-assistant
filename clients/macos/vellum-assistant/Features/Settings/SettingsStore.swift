@@ -248,13 +248,16 @@ public final class SettingsStore: ObservableObject {
             .sink { [weak self] _ in self?.refreshAPIKeyState() }
             .store(in: &cancellables)
 
-        // Debounce UserDefaults writes so rapid slider movements don't thrash disk I/O
+        // maxStepsPerSession is read at session startup, so it must be persisted synchronously
+        // to avoid a race where a new session reads a stale value before the debounced write fires.
         $maxSteps
-            .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
             .dropFirst()
             .sink { value in UserDefaults.standard.set(value, forKey: "maxStepsPerSession") }
             .store(in: &cancellables)
 
+        // Debounce UserDefaults writes so rapid toggle changes don't thrash disk I/O.
+        // dropFirst comes after debounce so the first user-changed value is not dropped before
+        // it has a chance to be coalesced.
         $activityNotificationsEnabled
             .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
             .dropFirst()
