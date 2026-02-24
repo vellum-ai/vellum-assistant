@@ -19,6 +19,7 @@ import {
 import { CallOrchestrator } from './call-orchestrator.js';
 import { fireCallTranscriptNotifier, fireCallCompletionNotifier } from './call-state.js';
 import { addPointerMessage, formatDuration } from './call-pointer-messages.js';
+import { persistCallCompletionMessage } from './call-conversation-messages.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import {
   extractPromptSpeakerMetadata,
@@ -310,6 +311,7 @@ export class RelayConnection {
     }
 
     expirePendingQuestions(this.callSessionId);
+    persistCallCompletionMessage(session.conversationId, this.callSessionId);
     fireCallCompletionNotifier(session.conversationId, this.callSessionId);
   }
 

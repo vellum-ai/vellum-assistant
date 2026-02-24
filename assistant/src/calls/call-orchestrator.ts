@@ -22,6 +22,7 @@ import type { RelayConnection } from './relay-server.js';
 import { registerCallOrchestrator, unregisterCallOrchestrator, fireCallQuestionNotifier, fireCallCompletionNotifier, fireCallTranscriptNotifier } from './call-state.js';
 import type { PromptSpeakerContext } from './speaker-identification.js';
 import { addPointerMessage, formatDuration } from './call-pointer-messages.js';
+import { persistCallCompletionMessage } from './call-conversation-messages.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { dispatchGuardianQuestion } from './guardian-dispatch.js';
 import type { ServerMessage } from '../daemon/ipc-contract.js';
@@ -518,6 +519,7 @@ export class CallOrchestrator {
 
         // Notify the voice conversation
         if (shouldNotifyCompletion && currentSession) {
+          persistCallCompletionMessage(currentSession.conversationId, this.callSessionId);
           fireCallCompletionNotifier(currentSession.conversationId, this.callSessionId);
         }
 
@@ -635,6 +637,7 @@ export class CallOrchestrator {
         updateCallSession(this.callSessionId, { status: 'completed', endedAt: Date.now() });
         recordCallEvent(this.callSessionId, 'call_ended', { reason: 'max_duration' });
         if (shouldNotifyCompletion && currentSession) {
+          persistCallCompletionMessage(currentSession.conversationId, this.callSessionId);
           fireCallCompletionNotifier(currentSession.conversationId, this.callSessionId);
         }
 
