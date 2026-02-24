@@ -111,6 +111,18 @@ export class CallOrchestrator {
     if (interruptedInFlight) {
       this.abortController.abort();
       this.abortController = new AbortController();
+
+      // Strip the one-shot [CALL_OPENING] marker from conversation history
+      // so it doesn't leak into subsequent LLM requests after barge-in.
+      // Without this, the consecutive-user merge path below would append
+      // the caller's transcript to the synthetic "[CALL_OPENING]" message,
+      // causing the model to re-run opener behavior instead of responding
+      // directly to the caller.
+      for (const entry of this.conversationHistory) {
+        if (entry.content.includes(CALL_OPENING_MARKER)) {
+          entry.content = entry.content.replace(CALL_OPENING_MARKER_REGEX, '').trim();
+        }
+      }
     }
 
     this.state = 'processing';

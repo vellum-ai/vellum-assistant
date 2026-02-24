@@ -302,9 +302,17 @@ export class RelayConnection {
     // Create and attach the LLM-driven orchestrator
     const orchestrator = new CallOrchestrator(this.callSessionId, this, session?.task ?? null);
     this.setOrchestrator(orchestrator);
-    orchestrator.startInitialGreeting().catch((err) =>
-      log.error({ err, callSessionId: this.callSessionId }, 'Failed to start initial outbound greeting'),
-    );
+
+    // Skip the LLM-driven opener when a static welcome greeting is already
+    // configured via CALL_WELCOME_GREETING — Twilio's ConversationRelay will
+    // speak it at the transport level, so firing the orchestrator opener too
+    // would cause a double greeting.
+    const hasStaticGreeting = !!process.env.CALL_WELCOME_GREETING?.trim();
+    if (!hasStaticGreeting) {
+      orchestrator.startInitialGreeting().catch((err) =>
+        log.error({ err, callSessionId: this.callSessionId }, 'Failed to start initial outbound greeting'),
+      );
+    }
   }
 
   private async handlePrompt(msg: RelayPromptMessage): Promise<void> {
