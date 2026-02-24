@@ -5,7 +5,14 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 
 @MainActor
 public final class AuthService {
+    internal typealias RequestExecutor = (URLRequest) async throws -> (Data, URLResponse)
+
     public static let shared = AuthService()
+    private let requestExecutor: RequestExecutor
+    private let getSessionToken: () async -> String?
+    private let setSessionToken: (String) async -> Void
+    private let invalidateSessionToken: () async -> Void
+    private let baseURLOverride: String?
 
     private static let defaultBaseURL: String = {
         #if DEBUG && os(macOS)
@@ -16,6 +23,9 @@ public final class AuthService {
     }()
 
     public var baseURL: String {
+        if let baseURLOverride, !baseURLOverride.isEmpty {
+            return baseURLOverride
+        }
         #if DEBUG
         // Allow overriding the auth service URL via UserDefaults for development/testing.
         if let override = UserDefaults.standard.string(forKey: "authServiceBaseURL"), !override.isEmpty {
@@ -25,7 +35,35 @@ public final class AuthService {
         return Self.defaultBaseURL
     }
 
-    private init() {}
+    private init() {
+        self.baseURLOverride = nil
+        self.requestExecutor = { request in
+            try await URLSession.shared.data(for: request)
+        }
+        self.getSessionToken = {
+            await SessionTokenManager.getTokenAsync()
+        }
+        self.setSessionToken = { token in
+            await SessionTokenManager.setTokenAsync(token)
+        }
+        self.invalidateSessionToken = {
+            await SessionTokenManager.invalidateTokenAsync()
+        }
+    }
+
+    internal init(
+        baseURLOverride: String? = nil,
+        requestExecutor: @escaping RequestExecutor,
+        getSessionToken: @escaping () async -> String?,
+        setSessionToken: @escaping (String) async -> Void,
+        invalidateSessionToken: @escaping () async -> Void
+    ) {
+        self.baseURLOverride = baseURLOverride
+        self.requestExecutor = requestExecutor
+        self.getSessionToken = getSessionToken
+        self.setSessionToken = setSessionToken
+        self.invalidateSessionToken = invalidateSessionToken
+    }
 
     public func getConfig() async throws -> AllauthResponse<ConfigData> {
         try await request(path: "config", includeSessionToken: false)
@@ -122,7 +160,7 @@ public final class AuthService {
         urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        if includeSessionToken, let token = await SessionTokenManager.getTokenAsync() {
+        if includeSessionToken, let token = await getSessionToken() {
             urlRequest.setValue(token, forHTTPHeaderField: "X-Session-Token")
         }
 
@@ -137,7 +175,7 @@ public final class AuthService {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await URLSession.shared.data(for: urlRequest)
+            (data, response) = try await requestExecutor(urlRequest)
         } catch {
             throw AuthServiceError.networkError(error)
         }
@@ -148,7 +186,7 @@ public final class AuthService {
         log.debug("Auth request \(method) \(path) -> \(statusCode)")
 
         if statusCode == 410 {
-            await SessionTokenManager.invalidateTokenAsync()
+            await invalidateSessionToken()
             throw AuthServiceError.invalidSessionToken
         }
 
@@ -162,7 +200,7 @@ public final class AuthService {
         }
 
         if let sessionToken = decoded.meta?.session_token {
-            await SessionTokenManager.setTokenAsync(sessionToken)
+            await setSessionToken(sessionToken)
         }
 
         return decoded
