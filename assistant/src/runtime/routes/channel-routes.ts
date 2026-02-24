@@ -55,6 +55,7 @@ import type {
   MessageProcessor,
   RuntimeAttachmentMetadata,
   ApprovalCopyGenerator,
+  ApprovalConversationGenerator,
 } from '../http-types.js';
 import type { GuardianRuntimeContext } from '../../daemon/session-runtime-assembly.js';
 import { composeApprovalMessageGenerative } from '../approval-message-composer.js';
@@ -342,6 +343,7 @@ export async function handleChannelInbound(
   assistantId: string = 'self',
   gatewayOriginSecret?: string,
   approvalCopyGenerator?: ApprovalCopyGenerator,
+  _approvalConversationGenerator?: ApprovalConversationGenerator,
 ): Promise<Response> {
   // Reject requests that lack valid gateway-origin proof. This ensures
   // channel inbound messages can only arrive via the gateway (which

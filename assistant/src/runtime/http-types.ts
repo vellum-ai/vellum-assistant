@@ -14,6 +14,42 @@ export type ApprovalCopyGenerator = (
   options?: ComposeApprovalMessageGenerativeOptions,
 ) => Promise<string | null>;
 
+// ---------------------------------------------------------------------------
+// Approval conversation flow types
+// ---------------------------------------------------------------------------
+
+/** The disposition returned by the approval conversation engine. */
+export type ApprovalConversationDisposition =
+  | 'keep_pending'
+  | 'approve_once'
+  | 'approve_always'
+  | 'reject';
+
+/** Structured result from a single turn of the approval conversation. */
+export interface ApprovalConversationResult {
+  disposition: ApprovalConversationDisposition;
+  replyText: string;
+  /** Required when there are multiple pending approvals and the disposition is decision-bearing. */
+  targetRunId?: string;
+}
+
+/** Input context for the approval conversation engine. */
+export interface ApprovalConversationContext {
+  toolName: string;
+  allowedActions: string[];
+  role: 'requester' | 'guardian';
+  pendingApprovals: Array<{ runId: string; toolName: string }>;
+  userMessage: string;
+}
+
+/**
+ * Daemon-injected function that processes one turn of an approval conversation.
+ * Takes conversation context and returns a structured approval decision + reply.
+ */
+export type ApprovalConversationGenerator = (
+  context: ApprovalConversationContext,
+) => Promise<ApprovalConversationResult>;
+
 export interface RuntimeMessageSessionOptions {
   transport?: {
     channelId: string;
@@ -62,6 +98,8 @@ export interface RuntimeHttpServerOptions {
   interfacesDir?: string;
   /** Daemon-injected generator for approval copy (provider-backed). */
   approvalCopyGenerator?: ApprovalCopyGenerator;
+  /** Daemon-injected generator for conversational approval flow (provider-backed). */
+  approvalConversationGenerator?: ApprovalConversationGenerator;
 }
 
 export interface RuntimeAttachmentMetadata {
