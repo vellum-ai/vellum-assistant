@@ -575,12 +575,12 @@ struct MainWindowView: View {
                     // Main container: sidebar + content with uniform padding
                     HStack(spacing: 16) {
                         sidebarView
-                            .animation(VAnimation.panel, value: sidebarExpanded)
 
                         chatContentView(geometry: geometry)
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
                     }
                     .padding(16)
+                    .animation(VAnimation.panel, value: sidebarExpanded)
                 }
                 .overlay {
                     // Click-outside-to-dismiss background for control center drawer
@@ -966,8 +966,8 @@ struct MainWindowView: View {
 
     @ViewBuilder
     private var expandedSidebarContent: some View {
-        VStack(spacing: 0) {
-            Spacer().frame(height: VSpacing.sm)
+        VStack(spacing: VSpacing.sm) {
+            Spacer().frame(height: 0)
 
             // MARK: Nav Items (fixed)
             SidebarNavRow(icon: "square.grid.2x2", label: "Home Base", isActive: windowState.activePanel == .directory) {
