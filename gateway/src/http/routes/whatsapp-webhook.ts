@@ -141,6 +141,11 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
       return Response.json({ ok: true });
     }
 
+    // Track whether any message failed so we can signal Meta to retry the batch.
+    // Returning 500 causes Meta to resend the webhook; the dedup cache ensures
+    // already-processed messages are skipped while failed ones are retried.
+    let hasFailure = false;
+
     for (const normalized of normalizedMessages) {
       const { event, whatsappMessageId } = normalized;
       const from = event.message.externalChatId;
@@ -246,7 +251,7 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
         if (!result.forwarded) {
           tlog.error({ whatsappMessageId }, "Failed to forward WhatsApp message to runtime");
           dedupCache.unreserve(whatsappMessageId);
-          // Continue processing remaining messages even if one fails to forward
+          hasFailure = true;
           continue;
         }
 
@@ -255,8 +260,12 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
       } catch (err) {
         tlog.error({ err, whatsappMessageId }, "Failed to process inbound WhatsApp message");
         dedupCache.unreserve(whatsappMessageId);
-        // Continue processing remaining messages even if one throws
+        hasFailure = true;
       }
+    }
+
+    if (hasFailure) {
+      return Response.json({ error: "Internal error" }, { status: 500 });
     }
 
     return Response.json({ ok: true });
