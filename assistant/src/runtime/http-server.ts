@@ -39,6 +39,7 @@ import {
   handleConfirm,
   handleSecret,
   handleTrustRule,
+  handleListPendingInteractions,
 } from './routes/approval-routes.js';
 import {
   handleDeleteConversation,
@@ -575,6 +576,7 @@ export class RuntimeHttpServer {
       if (endpoint === 'confirm' && req.method === 'POST') return await handleConfirm(req);
       if (endpoint === 'secret' && req.method === 'POST') return await handleSecret(req);
       if (endpoint === 'trust-rules' && req.method === 'POST') return await handleTrustRule(req);
+      if (endpoint === 'pending-interactions' && req.method === 'GET') return handleListPendingInteractions(url);
 
       if (endpoint === 'attachments' && req.method === 'POST') return await handleUploadAttachment(req);
       if (endpoint === 'attachments' && req.method === 'DELETE') return await handleDeleteAttachment(req);
