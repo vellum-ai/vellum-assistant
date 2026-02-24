@@ -241,6 +241,8 @@ extension AppDelegate {
                         } catch {
                             log.error("Failed to send CU session abort after picker cancel: \(error)")
                         }
+                        self.recordingPickerWindow?.close()
+                        self.recordingPickerWindow = nil
                         return
                     }
                     self.recordingPickerWindow?.close()
