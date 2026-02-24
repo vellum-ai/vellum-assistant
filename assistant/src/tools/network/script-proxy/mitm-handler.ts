@@ -200,7 +200,7 @@ async function processRequest(
       port,
     });
 
-    if (rewriteResult === null) {
+    if (rewriteResult == null) {
       const body = 'Forbidden';
       tlsSocket.write(
         `HTTP/1.1 403 Forbidden\r\nContent-Length: ${body.length}\r\nContent-Type: text/plain\r\n\r\n${body}`,

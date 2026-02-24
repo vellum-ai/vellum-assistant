@@ -112,7 +112,7 @@ export class ContextWindowManager {
       };
     }
 
-    const summaryOffset = existingSummary !== null ? 1 : 0;
+    const summaryOffset = existingSummary != null ? 1 : 0;
     const userTurnStarts = collectUserTurnStartIndexes(messages);
     if (userTurnStarts.length === 0) {
       return {
@@ -186,14 +186,34 @@ export class ContextWindowManager {
     const projectedGainTokens = Math.max(0, previousEstimatedInputTokens - projectedInputTokens);
     const severePressure = previousEstimatedInputTokens >= Math.floor(this.config.maxInputTokens * SEVERE_PRESSURE_RATIO);
     const lastCompactedAt = options?.lastCompactedAt;
-    const withinCooldown = typeof lastCompactedAt === 'number'
-      && Date.now() - lastCompactedAt < COMPACTION_COOLDOWN_MS;
 
+    // Adaptive cooldown: conversations growing quickly (high projected gain) compact
+    // sooner. Scale the cooldown inversely with the growth-rate multiplier, capped at
+    // 1/4 of the base cooldown so we never check more than 4× as frequently.
+    const growthRateMultiplier = Math.max(1, projectedGainTokens / MIN_GAIN_TOKENS_DURING_COOLDOWN);
+    const adaptiveCooldownMs = Math.max(
+      COMPACTION_COOLDOWN_MS / 4,
+      COMPACTION_COOLDOWN_MS / growthRateMultiplier,
+    );
+    const withinCooldown = typeof lastCompactedAt === 'number'
+      && Date.now() - lastCompactedAt < adaptiveCooldownMs;
+
+    // The adaptive cooldown is already tuned to be shorter for fast-growing
+    // conversations (high projectedGainTokens → smaller adaptiveCooldownMs).
+    // Removing the redundant MIN_GAIN_TOKENS_DURING_COOLDOWN guard here lets
+    // that shorter cooldown actually gate compaction: high-growth conversations
+    // break out of the cooldown sooner and compact more frequently.
+    // force=true bypasses the cooldown so context-too-large recovery can always
+    // attempt a compaction even within the cooldown window.
     if (
       withinCooldown
-      && projectedGainTokens < MIN_GAIN_TOKENS_DURING_COOLDOWN
       && !severePressure
+      && !options?.force
     ) {
+      log.debug(
+        { projectedGainTokens, adaptiveCooldownMs, growthRateMultiplier, msSinceCompaction: typeof lastCompactedAt === 'number' ? Date.now() - lastCompactedAt : null },
+        'Compaction cooldown active',
+      );
       return {
         messages,
         compacted: false,
@@ -208,7 +228,7 @@ export class ContextWindowManager {
         summaryOutputTokens: 0,
         summaryModel: '',
         summaryText: existingSummary ?? '',
-        reason: 'compaction cooldown active with low projected gain',
+        reason: 'compaction cooldown active',
       };
     }
 
@@ -355,7 +375,7 @@ function collectUserTurnStartIndexes(messages: Message[]): number[] {
   for (let i = 0; i < messages.length; i++) {
     const message = messages[i];
     if (message.role !== 'user') continue;
-    if (getSummaryFromContextMessage(message) !== null) continue;
+    if (getSummaryFromContextMessage(message) !== undefined) continue;
     if (isToolResultOnly(message)) continue;
     starts.push(i);
   }
@@ -370,7 +390,7 @@ function collectUserTurnStartIndexes(messages: Message[]): number[] {
  */
 function countPersistedMessages(messages: Message[]): number {
   return messages.filter((message) => {
-    return getSummaryFromContextMessage(message) === null;
+    return getSummaryFromContextMessage(message) === undefined;
   }).length;
 }
 

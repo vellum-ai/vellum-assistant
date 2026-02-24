@@ -18,12 +18,20 @@ import {
 } from '../util/platform.js';
 import { initializeDb } from '../memory/db.js';
 import { rotateToolInvocations } from '../memory/tool-usage-store.js';
-import { initializeProviders } from '../providers/registry.js';
+import { initializeProviders, getFailoverProvider, listProviders } from '../providers/registry.js';
 import { initializeTools } from '../tools/registry.js';
 import { loadConfig } from '../config/loader.js';
+import {
+  getQdrantUrlEnv,
+  getRuntimeHttpPort,
+  getRuntimeProxyBearerToken,
+  getRuntimeHttpHost,
+  validateEnv,
+} from '../config/env.js';
 import { ensurePromptFiles } from '../config/system-prompt.js';
 import { loadPrebuiltHtml } from '../home-base/prebuilt/seed.js';
 import { DaemonServer } from './server.js';
+import { setRelayBroadcast } from '../calls/relay-server.js';
 import { listWorkItems, updateWorkItem } from '../work-items/work-item-store.js';
 import { getLogger, initLogger } from '../util/logger.js';
 import { DaemonError } from '../util/errors.js';
@@ -38,15 +46,28 @@ import { registerWatcherProvider } from '../watcher/provider-registry.js';
 import { gmailProvider } from '../watcher/providers/gmail.js';
 import { googleCalendarProvider } from '../watcher/providers/google-calendar.js';
 import { slackProvider as slackWatcherProvider } from '../watcher/providers/slack.js';
+import { githubProvider } from '../watcher/providers/github.js';
+import { linearProvider } from '../watcher/providers/linear.js';
 import { registerMessagingProvider } from '../messaging/registry.js';
 import { slackProvider as slackMessagingProvider } from '../messaging/providers/slack/adapter.js';
 import { gmailMessagingProvider } from '../messaging/providers/gmail/adapter.js';
 import { telegramBotMessagingProvider } from '../messaging/providers/telegram-bot/adapter.js';
 import { smsMessagingProvider } from '../messaging/providers/sms/adapter.js';
+import { whatsappMessagingProvider } from '../messaging/providers/whatsapp/adapter.js';
 import { browserManager } from '../tools/browser/browser-manager.js';
 import { RuntimeHttpServer } from '../runtime/http-server.js';
+import type { ApprovalCopyGenerator } from '../runtime/http-types.js';
+import {
+  buildGenerationPrompt,
+  includesRequiredKeywords,
+  getFallbackMessage,
+  APPROVAL_COPY_TIMEOUT_MS,
+  APPROVAL_COPY_MAX_TOKENS,
+  APPROVAL_COPY_SYSTEM_PROMPT,
+} from '../runtime/approval-message-composer.js';
 import { getHookManager } from '../hooks/manager.js';
 import { installTemplates } from '../hooks/templates.js';
+import { installCliLaunchers } from './install-cli-launchers.js';
 import { HeartbeatService } from '../workspace/heartbeat-service.js';
 import { AgentHeartbeatService } from '../agent-heartbeat/agent-heartbeat-service.js';
 import { getEnrichmentService } from '../workspace/commit-message-enrichment-service.js';
@@ -89,7 +110,7 @@ function cleanupPidFile(): void {
 
 export function isDaemonRunning(): boolean {
   const pid = readPid();
-  if (pid === null) return false;
+  if (pid == null) return false;
   if (!isProcessRunning(pid)) {
     // Stale PID file
     cleanupPidFile();
@@ -100,7 +121,7 @@ export function isDaemonRunning(): boolean {
 
 export function getDaemonStatus(): { running: boolean; pid?: number } {
   const pid = readPid();
-  if (pid === null) return { running: false };
+  if (pid == null) return { running: false };
   if (!isProcessRunning(pid)) {
     cleanupPidFile();
     return { running: false };
@@ -201,7 +222,7 @@ export type StopResult =
 
 export async function stopDaemon(): Promise<StopResult> {
   const pid = readPid();
-  if (pid === null || !isProcessRunning(pid)) {
+  if (pid == null || !isProcessRunning(pid)) {
     cleanupPidFile();
     return { stopped: false, reason: 'not_running' };
   }
@@ -261,9 +282,53 @@ function loadDotEnv(): void {
   dotenvConfig({ path: join(getRootDir(), '.env'), quiet: true });
 }
 
+/**
+ * Create the daemon-owned approval copy generator that resolves providers
+ * and calls `provider.sendMessage` to generate approval copy text.
+ * This keeps all provider awareness in the daemon lifecycle, away from
+ * the runtime composer.
+ */
+function createApprovalCopyGenerator(): ApprovalCopyGenerator {
+  return async (context, options = {}) => {
+    const config = loadConfig();
+    if (!listProviders().includes(config.provider)) {
+      return null;
+    }
+    const provider = getFailoverProvider(config.provider, config.providerOrder);
+
+    const fallbackText = options.fallbackText?.trim() || getFallbackMessage(context);
+    const requiredKeywords = options.requiredKeywords?.map((kw) => kw.trim()).filter((kw) => kw.length > 0);
+    const prompt = buildGenerationPrompt(context, fallbackText, requiredKeywords);
+
+    const response = await provider.sendMessage(
+      [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
+      [],
+      APPROVAL_COPY_SYSTEM_PROMPT,
+      {
+        config: {
+          max_tokens: options.maxTokens ?? APPROVAL_COPY_MAX_TOKENS,
+        },
+        signal: AbortSignal.timeout(options.timeoutMs ?? APPROVAL_COPY_TIMEOUT_MS),
+      },
+    );
+
+    const block = response.content.find((entry) => entry.type === 'text');
+    const text = block && 'text' in block ? block.text.trim() : '';
+    if (!text) return null;
+    const cleaned = text
+      .replace(/^["'`]+/, '')
+      .replace(/["'`]+$/, '')
+      .trim();
+    if (!cleaned) return null;
+    if (!includesRequiredKeywords(cleaned, requiredKeywords)) return null;
+    return cleaned;
+  };
+}
+
 // Entry point for the daemon process itself
 export async function runDaemon(): Promise<void> {
   loadDotEnv();
+  validateEnv();
   initSentry();
   await initLogfire();
 
@@ -313,6 +378,13 @@ export async function runDaemon(): Promise<void> {
   log.info('Daemon startup: installing templates and initializing DB');
   installTemplates();
   ensurePromptFiles();
+
+  // Install standalone CLI launchers (e.g. doordash, map) in ~/.vellum/bin/
+  try {
+    installCliLaunchers();
+  } catch (err) {
+    log.warn({ err }, 'CLI launcher installation failed — continuing startup');
+  }
   initializeDb();
   log.info('Daemon startup: DB initialized');
 
@@ -357,7 +429,7 @@ export async function runDaemon(): Promise<void> {
   log.info('Daemon startup: DaemonServer started');
 
   // Initialize Qdrant vector store — non-fatal so the daemon stays up without it
-  const qdrantUrl = process.env.QDRANT_URL?.trim() || config.memory.qdrant.url;
+  const qdrantUrl = getQdrantUrlEnv() || config.memory.qdrant.url;
   log.info({ qdrantUrl }, 'Daemon startup: initializing Qdrant');
   const qdrantManager = new QdrantManager({
     url: qdrantUrl,
@@ -382,6 +454,8 @@ export async function runDaemon(): Promise<void> {
   registerWatcherProvider(gmailProvider);
   registerWatcherProvider(googleCalendarProvider);
   registerWatcherProvider(slackWatcherProvider);
+  registerWatcherProvider(githubProvider);
+  registerWatcherProvider(linearProvider);
   initWatcherEngine();
 
   // Register messaging providers
@@ -389,6 +463,7 @@ export async function runDaemon(): Promise<void> {
   registerMessagingProvider(gmailMessagingProvider);
   registerMessagingProvider(telegramBotMessagingProvider);
   registerMessagingProvider(smsMessagingProvider);
+  registerMessagingProvider(whatsappMessagingProvider);
 
   const scheduler = startScheduler(
     async (conversationId, message) => {
@@ -427,53 +502,53 @@ export async function runDaemon(): Promise<void> {
 
   // Start optional runtime HTTP server when RUNTIME_HTTP_PORT is set
   let runtimeHttp: RuntimeHttpServer | null = null;
-  const httpPortEnv = process.env.RUNTIME_HTTP_PORT;
-  log.info({ httpPortEnv }, 'Daemon startup: checking RUNTIME_HTTP_PORT');
-  if (httpPortEnv) {
-    const port = parseInt(httpPortEnv, 10);
-    if (!isNaN(port) && port > 0) {
-      // Resolve the bearer token in priority order:
-      //   1. Explicit env var (e.g. cloud deploys)
-      //   2. Existing token file on disk (preserves QR-paired iOS devices across restarts)
-      //   3. Fresh random token (first-time startup)
-      const httpTokenPath = getHttpTokenPath();
-      let bearerToken = process.env.RUNTIME_PROXY_BEARER_TOKEN;
-      if (!bearerToken) {
-        try {
-          const existing = readFileSync(httpTokenPath, 'utf-8').trim();
-          if (existing) bearerToken = existing;
-        } catch {
-          // File doesn't exist or can't be read — will generate below
-        }
-      }
-      if (!bearerToken) {
-        bearerToken = randomBytes(32).toString('hex');
-      }
-      writeFileSync(httpTokenPath, bearerToken, { mode: 0o600 });
-      chmodSync(httpTokenPath, 0o600);
-
-      const hostname = process.env.RUNTIME_HTTP_HOST?.trim() || '127.0.0.1';
-
-      runtimeHttp = new RuntimeHttpServer({
-        port,
-        hostname,
-        bearerToken,
-        processMessage: (conversationId, content, attachmentIds, options, sourceChannel) =>
-          server.processMessage(conversationId, content, attachmentIds, options, sourceChannel),
-        persistAndProcessMessage: (conversationId, content, attachmentIds, options, sourceChannel) =>
-          server.persistAndProcessMessage(conversationId, content, attachmentIds, options, sourceChannel),
-        runOrchestrator: server.createRunOrchestrator(),
-        interfacesDir: getInterfacesDir(),
-      });
+  const httpPort = getRuntimeHttpPort();
+  log.info({ httpPort }, 'Daemon startup: checking RUNTIME_HTTP_PORT');
+  if (httpPort) {
+    const port = httpPort;
+    // Resolve the bearer token in priority order:
+    //   1. Explicit env var (e.g. cloud deploys)
+    //   2. Existing token file on disk (preserves QR-paired iOS devices across restarts)
+    //   3. Fresh random token (first-time startup)
+    const httpTokenPath = getHttpTokenPath();
+    let bearerToken = getRuntimeProxyBearerToken();
+    if (!bearerToken) {
       try {
-        log.info({ port, hostname }, 'Daemon startup: starting runtime HTTP server');
-        await runtimeHttp.start();
-        server.setHttpPort(port);
-        log.info({ port, hostname }, 'Daemon startup: runtime HTTP server listening');
-      } catch (err) {
-        log.warn({ err, port }, 'Failed to start runtime HTTP server, continuing without it');
-        runtimeHttp = null;
+        const existing = readFileSync(httpTokenPath, 'utf-8').trim();
+        if (existing) bearerToken = existing;
+      } catch {
+        // File doesn't exist or can't be read — will generate below
       }
+    }
+    if (!bearerToken) {
+      bearerToken = randomBytes(32).toString('hex');
+    }
+    writeFileSync(httpTokenPath, bearerToken, { mode: 0o600 });
+    chmodSync(httpTokenPath, 0o600);
+
+    const hostname = getRuntimeHttpHost();
+
+    runtimeHttp = new RuntimeHttpServer({
+      port,
+      hostname,
+      bearerToken,
+      processMessage: (conversationId, content, attachmentIds, options, sourceChannel) =>
+        server.processMessage(conversationId, content, attachmentIds, options, sourceChannel),
+      persistAndProcessMessage: (conversationId, content, attachmentIds, options, sourceChannel) =>
+        server.persistAndProcessMessage(conversationId, content, attachmentIds, options, sourceChannel),
+      runOrchestrator: server.createRunOrchestrator(),
+      interfacesDir: getInterfacesDir(),
+      approvalCopyGenerator: createApprovalCopyGenerator(),
+    });
+    try {
+      log.info({ port, hostname }, 'Daemon startup: starting runtime HTTP server');
+      await runtimeHttp.start();
+      setRelayBroadcast((msg) => server.broadcast(msg));
+      server.setHttpPort(port);
+      log.info({ port, hostname }, 'Daemon startup: runtime HTTP server listening');
+    } catch (err) {
+      log.warn({ err, port }, 'Failed to start runtime HTTP server, continuing without it');
+      runtimeHttp = null;
     }
   }
 

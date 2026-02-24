@@ -61,6 +61,7 @@ struct SettingsAppearanceTab: View {
                 Text("Automatically embed images, videos, and other media shared in chat messages.")
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
+                    .textSelection(.enabled)
 
                 if store.mediaEmbedsEnabled {
                     Divider()
@@ -90,6 +91,7 @@ struct SettingsAppearanceTab: View {
                             Text(domain)
                                 .font(VFont.body)
                                 .foregroundColor(VColor.textSecondary)
+                                .textSelection(.enabled)
                             Spacer()
                             Button {
                                 var domains = store.mediaEmbedVideoAllowlistDomains

@@ -3,10 +3,13 @@
  *
  * Generates approval prompt text through a priority chain:
  *   1. Assistant preface (macOS parity — reuse existing assistant text)
- *   2. Deterministic fallback templates (natural, scenario-specific messages)
- *
- * A provider-backed generation layer can be inserted between 1 and 2 later.
+ *   2. Generator-produced rewrite of deterministic fallback text (when provided by daemon)
+ *   3. Deterministic fallback templates (natural, scenario-specific messages)
  */
+import { getLogger } from '../util/logger.js';
+import type { ApprovalCopyGenerator } from './http-types.js';
+
+const log = getLogger('approval-message-composer');
 
 // ---------------------------------------------------------------------------
 // Types
@@ -48,6 +51,22 @@ export interface ApprovalMessageContext {
   failureReason?: string;
 }
 
+export interface ComposeApprovalMessageGenerativeOptions {
+  /**
+   * Optional fallback message to use when generation fails. If omitted,
+   * the deterministic scenario fallback is used.
+   */
+  fallbackText?: string;
+  /**
+   * Require these standalone words in the generated output (case-insensitive).
+   * Useful for plain-text decision flows where parser-compatible keywords
+   * like yes/no/always must be present.
+   */
+  requiredKeywords?: string[];
+  timeoutMs?: number;
+  maxTokens?: number;
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -63,6 +82,82 @@ export function composeApprovalMessage(context: ApprovalMessageContext): string 
   }
 
   return getFallbackMessage(context);
+}
+
+/** @internal Exported for use by the daemon-injected generator implementation. */
+export function escapeRegExp(input: string): string {
+  return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** @internal Exported for use by the daemon-injected generator implementation. */
+export function includesRequiredKeywords(text: string, requiredKeywords: string[] | undefined): boolean {
+  if (!requiredKeywords || requiredKeywords.length === 0) return true;
+  return requiredKeywords.every((keyword) => {
+    const re = new RegExp(`\\b${escapeRegExp(keyword)}\\b`, 'i');
+    return re.test(text);
+  });
+}
+
+/** @internal Exported for use by the daemon-injected generator implementation. */
+export function buildGenerationPrompt(
+  context: ApprovalMessageContext,
+  fallbackText: string,
+  requiredKeywords: string[] | undefined,
+): string {
+  const keywordClause = requiredKeywords && requiredKeywords.length > 0
+    ? `Required words to include (as standalone words): ${requiredKeywords.join(', ')}.\n`
+    : '';
+  return [
+    'Rewrite the following approval/guardian message as a natural assistant reply to the user.',
+    'Keep the same concrete facts and next-step guidance.',
+    keywordClause,
+    `Context JSON: ${JSON.stringify(context)}`,
+    `Fallback message: ${fallbackText}`,
+  ].filter(Boolean).join('\n\n');
+}
+
+/** Constants for the generator implementation (moved to exports for daemon lifecycle). */
+export const APPROVAL_COPY_TIMEOUT_MS = 4_000;
+export const APPROVAL_COPY_MAX_TOKENS = 180;
+export const APPROVAL_COPY_SYSTEM_PROMPT =
+  'You are an assistant writing one user-facing message about permissions/approval state. '
+  + 'Keep it concise, natural, and actionable. Preserve factual details exactly. '
+  + 'Do not mention internal systems, scenario IDs, or policy engine details. '
+  + 'Return plain text only.';
+
+/**
+ * Compose user-facing approval copy using the daemon-injected generator when
+ * available, with deterministic fallback for reliability.
+ *
+ * The generator parameter is the daemon-provided function that knows about
+ * providers. When absent (or in test env), only the deterministic fallback
+ * is used.
+ */
+export async function composeApprovalMessageGenerative(
+  context: ApprovalMessageContext,
+  options: ComposeApprovalMessageGenerativeOptions = {},
+  generator?: ApprovalCopyGenerator,
+): Promise<string> {
+  if (context.assistantPreface && context.assistantPreface.trim().length > 0) {
+    return context.assistantPreface;
+  }
+
+  const fallbackText = options.fallbackText?.trim() || getFallbackMessage(context);
+
+  if (process.env.NODE_ENV === 'test') {
+    return fallbackText;
+  }
+
+  if (generator) {
+    try {
+      const generated = await generator(context, options);
+      if (generated) return generated;
+    } catch (err) {
+      log.warn({ err, scenario: context.scenario }, 'Failed to generate approval copy, using fallback');
+    }
+  }
+
+  return fallbackText;
 }
 
 // ---------------------------------------------------------------------------

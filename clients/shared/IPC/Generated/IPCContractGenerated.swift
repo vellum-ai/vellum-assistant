@@ -897,6 +897,64 @@ public struct IPCContextCompacted: Codable, Sendable {
     }
 }
 
+public struct IPCConversationSearchMatchingMessage: Codable, Sendable {
+    public let messageId: String
+    public let role: String
+    /// Plain-text excerpt around the match, truncated to ~200 chars.
+    public let excerpt: String
+    public let createdAt: Int
+
+    public init(messageId: String, role: String, excerpt: String, createdAt: Int) {
+        self.messageId = messageId
+        self.role = role
+        self.excerpt = excerpt
+        self.createdAt = createdAt
+    }
+}
+
+public struct IPCConversationSearchRequest: Codable, Sendable {
+    public let type: String
+    /// The search query string.
+    public let query: String
+    /// Maximum number of conversations to return. Defaults to 20.
+    public let limit: Double?
+    /// Maximum number of matching messages to return per conversation. Defaults to 3.
+    public let maxMessagesPerConversation: Double?
+
+    public init(type: String, query: String, limit: Double? = nil, maxMessagesPerConversation: Double? = nil) {
+        self.type = type
+        self.query = query
+        self.limit = limit
+        self.maxMessagesPerConversation = maxMessagesPerConversation
+    }
+}
+
+public struct IPCConversationSearchResponse: Codable, Sendable {
+    public let type: String
+    public let query: String
+    public let results: [IPCConversationSearchResultItem]
+
+    public init(type: String, query: String, results: [IPCConversationSearchResultItem]) {
+        self.type = type
+        self.query = query
+        self.results = results
+    }
+}
+
+public struct IPCConversationSearchResultItem: Codable, Sendable {
+    public let conversationId: String
+    public let conversationTitle: String?
+    public let conversationUpdatedAt: Int
+    public let matchingMessages: [IPCConversationSearchMatchingMessage]
+
+    public init(conversationId: String, conversationTitle: String?, conversationUpdatedAt: Int, matchingMessages: [IPCConversationSearchMatchingMessage]) {
+        self.conversationId = conversationId
+        self.conversationTitle = conversationTitle
+        self.conversationUpdatedAt = conversationUpdatedAt
+        self.matchingMessages = matchingMessages
+    }
+}
+
 public struct IPCCuAction: Codable, Sendable {
     public let type: String
     public let sessionId: String
@@ -1690,6 +1748,23 @@ public struct IPCGetSigningIdentityResponse: Codable, Sendable {
     }
 }
 
+/// Server push — broadcast when a guardian action request creates a thread for the mac channel.
+public struct IPCGuardianRequestThreadCreated: Codable, Sendable {
+    public let type: String
+    public let conversationId: String
+    public let requestId: String
+    public let callSessionId: String
+    public let title: String
+
+    public init(type: String, conversationId: String, requestId: String, callSessionId: String, title: String) {
+        self.type = type
+        self.conversationId = conversationId
+        self.requestId = requestId
+        self.callSessionId = callSessionId
+        self.title = title
+    }
+}
+
 public struct IPCGuardianVerificationRequest: Codable, Sendable {
     public let type: String
     public let action: String
@@ -2434,6 +2509,120 @@ public struct IPCOpenUrl: Codable, Sendable {
     }
 }
 
+/// Retrieve the current parental control settings and PIN status.
+public struct IPCParentalControlGetRequest: Codable, Sendable {
+    public let type: String
+
+    public init(type: String) {
+        self.type = type
+    }
+}
+
+public struct IPCParentalControlGetResponse: Codable, Sendable {
+    public let type: String
+    public let enabled: Bool
+    public let has_pin: Bool
+    public let content_restrictions: [String]
+    public let blocked_tool_categories: [String]
+
+    public init(type: String, enabled: Bool, has_pin: Bool, content_restrictions: [String], blocked_tool_categories: [String]) {
+        self.type = type
+        self.enabled = enabled
+        self.has_pin = has_pin
+        self.content_restrictions = content_restrictions
+        self.blocked_tool_categories = blocked_tool_categories
+    }
+}
+
+/// Set, change, or clear the parental control PIN. To set for the first time provide only new_pin. To change provide current_pin and new_pin. To clear provide current_pin and set clear:true.
+public struct IPCParentalControlSetPinRequest: Codable, Sendable {
+    public let type: String
+    public let current_pin: String?
+    public let new_pin: String?
+    public let clear: Bool?
+
+    public init(type: String, current_pin: String? = nil, new_pin: String? = nil, clear: Bool? = nil) {
+        self.type = type
+        self.current_pin = current_pin
+        self.new_pin = new_pin
+        self.clear = clear
+    }
+}
+
+public struct IPCParentalControlSetPinResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let error: String?
+
+    public init(type: String, success: Bool, error: String? = nil) {
+        self.type = type
+        self.success = success
+        self.error = error
+    }
+}
+
+/// Update parental control settings. Requires the PIN when parental mode is already enabled.
+public struct IPCParentalControlUpdateRequest: Codable, Sendable {
+    public let type: String
+    /// Current PIN — required when parental mode is already enabled.
+    public let pin: String?
+    /// Enable or disable parental control mode.
+    public let enabled: Bool?
+    /// Full replacement list of blocked content topics.
+    public let content_restrictions: [String]?
+    /// Full replacement list of blocked tool categories.
+    public let blocked_tool_categories: [String]?
+
+    public init(type: String, pin: String? = nil, enabled: Bool? = nil, content_restrictions: [String]? = nil, blocked_tool_categories: [String]? = nil) {
+        self.type = type
+        self.pin = pin
+        self.enabled = enabled
+        self.content_restrictions = content_restrictions
+        self.blocked_tool_categories = blocked_tool_categories
+    }
+}
+
+public struct IPCParentalControlUpdateResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let error: String?
+    public let enabled: Bool
+    public let has_pin: Bool
+    public let content_restrictions: [String]
+    public let blocked_tool_categories: [String]
+
+    public init(type: String, success: Bool, error: String? = nil, enabled: Bool, has_pin: Bool, content_restrictions: [String], blocked_tool_categories: [String]) {
+        self.type = type
+        self.success = success
+        self.error = error
+        self.enabled = enabled
+        self.has_pin = has_pin
+        self.content_restrictions = content_restrictions
+        self.blocked_tool_categories = blocked_tool_categories
+    }
+}
+
+/// Verify a PIN attempt without changing any state. Useful to gate an unlock-settings flow before showing the full panel.
+public struct IPCParentalControlVerifyPinRequest: Codable, Sendable {
+    public let type: String
+    public let pin: String
+
+    public init(type: String, pin: String) {
+        self.type = type
+        self.pin = pin
+    }
+}
+
+public struct IPCParentalControlVerifyPinResponse: Codable, Sendable {
+    public let type: String
+    public let verified: Bool
+
+    public init(type: String, verified: Bool) {
+        self.type = type
+        self.verified = verified
+    }
+}
+
 public struct IPCPingMessage: Codable, Sendable {
     public let type: String
 
@@ -2568,11 +2757,17 @@ public struct IPCRideShotgunProgress: Codable, Sendable {
     public let type: String
     public let watchId: String
     public let message: String
+    public let networkEntryCount: Int?
+    public let statusMessage: String?
+    public let idleHint: Bool?
 
-    public init(type: String, watchId: String, message: String) {
+    public init(type: String, watchId: String, message: String, networkEntryCount: Int? = nil, statusMessage: String? = nil, idleHint: Bool? = nil) {
         self.type = type
         self.watchId = watchId
         self.message = message
+        self.networkEntryCount = networkEntryCount
+        self.statusMessage = statusMessage
+        self.idleHint = idleHint
     }
 }
 
@@ -2650,6 +2845,16 @@ public struct IPCScheduleComplete: Codable, Sendable {
 }
 
 public struct IPCScheduleRemove: Codable, Sendable {
+    public let type: String
+    public let id: String
+
+    public init(type: String, id: String) {
+        self.type = type
+        self.id = id
+    }
+}
+
+public struct IPCScheduleRunNow: Codable, Sendable {
     public let type: String
     public let id: String
 
@@ -2867,14 +3072,16 @@ public struct IPCSessionListResponseSession: Codable, Sendable {
     public let title: String
     public let updatedAt: Int
     public let threadType: String?
+    public let source: String?
     /// Channel binding metadata exposed in session/conversation list APIs.
     public let channelBinding: IPCChannelBinding?
 
-    public init(id: String, title: String, updatedAt: Int, threadType: String? = nil, channelBinding: IPCChannelBinding? = nil) {
+    public init(id: String, title: String, updatedAt: Int, threadType: String? = nil, source: String? = nil, channelBinding: IPCChannelBinding? = nil) {
         self.id = id
         self.title = title
         self.updatedAt = updatedAt
         self.threadType = threadType
+        self.source = source
         self.channelBinding = channelBinding
     }
 }
@@ -2904,6 +3111,18 @@ public struct IPCSessionSwitchRequest: Codable, Sendable {
     public init(type: String, sessionId: String) {
         self.type = type
         self.sessionId = sessionId
+    }
+}
+
+public struct IPCSessionTitleUpdated: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let title: String
+
+    public init(type: String, sessionId: String, title: String) {
+        self.type = type
+        self.sessionId = sessionId
+        self.title = title
     }
 }
 

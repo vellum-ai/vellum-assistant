@@ -2,6 +2,8 @@
  * Thin wrapper around the Vercel REST API for deploying static HTML pages.
  */
 
+import { ProviderError } from '../util/errors.js';
+
 export async function deployHtmlToVercel(opts: {
   html: string;
   name: string;
@@ -37,7 +39,7 @@ export async function deployHtmlToVercel(opts: {
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`Vercel deploy failed (${response.status}): ${text}`);
+    throw new ProviderError(`Vercel deploy failed (${response.status}): ${text}`, 'vercel', response.status);
   }
 
   const data = (await response.json()) as { url: string; id: string };
@@ -66,8 +68,10 @@ export async function deleteVercelDeployment(
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(
+    throw new ProviderError(
       `Vercel delete deployment failed (${response.status}): ${text}`,
+      'vercel',
+      response.status,
     );
   }
 }

@@ -14,10 +14,15 @@ import type { QueueDrainReason } from './session-queue-manager.js';
 import type { TraceEmitter } from './trace-emitter.js';
 import { createUserMessage, createAssistantMessage } from '../agent/message-types.js';
 import * as conversationStore from '../memory/conversation-store.js';
+import {
+  getPendingDeliveryByConversation,
+  getGuardianActionRequest,
+  resolveGuardianActionRequest,
+} from '../memory/guardian-action-store.js';
+import { answerCall } from '../calls/call-domain.js';
 import { resolveSlash, type SlashContext } from './session-slash.js';
 import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
-import { tryRouteCallMessage } from '../calls/call-bridge.js';
 
 const log = getLogger('session-process');
 
@@ -197,47 +202,13 @@ export function drainQueue(session: ProcessSessionContext, reason: QueueDrainRea
   session.currentPage = next.currentPage;
 
   // Fire-and-forget: persistUserMessage set session.processing = true
-  // so subsequent messages will still be enqueued. Route through the call
-  // bridge first — if consumed, skip agent processing and continue draining.
+  // so subsequent messages will still be enqueued.
   // runAgentLoop's finally block will call drainQueue when this run completes.
-  routeOrProcess(session, resolvedContent, userMessageId, next).catch((err) => {
+  session.runAgentLoop(resolvedContent, userMessageId, next.onEvent).catch((err) => {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err, conversationId: session.conversationId, requestId: next.requestId }, 'Error processing queued message');
     next.onEvent({ type: 'error', message: `Failed to process queued message: ${message}` });
   });
-}
-
-/**
- * Try the call bridge first; if not consumed, run the agent loop.
- * Used by drainQueue to handle the async bridge check in fire-and-forget mode.
- */
-async function routeOrProcess(
-  session: ProcessSessionContext,
-  content: string,
-  userMessageId: string,
-  next: { onEvent: (msg: ServerMessage) => void; requestId: string },
-): Promise<void> {
-  try {
-    const bridgeResult = await tryRouteCallMessage(session.conversationId, content, userMessageId);
-    if (bridgeResult.handled) {
-      session.preactivatedSkillIds = undefined;
-      session.processing = false;
-      session.abortController = null;
-      session.currentRequestId = undefined;
-      log.info({ conversationId: session.conversationId, userMessageId }, 'Queued message consumed by call bridge, skipping agent loop');
-      if (bridgeResult.userFacingText) {
-        next.onEvent({ type: 'assistant_text_delta', text: bridgeResult.userFacingText });
-      }
-      next.onEvent({ type: 'message_complete', sessionId: session.conversationId });
-      // runAgentLoop never ran so its finally block won't drain — continue manually
-      drainQueue(session);
-      return;
-    }
-  } catch (err) {
-    log.warn({ err, conversationId: session.conversationId }, 'Call bridge check failed (non-fatal), proceeding with agent loop');
-  }
-
-  await session.runAgentLoop(content, userMessageId, next.onEvent);
 }
 
 // ── processMessage ───────────────────────────────────────────────────
@@ -257,6 +228,57 @@ export async function processMessage(
 ): Promise<string> {
   session.currentActiveSurfaceId = activeSurfaceId;
   session.currentPage = currentPage;
+
+  // ── Guardian action answer interception (mac channel) ──
+  // If this conversation has a pending guardian action delivery, treat the
+  // user message as the guardian's answer instead of running the agent loop.
+  const guardianDelivery = getPendingDeliveryByConversation(session.conversationId);
+  if (guardianDelivery) {
+    const guardianRequest = getGuardianActionRequest(guardianDelivery.requestId);
+    if (guardianRequest && guardianRequest.status === 'pending') {
+      const userMsg = createUserMessage(content, attachments);
+      const persisted = conversationStore.addMessage(
+        session.conversationId,
+        'user',
+        JSON.stringify(userMsg.content),
+      );
+      session.messages.push(userMsg);
+
+      // Attempt to deliver the answer to the call first. Only resolve
+      // the guardian action request if answerCall succeeds, so that a
+      // failed delivery leaves the request pending for retry from
+      // another channel.
+      const answerResult = await answerCall({ callSessionId: guardianRequest.callSessionId, answer: content });
+
+      if ('ok' in answerResult && answerResult.ok) {
+        const resolved = resolveGuardianActionRequest(guardianRequest.id, content, 'mac');
+        const replyText = resolved
+          ? 'Your answer has been relayed to the call.'
+          : 'This question has already been answered from another channel.';
+        const replyMsg = createAssistantMessage(replyText);
+        conversationStore.addMessage(
+          session.conversationId,
+          'assistant',
+          JSON.stringify(replyMsg.content),
+        );
+        session.messages.push(replyMsg);
+        onEvent({ type: 'assistant_text_delta', text: replyText });
+      } else {
+        const errorDetail = 'error' in answerResult ? answerResult.error : 'Unknown error';
+        log.warn({ callSessionId: guardianRequest.callSessionId, error: errorDetail }, 'answerCall failed for mac guardian answer');
+        const failMsg = createAssistantMessage('Failed to deliver your answer to the call. Please try again.');
+        conversationStore.addMessage(
+          session.conversationId,
+          'assistant',
+          JSON.stringify(failMsg.content),
+        );
+        session.messages.push(failMsg);
+        onEvent({ type: 'assistant_text_delta', text: 'Failed to deliver your answer to the call. Please try again.' });
+      }
+      onEvent({ type: 'message_complete', sessionId: session.conversationId });
+      return persisted.id;
+    }
+  }
 
   // Resolve slash commands before persistence
   const slashResult = resolveSlash(content, buildSlashContext(session));
@@ -311,28 +333,6 @@ export async function processMessage(
     // runAgentLoop never ran, so its finally block won't clear this
     session.preactivatedSkillIds = undefined;
     return '';
-  }
-
-  // Route through the call bridge before the agent loop. When the bridge
-  // consumes the message (answer or instruction), skip agent processing.
-  try {
-    const bridgeResult = await tryRouteCallMessage(session.conversationId, resolvedContent, userMessageId);
-    if (bridgeResult.handled) {
-      session.preactivatedSkillIds = undefined;
-      session.processing = false;
-      session.abortController = null;
-      session.currentRequestId = undefined;
-      log.info({ conversationId: session.conversationId, userMessageId }, 'IPC message consumed by call bridge, skipping agent loop');
-      if (bridgeResult.userFacingText) {
-        onEvent({ type: 'assistant_text_delta', text: bridgeResult.userFacingText });
-      }
-      onEvent({ type: 'message_complete', sessionId: session.conversationId });
-      // runAgentLoop never ran so its finally block won't drain — continue manually
-      drainQueue(session);
-      return userMessageId;
-    }
-  } catch (err) {
-    log.warn({ err, conversationId: session.conversationId }, 'Call bridge check failed (non-fatal), proceeding with agent loop');
   }
 
   await session.runAgentLoop(resolvedContent, userMessageId, onEvent);

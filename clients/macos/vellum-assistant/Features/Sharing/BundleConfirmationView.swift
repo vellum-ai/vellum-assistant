@@ -21,6 +21,7 @@ struct BundleConfirmationView: View {
                     bundleSizeSection
                 }
                 .padding(VSpacing.xl)
+                .textSelection(.enabled)
             }
 
             Divider()
@@ -59,6 +60,7 @@ struct BundleConfirmationView: View {
         }
         .padding(VSpacing.xl)
         .frame(maxWidth: .infinity)
+        .textSelection(.enabled)
     }
 
     // MARK: - Trust Tier

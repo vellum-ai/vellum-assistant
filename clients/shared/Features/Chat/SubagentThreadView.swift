@@ -183,7 +183,7 @@ public struct SubagentThreadView: View {
     private func startDotAnimation() {
         guard isRunning else { return }
         timer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { _ in
-            withAnimation(.easeInOut(duration: 0.2)) {
+            withAnimation(VAnimation.standard) {
                 phase += 1
             }
         }

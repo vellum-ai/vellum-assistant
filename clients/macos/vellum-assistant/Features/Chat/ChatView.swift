@@ -12,6 +12,7 @@ struct ChatView: View {
     let pendingQueuedCount: Int
     let suggestion: String?
     let pendingAttachments: [ChatAttachment]
+    var isLoadingAttachment: Bool = false
     let isRecording: Bool
     let onOpenSettings: () -> Void
     let onSend: () -> Void
@@ -42,6 +43,9 @@ struct ChatView: View {
     let onDismissSessionError: () -> Void
     let onCopyDebugInfo: () -> Void
     let watchSession: WatchSession?
+    var isLearnMode: Bool = false
+    var networkEntryCount: Int = 0
+    var idleHint: Bool = false
     let onStopWatch: () -> Void
     var onReportMessage: ((String?) -> Void)?
     var mediaEmbedSettings: MediaEmbedResolverSettings?
@@ -54,6 +58,9 @@ struct ChatView: View {
     var isHistoryLoaded: Bool = true
     var dismissedDocumentSurfaceIds: Set<String> = []
     var onDismissDocumentWidget: ((String) -> Void)?
+    var isMemoryDegraded: Bool = false
+    var memoryDegradedReason: String? = nil
+    var connectionDiagnosticHint: String? = nil
 
     /// Triggers auto-scroll when the last message's text length changes (e.g. during streaming).
     /// Sums utf8.count over each segment (O(1) per contiguous segment) instead of joining first,
@@ -87,6 +94,7 @@ struct ChatView: View {
         ZStack {
             VStack(spacing: 0) {
                 apiKeyBanner
+                memoryDegradedBanner
                 if messages.isEmpty && !isHistoryLoaded {
                     Spacer()
                     HStack {
@@ -105,6 +113,7 @@ struct ChatView: View {
                             isRecording: isRecording,
                             suggestion: suggestion,
                             pendingAttachments: pendingAttachments,
+                            isLoadingAttachment: isLoadingAttachment,
                             errorText: errorText,
                             onSend: onSend,
                             onStop: onStop,
@@ -125,6 +134,7 @@ struct ChatView: View {
                             isRecording: isRecording,
                             suggestion: suggestion,
                             pendingAttachments: pendingAttachments,
+                            isLoadingAttachment: isLoadingAttachment,
                             errorText: errorText,
                             onSend: onSend,
                             onStop: onStop,
@@ -222,7 +232,7 @@ struct ChatView: View {
     @MainActor private var composerOverlay: some View {
         VStack(spacing: 0) {
             if let watchSession, watchSession.state == .capturing {
-                WatchProgressView(session: watchSession, onStop: onStopWatch)
+                WatchProgressView(session: watchSession, onStop: onStopWatch, isLearnMode: isLearnMode, networkEntryCount: networkEntryCount, idleHint: idleHint)
                     .padding(.horizontal, VSpacing.lg)
                     .padding(.bottom, VSpacing.sm)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -236,6 +246,7 @@ struct ChatView: View {
                     isRetryableError: isRetryableError,
                     onRetryError: onRetryError,
                     isConnectionError: isConnectionError,
+                    connectionDiagnosticHint: connectionDiagnosticHint,
                     onOpenDoctor: onOpenDoctor,
                     onDismissError: onDismissError
                 )
@@ -247,6 +258,7 @@ struct ChatView: View {
                 isRecording: isRecording,
                 suggestion: suggestion,
                 pendingAttachments: pendingAttachments,
+                isLoadingAttachment: isLoadingAttachment,
                 onSend: onSend,
                 onStop: onStop,
                 onAcceptSuggestion: onAcceptSuggestion,
@@ -452,6 +464,9 @@ struct ChatView: View {
                                 return conf
                             }()
 
+                            // Hide the avatar when the previous visible message is also from the assistant
+                            let previousIsAssistant = index > 0 && displayMessages[index - 1].role == .assistant
+
                             ChatBubble(
                                 message: message,
                                 hideToolCalls: nextIsPendingConfirmation,
@@ -464,6 +479,7 @@ struct ChatView: View {
                                 onReportMessage: onReportMessage,
                                 mediaEmbedSettings: mediaEmbedSettings,
                                 daemonHttpPort: daemonHttpPort,
+                                showAvatar: !previousIsAssistant,
                                 isLatestAssistantMessage: message.role == .assistant && displayMessages.last(where: { $0.role == .assistant })?.id == message.id
                             )
                                 .id(message.id)
@@ -624,6 +640,7 @@ struct ChatView: View {
                         .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
                     }
                     .buttonStyle(.plain)
+                    .background { ScrollWheelPassthrough() }
                     .padding(.bottom, VSpacing.lg)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
@@ -662,6 +679,39 @@ struct ChatView: View {
                     }
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var memoryDegradedBanner: some View {
+        if isMemoryDegraded {
+            HStack(spacing: VSpacing.sm) {
+                Image(systemName: "memorychip")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.warning)
+                VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                    Text("Memory search limited")
+                        .font(VFont.captionMedium)
+                        .foregroundColor(VColor.textPrimary)
+                    if let reason = memoryDegradedReason {
+                        Text(reason)
+                            .font(VFont.small)
+                            .foregroundColor(VColor.textSecondary)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer()
+            }
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.sm)
+            .background(VColor.warning.opacity(0.1))
+            .overlay(
+                Rectangle()
+                    .fill(VColor.warning)
+                    .frame(width: 3),
+                alignment: .leading
+            )
+            .transition(.move(edge: .top).combined(with: .opacity))
         }
     }
 
@@ -714,17 +764,33 @@ private struct ScrollWheelDetector: NSViewRepresentable {
             guard view.bounds.width > 0, view.bounds.contains(locationInView) else { return event }
 
             if event.scrollingDeltaY > 3 && event.momentumPhase.isEmpty {
-                // Direct user scroll up (toward older content) — untether.
+                // Direct user scroll up (toward older content) — untether,
+                // but only if actually scrolled away from the bottom.
                 // Momentum events are excluded so a flick doesn't accidentally untether.
-                coordinator.onScrollUp?()
+                // Deferred to next run-loop tick so clipBounds reflects the post-scroll position;
+                // reading it synchronously in the event monitor sees the pre-scroll state.
+                DispatchQueue.main.async {
+                    if let scrollView = coordinator.findEnclosingScrollView() {
+                        let clipBounds = scrollView.contentView.bounds
+                        let docHeight = scrollView.documentView?.frame.height ?? 0
+                        if docHeight - clipBounds.maxY >= 50 {
+                            coordinator.onScrollUp?()
+                        }
+                    } else {
+                        coordinator.onScrollUp?()
+                    }
+                }
             } else if event.scrollingDeltaY < -1 {
                 // Scrolling down (direct or momentum) — re-tether if at bottom.
-                // Scrolling down — check if the underlying NSScrollView is at the bottom
-                if let scrollView = coordinator.findEnclosingScrollView() {
-                    let clipBounds = scrollView.contentView.bounds
-                    let docHeight = scrollView.documentView?.frame.height ?? 0
-                    if docHeight - clipBounds.maxY < 50 {
-                        coordinator.onScrollToBottom?()
+                // Deferred to next run-loop tick so clipBounds reflects the post-scroll position;
+                // reading it synchronously in the event monitor sees the pre-scroll state.
+                DispatchQueue.main.async {
+                    if let scrollView = coordinator.findEnclosingScrollView() {
+                        let clipBounds = scrollView.contentView.bounds
+                        let docHeight = scrollView.documentView?.frame.height ?? 0
+                        if docHeight - clipBounds.maxY < 50 {
+                            coordinator.onScrollToBottom?()
+                        }
                     }
                 }
             }
@@ -756,6 +822,68 @@ private struct ScrollWheelDetector: NSViewRepresentable {
                 if let sv = v as? NSScrollView { return sv }
                 current = v.superview
             }
+            return nil
+        }
+    }
+}
+
+// MARK: - Scroll Wheel Passthrough
+
+/// Forwards scroll-wheel events to the chat's NSScrollView so that overlaid
+/// controls (like the "Scroll to latest" pill) don't swallow trackpad/mouse-wheel input.
+private struct ScrollWheelPassthrough: NSViewRepresentable {
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        let coordinator = context.coordinator
+        coordinator.view = view
+        coordinator.monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
+            guard let v = coordinator.view,
+                  let window = v.window,
+                  event.window == window else { return event }
+            let location = v.convert(event.locationInWindow, from: nil)
+            guard v.bounds.width > 0, v.bounds.contains(location) else { return event }
+
+            if let scrollView = coordinator.findScrollView(for: event) {
+                scrollView.scrollWheel(with: event)
+                return nil // consume — we already forwarded it; prevents double-delivery
+            }
+            return event
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        if let monitor = coordinator.monitor {
+            NSEvent.removeMonitor(monitor)
+        }
+    }
+
+    class Coordinator {
+        weak var view: NSView?
+        var monitor: Any?
+
+        /// Finds the deepest NSScrollView whose frame contains the event point.
+        /// This ensures we forward to the chat scroll view, not the sidebar.
+        func findScrollView(for event: NSEvent) -> NSScrollView? {
+            guard let contentView = view?.window?.contentView else { return nil }
+            return Self.deepestScrollView(in: contentView, containing: event.locationInWindow)
+        }
+
+        private static func deepestScrollView(in view: NSView, containing windowPoint: NSPoint) -> NSScrollView? {
+            let localPoint = view.convert(windowPoint, from: nil)
+            guard view.bounds.contains(localPoint) else { return nil }
+
+            for sub in view.subviews.reversed() {
+                if let sv = deepestScrollView(in: sub, containing: windowPoint) {
+                    return sv
+                }
+            }
+
+            if let sv = view as? NSScrollView { return sv }
             return nil
         }
     }

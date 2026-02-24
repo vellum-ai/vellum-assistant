@@ -139,6 +139,7 @@ export const googleCalendarProvider: WatcherProvider = {
     credentialService: string,
     watermark: string | null,
     _config: Record<string, unknown>,
+    _watcherKey: string,
   ): Promise<FetchResult> {
     return withValidToken(credentialService, async (token) => {
       if (!watermark) {

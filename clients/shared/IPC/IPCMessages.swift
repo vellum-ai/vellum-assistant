@@ -777,6 +777,16 @@ extension IPCSessionInfo {
     }
 }
 
+/// Session title update push message emitted after first-turn auto-titling.
+/// Backed by generated `IPCSessionTitleUpdated`.
+public typealias SessionTitleUpdatedMessage = IPCSessionTitleUpdated
+
+extension IPCSessionTitleUpdated {
+    public init(sessionId: String, title: String) {
+        self.init(type: "session_title_updated", sessionId: sessionId, title: title)
+    }
+}
+
 /// Memory recall telemetry event.
 /// Backed by generated `IPCMemoryRecalled`.
 public typealias MemoryRecalledMessage = IPCMemoryRecalled
@@ -1035,6 +1045,12 @@ public typealias SkillsListResponseMessage = IPCSkillsListResponse
 /// Backed by generated `IPCSkillDetailResponse`.
 public typealias SkillDetailResponseMessage = IPCSkillDetailResponse
 
+// MARK: - Conversation Search
+
+/// Response containing conversation search results.
+/// Backed by generated `IPCConversationSearchResponse`.
+public typealias ConversationSearchResponseMessage = IPCConversationSearchResponse
+
 // MARK: - Workspace Files
 
 /// Request to list workspace files.
@@ -1280,6 +1296,16 @@ public typealias ScheduleRemoveMessage = IPCScheduleRemove
 extension IPCScheduleRemove {
     public init(id: String) {
         self.init(type: "schedule_remove", id: id)
+    }
+}
+
+/// Run a schedule immediately as a one-off.
+/// Backed by generated `IPCScheduleRunNow`.
+public typealias ScheduleRunNowMessage = IPCScheduleRunNow
+
+extension IPCScheduleRunNow {
+    public init(id: String) {
+        self.init(type: "schedule_run_now", id: id)
     }
 }
 
@@ -2088,6 +2114,7 @@ public enum ServerMessage: Decodable, Sendable {
     case assistantThinkingDelta(AssistantThinkingDeltaMessage)
     case messageComplete(MessageCompleteMessage)
     case sessionInfo(SessionInfoMessage)
+    case sessionTitleUpdated(SessionTitleUpdatedMessage)
     case sessionListResponse(SessionListResponseMessage)
     case historyResponse(HistoryResponseMessage)
     case memoryStatus(MemoryStatusMessage)
@@ -2187,6 +2214,7 @@ public enum ServerMessage: Decodable, Sendable {
     case workItemApprovePermissionsResponse(IPCWorkItemApprovePermissionsResponse)
     case workItemCancelResponse(IPCWorkItemCancelResponse)
     case taskRunThreadCreated(IPCTaskRunThreadCreated)
+    case guardianRequestThreadCreated(IPCGuardianRequestThreadCreated)
     case openTasksWindow(OpenTasksWindowMessage)
     case subagentSpawned(IPCSubagentSpawned)
     case subagentStatusChanged(IPCSubagentStatusChanged)
@@ -2195,6 +2223,12 @@ public enum ServerMessage: Decodable, Sendable {
     case workspaceFilesListResponse(WorkspaceFilesListResponseMessage)
     case workspaceFileReadResponse(WorkspaceFileReadResponseMessage)
     case identityGetResponse(IdentityGetResponseMessage)
+    case channelReadinessResponse(IPCChannelReadinessResponse)
+    case parentalControlGetResponse(ParentalControlGetResponseMessage)
+    case parentalControlVerifyPinResponse(ParentalControlVerifyPinResponseMessage)
+    case parentalControlSetPinResponse(ParentalControlSetPinResponseMessage)
+    case parentalControlUpdateResponse(ParentalControlUpdateResponseMessage)
+    case conversationSearchResponse(ConversationSearchResponseMessage)
     case pong
     case unknown(String)
 
@@ -2237,6 +2271,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "session_info":
             let message = try SessionInfoMessage(from: decoder)
             self = .sessionInfo(message)
+        case "session_title_updated":
+            let message = try SessionTitleUpdatedMessage(from: decoder)
+            self = .sessionTitleUpdated(message)
         case "session_list_response":
             let message = try SessionListResponseMessage(from: decoder)
             self = .sessionListResponse(message)
@@ -2534,6 +2571,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "task_run_thread_created":
             let message = try IPCTaskRunThreadCreated(from: decoder)
             self = .taskRunThreadCreated(message)
+        case "guardian_request_thread_created":
+            let message = try IPCGuardianRequestThreadCreated(from: decoder)
+            self = .guardianRequestThreadCreated(message)
         case "open_tasks_window":
             let message = try OpenTasksWindowMessage(from: decoder)
             self = .openTasksWindow(message)
@@ -2558,6 +2598,24 @@ public enum ServerMessage: Decodable, Sendable {
         case "identity_get_response":
             let message = try IdentityGetResponseMessage(from: decoder)
             self = .identityGetResponse(message)
+        case "channel_readiness_response":
+            let message = try IPCChannelReadinessResponse(from: decoder)
+            self = .channelReadinessResponse(message)
+        case "parental_control_get_response":
+            let message = try ParentalControlGetResponseMessage(from: decoder)
+            self = .parentalControlGetResponse(message)
+        case "parental_control_verify_pin_response":
+            let message = try ParentalControlVerifyPinResponseMessage(from: decoder)
+            self = .parentalControlVerifyPinResponse(message)
+        case "parental_control_set_pin_response":
+            let message = try ParentalControlSetPinResponseMessage(from: decoder)
+            self = .parentalControlSetPinResponse(message)
+        case "parental_control_update_response":
+            let message = try ParentalControlUpdateResponseMessage(from: decoder)
+            self = .parentalControlUpdateResponse(message)
+        case "conversation_search_response":
+            let message = try ConversationSearchResponseMessage(from: decoder)
+            self = .conversationSearchResponse(message)
         case "pong":
             self = .pong
         default:
@@ -2598,6 +2656,73 @@ public typealias AppFilesChangedMessage = IPCAppFilesChanged
 /// Server push — tells the client to open/focus the tasks window.
 /// Backed by generated `IPCOpenTasksWindow`.
 public typealias OpenTasksWindowMessage = IPCOpenTasksWindow
+
+// MARK: - Parental Control Messages
+
+/// Fetch current parental control settings and PIN status.
+/// Backed by generated `IPCParentalControlGetRequest`.
+public typealias ParentalControlGetRequestMessage = IPCParentalControlGetRequest
+
+extension IPCParentalControlGetRequest {
+    public init() {
+        self.init(type: "parental_control_get")
+    }
+}
+
+/// Parental control settings + PIN status response.
+/// Backed by generated `IPCParentalControlGetResponse`.
+public typealias ParentalControlGetResponseMessage = IPCParentalControlGetResponse
+
+/// Verify a PIN attempt without changing state.
+/// Backed by generated `IPCParentalControlVerifyPinRequest`.
+public typealias ParentalControlVerifyPinRequestMessage = IPCParentalControlVerifyPinRequest
+
+extension IPCParentalControlVerifyPinRequest {
+    public init(pin: String) {
+        self.init(type: "parental_control_verify_pin", pin: pin)
+    }
+}
+
+/// Result of a PIN verification attempt.
+/// Backed by generated `IPCParentalControlVerifyPinResponse`.
+public typealias ParentalControlVerifyPinResponseMessage = IPCParentalControlVerifyPinResponse
+
+/// Set, change, or clear the parental control PIN.
+/// Backed by generated `IPCParentalControlSetPinRequest`.
+public typealias ParentalControlSetPinRequestMessage = IPCParentalControlSetPinRequest
+
+extension IPCParentalControlSetPinRequest {
+    /// Set a PIN for the first time.
+    public static func set(newPin: String) -> Self {
+        Self(type: "parental_control_set_pin", new_pin: newPin)
+    }
+    /// Change an existing PIN.
+    public static func change(currentPin: String, newPin: String) -> Self {
+        Self(type: "parental_control_set_pin", current_pin: currentPin, new_pin: newPin)
+    }
+    /// Clear the PIN.
+    public static func clear(currentPin: String) -> Self {
+        Self(type: "parental_control_set_pin", current_pin: currentPin, clear: true)
+    }
+}
+
+/// Result of a set/change/clear PIN operation.
+/// Backed by generated `IPCParentalControlSetPinResponse`.
+public typealias ParentalControlSetPinResponseMessage = IPCParentalControlSetPinResponse
+
+/// Update parental control settings (enable/disable mode, content restrictions, tool blocks).
+/// Backed by generated `IPCParentalControlUpdateRequest`.
+public typealias ParentalControlUpdateRequestMessage = IPCParentalControlUpdateRequest
+
+extension IPCParentalControlUpdateRequest {
+    public init(pin: String? = nil, enabled: Bool? = nil, contentRestrictions: [String]? = nil, blockedToolCategories: [String]? = nil) {
+        self.init(type: "parental_control_update", pin: pin, enabled: enabled, content_restrictions: contentRestrictions, blocked_tool_categories: blockedToolCategories)
+    }
+}
+
+/// Result of a parental control settings update.
+/// Backed by generated `IPCParentalControlUpdateResponse`.
+public typealias ParentalControlUpdateResponseMessage = IPCParentalControlUpdateResponse
 
 // MARK: - Layout Config Wire Types
 // Defined here temporarily; canonical home is LayoutConfig.swift (M1 / #2973)

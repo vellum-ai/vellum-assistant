@@ -1,9 +1,10 @@
-import { eq, desc, asc, and, count, sql, inArray } from 'drizzle-orm';
+import { eq, desc, asc, and, count, sql, inArray, or, isNull } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
-import { getDb } from './db.js';
+import { getDb, rawGet, rawExec } from './db.js';
 import { conversations, messages, toolInvocations, messageRuns, channelInboundEvents, memoryItemSources, memoryItems, memoryEmbeddings, memoryItemEntities, memorySegments, messageAttachments, llmRequestLogs } from './schema.js';
 import { getConfig } from '../config/loader.js';
 import { indexMessageNow } from './indexer.js';
+import type { ChannelId } from '../channels/types.js';
 import { getLogger } from '../util/logger.js';
 import { deleteOrphanAttachments } from './attachments-store.js';
 
@@ -23,11 +24,12 @@ function monotonicNow(): number {
   return lastTimestamp;
 }
 
-export function createConversation(titleOrOpts?: string | { title?: string; threadType?: 'standard' | 'private' | 'background' }) {
+export function createConversation(titleOrOpts?: string | { title?: string; threadType?: 'standard' | 'private' | 'background'; source?: string }) {
   const db = getDb();
   const now = Date.now();
   const opts = typeof titleOrOpts === 'string' ? { title: titleOrOpts } : (titleOrOpts ?? {});
   const threadType = opts.threadType ?? 'standard';
+  const source = opts.source ?? 'user';
   const id = uuid();
   const memoryScopeId = threadType === 'private' ? `private:${id}` : 'default';
   const conversation = {
@@ -42,6 +44,7 @@ export function createConversation(titleOrOpts?: string | { title?: string; thre
     contextCompactedMessageCount: 0,
     contextCompactedAt: null as number | null,
     threadType,
+    source,
     memoryScopeId,
   };
   db.insert(conversations).values(conversation).run();
@@ -122,23 +125,42 @@ export function getLatestConversation() {
 
 export function addMessage(conversationId: string, role: string, content: string, metadata?: Record<string, unknown>) {
   const db = getDb();
-  const now = monotonicNow();
-  const message = {
-    id: uuid(),
-    conversationId,
-    role,
-    content,
-    createdAt: now,
-    ...(metadata ? { metadata: JSON.stringify(metadata) } : {}),
-  };
+  const messageId = uuid();
+  const metadataStr = metadata ? JSON.stringify(metadata) : undefined;
   // Wrap insert + updatedAt bump in a transaction so they're atomic.
-  db.transaction((tx) => {
-    tx.insert(messages).values(message).run();
-    tx.update(conversations)
-      .set({ updatedAt: now })
-      .where(eq(conversations.id, conversationId))
-      .run();
-  });
+  // Retry on SQLITE_BUSY in case busy_timeout is exhausted under heavy contention.
+  // Timestamp is recomputed each attempt so a late retry doesn't persist a stale updatedAt.
+  const MAX_RETRIES = 3;
+  let now!: number;
+  for (let attempt = 0; ; attempt++) {
+    now = monotonicNow();
+    try {
+      const values = {
+        id: messageId,
+        conversationId,
+        role,
+        content,
+        createdAt: now,
+        ...(metadataStr ? { metadata: metadataStr } : {}),
+      };
+      db.transaction((tx) => {
+        tx.insert(messages).values(values).run();
+        tx.update(conversations)
+          .set({ updatedAt: now })
+          .where(eq(conversations.id, conversationId))
+          .run();
+      });
+      break;
+    } catch (err) {
+      if (attempt < MAX_RETRIES && (err as { code?: string }).code === 'SQLITE_BUSY') {
+        log.warn({ attempt, conversationId }, 'addMessage: SQLITE_BUSY, retrying');
+        Bun.sleepSync(50 * (attempt + 1));
+        continue;
+      }
+      throw err;
+    }
+  }
+  const message = { id: messageId, conversationId, role, content, createdAt: now, ...(metadataStr ? { metadata: metadataStr } : {}) };
 
   try {
     const config = getConfig();
@@ -218,30 +240,27 @@ export function updateConversationContextWindow(
  * Returns { conversations, messages } counts.
  */
 export function clearAll(): { conversations: number; messages: number } {
-  const db = getDb();
-  const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
-
-  const msgCount = (raw.query('SELECT COUNT(*) AS c FROM messages').get() as { c: number }).c;
-  const convCount = (raw.query('SELECT COUNT(*) AS c FROM conversations').get() as { c: number }).c;
+  const msgCount = rawGet<{ c: number }>('SELECT COUNT(*) AS c FROM messages')?.c ?? 0;
+  const convCount = rawGet<{ c: number }>('SELECT COUNT(*) AS c FROM conversations')?.c ?? 0;
 
   // Delete in dependency order. Cascades handle memory_segments,
   // memory_item_sources, and tool_invocations, but we explicitly
   // clear non-cascading memory tables too.
-  raw.exec('DELETE FROM memory_segment_fts');
-  raw.exec('DELETE FROM memory_item_sources');
-  raw.exec('DELETE FROM memory_segments');
-  raw.exec('DELETE FROM memory_items');
-  raw.exec('DELETE FROM memory_summaries');
-  raw.exec('DELETE FROM memory_embeddings');
-  raw.exec('DELETE FROM memory_jobs');
-  raw.exec('DELETE FROM memory_checkpoints');
-  raw.exec('DELETE FROM llm_request_logs');
-  raw.exec('DELETE FROM llm_usage_events');
-  raw.exec('DELETE FROM message_attachments');
-  raw.exec('DELETE FROM attachments');
-  raw.exec('DELETE FROM tool_invocations');
-  raw.exec('DELETE FROM messages');
-  raw.exec('DELETE FROM conversations');
+  rawExec('DELETE FROM memory_segment_fts');
+  rawExec('DELETE FROM memory_item_sources');
+  rawExec('DELETE FROM memory_segments');
+  rawExec('DELETE FROM memory_items');
+  rawExec('DELETE FROM memory_summaries');
+  rawExec('DELETE FROM memory_embeddings');
+  rawExec('DELETE FROM memory_jobs');
+  rawExec('DELETE FROM memory_checkpoints');
+  rawExec('DELETE FROM llm_request_logs');
+  rawExec('DELETE FROM llm_usage_events');
+  rawExec('DELETE FROM message_attachments');
+  rawExec('DELETE FROM attachments');
+  rawExec('DELETE FROM tool_invocations');
+  rawExec('DELETE FROM messages');
+  rawExec('DELETE FROM conversations');
 
   return { conversations: convCount, messages: msgCount };
 }
@@ -309,7 +328,7 @@ export function deleteLastExchange(conversationId: string): number {
       .where(inArray(messageAttachments.messageId, messageIds))
       .all()
       .map((r) => r.attachmentId)
-      .filter((id): id is string => id !== null)
+      .filter((id): id is string => id != null)
     : [];
 
   db.transaction((tx) => {
@@ -401,7 +420,7 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
     .where(eq(messageAttachments.messageId, messageId))
     .all()
     .map((r) => r.attachmentId)
-    .filter((id): id is string => id !== null);
+    .filter((id): id is string => id !== undefined);
 
   db.transaction((tx) => {
     // Collect memory segment IDs linked to this message before cascade.
@@ -479,4 +498,172 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
   deleteOrphanAttachments(candidateAttachmentIds);
 
   return result;
+}
+
+export interface ConversationSearchResult {
+  conversationId: string;
+  conversationTitle: string | null;
+  conversationUpdatedAt: number;
+  matchingMessages: Array<{
+    messageId: string;
+    role: string;
+    /** Plain-text excerpt around the match, truncated to ~200 chars. */
+    excerpt: string;
+    createdAt: number;
+  }>;
+}
+
+/**
+ * Full-text search across message content using SQL LIKE.
+ * Searches message content for the query string and returns matching
+ * conversations with their relevant messages, ordered by most recently updated.
+ *
+ * Messages that contain JSON-encoded content blocks are searched by their
+ * raw content string — the query will match inside code blocks, tool call text,
+ * and plain text alike. This is intentional: it avoids a full content parse
+ * at query time and stays fast even on large databases.
+ */
+export function searchConversations(
+  query: string,
+  opts?: { limit?: number; maxMessagesPerConversation?: number },
+): ConversationSearchResult[] {
+  if (!query.trim()) return [];
+
+  const db = getDb();
+  const limit = opts?.limit ?? 20;
+  const maxMsgsPerConv = opts?.maxMessagesPerConversation ?? 3;
+  // Escape backslashes first so they don't interfere with subsequent % and _ escaping.
+  // With ESCAPE '\\', SQLite treats \\ as a literal backslash, \% as a literal percent,
+  // and \_ as a literal underscore — so all three characters must be escaped in that order.
+  const pattern = `%${query.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')}%`;
+
+  // Find conversations whose title or at least one message content matches the query.
+  // leftJoin ensures title-only matches are included even for empty conversations
+  // (innerJoin would silently drop them).
+  // ESCAPE '\\' is required for SQLite to treat the backslashes in the pattern as
+  // escape characters rather than literals; SQLite has no default escape character.
+  const matchingConversations = db
+    .select({
+      id: conversations.id,
+      title: conversations.title,
+      updatedAt: conversations.updatedAt,
+    })
+    .from(conversations)
+    .leftJoin(messages, eq(messages.conversationId, conversations.id))
+    .where(
+      and(
+        sql`${conversations.threadType} != 'background'`,
+        or(
+          sql`${messages.content} LIKE ${pattern} ESCAPE '\\'`,
+          sql`${conversations.title} LIKE ${pattern} ESCAPE '\\'`,
+        ),
+      ),
+    )
+    .groupBy(conversations.id)
+    .orderBy(desc(conversations.updatedAt))
+    .limit(limit)
+    .all();
+
+  if (matchingConversations.length === 0) return [];
+
+  const results: ConversationSearchResult[] = [];
+
+  for (const conv of matchingConversations) {
+    // Fetch the top matching messages for this conversation.
+    const matchingMsgs = db
+      .select({
+        id: messages.id,
+        role: messages.role,
+        content: messages.content,
+        createdAt: messages.createdAt,
+      })
+      .from(messages)
+      .where(
+        and(
+          eq(messages.conversationId, conv.id),
+          // ESCAPE '\\' required so backslashes in the pattern act as escape characters.
+          sql`${messages.content} LIKE ${pattern} ESCAPE '\\'`,
+        ),
+      )
+      .orderBy(asc(messages.createdAt))
+      .limit(maxMsgsPerConv)
+      .all();
+
+    results.push({
+      conversationId: conv.id,
+      conversationTitle: conv.title,
+      conversationUpdatedAt: conv.updatedAt,
+      matchingMessages: matchingMsgs.map((m) => ({
+        messageId: m.id,
+        role: m.role,
+        excerpt: buildExcerpt(m.content, query),
+        createdAt: m.createdAt,
+      })),
+    });
+  }
+
+  return results;
+}
+
+/**
+ * Build a short excerpt from raw message content centered around the first
+ * occurrence of `query`. The content may be JSON (content blocks) or plain
+ * text; we extract a readable snippet in either case.
+ */
+function buildExcerpt(rawContent: string, query: string): string {
+  // Try to extract plain text from JSON content blocks first.
+  let text = rawContent;
+  try {
+    const parsed = JSON.parse(rawContent);
+    if (Array.isArray(parsed)) {
+      const parts: string[] = [];
+      for (const block of parsed) {
+        if (typeof block === 'object' && block != null) {
+          if (block.type === 'text' && typeof block.text === 'string') {
+            parts.push(block.text);
+          } else if (block.type === 'tool_result') {
+            const inner = Array.isArray(block.content) ? block.content : [];
+            for (const ib of inner) {
+              if (ib?.type === 'text' && typeof ib.text === 'string') parts.push(ib.text);
+            }
+          }
+        }
+      }
+      if (parts.length > 0) text = parts.join(' ');
+    } else if (typeof parsed === 'string') {
+      text = parsed;
+    }
+  } catch {
+    // Not JSON — use as-is
+  }
+
+  const WINDOW = 100;
+  const lowerText = text.toLowerCase();
+  const lowerQuery = query.toLowerCase();
+  const idx = lowerText.indexOf(lowerQuery);
+  if (idx === -1) {
+    // Query matched the raw JSON but not the extracted text — fall back to raw start
+    return text.slice(0, WINDOW * 2).replace(/\s+/g, ' ').trim();
+  }
+  const start = Math.max(0, idx - WINDOW);
+  const end = Math.min(text.length, idx + query.length + WINDOW);
+  const excerpt = (start > 0 ? '…' : '') + text.slice(start, end).replace(/\s+/g, ' ').trim() + (end < text.length ? '…' : '');
+  return excerpt;
+}
+
+export function setConversationOriginChannelIfUnset(conversationId: string, channel: ChannelId): void {
+  const db = getDb();
+  db.update(conversations)
+    .set({ originChannel: channel })
+    .where(and(eq(conversations.id, conversationId), isNull(conversations.originChannel)))
+    .run();
+}
+
+export function getConversationOriginChannel(conversationId: string): ChannelId | null {
+  const db = getDb();
+  const row = db.select({ originChannel: conversations.originChannel })
+    .from(conversations)
+    .where(eq(conversations.id, conversationId))
+    .get();
+  return (row?.originChannel as ChannelId) ?? null;
 }

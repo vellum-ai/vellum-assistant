@@ -24,6 +24,7 @@ struct ModelSelectionStepView: View {
         Text("Choose your model")
             .font(.system(size: 32, weight: .regular, design: .serif))
             .foregroundColor(VColor.textPrimary)
+            .textSelection(.enabled)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.md)
@@ -32,6 +33,7 @@ struct ModelSelectionStepView: View {
         Text("Pick the model that powers your assistant.")
             .font(.system(size: 16))
             .foregroundColor(VColor.textSecondary)
+            .textSelection(.enabled)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
 

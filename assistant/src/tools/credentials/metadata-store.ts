@@ -6,9 +6,10 @@
  * in the secure key backend only.
  */
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from 'node:fs';
+import { writeFileSync, renameSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { getDataDir } from '../../util/platform.js';
+import { ensureDir, readTextFileSync } from '../../util/fs.js';
 import { randomUUID } from 'node:crypto';
 import type { CredentialInjectionTemplate } from './policy-types.js';
 
@@ -28,6 +29,8 @@ export interface CredentialMetadata {
   oauth2ClientId?: string;
   /** OAuth2 client secret — for providers that require it (e.g. Slack). Stored in metadata for autonomous refresh. */
   oauth2ClientSecret?: string;
+  /** How the client authenticates at the token endpoint (client_secret_basic or client_secret_post). */
+  oauth2TokenEndpointAuthMethod?: string;
   /** Human-friendly name for this credential (e.g. "fal-primary"). */
   alias?: string;
   /** Templates describing how to inject this credential into proxied requests. */
@@ -71,7 +74,7 @@ function isUnknownVersion(r: LoadResult): r is UnknownVersionResult {
  * Filters out corrupted or incomplete entries during migration.
  */
 function isValidCredentialRecord(record: unknown): record is Record<string, unknown> {
-  if (typeof record !== 'object' || record === null) return false;
+  if (typeof record !== 'object' || record == null) return false;
   const r = record as Record<string, unknown>;
   return (
     typeof r.credentialId === 'string' &&
@@ -99,6 +102,7 @@ function migrateRecordV1toV2(record: Record<string, unknown>): CredentialMetadat
     oauth2TokenUrl: typeof record.oauth2TokenUrl === 'string' ? record.oauth2TokenUrl : undefined,
     oauth2ClientId: typeof record.oauth2ClientId === 'string' ? record.oauth2ClientId : undefined,
     oauth2ClientSecret: typeof record.oauth2ClientSecret === 'string' ? record.oauth2ClientSecret : undefined,
+    oauth2TokenEndpointAuthMethod: typeof record.oauth2TokenEndpointAuthMethod === 'string' ? record.oauth2TokenEndpointAuthMethod : undefined,
     alias: typeof record.alias === 'string' ? record.alias : undefined,
     injectionTemplates: Array.isArray(record.injectionTemplates)
       ? (record.injectionTemplates as CredentialInjectionTemplate[])
@@ -109,14 +113,13 @@ function migrateRecordV1toV2(record: Record<string, unknown>): CredentialMetadat
 }
 
 function loadFile(): LoadResult {
-  const path = getMetadataPath();
-  if (!existsSync(path)) {
+  const raw = readTextFileSync(getMetadataPath());
+  if (raw == null) {
     return { version: CURRENT_VERSION, credentials: [] };
   }
   try {
-    const raw = readFileSync(path, 'utf-8');
     const data = JSON.parse(raw);
-    if (typeof data !== 'object' || data === null) {
+    if (typeof data !== 'object' || data == null) {
       return { version: CURRENT_VERSION, credentials: [] };
     }
     const fileVersion = typeof data.version === 'number' ? data.version : 1;
@@ -146,9 +149,7 @@ function loadFile(): LoadResult {
 function saveFile(data: MetadataFile): void {
   const path = getMetadataPath();
   const dir = dirname(path);
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
+  ensureDir(dir);
   const tmpPath = join(dir, `.tmp-${randomUUID()}`);
   writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf-8');
   renameSync(tmpPath, path);
@@ -186,6 +187,7 @@ export function upsertCredentialMetadata(
     oauth2ClientId?: string;
     /** Pass `null` to explicitly clear a previously-set client secret. */
     oauth2ClientSecret?: string | null;
+    oauth2TokenEndpointAuthMethod?: string;
     /** Pass `null` to explicitly clear a previously-set alias. */
     alias?: string | null;
     /** Pass `null` to explicitly clear injection templates. */
@@ -208,7 +210,7 @@ export function upsertCredentialMetadata(
     if (policy?.allowedDomains !== undefined) existing.allowedDomains = policy.allowedDomains;
     if (policy?.usageDescription !== undefined) existing.usageDescription = policy.usageDescription;
     if (policy?.expiresAt !== undefined) {
-      if (policy.expiresAt === null) {
+      if (policy.expiresAt == null) {
         delete existing.expiresAt;
       } else {
         existing.expiresAt = policy.expiresAt;
@@ -216,7 +218,7 @@ export function upsertCredentialMetadata(
     }
     if (policy?.grantedScopes !== undefined) existing.grantedScopes = policy.grantedScopes;
     if (policy?.accountInfo !== undefined) {
-      if (policy.accountInfo === null) {
+      if (policy.accountInfo == null) {
         delete existing.accountInfo;
       } else {
         existing.accountInfo = policy.accountInfo;
@@ -225,21 +227,22 @@ export function upsertCredentialMetadata(
     if (policy?.oauth2TokenUrl !== undefined) existing.oauth2TokenUrl = policy.oauth2TokenUrl;
     if (policy?.oauth2ClientId !== undefined) existing.oauth2ClientId = policy.oauth2ClientId;
     if (policy?.oauth2ClientSecret !== undefined) {
-      if (policy.oauth2ClientSecret === null) {
+      if (policy.oauth2ClientSecret == null) {
         delete existing.oauth2ClientSecret;
       } else {
         existing.oauth2ClientSecret = policy.oauth2ClientSecret;
       }
     }
+    if (policy?.oauth2TokenEndpointAuthMethod !== undefined) existing.oauth2TokenEndpointAuthMethod = policy.oauth2TokenEndpointAuthMethod;
     if (policy?.alias !== undefined) {
-      if (policy.alias === null) {
+      if (policy.alias == null) {
         delete existing.alias;
       } else {
         existing.alias = policy.alias;
       }
     }
     if (policy?.injectionTemplates !== undefined) {
-      if (policy.injectionTemplates === null) {
+      if (policy.injectionTemplates == null) {
         delete existing.injectionTemplates;
       } else {
         existing.injectionTemplates = policy.injectionTemplates;
@@ -263,6 +266,7 @@ export function upsertCredentialMetadata(
     oauth2TokenUrl: policy?.oauth2TokenUrl,
     oauth2ClientId: policy?.oauth2ClientId,
     oauth2ClientSecret: policy?.oauth2ClientSecret ?? undefined,
+    oauth2TokenEndpointAuthMethod: policy?.oauth2TokenEndpointAuthMethod,
     alias: policy?.alias ?? undefined,
     injectionTemplates: policy?.injectionTemplates ?? undefined,
     createdAt: now,

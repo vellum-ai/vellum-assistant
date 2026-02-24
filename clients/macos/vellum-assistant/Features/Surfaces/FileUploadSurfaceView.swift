@@ -17,6 +17,7 @@ struct FileUploadSurfaceView: View {
             Text(data.prompt)
                 .font(VFont.body)
                 .foregroundColor(VColor.textSecondary)
+                .textSelection(.enabled)
 
             // Drop zone
             dropZone
@@ -26,6 +27,7 @@ struct FileUploadSurfaceView: View {
                 Text(errorMessage)
                     .font(VFont.caption)
                     .foregroundColor(VColor.error)
+                    .textSelection(.enabled)
             }
 
             // File previews
@@ -109,10 +111,12 @@ struct FileUploadSurfaceView: View {
                             .font(VFont.captionMedium)
                             .foregroundColor(VColor.textPrimary)
                             .lineLimit(1)
+                            .textSelection(.enabled)
 
                         Text(formatFileSize(file.size))
                             .font(VFont.caption)
                             .foregroundColor(VColor.textMuted)
+                            .textSelection(.enabled)
                     }
 
                     Spacer()
@@ -141,11 +145,13 @@ struct FileUploadSurfaceView: View {
                 Text("Max \(data.maxFiles) files")
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
+                    .textSelection(.enabled)
             }
             if let types = data.acceptedTypes, !types.isEmpty {
                 Text(types.joined(separator: ", "))
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
+                    .textSelection(.enabled)
             }
         }
     }

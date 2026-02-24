@@ -647,14 +647,14 @@ Multiple plans can run in parallel — just specify the plan name to disambiguat
 |---------|---------|
 | `/plan-html <topic\|plan-name>` | Create or refresh a rollout plan in `.private/plans/` with both markdown and a polished, review-friendly HTML view (including per-PR file lists). |
 | `/release [version]` | Cut a release: pull main, determine/create version tag, generate release notes, publish GitHub Release, and verify CI trigger. |
-| `/update` | Pull latest from `main`, restart daemon, relaunch a single source gateway with ingress + Twilio auth env plus resilient routing defaults (`GATEWAY_UNMAPPED_POLICY` / `GATEWAY_DEFAULT_ASSISTANT_ID`) injected from local config/credentials, verify gateway health (fail fast on startup failure), then launch app pinned to local `gateway/`. Prints a startup summary with daemon/gateway health, Twilio env presence, and routing config. |
+| `/update` | Pull latest from `main`, restart daemon, relaunch a single source gateway with ingress + Twilio auth env plus resilient routing defaults (`GATEWAY_UNMAPPED_POLICY` / `GATEWAY_DEFAULT_ASSISTANT_ID`) injected from local config/credentials, verify gateway health (fail fast on startup failure or duplicate gateway processes), then launch app pinned to local `gateway/`. Prints a startup summary with daemon/gateway health, Twilio env presence, and routing config. |
 
 
 ### Review
 
 | Command | Purpose |
 |---------|---------|
-| `/check-reviews [--namespace NAME] [--branch NAME]` | Checks for review feedback on unreviewed PRs, assesses feedback contextually (valid, nonsensical, or regression risk), creates follow-up tasks for valid feedback, and halts for user decision on regression risks. When `--namespace` is provided, only PRs whose head branch starts with `swarm/<namespace>/` are processed, and any TODO items added are prefixed with `[<namespace>]`. When `--namespace` is omitted, all PRs are processed, but TODO items are still namespaced if the PR's branch name matches `swarm/<NAME>/...` (the namespace is inferred from the branch). Use `--branch` to control which branch CI failures are checked on (default: `main`), useful when PRs merge into a feature branch instead of main. |
+| `/check-reviews [--namespace NAME]` | Checks for review feedback on unreviewed PRs, assesses feedback contextually (valid, nonsensical, or regression risk), creates follow-up tasks for valid feedback, and halts for user decision on regression risks. When `--namespace` is provided, only PRs whose head branch starts with `swarm/<namespace>/` are processed, and any TODO items added are prefixed with `[<namespace>]`. When `--namespace` is omitted, all PRs are processed, but TODO items are still namespaced if the PR's branch name matches `swarm/<NAME>/...` (the namespace is inferred from the branch). |
 
 ### Typical flow
 

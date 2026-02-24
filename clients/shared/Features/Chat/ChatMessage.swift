@@ -16,6 +16,8 @@ public enum ChatMessageStatus: Equatable {
     case sent
     case queued(position: Int)
     case processing
+    /// Message is buffered in the local offline queue pending daemon reconnect.
+    case pendingOffline
 }
 
 /// Tracks the state of an inline tool confirmation request.
@@ -80,9 +82,75 @@ public struct ToolConfirmationData: Equatable {
                 return "The assistant wants to open \(host)"
             }
             return "The assistant wants to open a page"
+        case "schedule_create":
+            let name = (input["name"]?.value as? String) ?? ""
+            return name.isEmpty
+                ? "The assistant wants to create a schedule"
+                : "The assistant wants to create a schedule: \(name)"
+        case "schedule_update":
+            return "The assistant wants to update a schedule"
+        case "schedule_delete":
+            return "The assistant wants to delete a schedule"
+        case "reminder_create":
+            let msg = (input["message"]?.value as? String) ?? ""
+            return msg.isEmpty
+                ? "The assistant wants to set a reminder"
+                : "The assistant wants to remind you: \(msg)"
+        case "reminder_list":
+            return "The assistant wants to list reminders"
+        case "reminder_cancel":
+            return "The assistant wants to cancel a reminder"
         default:
             return "The assistant wants to use \(toolName)"
         }
+    }
+
+    /// Structured preview of ALL input parameters, formatted as key: value lines.
+    /// Used in the "More details" section so the user can see exactly what will happen.
+    public var fullInputPreview: String {
+        switch toolName {
+        case "bash":
+            let command = (input["command"]?.value as? String) ?? ""
+            var extras: [String] = []
+            if let networkMode = input["network_mode"]?.value as? String, !networkMode.isEmpty {
+                extras.append("network_mode: \(networkMode)")
+            }
+            if let credentialIds = input["credential_ids"]?.value as? [Any], !credentialIds.isEmpty {
+                let ids = credentialIds.compactMap { $0 as? String }
+                if !ids.isEmpty { extras.append("credential_ids: \(ids.joined(separator: ", "))") }
+            }
+            if let timeout = input["timeout_seconds"]?.value {
+                extras.append("timeout_seconds: \(timeout)")
+            }
+            if extras.isEmpty { return command }
+            return command + "\n\n" + extras.joined(separator: "\n")
+        case "host_bash":
+            let command = (input["command"]?.value as? String) ?? ""
+            if let timeout = input["timeout_seconds"]?.value {
+                return command + "\n\ntimeout_seconds: \(timeout)"
+            }
+            return command
+        default:
+            break
+        }
+
+        let lines: [String] = input.keys.sorted().compactMap { key in
+            guard let value = input[key]?.value else { return nil }
+            let formatted: String
+            if let str = value as? String {
+                formatted = str.count > 120 ? String(str.prefix(117)) + "..." : str
+            } else if let bool = value as? Bool {
+                formatted = bool ? "true" : "false"
+            } else if let num = value as? Int {
+                formatted = "\(num)"
+            } else if let num = value as? Double {
+                formatted = "\(num)"
+            } else {
+                formatted = "\(value)"
+            }
+            return "\(key): \(formatted)"
+        }
+        return lines.joined(separator: "\n")
     }
 
     /// Human-readable preview of the tool input (e.g. the bash command or file path).
@@ -102,13 +170,101 @@ public struct ToolConfirmationData: Equatable {
             return "navigate \((input["url"]?.value as? String) ?? "")"
         case "request_system_permission":
             return (input["permission_type"]?.value as? String) ?? "system permission"
+        case "schedule_create":
+            return Self.schedulePreview(input: input, verb: "Create")
+        case "schedule_update":
+            return Self.schedulePreview(input: input, verb: "Update")
+        case "schedule_delete":
+            let jobId = (input["job_id"]?.value as? String) ?? ""
+            return jobId.isEmpty ? "Delete schedule" : "Delete schedule \(jobId)"
+        case "schedule_list":
+            return "List schedules"
+        case "reminder_create":
+            return Self.reminderPreview(input: input)
+        case "reminder_list":
+            return "List reminders"
+        case "reminder_cancel":
+            let id = (input["reminder_id"]?.value as? String) ?? ""
+            return id.isEmpty ? "Cancel reminder" : "Cancel reminder \(id)"
+        case "credential_store":
+            return Self.credentialPreview(input: input)
         default:
-            // Fallback: show first string value or tool name
-            if let firstString = input.values.compactMap({ $0.value as? String }).first {
-                return firstString
-            }
-            return ""
+            return Self.genericPreview(toolName: toolName, input: input)
         }
+    }
+
+    /// Build a preview string for schedule_create/schedule_update tools.
+    private static func schedulePreview(input: [String: AnyCodable], verb: String) -> String {
+        let name = (input["name"]?.value as? String) ?? ""
+        let jobId = (input["job_id"]?.value as? String) ?? ""
+        let expr = (input["expression"]?.value as? String)
+            ?? (input["cron_expression"]?.value as? String)
+            ?? ""
+        let message = (input["message"]?.value as? String) ?? ""
+
+        var parts: [String] = []
+        if !name.isEmpty { parts.append("\"\(name)\"") }
+        if !jobId.isEmpty && name.isEmpty { parts.append(jobId) }
+        if !expr.isEmpty { parts.append(expr) }
+        if parts.isEmpty && !message.isEmpty {
+            parts.append("\"\(message.count > 60 ? String(message.prefix(57)) + "..." : message)\"")
+        }
+
+        if parts.isEmpty { return "\(verb) schedule" }
+        return "\(verb): \(parts.joined(separator: " — "))"
+    }
+
+    /// Build a preview string for the reminder tool.
+    private static func reminderPreview(input: [String: AnyCodable]) -> String {
+        let message = (input["message"]?.value as? String) ?? ""
+        let delay = (input["delay"]?.value as? String) ?? ""
+        let at = (input["at"]?.value as? String) ?? ""
+
+        var parts: [String] = []
+        if !message.isEmpty {
+            parts.append("\"\(message.count > 60 ? String(message.prefix(57)) + "..." : message)\"")
+        }
+        if !at.isEmpty { parts.append("at \(at)") }
+        else if !delay.isEmpty { parts.append("in \(delay)") }
+
+        if parts.isEmpty { return "Set reminder" }
+        return parts.joined(separator: " ")
+    }
+
+    /// Build a preview string for the credential_store tool.
+    private static func credentialPreview(input: [String: AnyCodable]) -> String {
+        let action = (input["action"]?.value as? String) ?? ""
+        let service = (input["service"]?.value as? String) ?? ""
+
+        switch action {
+        case "oauth2_connect":
+            return service.isEmpty ? "Connect account" : "Connect \(service) account"
+        case "store":
+            return service.isEmpty ? "Save credential" : "Save \(service) credential"
+        case "delete":
+            return service.isEmpty ? "Remove credential" : "Remove \(service) credential"
+        case "prompt":
+            return service.isEmpty ? "Request credential" : "Request \(service) credential"
+        default:
+            return service.isEmpty ? "Access secure storage" : "\(service) credential"
+        }
+    }
+
+    /// Build a generic preview from tool input, preferring known key names over
+    /// arbitrary first-string-value fallback.
+    private static func genericPreview(toolName: String, input: [String: AnyCodable]) -> String {
+        // Prefer semantically meaningful keys over random dictionary iteration order
+        let preferredKeys = ["name", "query", "message", "description", "title", "url", "path", "command", "id"]
+        for key in preferredKeys {
+            if let val = input[key]?.value as? String, !val.isEmpty {
+                return val.count > 80 ? String(val.prefix(77)) + "..." : val
+            }
+        }
+        // Fall back to first string value
+        if let firstString = input.values.compactMap({ $0.value as? String }).first {
+            return firstString.count > 80 ? String(firstString.prefix(77)) + "..." : firstString
+        }
+        return ""
     }
 
     /// User-facing tool category label (e.g. "Run Command", "Write File").
@@ -128,7 +284,7 @@ public struct ToolConfirmationData: Equatable {
         case _ where toolName.hasPrefix("memory_"):   return "Memory"
         case "skill_load":                            return "Skill"
         case "evaluate_typescript_code":              return "Code Sandbox"
-        case "reminder":                              return "Reminder"
+        case _ where toolName.hasPrefix("reminder_"):   return "Reminder"
         case "document_create", "document_update":    return "Document"
         default:
             return toolName
@@ -156,7 +312,7 @@ public struct ToolConfirmationData: Equatable {
         case _ where toolName.hasPrefix("memory_"):   return "brain"
         case "skill_load":                            return "puzzlepiece.extension"
         case "evaluate_typescript_code":              return "chevron.left.forwardslash.chevron.right"
-        case "reminder":                              return "bell"
+        case _ where toolName.hasPrefix("reminder_"):   return "bell"
         case "document_create", "document_update":    return "doc.richtext"
         default:                                      return "puzzlepiece.extension"
         }
@@ -289,6 +445,26 @@ public struct ToolConfirmationData: Equatable {
             default:
                 return "Allow accessing secure storage?"
             }
+        case "schedule_create":
+            let name = (input["name"]?.value as? String) ?? ""
+            return name.isEmpty
+                ? "Allow creating a schedule?"
+                : "Allow creating schedule \"\(name)\"?"
+        case "schedule_update":
+            return "Allow updating a schedule?"
+        case "schedule_delete":
+            return "Allow deleting a schedule?"
+        case "reminder_create":
+            let msg = (input["message"]?.value as? String) ?? ""
+            if !msg.isEmpty {
+                let truncated = msg.count > 40 ? String(msg.prefix(37)) + "..." : msg
+                return "Allow setting a reminder: \"\(truncated)\"?"
+            }
+            return "Allow setting a reminder?"
+        case "reminder_list":
+            return "Allow listing reminders?"
+        case "reminder_cancel":
+            return "Allow canceling a reminder?"
         default:
             let tc = toolCategory.lowercased()
             if !r.isEmpty { return "Allow using \(tc) \(r)?" }
@@ -410,6 +586,10 @@ public struct ToolCallData: Identifiable, Equatable {
     public let inputSummary: String
     /// Full (untruncated) input text for display in expanded views.
     public let inputFull: String
+    /// Untruncated raw value of the primary input key (e.g. file path).
+    /// Unlike inputSummary (truncated to 80 chars) this preserves the full value
+    /// for use in file existence checks and opening files.
+    public let inputRawValue: String
     public var result: String?
     public var isError: Bool
     public var isComplete: Bool
@@ -442,16 +622,18 @@ public struct ToolCallData: Identifiable, Equatable {
             && lhs.isComplete == rhs.isComplete
             && lhs.arrivedBeforeText == rhs.arrivedBeforeText
             && lhs.inputFull == rhs.inputFull
+            && lhs.inputRawValue == rhs.inputRawValue
             && lhs.imageData == rhs.imageData
             && lhs.buildingStatus == rhs.buildingStatus
             && lhs.claudeCodeSteps == rhs.claudeCodeSteps
     }
 
-    public init(id: UUID = UUID(), toolName: String, inputSummary: String, inputFull: String? = nil, result: String? = nil, isError: Bool = false, isComplete: Bool = false, arrivedBeforeText: Bool = true, imageData: String? = nil, startedAt: Date? = nil, completedAt: Date? = nil) {
+    public init(id: UUID = UUID(), toolName: String, inputSummary: String, inputFull: String? = nil, inputRawValue: String? = nil, result: String? = nil, isError: Bool = false, isComplete: Bool = false, arrivedBeforeText: Bool = true, imageData: String? = nil, startedAt: Date? = nil, completedAt: Date? = nil) {
         self.id = id
         self.toolName = toolName
         self.inputSummary = inputSummary
         self.inputFull = inputFull ?? inputSummary
+        self.inputRawValue = inputRawValue ?? inputSummary
         self.result = result
         self.isError = isError
         self.isComplete = isComplete
@@ -635,7 +817,22 @@ public struct ToolCallData: Identifiable, Equatable {
     }
 
     private func interpretBashCommand(_ cmd: String) -> String {
-        let tokens = cmd.trimmingCharacters(in: .whitespaces)
+        // For compound commands (cd foo && claude ...), skip trivial prefix commands
+        // to describe the meaningful part.
+        let trivialPrefixes: Set<String> = ["cd", "pushd", "popd", "export", "source"]
+        let segments = cmd.components(separatedBy: "&&").map { $0.trimmingCharacters(in: .whitespaces) }
+        // Skip all leading trivial segments so "cd repo && export FOO=1 && bun test"
+        // resolves to "bun test" rather than stopping after the first trivial segment.
+        var remaining = segments[...]
+        while remaining.count > 1,
+              let firstWord = remaining.first?
+                  .components(separatedBy: .whitespaces).first(where: { !$0.isEmpty }),
+              trivialPrefixes.contains((firstWord as NSString).lastPathComponent.lowercased()) {
+            remaining = remaining.dropFirst()
+        }
+        let effectiveCmd = remaining.joined(separator: " && ").trimmingCharacters(in: .whitespaces)
+
+        let tokens = effectiveCmd.trimmingCharacters(in: .whitespaces)
             .components(separatedBy: .whitespaces)
             .filter { !$0.isEmpty }
         guard let first = tokens.first else { return "Ran a command" }
@@ -721,6 +918,16 @@ public struct ToolCallData: Identifiable, Equatable {
         case "pkill", "kill", "killall":
             return target().map { "Stopped \($0)" } ?? "Stopped a process"
         case "build.sh":            return "Built the project"
+        case "cd", "pushd", "popd":
+            return target().map { "Navigated to \($0)" } ?? "Changed directory"
+        case "claude":
+            // Extract the prompt flag value for context
+            if let pIdx = tokens.firstIndex(of: "-p"), pIdx + 1 < tokens.count {
+                let prompt = tokens[(pIdx + 1)...].joined(separator: " ")
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+                return truncated(prompt, to: 60)
+            }
+            return "Ran Claude Code"
         case "echo", "printf":      return "Output text"
         case "export", "env":       return "Set environment variables"
         default:

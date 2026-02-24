@@ -1,10 +1,10 @@
-import Anthropic from '@anthropic-ai/sdk';
 import { and, eq, sql } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getConfig } from '../config/loader.js';
 import type { MemoryExtractionConfig } from '../config/types.js';
 import { getLogger } from '../util/logger.js';
 import { truncate } from '../util/truncate.js';
+import { getAnthropicProvider, createTimeout, extractToolUse, userMessage } from '../providers/anthropic-send-message.js';
 import { computeMemoryFingerprint } from './fingerprint.js';
 import { enqueueMemoryJob } from './jobs-store.js';
 import { extractTextFromStoredMessageContent } from './message-content.js';
@@ -114,108 +114,105 @@ async function extractItemsWithLLM(
   extractionConfig: MemoryExtractionConfig,
   scopeId: string,
 ): Promise<ExtractedItem[]> {
-  const config = getConfig();
-  const apiKey = config.apiKeys.anthropic ?? process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
+  const provider = getAnthropicProvider();
+  if (!provider) {
     log.debug('No Anthropic API key available for LLM extraction, falling back to pattern-based');
     return extractItemsPatternBased(text, scopeId);
   }
 
   try {
-    const client = new Anthropic({ apiKey });
-    const abortController = new AbortController();
-    let timer: ReturnType<typeof setTimeout>;
-    const apiCall = client.messages.create({
-      model: extractionConfig.model,
-      max_tokens: 1024,
-      system: EXTRACTION_SYSTEM_PROMPT,
-      tools: [{
-        name: 'store_memory_items',
-        description: 'Store extracted memory items from the message',
-        input_schema: {
-          type: 'object' as const,
-          properties: {
-            items: {
-              type: 'array',
+    const { signal, cleanup } = createTimeout(15000);
+
+    try {
+      const response = await provider.sendMessage(
+        [userMessage(text)],
+        [{
+          name: 'store_memory_items',
+          description: 'Store extracted memory items from the message',
+          input_schema: {
+            type: 'object' as const,
+            properties: {
               items: {
-                type: 'object',
-                properties: {
-                  kind: {
-                    type: 'string',
-                    enum: [...VALID_KINDS],
-                    description: 'Category of memory item',
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    kind: {
+                      type: 'string',
+                      enum: [...VALID_KINDS],
+                      description: 'Category of memory item',
+                    },
+                    subject: {
+                      type: 'string',
+                      description: 'Short label (2-8 words) for what this is about',
+                    },
+                    statement: {
+                      type: 'string',
+                      description: 'Full factual statement to remember (1-2 sentences)',
+                    },
+                    confidence: {
+                      type: 'number',
+                      description: 'Confidence that this is accurate (0.0-1.0)',
+                    },
+                    importance: {
+                      type: 'number',
+                      description: 'How valuable this is to remember (0.0-1.0)',
+                    },
                   },
-                  subject: {
-                    type: 'string',
-                    description: 'Short label (2-8 words) for what this is about',
-                  },
-                  statement: {
-                    type: 'string',
-                    description: 'Full factual statement to remember (1-2 sentences)',
-                  },
-                  confidence: {
-                    type: 'number',
-                    description: 'Confidence that this is accurate (0.0-1.0)',
-                  },
-                  importance: {
-                    type: 'number',
-                    description: 'How valuable this is to remember (0.0-1.0)',
-                  },
+                  required: ['kind', 'subject', 'statement', 'confidence', 'importance'],
                 },
-                required: ['kind', 'subject', 'statement', 'confidence', 'importance'],
               },
             },
+            required: ['items'],
           },
-          required: ['items'],
+        }],
+        EXTRACTION_SYSTEM_PROMPT,
+        {
+          config: {
+            model: extractionConfig.model,
+            max_tokens: 1024,
+            tool_choice: { type: 'tool' as const, name: 'store_memory_items' },
+          },
+          signal,
         },
-      }],
-      tool_choice: { type: 'tool' as const, name: 'store_memory_items' },
-      messages: [{ role: 'user' as const, content: text }],
-    }, { signal: abortController.signal });
-    // Swallow the abort rejection that fires when the timeout wins the race
-    apiCall.catch(() => {});
-    const response = await Promise.race([
-      apiCall.finally(() => clearTimeout(timer)),
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(() => {
-          abortController.abort();
-          reject(new Error('LLM extraction timeout'));
-        }, 15000);
-      }),
-    ]);
+      );
+      cleanup();
 
-    const toolBlock = response.content.find((b) => b.type === 'tool_use');
-    if (!toolBlock || toolBlock.type !== 'tool_use') {
-      log.warn('No tool_use block in LLM extraction response, falling back to pattern-based');
-      return extractItemsPatternBased(text, scopeId);
+      const toolBlock = extractToolUse(response);
+      if (!toolBlock) {
+        log.warn('No tool_use block in LLM extraction response, falling back to pattern-based');
+        return extractItemsPatternBased(text, scopeId);
+      }
+
+      const input = toolBlock.input as { items?: LLMExtractedItem[] };
+      if (!Array.isArray(input.items)) {
+        log.warn('Invalid items in LLM extraction response, falling back to pattern-based');
+        return extractItemsPatternBased(text, scopeId);
+      }
+
+      const items: ExtractedItem[] = [];
+      for (const raw of input.items) {
+        if (!VALID_KINDS.has(raw.kind)) continue;
+        if (!raw.subject || !raw.statement) continue;
+        const subject = truncate(String(raw.subject), 80, '');
+        const statement = truncate(String(raw.statement), 500, '');
+        const confidence = clamp(parseScore(raw.confidence, 0.5), 0, 1);
+        const importance = clamp(parseScore(raw.importance, 0.5), 0, 1);
+        const fingerprint = computeMemoryFingerprint(scopeId, raw.kind, subject, statement);
+        items.push({
+          kind: raw.kind as MemoryItemKind,
+          subject,
+          statement,
+          confidence,
+          importance,
+          fingerprint,
+        });
+      }
+
+      return deduplicateItems(items);
+    } finally {
+      cleanup();
     }
-
-    const input = toolBlock.input as { items?: LLMExtractedItem[] };
-    if (!Array.isArray(input.items)) {
-      log.warn('Invalid items in LLM extraction response, falling back to pattern-based');
-      return extractItemsPatternBased(text, scopeId);
-    }
-
-    const items: ExtractedItem[] = [];
-    for (const raw of input.items) {
-      if (!VALID_KINDS.has(raw.kind)) continue;
-      if (!raw.subject || !raw.statement) continue;
-      const subject = truncate(String(raw.subject), 80, '');
-      const statement = truncate(String(raw.statement), 500, '');
-      const confidence = clamp(parseScore(raw.confidence, 0.5), 0, 1);
-      const importance = clamp(parseScore(raw.importance, 0.5), 0, 1);
-      const fingerprint = computeMemoryFingerprint(scopeId, raw.kind, subject, statement);
-      items.push({
-        kind: raw.kind as MemoryItemKind,
-        subject,
-        statement,
-        confidence,
-        importance,
-        fingerprint,
-      });
-    }
-
-    return deduplicateItems(items);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.warn({ err: message }, 'LLM extraction failed, falling back to pattern-based');

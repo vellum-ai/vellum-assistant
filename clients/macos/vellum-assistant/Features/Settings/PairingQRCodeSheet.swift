@@ -2,8 +2,13 @@ import CryptoKit
 import SwiftUI
 import VellumAssistantShared
 
-/// Displays a QR code containing the v2 connection payload for iOS pairing.
-/// Payload format: `{"type":"vellum-daemon","v":2,"id":"<mac-hash>","g":"<ingress-url>","bt":"<bearer-token>"}`
+/// Displays a QR code containing the v3 connection payload for iOS pairing.
+///
+/// Normal gateway mode payload:
+/// `{"type":"vellum-daemon","v":3,"id":"<mac-hash>","g":"<gateway-url>","bt":"<bearer-token>"}`
+///
+/// Developer local pairing mode payload:
+/// `{"type":"vellum-daemon","v":3,"id":"<mac-hash>","g":"<lan-url>","bt":"<bearer-token>","localLanUrl":"<lan-url>","allowLocalHttp":true}`
 ///
 /// Below the QR code, shows the gateway URL and bearer token for manual entry on iOS.
 @MainActor
@@ -20,12 +25,13 @@ struct PairingQRCodeSheet: View {
     @State private var hostId: String = ""
     @State private var isTokenRevealed: Bool = false
     @State private var copiedField: String? = nil
+    @State private var manualPairingExpanded: Bool = false
 
     /// Whether the configuration is sufficient for pairing.
     private var canGenerateQR: Bool {
         let hasRequiredFields = !gatewayUrl.isEmpty && !resolvedBearerToken.isEmpty
         if isLocalOverride {
-            // For developer local pairing, ingress is not required
+            // For developer local pairing, the ingress-enabled flag is not required
             // but the URL must be a local/private address
             guard let url = URL(string: gatewayUrl), let host = url.host else { return false }
             return hasRequiredFields && LocalAddressValidator.isLocalAddress(host)
@@ -72,8 +78,13 @@ struct PairingQRCodeSheet: View {
                             .font(VFont.body)
                             .foregroundColor(VColor.error)
                             .multilineTextAlignment(.center)
-                    } else if !ingressEnabled || gatewayUrl.isEmpty {
+                    } else if gatewayUrl.isEmpty {
                         Text("Set up a gateway URL in the Connect tab to enable pairing.")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.error)
+                            .multilineTextAlignment(.center)
+                    } else if !ingressEnabled {
+                        Text("Gateway is configured but not active. Check your tunnel or gateway configuration.")
                             .font(VFont.body)
                             .foregroundColor(VColor.error)
                             .multilineTextAlignment(.center)
@@ -98,6 +109,9 @@ struct PairingQRCodeSheet: View {
                             Text("Developer mode — local network")
                                 .font(VFont.body)
                                 .foregroundColor(VColor.warning)
+                            Text("iOS will accept local HTTP")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.warning)
                             Text(gatewayUrl)
                                 .font(VFont.mono)
                                 .foregroundColor(VColor.textMuted)
@@ -118,97 +132,99 @@ struct PairingQRCodeSheet: View {
             }
 
             Text(isLocalOverride && canGenerateQR
-                 ? "Scan this QR code with the Vellum iOS app. Developer Local Pairing must be enabled on the iPhone."
+                 ? "Scan this QR code with the Vellum iOS app. iOS will automatically accept local HTTP from this QR code."
                  : "Scan this QR code with the Vellum iOS app to connect.")
                 .font(VFont.body)
                 .foregroundColor(VColor.textSecondary)
                 .multilineTextAlignment(.center)
 
             // Manual pairing info
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
-                Text("Manual Pairing")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-                    .textCase(.uppercase)
-
-                // Gateway URL row
-                HStack {
-                    Text("Gateway URL")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-                        .frame(width: 90, alignment: .leading)
-                    Text(gatewayUrl.isEmpty ? "Not configured" : gatewayUrl)
-                        .font(VFont.mono)
-                        .foregroundColor(VColor.textPrimary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Spacer()
-                    Button {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(gatewayUrl, forType: .string)
-                        withAnimation { copiedField = "url" }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                            withAnimation { if copiedField == "url" { copiedField = nil } }
-                        }
-                    } label: {
-                        Text(copiedField == "url" ? "Copied" : "Copy")
+            VDisclosureSection(
+                title: "Manual Pairing",
+                icon: "link",
+                isExpanded: $manualPairingExpanded
+            ) {
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    // Gateway URL row
+                    HStack {
+                        Text("Gateway URL")
                             .font(VFont.caption)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(gatewayUrl.isEmpty)
-                }
-
-                Divider()
-
-                // Bearer token row
-                HStack {
-                    Text("Bearer Token")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-                        .frame(width: 90, alignment: .leading)
-                    if resolvedBearerToken.isEmpty {
-                        Text("Not available")
-                            .font(VFont.mono)
-                            .foregroundColor(VColor.textPrimary)
-                    } else if isTokenRevealed {
-                        Text(resolvedBearerToken)
+                            .foregroundColor(VColor.textMuted)
+                            .frame(width: 90, alignment: .leading)
+                        Text(gatewayUrl.isEmpty ? "Not configured" : gatewayUrl)
                             .font(VFont.mono)
                             .foregroundColor(VColor.textPrimary)
                             .lineLimit(1)
                             .truncationMode(.middle)
-                    } else {
-                        Text(String(repeating: "\u{2022}", count: min(resolvedBearerToken.count, 24)))
-                            .font(VFont.mono)
-                            .foregroundColor(VColor.textPrimary)
-                            .lineLimit(1)
-                    }
-                    Spacer()
-                    Button {
-                        isTokenRevealed.toggle()
-                    } label: {
-                        Image(systemName: isTokenRevealed ? "eye.slash" : "eye")
-                            .font(VFont.caption)
-                    }
-                    .buttonStyle(.borderless)
-                    .help(isTokenRevealed ? "Hide token" : "Reveal token")
-                    .disabled(resolvedBearerToken.isEmpty)
-
-                    Button {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(resolvedBearerToken, forType: .string)
-                        withAnimation { copiedField = "token" }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                            withAnimation { if copiedField == "token" { copiedField = nil } }
+                        Spacer()
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(gatewayUrl, forType: .string)
+                            withAnimation { copiedField = "url" }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                withAnimation { if copiedField == "url" { copiedField = nil } }
+                            }
+                        } label: {
+                            Text(copiedField == "url" ? "Copied" : "Copy")
+                                .font(VFont.caption)
                         }
-                    } label: {
-                        Text(copiedField == "token" ? "Copied" : "Copy")
-                            .font(VFont.caption)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(gatewayUrl.isEmpty)
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(resolvedBearerToken.isEmpty)
+
+                    Divider()
+
+                    // Bearer token row
+                    HStack {
+                        Text("Bearer Token")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                            .frame(width: 90, alignment: .leading)
+                        if resolvedBearerToken.isEmpty {
+                            Text("Not available")
+                                .font(VFont.mono)
+                                .foregroundColor(VColor.textPrimary)
+                        } else if isTokenRevealed {
+                            Text(resolvedBearerToken)
+                                .font(VFont.mono)
+                                .foregroundColor(VColor.textPrimary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        } else {
+                            Text(String(repeating: "\u{2022}", count: min(resolvedBearerToken.count, 24)))
+                                .font(VFont.mono)
+                                .foregroundColor(VColor.textPrimary)
+                                .lineLimit(1)
+                        }
+                        Spacer()
+                        Button {
+                            isTokenRevealed.toggle()
+                        } label: {
+                            Image(systemName: isTokenRevealed ? "eye.slash" : "eye")
+                                .font(VFont.caption)
+                        }
+                        .buttonStyle(.borderless)
+                        .help(isTokenRevealed ? "Hide token" : "Reveal token")
+                        .disabled(resolvedBearerToken.isEmpty)
+
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(resolvedBearerToken, forType: .string)
+                            withAnimation { copiedField = "token" }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                withAnimation { if copiedField == "token" { copiedField = nil } }
+                            }
+                        } label: {
+                            Text(copiedField == "token" ? "Copied" : "Copy")
+                                .font(VFont.caption)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(resolvedBearerToken.isEmpty)
+                    }
                 }
+                .textSelection(.enabled)
             }
             .padding(VSpacing.md)
             .background(VColor.surfaceSubtle)
@@ -229,14 +245,18 @@ struct PairingQRCodeSheet: View {
     private func generateQRImage() -> NSImage? {
         guard canGenerateQR else { return nil }
 
-        let payload: [String: Any] = [
+        var payload: [String: Any] = [
             "type": "vellum-daemon",
-            "v": 2,
+            "v": 3,
             "id": hostId,
             "g": gatewayUrl,
             "bt": resolvedBearerToken,
-            "m": isLocalOverride ? "local" : "gateway",
         ]
+
+        if isLocalOverride {
+            payload["allowLocalHttp"] = true
+            payload["localLanUrl"] = gatewayUrl
+        }
 
         guard let jsonData = try? JSONSerialization.data(withJSONObject: payload),
               let jsonString = String(data: jsonData, encoding: .utf8) else {

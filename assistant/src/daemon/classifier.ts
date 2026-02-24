@@ -1,5 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk';
-import { getConfig } from '../config/loader.js';
+import { getAnthropicProvider, createTimeout, extractToolUse, userMessage } from '../providers/anthropic-send-message.js';
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('classifier');
@@ -18,21 +17,18 @@ export async function classifyInteraction(task: string, source?: 'voice' | 'text
     return 'text_qa';
   }
 
-  const config = getConfig();
-  const apiKey = config.apiKeys.anthropic ?? process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
+  const provider = getAnthropicProvider();
+  if (!provider) {
     log.warn('No API key available, falling back to heuristic classification');
     return classifyHeuristic(task);
   }
 
   try {
-    const client = new Anthropic({ apiKey });
-    const response = await Promise.race([
-      client.messages.create({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 128,
-        system: 'You are a classifier. Determine whether the user\'s request requires computer use (controlling the GUI — clicking, scrolling, typing into app windows, navigating between apps) or can be handled with local tools (answering questions, running terminal commands, creating/editing/reading files, web searches, writing code). GUI tasks → computer_use. Everything else → text_qa.',
-        tools: [{
+    const { signal, cleanup } = createTimeout(CLASSIFICATION_TIMEOUT_MS);
+    try {
+      const response = await provider.sendMessage(
+        [userMessage(task)],
+        [{
           name: 'classify_interaction',
           description: 'Classify the user interaction type',
           input_schema: {
@@ -51,24 +47,31 @@ export async function classifyInteraction(task: string, source?: 'voice' | 'text
             required: ['interaction_type', 'reasoning'],
           },
         }],
-        tool_choice: { type: 'tool' as const, name: 'classify_interaction' },
-        messages: [{ role: 'user' as const, content: task }],
-      }),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Classification timeout')), CLASSIFICATION_TIMEOUT_MS),
-      ),
-    ]);
+        'You are a classifier. Determine whether the user\'s request requires computer use (controlling the GUI — clicking, scrolling, typing into app windows, navigating between apps) or can be handled with local tools (answering questions, running terminal commands, creating/editing/reading files, web searches, writing code). GUI tasks → computer_use. Everything else → text_qa.',
+        {
+          config: {
+            model: 'claude-haiku-4-5-20251001',
+            max_tokens: 128,
+            tool_choice: { type: 'tool' as const, name: 'classify_interaction' },
+          },
+          signal,
+        },
+      );
+      cleanup();
 
-    const toolBlock = response.content.find((b) => b.type === 'tool_use');
-    if (toolBlock && toolBlock.type === 'tool_use') {
-      const input = toolBlock.input as { interaction_type?: string; reasoning?: string };
-      const result = input.interaction_type === 'text_qa' ? 'text_qa' : 'computer_use';
-      log.info({ result, reasoning: input.reasoning }, 'Haiku classification');
-      return result;
+      const toolBlock = extractToolUse(response);
+      if (toolBlock) {
+        const input = toolBlock.input as { interaction_type?: string; reasoning?: string };
+        const result = input.interaction_type === 'text_qa' ? 'text_qa' : 'computer_use';
+        log.info({ result, reasoning: input.reasoning }, 'Haiku classification');
+        return result;
+      }
+
+      log.warn('No tool_use block in classification response, falling back to heuristic');
+      return classifyHeuristic(task);
+    } finally {
+      cleanup();
     }
-
-    log.warn('No tool_use block in classification response, falling back to heuristic');
-    return classifyHeuristic(task);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.warn({ err: message }, 'Haiku classification failed, falling back to heuristic');

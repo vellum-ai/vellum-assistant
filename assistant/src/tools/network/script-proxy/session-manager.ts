@@ -21,6 +21,7 @@ import type { CredentialInjectionTemplate } from '../../credentials/policy-types
 import { getSecureKey } from '../../../security/secure-keys.js';
 import { buildDecisionTrace, stripQueryString } from './logging.js';
 import { getLogger } from '../../../util/logger.js';
+import { silentlyWithLog } from '../../../util/silently.js';
 
 const log = getLogger('proxy-session');
 
@@ -63,12 +64,12 @@ function cloneSession(s: ProxySession): ProxySession {
 }
 
 function resetIdleTimer(managed: ManagedSession): void {
-  if (managed.idleTimer !== null) {
+  if (managed.idleTimer != null) {
     clearTimeout(managed.idleTimer);
   }
   managed.idleTimer = setTimeout(() => {
     if (managed.session.status === 'active') {
-      stopSession(managed.session.id).catch(() => {});
+      silentlyWithLog(stopSession(managed.session.id), 'idle session cleanup');
     }
   }, managed.config.idleTimeoutMs);
 }
@@ -343,7 +344,7 @@ export async function stopSession(sessionId: ProxySessionId): Promise<void> {
   managed.session.status = 'stopping';
 
   const doStop = async () => {
-    if (managed.idleTimer !== null) {
+    if (managed.idleTimer != null) {
       clearTimeout(managed.idleTimer);
       managed.idleTimer = null;
     }
@@ -375,7 +376,7 @@ export function getSessionEnv(
 ): ProxyEnvVars {
   const managed = sessions.get(sessionId);
   if (!managed) throw new Error(`Session not found: ${sessionId}`);
-  if (managed.session.status !== 'active' || managed.session.port === null) {
+  if (managed.session.status !== 'active' || managed.session.port == null) {
     throw new Error(`Session ${sessionId} is not active`);
   }
 
@@ -529,6 +530,6 @@ export function getSessionsForConversation(conversationId: string): ProxySession
  */
 export async function stopAllSessions(): Promise<void> {
   const ids = [...sessions.keys()];
-  await Promise.all(ids.map((id) => stopSession(id).catch(() => {})));
+  await Promise.all(ids.map((id) => stopSession(id).catch((err: unknown) => log.debug({ err, id }, 'session shutdown error'))));
   sessions.clear();
 }

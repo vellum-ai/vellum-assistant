@@ -1,8 +1,14 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 import type { GatewayConfig } from "../config.js";
-import { callTelegramApi } from "../telegram/api.js";
 
-const originalFetch = globalThis.fetch;
+type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(async () => new Response());
+
+mock.module("../fetch.js", () => ({
+  fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
+}));
+
+const { callTelegramApi } = await import("../telegram/api.js");
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
@@ -37,6 +43,14 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     smsDeliverAuthBypass: false,
     ingressPublicBaseUrl: "https://example.ngrok.io",
     gatewayInternalBaseUrl: "http://127.0.0.1:7830",
+    whatsappPhoneNumberId: undefined,
+    whatsappAccessToken: undefined,
+    whatsappAppSecret: undefined,
+    whatsappWebhookVerifyToken: undefined,
+    whatsappDeliverAuthBypass: false,
+    whatsappTimeoutMs: 15000,
+    whatsappMaxRetries: 3,
+    whatsappInitialBackoffMs: 1000,
     ...overrides,
   };
   if (merged.runtimeGatewayOriginSecret === undefined) {
@@ -46,18 +60,14 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
 }
 
 describe("callTelegramApi transport error redaction", () => {
-  beforeEach(() => {
-    globalThis.fetch = originalFetch;
-  });
-
   afterEach(() => {
-    globalThis.fetch = originalFetch;
+    fetchMock = mock(async () => new Response());
   });
 
   test("redacts bot token from warning logs and thrown error", async () => {
     const tgToken = ["123456789", ":", "ABCDefGHIJklmnopQRSTuvwxyz012345678"].join("");
 
-    globalThis.fetch = mock(async () => {
+    fetchMock = mock(async () => {
       const err = new Error("Unable to connect. Is the computer able to access the url?") as Error & {
         path?: string;
         code?: string;
@@ -65,7 +75,7 @@ describe("callTelegramApi transport error redaction", () => {
       err.path = `https://api.telegram.org/bot${tgToken}/sendMessage`;
       err.code = "ConnectionRefused";
       throw err;
-    }) as unknown as typeof fetch;
+    });
 
     const config = makeConfig({ telegramBotToken: tgToken, telegramMaxRetries: 0 });
 
@@ -86,7 +96,7 @@ describe("callTelegramApi transport error redaction", () => {
     // "error-123456789:...") must still be redacted.
     const tgToken = ["123456789", ":", "ABCDefGHIJklmnopQRSTuvwxyz012345678"].join("");
 
-    globalThis.fetch = mock(async () => {
+    fetchMock = mock(async () => {
       const err = new Error("Connection refused") as Error & {
         path?: string;
         code?: string;
@@ -95,7 +105,7 @@ describe("callTelegramApi transport error redaction", () => {
       err.path = `prefix-${tgToken}/sendMessage`;
       err.code = "ConnectionRefused";
       throw err;
-    }) as unknown as typeof fetch;
+    });
 
     const config = makeConfig({ telegramBotToken: tgToken, telegramMaxRetries: 0 });
 
@@ -116,7 +126,7 @@ describe("callTelegramApi transport error redaction", () => {
     // would fail to match the trailing `-`, leaking part of the token.
     const tgToken = ["123456789", ":", "ABCDefGHIJklmnopQRSTuvwxyz01234567-"].join("");
 
-    globalThis.fetch = mock(async () => {
+    fetchMock = mock(async () => {
       const err = new Error("Connection refused") as Error & {
         path?: string;
         code?: string;
@@ -124,7 +134,7 @@ describe("callTelegramApi transport error redaction", () => {
       err.path = `https://api.telegram.org/bot${tgToken}/sendMessage`;
       err.code = "ConnectionRefused";
       throw err;
-    }) as unknown as typeof fetch;
+    });
 
     const config = makeConfig({ telegramBotToken: tgToken, telegramMaxRetries: 0 });
 

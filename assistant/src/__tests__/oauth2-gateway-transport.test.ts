@@ -60,6 +60,10 @@ mock.module('../inbound/public-ingress-urls.js', () => ({
   },
 }));
 
+// Track token exchange request
+let lastTokenRequestBody: URLSearchParams | null = null;
+let lastTokenRequestHeaders: Record<string, string> = {};
+
 // Mock fetch for token exchange
 let mockTokenResponse: { ok: boolean; status: number; body: Record<string, unknown> } = {
   ok: true,
@@ -77,6 +81,13 @@ const originalFetch = globalThis.fetch;
 globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
   if (url.includes('token')) {
+    // Capture request body and headers for assertions
+    if (init?.body) {
+      lastTokenRequestBody = new URLSearchParams(init.body as string);
+    }
+    if (init?.headers) {
+      lastTokenRequestHeaders = init.headers as Record<string, string>;
+    }
     if (!mockTokenResponse.ok) {
       return new Response(JSON.stringify({ error: 'invalid_grant' }), {
         status: mockTokenResponse.status,
@@ -108,6 +119,8 @@ beforeEach(() => {
   mockPublicBaseUrl = '';
   mockOAuthCallbackUrl = 'https://gw.example.com/webhooks/oauth/callback';
   pendingCallbacks.clear();
+  lastTokenRequestBody = null;
+  lastTokenRequestHeaders = {};
   mockTokenResponse = {
     ok: true,
     status: 200,
@@ -280,6 +293,123 @@ describe('OAuth2 gateway transport', () => {
       entries[0][1].resolve('code-that-fails-exchange');
 
       await expect(flowPromise).rejects.toThrow('OAuth2 token exchange failed');
+    });
+  });
+
+  describe('PKCE with client secret', () => {
+    test('includes PKCE params in auth URL even when clientSecret is provided', async () => {
+      mockPublicBaseUrl = 'https://gw.example.com';
+
+      const configWithSecret: OAuth2Config = {
+        ...BASE_OAUTH_CONFIG,
+        clientSecret: 'test-client-secret',
+      };
+
+      let capturedAuthUrl = '';
+      const flowPromise = startOAuth2Flow(configWithSecret, {
+        openUrl: (url) => { capturedAuthUrl = url; },
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      // Auth URL must include PKCE challenge params despite having a client secret
+      expect(capturedAuthUrl).toContain('code_challenge=');
+      expect(capturedAuthUrl).toContain('code_challenge_method=S256');
+
+      const entries = Array.from(pendingCallbacks.entries());
+      expect(entries.length).toBe(1);
+      entries[0][1].resolve('pkce-with-secret-code');
+
+      const result = await flowPromise;
+      expect(result.tokens.accessToken).toBe('test-access-token');
+
+      // Token exchange must include code_verifier
+      expect(lastTokenRequestBody).not.toBeNull();
+      expect(lastTokenRequestBody!.get('code_verifier')).toBeTruthy();
+    });
+
+    test('sends Basic Auth header and omits client_id/client_secret from body when tokenEndpointAuthMethod is client_secret_basic', async () => {
+      mockPublicBaseUrl = 'https://gw.example.com';
+
+      const configWithSecret: OAuth2Config = {
+        ...BASE_OAUTH_CONFIG,
+        clientSecret: 'test-client-secret',
+        tokenEndpointAuthMethod: 'client_secret_basic',
+      };
+
+      const flowPromise = startOAuth2Flow(configWithSecret, {
+        openUrl: () => {},
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      const entries = Array.from(pendingCallbacks.entries());
+      entries[0][1].resolve('basic-auth-code');
+
+      await flowPromise;
+
+      // Should send Basic Auth header with base64(client_id:client_secret)
+      const expectedCredentials = Buffer.from('test-client-id:test-client-secret').toString('base64');
+      expect(lastTokenRequestHeaders['Authorization']).toBe(`Basic ${expectedCredentials}`);
+
+      // Body should NOT contain client_id or client_secret
+      expect(lastTokenRequestBody).not.toBeNull();
+      expect(lastTokenRequestBody!.has('client_id')).toBe(false);
+      expect(lastTokenRequestBody!.has('client_secret')).toBe(false);
+
+      // Body should still contain code_verifier
+      expect(lastTokenRequestBody!.get('code_verifier')).toBeTruthy();
+    });
+
+    test('sends client_id and client_secret in body when tokenEndpointAuthMethod is client_secret_post (default)', async () => {
+      mockPublicBaseUrl = 'https://gw.example.com';
+
+      const configWithSecret: OAuth2Config = {
+        ...BASE_OAUTH_CONFIG,
+        clientSecret: 'test-client-secret',
+      };
+
+      const flowPromise = startOAuth2Flow(configWithSecret, {
+        openUrl: () => {},
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      const entries = Array.from(pendingCallbacks.entries());
+      entries[0][1].resolve('post-auth-code');
+
+      await flowPromise;
+
+      // No Authorization header for client_secret_post
+      expect(lastTokenRequestHeaders['Authorization']).toBeUndefined();
+
+      // Body should contain client_id and client_secret
+      expect(lastTokenRequestBody).not.toBeNull();
+      expect(lastTokenRequestBody!.get('client_id')).toBe('test-client-id');
+      expect(lastTokenRequestBody!.get('client_secret')).toBe('test-client-secret');
+    });
+
+    test('sends client_id in body without Basic Auth when no clientSecret', async () => {
+      mockPublicBaseUrl = 'https://gw.example.com';
+
+      const flowPromise = startOAuth2Flow(BASE_OAUTH_CONFIG, {
+        openUrl: () => {},
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      const entries = Array.from(pendingCallbacks.entries());
+      entries[0][1].resolve('public-client-code');
+
+      await flowPromise;
+
+      // No Authorization header for public clients
+      expect(lastTokenRequestHeaders['Authorization']).toBeUndefined();
+
+      // Body should contain client_id
+      expect(lastTokenRequestBody).not.toBeNull();
+      expect(lastTokenRequestBody!.get('client_id')).toBe('test-client-id');
+      expect(lastTokenRequestBody!.has('client_secret')).toBe(false);
     });
   });
 });

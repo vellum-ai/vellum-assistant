@@ -58,12 +58,12 @@ export const PLACEHOLDER_BLOCKS_OMITTED = '\x00__PLACEHOLDER__[internal blocks o
 
 /** Type-guard for tool_use blocks in Anthropic-formatted content. */
 function isToolUseBlock(block: unknown): block is Anthropic.ToolUseBlockParam {
-  return typeof block === 'object' && block !== null && (block as { type: string }).type === 'tool_use';
+  return typeof block === 'object' && block != null && (block as { type: string }).type === 'tool_use';
 }
 
 /** Type-guard for tool_result blocks in Anthropic-formatted content. */
 function isToolResultBlock(block: unknown): block is Anthropic.ToolResultBlockParam {
-  return typeof block === 'object' && block !== null && (block as { type: string }).type === 'tool_result';
+  return typeof block === 'object' && block != null && (block as { type: string }).type === 'tool_result';
 }
 
 /**
@@ -379,12 +379,12 @@ export class AnthropicProvider implements Provider {
         const content = m.content
           .map((block) => {
             const result = this.toAnthropicBlockSafe(block);
-            if (result === null) {
+            if (result == null) {
               droppedUnknownBlock = true;
             }
             return result;
           })
-          .filter((block): block is Anthropic.ContentBlockParam => block !== null)
+          .filter((block): block is Anthropic.ContentBlockParam => block != null)
           .filter((block) => !(block.type === 'text' && !(block as { text?: string }).text?.trim()));
 
         // Preserve assistant turns that would otherwise become empty after filtering

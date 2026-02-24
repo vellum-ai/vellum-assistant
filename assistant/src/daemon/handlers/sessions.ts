@@ -1,4 +1,7 @@
 import * as net from 'node:net';
+import { isChannelId, parseChannelId } from '../../channels/types.js';
+import type { ChannelId } from '../../channels/types.js';
+import { silentlyWithLog } from '../../util/silently.js';
 import { v4 as uuid } from 'uuid';
 import * as conversationStore from '../../memory/conversation-store.js';
 import * as externalConversationStore from '../../memory/external-conversation-store.js';
@@ -22,6 +25,7 @@ import type {
   UsageRequest,
   SandboxSetRequest,
   ServerMessage,
+  ConversationSearchRequest,
 } from '../ipc-protocol.js';
 import { getConfig } from '../../config/loader.js';
 import { getSubagentManager } from '../../subagent/index.js';
@@ -132,6 +136,7 @@ export async function handleUserMessage(
     rlog.info('Processing user message');
     session.setAssistantId('self');
     session.setGuardianContext(null);
+    session.setCommandIntent(null);
     // Fire-and-forget: don't block the IPC handler so the connection can
     // continue receiving messages (e.g. cancel, confirmations, or
     // additional user_message that will be queued by the session).
@@ -226,12 +231,14 @@ export function handleSessionList(socket: net.Socket, ctx: HandlerContext, offse
     type: 'session_list_response',
     sessions: conversations.map((c) => {
       const binding = bindings.get(c.id);
+      const originChannel = parseChannelId(c.originChannel);
       return {
         id: c.id,
         title: c.title ?? 'Untitled',
         updatedAt: c.updatedAt,
         threadType: normalizeThreadType(c.threadType),
-        ...(binding ? {
+        source: c.source ?? 'user',
+        ...(binding && isChannelId(binding.sourceChannel) ? {
           channelBinding: {
             sourceChannel: binding.sourceChannel,
             externalChatId: binding.externalChatId,
@@ -240,6 +247,7 @@ export function handleSessionList(socket: net.Socket, ctx: HandlerContext, offse
             username: binding.username,
           },
         } : {}),
+        ...(originChannel ? { conversationOriginChannel: originChannel } : {}),
       };
     }),
     hasMore: offset + conversations.length < totalCount,
@@ -421,9 +429,12 @@ export function handleHistoryRequest(
           if (a.mimeType.startsWith('video/') && !a.thumbnailBase64 && !isFileBacked) {
             const attachmentId = a.id;
             const base64 = a.dataBase64;
-            generateVideoThumbnail(base64).then((thumb) => {
-              if (thumb) setAttachmentThumbnail(attachmentId, thumb);
-            }).catch(() => {});
+            silentlyWithLog(
+              generateVideoThumbnail(base64).then((thumb) => {
+                if (thumb) setAttachmentThumbnail(attachmentId, thumb);
+              }),
+              'video thumbnail generation',
+            );
           }
 
           return {
@@ -559,6 +570,22 @@ export function handleDeleteQueuedMessage(
   }
 }
 
+export function handleConversationSearch(
+  msg: ConversationSearchRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const results = conversationStore.searchConversations(msg.query, {
+    limit: msg.limit,
+    maxMessagesPerConversation: msg.maxMessagesPerConversation,
+  });
+  ctx.send(socket, {
+    type: 'conversation_search_response',
+    query: msg.query,
+    results,
+  });
+}
+
 export const sessionHandlers = defineHandlers({
   user_message: handleUserMessage,
   confirmation_response: handleConfirmationResponse,
@@ -574,4 +601,5 @@ export const sessionHandlers = defineHandlers({
   regenerate: handleRegenerate,
   usage_request: handleUsageRequest,
   sandbox_set: handleSandboxSet,
+  conversation_search: handleConversationSearch,
 });

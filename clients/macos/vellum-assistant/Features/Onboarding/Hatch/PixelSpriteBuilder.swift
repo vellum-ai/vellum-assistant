@@ -1,5 +1,6 @@
 import AppKit
 import SpriteKit
+import VellumAssistantShared
 
 /// Converts pixel-art grids into SpriteKit textures using CGBitmapContext.
 /// Each art pixel = `pixelSize` × `pixelSize` points. Uses `.nearest` filtering for crisp pixels.

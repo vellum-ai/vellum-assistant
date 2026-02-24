@@ -464,8 +464,8 @@ describe('renderTemplate', () => {
     expect(renderTemplate('Hello {{name}}', { name: 'World' })).toBe('Hello World');
   });
 
-  test('leaves unknown placeholders unchanged', () => {
-    expect(renderTemplate('{{unknown}} text', {})).toBe('{{unknown}} text');
+  test('replaces unknown placeholders with <MISSING: key>', () => {
+    expect(renderTemplate('{{unknown}} text', {})).toBe('<MISSING: unknown> text');
   });
 
   test('handles multiple placeholders', () => {

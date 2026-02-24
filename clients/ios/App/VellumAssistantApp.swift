@@ -20,8 +20,12 @@ struct VellumAssistantApp: App {
         WindowGroup {
             Group {
                 if onboardingCompleted {
-                    ContentView(authManager: appDelegate.authManager)
-                        .environmentObject(appDelegate.clientProvider)
+                    ContentView(
+                        authManager: appDelegate.authManager,
+                        ambientAgent: appDelegate.ambientAgentManager,
+                        daemonClient: appDelegate.clientProvider.client
+                    )
+                    .environmentObject(appDelegate.clientProvider)
                 } else {
                     OnboardingView(isCompleted: $onboardingCompleted, authManager: appDelegate.authManager)
                         .environmentObject(appDelegate.clientProvider)

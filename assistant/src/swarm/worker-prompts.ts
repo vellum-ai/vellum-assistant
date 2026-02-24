@@ -1,5 +1,6 @@
 import type { SwarmRole, SwarmTaskResult } from './types.js';
 import { truncate } from '../util/truncate.js';
+import { parseJsonSafe } from '../util/json.js';
 
 /**
  * Build a role-specific worker prompt for a swarm task.
@@ -56,18 +57,14 @@ export function parseWorkerOutput(raw: string): Pick<SwarmTaskResult, 'summary' 
 
   // Walk backwards to prefer the final valid contract block.
   for (let i = jsonBlocks.length - 1; i >= 0; i--) {
-    try {
-      const parsed = JSON.parse(jsonBlocks[i][1]);
-      if (typeof parsed.summary !== 'string') continue;
-      return {
-        summary: parsed.summary,
-        artifacts: Array.isArray(parsed.artifacts) ? parsed.artifacts : [],
-        issues: Array.isArray(parsed.issues) ? parsed.issues : [],
-        nextSteps: Array.isArray(parsed.nextSteps) ? parsed.nextSteps : [],
-      };
-    } catch {
-      // Malformed JSON — try the next block up.
-    }
+    const parsed = parseJsonSafe<Record<string, unknown>>(jsonBlocks[i][1]);
+    if (!parsed || typeof parsed.summary !== 'string') continue;
+    return {
+      summary: parsed.summary,
+      artifacts: Array.isArray(parsed.artifacts) ? parsed.artifacts : [],
+      issues: Array.isArray(parsed.issues) ? parsed.issues : [],
+      nextSteps: Array.isArray(parsed.nextSteps) ? parsed.nextSteps : [],
+    };
   }
 
   return {

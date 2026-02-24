@@ -298,3 +298,70 @@ export function readTwilioCredentials(): TwilioCredentials | null {
     return null;
   }
 }
+
+export type WhatsAppCredentials = {
+  /** WhatsApp Business phone number ID (numeric string). */
+  phoneNumberId: string;
+  /** Long-lived System User access token or temporary access token. */
+  accessToken: string;
+  /** App secret used to verify X-Hub-Signature-256 on incoming webhooks. */
+  appSecret: string;
+  /** Webhook verify token used during the Meta webhook subscription handshake. */
+  webhookVerifyToken: string;
+};
+
+/**
+ * Check the credential metadata file for WhatsApp credentials and read
+ * them from secure storage (keychain on macOS, then encrypted store).
+ *
+ * Returns `null` if:
+ * - The metadata file doesn't exist or can't be parsed
+ * - Required WhatsApp entries are missing from metadata
+ * - The actual secret values can't be read from any backend
+ */
+export function readWhatsAppCredentials(): WhatsAppCredentials | null {
+  try {
+    const metadataPath = getMetadataPath();
+    if (!existsSync(metadataPath)) return null;
+
+    const raw = readFileSync(metadataPath, "utf-8");
+    const data = JSON.parse(raw);
+    if (!data || !Array.isArray(data.credentials)) return null;
+
+    const hasPhoneNumberId = data.credentials.some(
+      (c: { service?: string; field?: string }) =>
+        c.service === "whatsapp" && c.field === "phone_number_id",
+    );
+    const hasAccessToken = data.credentials.some(
+      (c: { service?: string; field?: string }) =>
+        c.service === "whatsapp" && c.field === "access_token",
+    );
+    const hasAppSecret = data.credentials.some(
+      (c: { service?: string; field?: string }) =>
+        c.service === "whatsapp" && c.field === "app_secret",
+    );
+    const hasWebhookVerifyToken = data.credentials.some(
+      (c: { service?: string; field?: string }) =>
+        c.service === "whatsapp" && c.field === "webhook_verify_token",
+    );
+
+    if (!hasPhoneNumberId || !hasAccessToken || !hasAppSecret || !hasWebhookVerifyToken) return null;
+
+    const phoneNumberId = readCredentialWithFallback("credential:whatsapp:phone_number_id");
+    const accessToken = readCredentialWithFallback("credential:whatsapp:access_token");
+    const appSecret = readCredentialWithFallback("credential:whatsapp:app_secret");
+    const webhookVerifyToken = readCredentialWithFallback("credential:whatsapp:webhook_verify_token");
+
+    if (!phoneNumberId || !accessToken || !appSecret || !webhookVerifyToken) {
+      log.warn(
+        "WhatsApp credential metadata exists but secrets could not be read from any backend",
+      );
+      return null;
+    }
+
+    return { phoneNumberId, accessToken, appSecret, webhookVerifyToken };
+  } catch (err) {
+    log.debug({ err }, "Failed to read WhatsApp credentials");
+    return null;
+  }
+}

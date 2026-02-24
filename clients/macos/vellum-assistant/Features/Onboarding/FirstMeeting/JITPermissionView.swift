@@ -88,12 +88,14 @@ struct JITPermissionView: View {
                     .font(VFont.onboardingTitle)
                     .foregroundColor(VColor.textPrimary)
                     .multilineTextAlignment(.center)
+                    .textSelection(.enabled)
 
                 Text(request.message)
                     .font(VFont.body)
                     .foregroundColor(VColor.textSecondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 320)
+                    .textSelection(.enabled)
             }
             .opacity(showContent ? 1 : 0)
             .offset(y: showContent ? 0 : 6)
@@ -123,11 +125,13 @@ struct JITPermissionView: View {
                             .font(VFont.caption)
                             .foregroundColor(VColor.textMuted)
                             .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
 
                         Text(request.technicalDetails)
                             .font(VFont.small)
                             .foregroundColor(VColor.textMuted)
                             .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
                     }
                     .padding(.top, VSpacing.sm)
                     .transition(.opacity.combined(with: .move(edge: .top)))

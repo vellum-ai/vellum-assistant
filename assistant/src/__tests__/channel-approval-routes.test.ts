@@ -1524,8 +1524,8 @@ describe('SMS channel approval decisions', () => {
 
   test('non-decision SMS message during pending approval triggers reminder with plain-text fallback', async () => {
     const orchestrator = makeMockOrchestrator();
-    const deliverSpy = spyOn(gatewayClient, 'deliverApprovalPrompt').mockResolvedValue(undefined);
-    const replySpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+    const approvalSpy = spyOn(gatewayClient, 'deliverApprovalPrompt').mockResolvedValue(undefined);
 
     const initReq = makeSmsInboundRequest({ content: 'init' });
     await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
@@ -1545,15 +1545,21 @@ describe('SMS channel approval decisions', () => {
     expect(body.accepted).toBe(true);
     expect(body.approval).toBe('reminder_sent');
 
-    // SMS is a non-rich channel so the delivered text should include plain-text fallback
+    // SMS is non-rich: reminder is delivered as plain text without approval metadata.
     expect(deliverSpy).toHaveBeenCalled();
-    const callArgs = deliverSpy.mock.calls[0];
-    const deliveredText = callArgs[2] as string;
+    expect(approvalSpy).not.toHaveBeenCalled();
+    const reminderCall = deliverSpy.mock.calls.find(
+      (call) => typeof call[1] === 'object' && (call[1] as { chatId?: string }).chatId === 'sms-chat-123',
+    );
+    expect(reminderCall).toBeDefined();
+    const reminderPayload = reminderCall![1] as { text?: string; approval?: unknown };
+    const deliveredText = reminderPayload.text ?? '';
     expect(deliveredText).toContain("I'm still waiting");
     expect(deliveredText).toContain('Reply "yes"');
+    expect(reminderPayload.approval).toBeUndefined();
 
     deliverSpy.mockRestore();
-    replySpy.mockRestore();
+    approvalSpy.mockRestore();
   });
 
   test('sourceChannel "sms" is passed to orchestrator.startRun', async () => {
@@ -1773,8 +1779,8 @@ describe('plain-text fallback surfacing for non-rich channels', () => {
 
   test('reminder prompt includes plainTextFallback for non-rich channel (http-api)', async () => {
     const orchestrator = makeMockOrchestrator();
-    const deliverSpy = spyOn(gatewayClient, 'deliverApprovalPrompt').mockResolvedValue(undefined);
-    const replySpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+    const approvalSpy = spyOn(gatewayClient, 'deliverApprovalPrompt').mockResolvedValue(undefined);
 
     // Establish the conversation using http-api (non-rich channel)
     const initReq = makeInboundRequest({ content: 'init', sourceChannel: 'http-api' });
@@ -1796,17 +1802,23 @@ describe('plain-text fallback surfacing for non-rich channels', () => {
     expect(body.accepted).toBe(true);
     expect(body.approval).toBe('reminder_sent');
 
-    // The delivered text should include the plainTextFallback instructions
+    // Non-rich channel uses plain-text delivery with fallback instructions.
     expect(deliverSpy).toHaveBeenCalled();
-    const callArgs = deliverSpy.mock.calls[0];
-    const deliveredText = callArgs[2] as string;
+    expect(approvalSpy).not.toHaveBeenCalled();
+    const reminderCall = deliverSpy.mock.calls.find(
+      (call) => typeof call[1] === 'object' && (call[1] as { chatId?: string }).chatId === 'chat-123',
+    );
+    expect(reminderCall).toBeDefined();
+    const reminderPayload = reminderCall![1] as { text?: string; approval?: unknown };
+    const deliveredText = reminderPayload.text ?? '';
     // For non-rich channels, the text should contain both the reminder prefix
     // AND the plainTextFallback instructions (e.g. "Reply yes to approve")
     expect(deliveredText).toContain("I'm still waiting");
     expect(deliveredText).toContain('Reply "yes"');
+    expect(reminderPayload.approval).toBeUndefined();
 
     deliverSpy.mockRestore();
-    replySpy.mockRestore();
+    approvalSpy.mockRestore();
   });
 
   test('reminder prompt does NOT include plainTextFallback for telegram (rich channel)', async () => {
@@ -2188,14 +2200,14 @@ describe('guardian-with-binding path regression', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 20. Guardian delivery failure denial (WS-2)
+// 20. Guardian rich-delivery failure fallback (WS-2)
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe('guardian delivery failure → denial', () => {
+describe('guardian delivery failure → text fallback', () => {
   beforeEach(() => {
   });
 
-  test('delivery failure denies run and notifies requester', async () => {
+  test('rich delivery failure falls back to plain text and keeps request pending', async () => {
     createBinding({
       assistantId: 'self',
       channel: 'telegram',
@@ -2220,29 +2232,30 @@ describe('guardian delivery failure → denial', () => {
     await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
     await new Promise((resolve) => setTimeout(resolve, 1200));
 
-    // The run should have been denied
-    expect(orchestrator.submitDecision).toHaveBeenCalled();
-    const decisionArgs = (orchestrator.submitDecision as ReturnType<typeof mock>).mock.calls[0];
-    expect(decisionArgs[1]).toBe('deny');
+    // Rich button delivery failed, but plain-text fallback succeeded.
+    expect(orchestrator.submitDecision).not.toHaveBeenCalled();
+    expect(approvalSpy).toHaveBeenCalled();
 
-    // Requester should have been notified that delivery failed
-    const failureCalls = deliverSpy.mock.calls.filter(
-      (call) => typeof call[1] === 'object' && (call[1] as { text?: string }).text?.toLowerCase().includes('denied'),
+    // Guardian should have received a parser-compatible plain-text approval prompt.
+    const guardianPromptCalls = deliverSpy.mock.calls.filter(
+      (call) =>
+        typeof call[1] === 'object' &&
+        (call[1] as { chatId?: string; text?: string }).chatId === 'guardian-chat-df' &&
+        ((call[1] as { text?: string }).text ?? '').includes('Reply "yes"'),
     );
-    expect(failureCalls.length).toBeGreaterThanOrEqual(1);
+    expect(guardianPromptCalls.length).toBeGreaterThanOrEqual(1);
 
-    // The guardian_request_forwarded success notice should NOT have been
-    // delivered (since delivery failed).
+    // Requester should still get the forwarded notice once fallback delivery works.
     const successCalls = deliverSpy.mock.calls.filter(
       (call) => typeof call[1] === 'object' && (call[1] as { text?: string }).text?.toLowerCase().includes('forwarded'),
     );
-    expect(successCalls.length).toBe(0);
+    expect(successCalls.length).toBeGreaterThanOrEqual(1);
 
     deliverSpy.mockRestore();
     approvalSpy.mockRestore();
   });
 
-  test('no pending/unresolved approvals remain after delivery failure', async () => {
+  test('terminal run resolution clears approvals even when rich delivery falls back to text', async () => {
     createBinding({
       assistantId: 'self',
       channel: 'telegram',
@@ -2265,15 +2278,19 @@ describe('guardian delivery failure → denial', () => {
     await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
     await new Promise((resolve) => setTimeout(resolve, 1200));
 
+    // Rich delivery failure alone should not apply an explicit deny decision.
+    expect(orchestrator.submitDecision).not.toHaveBeenCalled();
+
     // Verify the run ID was created
     const runId = orchestrator.realRunId();
     expect(runId).toBeTruthy();
 
-    // After delivery failure, there should be NO pending approval for the run
+    // This test orchestrator transitions the run to a terminal failed state,
+    // which resolves the approval record via run-completion cleanup.
     const pendingApproval = getPendingApprovalForRun(runId!);
     expect(pendingApproval).toBeNull();
 
-    // There should also be NO unresolved approval (it was set to 'denied')
+    // No unresolved approval should remain after terminal resolution.
     const unresolvedApproval = getUnresolvedApprovalForRun(runId!);
     expect(unresolvedApproval).toBeNull();
 
@@ -2283,14 +2300,14 @@ describe('guardian delivery failure → denial', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 20b. Standard approval prompt delivery failure → auto-deny (WS-B)
+// 20b. Standard rich prompt delivery failure → text fallback (WS-B)
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe('standard approval prompt delivery failure → auto-deny', () => {
+describe('standard approval prompt delivery failure → text fallback', () => {
   beforeEach(() => {
   });
 
-  test('standard prompt delivery failure auto-denies the run (fail-closed)', async () => {
+  test('standard prompt rich-delivery failure falls back to plain text without auto-deny', async () => {
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
     // Make the approval prompt delivery fail for the standard (self-approval) path
     const approvalSpy = spyOn(gatewayClient, 'deliverApprovalPrompt').mockRejectedValue(
@@ -2317,10 +2334,16 @@ describe('standard approval prompt delivery failure → auto-deny', () => {
     await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
     await new Promise((resolve) => setTimeout(resolve, 1200));
 
-    // The run should have been auto-denied because the prompt could not be delivered
-    expect(orchestrator.submitDecision).toHaveBeenCalled();
-    const decisionArgs = (orchestrator.submitDecision as ReturnType<typeof mock>).mock.calls[0];
-    expect(decisionArgs[1]).toBe('deny');
+    expect(approvalSpy).toHaveBeenCalled();
+    expect(orchestrator.submitDecision).not.toHaveBeenCalled();
+
+    const fallbackCalls = deliverSpy.mock.calls.filter(
+      (call) =>
+        typeof call[1] === 'object' &&
+        (call[1] as { chatId?: string; text?: string }).chatId === 'chat-123' &&
+        ((call[1] as { text?: string }).text ?? '').includes('Reply "yes"'),
+    );
+    expect(fallbackCalls.length).toBeGreaterThanOrEqual(1);
 
     deliverSpy.mockRestore();
     approvalSpy.mockRestore();

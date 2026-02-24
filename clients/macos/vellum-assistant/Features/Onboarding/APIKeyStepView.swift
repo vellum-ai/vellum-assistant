@@ -46,6 +46,7 @@ struct APIKeyStepView: View {
         Text(userHostedEnabled ? "Setup" : "Add your API key")
             .font(.system(size: 32, weight: .regular, design: .serif))
             .foregroundColor(VColor.textPrimary)
+            .textSelection(.enabled)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.md)
@@ -55,6 +56,7 @@ struct APIKeyStepView: View {
              : "Enter your Anthropic API key to get started.")
             .font(.system(size: 16))
             .foregroundColor(VColor.textSecondary)
+            .textSelection(.enabled)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
 
@@ -162,6 +164,7 @@ struct APIKeyStepView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.horizontal, 20)
                     .padding(.vertical, VSpacing.lg)
+                    .textSelection(.enabled)
                     .background(
                         RoundedRectangle(cornerRadius: VRadius.lg)
                             .stroke(VColor.surfaceBorder, lineWidth: 1)

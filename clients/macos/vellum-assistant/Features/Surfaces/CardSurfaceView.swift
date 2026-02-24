@@ -24,6 +24,7 @@ struct CardSurfaceView: View {
                 metadataGrid(metadata)
             }
         }
+        .textSelection(.enabled)
     }
 
     @ViewBuilder
@@ -43,6 +44,7 @@ struct CardSurfaceView: View {
         }
         .padding(VSpacing.lg)
         .vCard()
+        .textSelection(.enabled)
     }
 }
 

@@ -8,8 +8,9 @@ const callTelegramApiMock = mock(
     Promise.resolve({}),
 );
 const sendTelegramReplyMock = mock(() => Promise.resolve());
-const handleInboundMock = mock(() =>
-  Promise.resolve({ forwarded: true, rejected: false }),
+const handleInboundMock = mock(
+  (_config: GatewayConfig, _normalized: unknown, _options?: unknown) =>
+    Promise.resolve({ forwarded: true, rejected: false }),
 );
 const resetConversationMock = mock(() => Promise.resolve());
 
@@ -79,6 +80,14 @@ const baseConfig: GatewayConfig = {
   smsDeliverAuthBypass: false,
   ingressPublicBaseUrl: undefined,
   unmappedPolicy: "default",
+  whatsappPhoneNumberId: undefined,
+  whatsappAccessToken: undefined,
+  whatsappAppSecret: undefined,
+  whatsappWebhookVerifyToken: undefined,
+  whatsappDeliverAuthBypass: false,
+  whatsappTimeoutMs: 15000,
+  whatsappMaxRetries: 3,
+  whatsappInitialBackoffMs: 1000,
 };
 
 function makeCallbackQueryBody(data: string, updateId = 200) {
@@ -208,6 +217,52 @@ describe("telegram-webhook callback query acknowledgment", () => {
     expect(answerCalls[0][2]).toEqual({
       callback_query_id: "cbq-42",
     });
+  });
+
+  it("acknowledges callback query when /start command is triggered via callback", async () => {
+    const handler = createTelegramWebhookHandler(baseConfig);
+    const body = makeCallbackQueryBody("/start", 313);
+    const res = await handler(postRequest(body));
+
+    expect(res.status).toBe(200);
+    const answerCalls = callTelegramApiMock.mock.calls.filter(
+      (c) => c[1] === "answerCallbackQuery",
+    );
+    expect(answerCalls.length).toBe(1);
+    expect(answerCalls[0][2]).toEqual({
+      callback_query_id: "cbq-42",
+    });
+    expect(sendTelegramReplyMock).not.toHaveBeenCalled();
+  });
+
+  it("forwards /start as channel command-intent metadata and sends start acknowledgement", async () => {
+    const handler = createTelegramWebhookHandler(baseConfig);
+    const body = JSON.stringify({
+      update_id: 314,
+      message: {
+        message_id: 12,
+        text: "/start ref-123",
+        chat: { id: 42, type: "private" },
+        from: { id: 42, first_name: "Alice", language_code: "en" },
+      },
+    });
+    const res = await handler(postRequest(body));
+
+    expect(res.status).toBe(200);
+    expect(handleInboundMock).toHaveBeenCalledTimes(1);
+    const options = handleInboundMock.mock.calls[0][2] as {
+      sourceMetadata?: {
+        commandIntent?: { type: string; payload?: string };
+      };
+    };
+    expect(options.sourceMetadata?.commandIntent).toEqual({
+      type: "start",
+      payload: "ref-123",
+    });
+    expect(sendTelegramReplyMock).toHaveBeenCalledTimes(1);
+    const sendArgs = sendTelegramReplyMock.mock.calls[0] as unknown as [GatewayConfig, string, string];
+    expect(sendArgs[1]).toBe("42");
+    expect(sendArgs[2]).toContain("Starting up");
   });
 
   it("does not call answerCallbackQuery for regular text messages", async () => {

@@ -39,6 +39,7 @@ struct RemindersView: View {
                     Text(errorMessage)
                         .font(.caption)
                         .foregroundStyle(.tertiary)
+                        .textSelection(.enabled)
                     Button("Retry") { loadReminders() }
                         .padding(.top, 4)
                 }
@@ -181,6 +182,7 @@ private struct ReminderRow: View {
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
             }
+            .textSelection(.enabled)
 
             Spacer()
 

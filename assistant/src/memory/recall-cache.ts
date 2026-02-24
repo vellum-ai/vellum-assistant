@@ -68,11 +68,14 @@ export function getCachedRecall(
     _cache.delete(key);
     return undefined;
   }
+  // Move to end of Map iteration order so it's treated as most-recently-used
+  _cache.delete(key);
+  _cache.set(key, entry);
   return entry.result;
 }
 
 /**
- * Store a recall result in the cache. Evicts oldest entries when full.
+ * Store a recall result in the cache. Evicts least-recently-used entries when full.
  *
  * When `snapshotVersion` is provided, the entry is only stored if the
  * snapshot still matches the current global version — this prevents a

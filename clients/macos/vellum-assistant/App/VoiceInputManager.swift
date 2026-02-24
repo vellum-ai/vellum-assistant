@@ -367,7 +367,7 @@ final class VoiceInputManager {
                     cursorInTextField: context.cursorInTextField
                 )
             )
-            if let selected = context.selectedText, !selected.isEmpty {
+            if let selected = context.selectedText, !selected.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 overlayWindow.show(state: .transforming(text))
             } else {
                 overlayWindow.show(state: .processing)

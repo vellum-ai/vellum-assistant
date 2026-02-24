@@ -2,8 +2,8 @@ import Foundation
 import SwiftUI
 import VellumAssistantShared
 
-/// Advanced settings tab — computer usage limits, private threads,
-/// archived threads, and developer tools.
+/// Advanced settings tab — computer usage limits, archived threads,
+/// and developer tools.
 @MainActor
 struct SettingsAdvancedTab: View {
     @ObservedObject var store: SettingsStore
@@ -29,7 +29,6 @@ struct SettingsAdvancedTab: View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
             assistantInfoSection
             computerUsageSection
-            privateThreadSection
             archivedThreadsSection
             switchAssistantSection
             retireAssistantSection
@@ -190,34 +189,6 @@ struct SettingsAdvancedTab: View {
             }
 
             VSlider(value: $store.maxSteps, range: 1...100, step: 10, showTickMarks: true)
-        }
-        .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceSubtle)
-    }
-
-    // MARK: - Private Thread
-
-    private var privateThreadSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Private Thread")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
-
-            HStack {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("New Private Thread")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
-                    Text("Private threads have isolated memory — facts learned in private threads stay private and won't appear in other conversations.")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-                }
-                Spacer()
-                VButton(label: "New Private Thread", style: .primary) {
-                    threadManager.createPrivateThread()
-                    onClose()
-                }
-            }
         }
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)

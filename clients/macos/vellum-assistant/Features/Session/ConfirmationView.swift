@@ -20,6 +20,7 @@ struct ConfirmationView: View {
             Text(reason)
                 .font(VFont.body)
                 .foregroundStyle(.secondary)
+                .textSelection(.enabled)
 
             HStack(spacing: VSpacing.lg) {
                 Spacer()

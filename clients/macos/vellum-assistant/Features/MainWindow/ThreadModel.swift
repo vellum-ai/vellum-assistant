@@ -17,8 +17,9 @@ struct ThreadModel: Identifiable, Hashable {
     var pinnedOrder: Int?
     var lastInteractedAt: Date
     var kind: ThreadKind
+    var source: String?
 
-    init(id: UUID = UUID(), title: String = "New Conversation", createdAt: Date = Date(), sessionId: String? = nil, isArchived: Bool = false, isPinned: Bool = false, pinnedOrder: Int? = nil, lastInteractedAt: Date? = nil, kind: ThreadKind = .standard) {
+    init(id: UUID = UUID(), title: String = "New Conversation", createdAt: Date = Date(), sessionId: String? = nil, isArchived: Bool = false, isPinned: Bool = false, pinnedOrder: Int? = nil, lastInteractedAt: Date? = nil, kind: ThreadKind = .standard, source: String? = nil) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
@@ -28,5 +29,15 @@ struct ThreadModel: Identifiable, Hashable {
         self.pinnedOrder = pinnedOrder
         self.lastInteractedAt = lastInteractedAt ?? createdAt
         self.kind = kind
+        self.source = source
+    }
+
+    /// Whether this thread was created by a schedule or reminder trigger.
+    /// Falls back to title prefix when source is nil (HTTP mode).
+    var isScheduleThread: Bool {
+        if let source = source {
+            return source == "schedule" || source == "reminder"
+        }
+        return title.hasPrefix("Schedule: ") || title.hasPrefix("Schedule (manual): ") || title.hasPrefix("Reminder: ")
     }
 }

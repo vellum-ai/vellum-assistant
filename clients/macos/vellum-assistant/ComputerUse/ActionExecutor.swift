@@ -20,6 +20,7 @@ enum ExecutorError: LocalizedError {
     case appleScriptError(String)
     case appleScriptMissingScript
     case appleScriptTimeout
+    case clipboardMismatch
 
     var errorDescription: String? {
         switch self {
@@ -34,6 +35,7 @@ enum ExecutorError: LocalizedError {
         case .appleScriptError(let msg): return "AppleScript error: \(msg)"
         case .appleScriptMissingScript: return "run_applescript requires a script"
         case .appleScriptTimeout: return "AppleScript timed out after 5 seconds"
+        case .clipboardMismatch: return "Clipboard contents changed before paste injection; aborting to prevent wrong text from being typed"
         }
     }
 }
@@ -41,6 +43,8 @@ enum ExecutorError: LocalizedError {
 protocol ActionExecuting {
     func execute(_ action: AgentAction) async throws -> String?
 }
+
+private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ActionExecutor")
 
 final class ActionExecutor: ActionExecuting {
     private let eventSource: CGEventSource?
@@ -121,6 +125,21 @@ final class ActionExecutor: ActionExecuting {
 
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
+
+        // Pre-injection equality check: verify the clipboard now holds exactly
+        // what we queued before issuing the paste keystroke. If another process
+        // wrote to the clipboard between our setString and this read-back, the
+        // paste would inject wrong content — catch that here instead of silently
+        // typing unintended text.
+        let verifiedContents = pasteboard.string(forType: .string)
+        guard verifiedContents == text else {
+            // Another process updated the clipboard between our setString and
+            // this read-back. We don't know what the current state should be, so
+            // restoring previousContents would overwrite that other process's
+            // data. Leave the clipboard as-is and surface a clear error.
+            log.warning("Clipboard read-back mismatch — another process may have modified the pasteboard; skipping injection")
+            throw ExecutorError.clipboardMismatch
+        }
 
         try keyCombo(keyCode: 9, modifiers: .maskCommand) // Cmd+V
         usleep(100_000)

@@ -180,7 +180,10 @@ describe('Invariant 2: no generic plaintext secret read API', () => {
       'tools/credentials/broker.ts',   // brokered credential access
       'tools/network/web-search.ts',   // web search API key lookup
       'daemon/handlers.ts',            // Vercel API token + integration OAuth
-      'daemon/handlers/config.ts',     // Vercel API token + integration OAuth (split handler)
+      'daemon/handlers/config-integrations.ts', // Vercel API token + Twitter integration OAuth
+      'daemon/handlers/config-telegram.ts',     // Telegram bot token management
+      'daemon/handlers/config-twilio.ts',       // Twilio credential management
+      'daemon/handlers/config-ingress.ts',      // Ingress config (reads Twilio credentials for webhook sync)
       'security/token-manager.ts',     // OAuth token refresh flow
       'email/providers/index.ts',      // email provider API key lookup
       'tools/network/script-proxy/session-manager.ts', // proxy credential injection at runtime
@@ -198,6 +201,7 @@ describe('Invariant 2: no generic plaintext secret read API', () => {
       'cli/config-commands.ts',          // CLI config management
       'messaging/providers/telegram-bot/adapter.ts', // Telegram bot token lookup for connectivity check
       'messaging/providers/sms/adapter.ts', // Twilio credential lookup for SMS connectivity check
+      'runtime/channel-readiness-service.ts', // channel readiness probes for SMS/Telegram connectivity
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));
@@ -313,7 +317,7 @@ describe('Invariant 3: secrets never logged in plaintext', () => {
         const logCallPattern = /log\.\w+\(\{([^}]*)}/g;
         const loggedFields: string[] = [];
         let match;
-        while ((match = logCallPattern.exec(prompterSrc)) !== null) {
+        while ((match = logCallPattern.exec(prompterSrc)) != null) {
           // Collect field names from the structured log object
           const fields = match[1].split(',').map(f => f.trim().split(':')[0].trim());
           loggedFields.push(...fields);

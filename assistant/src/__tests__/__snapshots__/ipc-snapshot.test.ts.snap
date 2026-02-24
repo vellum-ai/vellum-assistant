@@ -400,6 +400,13 @@ exports[`IPC message snapshots ClientMessage types schedule_remove serializes to
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types schedule_run_now serializes to expected JSON 1`] = `
+{
+  "id": "sched-001",
+  "type": "schedule_run_now",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types reminders_list serializes to expected JSON 1`] = `
 {
   "type": "reminders_list",
@@ -498,6 +505,15 @@ exports[`IPC message snapshots ClientMessage types secret_response serializes to
 exports[`IPC message snapshots ClientMessage types sessions_clear serializes to expected JSON 1`] = `
 {
   "type": "sessions_clear",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types conversation_search serializes to expected JSON 1`] = `
+{
+  "limit": 20,
+  "maxMessagesPerConversation": 3,
+  "query": "hello world",
+  "type": "conversation_search",
 }
 `;
 
@@ -948,6 +964,43 @@ exports[`IPC message snapshots ClientMessage types dictation_request serializes 
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types parental_control_get serializes to expected JSON 1`] = `
+{
+  "type": "parental_control_get",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types parental_control_verify_pin serializes to expected JSON 1`] = `
+{
+  "pin": "123456",
+  "type": "parental_control_verify_pin",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types parental_control_set_pin serializes to expected JSON 1`] = `
+{
+  "current_pin": "123456",
+  "new_pin": "654321",
+  "type": "parental_control_set_pin",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types parental_control_update serializes to expected JSON 1`] = `
+{
+  "blocked_tool_categories": [
+    "shell",
+    "network",
+  ],
+  "content_restrictions": [
+    "violence",
+    "adult_content",
+  ],
+  "enabled": true,
+  "pin": "123456",
+  "type": "parental_control_update",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types auth_result serializes to expected JSON 1`] = `
 {
   "success": true,
@@ -1103,6 +1156,14 @@ exports[`IPC message snapshots ServerMessage types session_info serializes to ex
 }
 `;
 
+exports[`IPC message snapshots ServerMessage types session_title_updated serializes to expected JSON 1`] = `
+{
+  "sessionId": "sess-001",
+  "title": "Plan sprint rollout",
+  "type": "session_title_updated",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types session_list_response serializes to expected JSON 1`] = `
 {
   "sessions": [
@@ -1127,6 +1188,28 @@ exports[`IPC message snapshots ServerMessage types sessions_clear_response seria
 {
   "cleared": 3,
   "type": "sessions_clear_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types conversation_search_response serializes to expected JSON 1`] = `
+{
+  "query": "hello world",
+  "results": [
+    {
+      "conversationId": "conv-001",
+      "conversationTitle": "My Conversation",
+      "conversationUpdatedAt": 1700000000,
+      "matchingMessages": [
+        {
+          "createdAt": 1699999000,
+          "excerpt": "…hello world, how are you?…",
+          "messageId": "msg-001",
+          "role": "user",
+        },
+      ],
+    },
+  ],
+  "type": "conversation_search_response",
 }
 `;
 
@@ -2431,6 +2514,16 @@ exports[`IPC message snapshots ServerMessage types task_run_thread_created seria
 }
 `;
 
+exports[`IPC message snapshots ServerMessage types guardian_request_thread_created serializes to expected JSON 1`] = `
+{
+  "callSessionId": "call-001",
+  "conversationId": "conv-guardian-001",
+  "requestId": "req-guardian-001",
+  "title": "Guardian action request",
+  "type": "guardian_request_thread_created",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types subagent_spawned serializes to expected JSON 1`] = `
 {
   "label": "Research Agent",
@@ -2553,5 +2646,52 @@ exports[`IPC message snapshots ServerMessage types dictation_response serializes
   "mode": "dictation",
   "text": "Hello world",
   "type": "dictation_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types parental_control_get_response serializes to expected JSON 1`] = `
+{
+  "blocked_tool_categories": [
+    "shell",
+    "network",
+  ],
+  "content_restrictions": [
+    "violence",
+    "adult_content",
+  ],
+  "enabled": true,
+  "has_pin": true,
+  "type": "parental_control_get_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types parental_control_verify_pin_response serializes to expected JSON 1`] = `
+{
+  "type": "parental_control_verify_pin_response",
+  "verified": true,
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types parental_control_set_pin_response serializes to expected JSON 1`] = `
+{
+  "success": true,
+  "type": "parental_control_set_pin_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types parental_control_update_response serializes to expected JSON 1`] = `
+{
+  "blocked_tool_categories": [
+    "shell",
+    "network",
+  ],
+  "content_restrictions": [
+    "violence",
+    "adult_content",
+  ],
+  "enabled": true,
+  "has_pin": true,
+  "success": true,
+  "type": "parental_control_update_response",
 }
 `;

@@ -235,6 +235,7 @@ jobs:
           chmod +x ../clients/macos/daemon-bin/vellum-daemon
           cp node_modules/web-tree-sitter/web-tree-sitter.wasm ../clients/macos/daemon-bin/
           cp node_modules/tree-sitter-bash/tree-sitter-bash.wasm ../clients/macos/daemon-bin/
+          cp -R src/config/bundled-skills ../clients/macos/daemon-bin/bundled-skills
           echo "Daemon universal binary built:"
           ls -lh ../clients/macos/daemon-bin/vellum-daemon
           file ../clients/macos/daemon-bin/vellum-daemon
@@ -627,40 +628,214 @@ jobs:
           sleep 10
           gh pr merge "$PR_URL" --auto --squash
 
-  notify-failure:
-    if: >-
-      !cancelled() &&
-      (needs.bump-and-tag.result == 'failure' ||
-       needs.publish-npm.result == 'failure' ||
-       needs.publish-meta.result == 'failure' ||
-       needs.build-macos.result == 'failure' ||
-       needs.release.result == 'failure' ||
-       needs.update-platform.result == 'failure')
-    needs: [bump-and-tag, publish-npm, publish-meta, build-macos, release, update-platform]
+  ci-assistant:
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
-      - name: Notify Slack of release failure
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.9
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+        working-directory: assistant
+
+      - name: Lint
+        run: bun run lint
+        working-directory: assistant
+
+      - name: Typecheck
+        run: bunx tsc --noEmit
+        working-directory: assistant
+
+      - name: Test
+        run: bun run test
+        working-directory: assistant
+        env:
+          EXCLUDE_EXPERIMENTAL: 'true'
+
+  ci-cli:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.9
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+        working-directory: cli
+
+      - name: Lint
+        run: bun run lint
+        working-directory: cli
+
+      - name: Typecheck
+        run: bun run typecheck
+        working-directory: cli
+
+  ci-gateway:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.9
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+        working-directory: gateway
+
+      - name: Lint
+        run: bun run lint
+        working-directory: gateway
+
+      - name: Typecheck
+        run: bun run typecheck
+        working-directory: gateway
+
+      - name: Test
+        run: bun run test
+        working-directory: gateway
+
+  notify:
+    if: always() && !cancelled()
+    needs: [bump-and-tag, publish-npm, publish-meta, build-macos, release, update-platform, ci-assistant, ci-cli, ci-gateway]
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
+      - name: Build Slack payload
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          VERSION="${{ inputs.version }}"
+          VERSION_TAG="v${VERSION}"
+
+          # Determine release status from core jobs
+          RELEASE_FAILED="false"
+          for result in \
+            "${{ needs.bump-and-tag.result }}" \
+            "${{ needs.publish-npm.result }}" \
+            "${{ needs.publish-meta.result }}" \
+            "${{ needs.build-macos.result }}" \
+            "${{ needs.release.result }}" \
+            "${{ needs.update-platform.result }}"; do
+            if [ "$result" = "failure" ]; then
+              RELEASE_FAILED="true"
+              break
+            fi
+          done
+
+          if [ "$RELEASE_FAILED" = "true" ]; then
+            HEADER="❌ Release ${VERSION_TAG} Failed"
+            STYLE="danger"
+          else
+            HEADER="✅ Release ${VERSION_TAG} Succeeded"
+            STYLE=""
+          fi
+
+          # Build CI status icons
+          ci_icon() { if [ "$1" = "success" ]; then printf '✅'; else printf '❌'; fi; }
+
+          A=$(ci_icon "${{ needs.ci-assistant.outcome }}")
+          C=$(ci_icon "${{ needs.ci-cli.outcome }}")
+          G=$(ci_icon "${{ needs.ci-gateway.outcome }}")
+          D=$(ci_icon "${{ needs.build-macos.result }}")
+
+          CI_LINE="*CI Checks:*  ${A} assistant    ${C} cli    ${G} gateway    ${D} desktop"
+          META_LINE="*Version:* \`${VERSION}\`\n*Triggered by:* ${{ github.actor }}"
+
+          # Fetch release notes from GitHub release
+          RELEASE_BODY=$(gh release view "$VERSION_TAG" --repo "${{ github.repository }}" --json body -q .body 2>/dev/null || echo "")
+
+          RELEASE_NOTES_SECTION=""
+          RELEASE_SUMMARY=""
+          if [ -n "$RELEASE_BODY" ]; then
+            # Count items per section
+            features=$(echo "$RELEASE_BODY" | awk '/^## Features/{f=1; next} /^## /{f=0} f' | grep -c '^- ' || true)
+            fixes=$(echo "$RELEASE_BODY" | awk '/^## Fixes/{f=1; next} /^## /{f=0} f' | grep -c '^- ' || true)
+            infra=$(echo "$RELEASE_BODY" | awk '/^## Infrastructure/{f=1; next} /^## /{f=0} f' | grep -c '^- ' || true)
+
+            summary=""
+            [ "$features" -gt 0 ] 2>/dev/null && summary="${features} features"
+            [ "$fixes" -gt 0 ] 2>/dev/null && summary="${summary:+$summary, }${fixes} fixes"
+            [ "$infra" -gt 0 ] 2>/dev/null && summary="${summary:+$summary, }${infra} infra changes"
+
+            if [ -n "$summary" ]; then
+              RELEASE_SUMMARY="$summary"
+            fi
+
+            # Convert ## headings to Slack bold
+            RELEASE_NOTES_SECTION=$(echo "$RELEASE_BODY" | sed 's/^## \(.*\)/*\1*/g')
+          fi
+
+          RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/${VERSION_TAG}"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          # Build JSON payload with jq
+          BLOCKS="[]"
+
+          # Header
+          BLOCKS=$(echo "$BLOCKS" | jq --arg header "$HEADER" '. + [{ type: "header", text: { type: "plain_text", text: $header } }]')
+
+          # Release summary (if available)
+          if [ -n "$RELEASE_SUMMARY" ]; then
+            BLOCKS=$(echo "$BLOCKS" | jq --arg summary "$RELEASE_SUMMARY" '. + [{ type: "section", text: { type: "mrkdwn", text: $summary } }]')
+          fi
+
+          # CI checks + metadata
+          BODY="${CI_LINE}\n\n${META_LINE}"
+          BLOCKS=$(echo "$BLOCKS" | jq --arg body "$BODY" '. + [{ type: "section", text: { type: "mrkdwn", text: $body } }]')
+
+          # Release notes body (if available)
+          if [ -n "$RELEASE_NOTES_SECTION" ]; then
+            BLOCKS=$(echo "$BLOCKS" | jq --arg notes "$RELEASE_NOTES_SECTION" '. + [{ type: "divider" }, { type: "section", text: { type: "mrkdwn", text: $notes } }]')
+          fi
+
+          # Buttons
+          VIEW_RUN=$(jq -n --arg url "$RUN_URL" --arg style "$STYLE" '{
+            type: "button",
+            text: { type: "plain_text", text: "View Run" },
+            url: $url
+          } + (if $style != "" then { style: $style } else {} end)')
+
+          VIEW_RELEASE=$(jq -n --arg url "$RELEASE_URL" '{
+            type: "button",
+            text: { type: "plain_text", text: "View Release" },
+            url: $url,
+            style: "primary"
+          }')
+
+          if [ "$RELEASE_FAILED" = "true" ]; then
+            BUTTONS=$(jq -n --argjson run "$VIEW_RUN" '[$run]')
+          else
+            BUTTONS=$(jq -n --argjson run "$VIEW_RUN" --argjson release "$VIEW_RELEASE" '[$run, $release]')
+          fi
+
+          BLOCKS=$(echo "$BLOCKS" | jq --argjson buttons "$BUTTONS" '. + [{ type: "actions", elements: $buttons }]')
+
+          jq -n --argjson blocks "$BLOCKS" '{
+            unfurl_links: false,
+            unfurl_media: false,
+            blocks: $blocks
+          }' > /tmp/slack-payload.json
+
+      - name: Notify Slack
         uses: slackapi/slack-github-action@v2.1.0
         with:
           webhook: ${{ secrets.SLACK_RELEASES_WEBHOOK_URL }}
           webhook-type: incoming-webhook
-          payload: |
-            unfurl_links: false
-            unfurl_media: false
-            blocks:
-              - type: header
-                text:
-                  type: plain_text
-                  text: "\u274c Release v${{ inputs.version }} Failed"
-              - type: section
-                text:
-                  type: mrkdwn
-                  text: "*Workflow:* Unified Release\n*Version:* `${{ inputs.version }}`\n*Triggered by:* ${{ github.actor }}"
-              - type: actions
-                elements:
-                  - type: button
-                    text:
-                      type: plain_text
-                      text: "View Run"
-                    url: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-                    style: danger
+          payload-file-path: /tmp/slack-payload.json

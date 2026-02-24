@@ -1,0 +1,828 @@
+/**
+ * Atomicity tests for memory UPSERT paths.
+ *
+ * SQLite is single-writer, and indexMessageNow / createOrUpdatePendingConflict
+ * are synchronous functions.  Because every call runs to completion before the
+ * next microtask starts, the Promise.all / Promise.resolve().then() pattern
+ * used here does NOT create true concurrent execution — calls still run
+ * sequentially.
+ *
+ * What these tests DO verify is the correctness of the ON CONFLICT /
+ * IMMEDIATE-transaction logic when the same logical operation is repeated many
+ * times (e.g. duplicate indexer runs for the same messageId).  That covers the
+ * most common real-world correctness problem: a retry or a duplicate dispatch
+ * reaching the same code path more than once.
+ *
+ * True OS-level thread concurrency would require spawning separate worker
+ * processes and is not tested here.
+ */
+
+import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { eq } from 'drizzle-orm';
+
+const testDir = mkdtempSync(join(tmpdir(), 'memory-upsert-concurrency-'));
+
+mock.module('../util/platform.js', () => ({
+  getDataDir: () => testDir,
+  isMacOS: () => process.platform === 'darwin',
+  isLinux: () => process.platform === 'linux',
+  isWindows: () => process.platform === 'win32',
+  getSocketPath: () => join(testDir, 'test.sock'),
+  getPidPath: () => join(testDir, 'test.pid'),
+  getDbPath: () => join(testDir, 'test.db'),
+  getLogPath: () => join(testDir, 'test.log'),
+  ensureDataDir: () => {},
+}));
+
+mock.module('../util/logger.js', () => ({
+  getLogger: () => new Proxy({} as Record<string, unknown>, {
+    get: () => () => {},
+  }),
+}));
+
+mock.module('../memory/qdrant-client.js', () => ({
+  getQdrantClient: () => ({
+    searchWithFilter: async () => [],
+    upsertPoints: async () => {},
+    deletePoints: async () => {},
+  }),
+  initQdrantClient: () => {},
+}));
+
+import { DEFAULT_CONFIG } from '../config/defaults.js';
+
+const TEST_CONFIG = {
+  ...DEFAULT_CONFIG,
+  memory: {
+    ...DEFAULT_CONFIG.memory,
+    enabled: true,
+    extraction: {
+      ...DEFAULT_CONFIG.memory.extraction,
+      useLLM: false,
+    },
+  },
+};
+
+mock.module('../config/loader.js', () => ({
+  loadConfig: () => TEST_CONFIG,
+  getConfig: () => TEST_CONFIG,
+  loadRawConfig: () => ({}),
+  saveRawConfig: () => {},
+  invalidateConfigCache: () => {},
+}));
+
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
+import {
+  conversations,
+  memoryItems,
+  memorySegments,
+  messages,
+} from '../memory/schema.js';
+import { indexMessageNow } from '../memory/indexer.js';
+import { createOrUpdatePendingConflict, listPendingConflicts } from '../memory/conflict-store.js';
+
+// Initialize DB once for the entire file. Each test cleans its own tables.
+initializeDb();
+
+afterAll(() => {
+  resetDb();
+  try {
+    rmSync(testDir, { recursive: true });
+  } catch {
+    // best effort cleanup
+  }
+});
+
+function resetTables() {
+  const db = getDb();
+  db.run('DELETE FROM memory_item_conflicts');
+  db.run('DELETE FROM memory_item_entities');
+  db.run('DELETE FROM memory_entity_relations');
+  db.run('DELETE FROM memory_entities');
+  db.run('DELETE FROM memory_item_sources');
+  db.run('DELETE FROM memory_embeddings');
+  db.run('DELETE FROM memory_summaries');
+  db.run('DELETE FROM memory_items');
+  db.run('DELETE FROM memory_segment_fts');
+  db.run('DELETE FROM memory_segments');
+  db.run('DELETE FROM memory_jobs');
+  db.run('DELETE FROM messages');
+  db.run('DELETE FROM conversations');
+}
+
+/** Insert a minimal conversation + message row for FK references. */
+function seedConversationAndMessage(
+  conversationId: string,
+  messageId: string,
+  text: string,
+): void {
+  const db = getDb();
+  const now = Date.now();
+  db.insert(conversations).values({
+    id: conversationId,
+    title: null,
+    createdAt: now,
+    updatedAt: now,
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    totalEstimatedCost: 0,
+    contextSummary: null,
+    contextCompactedMessageCount: 0,
+    contextCompactedAt: null,
+  }).run();
+
+  db.insert(messages).values({
+    id: messageId,
+    conversationId,
+    role: 'user',
+    content: JSON.stringify([{ type: 'text', text }]),
+    createdAt: now,
+  }).run();
+}
+
+/** Insert a pair of memory items that can serve as conflict participants. */
+function seedItemPair(suffix: string, scopeId = 'default'): { existingItemId: string; candidateItemId: string } {
+  const db = getDb();
+  const now = Date.now();
+  const existingItemId = `existing-${suffix}`;
+  const candidateItemId = `candidate-${suffix}`;
+  db.insert(memoryItems).values([
+    {
+      id: existingItemId,
+      kind: 'preference',
+      subject: 'framework preference',
+      statement: `Existing statement ${suffix}`,
+      status: 'active',
+      confidence: 0.8,
+      importance: 0.7,
+      fingerprint: `fp-existing-${suffix}`,
+      verificationState: 'assistant_inferred',
+      scopeId,
+      firstSeenAt: now,
+      lastSeenAt: now,
+    },
+    {
+      id: candidateItemId,
+      kind: 'preference',
+      subject: 'framework preference',
+      statement: `Candidate statement ${suffix}`,
+      status: 'pending_clarification',
+      confidence: 0.8,
+      importance: 0.7,
+      fingerprint: `fp-candidate-${suffix}`,
+      verificationState: 'assistant_inferred',
+      scopeId,
+      firstSeenAt: now,
+      lastSeenAt: now,
+    },
+  ]).run();
+  return { existingItemId, candidateItemId };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test suite: segment UPSERT atomicity under parallel indexer load
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('segment UPSERT atomicity under repeated indexer invocations', () => {
+  beforeEach(() => {
+    resetTables();
+  });
+
+  test('repeated indexing of the same message does not create duplicate segments', async () => {
+    // Index the same messageId multiple times (simulating duplicate indexer
+    // dispatches, retries, or a race at the call site).  The ON CONFLICT DO
+    // UPDATE on memorySegments.id must absorb every duplicate call.
+    const conversationId = 'conv-parallel-segment-dedup';
+    const messageId = 'msg-parallel-segment-dedup';
+    const text = 'I prefer TypeScript over plain JavaScript for large projects.';
+
+    seedConversationAndMessage(conversationId, messageId, text);
+
+    const db = getDb();
+    const config = TEST_CONFIG.memory;
+
+    // Call indexMessageNow N times for the same messageId.  Even though we use
+    // Promise.all, these synchronous calls still run sequentially — the point is
+    // to verify that repeated indexer runs for the same messageId do not produce
+    // duplicate segment rows (i.e. the ON CONFLICT DO UPDATE absorbs them).
+    const WORKERS = 8;
+    await Promise.all(
+      Array.from({ length: WORKERS }, () =>
+        Promise.resolve().then(() =>
+          indexMessageNow(
+            {
+              messageId,
+              conversationId,
+              role: 'user',
+              content: JSON.stringify([{ type: 'text', text }]),
+              createdAt: Date.now(),
+            },
+            config,
+          ),
+        ),
+      ),
+    );
+
+    const segments = db
+      .select()
+      .from(memorySegments)
+      .where(eq(memorySegments.messageId, messageId))
+      .all();
+
+    // Each physical segment (identified by segmentId = messageId + segmentIndex)
+    // must appear exactly once regardless of how many indexer calls ran.
+    const idCounts = new Map<string, number>();
+    for (const seg of segments) {
+      idCounts.set(seg.id, (idCounts.get(seg.id) ?? 0) + 1);
+    }
+    for (const [segId, count] of idCounts) {
+      expect(count).toBe(1);
+      expect(segId.startsWith(messageId)).toBe(true);
+    }
+  });
+
+  test('indexing distinct messages produces independent segment sets', async () => {
+    // Different messages indexed in the same batch must each produce their own
+    // non-overlapping segments with correct messageId back-references.
+    const now = Date.now();
+    const conversationId = 'conv-parallel-distinct';
+    const db = getDb();
+
+    db.insert(conversations).values({
+      id: conversationId,
+      title: null,
+      createdAt: now,
+      updatedAt: now,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      contextCompactedAt: null,
+    }).run();
+
+    const MSG_COUNT = 6;
+    for (let i = 0; i < MSG_COUNT; i++) {
+      db.insert(messages).values({
+        id: `msg-distinct-${i}`,
+        conversationId,
+        role: 'user',
+        content: JSON.stringify([{ type: 'text', text: `Distinct message content for worker ${i}, covering a unique topic that should be stored separately.` }]),
+        createdAt: now + i,
+      }).run();
+    }
+
+    const config = TEST_CONFIG.memory;
+
+    // Call indexMessageNow once per distinct messageId.  The calls run
+    // sequentially (synchronous functions), but grouping them here mirrors
+    // how a batch indexer would dispatch multiple messages and lets us assert
+    // that each message produces its own non-overlapping segment set.
+    await Promise.all(
+      Array.from({ length: MSG_COUNT }, (_, i) => {
+        const msgId = `msg-distinct-${i}`;
+        return Promise.resolve().then(() =>
+          indexMessageNow(
+            {
+              messageId: msgId,
+              conversationId,
+              role: 'user',
+              content: JSON.stringify([{ type: 'text', text: `Distinct message content for worker ${i}, covering a unique topic that should be stored separately.` }]),
+              createdAt: now + i,
+            },
+            config,
+          ),
+        );
+      }),
+    );
+
+    // Every segment must reference its own message and no segment may appear
+    // for the wrong messageId.
+    for (let i = 0; i < MSG_COUNT; i++) {
+      const msgId = `msg-distinct-${i}`;
+      const segs = db
+        .select()
+        .from(memorySegments)
+        .where(eq(memorySegments.messageId, msgId))
+        .all();
+
+      // At least one segment must have been written.
+      expect(segs.length).toBeGreaterThanOrEqual(1);
+
+      // Segment IDs must be of the form `${msgId}:${index}`.
+      for (const seg of segs) {
+        expect(seg.id.startsWith(msgId + ':')).toBe(true);
+        expect(seg.messageId).toBe(msgId);
+        expect(seg.conversationId).toBe(conversationId);
+      }
+    }
+  });
+
+  test('re-indexing with identical content does not change the stored segment', () => {
+    // When an indexer re-processes an already-indexed segment (same id + same
+    // content hash), the ON CONFLICT DO UPDATE path must run but the row must
+    // remain semantically equivalent to the original.
+    const conversationId = 'conv-stable-rehash';
+    const messageId = 'msg-stable-rehash';
+    const text = 'My preferred timezone is America/Los_Angeles and I work remotely.';
+
+    seedConversationAndMessage(conversationId, messageId, text);
+
+    const config = TEST_CONFIG.memory;
+
+    const firstResult = indexMessageNow(
+      { messageId, conversationId, role: 'user', content: JSON.stringify([{ type: 'text', text }]), createdAt: Date.now() },
+      config,
+    );
+
+    const db = getDb();
+    const segmentsAfterFirst = db
+      .select()
+      .from(memorySegments)
+      .where(eq(memorySegments.messageId, messageId))
+      .all();
+
+    // Re-index twice more with the same payload.
+    indexMessageNow(
+      { messageId, conversationId, role: 'user', content: JSON.stringify([{ type: 'text', text }]), createdAt: Date.now() },
+      config,
+    );
+    indexMessageNow(
+      { messageId, conversationId, role: 'user', content: JSON.stringify([{ type: 'text', text }]), createdAt: Date.now() },
+      config,
+    );
+
+    const segmentsAfterRehash = db
+      .select()
+      .from(memorySegments)
+      .where(eq(memorySegments.messageId, messageId))
+      .all();
+
+    // Segment count must not have grown.
+    expect(segmentsAfterRehash.length).toBe(segmentsAfterFirst.length);
+
+    // Content hashes must match between first and subsequent indexings.
+    const firstById = new Map(segmentsAfterFirst.map((s) => [s.id, s]));
+    for (const seg of segmentsAfterRehash) {
+      const original = firstById.get(seg.id);
+      expect(original).toBeDefined();
+      expect(seg.contentHash).toBe(original!.contentHash);
+      expect(seg.text).toBe(original!.text);
+    }
+
+    // The indexer must have reported the correct segment count both times.
+    expect(firstResult.indexedSegments).toBeGreaterThanOrEqual(1);
+  });
+
+  test('re-indexing same message with different content applies last-write semantics', async () => {
+    // When indexMessageNow is called twice for the same messageId with different
+    // content (simulating an edit followed by a re-index), the ON CONFLICT DO
+    // UPDATE must store one row per segmentId.  We cannot assert which text
+    // "wins" — only that no duplicate rows exist.
+    const conversationId = 'conv-edit-race';
+    const messageId = 'msg-edit-race';
+    const textV1 = 'I prefer React for frontend development work on large projects.';
+    const textV2 = 'I prefer Vue for frontend development work on large projects instead.';
+
+    seedConversationAndMessage(conversationId, messageId, textV1);
+
+    const config = TEST_CONFIG.memory;
+
+    // Call indexMessageNow twice with different content for the same messageId,
+    // running sequentially.  The ON CONFLICT DO UPDATE must absorb both calls
+    // and leave exactly one row per segmentId regardless of which content wins.
+    await Promise.all([
+      Promise.resolve().then(() =>
+        indexMessageNow(
+          { messageId, conversationId, role: 'user', content: JSON.stringify([{ type: 'text', text: textV1 }]), createdAt: Date.now() },
+          config,
+        ),
+      ),
+      Promise.resolve().then(() =>
+        indexMessageNow(
+          { messageId, conversationId, role: 'user', content: JSON.stringify([{ type: 'text', text: textV2 }]), createdAt: Date.now() },
+          config,
+        ),
+      ),
+    ]);
+
+    const db = getDb();
+    const segments = db
+      .select()
+      .from(memorySegments)
+      .where(eq(memorySegments.messageId, messageId))
+      .all();
+
+    // No duplicate segment IDs — each logical segment must appear at most once.
+    const ids = segments.map((s) => s.id);
+    const uniqueIds = new Set(ids);
+    expect(uniqueIds.size).toBe(ids.length);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test suite: conflict creation UPSERT atomicity
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('conflict creation UPSERT atomicity', () => {
+  beforeEach(() => {
+    resetTables();
+  });
+
+  test('repeated createOrUpdatePendingConflict calls for the same pair produce exactly one conflict row', async () => {
+    // Critical UPSERT path: the same conflict pair inserted multiple times
+    // (e.g. duplicate worker dispatches, retries).  The IMMEDIATE transaction
+    // guard in createOrUpdatePendingConflict must ensure only one row exists.
+    const pair = seedItemPair('parallel-create');
+
+    // Call createOrUpdatePendingConflict N times for the same pair.  Calls run
+    // sequentially (synchronous); the test verifies that repeated calls produce
+    // exactly one conflict row — the IMMEDIATE transaction deduplication path.
+    const WORKERS = 10;
+    const results = await Promise.all(
+      Array.from({ length: WORKERS }, (_, i) =>
+        Promise.resolve().then(() =>
+          createOrUpdatePendingConflict({
+            scopeId: 'default',
+            existingItemId: pair.existingItemId,
+            candidateItemId: pair.candidateItemId,
+            relationship: 'ambiguous_contradiction',
+            clarificationQuestion: `Worker ${i} discovered a contradiction`,
+          }),
+        ),
+      ),
+    );
+
+    // All callers must receive the same conflict ID — the deduplication path
+    // returns the existing row on the second and subsequent calls.
+    const firstId = results[0].id;
+    for (const result of results) {
+      expect(result.id).toBe(firstId);
+    }
+
+    // Exactly one pending conflict row in the DB.
+    const pending = listPendingConflicts('default');
+    expect(pending).toHaveLength(1);
+    expect(pending[0].id).toBe(firstId);
+  });
+
+  test('conflict creation for different pairs produces distinct rows without cross-contamination', async () => {
+    // Each unique item pair must get its own conflict row — deduplication must
+    // be scoped to the pair, not global.  Also exercises the idempotent
+    // insert-then-update path within each pair.
+    const PAIR_COUNT = 6;
+    const pairs = Array.from({ length: PAIR_COUNT }, (_, i) => seedItemPair(`multi-pair-${i}`));
+
+    // For each pair, make two calls: one insert and one update.  All calls run
+    // sequentially.  The test verifies that each pair ends up with exactly one
+    // conflict row (no cross-pair contamination, idempotent update path works).
+    await Promise.all(
+      pairs.flatMap((pair) => [
+        // First call: insert with 'contradiction'.
+        Promise.resolve().then(() =>
+          createOrUpdatePendingConflict({
+            scopeId: 'default',
+            existingItemId: pair.existingItemId,
+            candidateItemId: pair.candidateItemId,
+            relationship: 'contradiction',
+          }),
+        ),
+        // Second call: update to 'ambiguous_contradiction' — tests the idempotent update path.
+        Promise.resolve().then(() =>
+          createOrUpdatePendingConflict({
+            scopeId: 'default',
+            existingItemId: pair.existingItemId,
+            candidateItemId: pair.candidateItemId,
+            relationship: 'ambiguous_contradiction',
+          }),
+        ),
+      ]),
+    );
+
+    // Each pair must have produced exactly one pending conflict.
+    const pending = listPendingConflicts('default');
+    expect(pending).toHaveLength(PAIR_COUNT);
+
+    // All conflict IDs must be unique.
+    const ids = pending.map((c) => c.id);
+    expect(new Set(ids).size).toBe(PAIR_COUNT);
+
+    // Each returned conflict must reference the correct item pair.
+    for (let i = 0; i < PAIR_COUNT; i++) {
+      const pair = pairs[i];
+      const found = pending.find(
+        (c) => c.existingItemId === pair.existingItemId && c.candidateItemId === pair.candidateItemId,
+      );
+      expect(found).toBeDefined();
+      // The update call ran after the insert, so relationship is ambiguous_contradiction.
+      expect(found!.relationship).toBe('ambiguous_contradiction');
+    }
+  });
+
+  test('repeated updates to the same conflict row converge to a consistent state', async () => {
+    // Multiple update calls for the same conflict (e.g. repeated worker runs).
+    // All updates must succeed (last writer wins is acceptable) and the row
+    // must remain internally consistent.
+    const pair = seedItemPair('concurrent-update');
+    const first = createOrUpdatePendingConflict({
+      scopeId: 'default',
+      existingItemId: pair.existingItemId,
+      candidateItemId: pair.candidateItemId,
+      relationship: 'contradiction',
+      clarificationQuestion: 'Initial question',
+    });
+
+    // Call createOrUpdatePendingConflict N times against the same existing row.
+    // Calls are sequential; the test verifies the row stays consistent (one row,
+    // valid status/relationship) after repeated updates — last writer wins.
+    const UPDATES = 8;
+    const results = await Promise.all(
+      Array.from({ length: UPDATES }, (_, i) =>
+        Promise.resolve().then(() =>
+          createOrUpdatePendingConflict({
+            scopeId: 'default',
+            existingItemId: pair.existingItemId,
+            candidateItemId: pair.candidateItemId,
+            relationship: 'ambiguous_contradiction',
+            clarificationQuestion: `Updated question from worker ${i}`,
+          }),
+        ),
+      ),
+    );
+
+    // All calls must return the same conflict ID.
+    for (const result of results) {
+      expect(result.id).toBe(first.id);
+    }
+
+    // Still exactly one row in the DB.
+    const pending = listPendingConflicts('default');
+    expect(pending).toHaveLength(1);
+
+    // The row must be consistent: valid status, valid relationship.
+    const conflict = pending[0];
+    expect(conflict.status).toBe('pending_clarification');
+    expect(conflict.relationship).toBe('ambiguous_contradiction');
+  });
+
+  test('scope isolation ensures conflicts in different scopes do not interfere', async () => {
+    // Conflicts created in different scopes must not cross-contaminate each
+    // other's conflict sets — scopeId must be part of the deduplication key.
+    const SCOPES = ['scope-alpha', 'scope-beta', 'scope-gamma'];
+    const scopePairs = SCOPES.map((scope) => ({ scope, pair: seedItemPair(`scope-${scope}`, scope) }));
+
+    // Make 3 calls per scope for all scopes.  Calls run sequentially; the test
+    // verifies that each scope produces exactly one conflict row and that there
+    // is no cross-scope contamination from repeated same-scope calls.
+    await Promise.all(
+      scopePairs.flatMap(({ scope, pair }) =>
+        Array.from({ length: 3 }, () =>
+          Promise.resolve().then(() =>
+            createOrUpdatePendingConflict({
+              scopeId: scope,
+              existingItemId: pair.existingItemId,
+              candidateItemId: pair.candidateItemId,
+              relationship: 'contradiction',
+            }),
+          ),
+        ),
+      ),
+    );
+
+    for (const scope of SCOPES) {
+      const pending = listPendingConflicts(scope);
+      // Exactly one conflict per scope, no cross-scope leakage.
+      expect(pending).toHaveLength(1);
+      expect(pending[0].scopeId).toBe(scope);
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test suite: memory segment job atomicity
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('memory segment job atomicity under repeated indexer invocations', () => {
+  beforeEach(() => {
+    resetTables();
+  });
+
+  test('each unique (messageId, segmentIndex) pair generates at most one segment row', async () => {
+    // Re-index the same messages multiple times to verify that the job+segment
+    // transaction boundary is respected and no duplicate segment rows appear for
+    // the same logical (messageId, segmentIndex) identity.
+    const conversationId = 'conv-job-atomicity';
+    const now = Date.now();
+    const db = getDb();
+
+    db.insert(conversations).values({
+      id: conversationId,
+      title: null,
+      createdAt: now,
+      updatedAt: now,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      contextCompactedAt: null,
+    }).run();
+
+    const MSG_COUNT = 5;
+    const REPEATS = 4; // how many times each message is re-indexed
+    for (let i = 0; i < MSG_COUNT; i++) {
+      db.insert(messages).values({
+        id: `msg-atomicity-${i}`,
+        conversationId,
+        role: 'user',
+        content: JSON.stringify([{ type: 'text', text: `Message ${i}: I prefer TypeScript and always follow functional programming patterns in my projects.` }]),
+        createdAt: now + i,
+      }).run();
+    }
+
+    const config = TEST_CONFIG.memory;
+
+    // Repeat indexMessageNow REPEATS times for each of MSG_COUNT messages.  All
+    // calls run sequentially; the test verifies that repeated indexing of the
+    // same (messageId, segmentIndex) never produces duplicate segment rows.
+    await Promise.all(
+      Array.from({ length: REPEATS }, () =>
+        Array.from({ length: MSG_COUNT }, (_, i) => {
+          const msgId = `msg-atomicity-${i}`;
+          return Promise.resolve().then(() =>
+            indexMessageNow(
+              {
+                messageId: msgId,
+                conversationId,
+                role: 'user',
+                content: JSON.stringify([{ type: 'text', text: `Message ${i}: I prefer TypeScript and always follow functional programming patterns in my projects.` }]),
+                createdAt: now + i,
+              },
+              config,
+            ),
+          );
+        }),
+      ).flat(),
+    );
+
+    // For every message, count distinct segment IDs — there must be no
+    // duplicates regardless of how many indexer calls ran.
+    for (let i = 0; i < MSG_COUNT; i++) {
+      const msgId = `msg-atomicity-${i}`;
+      const segs = db
+        .select()
+        .from(memorySegments)
+        .where(eq(memorySegments.messageId, msgId))
+        .all();
+
+      const segIds = segs.map((s) => s.id);
+      const uniqueSegIds = new Set(segIds);
+      expect(uniqueSegIds.size).toBe(segIds.length);
+    }
+  });
+
+  test('indexer result counts are consistent with actual stored segment counts', async () => {
+    // The IndexMessageResult.indexedSegments value returned by indexMessageNow
+    // must always match the number of rows stored in memory_segments for that
+    // message.  Under repeated indexing the stored count stays stable while
+    // every result reports the same logical segment count.
+    const conversationId = 'conv-count-consistency';
+    const messageId = 'msg-count-consistency';
+    const text = 'I always prefer concise code reviews and I work in a distributed team across multiple timezones.';
+
+    seedConversationAndMessage(conversationId, messageId, text);
+
+    const config = TEST_CONFIG.memory;
+
+    // Index the same message RUNS times sequentially.  The test verifies that
+    // the returned indexedSegments count is stable across all runs and matches
+    // the number of rows actually stored in the DB.
+    const RUNS = 5;
+    const results = await Promise.all(
+      Array.from({ length: RUNS }, () =>
+        Promise.resolve().then(() =>
+          indexMessageNow(
+            { messageId, conversationId, role: 'user', content: JSON.stringify([{ type: 'text', text }]), createdAt: Date.now() },
+            config,
+          ),
+        ),
+      ),
+    );
+
+    const db = getDb();
+    const storedSegments = db
+      .select()
+      .from(memorySegments)
+      .where(eq(memorySegments.messageId, messageId))
+      .all();
+
+    // All runs must agree on the segment count.
+    const firstCount = results[0].indexedSegments;
+    for (const result of results) {
+      expect(result.indexedSegments).toBe(firstCount);
+    }
+
+    // Stored count must equal the reported logical count.
+    expect(storedSegments.length).toBe(firstCount);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test suite: memory_items fingerprint uniqueness under race conditions
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('memory_items fingerprint uniqueness under race conditions', () => {
+  beforeEach(() => {
+    resetTables();
+  });
+
+  test('duplicate inserts with identical fingerprints produce exactly one row', () => {
+    // The memory_items table has a unique constraint on (fingerprint, scope_id).
+    // Two sequential inserts for the same fingerprint simulate duplicate extractor
+    // runs.  Only one INSERT must land; the second must be absorbed by ON CONFLICT.
+    const db = getDb();
+    const now = Date.now();
+    const fingerprint = 'fp-race-unique-test-concurrency';
+    const scopeId = 'default';
+
+    // Use raw SQL to replicate what the items-extractor would do when a second
+    // run tries to INSERT the same fingerprint that already exists.
+    const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
+
+    raw.run(`
+      INSERT INTO memory_items (
+        id, kind, subject, statement, status, confidence, importance,
+        fingerprint, verification_state, scope_id, first_seen_at, last_seen_at
+      ) VALUES (
+        'item-race-1', 'preference', 'code style', 'I prefer tabs over spaces.',
+        'active', 0.8, 0.6, '${fingerprint}', 'user_reported', '${scopeId}',
+        ${now}, ${now}
+      )
+    `);
+
+    // Second "worker" tries to insert the same fingerprint — must not create a
+    // duplicate.  INSERT OR IGNORE / ON CONFLICT DO NOTHING is the expected
+    // behavior for the unique constraint.
+    expect(() => {
+      raw.run(`
+        INSERT OR IGNORE INTO memory_items (
+          id, kind, subject, statement, status, confidence, importance,
+          fingerprint, verification_state, scope_id, first_seen_at, last_seen_at
+        ) VALUES (
+          'item-race-2', 'preference', 'code style', 'I prefer tabs over spaces.',
+          'active', 0.8, 0.6, '${fingerprint}', 'user_reported', '${scopeId}',
+          ${now + 1}, ${now + 1}
+        )
+      `);
+    }).not.toThrow();
+
+    const rows = db
+      .select()
+      .from(memoryItems)
+      .all()
+      .filter((r) => r.fingerprint === fingerprint);
+
+    // Only the first insert must have landed.
+    expect(rows).toHaveLength(1);
+    expect(rows[0].id).toBe('item-race-1');
+  });
+
+  test('bare INSERT without IGNORE throws on duplicate fingerprint+scopeId', () => {
+    // Verify the DB-level unique constraint is actually enforced so that any code
+    // path that accidentally omits ON CONFLICT will fail loudly rather than silently
+    // producing inconsistent state.
+    const db = getDb();
+    const now = Date.now();
+    const fingerprint = 'fp-constraint-enforcement-test';
+
+    const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
+
+    raw.run(`
+      INSERT INTO memory_items (
+        id, kind, subject, statement, status, confidence, importance,
+        fingerprint, verification_state, scope_id, first_seen_at, last_seen_at
+      ) VALUES (
+        'item-constraint-a', 'preference', 'editor', 'I use VS Code.',
+        'active', 0.9, 0.7, '${fingerprint}', 'user_reported', 'default',
+        ${now}, ${now}
+      )
+    `);
+
+    // A bare INSERT (no ON CONFLICT) for the same fingerprint+scope_id must throw.
+    expect(() => {
+      raw.run(`
+        INSERT INTO memory_items (
+          id, kind, subject, statement, status, confidence, importance,
+          fingerprint, verification_state, scope_id, first_seen_at, last_seen_at
+        ) VALUES (
+          'item-constraint-b', 'preference', 'editor', 'I use VS Code.',
+          'active', 0.9, 0.7, '${fingerprint}', 'user_reported', 'default',
+          ${now + 1}, ${now + 1}
+        )
+      `);
+    }).toThrow();
+  });
+});

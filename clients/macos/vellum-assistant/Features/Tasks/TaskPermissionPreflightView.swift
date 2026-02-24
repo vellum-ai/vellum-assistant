@@ -45,6 +45,7 @@ struct TaskPermissionPreflightView: View {
                     .font(VFont.caption)
                     .foregroundColor(VColor.textSecondary)
                     .lineLimit(1)
+                    .textSelection(.enabled)
             }
             Spacer()
             Button(action: onDismiss) {
@@ -76,6 +77,7 @@ struct TaskPermissionPreflightView: View {
                     .font(VFont.caption)
                     .foregroundColor(VColor.textSecondary)
                     .padding(.top, VSpacing.sm)
+                    .textSelection(.enabled)
                 Spacer()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -90,6 +92,7 @@ struct TaskPermissionPreflightView: View {
                     .font(VFont.caption)
                     .foregroundColor(VColor.textSecondary)
                     .multilineTextAlignment(.center)
+                    .textSelection(.enabled)
                 Spacer()
             }
             .frame(maxWidth: .infinity)
@@ -105,9 +108,11 @@ struct TaskPermissionPreflightView: View {
                     Text("No special permissions required")
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
+                        .textSelection(.enabled)
                     Text("This task can run without additional approvals.")
                         .font(VFont.caption)
                         .foregroundColor(VColor.textSecondary)
+                        .textSelection(.enabled)
                     Spacer()
                 }
                 .frame(maxWidth: .infinity)
@@ -128,6 +133,7 @@ struct TaskPermissionPreflightView: View {
                 .padding(.horizontal, VSpacing.lg)
                 .padding(.top, VSpacing.md)
                 .padding(.bottom, VSpacing.sm)
+                .textSelection(.enabled)
 
             ScrollView {
                 VStack(spacing: VSpacing.xs) {
@@ -153,6 +159,7 @@ struct TaskPermissionPreflightView: View {
                 Text("\(approvedTools.count) of \(permissions.count) approved")
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
+                    .textSelection(.enabled)
                 Spacer()
                 Button(action: onDismiss) {
                     Text("Cancel")
@@ -211,6 +218,7 @@ struct TaskPermissionPreflightView: View {
                     .font(VFont.caption)
                     .foregroundColor(VColor.textSecondary)
             }
+            .textSelection(.enabled)
 
             Spacer()
 

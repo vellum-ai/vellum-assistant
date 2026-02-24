@@ -163,6 +163,7 @@ private struct TrustRuleRow: View {
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
             }
+            .textSelection(.enabled)
 
             Spacer()
 

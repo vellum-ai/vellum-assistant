@@ -190,6 +190,7 @@ private struct TasksWindowRow: View {
             .foregroundColor(VColor.textPrimary)
             .lineLimit(TasksTableContract.titleLineLimit)
             .truncationMode(.tail)
+            .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
@@ -342,6 +343,7 @@ private struct TasksWindowRow: View {
                         Text("No response")
                             .font(VFont.small)
                             .foregroundColor(VColor.warning)
+                            .textSelection(.enabled)
                     }
                 }
             }

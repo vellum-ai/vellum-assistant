@@ -223,14 +223,21 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
 
 Requires Accessibility, Screen Recording, and Microphone permissions (System Settings > Privacy & Security). `PermissionManager` handles checking/prompting. API key stored in Keychain via `APIKeyManager`.
 
-## Developer Local Pairing
+## iOS Pairing
 
-Developer-only feature for pairing an iOS device over the local network (LAN) for debugging purposes.
+The macOS app pairs with iOS devices via QR code or manual gateway URL entry. The Connect tab (Settings → Connect) is the single entry point for all pairing configuration.
 
-- **What it is:** Allows a macOS instance to expose a local HTTP gateway that an iOS device on the same network can connect to, bypassing the cloud relay.
-- **How to enable:** Settings > Connect > Developer Local Pairing toggle. This is a developer-only feature gated behind the developer settings toggle.
-- **How it works:** The macOS app generates a QR code containing the local HTTP gateway URL. The iOS app scans the QR code and connects directly over LAN if the developer local pairing toggle is enabled on the iOS side.
-- **Security:** HTTP is permitted only for local/private addresses (loopback, mDNS `.local`, link-local, RFC 1918 ranges). Bearer token authentication is still required for all requests. Address validation uses `LocalAddressValidator.isLocalAddress()` in `clients/shared/Utilities/LocalAddressValidator.swift`.
+- **QR Code Pairing:** Settings > Connect > Show QR Code generates a v3 payload containing the gateway URL, bearer token, and an `allowLocalHttp` flag for LAN connections.
+- **Connect Tab Layout:** Pairing hero (QR + status) → Gateway (URL config, collapsed if set) → Advanced (bearer token, developer local pairing overrides) → Diagnostics (test connection) → Channels (Telegram, SMS).
+- **Bearer Token:** Auto-generated and stored at `~/.vellum/http-token`. The pairing hero shows a "Generate Token" button when missing and a "Regenerate Token" link when present.
+
+### Developer Local Pairing
+
+Developer-only feature for pairing over LAN, bypassing the cloud relay. Located in Settings > Connect > Advanced (requires developer settings toggle).
+
+- **What it is:** Allows overriding the gateway URL and bearer token with local network values for debugging.
+- **How it works:** When enabled, the QR code includes the local LAN URL and sets `allowLocalHttp: true`. The iOS app uses `allowLocalHttp` from the QR payload to permit plain HTTP — there is no separate toggle on the iOS side.
+- **Security:** HTTP is permitted only for local/private addresses (loopback, mDNS `.local`, link-local, RFC 1918 ranges). Bearer token authentication is still required. Address validation uses `LocalAddressValidator.isLocalAddress()` in `clients/shared/Utilities/LocalAddressValidator.swift`.
 
 ## Data Storage
 

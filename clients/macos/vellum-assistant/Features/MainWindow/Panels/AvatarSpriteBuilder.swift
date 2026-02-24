@@ -1,5 +1,6 @@
 import AppKit
 import SceneKit
+import VellumAssistantShared
 
 /// Generates procedural 3D voxel dino characters seeded from a string.
 /// Native Swift port of the voxeldino Python package (github.com/avareed-assistant/voxeldino).

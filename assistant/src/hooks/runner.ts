@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
 import { basename, extname, join } from 'node:path';
+import { pathExists } from '../util/fs.js';
 import { homedir } from 'node:os';
 import { getRootDir, getWorkspaceDir } from '../util/platform.js';
 import { getHookSettings } from './config.js';
@@ -24,7 +24,7 @@ function resolveBunPath(): string {
   if (found) return found;
 
   const fallback = join(homedir(), '.bun', 'bin', 'bun');
-  if (existsSync(fallback)) return fallback;
+  if (pathExists(fallback)) return fallback;
 
   throw new Error(
     'Cannot find a bun runtime to execute .ts hooks. ' +

@@ -44,6 +44,30 @@ const PHRASE_MAP = buildPhraseMap();
 // Public API
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Run-reference tag extraction
+// ---------------------------------------------------------------------------
+
+/**
+ * Pattern matching a `[ref:<runId>]` disambiguation tag appended to
+ * plain-text approval prompts. Guardians can include this tag in their
+ * reply so that `handleApprovalInterception` can resolve the correct
+ * pending approval when multiple approvals target the same chat.
+ */
+const REF_TAG_RE = /\[ref:([^\]]+)\]/i;
+
+/**
+ * Extract a run-reference tag from the text and return the cleaned
+ * decision text plus the extracted runId (if any).
+ */
+function extractRefTag(text: string): { cleaned: string; runId?: string } {
+  const match = REF_TAG_RE.exec(text);
+  if (!match) return { cleaned: text };
+  const runId = match[1].trim();
+  const cleaned = text.replace(REF_TAG_RE, '').trim();
+  return { cleaned, runId: runId || undefined };
+}
+
 /**
  * Parse a plain-text message into an approval decision.
  *
@@ -51,10 +75,15 @@ const PHRASE_MAP = buildPhraseMap();
  * of the known intent phrases, or `null` if it does not match.
  *
  * Matching is case-insensitive with leading/trailing whitespace trimmed.
+ *
+ * When the text contains a `[ref:<runId>]` tag (appended by the
+ * plain-text fallback path), the extracted runId is included in the
+ * result so the caller can disambiguate among multiple pending approvals.
  */
 export function parseApprovalDecision(text: string): ApprovalDecisionResult | null {
-  const normalised = text.trim().toLowerCase();
+  const { cleaned, runId } = extractRefTag(text);
+  const normalised = cleaned.trim().toLowerCase();
   const action = PHRASE_MAP.get(normalised);
   if (!action) return null;
-  return { action, source: 'plain_text' };
+  return { action, source: 'plain_text', ...(runId ? { runId } : {}) };
 }

@@ -1,12 +1,14 @@
-import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
-import { createTelegramReconcileHandler } from "../http/routes/telegram-reconcile.js";
+import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import type { GatewayConfig } from "../config.js";
 
-// Instead of mock.module("../telegram/webhook-manager.js", ...) — which leaks
-// across Bun test files (process-global module mocks) — we mock globalThis.fetch
-// so that the real reconcileTelegramWebhook runs but API calls are intercepted.
+type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(async () => new Response());
 
-const originalFetch = globalThis.fetch;
+mock.module("../fetch.js", () => ({
+  fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
+}));
+
+const { createTelegramReconcileHandler } = await import("../http/routes/telegram-reconcile.js");
 
 function makeTelegramResponse(result: unknown) {
   return new Response(JSON.stringify({ ok: true, result }), {
@@ -48,6 +50,14 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     smsDeliverAuthBypass: false,
     ingressPublicBaseUrl: "https://example.com",
     unmappedPolicy: "reject",
+    whatsappPhoneNumberId: undefined,
+    whatsappAccessToken: undefined,
+    whatsappAppSecret: undefined,
+    whatsappWebhookVerifyToken: undefined,
+    whatsappDeliverAuthBypass: false,
+    whatsappTimeoutMs: 15000,
+    whatsappMaxRetries: 3,
+    whatsappInitialBackoffMs: 1000,
     ...overrides,
   };
   if (merged.runtimeGatewayOriginSecret === undefined) {
@@ -76,7 +86,7 @@ function makeRequest(
 
 /** Default fetch mock that handles Telegram API calls with success responses. */
 function installDefaultFetchMock() {
-  globalThis.fetch = mock(async (input: string | URL | Request) => {
+  fetchMock = mock(async (input: string | URL | Request) => {
     const url =
       typeof input === "string"
         ? input
@@ -94,7 +104,7 @@ function installDefaultFetchMock() {
       return makeTelegramResponse(true);
     }
     return new Response("Not found", { status: 404 });
-  }) as any;
+  });
 }
 
 describe("POST /internal/telegram/reconcile", () => {
@@ -103,7 +113,7 @@ describe("POST /internal/telegram/reconcile", () => {
   });
 
   afterEach(() => {
-    globalThis.fetch = originalFetch;
+    fetchMock = mock(async () => new Response());
   });
 
   test("rejects non-POST methods", async () => {
@@ -148,7 +158,7 @@ describe("POST /internal/telegram/reconcile", () => {
     const body = await res.json();
     expect(body.ok).toBe(true);
     // Fetch was called (getWebhookInfo + setWebhook) proving reconcile ran.
-    expect(globalThis.fetch).toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalled();
   });
 
   test("updates ingressPublicBaseUrl when provided", async () => {
@@ -191,9 +201,9 @@ describe("POST /internal/telegram/reconcile", () => {
   });
 
   test("returns 502 when reconcile throws", async () => {
-    globalThis.fetch = mock(async () => {
+    fetchMock = mock(async () => {
       throw new Error("Telegram API error");
-    }) as any;
+    });
     const config = makeConfig();
     const handler = createTelegramReconcileHandler(config);
     const res = await handler(makeRequest("POST", "test-token"));
@@ -222,7 +232,7 @@ describe("POST /internal/telegram/reconcile", () => {
 
     // Make reconcile slow enough that the first call is still in-flight
     // when the second one arrives.
-    globalThis.fetch = mock(
+    fetchMock = mock(
       async (input: string | URL | Request, init?: RequestInit) => {
         const url =
           typeof input === "string"
@@ -245,7 +255,7 @@ describe("POST /internal/telegram/reconcile", () => {
         }
         return new Response("Not found", { status: 404 });
       },
-    ) as any;
+    );
 
     const config = makeConfig({ ingressPublicBaseUrl: "https://original.com" });
     const handler = createTelegramReconcileHandler(config);

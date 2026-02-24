@@ -1,0 +1,208 @@
+// User/assistant messages, tool results, confirmations, secrets, errors, and generation lifecycle.
+
+import type { UserMessageAttachment } from './shared.js';
+
+// === Client → Server ===
+
+export interface UserMessage {
+  type: 'user_message';
+  sessionId: string;
+  content?: string;
+  attachments?: UserMessageAttachment[];
+  activeSurfaceId?: string;
+  /** The page currently displayed in the WebView (e.g. "settings.html"). */
+  currentPage?: string;
+  /** When true, skip the secret-ingress check. Set by the client when the user clicks "Send Anyway". */
+  bypassSecretCheck?: boolean;
+}
+
+export interface ConfirmationResponse {
+  type: 'confirmation_response';
+  requestId: string;
+  decision: 'allow' | 'always_allow' | 'always_allow_high_risk' | 'deny' | 'always_deny';
+  selectedPattern?: string;
+  selectedScope?: string;
+}
+
+export interface SecretResponse {
+  type: 'secret_response';
+  requestId: string;
+  value?: string;    // undefined = user cancelled
+  /** How the secret should be delivered: 'store' persists to keychain (default), 'transient_send' for one-time use without persisting. */
+  delivery?: 'store' | 'transient_send';
+}
+
+export interface SuggestionRequest {
+  type: 'suggestion_request';
+  sessionId: string;
+  requestId: string;
+}
+
+// === Server → Client ===
+
+export interface UserMessageEcho {
+  type: 'user_message_echo';
+  text: string;
+  sessionId?: string;
+}
+
+export interface AssistantTextDelta {
+  type: 'assistant_text_delta';
+  text: string;
+  sessionId?: string;
+}
+
+export interface AssistantThinkingDelta {
+  type: 'assistant_thinking_delta';
+  thinking: string;
+}
+
+export interface ToolUseStart {
+  type: 'tool_use_start';
+  toolName: string;
+  input: Record<string, unknown>;
+  sessionId?: string;
+}
+
+export interface ToolOutputChunk {
+  type: 'tool_output_chunk';
+  chunk: string;
+  sessionId?: string;
+  subType?: 'tool_start' | 'tool_complete' | 'status';
+  subToolName?: string;
+  subToolInput?: string;
+  subToolIsError?: boolean;
+  subToolId?: string;
+}
+
+export interface ToolInputDelta {
+  type: 'tool_input_delta';
+  toolName: string;
+  content: string;
+  sessionId?: string;
+}
+
+export interface ToolResult {
+  type: 'tool_result';
+  toolName: string;
+  result: string;
+  isError?: boolean;
+  diff?: { filePath: string; oldContent: string; newContent: string; isNewFile: boolean };
+  status?: string;
+  sessionId?: string;
+  /** Base64-encoded image data extracted from contentBlocks (e.g. browser_screenshot). */
+  imageData?: string;
+}
+
+export interface ConfirmationRequest {
+  type: 'confirmation_request';
+  requestId: string;
+  toolName: string;
+  input: Record<string, unknown>;
+  riskLevel: string;
+  executionTarget?: 'sandbox' | 'host';
+  allowlistOptions: Array<{ label: string; description: string; pattern: string }>;
+  scopeOptions: Array<{ label: string; scope: string }>;
+  diff?: { filePath: string; oldContent: string; newContent: string; isNewFile: boolean };
+  sandboxed?: boolean;
+  sessionId?: string;
+  /** When false, the client should hide "always allow" / trust-rule persistence affordances. */
+  persistentDecisionsAllowed?: boolean;
+}
+
+export interface SecretRequest {
+  type: 'secret_request';
+  requestId: string;
+  service: string;
+  field: string;
+  label: string;
+  description?: string;
+  placeholder?: string;
+  sessionId?: string;
+  /** Intended purpose of the credential (displayed to user). */
+  purpose?: string;
+  /** Tools allowed to use this credential. */
+  allowedTools?: string[];
+  /** Domains where this credential may be used. */
+  allowedDomains?: string[];
+  /** Whether one-time send override is available. */
+  allowOneTimeSend?: boolean;
+}
+
+export interface MessageComplete {
+  type: 'message_complete';
+  sessionId?: string;
+  attachments?: UserMessageAttachment[];
+}
+
+export interface ErrorMessage {
+  type: 'error';
+  message: string;
+  /** Categorizes the error so the client can offer contextual actions (e.g. "Send Anyway" for secret_blocked). */
+  category?: string;
+}
+
+export interface SecretDetected {
+  type: 'secret_detected';
+  toolName: string;
+  matches: Array<{ type: string; redactedValue: string }>;
+  action: 'redact' | 'warn' | 'block' | 'prompt';
+}
+
+export interface MessageQueued {
+  type: 'message_queued';
+  sessionId: string;
+  requestId: string;
+  position: number;
+}
+
+export interface MessageDequeued {
+  type: 'message_dequeued';
+  sessionId: string;
+  requestId: string;
+}
+
+export interface MessageQueuedDeleted {
+  type: 'message_queued_deleted';
+  sessionId: string;
+  requestId: string;
+}
+
+export interface SuggestionResponse {
+  type: 'suggestion_response';
+  requestId: string;
+  suggestion: string | null;
+  source: 'llm' | 'none';
+}
+
+export type TraceEventKind =
+  | 'request_received'
+  | 'request_queued'
+  | 'request_dequeued'
+  | 'llm_call_started'
+  | 'llm_call_finished'
+  | 'assistant_message'
+  | 'tool_started'
+  | 'tool_permission_requested'
+  | 'tool_permission_decided'
+  | 'tool_finished'
+  | 'tool_failed'
+  | 'secret_detected'
+  | 'generation_handoff'
+  | 'message_complete'
+  | 'generation_cancelled'
+  | 'request_error'
+  | 'tool_profiling_summary';
+
+export interface TraceEvent {
+  type: 'trace_event';
+  eventId: string;
+  sessionId: string;
+  requestId?: string;
+  timestampMs: number;
+  sequence: number;
+  kind: TraceEventKind;
+  status?: 'info' | 'success' | 'warning' | 'error';
+  summary: string;
+  attributes?: Record<string, string | number | boolean | null>;
+}

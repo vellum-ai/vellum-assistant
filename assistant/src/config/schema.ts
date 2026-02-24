@@ -999,6 +999,22 @@ export const CallerIdentityConfigSchema = z.object({
     .optional(),
 });
 
+export const CallsVerificationConfigSchema = z.object({
+  enabled: z
+    .boolean({ error: 'calls.verification.enabled must be a boolean' })
+    .default(false),
+  maxAttempts: z
+    .number({ error: 'calls.verification.maxAttempts must be a number' })
+    .int('calls.verification.maxAttempts must be an integer')
+    .positive('calls.verification.maxAttempts must be a positive integer')
+    .default(3),
+  codeLength: z
+    .number({ error: 'calls.verification.codeLength must be a number' })
+    .int('calls.verification.codeLength must be an integer')
+    .positive('calls.verification.codeLength must be a positive integer')
+    .default(6),
+});
+
 export const CallsConfigSchema = z.object({
   enabled: z
     .boolean({ error: 'calls.enabled must be a boolean' })
@@ -1049,6 +1065,11 @@ export const CallsConfigSchema = z.object({
     .optional(),
   callerIdentity: CallerIdentityConfigSchema.default({
     allowPerCallOverride: true,
+  }),
+  verification: CallsVerificationConfigSchema.default({
+    enabled: false,
+    maxAttempts: 3,
+    codeLength: 6,
   }),
 });
 
@@ -1394,6 +1415,11 @@ export const AssistantConfigSchema = z.object({
     callerIdentity: {
       allowPerCallOverride: true,
     },
+    verification: {
+      enabled: false,
+      maxAttempts: 3,
+      codeLength: 6,
+    },
   }),
   qaRecording: QaRecordingConfigSchema.default({
     defaultRetentionDays: 7,
@@ -1472,5 +1498,6 @@ export type CallsVoiceConfig = z.infer<typeof CallsVoiceConfigSchema>;
 export type CallsElevenLabsConfig = z.infer<typeof CallsElevenLabsConfigSchema>;
 export type CallerIdentityConfig = z.infer<typeof CallerIdentityConfigSchema>;
 export type QaRecordingConfig = z.infer<typeof QaRecordingConfigSchema>;
+export type CallsVerificationConfig = z.infer<typeof CallsVerificationConfigSchema>;
 export type SmsConfig = z.infer<typeof SmsConfigSchema>;
 export type IngressConfig = z.infer<typeof IngressConfigSchema>;

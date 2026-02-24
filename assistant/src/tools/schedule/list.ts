@@ -27,6 +27,7 @@ export async function executeScheduleList(
     const runs = getScheduleRuns(jobId, 5);
     const lines = [
       `Schedule: ${job.name}`,
+      `  ID: ${job.id}`,
       `  Syntax: ${job.syntax}`,
       `  Expression: ${job.expression}`,
       `  Schedule: ${describeSchedule(job)}${job.timezone ? ` (${job.timezone})` : ''}`,
@@ -62,7 +63,7 @@ export async function executeScheduleList(
   for (const job of jobs) {
     const status = job.enabled ? 'enabled' : 'disabled';
     const next = job.enabled ? formatLocalDate(job.nextRunAt) : 'n/a';
-    lines.push(`  - [${status}] ${job.name} ([${job.syntax}] ${describeSchedule(job)}) — next: ${next}`);
+    lines.push(`  - [${status}] ${job.name} (id: ${job.id}) ([${job.syntax}] ${describeSchedule(job)}) — next: ${next}`);
   }
 
   return { content: lines.join('\n'), isError: false };

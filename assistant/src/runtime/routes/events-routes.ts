@@ -69,7 +69,7 @@ export function handleSubscribeAssistantEvents(
         try {
           // Shed stalled consumers: desiredSize <= 0 means the 16-event buffer
           // is full and the client isn't draining it.
-          if (controller.desiredSize !== null && controller.desiredSize <= 0) {
+          if (controller.desiredSize != null && controller.desiredSize <= 0) {
             sub.dispose();
             cleanup();
             return;
@@ -114,7 +114,7 @@ export function handleSubscribeAssistantEvents(
         try {
           // Apply the same slow-consumer guard as the event path: stop
           // feeding heartbeats into a queue the client is not draining.
-          if (controller.desiredSize !== null && controller.desiredSize <= 0) {
+          if (controller.desiredSize != null && controller.desiredSize <= 0) {
             sub.dispose();
             cleanup();
             return;

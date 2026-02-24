@@ -1,11 +1,12 @@
-import { describe, test, expect, beforeEach, mock } from 'bun:test';
+import { describe, test, expect, beforeEach } from 'bun:test';
 import { ChannelReadinessService, REMOTE_TTL_MS } from '../runtime/channel-readiness-service.js';
+import type { ChannelId } from '../channels/types.js';
 import type { ChannelProbe, ReadinessCheckResult } from '../runtime/channel-readiness-types.js';
 
 // ── Test helpers ────────────────────────────────────────────────────────────
 
 function makeProbe(
-  channel: string,
+  channel: ChannelId,
   localResults: ReadinessCheckResult[],
   remoteResults?: ReadinessCheckResult[],
 ): ChannelProbe & { localCallCount: number; remoteCallCount: number } {
@@ -114,7 +115,7 @@ describe('ChannelReadinessService', () => {
     expect(probe.remoteCallCount).toBe(1);
 
     // Manually age the cached snapshot beyond TTL
-    const cached = (service as unknown as { snapshots: Map<string, { checkedAt: number }> }).snapshots.get('sms')!;
+    const cached = (service as unknown as { snapshots: Map<string, { checkedAt: number }> }).snapshots.get('sms::__default__')!;
     cached.checkedAt = Date.now() - REMOTE_TTL_MS - 1;
 
     // Second call should re-run remote checks
@@ -166,9 +167,10 @@ describe('ChannelReadinessService', () => {
   });
 
   test('unknown channel returns unsupported_channel reason', async () => {
-    const [snapshot] = await service.getReadiness('carrier_pigeon');
+    // Cast to exercise runtime handling of an unrecognized channel value
+    const [snapshot] = await service.getReadiness('carrier_pigeon' as ChannelId);
 
-    expect(snapshot.channel).toBe('carrier_pigeon');
+    expect(snapshot.channel).toBe('carrier_pigeon' as ChannelId);
     expect(snapshot.ready).toBe(false);
     expect(snapshot.reasons).toEqual([
       { code: 'unsupported_channel', text: 'Channel carrier_pigeon is not supported' },
@@ -177,13 +179,13 @@ describe('ChannelReadinessService', () => {
   });
 
   test('all checks passing yields ready=true', async () => {
-    const probe = makeProbe('test', [
+    const probe = makeProbe('telegram', [
       { name: 'a', passed: true, message: 'ok' },
       { name: 'b', passed: true, message: 'ok' },
     ]);
     service.registerProbe(probe);
 
-    const [snapshot] = await service.getReadiness('test');
+    const [snapshot] = await service.getReadiness('telegram');
 
     expect(snapshot.ready).toBe(true);
     expect(snapshot.reasons).toHaveLength(0);
@@ -253,5 +255,70 @@ describe('ChannelReadinessService', () => {
     expect(snapshot.reasons).toEqual([
       { code: 'api_check', text: 'API unreachable' },
     ]);
+  });
+
+  test('fresh cached remote failures do not affect local-only readiness', async () => {
+    const probe = makeProbe(
+      'sms',
+      [{ name: 'creds', passed: true, message: 'ok' }],
+      [{ name: 'api_check', passed: false, message: 'API unreachable' }],
+    );
+    service.registerProbe(probe);
+
+    // Prime remote cache with a failing check
+    await service.getReadiness('sms', true);
+
+    // Immediately call with includeRemote=false (cache is still fresh within TTL).
+    // The cached remote failure should be surfaced for visibility but must NOT
+    // affect readiness when the caller explicitly opted out of remote checks.
+    const [snapshot] = await service.getReadiness('sms', false);
+    expect(snapshot.ready).toBe(true);
+    expect(snapshot.reasons).toEqual([]);
+    // Remote checks are still visible for informational purposes
+    expect(snapshot.remoteChecks).toHaveLength(1);
+    expect(snapshot.remoteChecks![0].passed).toBe(false);
+  });
+
+  test('stale cached remote failures do not affect local-only readiness', async () => {
+    const probe = makeProbe(
+      'sms',
+      [{ name: 'creds', passed: true, message: 'ok' }],
+      [{ name: 'api_check', passed: false, message: 'API unreachable' }],
+    );
+    service.registerProbe(probe);
+
+    // Prime remote cache with a failing check
+    await service.getReadiness('sms', true);
+
+    // Age snapshot beyond TTL so remote checks are stale
+    const cached = (service as unknown as { snapshots: Map<string, { checkedAt: number }> }).snapshots.get('sms::__default__')!;
+    cached.checkedAt = Date.now() - REMOTE_TTL_MS - 1;
+
+    // Local-only call should not be blocked by stale remote failure
+    const [snapshot] = await service.getReadiness('sms', false);
+    expect(snapshot.stale).toBe(true);
+    expect(snapshot.ready).toBe(true);
+    expect(snapshot.reasons).toEqual([]);
+  });
+
+  test('remote cache is scoped per assistantId', async () => {
+    const remoteCalls: Record<string, number> = {};
+    const probe: ChannelProbe = {
+      channel: 'sms',
+      runLocalChecks: () => [{ name: 'local', passed: true, message: 'ok' }],
+      async runRemoteChecks(context) {
+        const key = context?.assistantId ?? '__default__';
+        remoteCalls[key] = (remoteCalls[key] ?? 0) + 1;
+        return [{ name: 'remote', passed: true, message: `ok-${key}` }];
+      },
+    };
+    service.registerProbe(probe);
+
+    await service.getReadiness('sms', true, 'ast-alpha');
+    await service.getReadiness('sms', true, 'ast-beta');
+    await service.getReadiness('sms', true, 'ast-alpha');
+
+    expect(remoteCalls['ast-alpha']).toBe(1);
+    expect(remoteCalls['ast-beta']).toBe(1);
   });
 });

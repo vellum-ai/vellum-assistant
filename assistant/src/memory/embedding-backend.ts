@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { AssistantConfig } from '../config/types.js';
 import { getLogger } from '../util/logger.js';
+import { getOllamaBaseUrlEnv } from '../config/env.js';
 import { GeminiEmbeddingBackend } from './embedding-gemini.js';
 import { LocalEmbeddingBackend } from './embedding-local.js';
 import { OllamaEmbeddingBackend } from './embedding-ollama.js';
@@ -293,5 +294,5 @@ function selectFallbackBackends(config: AssistantConfig, exclude: EmbeddingProvi
 function isOllamaConfigured(config: AssistantConfig): boolean {
   return config.provider === 'ollama'
     || Boolean(config.apiKeys.ollama)
-    || Boolean(process.env.OLLAMA_BASE_URL);
+    || Boolean(getOllamaBaseUrlEnv());
 }

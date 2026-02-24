@@ -110,6 +110,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     public func applicationDidFinishLaunching(_ notification: Notification) {
         Self.shared = self
 
+        // Migration: remove legacy ios-pairing-enabled flag file.
+        // The old "Enable iOS Pairing" toggle created this file to expose
+        // the daemon on 0.0.0.0. With QR-first pairing via gateway, the
+        // flag is no longer needed and leaving it active is a security concern.
+        let legacyFlagPath = NSHomeDirectory() + "/.vellum/ios-pairing-enabled"
+        if FileManager.default.fileExists(atPath: legacyFlagPath) {
+            try? FileManager.default.removeItem(atPath: legacyFlagPath)
+        }
+
         // Remove stale SwiftUI Settings window frame to prevent a ghost
         // window from being restored on launch (the Settings scene now
         // renders EmptyView — we handle settings in the main window panel).
@@ -638,8 +647,32 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.showTasksWindow()
         }
 
-        // Task run threads are no longer created automatically. Users can
-        // opt in via the "Open in Chat" button in the task output view.
+        // Automatically surface threads created by scheduled task runs so
+        // the user sees them in the sidebar without restarting the app.
+        daemonClient.onTaskRunThreadCreated = { [weak self] msg in
+            guard let self, !self.isAwaitingFirstLaunchReady else { return }
+            self.mainWindow?.threadManager.createTaskRunThread(
+                conversationId: msg.conversationId,
+                workItemId: msg.workItemId,
+                title: msg.title
+            )
+        }
+
+        // Guardian request threads — created when a voice call's ASK_GUARDIAN dispatches
+        // a question to the mac channel so the user can see and respond in chat.
+        daemonClient.onGuardianRequestThreadCreated = { [weak self] msg in
+            guard let self, !self.isAwaitingFirstLaunchReady else { return }
+            self.mainWindow?.threadManager.createGuardianRequestThread(
+                conversationId: msg.conversationId,
+                requestId: msg.requestId,
+                callSessionId: msg.callSessionId,
+                title: msg.title
+            )
+            if let thread = self.mainWindow?.threadManager.threads.first(where: { $0.sessionId == msg.conversationId }) {
+                self.mainWindow?.threadManager.activeThreadId = thread.id
+            }
+            self.showMainWindow()
+        }
 
         // Handle escalation: text_qa -> computer_use via computer_use_request_control
         daemonClient.onTaskRouted = { [weak self] routed in

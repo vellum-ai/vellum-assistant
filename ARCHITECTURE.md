@@ -187,6 +187,8 @@ graph TB
         GW_TWILIO_RELAY["Twilio Relay WS<br/>/webhooks/twilio/relay<br/>(bidirectional proxy)"]
         GW_SMS_WEBHOOK["Twilio SMS Webhook<br/>/webhooks/twilio/sms<br/>(HMAC-SHA1 validated)"]
         GW_SMS_DELIVER["SMS Deliver<br/>/deliver/sms<br/>(internal, from runtime)"]
+        GW_WA_WEBHOOK["WhatsApp Webhook<br/>/webhooks/whatsapp<br/>(HMAC-SHA256 validated)"]
+        GW_WA_DELIVER["WhatsApp Deliver<br/>/deliver/whatsapp<br/>(internal, from runtime)"]
         GW_OAUTH["OAuth Callback<br/>/webhooks/oauth/callback"]
         GW_PROXY["Runtime Proxy<br/>(optional, bearer auth)"]
         GW_PROBES["/healthz + /readyz<br/>k8s liveness/readiness"]
@@ -243,7 +245,7 @@ graph TB
 
     %% Main Window Chat flow
     CHAT_VM -->|"session_create +<br/>user_message +<br/>cancel"| IPC_SERVER
-    IPC_SERVER -->|"session_info +<br/>text deltas +<br/>message_complete +<br/>session_error +<br/>message_queued +<br/>message_dequeued +<br/>generation_handoff"| CHAT_VM
+    IPC_SERVER -->|"session_info +<br/>session_title_updated +<br/>text deltas +<br/>message_complete +<br/>session_error +<br/>message_queued +<br/>message_dequeued +<br/>generation_handoff"| CHAT_VM
     CHAT_VIEW --> CHAT_VM
     MW_STATE -->|"home_base_get + app_open_request<br/>(dashboard-first bootstrap)"| IPC_SERVER
 
@@ -328,6 +330,11 @@ graph TB
     GW_SMS_WEBHOOK -->|"normalize + MessageSid dedup<br/>+ route resolver"| GW_FORWARD
     HTTP_SERVER -->|"POST /deliver/sms<br/>(via gatewayInternalBaseUrl)"| GW_SMS_DELIVER
     GW_SMS_DELIVER -->|"Twilio Messages API<br/>(text-only, no MMS in v1)"| GW_SMS_WEBHOOK
+
+    %% Gateway flow — WhatsApp channel (Meta Cloud API)
+    GW_WA_WEBHOOK -->|"HMAC-SHA256 verify<br/>+ normalize + dedup<br/>+ route resolver"| GW_FORWARD
+    HTTP_SERVER -->|"POST /deliver/whatsapp<br/>(via gatewayInternalBaseUrl)"| GW_WA_DELIVER
+    GW_WA_DELIVER -->|"Meta Cloud API<br/>/{phoneNumberId}/messages"| GW_WA_WEBHOOK
 
     %% Gateway flow — OAuth callback
     GW_OAUTH -->|"forward code + state"| HTTP_SERVER
@@ -450,6 +457,37 @@ The SMS channel provides text-only messaging via Twilio, sharing the same teleph
 All three paths are best-effort: webhook sync failures do not prevent the primary operation from succeeding.
 
 **Limitations (v1)**: Text-only — MMS payloads are explicitly rejected with a user-facing notice rather than silently dropped.
+
+### WhatsApp Channel (Meta Cloud API)
+
+The WhatsApp channel enables inbound and outbound messaging via the Meta WhatsApp Business Cloud API. It follows the same ingress/egress pattern as SMS but uses Meta's HMAC-SHA256 signature validation (`X-Hub-Signature-256`) instead of Twilio's HMAC-SHA1.
+
+**Ingress** (`GET /webhooks/whatsapp` — verification, `POST /webhooks/whatsapp` — messages):
+
+1. **Webhook verification**: Meta sends a `GET` with `hub.mode=subscribe`, `hub.verify_token`, and `hub.challenge`. The gateway compares `hub.verify_token` against `WHATSAPP_WEBHOOK_VERIFY_TOKEN` and echoes `hub.challenge` as plain text.
+2. On `POST`, the gateway verifies the `X-Hub-Signature-256` header (HMAC-SHA256 of the raw request body using `WHATSAPP_APP_SECRET`) when the app secret is configured. Fail-closed: requests are rejected when the secret is set but the signature fails.
+3. **Normalization**: Only `type=text` messages from `messages` change fields are forwarded. Delivery receipts, read receipts, and non-text message types (image, audio, video, document, sticker) are silently acknowledged with `{ ok: true }`.
+4. **`/new` command**: When the message body is `/new` (case-insensitive), the gateway resolves routing, resets the conversation, and sends a confirmation message without forwarding to the runtime.
+5. The payload is normalized into a `GatewayInboundEventV1` with `sourceChannel: "whatsapp"` and `externalChatId` set to the sender's WhatsApp phone number (E.164).
+6. WhatsApp message IDs are deduplicated via `StringDedupCache` (24-hour TTL).
+7. The gateway marks each inbound message as read (best-effort, fire-and-forget).
+8. The event is forwarded to the runtime via `POST /channels/inbound` with WhatsApp-specific transport hints and a `replyCallbackUrl` pointing to `/deliver/whatsapp`.
+
+**Egress** (`POST /deliver/whatsapp`):
+1. The runtime calls the gateway's `/deliver/whatsapp` endpoint with `{ to, text }` or `{ chatId, text }` (alias).
+2. The gateway authenticates the request via bearer token (same fail-closed model as other deliver endpoints).
+3. The gateway sends the message via the WhatsApp Cloud API `/{phoneNumberId}/messages` endpoint using the configured access token.
+4. Text is split at 4096 characters if needed.
+
+**Required credentials**:
+- `WHATSAPP_PHONE_NUMBER_ID` — the numeric WhatsApp Business phone number ID from Meta
+- `WHATSAPP_ACCESS_TOKEN` — System User or temporary access token
+- `WHATSAPP_APP_SECRET` — App secret for webhook signature verification
+- `WHATSAPP_WEBHOOK_VERIFY_TOKEN` — Token for the Meta webhook subscription handshake
+
+These can be set via environment variables or stored in the credential vault (keychain / encrypted store) under the `whatsapp` service prefix.
+
+**Limitations (v1)**: Text-only — non-text message types are acknowledged but not forwarded; rich approval UI (inline buttons) is not supported.
 
 **Channel Readiness**: The `channel_readiness` IPC contract (`ChannelReadinessService` in `src/runtime/channel-readiness-service.ts`) provides a unified readiness subsystem for all channels. Each channel registers a `ChannelProbe` that runs synchronous local checks (credential presence, phone number, ingress config) and optional async remote checks with a 5-minute TTL cache. Built-in probes: SMS (Twilio credentials, phone number, ingress; remote checks query Twilio toll-free verification status for toll-free numbers) and Telegram (bot token, webhook secret, ingress). The `get` action returns cached snapshots; `refresh` invalidates the cache first. Unknown channels return `unsupported_channel`.
 
@@ -1350,6 +1388,7 @@ graph LR
         C10["ipc_blob_probe<br/>probeId, nonceSha256"]
         C11["work_items_list / work_item_get<br/>work_item_create / work_item_update<br/>work_item_complete / work_item_run_task<br/>(planned)"]
         C12["tool_permission_simulate<br/>toolName, input, workingDir?,<br/>isInteractive?, forcePromptSideEffects?,<br/>executionTarget?"]
+        C13["conversation_search<br/>query, limit?,<br/>maxMessagesPerConversation?"]
     end
 
     SOCKET["Unix Socket<br/>~/.vellum/vellum.sock<br/>───────────────<br/>Newline-delimited JSON<br/>Max 96MB per message<br/>Ping/pong every 30s<br/>Auto-reconnect<br/>1s → 30s backoff"]
@@ -1375,9 +1414,11 @@ graph LR
         S16["session_error<br/>sessionId, code,<br/>userMessage, retryable,<br/>debugDetails?"]
         S17["ipc_blob_probe_result<br/>probeId, ok,<br/>observedNonceSha256?, reason?"]
         S18["session_info<br/>sessionId, title,<br/>correlationId?, threadType?"]
-        S19["session_list_response<br/>sessions[]: id, title,<br/>updatedAt, threadType?"]
-        S20["work_item_status_changed<br/>workItemId, newStatus<br/>(planned push)"]
-        S21["tool_permission_simulate_response<br/>decision, riskLevel, reason?,<br/>promptPayload?, matchedRuleId?"]
+        S19["session_title_updated<br/>sessionId, title"]
+        S20["session_list_response<br/>sessions[]: id, title,<br/>updatedAt, threadType?"]
+        S21["work_item_status_changed<br/>workItemId, newStatus<br/>(planned push)"]
+        S22["tool_permission_simulate_response<br/>decision, riskLevel, reason?,<br/>promptPayload?, matchedRuleId?"]
+        S23["conversation_search_response<br/>query, results[]: conversationId,<br/>title, updatedAt, matchingMessages[]"]
     end
 
     C0 --> SOCKET
@@ -1393,6 +1434,7 @@ graph LR
     C10 --> SOCKET
     C11 --> SOCKET
     C12 --> SOCKET
+    C13 --> SOCKET
 
     SOCKET --> S0
     SOCKET --> S1
@@ -1416,6 +1458,7 @@ graph LR
     SOCKET --> S19
     SOCKET --> S20
     SOCKET --> S21
+    SOCKET --> S22
 ```
 
 ---
@@ -2690,6 +2733,8 @@ Note: OAuth2 scopes (`tweet.read`, `tweet.write`, `users.read`, `offline.access`
 | `assistant/src/config/bundled-skills/messaging/` | Unified messaging skill (SKILL.md, TOOLS.json, tools/) |
 | `assistant/src/watcher/providers/slack.ts` | Slack watcher for DMs, mentions, thread replies |
 | `assistant/src/watcher/providers/gmail.ts` | Gmail watcher using History API |
+| `assistant/src/watcher/providers/github.ts` | GitHub watcher for PRs, issues, review requests, and mentions |
+| `assistant/src/watcher/providers/linear.ts` | Linear watcher for assigned issues, status changes, and @mentions |
 | `assistant/src/daemon/handlers/twitter-auth.ts` | Twitter OAuth2 flow handlers (`twitter_auth_start`, `twitter_auth_status`) |
 | `assistant/src/twitter/client.ts` | Twitter CDP client: GraphQL mutations/queries via Chrome DevTools Protocol |
 | `assistant/src/twitter/oauth-client.ts` | OAuth-backed Twitter client: X API v2 post/reply via stored tokens using `withValidToken()` |
@@ -3280,6 +3325,8 @@ graph TD
         GMAIL["Gmail Provider"]
         SLACK_W["Slack Provider"]
         GCAL["Google Calendar Provider"]
+        GH_W["GitHub Provider"]
+        LINEAR_W["Linear Provider"]
         FUTURE["Future Providers..."]
     end
 
@@ -3297,6 +3344,8 @@ graph TD
     POLL --> GMAIL
     POLL --> SLACK_W
     POLL --> GCAL
+    POLL --> GH_W
+    POLL --> LINEAR_W
     POLL --> FUTURE
     POLL --> DEDUP
     DEDUP --> PROCESS
@@ -3550,6 +3599,19 @@ iOS App  --HTTPS-->  Ingress (tunnel/public URL)  -->  Gateway  -->  Runtime
 | `clients/shared/IPC/DaemonConfig.swift` | Transport config; iOS uses `.http` exclusively |
 | `clients/shared/IPC/HTTPDaemonClient.swift` | HTTP+SSE client implementation |
 
+### Offline Message Queue (iOS)
+
+When the daemon is unreachable, outgoing user messages are buffered in `OfflineMessageQueue` (a persistent FIFO stored in UserDefaults) instead of surfacing an error. The message bubble shows a "Pending" indicator (`ChatMessageStatus.pendingOffline`) while offline. On reconnect (`daemonDidReconnect`), `ChatViewModel.flushOfflineQueue()` drains the queue and sends messages in order, clearing the pending indicator.
+
+| Component | Role |
+|-----------|------|
+| `clients/ios/App/OfflineMessageQueue.swift` | Persistent FIFO queue; serialized to `offline_message_queue_v1` in UserDefaults |
+| `ChatMessageStatus.pendingOffline` | Message status for locally buffered, unsent messages |
+| `ChatViewModel.flushOfflineQueue()` | Drains the queue on reconnect, sending messages in FIFO order |
+| `MessageBubbleView` | Renders a clock icon + "Pending" label for `.pendingOffline` messages |
+
+Storage key: `offline_message_queue_v1` (UserDefaults).
+
 ---
 
 ## Ingress Boundary Architecture — Gateway-Only Public Ingress
@@ -3797,6 +3859,9 @@ The `channelGuardianApprovalRequests` table tracks per-run approval state. Each 
 | `assistant/src/memory/channel-guardian-store.ts` | CRUD for guardian bindings, verification challenges, and approval requests (all scoped by `assistantId`) |
 | `assistant/src/runtime/channel-guardian-service.ts` | Challenge creation/validation, guardian identity checks (`isGuardian()`, `getGuardianBinding()`) -- all accept `assistantId` |
 | `assistant/src/runtime/routes/channel-routes.ts` | Guardian verification intercept (`/guardian_verify` command), actor role resolution, approval routing to guardian, proactive expiry sweep (`sweepExpiredGuardianApprovals`, `startGuardianExpirySweep`) |
+| `assistant/src/calls/guardian-dispatch.ts` | Cross-channel ASK_GUARDIAN dispatch: creates guardian_action_requests, fans out to mac/telegram/sms, manages deliveries |
+| `assistant/src/calls/guardian-action-sweep.ts` | Periodic 60s sweep for expired guardian action requests; sends expiry notices to delivery channels |
+| `assistant/src/memory/guardian-action-store.ts` | CRUD for guardian_action_requests and guardian_action_deliveries tables; first-writer-wins resolution via atomic status check |
 
 ### Telegram Credential Flow
 
@@ -3856,14 +3921,13 @@ In multi-assistant mode, the operator must configure `GATEWAY_ASSISTANT_ROUTING_
 
 ## Outgoing AI Phone Calls — Twilio ConversationRelay
 
-The Calls subsystem enables the assistant to place outgoing phone calls on behalf of the user via Twilio's ConversationRelay protocol. The assistant uses an LLM-driven conversation loop to speak with the callee in real time. During a live call, user messages in the chat thread are automatically routed to the call: if the AI agent has a pending question, the message is treated as an answer; otherwise, it is treated as a mid-call steering instruction that guides the AI agent's behavior in real time.
+The Calls subsystem enables the assistant to place outgoing phone calls on behalf of the user via Twilio's ConversationRelay protocol. The assistant uses an LLM-driven conversation loop to speak with the callee in real time. Voice is a first-class channel with its own per-call conversation (key pattern: `asst:${assistantId}:voice:call:${callSessionId}`). When the AI needs guardian input during a call, it dispatches ASK_GUARDIAN requests cross-channel to mac/telegram/sms via the guardian dispatch engine. Answer resolution uses first-writer-wins semantics -- the first channel to respond provides the answer, and remaining channels receive a "already answered" notice.
 
 ### Call Flow
 
 ```mermaid
 sequenceDiagram
     participant User as User (Chat UI)
-    participant Bridge as CallBridge
     participant Session as Session / Tool Executor
     participant CallStore as CallStore (SQLite)
     participant TwilioProvider as TwilioProvider
@@ -3874,6 +3938,10 @@ sequenceDiagram
     participant Orch as CallOrchestrator
     participant LLM as Anthropic Claude
     participant State as CallState (Notifiers)
+    participant GuardianDispatch as GuardianDispatch
+    participant Mac as Mac Desktop
+    participant TG/SMS as Telegram / SMS
+    participant CallDomain as CallDomain
 
     User->>Session: call_start tool
     Session->>CallStore: createCallSession()
@@ -3905,14 +3973,15 @@ sequenceDiagram
         Orch->>CallStore: recordCallEvent()
     end
 
-    alt ASK_USER pattern detected
+    alt ASK_GUARDIAN pattern detected
         Orch->>CallStore: createPendingQuestion()
-        Orch->>State: fireCallQuestionNotifier()
-        State->>Session: question callback
-        Session->>User: display question in chat thread
-        User->>Bridge: next message in thread
-        Bridge->>Orch: handleUserAnswer()
-        Bridge->>CallStore: answerPendingQuestion()
+        Orch->>GuardianDispatch: dispatchGuardianQuestion()
+        GuardianDispatch->>Mac: guardian_request_thread_created IPC
+        GuardianDispatch->>TG/SMS: POST /deliver/{channel}
+        Note over Mac,TG/SMS: First channel to respond wins
+        Mac/TG/SMS->>Routes: guardian answer
+        Routes->>CallDomain: answerCall()
+        CallDomain->>Orch: handleUserAnswer()
         Orch->>LLM: continue with [USER_ANSWERED: ...]
     end
 
@@ -3934,14 +4003,16 @@ sequenceDiagram
 |------|------|
 | `assistant/src/calls/call-store.ts` | CRUD operations for call sessions, call events, and pending questions in SQLite via Drizzle ORM |
 | `assistant/src/calls/call-domain.ts` | Shared domain functions (`startCall`, `getCallStatus`, `cancelCall`, `answerCall`, `relayInstruction`) used by both tools and HTTP routes |
-| `assistant/src/calls/call-bridge.ts` | Answer-or-instruction bridge: intercepts user chat messages before the agent loop and routes them as answers (when a pending question exists) or as mid-call steering instructions (when no question is pending) |
+| `assistant/src/calls/guardian-dispatch.ts` | Cross-channel dispatch engine: fans out ASK_GUARDIAN questions to mac/telegram/sms, creates server-side guardian conversations, manages deliveries |
+| `assistant/src/memory/guardian-action-store.ts` | CRUD for guardian action requests and deliveries; first-writer-wins resolution via atomic status check |
+| `assistant/src/calls/guardian-action-sweep.ts` | Periodic 60s sweep for expired guardian action requests; sends expiry notices to all delivery channels |
 | `assistant/src/calls/call-state-machine.ts` | Deterministic state transition validator with allowed-transition table and terminal-state enforcement |
 | `assistant/src/calls/call-recovery.ts` | Startup reconciliation of non-terminal calls: fetches provider status and transitions stale sessions |
 | `assistant/src/calls/twilio-provider.ts` | Twilio Voice REST API integration (initiateCall, endCall, getCallStatus) using direct fetch — no Twilio SDK dependency |
 | `assistant/src/calls/twilio-routes.ts` | HTTP webhook handlers: voice webhook (returns TwiML with WS-A/WS-B guardrails), status callback, connect action |
 | `assistant/src/calls/relay-server.ts` | WebSocket handler for the Twilio ConversationRelay protocol; manages RelayConnection instances per call |
 | `assistant/src/calls/speaker-identification.ts` | Reusable speaker recognition primitive for voice prompts: extracts provider speaker metadata (top-level and nested fields), resolves stable per-call speaker identities, and emits speaker context for personalization |
-| `assistant/src/calls/call-orchestrator.ts` | LLM-driven conversation manager: receives caller utterances, streams responses via Anthropic Claude, detects ASK_USER and END_CALL control markers |
+| `assistant/src/calls/call-orchestrator.ts` | LLM-driven conversation manager: receives caller utterances, streams responses via Anthropic Claude, detects ASK_GUARDIAN and END_CALL control markers |
 | `assistant/src/calls/call-state.ts` | Notifier pattern (Maps with register/unregister/fire helpers) for cross-component communication: question notifiers, completion notifiers, and orchestrator registry |
 | `assistant/src/calls/call-constants.ts` | Config-backed constants: max call duration, user consultation timeout, silence timeout, denied emergency numbers |
 | `assistant/src/calls/voice-provider.ts` | Abstract VoiceProvider interface for provider-agnostic call initiation |
@@ -3977,56 +4048,39 @@ initiated ──> ringing ──> in_progress ──> waiting_on_user ──> in
 
 The `validateTransition(current, next)` function is called by `updateCallSession()` in the call store. Same-state transitions (no-ops) are always valid. Invalid transitions are rejected with an explanatory reason string.
 
-### Call Bridge — Answer-or-Instruction Routing
+### Cross-Channel Guardian Consultation
 
-The call bridge (`call-bridge.ts`) intercepts user chat messages during a live call and routes them to the call orchestrator — either as answers to pending questions or as mid-call steering instructions. This enables users to both respond to questions from the callee and proactively steer the conversation without leaving the chat thread.
+When the LLM emits `[ASK_GUARDIAN: question]` during a voice call, the orchestrator creates a pending question and calls `dispatchGuardianQuestion()` on the guardian dispatch engine. The dispatch engine handles the full cross-channel fan-out:
 
-The bridge function `tryRouteCallMessage()` applies the following decision logic:
+1. **Request creation**: A `guardian_action_request` row is created with a unique 6-character hex request code, the question text, a `pending` status, and an expiry timestamp.
 
-1. **Find active call**: Look up a non-terminal call session for the conversation. If none exists, return `{ handled: false, reason: 'no_active_call' }`.
-2. **Pending question → answer path** (priority): If the active call has a pending question, the message is routed as an answer via `handleUserAnswer()` on the orchestrator, which injects `[USER_ANSWERED: answer]` into the LLM context and resumes the conversation with the callee.
-3. **No pending question → instruction path**: If no question is pending, the message is routed as a steering instruction via `relayInstruction()` in `call-domain.ts`, which calls `handleUserInstruction()` on the orchestrator. The orchestrator injects `[USER_INSTRUCTION: text]` into its conversation history as high-priority steering input.
+2. **Delivery fan-out**: Deliveries are created for each configured channel:
+   - **Mac (always)**: A server-side conversation is created with key `asst:${assistantId}:guardian:request:${request.id}`. The dispatch engine emits a `guardian_request_thread_created` IPC event so the desktop UI can display the question thread.
+   - **Telegram/SMS (if guardian binding exists)**: A `POST /deliver/{channel}` request is sent to the gateway with the question text and request code.
 
-#### Answer path detail
+3. **Answer resolution**: The first channel to respond wins. Answer resolution uses an atomic `WHERE status = 'pending'` check on the `guardian_action_requests` table -- only the first writer succeeds in transitioning the request to `answered` status. The winning answer text and responding channel are recorded on the request row.
 
-1. **Question emission**: When the LLM emits `[ASK_USER: question]`, the orchestrator creates a pending question in SQLite, fires the question notifier, and transitions to `waiting_on_user` state.
-2. **In-thread display**: The Session's registered question notifier callback persists an assistant message in the conversation thread (via `conversationStore.addMessage()`) and emits `assistant_text_delta` + `message_complete` events to connected clients.
-3. **Auto-consumption**: `tryRouteCallMessage()` is checked before the agent loop in two entrypoints:
-   - **HTTP path**: `DaemonServer.processMessage()` / `persistAndProcessMessage()` in the daemon server.
-   - **IPC/session path**: `processMessage()` (direct) and `routeOrProcess()` (queued) in `session-process.ts`.
-   In both paths, if the bridge consumes the message the agent loop is skipped. Any `userFacingText` returned by the bridge is emitted as `assistant_text_delta` + `message_complete` so the chat UI shows a live acknowledgement or failure notice.
-4. **Orchestrator resume**: The orchestrator receives the answer via `handleUserAnswer()`, injects `[USER_ANSWERED: answer]` into the LLM context, and resumes the conversation with the callee.
+4. **Stale responses**: Channels that lose the race (respond after another channel has already answered) receive a "already answered" notice informing them that the question was resolved by another channel.
 
-#### Instruction path detail
+5. **Request-code disambiguation**: When a guardian has multiple pending requests across concurrent calls, they prefix their answer with the 6-character hex request code to indicate which question they are answering. This allows unambiguous routing even when questions arrive on the same channel in quick succession.
 
-When no pending question exists but a call is active, the user's message is treated as a steering instruction:
+6. **Expiry sweep**: The `guardian-action-sweep.ts` module runs a periodic 60-second interval sweep. It finds requests that have passed their expiry timestamp and transitions them to `expired` status. Expiry notices are sent to all delivery channels associated with the expired request.
 
-1. The bridge calls `relayInstruction()` which validates the call is active and delegates to `handleUserInstruction()` on the orchestrator.
-2. The orchestrator appends `[USER_INSTRUCTION: text]` to its conversation history. The system prompt tells the model to treat this marker as high-priority steering input.
-3. A confirmation message ("Instruction relayed to active call.") is persisted in the conversation thread.
-4. **Failure handling**: If `relayInstruction()` fails (no active orchestrator, terminal session, etc.), a failure notice ("Failed to relay instruction to the active call.") is persisted and the message is still consumed (`handled: true`) so the caller does not fall through to the normal agent loop. The bridge returns `reason: 'instruction_relay_failed'` so callers can distinguish success from failure.
-
-The instruction path is also available via HTTP at `POST /v1/calls/:callSessionId/instruction` for programmatic access (see Runtime HTTP Endpoints).
-
-#### Bridge result reasons
-
-The bridge returns a `{ handled: boolean; reason?: string; userFacingText?: string }` result so callers can determine whether the message was consumed:
-- `no_active_call` — no non-terminal call session exists for this conversation
-- `no_pending_question` — call is active but no question is pending (only returned in legacy answer-only path; current bridge falls through to instruction)
-- `orchestrator_not_found` — the orchestrator was destroyed (call ended between question and answer)
-- `orchestrator_not_waiting` — the orchestrator is not in `waiting_on_user` state
-- `orchestrator_rejected` — the orchestrator's `handleUserAnswer()` returned false
-- `instruction_relay_failed` — the instruction could not be relayed to the orchestrator; message is still consumed (`handled: true`) with a failure notice persisted in-thread
+7. **Separation from channel guardian approvals**: Guardian action requests are SEPARATE from `channelGuardianApprovalRequests` (the existing channel tool-approval system). The channel guardian approval system handles tool-use permission grants (approve/deny a specific tool invocation). Guardian action requests handle free-form questions from voice calls that require human input to continue the conversation.
 
 ### SQLite Tables
 
-All three tables live in `~/.vellum/workspace/data/db/assistant.db` alongside existing tables:
+All five tables live in `~/.vellum/workspace/data/db/assistant.db` alongside existing tables:
 
 - **`call_sessions`** — One row per outgoing call. Tracks conversation association, provider info (Twilio CallSid), phone numbers, task description, status lifecycle (`initiated` -> `ringing` -> `in_progress` -> `waiting_on_user` -> `completed`/`failed`), and timestamps. Foreign key to `conversations(id)` with cascade delete.
 
 - **`call_events`** — Append-only event log for each call session. Event types include `call_started`, `call_connected`, `caller_spoke`, `assistant_spoke`, `user_question_asked`, `user_answered`, `call_ended`, `call_failed`. For voice prompts, `caller_spoke` payloads include speaker context (`speakerId`, `speakerLabel`, `speakerConfidence`, `speakerSource`) when available. Foreign key to `call_sessions(id)` with cascade delete. Includes a unique index on `(call_session_id, dedupe_key)` for callback idempotency.
 
-- **`call_pending_questions`** — Tracks questions the AI asks the user during a call (via the `[ASK_USER: ...]` pattern). Status lifecycle: `pending` -> `answered`/`expired`/`cancelled`. Foreign key to `call_sessions(id)` with cascade delete.
+- **`call_pending_questions`** — Tracks questions the AI asks the user during a call (via the `[ASK_GUARDIAN: ...]` pattern). Status lifecycle: `pending` -> `answered`/`expired`/`cancelled`. Foreign key to `call_sessions(id)` with cascade delete.
+
+- **`guardian_action_requests`** — Cross-channel guardian consultation requests. One row per ASK_GUARDIAN question from a voice call. Tracks question text, request code (6-char hex), status lifecycle (`pending` -> `answered`/`expired`/`cancelled`), answer text, which channel answered, and expiry timestamp.
+
+- **`guardian_action_deliveries`** — Per-channel delivery tracking for guardian action requests. One row per (request, channel) pair. Tracks delivery status (`pending` -> `sent` -> `answered`/`expired`/`cancelled`), destination conversation/chat IDs, and response timestamps.
 
 ### Gateway Twilio Webhook Ingress
 
@@ -4086,7 +4140,7 @@ Both tools and HTTP routes delegate to the same domain functions in `call-domain
 
 The CallOrchestrator detects two special markers in the LLM's response text:
 
-- **`[ASK_USER: question]`** — The AI needs to consult the user. The orchestrator creates a pending question, notifies the session via `fireCallQuestionNotifier`, puts the caller on hold, and waits for a user answer (timeout configured via `calls.userConsultTimeoutSeconds`).
+- **`[ASK_GUARDIAN: question]`** — The AI needs to consult the guardian. The orchestrator creates a pending question, notifies the session via `fireCallQuestionNotifier`, puts the caller on hold, and waits for a guardian answer (timeout configured via `calls.userConsultTimeoutSeconds`).
 - **`[END_CALL]`** — The AI has determined the call's purpose is fulfilled. The orchestrator sends a goodbye, closes the ConversationRelay session, and marks the call as completed.
 
 Both markers are stripped from the TTS output so the callee never hears the raw control text.

@@ -24,10 +24,20 @@ public final class AmbientAgent: ObservableObject {
     private var summaryWindow: RideShotgunSummaryWindow?
     private var triggerCancellable: AnyCancellable?
     private var sessionCancellable: AnyCancellable?
+    private var currentSessionForwarder: AnyCancellable?
 
     var knowledge: KnowledgeStore { knowledgeStore }
 
     init() {}
+
+    /// Set currentSession and forward its objectWillChange to our own,
+    /// so SwiftUI views observing AmbientAgent re-render when nested
+    /// RideShotgunSession properties (networkEntryCount, idleHint) change.
+    private func setCurrentSession(_ session: RideShotgunSession?) {
+        currentSession = session
+        currentSessionForwarder = session?.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+    }
 
     func setupRideShotgun() {
         // Subscribe to trigger's shouldShowInvitation
@@ -54,7 +64,7 @@ public final class AmbientAgent: ObservableObject {
     func teardown() {
         rideShotgunTrigger.stop()
         currentSession?.cancel()
-        currentSession = nil
+        setCurrentSession(nil)
         UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ["ride-shotgun-invitation"])
         progressWindow?.close()
         summaryWindow?.close()
@@ -111,7 +121,7 @@ public final class AmbientAgent: ObservableObject {
         rideShotgunTrigger.recordSessionStarted()
 
         let session = RideShotgunSession(durationSeconds: durationSeconds, mode: mode, targetDomain: targetDomain)
-        currentSession = session
+        setCurrentSession(session)
 
         // Observe session state changes
         sessionCancellable = session.$state
@@ -155,7 +165,7 @@ public final class AmbientAgent: ObservableObject {
         currentSession?.cancel()
         progressWindow?.close()
         progressWindow = nil
-        currentSession = nil
+        setCurrentSession(nil)
         sessionCancellable?.cancel()
         sessionCancellable = nil
     }
@@ -191,14 +201,14 @@ public final class AmbientAgent: ObservableObject {
             log.error("Ride shotgun session failed: \(reason)")
             progressWindow?.close()
             progressWindow = nil
-            currentSession = nil
+            setCurrentSession(nil)
             sessionCancellable?.cancel()
             sessionCancellable = nil
 
         case .cancelled:
             progressWindow?.close()
             progressWindow = nil
-            currentSession = nil
+            setCurrentSession(nil)
             sessionCancellable?.cancel()
             sessionCancellable = nil
 
@@ -227,11 +237,11 @@ public final class AmbientAgent: ObservableObject {
             recordingId: recordingId,
             onDismiss: { [weak self] in
                 self?.summaryWindow = nil
-                self?.currentSession = nil
+                self?.setCurrentSession(nil)
             },
             onHelp: { [weak self] summary in
                 self?.summaryWindow = nil
-                self?.currentSession = nil
+                self?.setCurrentSession(nil)
                 self?.appDelegate?.startSession(task: summary)
             }
         )

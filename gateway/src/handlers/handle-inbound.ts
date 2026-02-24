@@ -27,6 +27,8 @@ export type HandleInboundOptions = {
   traceId?: string;
   /** When provided, skip resolveAssistant() and use this pre-resolved route. */
   routingOverride?: RouteResult;
+  /** Extra fields merged into sourceMetadata (e.g. commandIntent). */
+  sourceMetadata?: Record<string, unknown>;
 };
 
 function normalizeTransportHints(hints: string[] | undefined): string[] {
@@ -88,6 +90,7 @@ export async function handleInbound(
           isBot: event.sender.isBot,
           ...(transportHints.length > 0 ? { hints: transportHints } : {}),
           ...(transportUxBrief ? { uxBrief: transportUxBrief } : {}),
+          ...(options?.sourceMetadata ?? {}),
         },
         ...(options?.attachmentIds?.length ? { attachmentIds: options.attachmentIds } : {}),
         ...(options?.replyCallbackUrl ? { replyCallbackUrl: options.replyCallbackUrl } : {}),

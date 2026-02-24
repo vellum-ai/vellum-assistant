@@ -1,17 +1,30 @@
 /**
  * Shared types for the runtime HTTP server and its route handlers.
  */
+import type { ChannelId } from '../channels/types.js';
 import type { RunOrchestrator } from './run-orchestrator.js';
 import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
+import type { ApprovalMessageContext, ComposeApprovalMessageGenerativeOptions } from './approval-message-composer.js';
+
+/**
+ * Daemon-injected function that generates approval copy using a provider.
+ * Returns generated text or `null` on failure (caller falls back to deterministic text).
+ */
+export type ApprovalCopyGenerator = (
+  context: ApprovalMessageContext,
+  options?: ComposeApprovalMessageGenerativeOptions,
+) => Promise<string | null>;
 
 export interface RuntimeMessageSessionOptions {
   transport?: {
-    channelId: string;
+    channelId: ChannelId;
     hints?: string[];
     uxBrief?: string;
   };
   assistantId?: string;
   guardianContext?: GuardianRuntimeContext;
+  /** Channel command intent metadata (e.g. Telegram /start). */
+  commandIntent?: { type: string; payload?: string; languageCode?: string };
 }
 
 export type MessageProcessor = (
@@ -19,7 +32,7 @@ export type MessageProcessor = (
   content: string,
   attachmentIds?: string[],
   options?: RuntimeMessageSessionOptions,
-  sourceChannel?: string,
+  sourceChannel?: ChannelId,
 ) => Promise<{ messageId: string }>;
 
 /**
@@ -32,7 +45,7 @@ export type NonBlockingMessageProcessor = (
   content: string,
   attachmentIds?: string[],
   options?: RuntimeMessageSessionOptions,
-  sourceChannel?: string,
+  sourceChannel?: ChannelId,
 ) => Promise<{ messageId: string }>;
 
 export interface RuntimeHttpServerOptions {
@@ -48,6 +61,8 @@ export interface RuntimeHttpServerOptions {
   runOrchestrator?: RunOrchestrator;
   /** Root directory for interface files on disk. */
   interfacesDir?: string;
+  /** Daemon-injected generator for approval copy (provider-backed). */
+  approvalCopyGenerator?: ApprovalCopyGenerator;
 }
 
 export interface RuntimeAttachmentMetadata {

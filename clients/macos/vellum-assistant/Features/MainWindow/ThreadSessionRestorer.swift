@@ -51,6 +51,9 @@ final class ThreadSessionRestorer {
         daemonClient.onHistoryResponse = { [weak self] response in
             self?.handleHistoryResponse(response)
         }
+        daemonClient.onSessionTitleUpdated = { [weak self] response in
+            self?.handleSessionTitleUpdated(response)
+        }
         daemonClient.onSubagentDetailResponse = { [weak self] response in
             self?.handleSubagentDetailResponse(response)
         }
@@ -119,7 +122,7 @@ final class ThreadSessionRestorer {
         // (e.g. Telegram). External channel-bound sessions belong to their own
         // lane and should not appear in the desktop conversation list.
         let recentSessions = response.sessions.filter {
-            $0.threadType != "private" && $0.channelBinding?.sourceChannel == nil
+            $0.threadType != "private" && ($0.channelBinding?.sourceChannel == nil || $0.channelBinding?.sourceChannel == "voice")
         }
 
         let defaultThreadIsEmpty = delegate.threads.count == 1
@@ -143,7 +146,8 @@ final class ThreadSessionRestorer {
                 createdAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
                 sessionId: session.id,
                 isArchived: delegate.isSessionArchived(session.id),
-                kind: kind
+                kind: kind,
+                source: session.source
             )
             let viewModel = delegate.makeViewModel()
             viewModel.sessionId = session.id
@@ -181,6 +185,12 @@ final class ThreadSessionRestorer {
         guard let viewModel = delegate?.chatViewModel(for: threadId) else { return }
         viewModel.populateFromHistory(response.messages)
         log.info("Loaded \(response.messages.count) history messages for thread \(threadId)")
+    }
+
+    func handleSessionTitleUpdated(_ response: SessionTitleUpdatedMessage) {
+        guard let delegate else { return }
+        guard let index = delegate.threads.firstIndex(where: { $0.sessionId == response.sessionId }) else { return }
+        delegate.threads[index].title = response.title
     }
 
     func handleSubagentDetailResponse(_ response: IPCSubagentDetailResponse) {

@@ -31,6 +31,7 @@ import {
 } from '../cli/email-guardrails.js';
 import { createProvider, getActiveProviderName, type SupportedProvider } from './providers/index.js';
 import { loadRawConfig, setNestedValue, saveRawConfig } from '../config/loader.js';
+import { ConfigError } from '../util/errors.js';
 
 // ---------------------------------------------------------------------------
 // Guardrail error
@@ -156,12 +157,12 @@ export class EmailService {
     // Resolve inbox from the "from" address — fail fast if not found
     const health = await p.health();
     if (health.inboxes.length === 0) {
-      throw new Error('No inboxes found. Run: vellum email setup inboxes --domain <domain>');
+      throw new ConfigError('No inboxes found. Run: vellum email setup inboxes --domain <domain>');
     }
     const inbox = health.inboxes.find(i => i.address === input.from || i.id === input.from);
     if (!inbox) {
       const available = health.inboxes.map(i => i.address || i.id).join(', ');
-      throw new Error(`No inbox matches --from "${input.from}". Available: ${available}`);
+      throw new ConfigError(`No inbox matches --from "${input.from}". Available: ${available}`);
     }
     const inboxId = inbox.id;
     return p.createDraft({

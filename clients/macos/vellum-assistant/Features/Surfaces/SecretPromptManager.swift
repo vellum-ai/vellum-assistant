@@ -172,6 +172,7 @@ struct SecretPromptView: View {
                             .font(VFont.caption)
                             .foregroundColor(VColor.textSecondary)
                     }
+                    .textSelection(.enabled)
 
                     Spacer()
                 }
@@ -181,6 +182,7 @@ struct SecretPromptView: View {
                     Text(description)
                         .font(VFont.caption)
                         .foregroundColor(VColor.textSecondary)
+                        .textSelection(.enabled)
                 }
 
                 // Usage context
@@ -204,6 +206,7 @@ struct SecretPromptView: View {
                         text: "The AI never sees this value — only your Mac can read it"
                     )
                 }
+                .textSelection(.enabled)
 
                 if saved {
                     HStack(spacing: VSpacing.xs) {
@@ -212,6 +215,7 @@ struct SecretPromptView: View {
                         Text("Saved to Keychain")
                             .font(VFont.caption)
                             .foregroundColor(VColor.success)
+                            .textSelection(.enabled)
                     }
                 } else {
                     // Buttons
@@ -278,6 +282,7 @@ struct SecretPromptView: View {
         .padding(VSpacing.sm)
         .background(VColor.surface.opacity(0.5))
         .cornerRadius(6)
+        .textSelection(.enabled)
     }
 
     private func contextBullet(icon: String, label: String, value: String) -> some View {

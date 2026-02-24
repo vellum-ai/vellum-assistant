@@ -90,6 +90,37 @@ struct DisplayGallerySection: View {
 
             Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
 
+            // MARK: - VDisclosureSection
+            GallerySectionHeader(
+                title: "VDisclosureSection",
+                description: "Full-row clickable disclosure with animated chevron. Replaces DisclosureGroup."
+            )
+
+            VDisclosureSection(
+                title: "Basic Section",
+                isExpanded: .constant(true)
+            ) {
+                Text("Expanded content is visible")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textSecondary)
+            }
+            .padding(VSpacing.lg)
+            .vCard(background: VColor.surfaceSubtle)
+
+            VDisclosureSection(
+                title: "With Subtitle",
+                subtitle: "Additional context shown below the title",
+                isExpanded: .constant(false)
+            ) {
+                Text("This content is hidden")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textSecondary)
+            }
+            .padding(VSpacing.lg)
+            .vCard(background: VColor.surfaceSubtle)
+
+            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+
             // MARK: - VListRow
             GallerySectionHeader(
                 title: "VListRow",

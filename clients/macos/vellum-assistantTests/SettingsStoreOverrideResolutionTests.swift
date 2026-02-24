@@ -10,8 +10,6 @@ final class SettingsStoreOverrideResolutionTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: "iosPairingUseOverride")
         UserDefaults.standard.removeObject(forKey: "iosPairingGatewayOverride")
         UserDefaults.standard.removeObject(forKey: "iosPairingTokenOverride")
-        UserDefaults.standard.removeObject(forKey: "ingressUseOverride")
-        UserDefaults.standard.removeObject(forKey: "ingressGatewayOverride")
         super.tearDown()
     }
 
@@ -56,37 +54,5 @@ final class SettingsStoreOverrideResolutionTests: XCTestCase {
         store.ingressPublicBaseUrl = "https://global.example.com"
 
         XCTAssertEqual(store.resolvedIosGatewayUrl, "https://global.example.com")
-    }
-
-    // MARK: - Ingress Gateway URL
-
-    func testIngressGatewayReturnsGlobalWhenOverrideOff() {
-        UserDefaults.standard.set(false, forKey: "ingressUseOverride")
-        UserDefaults.standard.set("https://custom-ingress.example.com", forKey: "ingressGatewayOverride")
-
-        let store = SettingsStore()
-        store.ingressPublicBaseUrl = "https://global.example.com"
-
-        XCTAssertEqual(store.resolvedIngressGatewayUrl, "https://global.example.com")
-    }
-
-    func testIngressGatewayReturnsOverrideWhenOverrideOn() {
-        UserDefaults.standard.set(true, forKey: "ingressUseOverride")
-        UserDefaults.standard.set("https://custom-ingress.example.com", forKey: "ingressGatewayOverride")
-
-        let store = SettingsStore()
-        store.ingressPublicBaseUrl = "https://global.example.com"
-
-        XCTAssertEqual(store.resolvedIngressGatewayUrl, "https://custom-ingress.example.com")
-    }
-
-    func testIngressGatewayFallsBackToGlobalWhenOverrideOnButEmpty() {
-        UserDefaults.standard.set(true, forKey: "ingressUseOverride")
-        UserDefaults.standard.set("", forKey: "ingressGatewayOverride")
-
-        let store = SettingsStore()
-        store.ingressPublicBaseUrl = "https://global.example.com"
-
-        XCTAssertEqual(store.resolvedIngressGatewayUrl, "https://global.example.com")
     }
 }

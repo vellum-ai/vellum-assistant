@@ -24,6 +24,8 @@ mock.module('../util/logger.js', () => ({
   getLogger: () => new Proxy({} as Record<string, unknown>, {
     get: () => () => {},
   }),
+  isDebug: () => false,
+  truncateForLog: (value: string) => value,
 }));
 
 import { initializeDb, getDb, resetDb } from '../memory/db.js';
@@ -259,10 +261,18 @@ describe('claimDueSchedules (RRULE set)', () => {
   });
 
   test('claims RRULE set schedule and correctly advances nextRunAt past exclusions', () => {
+    // Use a recent DTSTART (1 hour ago) so rrule doesn't iterate through hundreds of
+    // thousands of occurrences when computing the next run.
+    const pastDate = new Date(Date.now() - 3_600_000);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const ds = `${pastDate.getUTCFullYear()}${pad(pastDate.getUTCMonth() + 1)}${pad(pastDate.getUTCDate())}T${pad(pastDate.getUTCHours())}${pad(pastDate.getUTCMinutes())}${pad(pastDate.getUTCSeconds())}Z`;
+    // Exclude the 2nd minute after DTSTART (safely in the past, won't block the next run)
+    const exMinute = new Date(pastDate.getTime() + 60_000);
+    const exDs = `${exMinute.getUTCFullYear()}${pad(exMinute.getUTCMonth() + 1)}${pad(exMinute.getUTCDate())}T${pad(exMinute.getUTCHours())}${pad(exMinute.getUTCMinutes())}${pad(pastDate.getUTCSeconds())}Z`;
     const expression = [
-      'DTSTART:20250101T000000Z',
+      `DTSTART:${ds}`,
       'RRULE:FREQ=MINUTELY;INTERVAL=1',
-      'EXDATE:20250101T000100Z',
+      `EXDATE:${exDs}`,
     ].join('\n');
 
     const job = createSchedule({
@@ -400,8 +410,12 @@ describe('claimDueSchedules', () => {
   });
 
   test('claims due RRULE schedules and advances nextRunAt', () => {
-    // Use an RRULE that fires every minute (roughly), with a DTSTART in the past
-    const rrule = 'DTSTART:20250101T000000Z\nRRULE:FREQ=MINUTELY;INTERVAL=1';
+    // Use a recent DTSTART (1 hour ago) so rrule doesn't iterate through
+    // hundreds of thousands of occurrences when computing the next run.
+    const pastDate = new Date(Date.now() - 3_600_000);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const ds = `${pastDate.getUTCFullYear()}${pad(pastDate.getUTCMonth() + 1)}${pad(pastDate.getUTCDate())}T${pad(pastDate.getUTCHours())}${pad(pastDate.getUTCMinutes())}${pad(pastDate.getUTCSeconds())}Z`;
+    const rrule = `DTSTART:${ds}\nRRULE:FREQ=MINUTELY;INTERVAL=1`;
     const job = createSchedule({
       name: 'Claim RRULE',
       cronExpression: rrule,

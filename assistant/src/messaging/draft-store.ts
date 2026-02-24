@@ -5,8 +5,9 @@
  * Works across all platforms — Slack, Gmail, Discord, etc.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, unlinkSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { ensureDir, pathExists } from '../util/fs.js';
 import { randomUUID } from 'node:crypto';
 import { getRootDir } from '../util/platform.js';
 
@@ -24,9 +25,7 @@ export interface Draft {
 
 function getDraftsDir(platform: string): string {
   const dir = join(getRootDir(), 'workspace', 'data', 'drafts', platform);
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
+  ensureDir(dir);
   return dir;
 }
 
@@ -61,7 +60,7 @@ export function createDraft(opts: {
 
 export function getDraft(platform: string, id: string): Draft | null {
   const path = getDraftPath(platform, id);
-  if (!existsSync(path)) return null;
+  if (!pathExists(path)) return null;
   return JSON.parse(readFileSync(path, 'utf-8')) as Draft;
 }
 
@@ -82,7 +81,7 @@ export function listDrafts(platform: string): Draft[] {
 
 export function deleteDraft(platform: string, id: string): boolean {
   const path = getDraftPath(platform, id);
-  if (!existsSync(path)) return false;
+  if (!pathExists(path)) return false;
   unlinkSync(path);
   return true;
 }

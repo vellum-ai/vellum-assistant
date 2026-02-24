@@ -1,5 +1,6 @@
 import { Command } from 'commander';
-import { existsSync, cpSync, readFileSync, chmodSync, rmSync } from 'node:fs';
+import { cpSync, readFileSync, chmodSync, rmSync } from 'node:fs';
+import { pathExists } from '../util/fs.js';
 import { join, resolve, sep } from 'node:path';
 import { discoverHooks, isValidInstallManifest } from './discovery.js';
 import { setHookEnabled, ensureHookInConfig, removeHook } from './config.js';
@@ -79,13 +80,13 @@ export function registerHooksCommand(program: Command): void {
     .description('Install a hook from a directory')
     .action((hookPath: string) => {
       const srcDir = resolve(hookPath);
-      if (!existsSync(srcDir)) {
+      if (!pathExists(srcDir)) {
         log.error(`Directory not found: ${srcDir}`);
         process.exit(1);
       }
 
       const manifestPath = join(srcDir, 'hook.json');
-      if (!existsSync(manifestPath)) {
+      if (!pathExists(manifestPath)) {
         log.error(`No hook.json found in ${srcDir}`);
         process.exit(1);
       }
@@ -117,7 +118,7 @@ export function registerHooksCommand(program: Command): void {
         process.exit(1);
       }
 
-      if (existsSync(targetDir)) {
+      if (pathExists(targetDir)) {
         log.error(`Hook already installed: ${manifest.name}`);
         process.exit(1);
       }
@@ -125,7 +126,7 @@ export function registerHooksCommand(program: Command): void {
       cpSync(srcDir, targetDir, { recursive: true });
 
       // Make script executable
-      if (existsSync(scriptPath)) {
+      if (pathExists(scriptPath)) {
         chmodSync(scriptPath, 0o755);
       }
 

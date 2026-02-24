@@ -15,22 +15,37 @@ const classifyRelationshipMock = mock(async () => {
   return {
     content: [
       {
-        type: 'tool_use',
+        type: 'tool_use' as const,
+        id: 'test-tool-use-id',
+        name: 'classify_relationship',
         input: {
           relationship: nextRelationship,
           explanation: nextExplanation,
         },
       },
     ],
+    model: 'claude-haiku-4-5-20251001',
+    stopReason: 'tool_use',
+    usage: { inputTokens: 0, outputTokens: 0 },
   };
 });
 
-mock.module('@anthropic-ai/sdk', () => ({
-  default: class MockAnthropic {
-    messages = {
-      create: classifyRelationshipMock,
+mock.module('../providers/anthropic-send-message.js', () => ({
+  getAnthropicProvider: () => ({
+    sendMessage: classifyRelationshipMock,
+  }),
+  createTimeout: (ms: number) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ms);
+    return {
+      signal: controller.signal,
+      cleanup: () => clearTimeout(timer),
     };
   },
+  extractToolUse: (response: { content: Array<{ type: string }> }) => {
+    return response.content.find((b: { type: string }) => b.type === 'tool_use');
+  },
+  userMessage: (text: string) => ({ role: 'user', content: [{ type: 'text', text }] }),
 }));
 
 mock.module('../util/platform.js', () => ({

@@ -1,6 +1,6 @@
-import { eq, and, notInArray, desc } from 'drizzle-orm';
+import { eq, and, or, notInArray, desc } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
-import { getDb } from '../memory/db.js';
+import { getDb, rawChanges, rawGet, rawRun } from '../memory/db.js';
 import { callSessions, callEvents, callPendingQuestions } from '../memory/schema.js';
 import type { CallSession, CallEvent, CallPendingQuestion, CallEventType, CallStatus } from './types.js';
 import { validateTransition } from './call-state-machine.js';
@@ -22,6 +22,8 @@ function parseCallSession(row: typeof callSessions.$inferSelect): CallSession {
     status: row.status as CallSession['status'],
     callerIdentityMode: row.callerIdentityMode,
     callerIdentitySource: row.callerIdentitySource,
+    assistantId: row.assistantId,
+    initiatedFromConversationId: row.initiatedFromConversationId,
     startedAt: row.startedAt,
     endedAt: row.endedAt,
     lastError: row.lastError,
@@ -62,6 +64,8 @@ export function createCallSession(opts: {
   task?: string;
   callerIdentityMode?: string;
   callerIdentitySource?: string;
+  assistantId?: string;
+  initiatedFromConversationId?: string;
 }): CallSession {
   const db = getDb();
   const now = Date.now();
@@ -76,6 +80,8 @@ export function createCallSession(opts: {
     status: 'initiated' as const,
     callerIdentityMode: opts.callerIdentityMode ?? null,
     callerIdentitySource: opts.callerIdentitySource ?? null,
+    assistantId: opts.assistantId ?? null,
+    initiatedFromConversationId: opts.initiatedFromConversationId ?? null,
     startedAt: null,
     endedAt: null,
     lastError: null,
@@ -111,7 +117,10 @@ export function getActiveCallSessionForConversation(conversationId: string): Cal
     .from(callSessions)
     .where(
       and(
-        eq(callSessions.conversationId, conversationId),
+        or(
+          eq(callSessions.conversationId, conversationId),
+          eq(callSessions.initiatedFromConversationId, conversationId),
+        ),
         notInArray(callSessions.status, ['completed', 'failed', 'cancelled']),
       ),
     )
@@ -123,7 +132,7 @@ export function getActiveCallSessionForConversation(conversationId: string): Cal
 
 export function updateCallSession(
   id: string,
-  updates: Partial<Pick<CallSession, 'status' | 'providerCallSid' | 'startedAt' | 'endedAt' | 'lastError'>>,
+  updates: Partial<Pick<CallSession, 'status' | 'providerCallSid' | 'startedAt' | 'endedAt' | 'lastError' | 'conversationId' | 'initiatedFromConversationId'>>,
 ): void {
   const db = getDb();
 
@@ -246,10 +255,7 @@ export function answerPendingQuestion(id: string, answerText: string): void {
       ),
     )
     .run();
-  // Drizzle's .run() returns void for bun:sqlite, so check affected rows via raw client.
-  const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
-  const changes = raw.query('SELECT changes() as c').get() as { c: number };
-  if (changes.c === 0) {
+  if (rawChanges() === 0) {
     log.warn({ questionId: id }, 'answerPendingQuestion: no rows updated — question may have already been answered or expired');
   }
 }
@@ -292,13 +298,7 @@ export function buildCallbackDedupeKey(
  * Returns true if the key already exists, false otherwise.
  */
 export function isCallbackProcessed(dedupeKey: string): boolean {
-  const db = getDb();
-  const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
-
-  const row = raw.query(
-    `SELECT 1 FROM processed_callbacks WHERE dedupe_key = ?`,
-  ).get(dedupeKey);
-  return row != null;
+  return rawGet<{ 1: number }>(`SELECT 1 FROM processed_callbacks WHERE dedupe_key = ?`, dedupeKey) != null;
 }
 
 /**
@@ -312,12 +312,10 @@ export function recordProcessedCallback(
   dedupeKey: string,
   callSessionId: string,
 ): void {
-  const db = getDb();
-  const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
-
-  raw.query(
+  rawRun(
     `INSERT OR IGNORE INTO processed_callbacks (id, dedupe_key, call_session_id, created_at) VALUES (?, ?, ?, ?)`,
-  ).run(uuid(), dedupeKey, callSessionId, Date.now());
+    uuid(), dedupeKey, callSessionId, Date.now(),
+  );
 }
 
 /**
@@ -334,15 +332,10 @@ export function tryRecordProcessedCallback(
   dedupeKey: string,
   callSessionId: string,
 ): boolean {
-  const db = getDb();
-  const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
-
-  raw.query(
+  return rawRun(
     `INSERT OR IGNORE INTO processed_callbacks (id, dedupe_key, call_session_id, created_at) VALUES (?, ?, ?, ?)`,
-  ).run(uuid(), dedupeKey, callSessionId, Date.now());
-
-  const changes = raw.query('SELECT changes() as c').get() as { c: number };
-  return changes.c > 0;
+    uuid(), dedupeKey, callSessionId, Date.now(),
+  ) > 0;
 }
 
 /**
@@ -362,20 +355,18 @@ export function tryRecordProcessedCallback(
  * finalize a claim that was reclaimed by handler B after expiry.
  */
 export function claimCallback(dedupeKey: string, callSessionId: string): string | null {
-  const db = getDb();
-  const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
-
   // Clear any expired orphaned claims so they can be reprocessed
-  raw.query(
+  rawRun(
     `DELETE FROM processed_callbacks WHERE dedupe_key = ? AND created_at < ?`,
-  ).run(dedupeKey, Date.now() - CLAIM_EXPIRY_MS);
+    dedupeKey, Date.now() - CLAIM_EXPIRY_MS,
+  );
 
   const claimId = uuid();
-  raw.query(
+  const changes = rawRun(
     `INSERT OR IGNORE INTO processed_callbacks (id, dedupe_key, call_session_id, claim_id, created_at) VALUES (?, ?, ?, ?, ?)`,
-  ).run(uuid(), dedupeKey, callSessionId, claimId, Date.now());
-  const changes = raw.query('SELECT changes() as c').get() as { c: number };
-  return changes.c > 0 ? claimId : null;
+    uuid(), dedupeKey, callSessionId, claimId, Date.now(),
+  );
+  return changes > 0 ? claimId : null;
 }
 
 /**
@@ -386,9 +377,7 @@ export function claimCallback(dedupeKey: string, callSessionId: string): string 
  * handler A from releasing a claim that was reclaimed by handler B.
  */
 export function releaseCallbackClaim(dedupeKey: string, claimId: string): void {
-  const db = getDb();
-  const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
-  raw.query(`DELETE FROM processed_callbacks WHERE dedupe_key = ? AND claim_id = ?`).run(dedupeKey, claimId);
+  rawRun(`DELETE FROM processed_callbacks WHERE dedupe_key = ? AND claim_id = ?`, dedupeKey, claimId);
 }
 
 /**
@@ -406,15 +395,13 @@ export function releaseCallbackClaim(dedupeKey: string, claimId: string): void {
  * else, so duplicate processing may occur on later retries.
  */
 export function finalizeCallbackClaim(dedupeKey: string, claimId: string): boolean {
-  const db = getDb();
-  const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
   // Set created_at far in the future so expiry check never matches
   const NEVER_EXPIRE = Date.now() + 100 * 365 * 24 * 60 * 60 * 1000; // ~100 years
-  raw.query(
+  const changes = rawRun(
     `UPDATE processed_callbacks SET created_at = ? WHERE dedupe_key = ? AND claim_id = ?`,
-  ).run(NEVER_EXPIRE, dedupeKey, claimId);
-  const changes = raw.query('SELECT changes() as c').get() as { c: number };
-  if (changes.c === 0) {
+    NEVER_EXPIRE, dedupeKey, claimId,
+  );
+  if (changes === 0) {
     log.warn({ dedupeKey, claimId }, 'finalizeCallbackClaim: claim was lost — another handler reclaimed this key after expiry');
     return false;
   }
