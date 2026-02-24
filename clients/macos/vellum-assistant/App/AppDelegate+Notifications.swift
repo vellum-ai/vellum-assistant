@@ -72,7 +72,19 @@ extension AppDelegate {
             options: []
         )
 
-        center.setNotificationCategories([activityCategory, toolConfirmationCategory, rideShotgunCategory, voiceResponseCategory])
+        let viewQuickChatAction = UNNotificationAction(
+            identifier: "VIEW_QUICK_CHAT",
+            title: "View in Chat",
+            options: .foreground
+        )
+        let quickChatCategory = UNNotificationCategory(
+            identifier: "QUICK_CHAT_RESPONSE",
+            actions: [viewQuickChatAction],
+            intentIdentifiers: [],
+            options: []
+        )
+
+        center.setNotificationCategories([activityCategory, toolConfirmationCategory, rideShotgunCategory, voiceResponseCategory, quickChatCategory])
     }
 
     func registerBundledFonts() {
@@ -144,6 +156,16 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
             await MainActor.run {
                 guard !self.isAwaitingFirstLaunchReady else { return }
                 self.showMainWindow()
+            }
+            return
+        }
+
+        // Handle quick chat response notifications — open the thread in the main window
+        if categoryId == "QUICK_CHAT_RESPONSE" {
+            let conversationId = response.notification.request.content.userInfo["conversationId"] as? String
+            await MainActor.run {
+                guard !self.isAwaitingFirstLaunchReady else { return }
+                self.openQuickChatThread(conversationId: conversationId)
             }
             return
         }
