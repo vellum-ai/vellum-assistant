@@ -832,7 +832,7 @@ export class RuntimeHttpServer {
       // the Twilio signature) and reconstruct requests for the existing
       // Twilio route handlers.
       if (endpoint === 'internal/twilio/voice-webhook' && req.method === 'POST') {
-        const json = await req.json() as { params: Record<string, string>; originalUrl?: string };
+        const json = await req.json() as { params: Record<string, string>; originalUrl?: string; assistantId?: string };
         const formBody = new URLSearchParams(json.params).toString();
         // Reconstruct request URL: keep the original URL query string (callSessionId)
         const reconstructedUrl = json.originalUrl ?? req.url;
@@ -841,7 +841,7 @@ export class RuntimeHttpServer {
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: formBody,
         });
-        return await handleVoiceWebhook(fakeReq);
+        return await handleVoiceWebhook(fakeReq, json.assistantId);
       }
 
       if (endpoint === 'internal/twilio/status' && req.method === 'POST') {

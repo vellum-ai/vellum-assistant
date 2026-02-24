@@ -245,18 +245,22 @@ export type TwilioForwardResponse = {
  * Forward a validated Twilio voice webhook payload to the runtime.
  * The gateway sends the parsed form params as JSON; the runtime's internal
  * endpoint reconstructs what it needs.
+ *
+ * For inbound calls, `assistantId` is resolved by the gateway from the "To"
+ * phone number and forwarded so the runtime knows which assistant to bootstrap.
  */
 export async function forwardTwilioVoiceWebhook(
   config: GatewayConfig,
   params: Record<string, string>,
   originalUrl: string,
+  assistantId?: string,
 ): Promise<TwilioForwardResponse> {
   const url = `${config.assistantRuntimeBaseUrl}/v1/internal/twilio/voice-webhook`;
 
   const response = await globalThis.fetch(url, {
     method: "POST",
     headers: runtimeHeaders(config, { "Content-Type": "application/json" }),
-    body: JSON.stringify({ params, originalUrl }),
+    body: JSON.stringify({ params, originalUrl, assistantId }),
     signal: AbortSignal.timeout(config.runtimeTimeoutMs),
   });
 

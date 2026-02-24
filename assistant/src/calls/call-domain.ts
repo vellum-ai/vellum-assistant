@@ -10,6 +10,7 @@ import { isDeniedNumber } from './call-constants.js';
 import {
   createCallSession,
   getCallSession,
+  getCallSessionByCallSid,
   getActiveCallSessionForConversation,
   updateCallSession,
   getPendingQuestion,
@@ -173,6 +174,72 @@ export async function resolveCallerIdentity(
 
   log.info({ mode, source: numberSource, fromNumber: userNumber }, 'Resolved caller identity');
   return { ok: true, mode, fromNumber: userNumber, source: numberSource };
+}
+
+// ── Inbound voice session bootstrap ──────────────────────────────────
+
+export type CreateInboundVoiceSessionInput = {
+  callSid: string;
+  fromNumber: string;
+  toNumber: string;
+  assistantId?: string;
+};
+
+export type CreateInboundVoiceSessionResult = {
+  session: CallSession;
+  created: boolean;
+};
+
+/**
+ * Create (or reuse) a voice call session for an inbound call identified
+ * by its Twilio CallSid.
+ *
+ * Idempotent: if a session already exists for the given CallSid, it is
+ * returned without creating a duplicate. This handles Twilio webhook
+ * replays gracefully.
+ */
+export function createInboundVoiceSession(
+  input: CreateInboundVoiceSessionInput,
+): CreateInboundVoiceSessionResult {
+  const { callSid, fromNumber, toNumber, assistantId = 'self' } = input;
+
+  // Check if a session already exists for this CallSid (replay protection)
+  const existing = getCallSessionByCallSid(callSid);
+  if (existing) {
+    log.info({ callSid, callSessionId: existing.id }, 'Reusing existing session for inbound CallSid');
+    return { session: existing, created: false };
+  }
+
+  // Create a dedicated voice conversation keyed by CallSid so inbound calls
+  // get their own conversation thread.
+  const voiceConvKey = assistantId && assistantId !== 'self'
+    ? `asst:${assistantId}:voice:inbound:${callSid}`
+    : `voice:inbound:${callSid}`;
+  const { conversationId: voiceConversationId } = getOrCreateConversation(voiceConvKey);
+
+  upsertBinding({
+    conversationId: voiceConversationId,
+    sourceChannel: 'voice',
+    externalChatId: callSid,
+  });
+
+  const session = createCallSession({
+    conversationId: voiceConversationId,
+    provider: 'twilio',
+    fromNumber,
+    toNumber,
+    assistantId,
+  });
+
+  updateCallSession(session.id, { providerCallSid: callSid });
+  session.providerCallSid = callSid;
+
+  log.info(
+    { callSessionId: session.id, callSid, voiceConversationId, from: fromNumber, to: toNumber, assistantId },
+    'Created new inbound voice session',
+  );
+
+  return { session, created: true };
 }
 
 // ── Domain operations ────────────────────────────────────────────────

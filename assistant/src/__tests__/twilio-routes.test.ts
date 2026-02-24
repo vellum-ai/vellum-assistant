@@ -84,6 +84,7 @@ import * as callStore from '../calls/call-store.js';
 import {
   createCallSession,
   getCallSession,
+  getCallSessionByCallSid,
   updateCallSession,
   getCallEvents,
 } from '../calls/call-store.js';
@@ -115,6 +116,8 @@ function resetTables() {
   db.run('DELETE FROM call_pending_questions');
   db.run('DELETE FROM call_events');
   db.run('DELETE FROM call_sessions');
+  db.run('DELETE FROM external_conversation_bindings');
+  db.run('DELETE FROM conversation_keys');
   db.run('DELETE FROM conversations');
   ensuredConvIds = new Set();
 }
@@ -142,6 +145,14 @@ function makeStatusRequest(params: Record<string, string>): Request {
 
 function makeVoiceRequest(sessionId: string, params: Record<string, string>): Request {
   return new Request(`http://127.0.0.1/v1/calls/twilio/voice-webhook?callSessionId=${sessionId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams(params).toString(),
+  });
+}
+
+function makeInboundVoiceRequest(params: Record<string, string>): Request {
+  return new Request('http://127.0.0.1/v1/calls/twilio/voice-webhook', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams(params).toString(),
@@ -612,6 +623,94 @@ describe('twilio webhook routes', () => {
 
       const events2 = getCallEvents(session.id);
       expect(events2.filter(e => e.eventType === 'call_ended').length).toBe(1);
+    });
+  });
+
+  // ── Inbound voice webhook tests ─────────────────────────────────────
+  // Tests the inbound mode where callSessionId is absent and a session
+  // is created/reused from the Twilio CallSid.
+
+  describe('inbound voice webhook', () => {
+    test('creates a new session from CallSid when callSessionId is absent', async () => {
+      const req = makeInboundVoiceRequest({
+        CallSid: 'CA_inbound_new_1',
+        From: '+14155551234',
+        To: '+15550001111',
+      });
+
+      const res = await handleVoiceWebhook(req);
+
+      expect(res.status).toBe(200);
+      const twiml = await res.text();
+      expect(twiml).toContain('<ConversationRelay');
+      expect(twiml).toContain('callSessionId=');
+
+      // Verify session was created with the CallSid
+      const session = getCallSessionByCallSid('CA_inbound_new_1');
+      expect(session).not.toBeNull();
+      expect(session!.fromNumber).toBe('+14155551234');
+      expect(session!.toNumber).toBe('+15550001111');
+      expect(session!.providerCallSid).toBe('CA_inbound_new_1');
+    });
+
+    test('replayed inbound webhook for same CallSid does not create duplicate sessions', async () => {
+      const params = {
+        CallSid: 'CA_inbound_replay_1',
+        From: '+14155551234',
+        To: '+15550001111',
+      };
+
+      // First call — creates the session
+      const res1 = await handleVoiceWebhook(makeInboundVoiceRequest(params));
+      expect(res1.status).toBe(200);
+
+      const session1 = getCallSessionByCallSid('CA_inbound_replay_1');
+      expect(session1).not.toBeNull();
+
+      // Second call (replay) — reuses the same session
+      const res2 = await handleVoiceWebhook(makeInboundVoiceRequest(params));
+      expect(res2.status).toBe(200);
+
+      const session2 = getCallSessionByCallSid('CA_inbound_replay_1');
+      expect(session2).not.toBeNull();
+      expect(session2!.id).toBe(session1!.id);
+    });
+
+    test('inbound webhook without CallSid returns 400', async () => {
+      const req = makeInboundVoiceRequest({
+        From: '+14155551234',
+        To: '+15550001111',
+      });
+
+      const res = await handleVoiceWebhook(req);
+      expect(res.status).toBe(400);
+    });
+
+    test('inbound webhook with forwarded assistantId creates session with correct assistantId', async () => {
+      const req = makeInboundVoiceRequest({
+        CallSid: 'CA_inbound_assist_1',
+        From: '+14155551234',
+        To: '+15550001111',
+      });
+
+      const res = await handleVoiceWebhook(req, 'my-assistant-id');
+
+      expect(res.status).toBe(200);
+      const session = getCallSessionByCallSid('CA_inbound_assist_1');
+      expect(session).not.toBeNull();
+      expect(session!.assistantId).toBe('my-assistant-id');
+    });
+
+    test('outbound call flow remains non-regressed with callSessionId present', async () => {
+      const session = createTestSession('conv-outbound-compat-1', 'CA_outbound_compat_1');
+      const req = makeVoiceRequest(session.id, { CallSid: 'CA_outbound_compat_1' });
+
+      const res = await handleVoiceWebhook(req);
+
+      expect(res.status).toBe(200);
+      const twiml = await res.text();
+      expect(twiml).toContain('<ConversationRelay');
+      expect(twiml).toContain(`callSessionId=${session.id}`);
     });
   });
 });
