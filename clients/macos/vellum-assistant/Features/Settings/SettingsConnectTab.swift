@@ -58,15 +58,6 @@ struct SettingsConnectTab: View {
             refreshBearerToken()
             store.refreshChannelGuardianStatus(channel: "telegram")
             store.refreshChannelGuardianStatus(channel: "sms")
-
-            // Migration: remove legacy ios-pairing-enabled flag file.
-            // The old "Enable iOS Pairing" toggle created this file to expose
-            // the daemon on 0.0.0.0. With QR-first pairing via gateway, the
-            // flag is no longer needed and leaving it active is a security concern.
-            let legacyFlagPath = NSHomeDirectory() + "/.vellum/ios-pairing-enabled"
-            if FileManager.default.fileExists(atPath: legacyFlagPath) {
-                try? FileManager.default.removeItem(atPath: legacyFlagPath)
-            }
         }
         .onChange(of: store.ingressPublicBaseUrl) { _, newValue in
             if !isGatewayUrlFocused {
