@@ -35,7 +35,7 @@ final class PorcupineWakeWordEngine: WakeWordEngine {
     }
 
     /// Feed a buffer of 16-bit PCM audio samples for wake word detection.
-    func process(pcm: [Int16]) {
+    func processAudioFrame(_ frame: [Int16]) {
         // Stub — real implementation will call Porcupine's process() here
     }
 }

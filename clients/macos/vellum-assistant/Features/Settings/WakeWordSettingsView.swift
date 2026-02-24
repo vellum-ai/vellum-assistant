@@ -1,4 +1,5 @@
 import SwiftUI
+import VellumAssistantShared
 
 /// Wake word settings tab — enable/disable wake word listening,
 /// configure Picovoice access key, sensitivity, and conversation timeout.

@@ -26,7 +26,8 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.0.0"),
-        .package(url: "https://github.com/Picovoice/porcupine", from: "3.0.0"),
+        // Porcupine removed — iOS-only SPM package breaks on Xcode 26.2.
+        // TODO: Re-add via C SDK wrapper (lib/mac/) for macOS wake word support.
     ],
     targets: [
         .target(
@@ -49,7 +50,7 @@ let package = Package(
             dependencies: [
                 "VellumAssistantShared",
                 "Sparkle",
-                .product(name: "Porcupine", package: "porcupine"),
+                // Porcupine dep removed — stub engine doesn't need it
             ],
             path: "macos/vellum-assistant",
             exclude: ["Resources/Info.plist", "Resources/bg.png"],
