@@ -1,6 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
 import { getAnthropicProvider, extractText, userMessageWithImage } from '../../../../providers/anthropic-send-message.js';
+import { getProvider, listProviders, initializeProviders } from '../../../../providers/registry.js';
+import { loadConfig } from '../../../../config/loader.js';
 import {
   getMediaAssetById,
   getKeyframesForAsset,
@@ -69,13 +71,23 @@ export async function analyzeKeyframesForAsset(
 
   updateProcessingStage(stage.id, { status: 'running', startedAt: Date.now() });
 
-  const provider = getAnthropicProvider();
+  // Use the same provider the main agent uses. If the provider registry
+  // was cleared or not yet initialized, force-reload the config from
+  // keychain/secure storage and re-initialize providers.
+  let provider = getAnthropicProvider();
+  if (!provider) {
+    const freshConfig = loadConfig();
+    if (freshConfig.apiKeys.anthropic) {
+      initializeProviders(freshConfig);
+      provider = getAnthropicProvider();
+    }
+  }
   if (!provider) {
     updateProcessingStage(stage.id, {
       status: 'failed',
       lastError: 'Anthropic API key not configured',
     });
-    throw new Error('No Anthropic API key available. Configure it in settings or set ANTHROPIC_API_KEY.');
+    throw new Error('No Anthropic API key available. Add one in Settings → Integrations.');
   }
 
   let analyzedCount = analyzedKeyframeIds.size;
@@ -220,7 +232,7 @@ export async function run(
       msg === 'batch_size must be greater than 0.' ||
       msg.startsWith('Media asset not found:') ||
       msg === 'No keyframes found for this asset. Run extract_keyframes first.' ||
-      msg === 'No Anthropic API key available. Configure it in settings or set ANTHROPIC_API_KEY.'
+      msg === 'No Anthropic API key available. Add one in Settings → Integrations.'
     ) {
       return { content: msg, isError: true };
     }
@@ -253,7 +265,7 @@ async function analyzeKeyframe(
     undefined,
     {
       config: {
-        model: 'claude-sonnet-4-6-20250514',
+        model: 'claude-sonnet-4-6',
         max_tokens: 1024,
       },
     },
