@@ -389,14 +389,20 @@ function handleCuRecordingStatus(msg: CuRecordingStatus, _socket: net.Socket, ct
     log.warn({ sessionId: msg.sessionId }, 'CU recording status for unknown session');
     return;
   }
-  log.info(
-    { sessionId: msg.sessionId, status: msg.status, reason: msg.reason },
-    'CU recording status update',
-  );
+  const previousStatus = session.recordingGateStatus;
   session.recordingGateStatus = msg.status;
   if (msg.status === 'failed' && msg.reason) {
     session.recordingFailureReason = msg.reason;
   }
+  log.info(
+    {
+      sessionId: msg.sessionId,
+      previousStatus,
+      newStatus: msg.status,
+      reason: msg.reason,
+    },
+    'Recording gate status changed',
+  );
 }
 
 export const computerUseHandlers = defineHandlers({

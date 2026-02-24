@@ -140,6 +140,18 @@ export class ComputerUseSession {
     this.targetAppName = targetAppName;
     this.targetAppBundleId = targetAppBundleId;
     this.requiresRecording = requiresRecording ?? false;
+
+    log.info(
+      {
+        sessionId,
+        qaMode: !!requiresRecording,
+        requiresRecording: this.requiresRecording,
+        targetAppName,
+        targetAppBundleId,
+        recordingGateStatus: this.recordingGateStatus,
+      },
+      'CU session initialized',
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -197,11 +209,19 @@ export class ComputerUseSession {
       this.recordingHandshakeTimer = setTimeout(() => {
         if (this.recordingGateStatus === 'pending') {
           log.error(
-            { sessionId: this.sessionId, timeoutMs: RECORDING_HANDSHAKE_TIMEOUT_MS },
+            {
+              sessionId: this.sessionId,
+              timeoutMs: RECORDING_HANDSHAKE_TIMEOUT_MS,
+              recordingGateStatus: this.recordingGateStatus,
+              requiresRecording: this.requiresRecording,
+              targetAppName: this.targetAppName,
+              targetAppBundleId: this.targetAppBundleId,
+              stepCount: this.stepCount,
+            },
             'Recording handshake timeout — recording never started',
           );
           this.abortWithError(
-            'Recording handshake timed out: recording did not start within 8 seconds. Session aborted to prevent unrecorded actions.',
+            `Recording handshake timed out after ${RECORDING_HANDSHAKE_TIMEOUT_MS / 1000} seconds. The screen recording did not start. Session aborted because recording is required for QA sessions. Check screen recording permissions in System Settings > Privacy & Security.`,
           );
         }
       }, RECORDING_HANDSHAKE_TIMEOUT_MS);
@@ -692,7 +712,7 @@ export class ComputerUseSession {
       if (this.requiresRecording && this.recordingGateStatus !== 'started') {
         if (this.recordingGateStatus === 'failed') {
           const reason = this.recordingFailureReason ?? 'unknown';
-          this.abortWithError(`Recording failed: ${reason}. Session cannot proceed without recording.`);
+          this.abortWithError(`Recording failed to start: ${reason}. Session aborted because recording is required for QA sessions.`);
           return {
             content: `Recording failed: ${reason}. Session aborted.`,
             isError: true,
@@ -700,8 +720,14 @@ export class ComputerUseSession {
         }
         if (this.recordingGateStatus === 'pending' && DESTRUCTIVE_TOOLS.has(toolName)) {
           log.warn(
-            { sessionId: this.sessionId, toolName, recordingGateStatus: this.recordingGateStatus },
-            'Blocked destructive action — recording has not started yet',
+            {
+              sessionId: this.sessionId,
+              toolName,
+              recordingGateStatus: this.recordingGateStatus,
+              requiresRecording: this.requiresRecording,
+              stepCount: this.stepCount,
+            },
+            'Blocked destructive action — recording not started',
           );
           return {
             content: 'Recording has not started yet. Waiting for recording confirmation before executing destructive actions. Use computer_use_wait to wait, or computer_use_done/computer_use_respond if the task can be completed without interaction.',
