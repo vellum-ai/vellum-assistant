@@ -14,6 +14,7 @@ import {
   migrateCallSessionsAddInitiatedFrom,
   migrateMemoryFtsBackfill,
   migrateGuardianActionTables,
+  migrateBackfillInboxThreadStateFromBindings,
   validateMigrationState,
 } from './schema-migration.js';
 
@@ -1254,6 +1255,8 @@ export function initializeDb(): void {
   database.run(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_inbox_thread_state_channel ON assistant_inbox_thread_state(assistant_id, source_channel, external_chat_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_inbox_thread_state_last_msg ON assistant_inbox_thread_state(assistant_id, last_message_at)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_inbox_thread_state_escalation ON assistant_inbox_thread_state(assistant_id, has_pending_escalation, last_message_at)`);
+
+  migrateBackfillInboxThreadStateFromBindings(database);
 
   migrateGuardianActionTables(database);
 
