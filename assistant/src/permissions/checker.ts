@@ -56,6 +56,31 @@ const LOW_RISK_GIT_SUBCOMMANDS = new Set([
   'cat-file', 'reflog',
 ]);
 
+// Commands that wrap another program — the real program appears as the first
+// non-flag argument.  When one of these is the segment program we look through
+// its args to find the effective program (e.g. `env curl …` → curl).
+const WRAPPER_PROGRAMS = new Set([
+  'env', 'nice', 'nohup', 'time', 'command', 'exec',
+  'strace', 'ltrace', 'ionice', 'taskset', 'timeout',
+]);
+
+/**
+ * Given a segment whose program is a known wrapper, return the first
+ * non-flag argument (i.e. the wrapped program name).  Returns `undefined`
+ * when no suitable argument is found.
+ *
+ * Handles `env` specially: skips `VAR=value` pairs in addition to flags.
+ */
+function getWrappedProgram(seg: { program: string; args: string[] }): string | undefined {
+  const isEnv = seg.program === 'env';
+  for (const arg of seg.args) {
+    if (arg.startsWith('-')) continue;           // skip flags
+    if (isEnv && arg.includes('=')) continue;     // skip env VAR=value pairs
+    return arg;
+  }
+  return undefined;
+}
+
 function isHighRiskRm(args: string[]): boolean {
   // rm with -r, -rf, -fr, or targeting root/home
   for (const arg of args) {
@@ -313,10 +338,19 @@ export async function classifyRisk(toolName: string, input: Record<string, unkno
         continue;
       }
 
-      // curl/wget can download and execute arbitrary code from the internet
+      // curl/wget can download and execute arbitrary code from the internet.
+      // Also catch wrapped invocations like `env curl …` or `nice wget …`.
       if (prog === 'curl' || prog === 'wget') {
         maxRisk = RiskLevel.Medium;
         continue;
+      }
+
+      if (WRAPPER_PROGRAMS.has(prog)) {
+        const wrapped = getWrappedProgram(seg);
+        if (wrapped === 'curl' || wrapped === 'wget') {
+          maxRisk = RiskLevel.Medium;
+          continue;
+        }
       }
 
       if (prog === 'git') {
