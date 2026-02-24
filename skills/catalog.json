@@ -53,6 +53,19 @@
       "name": "SMS Setup",
       "description": "Set up and troubleshoot SMS messaging with guided Twilio configuration, compliance, and verification",
       "emoji": "\ud83d\udce8"
+    },
+    {
+      "id": "notion-oauth-setup",
+      "name": "Notion OAuth Setup",
+      "description": "Create a Notion integration and OAuth credentials for Notion integration using browser automation",
+      "emoji": "\ud83d\udd11",
+      "includes": ["browser", "public-ingress"]
+    },
+    {
+      "id": "notion",
+      "name": "Notion",
+      "description": "Read and write Notion pages and databases using the Notion API",
+      "emoji": "\ud83d\udcdd"
     }
   ]
 }
