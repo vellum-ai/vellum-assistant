@@ -53,6 +53,7 @@ import { slackProvider as slackMessagingProvider } from '../messaging/providers/
 import { gmailMessagingProvider } from '../messaging/providers/gmail/adapter.js';
 import { telegramBotMessagingProvider } from '../messaging/providers/telegram-bot/adapter.js';
 import { smsMessagingProvider } from '../messaging/providers/sms/adapter.js';
+import { whatsappMessagingProvider } from '../messaging/providers/whatsapp/adapter.js';
 import { browserManager } from '../tools/browser/browser-manager.js';
 import { RuntimeHttpServer } from '../runtime/http-server.js';
 import type { ApprovalCopyGenerator } from '../runtime/http-types.js';
@@ -461,6 +462,7 @@ export async function runDaemon(): Promise<void> {
   registerMessagingProvider(gmailMessagingProvider);
   registerMessagingProvider(telegramBotMessagingProvider);
   registerMessagingProvider(smsMessagingProvider);
+  registerMessagingProvider(whatsappMessagingProvider);
 
   const scheduler = startScheduler(
     async (conversationId, message) => {
