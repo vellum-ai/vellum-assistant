@@ -118,10 +118,10 @@ export async function runWatchersOnce(
       if ((watcher.consecutiveErrors + 1) >= MAX_CONSECUTIVE_ERRORS) {
         const reason = `Disabled after ${MAX_CONSECUTIVE_ERRORS} consecutive errors. Last: ${message}`;
         disableWatcher(watcher.id, reason);
-        // Evict in-process provider state (e.g. Linear issue-state cache) so
-        // that a permanently-disabled watcher's UUID doesn't leak memory for
-        // the lifetime of the daemon.
-        provider.cleanup?.(watcher.id);
+        // Do NOT call provider.cleanup() here — auto-disable is reversible.
+        // If the watcher is re-enabled later, it must diff against the same
+        // baseline to avoid missing events that occurred while disabled.
+        // Cleanup is only correct on true deletion (see tools/watcher/delete.ts).
         log.warn({ watcherId: watcher.id, name: watcher.name }, 'Watcher disabled by circuit breaker');
         notify({
           title: `Watcher disabled: ${watcher.name}`,
