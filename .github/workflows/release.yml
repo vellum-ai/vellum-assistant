@@ -707,6 +707,7 @@ jobs:
     if: always() && !cancelled()
     needs: [bump-and-tag, publish-npm, publish-meta, build-macos, release, update-platform, ci-assistant, ci-cli, ci-gateway]
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
       - name: Build Slack payload
         run: |
@@ -736,9 +737,9 @@ jobs:
           # Build CI status icons
           ci_icon() { if [ "$1" = "success" ]; then printf '✅'; else printf '❌'; fi; }
 
-          A=$(ci_icon "${{ needs.ci-assistant.result }}")
-          C=$(ci_icon "${{ needs.ci-cli.result }}")
-          G=$(ci_icon "${{ needs.ci-gateway.result }}")
+          A=$(ci_icon "${{ needs.ci-assistant.outcome }}")
+          C=$(ci_icon "${{ needs.ci-cli.outcome }}")
+          G=$(ci_icon "${{ needs.ci-gateway.outcome }}")
           D=$(ci_icon "${{ needs.build-macos.result }}")
 
           BODY="*CI Checks:*  ${A} assistant    ${C} cli    ${G} gateway    ${D} desktop\n\n*Version:* \`${{ inputs.version }}\`\n*Triggered by:* ${{ github.actor }}"
