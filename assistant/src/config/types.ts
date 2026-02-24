@@ -40,4 +40,5 @@ export type {
   SmsConfig,
   IngressConfig,
   AssistantInboxConfig,
+  NotificationsConfig,
 } from './schema.js';

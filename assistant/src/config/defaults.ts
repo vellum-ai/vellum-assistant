@@ -272,4 +272,9 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     memberAclEnabled: false,
     policyEnabled: false,
   },
+  notifications: {
+    enabled: false,
+    shadowMode: true,
+    decisionModel: 'claude-haiku-4-5-20251001',
+  },
 };

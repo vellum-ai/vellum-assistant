@@ -91,6 +91,13 @@ export type {
 } from './agent-schema.js';
 
 export {
+  NotificationsConfigSchema,
+} from './notifications-schema.js';
+export type {
+  NotificationsConfig,
+} from './notifications-schema.js';
+
+export {
   TimeoutConfigSchema,
   RateLimitConfigSchema,
   SecretDetectionConfigSchema,
@@ -125,6 +132,7 @@ import { CallsConfigSchema } from './calls-schema.js';
 import { SandboxConfigSchema } from './sandbox-schema.js';
 import { SkillsConfigSchema } from './skills-schema.js';
 import { AgentHeartbeatConfigSchema, SwarmConfigSchema, WorkspaceGitConfigSchema } from './agent-schema.js';
+import { NotificationsConfigSchema } from './notifications-schema.js';
 import {
   TimeoutConfigSchema,
   RateLimitConfigSchema,
@@ -431,6 +439,11 @@ export const AssistantConfigSchema = z.object({
     invitesEnabled: false,
     memberAclEnabled: false,
     policyEnabled: false,
+  }),
+  notifications: NotificationsConfigSchema.default({
+    enabled: false,
+    shadowMode: true,
+    decisionModel: 'claude-haiku-4-5-20251001',
   }),
 }).superRefine((config, ctx) => {
   if (config.contextWindow.targetInputTokens >= config.contextWindow.maxInputTokens) {
