@@ -355,13 +355,13 @@ export async function preprocessForAsset(
   onProgress?: (msg: string) => void,
 ): Promise<PreprocessManifest> {
   const config: PreprocessConfig = {
-    intervalSeconds: options.intervalSeconds ?? 3,
-    segmentDuration: options.segmentDuration ?? 20,
+    intervalSeconds: options.intervalSeconds ?? 1,
+    segmentDuration: options.segmentDuration ?? 15,
     deadTimeThreshold: options.deadTimeThreshold ?? 0.02,
     shortEdge: options.shortEdge ?? 480,
   };
 
-  const skipDeadTime = options.skipDeadTime ?? true;
+  const skipDeadTime = options.skipDeadTime ?? false;
 
   const asset = getMediaAssetById(assetId);
   if (!asset) {
