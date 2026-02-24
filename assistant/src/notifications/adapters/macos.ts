@@ -12,7 +12,7 @@ import type { ServerMessage } from '../../daemon/ipc-contract.js';
 import type {
   NotificationChannel,
   ChannelAdapter,
-  PreparedDelivery,
+  ChannelDeliveryPayload,
   ChannelDestination,
   DeliveryResult,
 } from '../types.js';
@@ -30,25 +30,25 @@ export class MacOSAdapter implements ChannelAdapter {
     this.broadcast = broadcast;
   }
 
-  async send(delivery: PreparedDelivery, _destination: ChannelDestination): Promise<DeliveryResult> {
+  async send(payload: ChannelDeliveryPayload, _destination: ChannelDestination): Promise<DeliveryResult> {
     try {
       this.broadcast({
         type: 'notification_intent',
-        sourceEventName: delivery.sourceEventName,
-        title: delivery.title,
-        body: delivery.body,
-        deepLinkMetadata: delivery.deepLinkMetadata,
+        sourceEventName: payload.sourceEventName,
+        title: payload.copy.title,
+        body: payload.copy.body,
+        deepLinkMetadata: payload.deepLinkTarget,
       } as ServerMessage);
 
       log.info(
-        { sourceEventName: delivery.sourceEventName, title: delivery.title },
+        { sourceEventName: payload.sourceEventName, title: payload.copy.title },
         'macOS notification intent broadcast',
       );
 
       return { success: true };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      log.error({ err, sourceEventName: delivery.sourceEventName }, 'Failed to broadcast macOS notification intent');
+      log.error({ err, sourceEventName: payload.sourceEventName }, 'Failed to broadcast macOS notification intent');
       return { success: false, error: message };
     }
   }
