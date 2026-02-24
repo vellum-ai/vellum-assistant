@@ -918,6 +918,16 @@ export const notificationDecisions = sqliteTable('notification_decisions', {
   createdAt: integer('created_at').notNull(),
 });
 
+export const notificationPreferences = sqliteTable('notification_preferences', {
+  id: text('id').primaryKey(),
+  assistantId: text('assistant_id').notNull(),
+  preferenceText: text('preference_text').notNull(),
+  appliesWhenJson: text('applies_when_json').notNull().default('{}'),
+  priority: integer('priority').notNull().default(0),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
 export const notificationDeliveries = sqliteTable('notification_deliveries', {
   id: text('id').primaryKey(),
   notificationDecisionId: text('notification_decision_id')

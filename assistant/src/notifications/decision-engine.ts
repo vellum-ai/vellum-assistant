@@ -14,6 +14,7 @@ import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
 import { getConfiguredProvider, createTimeout, extractToolUse, userMessage } from '../providers/provider-send-message.js';
 import { createDecision } from './decisions-store.js';
+import { getPreferenceSummary } from './preference-summary.js';
 import type { NotificationSignal } from './signal.js';
 import type { NotificationChannel, NotificationDecision, RenderedChannelCopy } from './types.js';
 
@@ -260,6 +261,10 @@ export async function evaluateSignal(
   const config = getConfig();
   const decisionModel = config.notifications.decisionModel;
 
+  // When no explicit preference context is provided, load the user's
+  // stored notification preferences from the memory-backed store.
+  const resolvedPreferenceContext = preferenceContext ?? getPreferenceSummary(signal.assistantId) ?? undefined;
+
   const provider = getConfiguredProvider();
   if (!provider) {
     log.warn('Configured provider unavailable for notification decision, using fallback');
@@ -270,7 +275,7 @@ export async function evaluateSignal(
 
   let decision: NotificationDecision;
   try {
-    decision = await classifyWithLLM(signal, availableChannels, preferenceContext, decisionModel);
+    decision = await classifyWithLLM(signal, availableChannels, resolvedPreferenceContext, decisionModel);
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     log.warn({ err: errMsg }, 'Notification decision LLM call failed, using fallback');

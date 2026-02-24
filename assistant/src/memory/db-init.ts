@@ -1275,6 +1275,21 @@ export function initializeDb(): void {
   migrateNotificationTablesSchema(database);
 
   database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS notification_preferences (
+      id TEXT PRIMARY KEY,
+      assistant_id TEXT NOT NULL,
+      preference_text TEXT NOT NULL,
+      applies_when_json TEXT NOT NULL DEFAULT '{}',
+      priority INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_notification_preferences_assistant_id ON notification_preferences(assistant_id)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_notification_preferences_assistant_priority ON notification_preferences(assistant_id, priority DESC)`);
+
+  database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS notification_events (
       id TEXT PRIMARY KEY,
       assistant_id TEXT NOT NULL,
