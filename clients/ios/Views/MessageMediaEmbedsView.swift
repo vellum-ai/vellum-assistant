@@ -27,7 +27,7 @@ struct MessageMediaEmbedsView: View {
         return MediaEmbedResolverSettings(
             enabled: mediaEmbedsEnabled,
             enabledSince: nil,
-            allowedDomains: domains.isEmpty ? MediaEmbedSettings.defaultDomains : domains
+            allowedDomains: domains
         )
     }
 
