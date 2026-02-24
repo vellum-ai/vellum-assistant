@@ -113,9 +113,11 @@ struct PairingQRCodeSheet: View {
 
             if registrationState == .failed && daemonClient != nil {
                 Button("Retry") {
+                    consecutiveRefreshFailures = 0
                     pairingRequestId = UUID().uuidString
                     pairingSecret = Self.generatePairingSecret()
                     registerWithDaemon()
+                    startRefreshTimer()
                 }
                 .buttonStyle(.bordered)
             }
