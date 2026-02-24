@@ -131,6 +131,8 @@ function ensureConversation(id: string): void {
 
 function resetTables() {
   const db = getDb();
+  db.run('DELETE FROM guardian_action_deliveries');
+  db.run('DELETE FROM guardian_action_requests');
   db.run('DELETE FROM call_pending_questions');
   db.run('DELETE FROM call_events');
   db.run('DELETE FROM call_sessions');

@@ -40,15 +40,27 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
+const mockConfigObj = {
+  model: 'test',
+  provider: 'test',
+  apiKeys: {},
+  memory: { enabled: false },
+  rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
+  secretDetection: { enabled: false },
+  calls: {
+    voice: {
+      mode: 'twilio_standard',
+      language: 'en-US',
+      transcriptionProvider: 'Deepgram',
+      fallbackToStandardOnError: true,
+      elevenlabs: { voiceId: '' },
+    },
+  },
+};
+
 mock.module('../config/loader.js', () => ({
-  getConfig: () => ({
-    model: 'test',
-    provider: 'test',
-    apiKeys: {},
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0, maxTokensPerSession: 0 },
-    secretDetection: { enabled: false },
-  }),
+  getConfig: () => mockConfigObj,
+  loadConfig: () => mockConfigObj,
 }));
 
 mock.module('../security/secure-keys.js', () => ({
@@ -112,6 +124,8 @@ function ensureConversation(id: string): void {
 
 function resetTables() {
   const db = getDb();
+  db.run('DELETE FROM guardian_action_deliveries');
+  db.run('DELETE FROM guardian_action_requests');
   db.run('DELETE FROM processed_callbacks');
   db.run('DELETE FROM call_pending_questions');
   db.run('DELETE FROM call_events');
