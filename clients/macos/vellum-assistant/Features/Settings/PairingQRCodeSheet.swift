@@ -131,6 +131,14 @@ struct PairingQRCodeSheet: View {
         .onDisappear {
             stopRefreshTimer()
         }
+        .onChange(of: daemonClient != nil) { _, isConnected in
+            // When the daemon connects after the sheet is already open,
+            // trigger registration so the user doesn't have to dismiss and reopen.
+            if isConnected, registrationState != .registered {
+                registerWithDaemon()
+                startRefreshTimer()
+            }
+        }
     }
 
     private func errorContent(_ message: String) -> some View {
@@ -154,9 +162,11 @@ struct PairingQRCodeSheet: View {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: Self.refreshInterval)
                 guard !Task.isCancelled else { break }
-                pairingRequestId = UUID().uuidString
-                pairingSecret = Self.generatePairingSecret()
-                registerWithDaemon()
+                // Generate new credentials into locals so the old QR stays visible
+                // while the re-registration HTTP request is in-flight.
+                let newRequestId = UUID().uuidString
+                let newSecret = Self.generatePairingSecret()
+                await refreshRegistration(newRequestId: newRequestId, newSecret: newSecret)
             }
         }
     }
@@ -178,6 +188,41 @@ struct PairingQRCodeSheet: View {
             return
         }
 
+        let reqId = pairingRequestId
+        let secret = pairingSecret
+
+        Task {
+            let result = await performRegistrationRequest(port: port, requestId: reqId, secret: secret)
+            switch result {
+            case .success:
+                registrationState = .registered
+            case .failure(let error):
+                registrationState = .failed
+                registrationError = error
+            }
+        }
+    }
+
+    /// Re-register with new credentials without disrupting the visible QR code.
+    /// Only swaps pairingRequestId, pairingSecret, and registrationState atomically
+    /// once the HTTP 200 response comes back. On failure the old QR stays visible.
+    private func refreshRegistration(newRequestId: String, newSecret: String) async {
+        guard let port = daemonClient?.httpPort else { return }
+
+        let result = await performRegistrationRequest(port: port, requestId: newRequestId, secret: newSecret)
+        switch result {
+        case .success:
+            pairingRequestId = newRequestId
+            pairingSecret = newSecret
+            registrationState = .registered
+        case .failure:
+            // Keep the old QR visible; the next timer tick will retry.
+            break
+        }
+    }
+
+    /// Shared HTTP request logic for pairing registration.
+    private func performRegistrationRequest(port: Int, requestId: String, secret: String) async -> Result<Void, String> {
         let tokenPath = resolveHttpTokenPath()
         let bearerToken: String? = {
             guard let path = tokenPath else { return nil }
@@ -187,8 +232,8 @@ struct PairingQRCodeSheet: View {
         let url = URL(string: "http://localhost:\(port)/v1/pairing/register")!
 
         var body: [String: Any] = [
-            "pairingRequestId": pairingRequestId,
-            "pairingSecret": pairingSecret,
+            "pairingRequestId": requestId,
+            "pairingSecret": secret,
             "gatewayUrl": gatewayUrl,
         ]
         if let lan = localLanUrl {
@@ -196,9 +241,7 @@ struct PairingQRCodeSheet: View {
         }
 
         guard let jsonData = try? JSONSerialization.data(withJSONObject: body) else {
-            registrationState = .failed
-            registrationError = "Failed to serialize registration payload."
-            return
+            return .failure("Failed to serialize registration payload.")
         }
 
         var request = URLRequest(url: url)
@@ -209,20 +252,16 @@ struct PairingQRCodeSheet: View {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
 
-        Task {
-            do {
-                let (_, response) = try await URLSession.shared.data(for: request)
-                if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 {
-                    registrationState = .registered
-                } else {
-                    let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-                    registrationState = .failed
-                    registrationError = "Registration failed (HTTP \(statusCode))."
-                }
-            } catch {
-                registrationState = .failed
-                registrationError = "Could not reach daemon: \(error.localizedDescription)"
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 {
+                return .success(())
+            } else {
+                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+                return .failure("Registration failed (HTTP \(statusCode)).")
             }
+        } catch {
+            return .failure("Could not reach daemon: \(error.localizedDescription)")
         }
     }
 
