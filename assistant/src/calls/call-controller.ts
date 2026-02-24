@@ -398,6 +398,11 @@ export class CallController {
         }).catch((err) => {
           reject(err);
         });
+
+        // Defensive: if the turn is aborted (e.g. barge-in) and the event
+        // sink callbacks are never invoked, resolve the promise so it
+        // doesn't hang forever.
+        runSignal.addEventListener('abort', () => { resolve(); }, { once: true });
       });
 
       await turnComplete;
