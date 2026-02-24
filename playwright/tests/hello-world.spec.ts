@@ -9,8 +9,7 @@ const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY ?? "";
 const APP_DISPLAY_NAME = process.env.APP_DISPLAY_NAME ?? "Vellum";
 const LAUNCH_WAIT_MS = 8_000;
 const STEP_WAIT_MS = 3_000;
-const RECORDING_DIR = path.resolve(__dirname, "../test-results");
-const RECORDING_PATH = path.join(RECORDING_DIR, "test-recording.mov");
+const SCREENSHOTS_DIR = path.resolve(__dirname, "../test-results/screenshots");
 
 /**
  * Run a multi-line AppleScript via osascript. Uses a temp file to avoid
@@ -31,7 +30,6 @@ function waitMs(ms: number): Promise<void> {
 
 /**
  * Dump the accessibility hierarchy of the app's first window for debugging.
- * Returns the hierarchy as a string.
  */
 function dumpAccessibilityTree(): string {
   try {
@@ -48,24 +46,19 @@ function dumpAccessibilityTree(): string {
 }
 
 /**
- * Start a screen recording using macOS screencapture CLI.
- * Returns the child process so it can be stopped later.
+ * Take a screenshot and save it to the screenshots directory.
  */
-function startScreenRecording(outputPath: string): ChildProcess {
-  mkdirSync(path.dirname(outputPath), { recursive: true });
-  return spawn("screencapture", ["-v", "-C", "-G", "3", outputPath], {
-    stdio: "ignore",
-    detached: true,
-  });
-}
-
-function stopScreenRecording(proc: ChildProcess): void {
-  // screencapture -v stops on SIGINT
-  proc.kill("SIGINT");
+function takeScreenshot(name: string): void {
+  mkdirSync(SCREENSHOTS_DIR, { recursive: true });
+  const filePath = path.join(SCREENSHOTS_DIR, `${name}.png`);
+  try {
+    execSync(`screencapture -x ${filePath}`, { timeout: 10_000 });
+  } catch {
+    // screencapture may fail on some CI configurations
+  }
 }
 
 let appProcess: ChildProcess | null = null;
-let recordingProcess: ChildProcess | null = null;
 
 test.afterEach(async () => {
   if (appProcess) {
@@ -80,19 +73,9 @@ test.afterEach(async () => {
   } catch {
     // App may already be closed
   }
-  if (recordingProcess) {
-    stopScreenRecording(recordingProcess);
-    recordingProcess = null;
-    // Give screencapture a moment to finalize the file
-    await waitMs(2_000);
-  }
 });
 
 test("open desktop app, select local flow, and paste Anthropic API key", async () => {
-  // Start screen recording for debugging
-  recordingProcess = startScreenRecording(RECORDING_PATH);
-  await waitMs(1_000);
-
   // GIVEN the built macOS app exists
   const appPath = path.join(APP_DIR, `${APP_DISPLAY_NAME}.app`);
   expect(existsSync(appPath)).toBe(true);
@@ -117,30 +100,29 @@ test("open desktop app, select local flow, and paste Anthropic API key", async (
   });
   await waitMs(LAUNCH_WAIT_MS);
 
+  takeScreenshot("01-after-launch");
+
   // Dump accessibility tree for debugging
   console.log("=== Accessibility Tree ===");
   console.log(dumpAccessibilityTree());
   console.log("=== End Accessibility Tree ===");
 
-  // AND click the first "Start" button (the "Own API Key" card's Start button)
-  // SwiftUI nests UI elements in groups. We use `entire contents` to search
-  // recursively for the first button named "Start" in the window.
+  // AND click the first button in the main group (the "Own API Key" Start button)
+  // From the accessibility tree dump on CI, the buttons are unnamed and located at:
+  //   button 1 of group 1 of window 1  (Own API Key - Start)
+  //   button 2 of group 1 of window 1  (Vellum Account - Start)
   applescript(`
     tell application "System Events"
       tell process "${APP_DISPLAY_NAME}"
         set frontmost to true
         delay 1
-        -- Search entire window contents for buttons named "Start"
-        set startButtons to every button of entire contents of window 1 whose name is "Start"
-        if (count of startButtons) > 0 then
-          click item 1 of startButtons
-        else
-          error "No 'Start' button found in the accessibility tree"
-        end if
+        click button 1 of group 1 of window 1
       end tell
     end tell
   `);
   await waitMs(STEP_WAIT_MS);
+
+  takeScreenshot("02-after-start-click");
 
   // Dump tree again to see the API key step
   console.log("=== Accessibility Tree (after Start click) ===");
@@ -159,6 +141,8 @@ test("open desktop app, select local flow, and paste Anthropic API key", async (
     end tell
   `);
   await waitMs(STEP_WAIT_MS);
+
+  takeScreenshot("03-after-api-key-entry");
 
   // THEN verify the app is still running and the window is present
   const windowCount = applescript(`

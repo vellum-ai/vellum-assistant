@@ -91,12 +91,12 @@ jobs:
         continue-on-error: true
         run: bun run test
 
-      - name: Upload recording on failure
+      - name: Upload screenshots on failure
         if: steps.tests.outcome == 'failure'
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-recording
-          path: playwright/test-results/test-recording.mov
+          name: playwright-screenshots
+          path: playwright/test-results/screenshots/
           retention-days: 7
           if-no-files-found: ignore
 
@@ -123,7 +123,7 @@ jobs:
 
           The Playwright test run [failed]($RECORDING_URL).
 
-          A screen recording of the test has been uploaded as a [workflow artifact]($RECORDING_URL#artifacts). Download the \`playwright-recording\` artifact to review.
+          Screenshots from the test have been uploaded as a [workflow artifact]($RECORDING_URL#artifacts). Download the \`playwright-screenshots\` artifact to review.
 
           **Commit:** \`${{ github.sha }}\`
           **Branch:** \`${{ github.ref_name }}\`"
