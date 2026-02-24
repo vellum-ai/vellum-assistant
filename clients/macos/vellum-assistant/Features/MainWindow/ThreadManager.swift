@@ -327,7 +327,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         serverOffset += response.sessions.count
 
         let recentSessions = response.sessions.filter {
-            $0.threadType != "private" && $0.channelBinding?.sourceChannel == nil
+            $0.threadType != "private" && ($0.channelBinding?.sourceChannel == nil || $0.channelBinding?.sourceChannel == "voice")
         }
 
         for session in recentSessions {

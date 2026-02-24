@@ -7,7 +7,7 @@
  * answer resolves the request and all other deliveries are marked answered.
  */
 
-import { and, eq } from 'drizzle-orm';
+import { and, eq, lt } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb } from './db.js';
 import {
@@ -239,6 +239,38 @@ export function expireGuardianActionRequest(id: string): void {
       ),
     )
     .run();
+}
+
+/**
+ * Get all pending guardian action requests that have expired.
+ */
+export function getExpiredGuardianActionRequests(): GuardianActionRequest[] {
+  const db = getDb();
+  const now = Date.now();
+  return db
+    .select()
+    .from(guardianActionRequests)
+    .where(
+      and(
+        eq(guardianActionRequests.status, 'pending'),
+        lt(guardianActionRequests.expiresAt, now),
+      ),
+    )
+    .all()
+    .map(rowToRequest);
+}
+
+/**
+ * Get all deliveries for a specific request.
+ */
+export function getDeliveriesByRequestId(requestId: string): GuardianActionDelivery[] {
+  const db = getDb();
+  return db
+    .select()
+    .from(guardianActionDeliveries)
+    .where(eq(guardianActionDeliveries.requestId, requestId))
+    .all()
+    .map(rowToDelivery);
 }
 
 /**
