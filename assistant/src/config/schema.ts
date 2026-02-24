@@ -215,7 +215,7 @@ export const AssistantConfigSchema = z.object({
       injectionFormat: 'markdown',
       injectionStrategy: 'prepend_user_block',
       reranking: {
-        enabled: true,
+        enabled: false,
         model: 'claude-haiku-4-5-20251001',
         topK: 20,
       },
