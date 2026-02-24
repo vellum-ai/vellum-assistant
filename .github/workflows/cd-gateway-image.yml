@@ -32,8 +32,8 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
-      - name: Configure Docker for GCR
-        run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker us-central1-docker.pkg.dev
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -41,7 +41,7 @@ jobs:
       - name: Compute image tags
         id: tags
         run: |
-          IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}"
+          IMAGE="us-central1-docker.pkg.dev/vellum-ai-prod/sandbox-images/assistant-gateway"
           TAGS="${IMAGE}:${{ github.sha }}"
           if [ "${{ github.ref_name }}" = "main" ]; then
             TAGS=$(printf "%s\n%s" "$TAGS" "${IMAGE}:latest")
