@@ -1771,19 +1771,19 @@ describe('plain-text fallback surfacing for non-rich channels', () => {
     });
     createBinding({
       assistantId: 'self',
-      channel: 'http-api',
+      channel: 'sms',
       guardianExternalUserId: 'telegram-user-default',
       guardianDeliveryChatId: 'chat-123',
     });
   });
 
-  test('reminder prompt includes plainTextFallback for non-rich channel (http-api)', async () => {
+  test('reminder prompt includes plainTextFallback for non-rich channel (sms)', async () => {
     const orchestrator = makeMockOrchestrator();
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
     const approvalSpy = spyOn(gatewayClient, 'deliverApprovalPrompt').mockResolvedValue(undefined);
 
-    // Establish the conversation using http-api (non-rich channel)
-    const initReq = makeInboundRequest({ content: 'init', sourceChannel: 'http-api' });
+    // Establish the conversation using sms (non-rich channel)
+    const initReq = makeInboundRequest({ content: 'init', sourceChannel: 'sms' });
     await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
 
     const db = getDb();
@@ -1795,7 +1795,7 @@ describe('plain-text fallback surfacing for non-rich channels', () => {
     setRunConfirmation(run.id, sampleConfirmation);
 
     // Send a non-decision message to trigger a reminder
-    const req = makeInboundRequest({ content: 'what is happening?', sourceChannel: 'http-api' });
+    const req = makeInboundRequest({ content: 'what is happening?', sourceChannel: 'sms' });
     const res = await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
     const body = await res.json() as Record<string, unknown>;
 

@@ -71,7 +71,7 @@ export interface RunStartOptions {
   /**
    * The originating channel (e.g. 'telegram', 'slack'). When provided,
    * channel capabilities are resolved for this channel instead of the
-   * default 'http-api'.
+   * default 'macos'.
    */
   sourceChannel?: ChannelId;
   /**
@@ -174,8 +174,8 @@ export class RunOrchestrator {
 
     // Set channel capabilities based on the originating channel so capabilities
     // (e.g. attachment scope) match the actual transport rather than always
-    // defaulting to 'http-api'.
-    session.setChannelCapabilities(resolveChannelCapabilities(options?.sourceChannel ?? 'http-api'));
+    // defaulting to 'macos'.
+    session.setChannelCapabilities(resolveChannelCapabilities(options?.sourceChannel ?? 'macos'));
 
     // Serialized publish chain so hub subscribers observe events in order.
     let hubChain: Promise<void> = Promise.resolve();

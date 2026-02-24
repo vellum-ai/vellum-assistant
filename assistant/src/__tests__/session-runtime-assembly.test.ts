@@ -118,7 +118,7 @@ describe('injectChannelCapabilityContext', () => {
 
   test('injects channel capabilities block for dashboard channel', () => {
     const caps: ChannelCapabilities = {
-      channel: 'dashboard',
+      channel: 'macos',
       dashboardCapable: true,
       supportsDynamicUi: true,
       supportsVoiceInput: true,

@@ -16,7 +16,7 @@ import { join } from 'node:path';
  * interacting.  Used to gate UI-specific references and permission asks.
  */
 export interface ChannelCapabilities {
-  /** The raw channel identifier (e.g. "dashboard", "telegram", "http-api"). */
+  /** The raw channel identifier (e.g. "macos", "telegram", "sms"). */
   channel: string;
   /** Whether this channel can render the dashboard UI (apps, dynamic pages). */
   dashboardCapable: boolean;

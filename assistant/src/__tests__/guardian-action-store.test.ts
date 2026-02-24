@@ -97,7 +97,7 @@ describe('guardian-action-store', () => {
 
     const pendingDelivery = createGuardianActionDelivery({
       requestId: request.id,
-      destinationChannel: 'mac',
+      destinationChannel: 'macos',
       destinationConversationId: 'conv-mac-guardian',
     });
     const sentDelivery = createGuardianActionDelivery({

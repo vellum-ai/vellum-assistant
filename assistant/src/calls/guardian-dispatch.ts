@@ -3,7 +3,7 @@
  *
  * When a call orchestrator detects ASK_GUARDIAN, this module:
  * 1. Creates a guardian_action_request
- * 2. Determines delivery destinations (telegram, sms, mac)
+ * 2. Determines delivery destinations (telegram, sms, macos)
  * 3. Creates guardian_action_delivery rows for each destination
  * 4. Sends HTTP POST to gateway for external channels
  * 5. Emits IPC events for the mac channel
@@ -102,18 +102,18 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
     }
 
     // Mac (internal) delivery — always created
-    destinations.push({ channel: 'mac' });
+    destinations.push({ channel: 'macos' });
 
     // Create delivery rows and dispatch
     for (const dest of destinations) {
-      if (dest.channel === 'mac') {
+      if (dest.channel === 'macos') {
         // Create a dedicated server-side conversation for the mac guardian thread
         const macConvKey = `asst:${assistantId}:guardian:request:${request.id}`;
         const { conversationId: macConversationId } = getOrCreateConversation(macConvKey);
 
         const delivery = createGuardianActionDelivery({
           requestId: request.id,
-          destinationChannel: 'mac',
+          destinationChannel: 'macos',
           destinationConversationId: macConversationId,
         });
 
@@ -136,7 +136,7 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
           } as ServerMessage);
         }
         updateDeliveryStatus(delivery.id, 'sent');
-        log.info({ deliveryId: delivery.id, channel: 'mac', macConversationId }, 'Mac guardian delivery emitted');
+        log.info({ deliveryId: delivery.id, channel: 'macos', macConversationId }, 'Mac guardian delivery emitted');
       } else {
         const delivery = createGuardianActionDelivery({
           requestId: request.id,
