@@ -90,18 +90,8 @@ describe("runtime proxy handler", () => {
     let capturedBody = "";
     globalThis.fetch = mock(async (_input: any, init?: any) => {
       if (init?.body) {
-        const reader = init.body.getReader();
-        const chunks: Uint8Array[] = [];
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          chunks.push(value);
-        }
-        capturedBody = new TextDecoder().decode(
-          new Uint8Array(chunks.reduce((acc, c) => acc + c.length, 0)),
-        );
-        // Simpler: just read as text
-        capturedBody = Buffer.concat(chunks).toString();
+        // Body is an ArrayBuffer after buffering in the proxy handler
+        capturedBody = new TextDecoder().decode(init.body);
       }
       return new Response("ok", { status: 200 });
     }) as any;
