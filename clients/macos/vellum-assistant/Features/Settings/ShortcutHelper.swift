@@ -30,6 +30,8 @@ enum ShortcutHelper {
                 modifiers.insert(.control)
             case "fn":
                 modifiers.insert(.function)
+            case "plus":
+                key = "+"
             default:
                 key = keyString(for: part)
             }
@@ -49,14 +51,22 @@ enum ShortcutHelper {
         if modifiers.contains(.command) { parts.append("cmd") }
 
         let keyPart = keyName(for: key, keyCode: keyCode)
-        parts.append(keyPart)
+        parts.append(keyPart == "+" ? "plus" : keyPart)
         return parts.joined(separator: "+")
+    }
+
+    /// Splits a shortcut string into a normalized set of tokens for
+    /// order-independent comparison (e.g. "shift+cmd+g" and "cmd+shift+g" both
+    /// produce {"shift", "cmd", "g"}).
+    static func normalizeShortcut(_ shortcut: String) -> Set<String> {
+        Set(shortcut.lowercased().split(separator: "+").map(String.init))
     }
 
     // MARK: - Private
 
     private static func displayToken(_ token: String) -> String {
         switch token {
+        case "plus": return "+"
         case "cmd", "command": return "\u{2318}"
         case "shift": return "\u{21E7}"
         case "opt", "alt", "option": return "\u{2325}"
