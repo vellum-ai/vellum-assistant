@@ -47,6 +47,9 @@ final class AlwaysOnAudioMonitor: ObservableObject {
         if let observer = configurationChangeObserver {
             NotificationCenter.default.removeObserver(observer)
         }
+        audioEngine.stop()
+        audioEngine.inputNode.removeTap(onBus: 0)
+        engine.stop()
     }
 
     // MARK: - Public API
@@ -100,14 +103,26 @@ final class AlwaysOnAudioMonitor: ObservableObject {
             onBus: 0,
             bufferSize: Self.bufferSize,
             format: hwFormat
-        ) { _, _ in
-            // Audio frames are captured here. The WakeWordEngine processes
-            // audio through its own pipeline once started. This tap keeps
-            // the audio engine active and the input node flowing.
+        ) { [weak self] buffer, _ in
+            guard let self else { return }
+            guard let floatData = buffer.floatChannelData else { return }
+            let frameLength = Int(buffer.frameLength)
+            // Convert Float32 PCM to Int16 for Porcupine
+            var int16Samples = [Int16](repeating: 0, count: frameLength)
+            for i in 0..<frameLength {
+                let sample = max(-1.0, min(1.0, floatData[0][i]))
+                int16Samples[i] = Int16(sample * Float(Int16.max))
+            }
+            self.engine.processAudioFrame(int16Samples)
         }
 
         audioEngine.prepare()
-        try audioEngine.start()
+        do {
+            try audioEngine.start()
+        } catch {
+            tearDownAudio()
+            throw error
+        }
     }
 
     private func tearDownAudio() {
