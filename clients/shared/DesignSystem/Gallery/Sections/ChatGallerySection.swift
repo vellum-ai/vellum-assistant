@@ -38,6 +38,33 @@ struct ChatGallerySection: View {
 
             Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
 
+            // MARK: - Status Banners
+            GallerySectionHeader(
+                title: "Status Banners",
+                description: "Inline status banners for degraded services (memory, connectivity)."
+            )
+
+            VCard {
+                VStack(alignment: .leading, spacing: VSpacing.lg) {
+                    Text("Memory unavailable")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                    HStack(spacing: VSpacing.sm) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(VColor.warning)
+                        Text("Memory is temporarily unavailable")
+                            .font(VFont.caption)
+                            .foregroundStyle(VColor.textPrimary)
+                        Spacer()
+                    }
+                    .padding(.horizontal, VSpacing.md)
+                    .padding(.vertical, VSpacing.sm)
+                    .background(Color(hex: 0xF5F3EB), in: RoundedRectangle(cornerRadius: VRadius.md))
+                }
+            }
+
+            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+
             // MARK: - Skill Invocation
             GallerySectionHeader(
                 title: "Skill Invocation",

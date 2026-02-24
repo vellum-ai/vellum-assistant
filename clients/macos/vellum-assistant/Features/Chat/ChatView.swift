@@ -686,17 +686,17 @@ struct ChatView: View {
     private var memoryDegradedBanner: some View {
         if isMemoryDegraded {
             HStack(spacing: VSpacing.sm) {
-                Image(systemName: "brain")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(VColor.warning)
                 Text("Memory is temporarily unavailable")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
+                    .foregroundStyle(VColor.textPrimary)
                 Spacer()
             }
-            .padding(.horizontal, VSpacing.lg)
-            .padding(.vertical, VSpacing.xs)
-            .background(VColor.surface)
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.sm)
+            .background(Color(hex: 0xF5F3EB), in: RoundedRectangle(cornerRadius: VRadius.md))
+            .padding(.horizontal)
             .transition(.move(edge: .top).combined(with: .opacity))
         }
     }
