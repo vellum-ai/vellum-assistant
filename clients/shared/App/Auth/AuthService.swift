@@ -69,6 +69,14 @@ public final class AuthService {
         try await request(path: "config", includeSessionToken: false)
     }
 
+    public func hasSessionToken() async -> Bool {
+        await getSessionToken() != nil
+    }
+
+    public func clearSessionToken() async {
+        await invalidateSessionToken()
+    }
+
     public func getSession() async throws -> AllauthResponse<SessionData> {
         try await request(path: "auth/session", includeSessionToken: true)
     }

@@ -50,7 +50,7 @@ public final class AuthManager {
         state = .loading
         errorMessage = nil
 
-        guard await SessionTokenManager.getTokenAsync() != nil else {
+        guard await authService.hasSessionToken() else {
             state = .unauthenticated
             return
         }
@@ -159,7 +159,7 @@ public final class AuthManager {
             log.error("Logout request failed: \(error.localizedDescription)")
         }
         // Always clear local session state, even if remote logout fails.
-        await SessionTokenManager.deleteTokenAsync()
+        await authService.clearSessionToken()
         state = .unauthenticated
         errorMessage = nil
     }
