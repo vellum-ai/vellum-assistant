@@ -68,11 +68,12 @@ declare -a SAFE_LINE_PATTERNS=(
     # TS/JS: camelCase property names containing clientSecret used as identifiers
     # (typeof checks, null/undefined comparisons, variable/property references).
     # Avoids false positives like `oauth2ClientSecret: typeof record.oauth2ClientSecret`.
-    "[a-zA-Z0-9_]*[Cc]lient[Ss]ecret[[:space:]]*[:=]+[[:space:]]*(typeof[[:space:]]|null[[:space:];,){}]|undefined[[:space:];,){}]|[a-zA-Z_][a-zA-Z0-9_]*[.?]+[a-zA-Z_])"
+    "[a-zA-Z0-9_]*[Cc]lient[Ss]ecret[[:space:]]*[:=]+[[:space:]]*(typeof[[:space:]]|null[[:space:];,){}]|undefined[[:space:];,){}])"
     # TS/JS: dotted property access like `record.oauth2ClientSecret` or
-    # `policy?.oauth2ClientSecret`. Handles lines with multiple clientSecret
-    # references where the first pattern strips one occurrence but others remain.
-    "[.?]+[a-zA-Z0-9_]*[Cc]lient[Ss]ecret"
+    # `policy?.oauth2ClientSecret`. Only matches when the rest of the line after
+    # the dotted identifier contains NO quoted strings — prevents masking lines
+    # like `clientSecret: config.clientSecret || "real_secret"`.
+    "[.?]+[a-zA-Z0-9_]*[Cc]lient[Ss]ecret[^\"']*$"
 )
 
 matches_safe_line_pattern() {
@@ -156,6 +157,9 @@ if [ "${1:-}" = "--self-test" ]; then
     SAFE_TS_DOTREF_LINE='    existing.oauth2ClientSecret = policy.oauth2ClientSecret;'
     SAFE_TS_NULLCHECK_LINE='      if (policy.oauth2ClientSecret === null) {'
     SAFE_TS_OPTIONAL_LINE='    oauth2ClientSecret: policy?.oauth2ClientSecret ?? undefined,'
+
+    # Dotted reference with a fallback string literal — must NOT be whitelisted
+    UNSAFE_TS_FALLBACK='clientSecret: config.clientSecret || "sk_live_12345678901234567890"'
 
     if matches_secret_pattern "$SAFE_ARCHITECTURE_LINE"; then
         echo -e "${RED}Self-test failed:${NC} ARCHITECTURE allowlist case still matches"
@@ -323,6 +327,10 @@ if [ "${1:-}" = "--self-test" ]; then
     fi
     if matches_secret_pattern "$SAFE_TS_OPTIONAL_LINE" && ! matches_safe_line_pattern "$SAFE_TS_OPTIONAL_LINE"; then
         echo -e "${RED}Self-test failed:${NC} TS optional chaining clientSecret false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$UNSAFE_TS_FALLBACK" && matches_safe_line_pattern "$UNSAFE_TS_FALLBACK"; then
+        echo -e "${RED}Self-test failed:${NC} dotted clientSecret with fallback string literal was incorrectly whitelisted"
         exit 1
     fi
 
