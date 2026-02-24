@@ -1,7 +1,7 @@
 /**
  * Guardian dispatch engine for cross-channel voice calls.
  *
- * When a call orchestrator detects ASK_GUARDIAN, this module:
+ * When a call controller detects ASK_GUARDIAN, this module:
  * 1. Creates a guardian_action_request
  * 2. Determines delivery destinations (telegram, sms, macos)
  * 3. Creates guardian_action_delivery rows for each destination

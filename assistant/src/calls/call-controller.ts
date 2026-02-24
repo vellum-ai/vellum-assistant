@@ -1,15 +1,13 @@
 /**
- * LLM-driven call orchestrator.
+ * Session-backed voice call controller.
  *
- * Manages the conversation loop for an active phone call: receives caller
- * utterances, sends them to Claude via the Anthropic streaming API, and
- * streams text tokens back through the RelayConnection for real-time TTS.
+ * Routes voice turns through the daemon session pipeline via
+ * voice-session-bridge instead of calling provider.sendMessage() directly.
+ * This gives voice calls access to tools, memory, skills, and runtime
+ * injections while preserving all existing call UX behavior (control markers,
+ * barge-in, state machine, guardian verification).
  */
 
-import { getConfig } from '../config/loader.js';
-import { resolveConfiguredProvider } from '../providers/provider-send-message.js';
-import type { ProviderEvent } from '../providers/types.js';
-import { resolveUserReference } from '../config/user-reference.js';
 import { getLogger } from '../util/logger.js';
 import {
   getCallSession,
@@ -20,21 +18,18 @@ import {
 } from './call-store.js';
 import { getMaxCallDurationMs, getUserConsultationTimeoutMs, SILENCE_TIMEOUT_MS } from './call-constants.js';
 import type { RelayConnection } from './relay-server.js';
-import { registerCallOrchestrator, unregisterCallOrchestrator, fireCallQuestionNotifier, fireCallCompletionNotifier, fireCallTranscriptNotifier } from './call-state.js';
+import { registerCallController, unregisterCallController, fireCallQuestionNotifier, fireCallCompletionNotifier, fireCallTranscriptNotifier } from './call-state.js';
 import type { PromptSpeakerContext } from './speaker-identification.js';
 import { addPointerMessage, formatDuration } from './call-pointer-messages.js';
 import { persistCallCompletionMessage } from './call-conversation-messages.js';
-import * as conversationStore from '../memory/conversation-store.js';
 import { dispatchGuardianQuestion } from './guardian-dispatch.js';
 import type { ServerMessage } from '../daemon/ipc-contract.js';
-import {
-  buildGuardianContextBlock,
-  type GuardianRuntimeContext,
-} from '../daemon/session-runtime-assembly.js';
+import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
+import { startVoiceTurn, type VoiceTurnHandle } from './voice-session-bridge.js';
 
-const log = getLogger('call-orchestrator');
+const log = getLogger('call-controller');
 
-type OrchestratorState = 'idle' | 'processing' | 'waiting_on_user' | 'speaking';
+type ControllerState = 'idle' | 'processing' | 'waiting_on_user' | 'speaking';
 
 const ASK_GUARDIAN_CAPTURE_REGEX = /\[ASK_GUARDIAN:\s*(.+?)\]/;
 const ASK_GUARDIAN_MARKER_REGEX = /\[ASK_GUARDIAN:\s*.+?\]/g;
@@ -57,12 +52,12 @@ function stripInternalSpeechMarkers(text: string): string {
     .replace(END_CALL_MARKER_REGEX, '');
 }
 
-export class CallOrchestrator {
+export class CallController {
   private callSessionId: string;
   private relay: RelayConnection;
-  private state: OrchestratorState = 'idle';
-  private conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+  private state: ControllerState = 'idle';
   private abortController: AbortController = new AbortController();
+  private currentTurnHandle: VoiceTurnHandle | null = null;
   private silenceTimer: ReturnType<typeof setTimeout> | null = null;
   private durationTimer: ReturnType<typeof setTimeout> | null = null;
   private durationWarningTimer: ReturnType<typeof setTimeout> | null = null;
@@ -85,6 +80,15 @@ export class CallOrchestrator {
   private assistantId: string;
   /** Guardian trust context for the current caller, when available. */
   private guardianContext: GuardianRuntimeContext | null;
+  /** Conversation ID for the voice session. */
+  private conversationId: string;
+  /**
+   * Track whether the last message sent to the session was a user message
+   * whose assistant response has not yet been received. This is used to
+   * prevent sending consecutive user messages that would violate role
+   * alternation in the underlying session pipeline.
+   */
+  private lastSentWasOpener = false;
 
   constructor(
     callSessionId: string,
@@ -103,15 +107,20 @@ export class CallOrchestrator {
     this.broadcast = opts?.broadcast;
     this.assistantId = opts?.assistantId ?? 'self';
     this.guardianContext = opts?.guardianContext ?? null;
+
+    // Resolve the conversation ID from the call session
+    const session = getCallSession(callSessionId);
+    this.conversationId = session?.conversationId ?? callSessionId;
+
     this.startDurationTimer();
     this.resetSilenceTimer();
-    registerCallOrchestrator(callSessionId, this);
+    registerCallController(callSessionId, this);
   }
 
   /**
-   * Returns the current orchestrator state.
+   * Returns the current controller state.
    */
-  getState(): OrchestratorState {
+  getState(): ControllerState {
     return this.state;
   }
 
@@ -131,12 +140,8 @@ export class CallOrchestrator {
 
     this.initialGreetingStarted = true;
     this.resetSilenceTimer();
-    this.conversationHistory.push({ role: 'user', content: CALL_OPENING_MARKER });
-    await this.runLlm();
-    const lastMessage = this.conversationHistory[this.conversationHistory.length - 1];
-    if (lastMessage?.role === 'assistant') {
-      this.awaitingOpeningAck = true;
-    }
+    this.lastSentWasOpener = true;
+    await this.runTurn(CALL_OPENING_MARKER);
   }
 
   /**
@@ -146,32 +151,7 @@ export class CallOrchestrator {
     const interruptedInFlight = this.state === 'processing' || this.state === 'speaking';
     // If we're already processing or speaking, abort the in-flight generation
     if (interruptedInFlight) {
-      this.abortController.abort();
-      this.abortController = new AbortController();
-    }
-
-    // Strip the one-shot [CALL_OPENING] marker from conversation history
-    // so it doesn't leak into subsequent LLM requests after barge-in.
-    // This runs unconditionally because the standard Twilio barge-in path
-    // calls handleInterrupt() first (setting state to 'idle') before
-    // handleCallerUtterance — so interruptedInFlight would be false even
-    // though an interrupt just occurred.
-    // Without this, the consecutive-user merge path below would append
-    // the caller's transcript to the synthetic "[CALL_OPENING]" message,
-    // causing the model to re-run opener behavior instead of responding
-    // directly to the caller.
-    // If the marker-only seed message becomes empty, remove it entirely:
-    // Anthropic rejects any user turn with empty content.
-    for (let i = 0; i < this.conversationHistory.length; i++) {
-      const entry = this.conversationHistory[i];
-      if (!entry.content.includes(CALL_OPENING_MARKER)) continue;
-      const stripped = entry.content.replace(CALL_OPENING_MARKER_REGEX, '').trim();
-      if (stripped.length === 0) {
-        this.conversationHistory.splice(i, 1);
-        i--;
-      } else {
-        entry.content = stripped;
-      }
+      this.abortCurrentTurn();
     }
 
     this.state = 'processing';
@@ -187,24 +167,8 @@ export class CallOrchestrator {
         : CALL_OPENING_ACK_MARKER
       : callerContent;
 
-    // Preserve strict role alternation for Anthropic. If the last message
-    // is already user-role (e.g. interrupted run never appended assistant,
-    // or a second caller prompt arrives before assistant completion), merge
-    // this utterance into that same user turn.
-    const lastMessage = this.conversationHistory[this.conversationHistory.length - 1];
-    if (lastMessage?.role === 'user') {
-      const existingContent = lastMessage.content.trim();
-      lastMessage.content = existingContent.length > 0
-        ? `${lastMessage.content}\n${callerTurnContent}`
-        : callerTurnContent;
-    } else {
-      this.conversationHistory.push({
-        role: 'user',
-        content: callerTurnContent,
-      });
-    }
-
-    await this.runLlm();
+    this.lastSentWasOpener = false;
+    await this.runTurn(callerTurnContent);
   }
 
   /**
@@ -214,7 +178,7 @@ export class CallOrchestrator {
     if (this.state !== 'waiting_on_user') {
       log.warn(
         { callSessionId: this.callSessionId, state: this.state },
-        'handleUserAnswer called but orchestrator is not in waiting_on_user state',
+        'handleUserAnswer called but controller is not in waiting_on_user state',
       );
       return false;
     }
@@ -230,8 +194,8 @@ export class CallOrchestrator {
 
     // Merge any instructions that were queued during the waiting_on_user
     // state into a single user message alongside the answer to avoid
-    // consecutive user-role messages (which violate Anthropic API
-    // role-alternation requirements).
+    // consecutive user-role messages (which violate API role-alternation
+    // requirements).
     const parts: string[] = [];
     for (const instr of this.pendingInstructions) {
       parts.push(`[USER_INSTRUCTION: ${instr}]`);
@@ -239,54 +203,40 @@ export class CallOrchestrator {
     this.pendingInstructions = [];
     parts.push(`[USER_ANSWERED: ${answerText}]`);
 
-    this.conversationHistory.push({ role: 'user', content: parts.join('\n') });
+    const content = parts.join('\n');
 
     // Fire-and-forget: unblock the caller so the HTTP response and answer
     // persistence happen immediately, before LLM streaming begins.
-    this.runLlm().catch((err) =>
-      log.error({ err, callSessionId: this.callSessionId }, 'runLlm failed after user answer'),
+    this.runTurn(content).catch((err) =>
+      log.error({ err, callSessionId: this.callSessionId }, 'runTurn failed after user answer'),
     );
     return true;
   }
 
   /**
-   * Inject a user instruction into the orchestrator's conversation history.
+   * Inject a user instruction into the controller's conversation.
    * The instruction is formatted as a dedicated marker that the system prompt
    * tells the model to treat as high-priority steering input.
    *
-   * When the LLM is actively processing or speaking, or when the orchestrator
+   * When the LLM is actively processing or speaking, or when the controller
    * is waiting on a user answer, the instruction is queued and spliced into
    * the conversation at the correct chronological position once the current
-   * turn completes. This prevents:
-   *  - History ordering corruption (instruction appearing before an in-flight
-   *    assistant response).
-   *  - Consecutive user-role messages (which violate Anthropic API
-   *    role-alternation requirements).
+   * turn completes.
    */
   async handleUserInstruction(instructionText: string): Promise<void> {
     recordCallEvent(this.callSessionId, 'user_instruction_relayed', { instruction: instructionText });
 
-    // Queue the instruction when it cannot be safely appended right now:
-    //  - processing/speaking: an LLM turn is in-flight; appending would
-    //    place the instruction before the assistant response in the array.
-    //  - waiting_on_user: the last message is an assistant turn; the next
-    //    message should be the user's answer. Queued instructions are merged
-    //    into that answer message by handleUserAnswer().
+    // Queue the instruction when it cannot be safely appended right now
     if (this.state === 'processing' || this.state === 'speaking' || this.state === 'waiting_on_user') {
       this.pendingInstructions.push(instructionText);
       return;
     }
 
-    this.conversationHistory.push({
-      role: 'user',
-      content: `[USER_INSTRUCTION: ${instructionText}]`,
-    });
-
     // Reset the silence timer so the instruction-triggered LLM turn
     // doesn't race with a stale silence timeout.
     this.resetSilenceTimer();
 
-    await this.runLlm();
+    await this.runTurn(`[USER_INSTRUCTION: ${instructionText}]`);
   }
 
   /**
@@ -294,8 +244,7 @@ export class CallOrchestrator {
    */
   handleInterrupt(): void {
     const wasSpeaking = this.state === 'speaking';
-    this.abortController.abort();
-    this.abortController = new AbortController();
+    this.abortCurrentTurn();
     this.llmRunVersion++;
     // Explicitly terminate the in-progress TTS turn so the relay can
     // immediately hand control back to the caller after barge-in.
@@ -314,93 +263,24 @@ export class CallOrchestrator {
     if (this.durationWarningTimer) clearTimeout(this.durationWarningTimer);
     if (this.consultationTimer) clearTimeout(this.consultationTimer);
     if (this.durationEndTimer) { clearTimeout(this.durationEndTimer); this.durationEndTimer = null; }
-    this.abortController.abort();
-    unregisterCallOrchestrator(this.callSessionId);
-    log.info({ callSessionId: this.callSessionId }, 'CallOrchestrator destroyed');
+    this.abortCurrentTurn();
+    unregisterCallController(this.callSessionId);
+    log.info({ callSessionId: this.callSessionId }, 'CallController destroyed');
   }
 
   // ── Private ──────────────────────────────────────────────────────
 
-  private buildGuardianPromptSection(): string[] {
-    if (!this.guardianContext) return [];
-    return [
-      '',
-      'GUARDIAN ACTOR CONTEXT (authoritative):',
-      buildGuardianContextBlock(this.guardianContext),
-      '- Treat `actor_role` as source-of-truth for whether this caller is the verified guardian.',
-      '- If `actor_role` is `guardian`, the current caller is verified for this assistant on voice.',
-      '- If `actor_role` is `non-guardian` or `unverified_channel`, do not imply the caller is verified.',
-    ];
-  }
-
-  private buildSystemPrompt(): string {
-    const config = getConfig();
-    const disclosureRule = config.calls.disclosure.enabled
-      ? `1. ${config.calls.disclosure.text}`
-      : '1. Begin the conversation naturally.';
-
-    if (this.isInbound) {
-      return this.buildInboundSystemPrompt(disclosureRule);
-    }
-
-    return [
-      `You are on a live phone call on behalf of ${resolveUserReference()}.`,
-      this.task ? `Task: ${this.task}` : '',
-      '',
-      'You are speaking directly to the person who answered the phone.',
-      'Respond naturally and conversationally — speak as you would in a real phone conversation.',
-      ...this.buildGuardianPromptSection(),
-      '',
-      'IMPORTANT RULES:',
-      '0. When introducing yourself, refer to yourself as an assistant. Avoid the phrase "AI assistant" unless directly asked.',
-      disclosureRule,
-      '2. Be concise — phone conversations should be brief and natural.',
-      '3. If the callee asks something you don\'t know, include [ASK_GUARDIAN: your question here] in your response along with a hold message like "Let me check on that for you."',
-      '4. If the callee provides information preceded by [USER_ANSWERED: ...], use that answer naturally in the conversation.',
-      '5. If you see [USER_INSTRUCTION: ...], treat it as a high-priority steering directive from your user. Follow the instruction immediately, adjusting your approach or response accordingly.',
-      '6. When the call\'s purpose is fulfilled, include [END_CALL] in your response along with a polite goodbye.',
-      '7. Do not make up information — ask the user if unsure.',
-      '8. Keep responses short — 1-3 sentences is ideal for phone conversation.',
-      '9. When caller text includes [SPEAKER id="..." label="..."], treat each speaker as a distinct person and personalize responses using that speaker\'s prior context in this call.',
-      '10. If the latest user turn is [CALL_OPENING], generate a natural, context-specific opener: briefly introduce yourself once as an assistant, state why you are calling using the Task context, and ask a short permission/check-in question. Vary the wording; do not use a fixed template.',
-      '11. If the latest user turn includes [CALL_OPENING_ACK], treat it as the callee acknowledging your opener and continue the conversation naturally without re-introducing yourself or repeating the initial check-in question.',
-      '12. Do not repeat your introduction within the same call unless the callee explicitly asks who you are.',
-    ]
-      .filter(Boolean)
-      .join('\n');
-  }
-
   /**
-   * Build a system prompt tailored for inbound calls where the caller
-   * reached out to us. The assistant greets naturally and helps the
-   * caller with whatever they need, rather than delivering an outbound
-   * task message.
+   * Abort the current in-flight turn using the VoiceTurnHandle if available,
+   * plus the local AbortController for signal propagation.
    */
-  private buildInboundSystemPrompt(disclosureRule: string): string {
-    return [
-      `You are on a live phone call, answering an incoming call on behalf of ${resolveUserReference()}.`,
-      '',
-      'The caller dialed in to reach you. You do not have a specific task — your role is to greet them warmly, find out what they need, and assist them.',
-      'Respond naturally and conversationally — speak as you would in a real phone conversation.',
-      ...this.buildGuardianPromptSection(),
-      '',
-      'IMPORTANT RULES:',
-      '0. When introducing yourself, refer to yourself as an assistant. Avoid the phrase "AI assistant" unless directly asked.',
-      disclosureRule,
-      '2. Be concise — phone conversations should be brief and natural.',
-      '3. If the caller asks something you don\'t know or need to verify, include [ASK_GUARDIAN: your question here] in your response along with a hold message like "Let me check on that for you."',
-      '4. If information is provided preceded by [USER_ANSWERED: ...], use that answer naturally in the conversation.',
-      '5. If you see [USER_INSTRUCTION: ...], treat it as a high-priority steering directive from your user. Follow the instruction immediately, adjusting your approach or response accordingly.',
-      '6. When the caller indicates they are done or the conversation reaches a natural conclusion, include [END_CALL] in your response along with a polite goodbye.',
-      '7. Do not make up information — ask the user if unsure.',
-      '8. Keep responses short — 1-3 sentences is ideal for phone conversation.',
-      '9. When caller text includes [SPEAKER id="..." label="..."], treat each speaker as a distinct person and personalize responses using that speaker\'s prior context in this call.',
-      '10. If the latest user turn is [CALL_OPENING], greet the caller warmly and ask how you can help. For example: "Hello, this is [name]\'s assistant. How can I help you today?" Vary the wording; do not use a fixed template.',
-      '11. If the latest user turn includes [CALL_OPENING_ACK], treat it as the caller acknowledging your greeting and continue the conversation naturally.',
-      '12. Do not repeat your introduction within the same call unless the caller explicitly asks who you are.',
-    ]
-      .filter(Boolean)
-      .join('\n');
+  private abortCurrentTurn(): void {
+    if (this.currentTurnHandle) {
+      this.currentTurnHandle.abort();
+      this.currentTurnHandle = null;
+    }
+    this.abortController.abort();
+    this.abortController = new AbortController();
   }
 
   private formatCallerUtterance(transcript: string, speaker?: PromptSpeakerContext): string {
@@ -412,40 +292,24 @@ export class CallOrchestrator {
   }
 
   /**
-   * Run the LLM with the current conversation history and stream
+   * Execute a single voice turn through the session pipeline and stream
    * the response back through the relay.
    */
-  private async runLlm(): Promise<void> {
-    const config = getConfig();
-    const resolved = resolveConfiguredProvider();
-    if (!resolved) {
-      log.error({ callSessionId: this.callSessionId }, 'No provider available');
-      this.relay.sendTextToken('I\'m sorry, I\'m having a technical issue. Please try again later.', true);
-      this.state = 'idle';
-      return;
-    }
-    const { provider } = resolved;
-
+  private async runTurn(content: string): Promise<void> {
     const runVersion = ++this.llmRunVersion;
     const runSignal = this.abortController.signal;
 
     try {
       this.state = 'speaking';
 
-      // Only override the model when the user has explicitly configured one
-      // AND the selected provider matches the configured provider. Forwarding
-      // a provider-specific model to a fallback provider would cause
-      // cross-provider 4xx errors (e.g., sending "gpt-5.2" to Anthropic).
-      const callModel = !resolved.usedFallbackPrimary
-        ? (config.calls.model?.trim() || undefined)
-        : undefined;
-
       // Buffer incoming tokens so we can strip control markers ([ASK_GUARDIAN:...], [END_CALL])
       // before they reach TTS. We hold text whenever an unmatched '[' appears, since it
       // could be the start of a control marker.
       let ttsBuffer = '';
+      // Accumulate the full response text for post-turn marker detection
+      let fullResponseText = '';
 
-      const flushSafeText = (_force: boolean): void => {
+      const flushSafeText = (): void => {
         if (!this.isCurrentRun(runVersion)) return;
         if (ttsBuffer.length === 0) return;
         const bracketIdx = ttsBuffer.indexOf('[');
@@ -463,13 +327,6 @@ export class CallOrchestrator {
           // Only hold the buffer if the bracket text could be the start of a
           // known control marker. Otherwise flush immediately so ordinary
           // bracketed text (e.g. "[A]", "[note]") doesn't stall TTS.
-          //
-          // The check must be bidirectional:
-          //  - When the buffer is shorter than the prefix (e.g. "[ASK"), the
-          //    buffer is a prefix of the control tag → hold it.
-          //  - When the buffer is longer than the prefix (e.g. "[ASK_GUARDIAN: what"),
-          //    the buffer starts with the control tag prefix → hold it (the
-          //    variable-length payload hasn't been closed yet).
           const afterBracket = ttsBuffer;
           const couldBeControl =
             '[ASK_GUARDIAN:'.startsWith(afterBracket) ||
@@ -490,7 +347,6 @@ export class CallOrchestrator {
 
           if (!couldBeControl) {
             // Not a control marker prefix — flush up to the next '[' (if any)
-            // so we don't accidentally flush a later partial control marker.
             const nextBracket = ttsBuffer.indexOf('[', 1);
             if (nextBracket === -1) {
               this.relay.sendTextToken(ttsBuffer, false);
@@ -504,29 +360,47 @@ export class CallOrchestrator {
         }
       };
 
-      const response = await provider.sendMessage(
-        this.conversationHistory.map((m) => ({
-          role: m.role as 'user' | 'assistant',
-          content: [{ type: 'text' as const, text: m.content }],
-        })),
-        [],  // no tools
-        this.buildSystemPrompt(),
-        {
-          config: {
-            ...(callModel ? { model: callModel } : {}),
-            max_tokens: 512,
-          },
-          onEvent: (event: ProviderEvent) => {
-            if (!this.isCurrentRun(runVersion)) return;
-            if (event.type === 'text_delta') {
-              ttsBuffer += event.text;
-              ttsBuffer = stripInternalSpeechMarkers(ttsBuffer);
-              flushSafeText(false);
-            }
-          },
+      // Use a promise to track completion of the voice turn
+      const turnComplete = new Promise<void>((resolve, reject) => {
+        const onTextDelta = (text: string): void => {
+          if (!this.isCurrentRun(runVersion)) return;
+          fullResponseText += text;
+          ttsBuffer += text;
+          ttsBuffer = stripInternalSpeechMarkers(ttsBuffer);
+          flushSafeText();
+        };
+
+        const onComplete = (): void => {
+          resolve();
+        };
+
+        const onError = (message: string): void => {
+          reject(new Error(message));
+        };
+
+        // Start the voice turn through the session bridge
+        startVoiceTurn({
+          conversationId: this.conversationId,
+          content,
+          assistantId: this.assistantId,
+          guardianContext: this.guardianContext ?? undefined,
+          onTextDelta,
+          onComplete,
+          onError,
           signal: runSignal,
-        },
-      );
+        }).then((handle) => {
+          if (this.isCurrentRun(runVersion)) {
+            this.currentTurnHandle = handle;
+          } else {
+            // Turn was superseded before handle arrived; abort immediately
+            handle.abort();
+          }
+        }).catch((err) => {
+          reject(err);
+        });
+      });
+
+      await turnComplete;
       if (!this.isCurrentRun(runVersion)) return;
 
       // Final sweep: strip any remaining control markers from the buffer
@@ -538,26 +412,20 @@ export class CallOrchestrator {
       // Signal end of this turn's speech
       this.relay.sendTextToken('', true);
 
-      const responseText = response.content
-        .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
-        .map((b) => b.text)
-        .join('') || '';
+      // Mark the greeting's first response as awaiting ack
+      if (this.lastSentWasOpener && fullResponseText.length > 0) {
+        this.awaitingOpeningAck = true;
+        this.lastSentWasOpener = false;
+      }
 
-      // Record the assistant response
-      this.conversationHistory.push({ role: 'assistant', content: responseText });
+      const responseText = fullResponseText;
+
+      // Record the assistant response event
       recordCallEvent(this.callSessionId, 'assistant_spoke', { text: responseText });
       const spokenText = stripInternalSpeechMarkers(responseText).trim();
       if (spokenText.length > 0) {
         const session = getCallSession(this.callSessionId);
         if (session) {
-          // Persist assistant transcript to the voice conversation so it
-          // survives even when no live daemon Session is listening.
-          conversationStore.addMessage(
-            session.conversationId,
-            'assistant',
-            JSON.stringify([{ type: 'text', text: spokenText }]),
-            { userMessageChannel: 'voice', assistantMessageChannel: 'voice' },
-          );
           fireCallTranscriptNotifier(session.conversationId, this.callSessionId, 'assistant', spokenText);
         }
       }
@@ -632,11 +500,12 @@ export class CallOrchestrator {
       }
 
       // Normal turn complete — flush any instructions that arrived while
-      // the LLM was active. They are appended after the assistant response
-      // so chronological order is preserved, then a new LLM turn is started.
+      // the LLM was active.
       this.state = 'idle';
+      this.currentTurnHandle = null;
       this.flushPendingInstructions();
     } catch (err: unknown) {
+      this.currentTurnHandle = null;
       // Aborted requests are expected (interruptions, rapid utterances)
       if (this.isExpectedAbortError(err) || runSignal.aborted) {
         log.debug(
@@ -645,7 +514,7 @@ export class CallOrchestrator {
             errName: err instanceof Error ? err.name : typeof err,
             stale: !this.isCurrentRun(runVersion),
           },
-          'LLM request aborted',
+          'Voice turn aborted',
         );
         if (this.isCurrentRun(runVersion)) {
           this.state = 'idle';
@@ -655,11 +524,11 @@ export class CallOrchestrator {
       if (!this.isCurrentRun(runVersion)) {
         log.debug(
           { callSessionId: this.callSessionId, errName: err instanceof Error ? err.name : typeof err },
-          'Ignoring stale LLM streaming error from superseded turn',
+          'Ignoring stale voice turn error from superseded turn',
         );
         return;
       }
-      log.error({ err, callSessionId: this.callSessionId }, 'LLM streaming error');
+      log.error({ err, callSessionId: this.callSessionId }, 'Voice turn error');
       this.relay.sendTextToken('I\'m sorry, I encountered a technical issue. Could you repeat that?', true);
       this.state = 'idle';
       this.flushPendingInstructions();
@@ -677,10 +546,6 @@ export class CallOrchestrator {
 
   /**
    * Drain any instructions that were queued while the LLM was active.
-   * Each instruction is appended as a user message (now correctly after
-   * the assistant response) and a new LLM turn is kicked off to handle
-   * them. Batches all pending instructions into a single user message to
-   * avoid triggering multiple sequential LLM turns.
    */
   private flushPendingInstructions(): void {
     if (this.pendingInstructions.length === 0) return;
@@ -690,16 +555,13 @@ export class CallOrchestrator {
     );
     this.pendingInstructions = [];
 
-    this.conversationHistory.push({
-      role: 'user',
-      content: parts.join('\n'),
-    });
+    const content = parts.join('\n');
 
     this.resetSilenceTimer();
 
     // Fire-and-forget so we don't block the current turn's cleanup.
-    this.runLlm().catch((err) =>
-      log.error({ err, callSessionId: this.callSessionId }, 'runLlm failed after flushing queued instructions'),
+    this.runTurn(content).catch((err) =>
+      log.error({ err, callSessionId: this.callSessionId }, 'runTurn failed after flushing queued instructions'),
     );
   }
 

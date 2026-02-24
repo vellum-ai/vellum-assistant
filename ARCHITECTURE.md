@@ -434,7 +434,7 @@ graph TB
   - `/channels/inbound` (Telegram/SMS/WhatsApp path) before run orchestration.
   - Inbound Twilio voice setup (`RelayConnection.handleSetup`) to seed call-time actor context.
 - Runtime channel runs pass this as `guardianContext`, and session runtime assembly injects `<guardian_context>` into provider-facing prompts.
-- Voice call orchestration mirrors the same prompt contract: `CallOrchestrator` receives guardian context on setup and refreshes it immediately after successful voice challenge verification, so the first post-verification turn is grounded as `actor_role: guardian`.
+- Voice call orchestration mirrors the same prompt contract: `CallController` receives guardian context on setup and refreshes it immediately after successful voice challenge verification, so the first post-verification turn is grounded as `actor_role: guardian`.
 - Voice-specific behavior (DTMF/speech verification flow, relay state machine) remains voice-local; only actor-role resolution is shared.
 
 ### SMS Channel (Twilio)
@@ -4098,7 +4098,7 @@ sequenceDiagram
     participant Gateway as Gateway (public)
     participant Routes as twilio-routes.ts (runtime)
     participant WS as RelayConnection (WebSocket)
-    participant Orch as CallOrchestrator
+    participant Orch as CallController
     participant LLM as Anthropic Claude
     participant State as CallState (Notifiers)
     participant GuardianDispatch as GuardianDispatch
@@ -4123,8 +4123,8 @@ sequenceDiagram
     TwilioAPI->>Gateway: WebSocket /webhooks/twilio/relay
     Gateway->>WS: proxy WS to runtime /v1/calls/relay
     WS->>WS: setup message (callSid)
-    WS->>Orch: new CallOrchestrator()
-    Orch->>State: registerCallOrchestrator()
+    WS->>Orch: new CallController()
+    Orch->>State: registerCallController()
 
     loop Conversation turns
         TwilioAPI->>WS: prompt (caller utterance)
@@ -4174,7 +4174,7 @@ sequenceDiagram
     participant CallStore as CallStore (SQLite)
     participant WS as RelayConnection (WebSocket)
     participant GuardianSvc as ChannelGuardianService
-    participant Orch as CallOrchestrator
+    participant Orch as CallController
     participant LLM as Anthropic Claude
 
     Caller->>TwilioAPI: Dials assistant phone number
@@ -4244,7 +4244,7 @@ sequenceDiagram
 
 **Inbound vs. outbound detection**: The relay server determines call direction by checking `session.initiatedFromConversationId`. Outbound calls are initiated from an existing conversation (`initiatedFromConversationId` set). Inbound calls are bootstrapped from Twilio webhooks and therefore have `initiatedFromConversationId == null`.
 
-**Inbound system prompt**: The `CallOrchestrator.buildInboundSystemPrompt()` generates a receptionist-style prompt: "You are on a live phone call, answering an incoming call on behalf of [user]. The caller dialed in to reach you. You do not have a specific task -- your role is to greet them warmly, find out what they need, and assist them."
+**Inbound system prompt**: The session pipeline (via voice-session-bridge) generates system prompts appropriate for the voice channel context. For inbound calls, this produces a receptionist-style prompt that greets the caller warmly and helps them with what they need.
 
 **Guardian voice verification gate**: When a pending voice guardian challenge exists (created via the desktop UI), inbound callers must enter a six-digit code via DTMF or by speaking the digits before the call proceeds. Up to 3 attempts are allowed. On success, a guardian binding is created and the call transitions to normal flow. On failure, the call ends with a "Verification failed" message. This allows guardians to verify their identity over voice before being granted channel access.
 
@@ -4265,7 +4265,7 @@ sequenceDiagram
 | `assistant/src/calls/twilio-routes.ts` | HTTP webhook handlers: voice webhook (returns TwiML with WS-A/WS-B guardrails), status callback, connect action |
 | `assistant/src/calls/relay-server.ts` | WebSocket handler for the Twilio ConversationRelay protocol; manages RelayConnection instances per call |
 | `assistant/src/calls/speaker-identification.ts` | Reusable speaker recognition primitive for voice prompts: extracts provider speaker metadata (top-level and nested fields), resolves stable per-call speaker identities, and emits speaker context for personalization |
-| `assistant/src/calls/call-orchestrator.ts` | LLM-driven conversation manager: receives caller utterances, streams responses via Anthropic Claude, detects ASK_GUARDIAN and END_CALL control markers |
+| `assistant/src/calls/call-controller.ts` | Session-backed voice controller: routes voice turns through the daemon session pipeline via voice-session-bridge, detects ASK_GUARDIAN and END_CALL control markers |
 | `assistant/src/calls/call-state.ts` | Notifier pattern (Maps with register/unregister/fire helpers) for cross-component communication: question notifiers, completion notifiers, and orchestrator registry |
 | `assistant/src/calls/call-constants.ts` | Config-backed constants: max call duration, user consultation timeout, silence timeout, denied emergency numbers |
 | `assistant/src/calls/voice-provider.ts` | Abstract VoiceProvider interface for provider-agnostic call initiation |
@@ -4392,7 +4392,7 @@ Both tools and HTTP routes delegate to the same domain functions in `call-domain
 
 ### Control Markers
 
-The CallOrchestrator detects two special markers in the LLM's response text:
+The CallController detects two special markers in the LLM's response text:
 
 - **`[ASK_GUARDIAN: question]`** — The AI needs to consult the guardian. The orchestrator creates a pending question, notifies the session via `fireCallQuestionNotifier`, puts the caller on hold, and waits for a guardian answer (timeout configured via `calls.userConsultTimeoutSeconds`).
 - **`[END_CALL]`** — The AI has determined the call's purpose is fulfilled. The orchestrator sends a goodbye, closes the ConversationRelay session, and marks the call as completed.
@@ -4608,7 +4608,7 @@ Keep-alive heartbeats (every 30 s by default):
 | Proxy leaf certs | `{dataDir}/proxy-ca/issued/` | PEM files per hostname | openssl CLI, cached | 1-year validity, re-issued on CA change |
 | Proxy sessions | In-memory (SessionManager) | Map<ProxySessionId, ManagedSession> | Manual lifecycle | Ephemeral; 5min idle timeout, cleared on shutdown |
 | Call sessions, events, pending questions | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent, cascade on session delete |
-| Active call orchestrators | In-memory (CallState) | Map<callSessionId, CallOrchestrator> | Manual lifecycle | Ephemeral; cleared on call end or destroy |
+| Active call controllers | In-memory (CallState) | Map<callSessionId, CallController> | Manual lifecycle | Ephemeral; cleared on call end or destroy |
 | Guardian bindings | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; revoked bindings retained |
 | Guardian verification challenges | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; consumed/expired challenges retained |
 | Guardian approval requests | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; decision outcome retained |
