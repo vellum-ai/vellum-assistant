@@ -7,6 +7,24 @@ import { computeRecencyScore } from './ranking.js';
 
 const log = getLogger('memory-retriever');
 
+// Threshold beyond which a raw SQL query is considered slow and logged as a warning.
+const SLOW_QUERY_MS = 2000;
+
+/**
+ * Execute a synchronous raw SQL query with timing. Logs a warning if the
+ * query exceeds SLOW_QUERY_MS. Since bun:sqlite queries are synchronous,
+ * we can't abort them mid-execution, but we can detect and report slowness.
+ */
+function timedRawQuery<T>(label: string, fn: () => T[]): T[] {
+  const start = performance.now();
+  const result = fn();
+  const elapsed = performance.now() - start;
+  if (elapsed >= SLOW_QUERY_MS) {
+    log.warn({ label, elapsedMs: Math.round(elapsed) }, 'Raw SQL query exceeded slow threshold');
+  }
+  return result;
+}
+
 export function lexicalSearch(query: string, limit: number, excludedMessageIds: string[] = [], scopeIds?: string[]): Candidate[] {
   const trimmed = query.trim();
   if (trimmed.length === 0 || limit <= 0) return [];
@@ -30,19 +48,21 @@ export function lexicalSearch(query: string, limit: number, excludedMessageIds: 
     : '';
   const params: unknown[] = [matchQuery, ...(scopeIds ?? []), queryLimit];
   try {
-    rows = raw.query(`
-      SELECT
-        f.segment_id AS segment_id,
-        s.message_id AS message_id,
-        s.text AS text,
-        s.created_at AS created_at,
-        bm25(memory_segment_fts) AS rank
-      FROM memory_segment_fts f
-      JOIN memory_segments s ON s.id = f.segment_id
-      WHERE memory_segment_fts MATCH ?${scopeClause}
-      ORDER BY rank
-      LIMIT ?
-    `).all(...params) as Array<{
+    rows = timedRawQuery('lexicalSearch', () =>
+      raw.query(`
+        SELECT
+          f.segment_id AS segment_id,
+          s.message_id AS message_id,
+          s.text AS text,
+          s.created_at AS created_at,
+          bm25(memory_segment_fts) AS rank
+        FROM memory_segment_fts f
+        JOIN memory_segments s ON s.id = f.segment_id
+        WHERE memory_segment_fts MATCH ?${scopeClause}
+        ORDER BY rank
+        LIMIT ?
+      `).all(...params),
+    ) as Array<{
       segment_id: string;
       message_id: string;
       text: string;
@@ -162,7 +182,9 @@ export function directItemSearch(query: string, limit: number, scopeIds?: string
     last_seen_at: number;
   }> = [];
   try {
-    rows = raw.query(sqlQuery).all(...params) as typeof rows;
+    rows = timedRawQuery('directItemSearch', () =>
+      raw.query(sqlQuery).all(...params),
+    ) as typeof rows;
   } catch {
     return [];
   }
