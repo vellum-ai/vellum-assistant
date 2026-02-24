@@ -610,7 +610,11 @@ describe('run abort', () => {
     const conversation = createConversation('abort handle test');
     const session = {
       isProcessing: () => false,
-      persistUserMessage: () => undefined as unknown as string,
+      currentRequestId: undefined as string | undefined,
+      persistUserMessage: (_c: string, _a: unknown[], reqId: string) => {
+        session.currentRequestId = reqId;
+        return undefined as unknown as string;
+      },
       memoryPolicy: { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false },
       setChannelCapabilities: () => {},
       setAssistantId: () => {},
@@ -640,7 +644,11 @@ describe('run abort', () => {
 
     const session = {
       isProcessing: () => false,
-      persistUserMessage: () => undefined as unknown as string,
+      currentRequestId: undefined as string | undefined,
+      persistUserMessage: (_c: string, _a: unknown[], reqId: string) => {
+        session.currentRequestId = reqId;
+        return undefined as unknown as string;
+      },
       memoryPolicy: { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false },
       setChannelCapabilities: () => {},
       setAssistantId: () => {},
@@ -664,7 +672,7 @@ describe('run abort', () => {
 
     const handle = await orchestrator.startRun(conversation.id, 'Hello');
 
-    // Abort immediately
+    // Abort immediately — session still has same requestId
     handle.abort();
     expect(abortCalled).toBe(true);
 
@@ -675,5 +683,86 @@ describe('run abort', () => {
     // since the mock runAgentLoop resolves after 200ms regardless.
     const stored = orchestrator.getRun(handle.run.id);
     expect(stored).not.toBeNull();
+  });
+
+  test('stale abort handle is a no-op when session has moved to a new run', async () => {
+    const conversation = createConversation('stale abort test');
+    let abortCalled = false;
+
+    const session = {
+      isProcessing: () => false,
+      currentRequestId: undefined as string | undefined,
+      persistUserMessage: (_c: string, _a: unknown[], reqId: string) => {
+        session.currentRequestId = reqId;
+        return undefined as unknown as string;
+      },
+      memoryPolicy: { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false },
+      setChannelCapabilities: () => {},
+      setAssistantId: () => {},
+      setGuardianContext: () => {},
+      setCommandIntent: () => {},
+      setTurnChannelContext: () => {},
+      updateClient: () => {},
+      runAgentLoop: async () => {},
+      handleConfirmationResponse: () => {},
+      abort: () => { abortCalled = true; },
+    } as unknown as Session;
+
+    const orchestrator = new RunOrchestrator({
+      getOrCreateSession: async () => session,
+      resolveAttachments: () => [],
+      deriveDefaultStrictSideEffects: () => false,
+    });
+
+    // Start first run and capture its handle
+    const handle1 = await orchestrator.startRun(conversation.id, 'First turn');
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Start second run — session's currentRequestId now belongs to run 2
+    const _handle2 = await orchestrator.startRun(conversation.id, 'Second turn');
+
+    // Attempt to abort using the stale handle from run 1.
+    // Since the session has moved to a new requestId, this should be a no-op.
+    handle1.abort();
+    expect(abortCalled).toBe(false);
+  });
+
+  test('abort works when session still has matching requestId', async () => {
+    const conversation = createConversation('matching abort test');
+    let abortCalled = false;
+
+    const session = {
+      isProcessing: () => false,
+      currentRequestId: undefined as string | undefined,
+      persistUserMessage: (_c: string, _a: unknown[], reqId: string) => {
+        session.currentRequestId = reqId;
+        return undefined as unknown as string;
+      },
+      memoryPolicy: { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false },
+      setChannelCapabilities: () => {},
+      setAssistantId: () => {},
+      setGuardianContext: () => {},
+      setCommandIntent: () => {},
+      setTurnChannelContext: () => {},
+      updateClient: () => {},
+      runAgentLoop: async () => {
+        // Keep the agent loop running so the session stays on this requestId
+        await new Promise((r) => setTimeout(r, 500));
+      },
+      handleConfirmationResponse: () => {},
+      abort: () => { abortCalled = true; },
+    } as unknown as Session;
+
+    const orchestrator = new RunOrchestrator({
+      getOrCreateSession: async () => session,
+      resolveAttachments: () => [],
+      deriveDefaultStrictSideEffects: () => false,
+    });
+
+    const handle = await orchestrator.startRun(conversation.id, 'Hello');
+
+    // Abort while the session is still processing this run
+    handle.abort();
+    expect(abortCalled).toBe(true);
   });
 });
