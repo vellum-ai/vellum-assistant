@@ -129,6 +129,14 @@ final class ComputerUseSession: ObservableObject {
 
         log.info("Session starting — task: \(self.task, privacy: .public)")
 
+        // Start recording if required — must succeed before destructive actions are allowed.
+        // When a real ScreenRecorder is wired up, its start() call goes here and
+        // updateRecordingState(.started) should only be called after it confirms recording.
+        if requiresRecording {
+            // TODO: call screenRecorder.start() and only transition on success
+            updateRecordingState(.started)
+        }
+
         let screenSize = screenCapture.screenSize()
         log.info("Screen size: \(Int(screenSize.width))x\(Int(screenSize.height))")
 
@@ -312,10 +320,16 @@ final class ComputerUseSession: ObservableObject {
         if requiresRecording && isDestructiveAction(agentAction.type) {
             let gateResult = await waitForRecordingReady()
             if !gateResult {
-                // Recording failed to start within timeout — fail the session
+                // Recording failed to start within timeout — abort the session
                 let reason = "Session stopped: screen recording failed to start within timeout"
                 isCancelled = true
                 state = .failed(reason: reason)
+                // Notify the daemon so it stops waiting for observations
+                do {
+                    try daemonClient.send(CuSessionAbortMessage(sessionId: id))
+                } catch {
+                    log.error("Failed to send session abort after recording gate failure: \(error)")
+                }
                 logger.finishSession(result: "failed: recording gate timeout")
                 return
             }
