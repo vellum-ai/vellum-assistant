@@ -213,8 +213,10 @@ The daemon handles `twilio_config` messages with the following actions:
 | `sms_update_tollfree_verification` | Updates an existing toll-free verification by SID. Requires `verificationSid`. |
 | `sms_delete_tollfree_verification` | Deletes a toll-free verification by SID. Includes warning about queue priority reset. |
 | `release_number` | Releases (deletes) a phone number from the Twilio account. Clears the number from config and secure storage. Includes warning about toll-free verification context loss. |
+| `sms_send_test` | Sends a test SMS to the specified `phoneNumber` with the given `text`, polls Twilio for delivery status (up to 3 retries at 2-second intervals), and returns the result in `testResult`. Stores the last result in memory for use by `sms_doctor`. |
+| `sms_doctor` | Runs a comprehensive SMS health diagnostic. Checks channel readiness, compliance/toll-free verification status, and the last `sms_send_test` result. Returns structured diagnostics in `diagnostics` with an overall `status` ("healthy", "degraded", or "unhealthy") and actionable `items`. |
 
-Response type: `twilio_config_response` with `success`, `hasCredentials`, optional `phoneNumber`, optional `numbers` array, optional `error`, optional `warning` (for non-fatal webhook sync failures), and optional `compliance` object (for compliance status actions, containing `numberType`, `verificationSid`, `verificationStatus`, `rejectionReason`, `rejectionReasons`, `errorCode`, `editAllowed`, `editExpiration`).
+Response type: `twilio_config_response` with `success`, `hasCredentials`, optional `phoneNumber`, optional `numbers` array, optional `error`, optional `warning` (for non-fatal webhook sync failures), optional `compliance` object (for compliance status actions, containing `numberType`, `verificationSid`, `verificationStatus`, `rejectionReason`, `rejectionReasons`, `errorCode`, `editAllowed`, `editExpiration`), optional `testResult` (for `sms_send_test`), and optional `diagnostics` (for `sms_doctor`).
 
 ### Ingress Webhook Reconciliation
 

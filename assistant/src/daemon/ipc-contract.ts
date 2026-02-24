@@ -565,10 +565,10 @@ export interface TwilioConfigRequest {
   type: 'twilio_config';
   action: 'get' | 'set_credentials' | 'clear_credentials' | 'provision_number' | 'assign_number' | 'list_numbers'
     | 'sms_compliance_status' | 'sms_submit_tollfree_verification' | 'sms_update_tollfree_verification'
-    | 'sms_delete_tollfree_verification' | 'release_number';
+    | 'sms_delete_tollfree_verification' | 'release_number' | 'sms_send_test' | 'sms_doctor';
   accountSid?: string;        // Only for action: 'set_credentials'
   authToken?: string;         // Only for action: 'set_credentials'
-  phoneNumber?: string;       // Only for action: 'assign_number'
+  phoneNumber?: string;       // Only for action: 'assign_number' or 'sms_send_test'
   areaCode?: string;          // Only for action: 'provision_number'
   country?: string;           // Only for action: 'provision_number' (ISO 3166-1 alpha-2, default 'US')
   assistantId?: string;       // Scope number assignment/lookup to a specific assistant
@@ -587,6 +587,7 @@ export interface TwilioConfigRequest {
     businessType?: string;
     customerProfileSid?: string;
   };
+  text?: string;              // Only for action: 'sms_send_test' (default: "Test SMS from your Vellum assistant")
 }
 
 export interface TwilioConfigResponse {
@@ -607,6 +608,23 @@ export interface TwilioConfigResponse {
     errorCode?: string;
     editAllowed?: boolean;
     editExpiration?: string;
+  };
+  /** Present when action is 'sms_send_test'. */
+  testResult?: {
+    messageSid: string;
+    to: string;
+    initialStatus: string;
+    finalStatus: string;
+    errorCode?: string;
+    errorMessage?: string;
+  };
+  /** Present when action is 'sms_doctor'. */
+  diagnostics?: {
+    readiness: { ready: boolean; issues: string[] };
+    compliance: { status: string; detail?: string; remediation?: string };
+    lastSend?: { status: string; errorCode?: string; remediation?: string };
+    overallStatus: 'healthy' | 'degraded' | 'broken';
+    actionItems: string[];
   };
 }
 

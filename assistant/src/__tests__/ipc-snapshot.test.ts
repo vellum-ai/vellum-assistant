@@ -1254,6 +1254,18 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
       verificationSid: 'TF_VER_001',
       verificationStatus: 'TWILIO_APPROVED',
     },
+    testResult: {
+      messageSid: 'SM-test-001',
+      to: '+15559876543',
+      initialStatus: 'queued',
+      finalStatus: 'delivered',
+    },
+    diagnostics: {
+      readiness: { ready: true, issues: [] },
+      compliance: { status: 'TWILIO_APPROVED', detail: 'Toll-free verification: TWILIO_APPROVED' },
+      overallStatus: 'healthy',
+      actionItems: [],
+    },
   },
   channel_readiness_response: {
     type: 'channel_readiness_response',

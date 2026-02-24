@@ -64,9 +64,9 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
 });
 
-function mockTwilioApi() {
+function mockTwilioApi(overrides?: Record<string, unknown>) {
   globalThis.fetch = mock(async () => {
-    return new Response(JSON.stringify({ sid: "SM-sent" }), {
+    return new Response(JSON.stringify({ sid: "SM-sent", status: "queued", error_code: null, error_message: null, ...overrides }), {
       status: 201,
       headers: { "content-type": "application/json" },
     });
@@ -369,6 +369,38 @@ describe("/deliver/sms", () => {
     expect(sentParams.get("Body")).toBe(
       "I have a media attachment to share, but SMS currently supports text only.",
     );
+  });
+
+  it("returns enriched Twilio acceptance details in response", async () => {
+    mockTwilioApi({ sid: "SM-enrich-test", status: "queued", error_code: null, error_message: null });
+    const handler = createSmsDeliverHandler(
+      makeConfig({ runtimeProxyBearerToken: undefined, smsDeliverAuthBypass: true }),
+    );
+    const req = makeRequest({ to: "+15559876543", text: "enriched" });
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.messageSid).toBe("SM-enrich-test");
+    expect(body.status).toBe("queued");
+    expect(body.errorCode).toBeNull();
+    expect(body.errorMessage).toBeNull();
+  });
+
+  it("returns Twilio error details in response when error_code is present", async () => {
+    mockTwilioApi({ sid: "SM-err-test", status: "failed", error_code: 30003, error_message: "Unreachable" });
+    const handler = createSmsDeliverHandler(
+      makeConfig({ runtimeProxyBearerToken: undefined, smsDeliverAuthBypass: true }),
+    );
+    const req = makeRequest({ to: "+15559876543", text: "fail test" });
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.messageSid).toBe("SM-err-test");
+    expect(body.status).toBe("failed");
+    expect(body.errorCode).toBe("30003");
+    expect(body.errorMessage).toBe("Unreachable");
   });
 
   it("returns 503 when no From number is available", async () => {

@@ -49,6 +49,7 @@ import {
   deleteTollFreeVerification,
   getPhoneNumberSid,
   releasePhoneNumber,
+  fetchMessageStatus,
   type TollFreeVerificationSubmitParams,
 } from '../../calls/twilio-rest.js';
 import {
@@ -1188,6 +1189,32 @@ export async function handleTelegramConfig(
   }
 }
 
+/** In-memory store for the last SMS send test result. Shared between sms_send_test and sms_doctor. */
+let _lastTestResult: {
+  messageSid: string;
+  to: string;
+  initialStatus: string;
+  finalStatus: string;
+  errorCode?: string;
+  errorMessage?: string;
+  timestamp: number;
+} | undefined;
+
+/** Map a Twilio error code to a human-readable remediation suggestion. */
+function mapTwilioErrorRemediation(errorCode: string | undefined): string | undefined {
+  if (!errorCode) return undefined;
+  const map: Record<string, string> = {
+    '30003': 'Unreachable destination. The handset may be off or out of service.',
+    '30004': 'Message blocked by carrier or recipient.',
+    '30005': 'Unknown destination phone number. Verify the number is valid.',
+    '30006': 'Landline or unreachable carrier. SMS cannot be delivered to this number.',
+    '30007': 'Message flagged as spam by carrier. Adjust content or register for A2P.',
+    '30008': 'Unknown error from the carrier network.',
+    '21610': 'Recipient has opted out (STOP). Cannot send until they opt back in.',
+  };
+  return map[errorCode];
+}
+
 export async function handleTwilioConfig(
   msg: TwilioConfigRequest,
   socket: net.Socket,
@@ -1843,6 +1870,253 @@ export async function handleTwilioConfig(
         hasCredentials: true,
         warning: 'Phone number released from Twilio. Any associated toll-free verification context is lost.',
       });
+    } else if (msg.action === 'sms_send_test') {
+      // ── SMS send test ────────────────────────────────────────────────
+      if (!hasTwilioCredentials()) {
+        ctx.send(socket, {
+          type: 'twilio_config_response',
+          success: false,
+          hasCredentials: false,
+          error: 'Twilio credentials not configured. Set credentials first.',
+        });
+        return;
+      }
+
+      const to = msg.phoneNumber;
+      if (!to) {
+        ctx.send(socket, {
+          type: 'twilio_config_response',
+          success: false,
+          hasCredentials: true,
+          error: 'phoneNumber is required for sms_send_test action.',
+        });
+        return;
+      }
+
+      const raw = loadRawConfig();
+      const smsSection = (raw?.sms ?? {}) as Record<string, unknown>;
+      const from = (smsSection.phoneNumber as string | undefined)
+        || getSecureKey('credential:twilio:phone_number')
+        || '';
+      if (!from) {
+        ctx.send(socket, {
+          type: 'twilio_config_response',
+          success: false,
+          hasCredentials: true,
+          error: 'No phone number assigned. Run the twilio-setup skill to assign a number.',
+        });
+        return;
+      }
+
+      const accountSid = getSecureKey('credential:twilio:account_sid')!;
+      const authToken = getSecureKey('credential:twilio:auth_token')!;
+      const text = msg.text || 'Test SMS from your Vellum assistant';
+
+      // Send via gateway's /deliver/sms endpoint
+      const bearerToken = readHttpToken();
+      const gatewayPort = Number(process.env.GATEWAY_PORT) || 7830;
+      const gatewayUrl = process.env.GATEWAY_INTERNAL_BASE_URL?.replace(/\/+$/, '') || `http://127.0.0.1:${gatewayPort}`;
+
+      const sendResp = await fetch(`${gatewayUrl}/deliver/sms`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
+        },
+        body: JSON.stringify({ to, text }),
+        signal: AbortSignal.timeout(30_000),
+      });
+
+      if (!sendResp.ok) {
+        const errBody = await sendResp.text().catch(() => '<unreadable>');
+        ctx.send(socket, {
+          type: 'twilio_config_response',
+          success: false,
+          hasCredentials: true,
+          error: `SMS send failed (${sendResp.status}): ${errBody}`,
+        });
+        return;
+      }
+
+      const sendData = await sendResp.json().catch(() => ({})) as {
+        messageSid?: string;
+        status?: string;
+      };
+      const messageSid = sendData.messageSid || '';
+      const initialStatus = sendData.status || 'unknown';
+
+      // Poll Twilio for final status (up to 3 times, 2s apart)
+      let finalStatus = initialStatus;
+      let errorCode: string | undefined;
+      let errorMessage: string | undefined;
+
+      if (messageSid) {
+        for (let i = 0; i < 3; i++) {
+          await new Promise((r) => setTimeout(r, 2000));
+          try {
+            const pollResult = await fetchMessageStatus(accountSid, authToken, messageSid);
+            finalStatus = pollResult.status;
+            errorCode = pollResult.errorCode;
+            errorMessage = pollResult.errorMessage;
+            // Stop polling if we've reached a terminal status
+            if (['delivered', 'undelivered', 'failed'].includes(finalStatus)) break;
+          } catch {
+            // Polling failure is non-fatal; we'll use the last known status
+            break;
+          }
+        }
+      }
+
+      const testResult = {
+        messageSid,
+        to,
+        initialStatus,
+        finalStatus,
+        ...(errorCode ? { errorCode } : {}),
+        ...(errorMessage ? { errorMessage } : {}),
+      };
+
+      // Store for sms_doctor
+      _lastTestResult = { ...testResult, timestamp: Date.now() };
+
+      ctx.send(socket, {
+        type: 'twilio_config_response',
+        success: true,
+        hasCredentials: true,
+        testResult,
+      });
+
+    } else if (msg.action === 'sms_doctor') {
+      // ── SMS doctor diagnostic ────────────────────────────────────────
+      const hasCredentials = hasTwilioCredentials();
+
+      // 1. Channel readiness check
+      let readinessReady = false;
+      const readinessIssues: string[] = [];
+      try {
+        const readinessService = getReadinessService();
+        const snapshot = await readinessService.getReadiness('sms', { includeRemote: false });
+        readinessReady = snapshot.ready;
+        for (const r of snapshot.reasons) {
+          readinessIssues.push(r.text);
+        }
+      } catch (err) {
+        readinessIssues.push(`Readiness check failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+
+      // 2. Compliance status
+      let complianceStatus = 'unknown';
+      let complianceDetail: string | undefined;
+      let complianceRemediation: string | undefined;
+      if (hasCredentials) {
+        try {
+          const raw = loadRawConfig();
+          const smsSection = (raw?.sms ?? {}) as Record<string, unknown>;
+          const phoneNumber = (smsSection.phoneNumber as string | undefined) || getSecureKey('credential:twilio:phone_number') || '';
+          if (phoneNumber) {
+            const accountSid = getSecureKey('credential:twilio:account_sid')!;
+            const authToken = getSecureKey('credential:twilio:auth_token')!;
+            // Determine number type and verification status
+            const isTollFree = phoneNumber.startsWith('+1') && ['800','888','877','866','855','844','833'].some(
+              (p) => phoneNumber.startsWith(`+1${p}`),
+            );
+            if (isTollFree) {
+              try {
+                const verification = await getTollFreeVerificationStatus(accountSid, authToken, phoneNumber);
+                if (verification) {
+                  const status = verification.status;
+                  complianceStatus = status;
+                  complianceDetail = `Toll-free verification: ${status}`;
+                  if (status === 'TWILIO_APPROVED') {
+                    complianceRemediation = undefined;
+                  } else if (status === 'PENDING_REVIEW' || status === 'IN_REVIEW') {
+                    complianceRemediation = 'Toll-free verification is pending. Messaging may have limited throughput until approved.';
+                  } else if (status === 'TWILIO_REJECTED') {
+                    complianceRemediation = 'Toll-free verification was rejected. Check rejection reasons and resubmit.';
+                  } else {
+                    complianceRemediation = 'Submit a toll-free verification to enable full messaging throughput.';
+                  }
+                } else {
+                  complianceStatus = 'unverified';
+                  complianceDetail = 'Toll-free number without verification';
+                  complianceRemediation = 'Submit a toll-free verification request to avoid filtering.';
+                }
+              } catch {
+                complianceStatus = 'check_failed';
+                complianceDetail = 'Could not retrieve toll-free verification status';
+              }
+            } else {
+              complianceStatus = 'local_10dlc';
+              complianceDetail = 'Local/10DLC number — carrier registration handled externally';
+            }
+          } else {
+            complianceStatus = 'no_number';
+            complianceDetail = 'No phone number assigned';
+            complianceRemediation = 'Assign a phone number via the twilio-setup skill.';
+          }
+        } catch {
+          complianceStatus = 'check_failed';
+          complianceDetail = 'Could not determine compliance status';
+        }
+      } else {
+        complianceStatus = 'no_credentials';
+        complianceDetail = 'Twilio credentials are not configured';
+        complianceRemediation = 'Set Twilio credentials via the twilio-setup skill.';
+      }
+
+      // 3. Last send test result
+      let lastSend: { status: string; errorCode?: string; remediation?: string } | undefined;
+      if (_lastTestResult) {
+        lastSend = {
+          status: _lastTestResult.finalStatus,
+          ...((_lastTestResult.errorCode) ? { errorCode: _lastTestResult.errorCode } : {}),
+          ...((_lastTestResult.errorCode) ? { remediation: mapTwilioErrorRemediation(_lastTestResult.errorCode) } : {}),
+        };
+      }
+
+      // 4. Determine overall status
+      const actionItems: string[] = [];
+      let overallStatus: 'healthy' | 'degraded' | 'broken' = 'healthy';
+
+      if (!hasCredentials) {
+        overallStatus = 'broken';
+        actionItems.push('Configure Twilio credentials.');
+      }
+      if (!readinessReady) {
+        overallStatus = 'broken';
+        for (const issue of readinessIssues) actionItems.push(issue);
+      }
+      if (complianceStatus === 'unverified' || complianceStatus === 'PENDING_REVIEW' || complianceStatus === 'IN_REVIEW') {
+        if (overallStatus === 'healthy') overallStatus = 'degraded';
+        if (complianceRemediation) actionItems.push(complianceRemediation);
+      }
+      if (complianceStatus === 'TWILIO_REJECTED' || complianceStatus === 'no_number') {
+        overallStatus = 'broken';
+        if (complianceRemediation) actionItems.push(complianceRemediation);
+      }
+      if (_lastTestResult && ['failed', 'undelivered'].includes(_lastTestResult.finalStatus)) {
+        if (overallStatus === 'healthy') overallStatus = 'degraded';
+        const remediation = mapTwilioErrorRemediation(_lastTestResult.errorCode);
+        actionItems.push(remediation || `Last test SMS ${_lastTestResult.finalStatus}. Check Twilio logs for details.`);
+      }
+
+      ctx.send(socket, {
+        type: 'twilio_config_response',
+        success: true,
+        hasCredentials,
+        diagnostics: {
+          readiness: { ready: readinessReady, issues: readinessIssues },
+          compliance: {
+            status: complianceStatus,
+            ...(complianceDetail ? { detail: complianceDetail } : {}),
+            ...(complianceRemediation ? { remediation: complianceRemediation } : {}),
+          },
+          ...(lastSend ? { lastSend } : {}),
+          overallStatus,
+          actionItems,
+        },
+      });
+
     } else {
       ctx.send(socket, {
         type: 'twilio_config_response',
