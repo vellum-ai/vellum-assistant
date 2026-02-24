@@ -398,14 +398,30 @@ extension AppDelegate {
     }
 
     /// Opens the main window and navigates to the thread for the given conversation ID.
+    /// Retries if the thread isn't populated yet (e.g., ThreadManager hasn't loaded it).
     func openQuickChatThread(conversationId: String?) {
         showMainWindow()
-        guard let conversationId,
-              let threadManager = mainWindow?.threadManager,
-              let thread = threadManager.threads.first(where: { $0.sessionId == conversationId }) else {
-            return
+        guard let conversationId else { return }
+
+        func trySelect() -> Bool {
+            guard let threadManager = mainWindow?.threadManager,
+                  let thread = threadManager.threads.first(where: { $0.sessionId == conversationId }) else {
+                return false
+            }
+            threadManager.activeThreadId = thread.id
+            return true
         }
-        threadManager.activeThreadId = thread.id
+
+        if trySelect() { return }
+
+        // Thread may not be loaded yet — retry up to 5 times with 500ms delay
+        Task { @MainActor in
+            for _ in 0..<5 {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                if trySelect() { return }
+            }
+            log.warning("Could not find thread for conversation \(conversationId) after retries")
+        }
     }
 
     func showDaemonConnectionError() {
