@@ -74,6 +74,11 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     version: 8,
     description: 'Seed assistant_inbox_thread_state from external_conversation_bindings',
   },
+  {
+    key: 'drop_active_search_index_v1',
+    version: 9,
+    description: 'Drop old idx_memory_items_active_search so it can be recreated with updated covering columns',
+  },
 ];
 
 export interface MigrationValidationResult {
@@ -1279,4 +1284,24 @@ export function migrateBackfillInboxThreadStateFromBindings(database: Db): void 
     try { raw.exec('ROLLBACK'); } catch { /* no active transaction */ }
     throw e;
   }
+}
+
+/**
+ * One-time migration to drop the old idx_memory_items_active_search index so
+ * it can be recreated with updated covering columns by the idempotent
+ * CREATE INDEX IF NOT EXISTS in db-init.
+ */
+export function migrateDropActiveSearchIndex(database: Db): void {
+  const raw = getSqliteFrom(database);
+  const checkpointKey = 'drop_active_search_index_v1';
+  const checkpoint = raw.query(
+    `SELECT 1 FROM memory_checkpoints WHERE key = ?`,
+  ).get(checkpointKey);
+  if (checkpoint) return;
+
+  raw.exec(/*sql*/ `DROP INDEX IF EXISTS idx_memory_items_active_search`);
+
+  raw.query(
+    `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
+  ).run(checkpointKey, Date.now());
 }

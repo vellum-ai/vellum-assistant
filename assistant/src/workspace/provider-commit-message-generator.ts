@@ -3,6 +3,7 @@ import { getConfig } from '../config/loader.js';
 import type { CommitContext } from './commit-message-provider.js';
 import { DefaultCommitMessageProvider } from './commit-message-provider.js';
 import type { Message } from '../providers/types.js';
+import { resolveConfiguredProvider } from '../providers/provider-send-message.js';
 
 const log = getLogger('commit-message-llm');
 
@@ -48,6 +49,18 @@ const PROVIDER_DEFAULT_FAST_MODELS: Record<string, string> = {
 const KEYLESS_PROVIDERS = new Set(['ollama']);
 
 const deterministicProvider = new DefaultCommitMessageProvider();
+
+function getProviderCandidates(config: ReturnType<typeof getConfig>): string[] {
+  const order = Array.isArray(config.providerOrder) ? config.providerOrder : [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const name of [config.provider, ...order]) {
+    if (seen.has(name)) continue;
+    seen.add(name);
+    out.push(name);
+  }
+  return out;
+}
 
 function buildDeterministicResult(
   context: CommitContext,
@@ -106,11 +119,12 @@ export class ProviderCommitMessageGenerator {
 
     // ── Fallback check order (canonical) ──────────────────────────────
     // 1. disabled
-    // 2. missing_provider_api_key  (except keyless providers like ollama)
-    // 3. breaker_open
-    // 4. insufficient_budget
-    // 5. missing_fast_model
-    // 6. provider_not_initialized
+    // 2. resolve configured provider via fail-open selection:
+    //    - missing_provider_api_key OR provider_not_initialized
+    // 3. selected-provider API key preflight (except keyless providers)
+    // 4. breaker_open
+    // 5. insufficient_budget
+    // 6. missing_fast_model
     // 7. call provider → timeout / provider_error / invalid_output
     // ──────────────────────────────────────────────────────────────────
 
@@ -122,11 +136,36 @@ export class ProviderCommitMessageGenerator {
       return buildDeterministicResult(context, 'disabled');
     }
 
-    // Step 2: API key preflight (skip for providers that run without a key)
-    if (!KEYLESS_PROVIDERS.has(config.provider)) {
-      const providerApiKey = config.apiKeys[config.provider];
+    // Step 2: Resolve configured provider using fail-open semantics.
+    // If nothing is resolvable, differentiate likely missing-key cases from
+    // true registry/init failures.
+    const resolved = resolveConfiguredProvider();
+    if (!resolved) {
+      const candidates = getProviderCandidates(config);
+      const hasAnyKeylessCandidate = candidates.some((name) => KEYLESS_PROVIDERS.has(name));
+      const hasAnyProviderKey = candidates.some((name) => {
+        const value = config.apiKeys[name];
+        return typeof value === 'string' && value.length > 0;
+      });
+      if (!hasAnyKeylessCandidate && !hasAnyProviderKey) {
+        log.debug('No API keys available for configured/fallback providers; falling back to deterministic');
+        return buildDeterministicResult(context, 'missing_provider_api_key');
+      }
+      log.debug({ provider: config.provider }, 'Provider not initialized; falling back to deterministic');
+      return buildDeterministicResult(context, 'provider_not_initialized');
+    }
+
+    const provider = resolved.provider;
+    const selectedProviderName = resolved.selectedProviderName;
+
+    // Step 2b: API key preflight for the selected provider (skip keyless).
+    if (!KEYLESS_PROVIDERS.has(selectedProviderName)) {
+      const providerApiKey = config.apiKeys[selectedProviderName];
       if (!providerApiKey || providerApiKey === '') {
-        log.debug('Provider API key missing; falling back to deterministic');
+        log.debug(
+          { selectedProvider: selectedProviderName, configuredProvider: config.provider },
+          'Selected provider API key missing; falling back to deterministic',
+        );
         return buildDeterministicResult(context, 'missing_provider_api_key');
       }
     }
@@ -153,12 +192,12 @@ export class ProviderCommitMessageGenerator {
     }
 
     // Step 5: Fast model preflight — resolve before any provider call
-    const fastModel = llmConfig.providerFastModelOverrides[config.provider]
-      ?? PROVIDER_DEFAULT_FAST_MODELS[config.provider];
+    const fastModel = llmConfig.providerFastModelOverrides[selectedProviderName]
+      ?? PROVIDER_DEFAULT_FAST_MODELS[selectedProviderName];
 
     if (!fastModel) {
       log.debug(
-        { provider: config.provider },
+        { provider: selectedProviderName, configuredProvider: config.provider },
         'No fast model resolvable for provider; falling back to deterministic',
       );
       return buildDeterministicResult(context, 'missing_fast_model');
@@ -166,16 +205,6 @@ export class ProviderCommitMessageGenerator {
 
     // Step 6 + 7: Call the provider
     try {
-      const { getProvider } = await import('../providers/registry.js');
-
-      let provider;
-      try {
-        provider = getProvider(config.provider);
-      } catch {
-        log.debug({ provider: config.provider }, 'Provider not initialized; falling back to deterministic');
-        return buildDeterministicResult(context, 'provider_not_initialized');
-      }
-
       // Build prompt
       const fileList = options.changedFiles
         .slice(0, llmConfig.maxFilesInPrompt)

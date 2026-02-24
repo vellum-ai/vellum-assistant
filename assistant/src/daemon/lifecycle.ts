@@ -18,7 +18,7 @@ import {
 } from '../util/platform.js';
 import { initializeDb } from '../memory/db.js';
 import { rotateToolInvocations } from '../memory/tool-usage-store.js';
-import { initializeProviders, getFailoverProvider, listProviders } from '../providers/registry.js';
+import { initializeProviders, getFailoverProvider } from '../providers/registry.js';
 import { initializeTools } from '../tools/registry.js';
 import { loadConfig } from '../config/loader.js';
 import {

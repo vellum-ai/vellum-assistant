@@ -44,7 +44,6 @@ When someone dials the assistant's Twilio phone number:
 5. Once verified (or if no challenge is pending), the LLM orchestrator greets the caller in a receptionist style: "Hello, this is [user]'s assistant. How can I help you today?"
 6. The assistant converses naturally, using ASK_GUARDIAN to consult the user when needed, just like outbound calls.
 
-
 Three voice quality modes are available:
 - **`twilio_standard`** (default) — Fully supported. Standard Twilio TTS with Google voices. No extra setup required.
 - **`twilio_elevenlabs_tts`** — Fully supported. Uses ElevenLabs voices through Twilio ConversationRelay for more natural speech.
