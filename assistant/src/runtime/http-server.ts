@@ -89,6 +89,12 @@ import type { BrowserRelayWebSocketData } from '../browser-extension-relay/serve
 import { handleSubscribeAssistantEvents } from './routes/events-routes.js';
 import { consumeCallback, consumeCallbackError } from '../security/oauth-callback-registry.js';
 import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
+import { PairingStore } from '../daemon/pairing-store.js';
+import {
+  isDeviceApproved,
+  refreshDevice,
+  hashDeviceId,
+} from '../daemon/approved-devices-store.js';
 
 // Re-export shared types so existing consumers don't need to update imports
 export type {
@@ -98,7 +104,6 @@ export type {
   RuntimeHttpServerOptions,
   RuntimeAttachmentMetadata,
   ApprovalCopyGenerator,
-  ApprovalConversationGenerator,
 } from './http-types.js';
 
 import type {
@@ -106,7 +111,6 @@ import type {
   NonBlockingMessageProcessor,
   RuntimeHttpServerOptions,
   ApprovalCopyGenerator,
-  ApprovalConversationGenerator,
 } from './http-types.js';
 
 const log = getLogger('runtime-http');
@@ -396,12 +400,13 @@ export class RuntimeHttpServer {
   private persistAndProcessMessage?: NonBlockingMessageProcessor;
   private runOrchestrator?: RunOrchestrator;
   private approvalCopyGenerator?: ApprovalCopyGenerator;
-  private approvalConversationGenerator?: ApprovalConversationGenerator;
   private interfacesDir: string | null;
   private suggestionCache = new Map<string, string>();
   private suggestionInFlight = new Map<string, Promise<string | null>>();
   private retrySweepTimer: ReturnType<typeof setInterval> | null = null;
   private sweepInProgress = false;
+  private pairingStore = new PairingStore();
+  private pairingBroadcast?: (msg: { type: string; [key: string]: unknown }) => void;
 
   constructor(options: RuntimeHttpServerOptions = {}) {
     this.port = options.port ?? DEFAULT_PORT;
@@ -411,13 +416,22 @@ export class RuntimeHttpServer {
     this.persistAndProcessMessage = options.persistAndProcessMessage;
     this.runOrchestrator = options.runOrchestrator;
     this.approvalCopyGenerator = options.approvalCopyGenerator;
-    this.approvalConversationGenerator = options.approvalConversationGenerator;
     this.interfacesDir = options.interfacesDir ?? null;
   }
 
   /** The port the server is actually listening on (resolved after start). */
   get actualPort(): number {
     return this.server?.port ?? this.port;
+  }
+
+  /** Expose the pairing store so the daemon server can wire IPC handlers. */
+  getPairingStore(): PairingStore {
+    return this.pairingStore;
+  }
+
+  /** Set a callback for broadcasting IPC messages (wired by daemon server). */
+  setPairingBroadcast(fn: (msg: { type: string; [key: string]: unknown }) => void): void {
+    this.pairingBroadcast = fn;
   }
 
   async start(): Promise<void> {
@@ -506,10 +520,13 @@ export class RuntimeHttpServer {
       log.warn('RUNTIME_HTTP_HOST is not bound to loopback. This may expose the runtime to direct public access.');
     }
 
+    this.pairingStore.start();
+
     log.info({ port: this.actualPort, hostname: this.hostname, auth: !!this.bearerToken }, 'Runtime HTTP server listening');
   }
 
   async stop(): Promise<void> {
+    this.pairingStore.stop();
     stopGuardianExpirySweep();
     stopGuardianActionSweep();
     if (this.retrySweepTimer) {
@@ -641,6 +658,14 @@ export class RuntimeHttpServer {
       }
     }
 
+    // ── Pairing endpoints (unauthenticated, secret-gated) ──────────
+    if (path === '/v1/pairing/request' && req.method === 'POST') {
+      return await this.handlePairingRequest(req);
+    }
+    if (path === '/v1/pairing/status' && req.method === 'GET') {
+      return this.handlePairingStatus(url);
+    }
+
     // Require bearer token when configured
     if (!isHttpAuthDisabled() && this.bearerToken) {
       const authHeader = req.headers.get('authorization');
@@ -648,6 +673,11 @@ export class RuntimeHttpServer {
       if (!token || !this.verifyToken(token)) {
         return Response.json({ error: 'Unauthorized' }, { status: 401 });
       }
+    }
+
+    // ── Pairing registration (bearer-authenticated) ──────────────
+    if (path === '/v1/pairing/register' && req.method === 'POST') {
+      return await this.handlePairingRegister(req);
     }
 
     // Serve shareable app pages
@@ -874,7 +904,7 @@ export class RuntimeHttpServer {
 
       if (endpoint === 'channels/inbound' && req.method === 'POST') {
         const gatewayOriginSecret = getRuntimeGatewayOriginSecret();
-        return await handleChannelInbound(req, this.processMessage, this.bearerToken, this.runOrchestrator, assistantId, gatewayOriginSecret, this.approvalCopyGenerator, this.approvalConversationGenerator);
+        return await handleChannelInbound(req, this.processMessage, this.bearerToken, this.runOrchestrator, assistantId, gatewayOriginSecret, this.approvalCopyGenerator);
       }
 
       if (endpoint === 'channels/delivery-ack' && req.method === 'POST') {
@@ -1222,6 +1252,132 @@ export class RuntimeHttpServer {
       timestamp: new Date().toISOString(),
       disk: getDiskSpaceInfo(),
     });
+  }
+
+  // ── Pairing HTTP handlers ─────────────────────────────────────────
+
+  /**
+   * POST /v1/pairing/register — Bearer-authenticated.
+   * macOS pre-registers a pairing request when the QR is displayed.
+   */
+  private async handlePairingRegister(req: Request): Promise<Response> {
+    try {
+      const body = await req.json() as Record<string, unknown>;
+      const pairingRequestId = typeof body.pairingRequestId === 'string' ? body.pairingRequestId : '';
+      const pairingSecret = typeof body.pairingSecret === 'string' ? body.pairingSecret : '';
+      const gatewayUrl = typeof body.gatewayUrl === 'string' ? body.gatewayUrl : '';
+      const localLanUrl = typeof body.localLanUrl === 'string' ? body.localLanUrl : null;
+
+      if (!pairingRequestId || !pairingSecret || !gatewayUrl) {
+        return Response.json({ error: 'Missing required fields: pairingRequestId, pairingSecret, gatewayUrl' }, { status: 400 });
+      }
+
+      const result = this.pairingStore.register({ pairingRequestId, pairingSecret, gatewayUrl, localLanUrl });
+      if (!result.ok) {
+        return Response.json({ error: 'Conflict: pairingRequestId exists with different secret' }, { status: 409 });
+      }
+
+      return Response.json({ ok: true });
+    } catch (err) {
+      log.error({ err }, 'Failed to register pairing request');
+      return Response.json({ error: 'Internal server error' }, { status: 500 });
+    }
+  }
+
+  /**
+   * POST /v1/pairing/request — Unauthenticated (secret-gated).
+   * iOS initiates a pairing handshake.
+   */
+  private async handlePairingRequest(req: Request): Promise<Response> {
+    try {
+      const body = await req.json() as Record<string, unknown>;
+      const pairingRequestId = typeof body.pairingRequestId === 'string' ? body.pairingRequestId : '';
+      const pairingSecret = typeof body.pairingSecret === 'string' ? body.pairingSecret : '';
+      const deviceId = typeof body.deviceId === 'string' ? body.deviceId.trim() : '';
+      const deviceName = typeof body.deviceName === 'string' ? body.deviceName.trim() : '';
+
+      // Redact secret from any potential logging of body
+      log.info({ pairingRequestId, deviceName, hasDeviceId: !!deviceId }, 'Pairing request received');
+
+      if (!deviceId || !deviceName) {
+        return Response.json({ error: 'Missing required fields: deviceId, deviceName' }, { status: 400 });
+      }
+
+      if (!pairingRequestId || !pairingSecret) {
+        return Response.json({ error: 'Missing required fields: pairingRequestId, pairingSecret' }, { status: 400 });
+      }
+
+      const result = this.pairingStore.beginRequest({ pairingRequestId, pairingSecret, deviceId, deviceName });
+      if (!result.ok) {
+        const statusCode = result.reason === 'invalid_secret' ? 403 : result.reason === 'not_found' ? 403 : 410;
+        return Response.json({ error: 'Forbidden' }, { status: statusCode });
+      }
+
+      const entry = result.entry;
+      const hashedDeviceId = hashDeviceId(deviceId);
+
+      // Auto-approve if device is in the allowlist
+      if (isDeviceApproved(hashedDeviceId) && this.bearerToken) {
+        refreshDevice(hashedDeviceId, deviceName);
+        this.pairingStore.approve(pairingRequestId, this.bearerToken);
+        log.info({ pairingRequestId, hashedDeviceId }, 'Auto-approved allowlisted device');
+        return Response.json({
+          status: 'approved',
+          bearerToken: this.bearerToken,
+          gatewayUrl: entry.gatewayUrl,
+          localLanUrl: entry.localLanUrl,
+        });
+      }
+
+      // Send IPC to macOS to show approval prompt
+      if (this.pairingBroadcast) {
+        this.pairingBroadcast({
+          type: 'pairing_approval_request',
+          pairingRequestId,
+          deviceId: hashedDeviceId,
+          deviceName,
+        });
+      }
+
+      return Response.json({ status: 'pending' });
+    } catch (err) {
+      log.error({ err }, 'Failed to process pairing request');
+      return Response.json({ error: 'Internal server error' }, { status: 500 });
+    }
+  }
+
+  /**
+   * GET /v1/pairing/status?id=<id>&secret=<secret> — Unauthenticated (secret-gated).
+   * iOS polls for approval status.
+   */
+  private handlePairingStatus(url: URL): Response {
+    const id = url.searchParams.get('id') ?? '';
+    // Note: secret is redacted from logs
+    const secret = url.searchParams.get('secret') ?? '';
+
+    if (!id || !secret) {
+      return Response.json({ error: 'Missing required params: id, secret' }, { status: 400 });
+    }
+
+    if (!this.pairingStore.validateSecret(id, secret)) {
+      return Response.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    const entry = this.pairingStore.get(id);
+    if (!entry) {
+      return Response.json({ error: 'Not found' }, { status: 404 });
+    }
+
+    if (entry.status === 'approved') {
+      return Response.json({
+        status: 'approved',
+        bearerToken: entry.bearerToken,
+        gatewayUrl: entry.gatewayUrl,
+        localLanUrl: entry.localLanUrl,
+      });
+    }
+
+    return Response.json({ status: entry.status });
   }
 
   private handleGetInterface(interfacePath: string): Response {

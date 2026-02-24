@@ -24,6 +24,7 @@ import { workspaceFileHandlers } from './workspace-files.js';
 import { identityHandlers } from './identity.js';
 import { dictationHandlers } from './dictation.js';
 import { inboxInviteHandlers } from './config-inbox.js';
+import { pairingHandlers } from './pairing.js';
 
 // Re-export types and utilities for backwards compatibility
 export type {
@@ -116,6 +117,7 @@ const handlers = {
   ...identityHandlers,
   ...dictationHandlers,
   ...inboxInviteHandlers,
+  ...pairingHandlers,
   ...inlineHandlers,
 } satisfies DispatchMap;
 
