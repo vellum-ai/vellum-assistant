@@ -26,6 +26,7 @@ import { ensurePromptFiles } from '../config/system-prompt.js';
 import { loadPrebuiltHtml } from '../home-base/prebuilt/seed.js';
 import { DaemonServer } from './server.js';
 import { setRelayBroadcast } from '../calls/relay-server.js';
+import { setVoiceBridgeOrchestrator } from '../calls/voice-session-bridge.js';
 import { listWorkItems, updateWorkItem } from '../work-items/work-item-store.js';
 import { getLogger, initLogger } from '../util/logger.js';
 import { initSentry } from '../instrument.js';
@@ -250,6 +251,8 @@ export async function runDaemon(): Promise<void> {
 
   const hostname = getRuntimeHttpHost();
 
+  const runOrchestrator = server.createRunOrchestrator();
+
   runtimeHttp = new RuntimeHttpServer({
     port: httpPort,
     hostname,
@@ -258,7 +261,7 @@ export async function runDaemon(): Promise<void> {
       server.processMessage(conversationId, content, attachmentIds, options, sourceChannel),
     persistAndProcessMessage: (conversationId, content, attachmentIds, options, sourceChannel) =>
       server.persistAndProcessMessage(conversationId, content, attachmentIds, options, sourceChannel),
-    runOrchestrator: server.createRunOrchestrator(),
+    runOrchestrator,
     interfacesDir: getInterfacesDir(),
     approvalCopyGenerator: createApprovalCopyGenerator(),
     approvalConversationGenerator: createApprovalConversationGenerator(),
@@ -278,6 +281,7 @@ export async function runDaemon(): Promise<void> {
   try {
     await runtimeHttp.start();
     setRelayBroadcast((msg) => server.broadcast(msg));
+    setVoiceBridgeOrchestrator(runOrchestrator);
     runtimeHttp.setPairingBroadcast((msg) => server.broadcast(msg));
     initPairingHandlers(runtimeHttp.getPairingStore(), bearerToken);
     server.setHttpPort(httpPort);
