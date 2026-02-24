@@ -43,7 +43,7 @@ public struct IPCAddTrustRule: Codable, Sendable {
     /// Execution target override for this rule.
     public let executionTarget: String?
 
-    public init(type: String, toolName: String, pattern: String, scope: String, decision: String, allowHighRisk: Bool?, executionTarget: String?) {
+    public init(type: String, toolName: String, pattern: String, scope: String, decision: String, allowHighRisk: Bool? = nil, executionTarget: String? = nil) {
         self.type = type
         self.toolName = toolName
         self.pattern = pattern
@@ -75,7 +75,7 @@ public struct IPCAppDataRequest: Codable, Sendable {
     public let recordId: String?
     public let data: [String: AnyCodable]?
 
-    public init(type: String, surfaceId: String, callId: String, method: String, appId: String, recordId: String?, data: [String: AnyCodable]?) {
+    public init(type: String, surfaceId: String, callId: String, method: String, appId: String, recordId: String? = nil, data: [String: AnyCodable]? = nil) {
         self.type = type
         self.surfaceId = surfaceId
         self.callId = callId
@@ -94,7 +94,7 @@ public struct IPCAppDataResponse: Codable, Sendable {
     public let result: AnyCodable?
     public let error: String?
 
-    public init(type: String, surfaceId: String, callId: String, success: Bool, result: AnyCodable?, error: String?) {
+    public init(type: String, surfaceId: String, callId: String, success: Bool, result: AnyCodable? = nil, error: String? = nil) {
         self.type = type
         self.surfaceId = surfaceId
         self.callId = callId
@@ -110,7 +110,7 @@ public struct IPCAppDiffRequest: Codable, Sendable {
     public let fromCommit: String
     public let toCommit: String?
 
-    public init(type: String, appId: String, fromCommit: String, toCommit: String?) {
+    public init(type: String, appId: String, fromCommit: String, toCommit: String? = nil) {
         self.type = type
         self.appId = appId
         self.fromCommit = fromCommit
@@ -173,7 +173,7 @@ public struct IPCAppHistoryRequest: Codable, Sendable {
     public let appId: String
     public let limit: Double?
 
-    public init(type: String, appId: String, limit: Double?) {
+    public init(type: String, appId: String, limit: Double? = nil) {
         self.type = type
         self.appId = appId
         self.limit = limit
@@ -229,7 +229,7 @@ public struct IPCAppPreviewResponse: Codable, Sendable {
     public let appId: String
     public let preview: String?
 
-    public init(type: String, appId: String, preview: String?) {
+    public init(type: String, appId: String, preview: String? = nil) {
         self.type = type
         self.appId = appId
         self.preview = preview
@@ -253,7 +253,7 @@ public struct IPCAppRestoreResponse: Codable, Sendable {
     public let success: Bool
     public let error: String?
 
-    public init(type: String, success: Bool, error: String?) {
+    public init(type: String, success: Bool, error: String? = nil) {
         self.type = type
         self.success = success
         self.error = error
@@ -289,7 +289,7 @@ public struct IPCAppsListResponseApp: Codable, Sendable {
     public let contentId: String?
     public let appType: String?
 
-    public init(id: String, name: String, description: String?, icon: String?, preview: String?, createdAt: Int, version: String?, contentId: String?, appType: String?) {
+    public init(id: String, name: String, description: String? = nil, icon: String? = nil, preview: String? = nil, createdAt: Int, version: String? = nil, contentId: String? = nil, appType: String? = nil) {
         self.id = id
         self.name = name
         self.description = description
@@ -332,7 +332,7 @@ public struct IPCAssistantTextDelta: Codable, Sendable {
     public let text: String
     public let sessionId: String?
 
-    public init(type: String, text: String, sessionId: String?) {
+    public init(type: String, text: String, sessionId: String? = nil) {
         self.type = type
         self.text = text
         self.sessionId = sessionId
@@ -364,7 +364,7 @@ public struct IPCAuthResult: Codable, Sendable {
     public let success: Bool
     public let message: String?
 
-    public init(type: String, success: Bool, message: String?) {
+    public init(type: String, success: Bool, message: String? = nil) {
         self.type = type
         self.success = success
         self.message = message
@@ -387,7 +387,7 @@ public struct IPCBrowserCDPResponse: Codable, Sendable {
     public let success: Bool
     public let declined: Bool?
 
-    public init(type: String, sessionId: String, success: Bool, declined: Bool?) {
+    public init(type: String, sessionId: String, success: Bool, declined: Bool? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.success = success
@@ -402,7 +402,7 @@ public struct IPCBrowserFrame: Codable, Sendable {
     public let frame: String
     public let metadata: IPCBrowserFrameMetadata?
 
-    public init(type: String, sessionId: String, surfaceId: String, frame: String, metadata: IPCBrowserFrameMetadata?) {
+    public init(type: String, sessionId: String, surfaceId: String, frame: String, metadata: IPCBrowserFrameMetadata? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.surfaceId = surfaceId
@@ -435,7 +435,7 @@ public struct IPCBrowserHandoffRequest: Codable, Sendable {
     public let message: String
     public let bringToFront: Bool?
 
-    public init(type: String, sessionId: String, surfaceId: String, reason: String, message: String, bringToFront: Bool?) {
+    public init(type: String, sessionId: String, surfaceId: String, reason: String, message: String, bringToFront: Bool? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.surfaceId = surfaceId
@@ -467,7 +467,7 @@ public struct IPCBrowserInteractiveModeChanged: Codable, Sendable {
     public let reason: String?
     public let message: String?
 
-    public init(type: String, sessionId: String, surfaceId: String, enabled: Bool, reason: String?, message: String?) {
+    public init(type: String, sessionId: String, surfaceId: String, enabled: Bool, reason: String? = nil, message: String? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.surfaceId = surfaceId
@@ -486,7 +486,7 @@ public struct IPCBrowserUserClick: Codable, Sendable {
     public let button: String?
     public let doubleClick: Bool?
 
-    public init(type: String, sessionId: String, surfaceId: String, x: Double, y: Double, button: String?, doubleClick: Bool?) {
+    public init(type: String, sessionId: String, surfaceId: String, x: Double, y: Double, button: String? = nil, doubleClick: Bool? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.surfaceId = surfaceId
@@ -504,7 +504,7 @@ public struct IPCBrowserUserKeypress: Codable, Sendable {
     public let key: String
     public let modifiers: [String]?
 
-    public init(type: String, sessionId: String, surfaceId: String, key: String, modifiers: [String]?) {
+    public init(type: String, sessionId: String, surfaceId: String, key: String, modifiers: [String]? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.surfaceId = surfaceId
@@ -542,7 +542,7 @@ public struct IPCBrowserViewSurfaceData: Codable, Sendable {
     public let highlights: [IPCBrowserViewSurfaceDataHighlight]?
     public let pages: [IPCBrowserViewSurfaceDataPage]?
 
-    public init(sessionId: String, currentUrl: String, status: String, frame: String?, actionText: String?, highlights: [IPCBrowserViewSurfaceDataHighlight]?, pages: [IPCBrowserViewSurfaceDataPage]?) {
+    public init(sessionId: String, currentUrl: String, status: String, frame: String? = nil, actionText: String? = nil, highlights: [IPCBrowserViewSurfaceDataHighlight]? = nil, pages: [IPCBrowserViewSurfaceDataPage]? = nil) {
         self.sessionId = sessionId
         self.currentUrl = currentUrl
         self.status = status
@@ -617,7 +617,7 @@ public struct IPCBundleAppResponseManifest: Codable, Sendable {
     public let version: String?
     public let content_id: String?
 
-    public init(format_version: Int, name: String, description: String?, icon: String?, created_at: String, created_by: String, entry: String, capabilities: [String], version: String?, content_id: String?) {
+    public init(format_version: Int, name: String, description: String? = nil, icon: String? = nil, created_at: String, created_by: String, entry: String, capabilities: [String], version: String? = nil, content_id: String? = nil) {
         self.format_version = format_version
         self.name = name
         self.description = description
@@ -635,7 +635,7 @@ public struct IPCCancelRequest: Codable, Sendable {
     public let type: String
     public let sessionId: String?
 
-    public init(type: String, sessionId: String?) {
+    public init(type: String, sessionId: String? = nil) {
         self.type = type
         self.sessionId = sessionId
     }
@@ -651,7 +651,7 @@ public struct IPCCardSurfaceData: Codable, Sendable {
     /// Arbitrary data consumed by the template renderer. Shape depends on template.
     public let templateData: [String: AnyCodable]?
 
-    public init(title: String, subtitle: String?, body: String, metadata: [IPCCardSurfaceDataMetadata]?, template: String?, templateData: [String: AnyCodable]?) {
+    public init(title: String, subtitle: String? = nil, body: String, metadata: [IPCCardSurfaceDataMetadata]? = nil, template: String? = nil, templateData: [String: AnyCodable]? = nil) {
         self.title = title
         self.subtitle = subtitle
         self.body = body
@@ -679,7 +679,7 @@ public struct IPCChannelBinding: Codable, Sendable {
     public let displayName: String?
     public let username: String?
 
-    public init(sourceChannel: String, externalChatId: String, externalUserId: String?, displayName: String?, username: String?) {
+    public init(sourceChannel: String, externalChatId: String, externalUserId: String? = nil, displayName: String? = nil, username: String? = nil) {
         self.sourceChannel = sourceChannel
         self.externalChatId = externalChatId
         self.externalUserId = externalUserId
@@ -703,7 +703,7 @@ public struct IPCConfirmationRequest: Codable, Sendable {
     /// When false, the client should hide "always allow" / trust-rule persistence affordances.
     public let persistentDecisionsAllowed: Bool?
 
-    public init(type: String, requestId: String, toolName: String, input: [String: AnyCodable], riskLevel: String, executionTarget: String?, allowlistOptions: [IPCConfirmationRequestAllowlistOption], scopeOptions: [IPCConfirmationRequestScopeOption], diff: IPCConfirmationRequestDiff?, sandboxed: Bool?, sessionId: String?, persistentDecisionsAllowed: Bool?) {
+    public init(type: String, requestId: String, toolName: String, input: [String: AnyCodable], riskLevel: String, executionTarget: String? = nil, allowlistOptions: [IPCConfirmationRequestAllowlistOption], scopeOptions: [IPCConfirmationRequestScopeOption], diff: IPCConfirmationRequestDiff? = nil, sandboxed: Bool? = nil, sessionId: String? = nil, persistentDecisionsAllowed: Bool? = nil) {
         self.type = type
         self.requestId = requestId
         self.toolName = toolName
@@ -762,7 +762,7 @@ public struct IPCConfirmationResponse: Codable, Sendable {
     public let selectedPattern: String?
     public let selectedScope: String?
 
-    public init(type: String, requestId: String, decision: String, selectedPattern: String?, selectedScope: String?) {
+    public init(type: String, requestId: String, decision: String, selectedPattern: String? = nil, selectedScope: String? = nil) {
         self.type = type
         self.requestId = requestId
         self.decision = decision
@@ -778,7 +778,7 @@ public struct IPCConfirmationSurfaceData: Codable, Sendable {
     public let cancelLabel: String?
     public let destructive: Bool?
 
-    public init(message: String, detail: String?, confirmLabel: String?, cancelLabel: String?, destructive: Bool?) {
+    public init(message: String, detail: String? = nil, confirmLabel: String? = nil, cancelLabel: String? = nil, destructive: Bool? = nil) {
         self.message = message
         self.detail = detail
         self.confirmLabel = confirmLabel
@@ -821,7 +821,7 @@ public struct IPCCuAction: Codable, Sendable {
     public let reasoning: String?
     public let stepNumber: Int
 
-    public init(type: String, sessionId: String, toolName: String, input: [String: AnyCodable], reasoning: String?, stepNumber: Int) {
+    public init(type: String, sessionId: String, toolName: String, input: [String: AnyCodable], reasoning: String? = nil, stepNumber: Int) {
         self.type = type
         self.sessionId = sessionId
         self.toolName = toolName
@@ -838,7 +838,7 @@ public struct IPCCuComplete: Codable, Sendable {
     public let stepCount: Int
     public let isResponse: Bool?
 
-    public init(type: String, sessionId: String, summary: String, stepCount: Int, isResponse: Bool?) {
+    public init(type: String, sessionId: String, summary: String, stepCount: Int, isResponse: Bool? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.summary = summary
@@ -883,7 +883,7 @@ public struct IPCCuObservation: Codable, Sendable {
     public let axTreeBlob: IPCIpcBlobRef?
     public let screenshotBlob: IPCIpcBlobRef?
 
-    public init(type: String, sessionId: String, axTree: String?, axDiff: String?, secondaryWindows: String?, screenshot: String?, screenshotWidthPx: Double?, screenshotHeightPx: Double?, screenWidthPt: Double?, screenHeightPt: Double?, coordinateOrigin: String?, captureDisplayId: Double?, executionResult: String?, executionError: String?, axTreeBlob: IPCIpcBlobRef?, screenshotBlob: IPCIpcBlobRef?) {
+    public init(type: String, sessionId: String, axTree: String? = nil, axDiff: String? = nil, secondaryWindows: String? = nil, screenshot: String? = nil, screenshotWidthPx: Double? = nil, screenshotHeightPx: Double? = nil, screenWidthPt: Double? = nil, screenHeightPt: Double? = nil, coordinateOrigin: String? = nil, captureDisplayId: Double? = nil, executionResult: String? = nil, executionError: String? = nil, axTreeBlob: IPCIpcBlobRef? = nil, screenshotBlob: IPCIpcBlobRef? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.axTree = axTree
@@ -922,7 +922,7 @@ public struct IPCCuSessionCreate: Codable, Sendable {
     public let attachments: [IPCUserMessageAttachment]?
     public let interactionType: String?
 
-    public init(type: String, sessionId: String, task: String, screenWidth: Int, screenHeight: Int, attachments: [IPCUserMessageAttachment]?, interactionType: String?) {
+    public init(type: String, sessionId: String, task: String, screenWidth: Int, screenHeight: Int, attachments: [IPCUserMessageAttachment]? = nil, interactionType: String? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.task = task
@@ -938,7 +938,7 @@ public struct IPCDaemonStatusMessage: Codable, Sendable {
     public let httpPort: Double?
     public let version: String?
 
-    public init(type: String, httpPort: Double?, version: String?) {
+    public init(type: String, httpPort: Double? = nil, version: String? = nil) {
         self.type = type
         self.httpPort = httpPort
         self.version = version
@@ -962,7 +962,7 @@ public struct IPCDiagnosticsExportRequest: Codable, Sendable {
     public let conversationId: String
     public let anchorMessageId: String?
 
-    public init(type: String, conversationId: String, anchorMessageId: String?) {
+    public init(type: String, conversationId: String, anchorMessageId: String? = nil) {
         self.type = type
         self.conversationId = conversationId
         self.anchorMessageId = anchorMessageId
@@ -975,7 +975,7 @@ public struct IPCDiagnosticsExportResponse: Codable, Sendable {
     public let filePath: String?
     public let error: String?
 
-    public init(type: String, success: Bool, filePath: String?, error: String?) {
+    public init(type: String, success: Bool, filePath: String? = nil, error: String? = nil) {
         self.type = type
         self.success = success
         self.filePath = filePath
@@ -990,7 +990,7 @@ public struct IPCDictationContext: Codable, Sendable {
     public let selectedText: String?
     public let cursorInTextField: Bool
 
-    public init(bundleIdentifier: String, appName: String, windowTitle: String, selectedText: String?, cursorInTextField: Bool) {
+    public init(bundleIdentifier: String, appName: String, windowTitle: String, selectedText: String? = nil, cursorInTextField: Bool) {
         self.bundleIdentifier = bundleIdentifier
         self.appName = appName
         self.windowTitle = windowTitle
@@ -1017,7 +1017,7 @@ public struct IPCDictationResponse: Codable, Sendable {
     public let mode: String
     public let actionPlan: String?
 
-    public init(type: String, text: String, mode: String, actionPlan: String?) {
+    public init(type: String, text: String, mode: String, actionPlan: String? = nil) {
         self.type = type
         self.text = text
         self.mode = mode
@@ -1061,7 +1061,7 @@ public struct IPCDocumentListRequest: Codable, Sendable {
     public let type: String
     public let conversationId: String?
 
-    public init(type: String, conversationId: String?) {
+    public init(type: String, conversationId: String? = nil) {
         self.type = type
         self.conversationId = conversationId
     }
@@ -1117,7 +1117,7 @@ public struct IPCDocumentLoadResponse: Codable, Sendable {
     public let success: Bool
     public let error: String?
 
-    public init(type: String, surfaceId: String, conversationId: String, title: String, content: String, wordCount: Int, createdAt: Int, updatedAt: Int, success: Bool, error: String?) {
+    public init(type: String, surfaceId: String, conversationId: String, title: String, content: String, wordCount: Int, createdAt: Int, updatedAt: Int, success: Bool, error: String? = nil) {
         self.type = type
         self.surfaceId = surfaceId
         self.conversationId = conversationId
@@ -1136,7 +1136,7 @@ public struct IPCDocumentPreviewSurfaceData: Codable, Sendable {
     public let surfaceId: String
     public let subtitle: String?
 
-    public init(title: String, surfaceId: String, subtitle: String?) {
+    public init(title: String, surfaceId: String, subtitle: String? = nil) {
         self.title = title
         self.surfaceId = surfaceId
         self.subtitle = subtitle
@@ -1167,7 +1167,7 @@ public struct IPCDocumentSaveResponse: Codable, Sendable {
     public let success: Bool
     public let error: String?
 
-    public init(type: String, surfaceId: String, success: Bool, error: String?) {
+    public init(type: String, surfaceId: String, success: Bool, error: String? = nil) {
         self.type = type
         self.surfaceId = surfaceId
         self.success = success
@@ -1182,7 +1182,7 @@ public struct IPCDynamicPagePreview: Codable, Sendable {
     public let icon: String?
     public let metrics: [IPCDynamicPagePreviewMetric]?
 
-    public init(title: String, subtitle: String?, description: String?, icon: String?, metrics: [IPCDynamicPagePreviewMetric]?) {
+    public init(title: String, subtitle: String? = nil, description: String? = nil, icon: String? = nil, metrics: [IPCDynamicPagePreviewMetric]? = nil) {
         self.title = title
         self.subtitle = subtitle
         self.description = description
@@ -1211,7 +1211,7 @@ public struct IPCDynamicPageSurfaceData: Codable, Sendable {
     public let status: String?
     public let preview: IPCDynamicPagePreview?
 
-    public init(html: String, width: Int?, height: Int?, appId: String?, appType: String?, reloadGeneration: Double?, status: String?, preview: IPCDynamicPagePreview?) {
+    public init(html: String, width: Int? = nil, height: Int? = nil, appId: String? = nil, appType: String? = nil, reloadGeneration: Double? = nil, status: String? = nil, preview: IPCDynamicPagePreview? = nil) {
         self.html = html
         self.width = width
         self.height = height
@@ -1247,7 +1247,7 @@ public struct IPCErrorMessage: Codable, Sendable {
     /// Categorizes the error so the client can offer contextual actions (e.g. "Send Anyway" for secret_blocked).
     public let category: String?
 
-    public init(type: String, message: String, category: String?) {
+    public init(type: String, message: String, category: String? = nil) {
         self.type = type
         self.message = message
         self.category = category
@@ -1260,7 +1260,7 @@ public struct IPCFileUploadSurfaceData: Codable, Sendable {
     public let maxFiles: Int?
     public let maxSizeBytes: Int?
 
-    public init(prompt: String, acceptedTypes: [String]?, maxFiles: Int?, maxSizeBytes: Int?) {
+    public init(prompt: String, acceptedTypes: [String]? = nil, maxFiles: Int? = nil, maxSizeBytes: Int? = nil) {
         self.prompt = prompt
         self.acceptedTypes = acceptedTypes
         self.maxFiles = maxFiles
@@ -1285,7 +1285,7 @@ public struct IPCForkSharedAppResponse: Codable, Sendable {
     public let name: String?
     public let error: String?
 
-    public init(type: String, success: Bool, appId: String?, name: String?, error: String?) {
+    public init(type: String, success: Bool, appId: String? = nil, name: String? = nil, error: String? = nil) {
         self.type = type
         self.success = success
         self.appId = appId
@@ -1303,7 +1303,7 @@ public struct IPCFormField: Codable, Sendable {
     public let defaultValue: AnyCodable?
     public let options: [IPCFormFieldOption]?
 
-    public init(id: String, type: String, label: String, placeholder: String?, required: Bool?, defaultValue: AnyCodable?, options: [IPCFormFieldOption]?) {
+    public init(id: String, type: String, label: String, placeholder: String? = nil, required: Bool? = nil, defaultValue: AnyCodable? = nil, options: [IPCFormFieldOption]? = nil) {
         self.id = id
         self.type = type
         self.label = label
@@ -1330,7 +1330,7 @@ public struct IPCFormPage: Codable, Sendable {
     public let description: String?
     public let fields: [IPCFormField]
 
-    public init(id: String, title: String, description: String?, fields: [IPCFormField]) {
+    public init(id: String, title: String, description: String? = nil, fields: [IPCFormField]) {
         self.id = id
         self.title = title
         self.description = description
@@ -1345,7 +1345,7 @@ public struct IPCFormSurfaceData: Codable, Sendable {
     public let pages: [IPCFormPage]?
     public let pageLabels: IPCFormSurfaceDataPageLabels?
 
-    public init(description: String?, fields: [IPCFormField], submitLabel: String?, pages: [IPCFormPage]?, pageLabels: IPCFormSurfaceDataPageLabels?) {
+    public init(description: String? = nil, fields: [IPCFormField], submitLabel: String? = nil, pages: [IPCFormPage]? = nil, pageLabels: IPCFormSurfaceDataPageLabels? = nil) {
         self.description = description
         self.fields = fields
         self.submitLabel = submitLabel
@@ -1359,7 +1359,7 @@ public struct IPCFormSurfaceDataPageLabels: Codable, Sendable {
     public let back: String?
     public let submit: String?
 
-    public init(next: String?, back: String?, submit: String?) {
+    public init(next: String? = nil, back: String? = nil, submit: String? = nil) {
         self.next = next
         self.back = back
         self.submit = submit
@@ -1377,7 +1377,7 @@ public struct IPCGalleryApp: Codable, Sendable {
     public let schemaJson: String
     public let htmlDefinition: String
 
-    public init(id: String, name: String, description: String, icon: String, category: String, version: String, featured: Bool?, schemaJson: String, htmlDefinition: String) {
+    public init(id: String, name: String, description: String, icon: String, category: String, version: String, featured: Bool? = nil, schemaJson: String, htmlDefinition: String) {
         self.id = id
         self.name = name
         self.description = description
@@ -1419,7 +1419,7 @@ public struct IPCGalleryInstallResponse: Codable, Sendable {
     public let name: String?
     public let error: String?
 
-    public init(type: String, success: Bool, appId: String?, name: String?, error: String?) {
+    public init(type: String, success: Bool, appId: String? = nil, name: String? = nil, error: String? = nil) {
         self.type = type
         self.success = success
         self.appId = appId
@@ -1464,7 +1464,7 @@ public struct IPCGenerationCancelled: Codable, Sendable {
     public let type: String
     public let sessionId: String?
 
-    public init(type: String, sessionId: String?) {
+    public init(type: String, sessionId: String? = nil) {
         self.type = type
         self.sessionId = sessionId
     }
@@ -1477,7 +1477,7 @@ public struct IPCGenerationHandoff: Codable, Sendable {
     public let queuedCount: Int
     public let attachments: [IPCUserMessageAttachment]?
 
-    public init(type: String, sessionId: String, requestId: String?, queuedCount: Int, attachments: [IPCUserMessageAttachment]?) {
+    public init(type: String, sessionId: String, requestId: String? = nil, queuedCount: Int, attachments: [IPCUserMessageAttachment]? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.requestId = requestId
@@ -1503,7 +1503,7 @@ public struct IPCGetSigningIdentityResponse: Codable, Sendable {
     public let publicKey: String?
     public let error: String?
 
-    public init(type: String, requestId: String, keyId: String?, publicKey: String?, error: String?) {
+    public init(type: String, requestId: String, keyId: String? = nil, publicKey: String? = nil, error: String? = nil) {
         self.type = type
         self.requestId = requestId
         self.keyId = keyId
@@ -1519,7 +1519,7 @@ public struct IPCGuardianVerificationRequest: Codable, Sendable {
     public let sessionId: String?
     public let assistantId: String?
 
-    public init(type: String, action: String, channel: String?, sessionId: String?, assistantId: String?) {
+    public init(type: String, action: String, channel: String? = nil, sessionId: String? = nil, assistantId: String? = nil) {
         self.type = type
         self.action = action
         self.channel = channel
@@ -1548,7 +1548,7 @@ public struct IPCGuardianVerificationResponse: Codable, Sendable {
     public let guardianDisplayName: String?
     public let error: String?
 
-    public init(type: String, success: Bool, secret: String?, instruction: String?, bound: Bool?, guardianExternalUserId: String?, channel: String?, assistantId: String?, guardianDeliveryChatId: String?, guardianUsername: String?, guardianDisplayName: String?, error: String?) {
+    public init(type: String, success: Bool, secret: String? = nil, instruction: String? = nil, bound: Bool? = nil, guardianExternalUserId: String? = nil, channel: String? = nil, assistantId: String? = nil, guardianDeliveryChatId: String? = nil, guardianUsername: String? = nil, guardianDisplayName: String? = nil, error: String? = nil) {
         self.type = type
         self.success = success
         self.secret = secret
@@ -1604,7 +1604,7 @@ public struct IPCHistoryResponseMessage: Codable, Sendable {
     /// Present when this message is a subagent lifecycle notification (completed/failed/aborted).
     public let subagentNotification: IPCHistoryResponseMessageSubagentNotification?
 
-    public init(id: String?, role: String, text: String, timestamp: Double, toolCalls: [IPCHistoryResponseToolCall]?, toolCallsBeforeText: Bool?, attachments: [IPCUserMessageAttachment]?, textSegments: [String]?, contentOrder: [String]?, surfaces: [IPCHistoryResponseSurface]?, subagentNotification: IPCHistoryResponseMessageSubagentNotification?) {
+    public init(id: String? = nil, role: String, text: String, timestamp: Double, toolCalls: [IPCHistoryResponseToolCall]? = nil, toolCallsBeforeText: Bool? = nil, attachments: [IPCUserMessageAttachment]? = nil, textSegments: [String]? = nil, contentOrder: [String]? = nil, surfaces: [IPCHistoryResponseSurface]? = nil, subagentNotification: IPCHistoryResponseMessageSubagentNotification? = nil) {
         self.id = id
         self.role = role
         self.text = text
@@ -1626,7 +1626,7 @@ public struct IPCHistoryResponseMessageSubagentNotification: Codable, Sendable {
     public let error: String?
     public let conversationId: String?
 
-    public init(subagentId: String, label: String, status: String, error: String?, conversationId: String?) {
+    public init(subagentId: String, label: String, status: String, error: String? = nil, conversationId: String? = nil) {
         self.subagentId = subagentId
         self.label = label
         self.status = status
@@ -1643,7 +1643,7 @@ public struct IPCHistoryResponseSurface: Codable, Sendable {
     public let actions: [IPCHistoryResponseSurfaceAction]?
     public let display: String?
 
-    public init(surfaceId: String, surfaceType: String, title: String?, data: [String: AnyCodable], actions: [IPCHistoryResponseSurfaceAction]?, display: String?) {
+    public init(surfaceId: String, surfaceType: String, title: String? = nil, data: [String: AnyCodable], actions: [IPCHistoryResponseSurfaceAction]? = nil, display: String? = nil) {
         self.surfaceId = surfaceId
         self.surfaceType = surfaceType
         self.title = title
@@ -1658,7 +1658,7 @@ public struct IPCHistoryResponseSurfaceAction: Codable, Sendable {
     public let label: String
     public let style: String?
 
-    public init(id: String, label: String, style: String?) {
+    public init(id: String, label: String, style: String? = nil) {
         self.id = id
         self.label = label
         self.style = style
@@ -1673,7 +1673,7 @@ public struct IPCHistoryResponseToolCall: Codable, Sendable {
     /// Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot).
     public let imageData: String?
 
-    public init(name: String, input: [String: AnyCodable], result: String?, isError: Bool?, imageData: String?) {
+    public init(name: String, input: [String: AnyCodable], result: String? = nil, isError: Bool? = nil, imageData: String? = nil) {
         self.name = name
         self.input = input
         self.result = result
@@ -1687,7 +1687,7 @@ public struct IPCHomeBaseGetRequest: Codable, Sendable {
     /// If true, daemon ensures a durable Home Base link exists before responding.
     public let ensureLinked: Bool?
 
-    public init(type: String, ensureLinked: Bool?) {
+    public init(type: String, ensureLinked: Bool? = nil) {
         self.type = type
         self.ensureLinked = ensureLinked
     }
@@ -1767,7 +1767,7 @@ public struct IPCIdentityGetResponse: Codable, Sendable {
     public let createdAt: String?
     public let originSystem: String?
 
-    public init(type: String, found: Bool?, name: String, role: String, personality: String, emoji: String, home: String, version: String?, assistantId: String?, createdAt: String?, originSystem: String?) {
+    public init(type: String, found: Bool? = nil, name: String, role: String, personality: String, emoji: String, home: String, version: String? = nil, assistantId: String? = nil, createdAt: String? = nil, originSystem: String? = nil) {
         self.type = type
         self.found = found
         self.name = name
@@ -1798,7 +1798,7 @@ public struct IPCIngressConfigRequest: Codable, Sendable {
     public let publicBaseUrl: String?
     public let enabled: Bool?
 
-    public init(type: String, action: String, publicBaseUrl: String?, enabled: Bool?) {
+    public init(type: String, action: String, publicBaseUrl: String? = nil, enabled: Bool? = nil) {
         self.type = type
         self.action = action
         self.publicBaseUrl = publicBaseUrl
@@ -1815,7 +1815,7 @@ public struct IPCIngressConfigResponse: Codable, Sendable {
     public let success: Bool
     public let error: String?
 
-    public init(type: String, enabled: Bool, publicBaseUrl: String, localGatewayTarget: String, success: Bool, error: String?) {
+    public init(type: String, enabled: Bool, publicBaseUrl: String, localGatewayTarget: String, success: Bool, error: String? = nil) {
         self.type = type
         self.enabled = enabled
         self.publicBaseUrl = publicBaseUrl
@@ -1845,7 +1845,7 @@ public struct IPCIntegrationConnectResult: Codable, Sendable {
     public let setupSkillId: String?
     public let setupHint: String?
 
-    public init(type: String, integrationId: String, success: Bool, accountInfo: String?, error: String?, setupRequired: Bool?, setupSkillId: String?, setupHint: String?) {
+    public init(type: String, integrationId: String, success: Bool, accountInfo: String? = nil, error: String? = nil, setupRequired: Bool? = nil, setupSkillId: String? = nil, setupHint: String? = nil) {
         self.type = type
         self.integrationId = integrationId
         self.success = success
@@ -1893,7 +1893,7 @@ public struct IPCIntegrationListResponseIntegration: Codable, Sendable {
     public let lastUsed: Double?
     public let error: String?
 
-    public init(id: String, connected: Bool, accountInfo: String?, connectedAt: Int?, lastUsed: Double?, error: String?) {
+    public init(id: String, connected: Bool, accountInfo: String? = nil, connectedAt: Int? = nil, lastUsed: Double? = nil, error: String? = nil) {
         self.id = id
         self.connected = connected
         self.accountInfo = accountInfo
@@ -1922,7 +1922,7 @@ public struct IPCIpcBlobProbeResult: Codable, Sendable {
     public let observedNonceSha256: String?
     public let reason: String?
 
-    public init(type: String, probeId: String, ok: Bool, observedNonceSha256: String?, reason: String?) {
+    public init(type: String, probeId: String, ok: Bool, observedNonceSha256: String? = nil, reason: String? = nil) {
         self.type = type
         self.probeId = probeId
         self.ok = ok
@@ -1938,7 +1938,7 @@ public struct IPCIpcBlobRef: Codable, Sendable {
     public let byteLength: Int
     public let sha256: String?
 
-    public init(id: String, kind: String, encoding: String, byteLength: Int, sha256: String?) {
+    public init(id: String, kind: String, encoding: String, byteLength: Int, sha256: String? = nil) {
         self.id = id
         self.kind = kind
         self.encoding = encoding
@@ -1952,7 +1952,7 @@ public struct IPCLinkOpenRequest: Codable, Sendable {
     public let url: String
     public let metadata: [String: AnyCodable]?
 
-    public init(type: String, url: String, metadata: [String: AnyCodable]?) {
+    public init(type: String, url: String, metadata: [String: AnyCodable]? = nil) {
         self.type = type
         self.url = url
         self.metadata = metadata
@@ -1966,7 +1966,7 @@ public struct IPCListItem: Codable, Sendable {
     public let icon: String?
     public let selected: Bool?
 
-    public init(id: String, title: String, subtitle: String?, icon: String?, selected: Bool?) {
+    public init(id: String, title: String, subtitle: String? = nil, icon: String? = nil, selected: Bool? = nil) {
         self.id = id
         self.title = title
         self.subtitle = subtitle
@@ -2005,7 +2005,7 @@ public struct IPCMemoryRecalled: Codable, Sendable {
     public let latencyMs: Double
     public let topCandidates: [IPCMemoryRecalledCandidateDebug]
 
-    public init(type: String, provider: String, model: String, lexicalHits: Double, semanticHits: Double, recencyHits: Double, entityHits: Double, relationSeedEntityCount: Int?, relationTraversedEdgeCount: Int?, relationNeighborEntityCount: Int?, relationExpandedItemCount: Int?, earlyTerminated: Bool?, mergedCount: Int, selectedCount: Int, rerankApplied: Bool, injectedTokens: Int, latencyMs: Double, topCandidates: [IPCMemoryRecalledCandidateDebug]) {
+    public init(type: String, provider: String, model: String, lexicalHits: Double, semanticHits: Double, recencyHits: Double, entityHits: Double, relationSeedEntityCount: Int? = nil, relationTraversedEdgeCount: Int? = nil, relationNeighborEntityCount: Int? = nil, relationExpandedItemCount: Int? = nil, earlyTerminated: Bool? = nil, mergedCount: Int, selectedCount: Int, rerankApplied: Bool, injectedTokens: Int, latencyMs: Double, topCandidates: [IPCMemoryRecalledCandidateDebug]) {
         self.type = type
         self.provider = provider
         self.model = model
@@ -2062,7 +2062,7 @@ public struct IPCMemoryStatus: Codable, Sendable {
     public let cleanupResolvedJobsCompleted24h: Double
     public let cleanupSupersededJobsCompleted24h: Double
 
-    public init(type: String, enabled: Bool, degraded: Bool, reason: String?, provider: String?, model: String?, conflictsPending: Double, conflictsResolved: Double, oldestPendingConflictAgeMs: Double?, cleanupResolvedJobsPending: Double, cleanupSupersededJobsPending: Double, cleanupResolvedJobsCompleted24h: Double, cleanupSupersededJobsCompleted24h: Double) {
+    public init(type: String, enabled: Bool, degraded: Bool, reason: String? = nil, provider: String? = nil, model: String? = nil, conflictsPending: Double, conflictsResolved: Double, oldestPendingConflictAgeMs: Double?, cleanupResolvedJobsPending: Double, cleanupSupersededJobsPending: Double, cleanupResolvedJobsCompleted24h: Double, cleanupSupersededJobsCompleted24h: Double) {
         self.type = type
         self.enabled = enabled
         self.degraded = degraded
@@ -2084,7 +2084,7 @@ public struct IPCMessageComplete: Codable, Sendable {
     public let sessionId: String?
     public let attachments: [IPCUserMessageAttachment]?
 
-    public init(type: String, sessionId: String?, attachments: [IPCUserMessageAttachment]?) {
+    public init(type: String, sessionId: String? = nil, attachments: [IPCUserMessageAttachment]? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.attachments = attachments
@@ -2143,7 +2143,7 @@ public struct IPCModelInfo: Codable, Sendable {
     public let provider: String
     public let configuredProviders: [String]?
 
-    public init(type: String, model: String, provider: String, configuredProviders: [String]?) {
+    public init(type: String, model: String, provider: String, configuredProviders: [String]? = nil) {
         self.type = type
         self.model = model
         self.provider = provider
@@ -2197,7 +2197,7 @@ public struct IPCOpenBundleResponseManifest: Codable, Sendable {
     public let entry: String
     public let capabilities: [String]
 
-    public init(format_version: Int, name: String, description: String?, icon: String?, created_at: String, created_by: String, entry: String, capabilities: [String]) {
+    public init(format_version: Int, name: String, description: String? = nil, icon: String? = nil, created_at: String, created_by: String, entry: String, capabilities: [String]) {
         self.format_version = format_version
         self.name = name
         self.description = description
@@ -2227,7 +2227,7 @@ public struct IPCOpenBundleResponseSignatureResult: Codable, Sendable {
     public let signerDisplayName: String?
     public let signerAccount: String?
 
-    public init(trustTier: String, signerKeyId: String?, signerDisplayName: String?, signerAccount: String?) {
+    public init(trustTier: String, signerKeyId: String? = nil, signerDisplayName: String? = nil, signerAccount: String? = nil) {
         self.trustTier = trustTier
         self.signerKeyId = signerKeyId
         self.signerDisplayName = signerDisplayName
@@ -2249,7 +2249,7 @@ public struct IPCOpenUrl: Codable, Sendable {
     public let url: String
     public let title: String?
 
-    public init(type: String, url: String, title: String?) {
+    public init(type: String, url: String, title: String? = nil) {
         self.type = type
         self.url = url
         self.title = title
@@ -2278,7 +2278,7 @@ public struct IPCPublishPageRequest: Codable, Sendable {
     public let title: String?
     public let appId: String?
 
-    public init(type: String, html: String, title: String?, appId: String?) {
+    public init(type: String, html: String, title: String? = nil, appId: String? = nil) {
         self.type = type
         self.html = html
         self.title = title
@@ -2293,7 +2293,7 @@ public struct IPCPublishPageResponse: Codable, Sendable {
     public let deploymentId: String?
     public let error: String?
 
-    public init(type: String, success: Bool, publicUrl: String?, deploymentId: String?, error: String?) {
+    public init(type: String, success: Bool, publicUrl: String? = nil, deploymentId: String? = nil, error: String? = nil) {
         self.type = type
         self.success = success
         self.publicUrl = publicUrl
@@ -2407,7 +2407,7 @@ public struct IPCRideShotgunResult: Codable, Sendable {
     public let recordingId: String?
     public let recordingPath: String?
 
-    public init(type: String, sessionId: String, watchId: String, summary: String, observationCount: Int, recordingId: String?, recordingPath: String?) {
+    public init(type: String, sessionId: String, watchId: String, summary: String, observationCount: Int, recordingId: String? = nil, recordingPath: String? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.watchId = watchId
@@ -2428,7 +2428,7 @@ public struct IPCRideShotgunStart: Codable, Sendable {
     public let navigateDomain: String?
     public let autoNavigate: Bool?
 
-    public init(type: String, durationSeconds: Double, intervalSeconds: Double, mode: String?, targetDomain: String?, navigateDomain: String?, autoNavigate: Bool?) {
+    public init(type: String, durationSeconds: Double, intervalSeconds: Double, mode: String? = nil, targetDomain: String? = nil, navigateDomain: String? = nil, autoNavigate: Bool? = nil) {
         self.type = type
         self.durationSeconds = durationSeconds
         self.intervalSeconds = intervalSeconds
@@ -2583,7 +2583,7 @@ public struct IPCSecretRequest: Codable, Sendable {
     /// Whether one-time send override is available.
     public let allowOneTimeSend: Bool?
 
-    public init(type: String, requestId: String, service: String, field: String, label: String, description: String?, placeholder: String?, sessionId: String?, purpose: String?, allowedTools: [String]?, allowedDomains: [String]?, allowOneTimeSend: Bool?) {
+    public init(type: String, requestId: String, service: String, field: String, label: String, description: String? = nil, placeholder: String? = nil, sessionId: String? = nil, purpose: String? = nil, allowedTools: [String]? = nil, allowedDomains: [String]? = nil, allowOneTimeSend: Bool? = nil) {
         self.type = type
         self.requestId = requestId
         self.service = service
@@ -2606,7 +2606,7 @@ public struct IPCSecretResponse: Codable, Sendable {
     /// How the secret should be delivered: 'store' persists to keychain (default), 'transient_send' for one-time use without persisting.
     public let delivery: String?
 
-    public init(type: String, requestId: String, value: String?, delivery: String?) {
+    public init(type: String, requestId: String, value: String? = nil, delivery: String? = nil) {
         self.type = type
         self.requestId = requestId
         self.value = value
@@ -2628,7 +2628,7 @@ public struct IPCSessionCreateRequest: Codable, Sendable {
     /// If provided, automatically sent as the first user message after session creation.
     public let initialMessage: String?
 
-    public init(type: String, title: String?, systemPromptOverride: String?, maxResponseTokens: Int?, correlationId: String?, transport: IPCSessionTransportMetadata?, threadType: String?, preactivatedSkillIds: [String]?, initialMessage: String?) {
+    public init(type: String, title: String? = nil, systemPromptOverride: String? = nil, maxResponseTokens: Int? = nil, correlationId: String? = nil, transport: IPCSessionTransportMetadata? = nil, threadType: String? = nil, preactivatedSkillIds: [String]? = nil, initialMessage: String? = nil) {
         self.type = type
         self.title = title
         self.systemPromptOverride = systemPromptOverride
@@ -2648,7 +2648,7 @@ public struct IPCSessionInfo: Codable, Sendable {
     public let correlationId: String?
     public let threadType: String?
 
-    public init(type: String, sessionId: String, title: String, correlationId: String?, threadType: String?) {
+    public init(type: String, sessionId: String, title: String, correlationId: String? = nil, threadType: String? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.title = title
@@ -2664,7 +2664,7 @@ public struct IPCSessionListRequest: Codable, Sendable {
     /// Maximum number of sessions to return. Defaults to 50.
     public let limit: Double?
 
-    public init(type: String, offset: Double?, limit: Double?) {
+    public init(type: String, offset: Double? = nil, limit: Double? = nil) {
         self.type = type
         self.offset = offset
         self.limit = limit
@@ -2677,7 +2677,7 @@ public struct IPCSessionListResponse: Codable, Sendable {
     /// Whether more sessions exist beyond the returned page.
     public let hasMore: Bool?
 
-    public init(type: String, sessions: [IPCSessionListResponseSession], hasMore: Bool?) {
+    public init(type: String, sessions: [IPCSessionListResponseSession], hasMore: Bool? = nil) {
         self.type = type
         self.sessions = sessions
         self.hasMore = hasMore
@@ -2692,7 +2692,7 @@ public struct IPCSessionListResponseSession: Codable, Sendable {
     /// Channel binding metadata exposed in session/conversation list APIs.
     public let channelBinding: IPCChannelBinding?
 
-    public init(id: String, title: String, updatedAt: Int, threadType: String?, channelBinding: IPCChannelBinding?) {
+    public init(id: String, title: String, updatedAt: Int, threadType: String? = nil, channelBinding: IPCChannelBinding? = nil) {
         self.id = id
         self.title = title
         self.updatedAt = updatedAt
@@ -2738,7 +2738,7 @@ public struct IPCSessionTransportMetadata: Codable, Sendable {
     /// Optional concise UX brief for this channel.
     public let uxBrief: String?
 
-    public init(channelId: String, hints: [String]?, uxBrief: String?) {
+    public init(channelId: String, hints: [String]? = nil, uxBrief: String? = nil) {
         self.channelId = channelId
         self.hints = hints
         self.uxBrief = uxBrief
@@ -2762,7 +2762,7 @@ public struct IPCShareAppCloudResponse: Codable, Sendable {
     public let shareUrl: String?
     public let error: String?
 
-    public init(type: String, success: Bool, shareToken: String?, shareUrl: String?, error: String?) {
+    public init(type: String, success: Bool, shareToken: String? = nil, shareUrl: String? = nil, error: String? = nil) {
         self.type = type
         self.success = success
         self.shareToken = shareToken
@@ -2824,7 +2824,7 @@ public struct IPCSharedAppsListResponseApp: Codable, Sendable {
     public let contentId: String?
     public let updateAvailable: Bool?
 
-    public init(uuid: String, name: String, description: String?, icon: String?, preview: String?, entry: String, trustTier: String, signerDisplayName: String?, bundleSizeBytes: Int, installedAt: String, version: String?, contentId: String?, updateAvailable: Bool?) {
+    public init(uuid: String, name: String, description: String? = nil, icon: String? = nil, preview: String? = nil, entry: String, trustTier: String, signerDisplayName: String? = nil, bundleSizeBytes: Int, installedAt: String, version: String? = nil, contentId: String? = nil, updateAvailable: Bool? = nil) {
         self.uuid = uuid
         self.name = name
         self.description = description
@@ -2856,7 +2856,7 @@ public struct IPCShareToSlackResponse: Codable, Sendable {
     public let success: Bool
     public let error: String?
 
-    public init(type: String, success: Bool, error: String?) {
+    public init(type: String, success: Bool, error: String? = nil) {
         self.type = type
         self.success = success
         self.error = error
@@ -2883,7 +2883,7 @@ public struct IPCSignBundlePayloadResponse: Codable, Sendable {
     public let publicKey: String?
     public let error: String?
 
-    public init(type: String, requestId: String, signature: String?, keyId: String?, publicKey: String?, error: String?) {
+    public init(type: String, requestId: String, signature: String? = nil, keyId: String? = nil, publicKey: String? = nil, error: String? = nil) {
         self.type = type
         self.requestId = requestId
         self.signature = signature
@@ -2910,7 +2910,7 @@ public struct IPCSkillDetailResponse: Codable, Sendable {
     public let icon: String?
     public let error: String?
 
-    public init(type: String, skillId: String, body: String, icon: String?, error: String?) {
+    public init(type: String, skillId: String, body: String, icon: String? = nil, error: String? = nil) {
         self.type = type
         self.skillId = skillId
         self.body = body
@@ -2934,7 +2934,7 @@ public struct IPCSkillsConfigureRequest: Codable, Sendable {
     public let apiKey: String?
     public let config: [String: AnyCodable]?
 
-    public init(type: String, name: String, env: [String: String]?, apiKey: String?, config: [String: AnyCodable]?) {
+    public init(type: String, name: String, env: [String: String]? = nil, apiKey: String? = nil, config: [String: AnyCodable]? = nil) {
         self.type = type
         self.name = name
         self.env = env
@@ -2979,7 +2979,7 @@ public struct IPCSkillsInspectResponse: Codable, Sendable {
     public let data: IPCSkillsInspectResponseData?
     public let error: String?
 
-    public init(type: String, slug: String, data: IPCSkillsInspectResponseData?, error: String?) {
+    public init(type: String, slug: String, data: IPCSkillsInspectResponseData? = nil, error: String? = nil) {
         self.type = type
         self.slug = slug
         self.data = data
@@ -2997,7 +2997,7 @@ public struct IPCSkillsInspectResponseData: Codable, Sendable {
     public let files: [IPCSkillsInspectResponseDataFile]?
     public let skillMdContent: String?
 
-    public init(skill: IPCSkillsInspectResponseDataSkill, owner: IPCSkillsInspectResponseDataOwner?, stats: IPCSkillsInspectResponseDataStats?, createdAt: Int?, updatedAt: Int?, latestVersion: IPCSkillsInspectResponseDataLatestVersion?, files: [IPCSkillsInspectResponseDataFile]?, skillMdContent: String?) {
+    public init(skill: IPCSkillsInspectResponseDataSkill, owner: IPCSkillsInspectResponseDataOwner? = nil, stats: IPCSkillsInspectResponseDataStats? = nil, createdAt: Int? = nil, updatedAt: Int? = nil, latestVersion: IPCSkillsInspectResponseDataLatestVersion? = nil, files: [IPCSkillsInspectResponseDataFile]? = nil, skillMdContent: String? = nil) {
         self.skill = skill
         self.owner = owner
         self.stats = stats
@@ -3014,7 +3014,7 @@ public struct IPCSkillsInspectResponseDataFile: Codable, Sendable {
     public let size: Int
     public let contentType: String?
 
-    public init(path: String, size: Int, contentType: String?) {
+    public init(path: String, size: Int, contentType: String? = nil) {
         self.path = path
         self.size = size
         self.contentType = contentType
@@ -3025,7 +3025,7 @@ public struct IPCSkillsInspectResponseDataLatestVersion: Codable, Sendable {
     public let version: String
     public let changelog: String?
 
-    public init(version: String, changelog: String?) {
+    public init(version: String, changelog: String? = nil) {
         self.version = version
         self.changelog = changelog
     }
@@ -3036,7 +3036,7 @@ public struct IPCSkillsInspectResponseDataOwner: Codable, Sendable {
     public let displayName: String
     public let image: String?
 
-    public init(handle: String, displayName: String, image: String?) {
+    public init(handle: String, displayName: String, image: String? = nil) {
         self.handle = handle
         self.displayName = displayName
         self.image = image
@@ -3074,7 +3074,7 @@ public struct IPCSkillsInstallRequest: Codable, Sendable {
     public let slug: String
     public let version: String?
 
-    public init(type: String, slug: String, version: String?) {
+    public init(type: String, slug: String, version: String? = nil) {
         self.type = type
         self.slug = slug
         self.version = version
@@ -3115,7 +3115,7 @@ public struct IPCSkillsListResponseSkill: Codable, Sendable {
     public let userInvocable: Bool
     public let clawhub: IPCSkillsListResponseSkillClawhub?
 
-    public init(id: String, name: String, description: String, emoji: String?, homepage: String?, source: String, state: String, degraded: Bool, missingRequirements: IPCSkillsListResponseSkillMissingRequirements?, installedVersion: String?, latestVersion: String?, updateAvailable: Bool, userInvocable: Bool, clawhub: IPCSkillsListResponseSkillClawhub?) {
+    public init(id: String, name: String, description: String, emoji: String? = nil, homepage: String? = nil, source: String, state: String, degraded: Bool, missingRequirements: IPCSkillsListResponseSkillMissingRequirements? = nil, installedVersion: String? = nil, latestVersion: String? = nil, updateAvailable: Bool, userInvocable: Bool, clawhub: IPCSkillsListResponseSkillClawhub? = nil) {
         self.id = id
         self.name = name
         self.description = description
@@ -3154,7 +3154,7 @@ public struct IPCSkillsListResponseSkillMissingRequirements: Codable, Sendable {
     public let env: [String]?
     public let permissions: [String]?
 
-    public init(bins: [String]?, env: [String]?, permissions: [String]?) {
+    public init(bins: [String]? = nil, env: [String]? = nil, permissions: [String]? = nil) {
         self.bins = bins
         self.env = env
         self.permissions = permissions
@@ -3168,7 +3168,7 @@ public struct IPCSkillsOperationResponse: Codable, Sendable {
     public let error: String?
     public let data: AnyCodable?
 
-    public init(type: String, operation: String, success: Bool, error: String?, data: AnyCodable?) {
+    public init(type: String, operation: String, success: Bool, error: String? = nil, data: AnyCodable? = nil) {
         self.type = type
         self.operation = operation
         self.success = success
@@ -3224,7 +3224,7 @@ public struct IPCSlackWebhookConfigRequest: Codable, Sendable {
     public let action: String
     public let webhookUrl: String?
 
-    public init(type: String, action: String, webhookUrl: String?) {
+    public init(type: String, action: String, webhookUrl: String? = nil) {
         self.type = type
         self.action = action
         self.webhookUrl = webhookUrl
@@ -3237,7 +3237,7 @@ public struct IPCSlackWebhookConfigResponse: Codable, Sendable {
     public let success: Bool
     public let error: String?
 
-    public init(type: String, webhookUrl: String?, success: Bool, error: String?) {
+    public init(type: String, webhookUrl: String? = nil, success: Bool, error: String? = nil) {
         self.type = type
         self.webhookUrl = webhookUrl
         self.success = success
@@ -3273,7 +3273,7 @@ public struct IPCSubagentDetailResponse: Codable, Sendable {
     public let objective: String?
     public let events: [IPCSubagentDetailResponseEvent]
 
-    public init(type: String, subagentId: String, objective: String?, events: [IPCSubagentDetailResponseEvent]) {
+    public init(type: String, subagentId: String, objective: String? = nil, events: [IPCSubagentDetailResponseEvent]) {
         self.type = type
         self.subagentId = subagentId
         self.objective = objective
@@ -3287,7 +3287,7 @@ public struct IPCSubagentDetailResponseEvent: Codable, Sendable {
     public let toolName: String?
     public let isError: Bool?
 
-    public init(type: String, content: String, toolName: String?, isError: Bool?) {
+    public init(type: String, content: String, toolName: String? = nil, isError: Bool? = nil) {
         self.type = type
         self.content = content
         self.toolName = toolName
@@ -3330,7 +3330,7 @@ public struct IPCSubagentStatusChanged: Codable, Sendable {
     public let error: String?
     public let usage: IPCUsageStats?
 
-    public init(type: String, subagentId: String, status: String, error: String?, usage: IPCUsageStats?) {
+    public init(type: String, subagentId: String, status: String, error: String? = nil, usage: IPCUsageStats? = nil) {
         self.type = type
         self.subagentId = subagentId
         self.status = status
@@ -3344,7 +3344,7 @@ public struct IPCSubagentStatusRequest: Codable, Sendable {
     /// If omitted, returns all subagents for the session.
     public let subagentId: String?
 
-    public init(type: String, subagentId: String?) {
+    public init(type: String, subagentId: String? = nil) {
         self.type = type
         self.subagentId = subagentId
     }
@@ -3381,7 +3381,7 @@ public struct IPCSurfaceAction: Codable, Sendable {
     public let label: String
     public let style: String?
 
-    public init(id: String, label: String, style: String?) {
+    public init(id: String, label: String, style: String? = nil) {
         self.id = id
         self.label = label
         self.style = style
@@ -3393,7 +3393,7 @@ public struct IPCTableColumn: Codable, Sendable {
     public let label: String
     public let width: Int?
 
-    public init(id: String, label: String, width: Int?) {
+    public init(id: String, label: String, width: Int? = nil) {
         self.id = id
         self.label = label
         self.width = width
@@ -3406,7 +3406,7 @@ public struct IPCTableRow: Codable, Sendable {
     public let selectable: Bool?
     public let selected: Bool?
 
-    public init(id: String, cells: [String: String], selectable: Bool?, selected: Bool?) {
+    public init(id: String, cells: [String: String], selectable: Bool? = nil, selected: Bool? = nil) {
         self.id = id
         self.cells = cells
         self.selectable = selectable
@@ -3420,7 +3420,7 @@ public struct IPCTableSurfaceData: Codable, Sendable {
     public let selectionMode: String?
     public let caption: String?
 
-    public init(columns: [IPCTableColumn], rows: [IPCTableRow], selectionMode: String?, caption: String?) {
+    public init(columns: [IPCTableColumn], rows: [IPCTableRow], selectionMode: String? = nil, caption: String? = nil) {
         self.columns = columns
         self.rows = rows
         self.selectionMode = selectionMode
@@ -3437,7 +3437,7 @@ public struct IPCTaskRouted: Codable, Sendable {
     /// Set when a text_qa session escalates to computer_use via computer_use_request_control.
     public let escalatedFrom: String?
 
-    public init(type: String, sessionId: String, interactionType: String, task: String?, escalatedFrom: String?) {
+    public init(type: String, sessionId: String, interactionType: String, task: String? = nil, escalatedFrom: String? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.interactionType = interactionType
@@ -3478,7 +3478,7 @@ public struct IPCTaskSubmit: Codable, Sendable {
     public let attachments: [IPCUserMessageAttachment]?
     public let source: String?
 
-    public init(type: String, task: String, screenWidth: Int, screenHeight: Int, attachments: [IPCUserMessageAttachment]?, source: String?) {
+    public init(type: String, task: String, screenWidth: Int, screenHeight: Int, attachments: [IPCUserMessageAttachment]? = nil, source: String? = nil) {
         self.type = type
         self.task = task
         self.screenWidth = screenWidth
@@ -3494,7 +3494,7 @@ public struct IPCTelegramConfigRequest: Codable, Sendable {
     public let botToken: String?
     public let commands: [IPCTelegramConfigRequestCommand]?
 
-    public init(type: String, action: String, botToken: String?, commands: [IPCTelegramConfigRequestCommand]?) {
+    public init(type: String, action: String, botToken: String? = nil, commands: [IPCTelegramConfigRequestCommand]? = nil) {
         self.type = type
         self.action = action
         self.botToken = botToken
@@ -3522,7 +3522,7 @@ public struct IPCTelegramConfigResponse: Codable, Sendable {
     public let lastError: String?
     public let error: String?
 
-    public init(type: String, success: Bool, hasBotToken: Bool, botUsername: String?, connected: Bool, hasWebhookSecret: Bool, lastError: String?, error: String?) {
+    public init(type: String, success: Bool, hasBotToken: Bool, botUsername: String? = nil, connected: Bool, hasWebhookSecret: Bool, lastError: String? = nil, error: String? = nil) {
         self.type = type
         self.success = success
         self.hasBotToken = hasBotToken
@@ -3540,7 +3540,7 @@ public struct IPCToolInputDelta: Codable, Sendable {
     public let content: String
     public let sessionId: String?
 
-    public init(type: String, toolName: String, content: String, sessionId: String?) {
+    public init(type: String, toolName: String, content: String, sessionId: String? = nil) {
         self.type = type
         self.toolName = toolName
         self.content = content
@@ -3553,7 +3553,7 @@ public struct IPCToolInputSchema: Codable, Sendable {
     public let properties: [String: AnyCodable]?
     public let required: [String]?
 
-    public init(type: String, properties: [String: AnyCodable]?, required: [String]?) {
+    public init(type: String, properties: [String: AnyCodable]? = nil, required: [String]? = nil) {
         self.type = type
         self.properties = properties
         self.required = required
@@ -3575,7 +3575,7 @@ public struct IPCToolNamesListResponse: Codable, Sendable {
     /// Input schemas keyed by tool name.
     public let schemas: [String: AnyCodable]?
 
-    public init(type: String, names: [String], schemas: [String: AnyCodable]?) {
+    public init(type: String, names: [String], schemas: [String: AnyCodable]? = nil) {
         self.type = type
         self.names = names
         self.schemas = schemas
@@ -3592,7 +3592,7 @@ public struct IPCToolOutputChunk: Codable, Sendable {
     public let subToolIsError: Bool?
     public let subToolId: String?
 
-    public init(type: String, chunk: String, sessionId: String?, subType: String?, subToolName: String?, subToolInput: String?, subToolIsError: Bool?, subToolId: String?) {
+    public init(type: String, chunk: String, sessionId: String? = nil, subType: String? = nil, subToolName: String? = nil, subToolInput: String? = nil, subToolIsError: Bool? = nil, subToolId: String? = nil) {
         self.type = type
         self.chunk = chunk
         self.sessionId = sessionId
@@ -3617,7 +3617,7 @@ public struct IPCToolPermissionSimulateRequest: Codable, Sendable {
     /// When true, side-effect tools that would normally be auto-allowed get promoted to prompt.
     public let forcePromptSideEffects: Bool?
 
-    public init(type: String, toolName: String, input: [String: AnyCodable], workingDir: String?, isInteractive: Bool?, forcePromptSideEffects: Bool?) {
+    public init(type: String, toolName: String, input: [String: AnyCodable], workingDir: String? = nil, isInteractive: Bool? = nil, forcePromptSideEffects: Bool? = nil) {
         self.type = type
         self.toolName = toolName
         self.input = input
@@ -3645,7 +3645,7 @@ public struct IPCToolPermissionSimulateResponse: Codable, Sendable {
     /// Error message when success is false.
     public let error: String?
 
-    public init(type: String, success: Bool, decision: String?, riskLevel: String?, reason: String?, promptPayload: IPCToolPermissionSimulateResponsePromptPayload?, executionTarget: String?, matchedRuleId: String?, error: String?) {
+    public init(type: String, success: Bool, decision: String? = nil, riskLevel: String? = nil, reason: String? = nil, promptPayload: IPCToolPermissionSimulateResponsePromptPayload? = nil, executionTarget: String? = nil, matchedRuleId: String? = nil, error: String? = nil) {
         self.type = type
         self.success = success
         self.decision = decision
@@ -3703,7 +3703,7 @@ public struct IPCToolResult: Codable, Sendable {
     /// Base64-encoded image data extracted from contentBlocks (e.g. browser_screenshot).
     public let imageData: String?
 
-    public init(type: String, toolName: String, result: String, isError: Bool?, diff: IPCToolResultDiff?, status: String?, sessionId: String?, imageData: String?) {
+    public init(type: String, toolName: String, result: String, isError: Bool? = nil, diff: IPCToolResultDiff? = nil, status: String? = nil, sessionId: String? = nil, imageData: String? = nil) {
         self.type = type
         self.toolName = toolName
         self.result = result
@@ -3735,7 +3735,7 @@ public struct IPCToolUseStart: Codable, Sendable {
     public let input: [String: AnyCodable]
     public let sessionId: String?
 
-    public init(type: String, toolName: String, input: [String: AnyCodable], sessionId: String?) {
+    public init(type: String, toolName: String, input: [String: AnyCodable], sessionId: String? = nil) {
         self.type = type
         self.toolName = toolName
         self.input = input
@@ -3791,7 +3791,7 @@ public struct IPCTwilioConfigRequest: Codable, Sendable {
     public let country: String?
     public let assistantId: String?
 
-    public init(type: String, action: String, accountSid: String?, authToken: String?, phoneNumber: String?, areaCode: String?, country: String?, assistantId: String?) {
+    public init(type: String, action: String, accountSid: String? = nil, authToken: String? = nil, phoneNumber: String? = nil, areaCode: String? = nil, country: String? = nil, assistantId: String? = nil) {
         self.type = type
         self.action = action
         self.accountSid = accountSid
@@ -3813,7 +3813,7 @@ public struct IPCTwilioConfigResponse: Codable, Sendable {
     /// Non-fatal warning message (e.g. webhook sync failure that did not prevent the primary operation).
     public let warning: String?
 
-    public init(type: String, success: Bool, hasCredentials: Bool, phoneNumber: String?, numbers: [IPCTwilioConfigResponseNumber]?, error: String?, warning: String?) {
+    public init(type: String, success: Bool, hasCredentials: Bool, phoneNumber: String? = nil, numbers: [IPCTwilioConfigResponseNumber]? = nil, error: String? = nil, warning: String? = nil) {
         self.type = type
         self.success = success
         self.hasCredentials = hasCredentials
@@ -3852,7 +3852,7 @@ public struct IPCTwitterAuthResult: Codable, Sendable {
     public let accountInfo: String?
     public let error: String?
 
-    public init(type: String, success: Bool, accountInfo: String?, error: String?) {
+    public init(type: String, success: Bool, accountInfo: String? = nil, error: String? = nil) {
         self.type = type
         self.success = success
         self.accountInfo = accountInfo
@@ -3883,7 +3883,7 @@ public struct IPCTwitterAuthStatusResponse: Codable, Sendable {
     public let mode: String?
     public let error: String?
 
-    public init(type: String, connected: Bool, accountInfo: String?, mode: String?, error: String?) {
+    public init(type: String, connected: Bool, accountInfo: String? = nil, mode: String? = nil, error: String? = nil) {
         self.type = type
         self.connected = connected
         self.accountInfo = accountInfo
@@ -3900,7 +3900,7 @@ public struct IPCTwitterIntegrationConfigRequest: Codable, Sendable {
     public let clientSecret: String?
     public let strategy: String?
 
-    public init(type: String, action: String, mode: String?, clientId: String?, clientSecret: String?, strategy: String?) {
+    public init(type: String, action: String, mode: String? = nil, clientId: String? = nil, clientSecret: String? = nil, strategy: String? = nil) {
         self.type = type
         self.action = action
         self.mode = mode
@@ -3923,7 +3923,7 @@ public struct IPCTwitterIntegrationConfigResponse: Codable, Sendable {
     public let strategyConfigured: Bool?
     public let error: String?
 
-    public init(type: String, success: Bool, mode: String?, managedAvailable: Bool, localClientConfigured: Bool, connected: Bool, accountInfo: String?, strategy: String?, strategyConfigured: Bool?, error: String?) {
+    public init(type: String, success: Bool, mode: String? = nil, managedAvailable: Bool, localClientConfigured: Bool, connected: Bool, accountInfo: String? = nil, strategy: String? = nil, strategyConfigured: Bool? = nil, error: String? = nil) {
         self.type = type
         self.success = success
         self.mode = mode
@@ -3944,7 +3944,7 @@ public struct IPCUiSurfaceAction: Codable, Sendable {
     public let actionId: String
     public let data: [String: AnyCodable]?
 
-    public init(type: String, sessionId: String, surfaceId: String, actionId: String, data: [String: AnyCodable]?) {
+    public init(type: String, sessionId: String, surfaceId: String, actionId: String, data: [String: AnyCodable]? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.surfaceId = surfaceId
@@ -3960,7 +3960,7 @@ public struct IPCUiSurfaceComplete: Codable, Sendable {
     public let summary: String
     public let submittedData: [String: AnyCodable]?
 
-    public init(type: String, sessionId: String, surfaceId: String, summary: String, submittedData: [String: AnyCodable]?) {
+    public init(type: String, sessionId: String, surfaceId: String, summary: String, submittedData: [String: AnyCodable]? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.surfaceId = surfaceId
@@ -3993,7 +3993,7 @@ public struct IPCUiSurfaceShowBrowserView: Codable, Sendable {
     /// The message ID that this surface belongs to (for history loading).
     public let messageId: String?
 
-    public init(surfaceType: String, data: IPCBrowserViewSurfaceData, type: String, sessionId: String, surfaceId: String, title: String?, actions: [IPCSurfaceAction]?, display: String?, messageId: String?) {
+    public init(surfaceType: String, data: IPCBrowserViewSurfaceData, type: String, sessionId: String, surfaceId: String, title: String? = nil, actions: [IPCSurfaceAction]? = nil, display: String? = nil, messageId: String? = nil) {
         self.surfaceType = surfaceType
         self.data = data
         self.type = type
@@ -4018,7 +4018,7 @@ public struct IPCUiSurfaceShowCard: Codable, Sendable {
     /// The message ID that this surface belongs to (for history loading).
     public let messageId: String?
 
-    public init(surfaceType: String, data: IPCCardSurfaceData, type: String, sessionId: String, surfaceId: String, title: String?, actions: [IPCSurfaceAction]?, display: String?, messageId: String?) {
+    public init(surfaceType: String, data: IPCCardSurfaceData, type: String, sessionId: String, surfaceId: String, title: String? = nil, actions: [IPCSurfaceAction]? = nil, display: String? = nil, messageId: String? = nil) {
         self.surfaceType = surfaceType
         self.data = data
         self.type = type
@@ -4043,7 +4043,7 @@ public struct IPCUiSurfaceShowConfirmation: Codable, Sendable {
     /// The message ID that this surface belongs to (for history loading).
     public let messageId: String?
 
-    public init(surfaceType: String, data: IPCConfirmationSurfaceData, type: String, sessionId: String, surfaceId: String, title: String?, actions: [IPCSurfaceAction]?, display: String?, messageId: String?) {
+    public init(surfaceType: String, data: IPCConfirmationSurfaceData, type: String, sessionId: String, surfaceId: String, title: String? = nil, actions: [IPCSurfaceAction]? = nil, display: String? = nil, messageId: String? = nil) {
         self.surfaceType = surfaceType
         self.data = data
         self.type = type
@@ -4068,7 +4068,7 @@ public struct IPCUiSurfaceShowDocumentPreview: Codable, Sendable {
     /// The message ID that this surface belongs to (for history loading).
     public let messageId: String?
 
-    public init(surfaceType: String, data: IPCDocumentPreviewSurfaceData, type: String, sessionId: String, surfaceId: String, title: String?, actions: [IPCSurfaceAction]?, display: String?, messageId: String?) {
+    public init(surfaceType: String, data: IPCDocumentPreviewSurfaceData, type: String, sessionId: String, surfaceId: String, title: String? = nil, actions: [IPCSurfaceAction]? = nil, display: String? = nil, messageId: String? = nil) {
         self.surfaceType = surfaceType
         self.data = data
         self.type = type
@@ -4093,7 +4093,7 @@ public struct IPCUiSurfaceShowDynamicPage: Codable, Sendable {
     /// The message ID that this surface belongs to (for history loading).
     public let messageId: String?
 
-    public init(surfaceType: String, data: IPCDynamicPageSurfaceData, type: String, sessionId: String, surfaceId: String, title: String?, actions: [IPCSurfaceAction]?, display: String?, messageId: String?) {
+    public init(surfaceType: String, data: IPCDynamicPageSurfaceData, type: String, sessionId: String, surfaceId: String, title: String? = nil, actions: [IPCSurfaceAction]? = nil, display: String? = nil, messageId: String? = nil) {
         self.surfaceType = surfaceType
         self.data = data
         self.type = type
@@ -4118,7 +4118,7 @@ public struct IPCUiSurfaceShowFileUpload: Codable, Sendable {
     /// The message ID that this surface belongs to (for history loading).
     public let messageId: String?
 
-    public init(surfaceType: String, data: IPCFileUploadSurfaceData, type: String, sessionId: String, surfaceId: String, title: String?, actions: [IPCSurfaceAction]?, display: String?, messageId: String?) {
+    public init(surfaceType: String, data: IPCFileUploadSurfaceData, type: String, sessionId: String, surfaceId: String, title: String? = nil, actions: [IPCSurfaceAction]? = nil, display: String? = nil, messageId: String? = nil) {
         self.surfaceType = surfaceType
         self.data = data
         self.type = type
@@ -4143,7 +4143,7 @@ public struct IPCUiSurfaceShowForm: Codable, Sendable {
     /// The message ID that this surface belongs to (for history loading).
     public let messageId: String?
 
-    public init(surfaceType: String, data: IPCFormSurfaceData, type: String, sessionId: String, surfaceId: String, title: String?, actions: [IPCSurfaceAction]?, display: String?, messageId: String?) {
+    public init(surfaceType: String, data: IPCFormSurfaceData, type: String, sessionId: String, surfaceId: String, title: String? = nil, actions: [IPCSurfaceAction]? = nil, display: String? = nil, messageId: String? = nil) {
         self.surfaceType = surfaceType
         self.data = data
         self.type = type
@@ -4168,7 +4168,7 @@ public struct IPCUiSurfaceShowList: Codable, Sendable {
     /// The message ID that this surface belongs to (for history loading).
     public let messageId: String?
 
-    public init(surfaceType: String, data: IPCListSurfaceData, type: String, sessionId: String, surfaceId: String, title: String?, actions: [IPCSurfaceAction]?, display: String?, messageId: String?) {
+    public init(surfaceType: String, data: IPCListSurfaceData, type: String, sessionId: String, surfaceId: String, title: String? = nil, actions: [IPCSurfaceAction]? = nil, display: String? = nil, messageId: String? = nil) {
         self.surfaceType = surfaceType
         self.data = data
         self.type = type
@@ -4193,7 +4193,7 @@ public struct IPCUiSurfaceShowTable: Codable, Sendable {
     /// The message ID that this surface belongs to (for history loading).
     public let messageId: String?
 
-    public init(surfaceType: String, data: IPCTableSurfaceData, type: String, sessionId: String, surfaceId: String, title: String?, actions: [IPCSurfaceAction]?, display: String?, messageId: String?) {
+    public init(surfaceType: String, data: IPCTableSurfaceData, type: String, sessionId: String, surfaceId: String, title: String? = nil, actions: [IPCSurfaceAction]? = nil, display: String? = nil, messageId: String? = nil) {
         self.surfaceType = surfaceType
         self.data = data
         self.type = type
@@ -4254,7 +4254,7 @@ public struct IPCUndoComplete: Codable, Sendable {
     public let removedCount: Int
     public let sessionId: String?
 
-    public init(type: String, removedCount: Int, sessionId: String?) {
+    public init(type: String, removedCount: Int, sessionId: String? = nil) {
         self.type = type
         self.removedCount = removedCount
         self.sessionId = sessionId
@@ -4286,7 +4286,7 @@ public struct IPCUnpublishPageResponse: Codable, Sendable {
     public let success: Bool
     public let error: String?
 
-    public init(type: String, success: Bool, error: String?) {
+    public init(type: String, success: Bool, error: String? = nil) {
         self.type = type
         self.success = success
         self.error = error
@@ -4302,7 +4302,7 @@ public struct IPCUpdateTrustRule: Codable, Sendable {
     public let decision: String?
     public let priority: Int?
 
-    public init(type: String, id: String, tool: String?, pattern: String?, scope: String?, decision: String?, priority: Int?) {
+    public init(type: String, id: String, tool: String? = nil, pattern: String? = nil, scope: String? = nil, decision: String? = nil, priority: Int? = nil) {
         self.type = type
         self.id = id
         self.tool = tool
@@ -4382,7 +4382,7 @@ public struct IPCUserMessage: Codable, Sendable {
     /// When true, skip the secret-ingress check. Set by the client when the user clicks "Send Anyway".
     public let bypassSecretCheck: Bool?
 
-    public init(type: String, sessionId: String, content: String?, attachments: [IPCUserMessageAttachment]?, activeSurfaceId: String?, currentPage: String?, bypassSecretCheck: Bool?) {
+    public init(type: String, sessionId: String, content: String? = nil, attachments: [IPCUserMessageAttachment]? = nil, activeSurfaceId: String? = nil, currentPage: String? = nil, bypassSecretCheck: Bool? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.content = content
@@ -4404,7 +4404,7 @@ public struct IPCUserMessageAttachment: Codable, Sendable {
     /// Base64-encoded JPEG thumbnail. Generated server-side for video attachments.
     public let thumbnailData: String?
 
-    public init(id: String?, filename: String, mimeType: String, data: String, extractedText: String?, sizeBytes: Int?, thumbnailData: String?) {
+    public init(id: String? = nil, filename: String, mimeType: String, data: String, extractedText: String? = nil, sizeBytes: Int? = nil, thumbnailData: String? = nil) {
         self.id = id
         self.filename = filename
         self.mimeType = mimeType
@@ -4420,7 +4420,7 @@ public struct IPCUserMessageEcho: Codable, Sendable {
     public let text: String
     public let sessionId: String?
 
-    public init(type: String, text: String, sessionId: String?) {
+    public init(type: String, text: String, sessionId: String? = nil) {
         self.type = type
         self.text = text
         self.sessionId = sessionId
@@ -4432,7 +4432,7 @@ public struct IPCVercelApiConfigRequest: Codable, Sendable {
     public let action: String
     public let apiToken: String?
 
-    public init(type: String, action: String, apiToken: String?) {
+    public init(type: String, action: String, apiToken: String? = nil) {
         self.type = type
         self.action = action
         self.apiToken = apiToken
@@ -4445,7 +4445,7 @@ public struct IPCVercelApiConfigResponse: Codable, Sendable {
     public let success: Bool
     public let error: String?
 
-    public init(type: String, hasToken: Bool, success: Bool, error: String?) {
+    public init(type: String, hasToken: Bool, success: Bool, error: String? = nil) {
         self.type = type
         self.hasToken = hasToken
         self.success = success
@@ -4501,7 +4501,7 @@ public struct IPCWatchObservation: Codable, Sendable {
     public let captureIndex: Int
     public let totalExpected: Int
 
-    public init(type: String, watchId: String, sessionId: String, ocrText: String, appName: String?, windowTitle: String?, bundleIdentifier: String?, timestamp: Double, captureIndex: Int, totalExpected: Int) {
+    public init(type: String, watchId: String, sessionId: String, ocrText: String, appName: String? = nil, windowTitle: String? = nil, bundleIdentifier: String? = nil, timestamp: Double, captureIndex: Int, totalExpected: Int) {
         self.type = type
         self.watchId = watchId
         self.sessionId = sessionId
@@ -4549,7 +4549,7 @@ public struct IPCWorkItemApprovePermissionsResponse: Codable, Sendable {
     public let success: Bool
     public let error: String?
 
-    public init(type: String, id: String, success: Bool, error: String?) {
+    public init(type: String, id: String, success: Bool, error: String? = nil) {
         self.type = type
         self.id = id
         self.success = success
@@ -4573,7 +4573,7 @@ public struct IPCWorkItemCancelResponse: Codable, Sendable {
     public let success: Bool
     public let error: String?
 
-    public init(type: String, id: String, success: Bool, error: String?) {
+    public init(type: String, id: String, success: Bool, error: String? = nil) {
         self.type = type
         self.id = id
         self.success = success
@@ -4684,7 +4684,7 @@ public struct IPCWorkItemOutputResponse: Codable, Sendable {
     public let error: String?
     public let output: IPCWorkItemOutputResponseOutput?
 
-    public init(type: String, id: String, success: Bool, error: String?, output: IPCWorkItemOutputResponseOutput?) {
+    public init(type: String, id: String, success: Bool, error: String? = nil, output: IPCWorkItemOutputResponseOutput? = nil) {
         self.type = type
         self.id = id
         self.success = success
@@ -4730,7 +4730,7 @@ public struct IPCWorkItemPreflightResponse: Codable, Sendable {
     public let error: String?
     public let permissions: [IPCWorkItemPreflightResponsePermission]?
 
-    public init(type: String, id: String, success: Bool, error: String?, permissions: [IPCWorkItemPreflightResponsePermission]?) {
+    public init(type: String, id: String, success: Bool, error: String? = nil, permissions: [IPCWorkItemPreflightResponsePermission]? = nil) {
         self.type = type
         self.id = id
         self.success = success
@@ -4772,7 +4772,7 @@ public struct IPCWorkItemRunTaskResponse: Codable, Sendable {
     /// Structured error code so the client can deterministically re-enable buttons or show contextual UI.
     public let errorCode: String?
 
-    public init(type: String, id: String, lastRunId: String, success: Bool, error: String?, errorCode: String?) {
+    public init(type: String, id: String, lastRunId: String, success: Bool, error: String? = nil, errorCode: String? = nil) {
         self.type = type
         self.id = id
         self.lastRunId = lastRunId
@@ -4786,7 +4786,7 @@ public struct IPCWorkItemsListRequest: Codable, Sendable {
     public let type: String
     public let status: String?
 
-    public init(type: String, status: String?) {
+    public init(type: String, status: String? = nil) {
         self.type = type
         self.status = status
     }
@@ -4878,7 +4878,7 @@ public struct IPCWorkItemUpdateRequest: Codable, Sendable {
     public let priorityTier: Double?
     public let sortIndex: Int?
 
-    public init(type: String, id: String, title: String?, notes: String?, status: String?, priorityTier: Double?, sortIndex: Int?) {
+    public init(type: String, id: String, title: String? = nil, notes: String? = nil, status: String? = nil, priorityTier: Double? = nil, sortIndex: Int? = nil) {
         self.type = type
         self.id = id
         self.title = title
@@ -4950,7 +4950,7 @@ public struct IPCWorkspaceFileReadResponse: Codable, Sendable {
     public let content: String?
     public let error: String?
 
-    public init(type: String, path: String, content: String?, error: String?) {
+    public init(type: String, path: String, content: String?, error: String? = nil) {
         self.type = type
         self.path = path
         self.content = content

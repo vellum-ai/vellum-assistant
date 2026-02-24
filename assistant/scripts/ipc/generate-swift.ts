@@ -409,7 +409,7 @@ function emitStruct(s: SwiftStruct): string {
   if (s.properties.length > 0) {
     lines.push('');
     const params = s.properties
-      .map((p) => `${p.swiftName}: ${p.swiftType}`)
+      .map((p) => `${p.swiftName}: ${p.swiftType}${p.isOptional ? ' = nil' : ''}`)
       .join(', ');
     lines.push(`    public init(${params}) {`);
     for (const p of s.properties) {
