@@ -342,7 +342,7 @@ struct SettingsConnectTab: View {
         VDisclosureSection(
             title: "Advanced",
             icon: "gearshape",
-            subtitle: "Bearer token, developer options",
+            subtitle: "Bearer token, overrides",
             isExpanded: $advancedExpanded
         ) {
             VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -350,7 +350,28 @@ struct SettingsConnectTab: View {
 
                 Divider().background(VColor.surfaceBorder)
 
-                developerLocalPairingContent
+                // Developer local pairing content removed in v4 — LAN pairing is automatic via localLanUrl in QR payload.
+
+                // Simple override fields for power users / debugging
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("URL Override (optional)")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                    TextField("Custom gateway URL", text: $iosPairingGatewayOverride)
+                        .vInputStyle()
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                }
+
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Token Override (optional)")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                    SecureField("Custom bearer token", text: $iosPairingTokenOverride)
+                        .vInputStyle()
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                }
             }
         }
         .padding(VSpacing.lg)
@@ -1272,131 +1293,6 @@ struct SettingsConnectTab: View {
         Text("Gateway checks the local daemon. Tunnel checks the public URL.")
             .font(VFont.caption)
             .foregroundColor(VColor.textMuted)
-    }
-
-    // MARK: - Developer Local Pairing Content
-
-    private var suggestedLanUrl: String? {
-        guard let ip = LANIPHelper.currentLANAddress() else { return nil }
-        let port = URL(string: store.localGatewayTarget)?.port ?? 7830
-        return "http://\(ip):\(port)"
-    }
-
-    private var developerLocalPairingContent: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            // Enable toggle
-            HStack {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Enable developer local pairing")
-                        .font(VFont.bodyMedium)
-                        .foregroundColor(VColor.textPrimary)
-                    Text("Override the iOS pairing gateway URL for LAN development.")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-                }
-                Spacer()
-                Toggle("", isOn: $iosPairingUseOverride)
-                    .toggleStyle(.switch)
-                    .labelsHidden()
-            }
-
-            if iosPairingUseOverride {
-                // Warning banner
-                HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(VColor.warning)
-                        .font(.system(size: 14))
-                    Text("Debug only. Uses unencrypted HTTP over your local network. Do not use in production.")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.warning)
-                }
-                .padding(VSpacing.md)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(VColor.warning.opacity(0.1))
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-
-                // Suggested LAN URL with copy button
-                if let lanUrl = suggestedLanUrl {
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        Text("Suggested URL")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
-
-                        HStack(spacing: VSpacing.sm) {
-                            Text(lanUrl)
-                                .font(VFont.mono)
-                                .foregroundColor(VColor.textPrimary)
-                                .textSelection(.enabled)
-                                .padding(VSpacing.md)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(VColor.surface.opacity(0.5))
-                                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: VRadius.md)
-                                        .stroke(VColor.surfaceBorder.opacity(0.3), lineWidth: 1)
-                                )
-
-                            Button {
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(lanUrl, forType: .string)
-                                lanUrlCopied = true
-                                Task {
-                                    try? await Task.sleep(nanoseconds: 2_000_000_000)
-                                    lanUrlCopied = false
-                                }
-                            } label: {
-                                Image(systemName: lanUrlCopied ? "checkmark" : "doc.on.doc")
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundColor(lanUrlCopied ? VColor.success : VColor.textSecondary)
-                                    .frame(width: 28, height: 28)
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Copy suggested LAN URL")
-                            .help("Copy URL")
-                        }
-                    }
-                } else {
-                    HStack(spacing: VSpacing.sm) {
-                        Image(systemName: "wifi.slash")
-                            .foregroundColor(VColor.textMuted)
-                            .font(.system(size: 12))
-                        Text("No LAN address detected. Connect to a Wi-Fi or Ethernet network.")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                    }
-                }
-
-                // Editable override URL
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Override URL")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                    TextField("http://192.168.1.x:7830", text: $iosPairingGatewayOverride)
-                        .vInputStyle()
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
-                }
-
-                // Token Override
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Token Override (optional)")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                    SecureField("Custom bearer token", text: $iosPairingTokenOverride)
-                        .vInputStyle()
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
-                }
-
-                // Reset / disable button
-                VButton(label: "Disable & Reset", style: .danger) {
-                    iosPairingGatewayOverride = ""
-                    iosPairingTokenOverride = ""
-                    iosPairingUseOverride = false
-                }
-            }
-        }
     }
 
     // MARK: - Connection Status Helpers
