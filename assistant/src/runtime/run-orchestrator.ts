@@ -13,7 +13,8 @@
  * status and submit a decision or secret via the respective endpoints.
  */
 
-import type { ChannelId } from '../channels/types.js';
+import type { ChannelId, TurnChannelContext } from '../channels/types.js';
+import { parseChannelId } from '../channels/types.js';
 import * as runsStore from '../memory/runs-store.js';
 import type { Run } from '../memory/runs-store.js';
 import type { Session } from '../daemon/session.js';
@@ -89,6 +90,8 @@ export interface RunStartOptions {
   guardianContext?: GuardianRuntimeContext;
   /** Channel command intent metadata (e.g. Telegram /start). */
   commandIntent?: { type: string; payload?: string; languageCode?: string };
+  /** Resolved channel context for this turn. */
+  turnChannelContext?: TurnChannelContext;
 }
 
 // ---------------------------------------------------------------------------
@@ -156,6 +159,10 @@ export class RunOrchestrator {
     session.setAssistantId(options?.assistantId ?? 'self');
     session.setGuardianContext(options?.guardianContext ?? null);
     session.setCommandIntent(options?.commandIntent ?? null);
+    session.setTurnChannelContext(options?.turnChannelContext ?? {
+      userMessageChannel: parseChannelId(options?.sourceChannel) ?? 'macos',
+      assistantMessageChannel: parseChannelId(options?.sourceChannel) ?? 'macos',
+    });
 
     const attachments = attachmentIds
       ? this.deps.resolveAttachments(attachmentIds)

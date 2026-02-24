@@ -16,6 +16,7 @@
  */
 
 import type { Message } from '../providers/types.js';
+import type { TurnChannelContext } from '../channels/types.js';
 import type { ServerMessage, UsageStats, UserMessageAttachment, SurfaceType, SurfaceData } from './ipc-protocol.js';
 import { AgentLoop } from '../agent/loop.js';
 import type { Provider } from '../providers/types.js';
@@ -143,6 +144,7 @@ export class Session {
   /** @internal */ turnCount = 0;
   public lastAssistantAttachments: AssistantAttachmentDraft[] = [];
   public lastAttachmentWarnings: string[] = [];
+  /** @internal */ currentTurnChannelContext: TurnChannelContext | null = null;
 
   constructor(
     conversationId: string,
@@ -340,6 +342,14 @@ export class Session {
 
   setCommandIntent(intent: { type: string; payload?: string; languageCode?: string } | null): void {
     this.commandIntent = intent ?? undefined;
+  }
+
+  setTurnChannelContext(ctx: TurnChannelContext): void {
+    this.currentTurnChannelContext = ctx;
+  }
+
+  getTurnChannelContext(): TurnChannelContext | null {
+    return this.currentTurnChannelContext;
   }
 
   persistUserMessage(

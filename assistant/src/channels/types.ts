@@ -18,3 +18,8 @@ export function assertChannelId(value: unknown, field: string): ChannelId {
   }
   return value;
 }
+
+export interface TurnChannelContext {
+  userMessageChannel: ChannelId;
+  assistantMessageChannel: ChannelId;
+}

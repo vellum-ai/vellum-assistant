@@ -15,6 +15,7 @@ import { IngressBlockedError } from '../util/errors.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import * as attachmentsStore from '../memory/attachments-store.js';
 import { Session, DEFAULT_MEMORY_POLICY, type SessionMemoryPolicy } from './session.js';
+import { parseChannelId } from '../channels/types.js';
 import { resolveChannelCapabilities } from './session-runtime-assembly.js';
 import { ComputerUseSession } from './computer-use-session.js';
 import {
@@ -683,6 +684,11 @@ export class DaemonServer {
     session.setGuardianContext(options?.guardianContext ?? null);
     session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel));
     session.setCommandIntent(options?.commandIntent ?? null);
+    const resolvedChannel = parseChannelId(sourceChannel) ?? parseChannelId(options?.transport?.channelId) ?? 'macos';
+    session.setTurnChannelContext({
+      userMessageChannel: resolvedChannel,
+      assistantMessageChannel: resolvedChannel,
+    });
 
     const attachments = attachmentIds
       ? attachmentsStore.getAttachmentsByIds(attachmentIds).map((a) => ({
@@ -725,6 +731,11 @@ export class DaemonServer {
     session.setGuardianContext(options?.guardianContext ?? null);
     session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel));
     session.setCommandIntent(options?.commandIntent ?? null);
+    const resolvedChannel2 = parseChannelId(sourceChannel) ?? parseChannelId(options?.transport?.channelId) ?? 'macos';
+    session.setTurnChannelContext({
+      userMessageChannel: resolvedChannel2,
+      assistantMessageChannel: resolvedChannel2,
+    });
 
     const attachments = attachmentIds
       ? attachmentsStore.getAttachmentsByIds(attachmentIds).map((a) => ({

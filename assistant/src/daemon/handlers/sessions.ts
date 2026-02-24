@@ -1,5 +1,5 @@
 import * as net from 'node:net';
-import { isChannelId } from '../../channels/types.js';
+import { isChannelId, parseChannelId } from '../../channels/types.js';
 import type { ChannelId } from '../../channels/types.js';
 import { silentlyWithLog } from '../../util/silently.js';
 import { v4 as uuid } from 'uuid';
@@ -77,6 +77,12 @@ export async function handleUserMessage(
         return;
       }
     }
+
+    const ipcChannel = parseChannelId(msg.channel) ?? 'macos';
+    session.setTurnChannelContext({
+      userMessageChannel: ipcChannel,
+      assistantMessageChannel: ipcChannel,
+    });
 
     session.traceEmitter.emit('request_received', 'User message received', {
       requestId,

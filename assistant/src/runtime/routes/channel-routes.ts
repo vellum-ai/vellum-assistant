@@ -3,7 +3,7 @@
  * conversation deletion.
  */
 import { assertChannelId } from '../../channels/types.js';
-import type { ChannelId } from '../../channels/types.js';
+import type { ChannelId, TurnChannelContext } from '../../channels/types.js';
 import { timingSafeEqual } from 'node:crypto';
 import { deleteConversationKey } from '../../memory/conversation-key-store.js';
 import * as conversationStore from '../../memory/conversation-store.js';
@@ -1063,6 +1063,11 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
 
   (async () => {
     try {
+      const turnChannelContext: TurnChannelContext = {
+        userMessageChannel: sourceChannel,
+        assistantMessageChannel: sourceChannel,
+      };
+
       const run = await orchestrator.startRun(
         conversationId,
         content,
@@ -1075,6 +1080,7 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
           assistantId,
           guardianContext: toGuardianRuntimeContext(sourceChannel, guardianCtx),
           ...(cmdIntent ? { commandIntent: cmdIntent } : {}),
+          turnChannelContext,
         },
       );
 
