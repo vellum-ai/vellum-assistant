@@ -7,7 +7,7 @@
  * rapid re-reads from atomic rename writes.
  */
 
-import { existsSync, watch, type FSWatcher } from "node:fs";
+import { existsSync, mkdirSync, watch, type FSWatcher } from "node:fs";
 import { dirname } from "node:path";
 import { getLogger } from "./logger.js";
 import {
@@ -54,6 +54,12 @@ export class CredentialWatcher {
     const watchTarget = this.watchingDirectory
       ? dirname(this.metadataPath)
       : this.metadataPath;
+
+    // Ensure the directory exists so fs.watch() doesn't throw ENOENT
+    // on a fresh hatch where no credentials have been written yet.
+    if (this.watchingDirectory) {
+      mkdirSync(watchTarget, { recursive: true });
+    }
 
     try {
       this.watcher = watch(watchTarget, { persistent: false }, (_event, filename) => {
