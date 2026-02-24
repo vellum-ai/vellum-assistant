@@ -14,6 +14,7 @@ import {
   migrateCallSessionsProviderSidDedup,
   migrateCallSessionsAddInitiatedFrom,
   migrateMemoryFtsBackfill,
+  migrateGuardianActionTables,
 } from './schema-migration.js';
 
 const log = getLogger('memory-db');
@@ -1165,6 +1166,8 @@ export function initializeDb(): void {
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_event_feedback_asset_id ON media_event_feedback(asset_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_event_feedback_event_id ON media_event_feedback(event_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_event_feedback_type ON media_event_feedback(asset_id, feedback_type)`);
+
+  migrateGuardianActionTables(database);
 
   migrateMemoryFtsBackfill(database);
 }
