@@ -64,17 +64,27 @@ const WRAPPER_PROGRAMS = new Set([
   'strace', 'ltrace', 'ionice', 'taskset', 'timeout',
 ]);
 
+// `env` flags that consume the next positional argument as their value.
+// Without this, `env -u curl echo` would incorrectly identify `curl` (the
+// value of -u) as the wrapped program instead of `echo`.
+const ENV_VALUE_FLAGS = new Set(['-u', '--unset', '-C', '--chdir', '-S', '--split-string']);
+
 /**
  * Given a segment whose program is a known wrapper, return the first
  * non-flag argument (i.e. the wrapped program name).  Returns `undefined`
  * when no suitable argument is found.
  *
- * Handles `env` specially: skips `VAR=value` pairs in addition to flags.
+ * Handles `env` specially: skips `VAR=value` pairs and value-taking flags
+ * like `-u NAME`, `-C DIR`, and `-S STRING`.
  */
 function getWrappedProgram(seg: { program: string; args: string[] }): string | undefined {
   const isEnv = seg.program === 'env';
-  for (const arg of seg.args) {
-    if (arg.startsWith('-')) continue;           // skip flags
+  for (let i = 0; i < seg.args.length; i++) {
+    const arg = seg.args[i];
+    if (arg.startsWith('-')) {
+      if (isEnv && ENV_VALUE_FLAGS.has(arg)) i++; // skip the value argument
+      continue;
+    }
     if (isEnv && arg.includes('=')) continue;     // skip env VAR=value pairs
     return arg;
   }
