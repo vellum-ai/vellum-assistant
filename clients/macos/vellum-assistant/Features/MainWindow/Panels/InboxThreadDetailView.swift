@@ -144,6 +144,15 @@ struct InboxThreadDetailView: View {
         }
         .task {
             await viewModel.loadMessages(conversationId: thread.conversationId)
+
+            // Poll for new messages every 15 seconds while viewing this thread
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 15_000_000_000)
+                guard !Task.isCancelled else { break }
+                // Don't poll while user is sending a reply
+                guard !viewModel.isSendingReply else { continue }
+                await viewModel.loadMessages(conversationId: thread.conversationId, isPolling: true)
+            }
         }
     }
 

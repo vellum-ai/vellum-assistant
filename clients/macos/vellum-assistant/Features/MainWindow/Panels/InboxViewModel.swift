@@ -139,9 +139,13 @@ final class InboxViewModel: ObservableObject {
         self.daemonClient = daemonClient
     }
 
-    func loadThreads() async {
+    func loadThreads(isPolling: Bool = false) async {
+        // Skip if already loading to avoid redundant requests
+        guard !isLoading else { return }
+
         isLoading = true
-        error = nil
+        // Only clear error on initial load, not polling refreshes
+        if !isPolling { error = nil }
 
         let stream = daemonClient.subscribe()
 
@@ -187,10 +191,15 @@ final class InboxViewModel: ObservableObject {
         self.threads = (response.threads ?? []).map { InboxThread(from: $0) }
     }
 
-    func loadMessages(conversationId: String) async {
+    func loadMessages(conversationId: String, isPolling: Bool = false) async {
+        // Skip if already loading to avoid redundant requests
+        guard !isLoadingMessages else { return }
+
         isLoadingMessages = true
-        messagesError = nil
-        messages = []
+        if !isPolling {
+            messagesError = nil
+            messages = []
+        }
 
         let stream = daemonClient.subscribe()
 
@@ -285,9 +294,12 @@ final class InboxViewModel: ObservableObject {
         return true
     }
 
-    func loadEscalations() async {
+    func loadEscalations(isPolling: Bool = false) async {
+        // Skip if already loading to avoid redundant requests
+        guard !isLoadingEscalations else { return }
+
         isLoadingEscalations = true
-        escalationsError = nil
+        if !isPolling { escalationsError = nil }
 
         let stream = daemonClient.subscribe()
 

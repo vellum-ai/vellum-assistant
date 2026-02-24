@@ -37,9 +37,17 @@ struct AssistantInboxPanel: View {
             }
             .task {
                 await viewModel.loadThreads()
-            }
-            .task {
                 await viewModel.loadEscalations()
+
+                // Poll for updates every 15 seconds while the panel is visible
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: 15_000_000_000)
+                    guard !Task.isCancelled else { break }
+                    // Don't poll while a decision is being processed
+                    guard viewModel.decidingEscalationId == nil else { continue }
+                    await viewModel.loadThreads(isPolling: true)
+                    await viewModel.loadEscalations(isPolling: true)
+                }
             }
         }
     }
