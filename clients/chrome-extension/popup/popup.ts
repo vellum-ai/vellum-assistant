@@ -6,6 +6,7 @@
  */
 
 const tokenInput = document.getElementById('token-input') as HTMLInputElement;
+const portInput = document.getElementById('port-input') as HTMLInputElement;
 const btnConnect = document.getElementById('btn-connect') as HTMLButtonElement;
 const btnDisconnect = document.getElementById('btn-disconnect') as HTMLButtonElement;
 const statusDot = document.getElementById('status-dot') as HTMLDivElement;
@@ -17,12 +18,16 @@ function setConnected(connected: boolean): void {
   btnConnect.disabled = connected;
   btnDisconnect.disabled = !connected;
   tokenInput.disabled = connected;
+  portInput.disabled = connected;
 }
 
-// Load saved token on open
-chrome.storage.local.get('bearerToken').then((result) => {
+// Load saved token and port on open
+chrome.storage.local.get(['bearerToken', 'relayPort']).then((result) => {
   if (typeof result.bearerToken === 'string') {
     tokenInput.value = result.bearerToken;
+  }
+  if (result.relayPort !== undefined) {
+    portInput.value = String(result.relayPort);
   }
 });
 
@@ -34,11 +39,16 @@ chrome.runtime.sendMessage({ type: 'get_status' }, (response: { connected: boole
 
 btnConnect.addEventListener('click', async () => {
   const token = tokenInput.value.trim();
-  if (token) {
-    await chrome.storage.local.set({ bearerToken: token, autoConnect: true });
-  } else {
-    await chrome.storage.local.set({ autoConnect: true });
+  const portStr = portInput.value.trim();
+  const storageUpdate: Record<string, unknown> = { autoConnect: true };
+  if (token) storageUpdate.bearerToken = token;
+  if (portStr) {
+    const portNum = parseInt(portStr, 10);
+    if (!isNaN(portNum) && portNum > 0 && portNum <= 65535) {
+      storageUpdate.relayPort = portNum;
+    }
   }
+  await chrome.storage.local.set(storageUpdate);
 
   chrome.runtime.sendMessage({ type: 'connect' }, (response: { ok: boolean; error?: string }) => {
     if (chrome.runtime.lastError || !response?.ok) {
