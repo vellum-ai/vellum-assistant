@@ -93,6 +93,15 @@ export function createEvent(params: CreateEventParams): NotificationEventRow | n
   return row;
 }
 
+/** Update the dedupeKey on an existing event (e.g. when the decision engine generates one). */
+export function updateEventDedupeKey(eventId: string, dedupeKey: string): void {
+  const db = getDb();
+  db.update(notificationEvents)
+    .set({ dedupeKey, updatedAt: Date.now() })
+    .where(eq(notificationEvents.id, eventId))
+    .run();
+}
+
 /** Get a single notification event by ID. */
 export function getEventById(id: string): NotificationEventRow | null {
   const db = getDb();

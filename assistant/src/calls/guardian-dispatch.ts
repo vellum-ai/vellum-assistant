@@ -10,6 +10,7 @@
  */
 
 import { getLogger } from '../util/logger.js';
+import { getConfig } from '../config/loader.js';
 import { getGatewayInternalBaseUrl } from '../config/env.js';
 import { emitNotificationSignal } from '../notifications/emit-signal.js';
 import { getActiveBinding } from '../memory/channel-guardian-store.js';
@@ -103,6 +104,12 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
       dedupeKey: `guardian:${request.id}`,
     });
 
+    // When the notification system is fully active (enabled + not shadow),
+    // it handles external channel delivery (Telegram, SMS) — skip the
+    // legacy dispatch for those channels to avoid duplicate alerts.
+    const notifConfig = getConfig().notifications;
+    const notificationsActive = notifConfig.enabled && !notifConfig.shadowMode;
+
     // Determine delivery destinations
     const destinations: Array<{
       channel: string;
@@ -186,8 +193,12 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
           destinationChatId: dest.chatId,
           destinationExternalUserId: dest.externalUserId,
         });
-        // External channel — POST to gateway
-        void deliverToExternalChannel(delivery.id, dest.channel, dest.chatId!, request.questionText, request.requestCode, assistantId, readHttpToken() ?? undefined);
+        // External channel — POST to gateway (skip when notification pipeline handles delivery)
+        if (!notificationsActive) {
+          void deliverToExternalChannel(delivery.id, dest.channel, dest.chatId!, request.questionText, request.requestCode, assistantId, readHttpToken() ?? undefined);
+        } else {
+          log.info({ deliveryId: delivery.id, channel: dest.channel }, 'Skipping legacy external delivery — notification pipeline active');
+        }
       }
     }
   } catch (err) {

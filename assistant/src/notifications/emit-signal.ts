@@ -13,7 +13,7 @@ import { v4 as uuid } from 'uuid';
 import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
 import { getActiveBinding } from '../memory/channel-guardian-store.js';
-import { createEvent } from './events-store.js';
+import { createEvent, updateEventDedupeKey } from './events-store.js';
 import { evaluateSignal } from './decision-engine.js';
 import { runDeterministicChecks, type DeterministicCheckContext } from './deterministic-checks.js';
 import { dispatchDecision } from './runtime-dispatch.js';
@@ -140,6 +140,17 @@ export async function emitNotificationSignal(params: EmitSignalParams): Promise<
     // Step 2: Evaluate the signal through the decision engine
     const connectedChannels = getConnectedChannels(assistantId);
     const decision = await evaluateSignal(signal, connectedChannels);
+
+    // Persist model-generated dedupeKey back to the event row so future
+    // signals can deduplicate against it (the event was created with
+    // only the producer's dedupeKey, which may be null).
+    if (decision.dedupeKey && !params.dedupeKey) {
+      try {
+        updateEventDedupeKey(signalId, decision.dedupeKey);
+      } catch (err) {
+        log.warn({ err, signalId }, 'Failed to persist decision dedupeKey to event row');
+      }
+    }
 
     // Step 3: Run deterministic pre-send checks
     if (decision.shouldNotify) {

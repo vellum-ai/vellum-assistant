@@ -45,6 +45,7 @@ import type {
 } from '../http-types.js';
 import { composeApprovalMessageGenerative } from '../approval-message-composer.js';
 import { refreshThreadEscalation } from '../../memory/inbox-escalation-projection.js';
+import { getConfig } from '../../config/loader.js';
 import { emitNotificationSignal } from '../../notifications/emit-signal.js';
 import {
   type GuardianContext,
@@ -385,9 +386,13 @@ export async function handleChannelInbound(
       dedupeKey: `escalation:${result.eventId}`,
     });
 
-    // Notify the guardian about the pending escalation via channel delivery
+    // Notify the guardian about the pending escalation via channel delivery.
+    // When the notification system is fully active it handles channel delivery,
+    // so skip the legacy path to avoid duplicate alerts.
+    const notifCfg = getConfig().notifications;
+    const notificationsActive = notifCfg.enabled && !notifCfg.shadowMode;
     const senderIdentifier = body.senderName || body.senderUsername || body.senderExternalUserId || 'Unknown sender';
-    if (body.replyCallbackUrl) {
+    if (!notificationsActive && body.replyCallbackUrl) {
       try {
         const notificationText = await composeApprovalMessageGenerative(
           {
