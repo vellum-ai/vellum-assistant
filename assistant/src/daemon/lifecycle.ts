@@ -46,6 +46,7 @@ import { telegramBotMessagingProvider } from '../messaging/providers/telegram-bo
 import { smsMessagingProvider } from '../messaging/providers/sms/adapter.js';
 import { browserManager } from '../tools/browser/browser-manager.js';
 import { RuntimeHttpServer } from '../runtime/http-server.js';
+import { createApprovalCopyGenerator } from '../runtime/approval-copy-generator-factory.js';
 import { getHookManager } from '../hooks/manager.js';
 import { installTemplates } from '../hooks/templates.js';
 import { HeartbeatService } from '../workspace/heartbeat-service.js';
@@ -464,6 +465,7 @@ export async function runDaemon(): Promise<void> {
           server.persistAndProcessMessage(conversationId, content, attachmentIds, options, sourceChannel),
         runOrchestrator: server.createRunOrchestrator(),
         interfacesDir: getInterfacesDir(),
+        approvalCopyGenerator: createApprovalCopyGenerator(),
       });
       try {
         log.info({ port, hostname }, 'Daemon startup: starting runtime HTTP server');

@@ -87,12 +87,14 @@ export type {
   NonBlockingMessageProcessor,
   RuntimeHttpServerOptions,
   RuntimeAttachmentMetadata,
+  ApprovalCopyGenerator,
 } from './http-types.js';
 
 import type {
   MessageProcessor,
   NonBlockingMessageProcessor,
   RuntimeHttpServerOptions,
+  ApprovalCopyGenerator,
 } from './http-types.js';
 
 const log = getLogger('runtime-http');
@@ -385,6 +387,7 @@ export class RuntimeHttpServer {
   private persistAndProcessMessage?: NonBlockingMessageProcessor;
   private runOrchestrator?: RunOrchestrator;
   private interfacesDir: string | null;
+  private approvalCopyGenerator?: ApprovalCopyGenerator;
   private suggestionCache = new Map<string, string>();
   private suggestionInFlight = new Map<string, Promise<string | null>>();
   private retrySweepTimer: ReturnType<typeof setInterval> | null = null;
@@ -398,6 +401,7 @@ export class RuntimeHttpServer {
     this.persistAndProcessMessage = options.persistAndProcessMessage;
     this.runOrchestrator = options.runOrchestrator;
     this.interfacesDir = options.interfacesDir ?? null;
+    this.approvalCopyGenerator = options.approvalCopyGenerator;
   }
 
   /** The port the server is actually listening on (resolved after start). */
@@ -453,7 +457,7 @@ export class RuntimeHttpServer {
     // support is available. Guardian approvals can be created even when the
     // generic channel-approval UX flag is disabled.
     if (this.runOrchestrator) {
-      startGuardianExpirySweep(this.runOrchestrator, getGatewayBaseUrl(), this.bearerToken);
+      startGuardianExpirySweep(this.runOrchestrator, getGatewayBaseUrl(), this.bearerToken, this.approvalCopyGenerator);
       log.info('Guardian approval expiry sweep started');
     }
 
@@ -786,7 +790,7 @@ export class RuntimeHttpServer {
 
       if (endpoint === 'channels/inbound' && req.method === 'POST') {
         const gatewayOriginSecret = process.env.RUNTIME_GATEWAY_ORIGIN_SECRET || undefined;
-        return await handleChannelInbound(req, this.processMessage, this.bearerToken, this.runOrchestrator, assistantId, gatewayOriginSecret);
+        return await handleChannelInbound(req, this.processMessage, this.bearerToken, this.runOrchestrator, assistantId, gatewayOriginSecret, this.approvalCopyGenerator);
       }
 
       if (endpoint === 'channels/delivery-ack' && req.method === 'POST') {

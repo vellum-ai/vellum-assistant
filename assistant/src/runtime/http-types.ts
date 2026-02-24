@@ -3,6 +3,21 @@
  */
 import type { RunOrchestrator } from './run-orchestrator.js';
 import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
+import type {
+  ApprovalMessageContext,
+  ComposeApprovalMessageGenerativeOptions,
+} from './approval-message-composer.js';
+
+/**
+ * Dependency-injected approval copy generator. The daemon wires a real
+ * provider-backed implementation; the runtime falls back to deterministic
+ * templates when no generator is supplied.
+ */
+export type ApprovalCopyGenerator = (
+  context: ApprovalMessageContext,
+  fallbackText: string,
+  options: ComposeApprovalMessageGenerativeOptions,
+) => Promise<string | null>;
 
 export interface RuntimeMessageSessionOptions {
   transport?: {
@@ -50,6 +65,8 @@ export interface RuntimeHttpServerOptions {
   runOrchestrator?: RunOrchestrator;
   /** Root directory for interface files on disk. */
   interfacesDir?: string;
+  /** Injected approval copy generator (daemon provides real provider-backed impl). */
+  approvalCopyGenerator?: ApprovalCopyGenerator;
 }
 
 export interface RuntimeAttachmentMetadata {
