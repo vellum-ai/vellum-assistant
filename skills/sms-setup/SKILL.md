@@ -2,7 +2,6 @@
 name: "SMS Setup"
 description: "Set up and troubleshoot SMS messaging with guided Twilio configuration, compliance, and verification"
 user-invocable: true
-includes: ["twilio-setup"]
 metadata: {"vellum": {"emoji": "\ud83d\udce8"}}
 ---
 

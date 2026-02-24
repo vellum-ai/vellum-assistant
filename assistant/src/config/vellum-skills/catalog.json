@@ -52,8 +52,7 @@
       "id": "sms-setup",
       "name": "SMS Setup",
       "description": "Set up and troubleshoot SMS messaging with guided Twilio configuration, compliance, and verification",
-      "emoji": "\ud83d\udce8",
-      "includes": ["twilio-setup"]
+      "emoji": "\ud83d\udce8"
     }
   ]
 }
