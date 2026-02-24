@@ -827,3 +827,63 @@ export const guardianActionDeliveries = sqliteTable('guardian_action_deliveries'
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });
+
+// ── Assistant Inbox ──────────────────────────────────────────────────
+
+export const assistantIngressInvites = sqliteTable('assistant_ingress_invites', {
+  id: text('id').primaryKey(),
+  assistantId: text('assistant_id').notNull().default('self'),
+  sourceChannel: text('source_channel').notNull(),
+  tokenHash: text('token_hash').notNull(),
+  createdBySessionId: text('created_by_session_id'),
+  note: text('note'),
+  maxUses: integer('max_uses').notNull().default(1),
+  useCount: integer('use_count').notNull().default(0),
+  expiresAt: integer('expires_at').notNull(),
+  status: text('status').notNull().default('active'),
+  redeemedByExternalUserId: text('redeemed_by_external_user_id'),
+  redeemedByExternalChatId: text('redeemed_by_external_chat_id'),
+  redeemedAt: integer('redeemed_at'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+export const assistantIngressMembers = sqliteTable('assistant_ingress_members', {
+  id: text('id').primaryKey(),
+  assistantId: text('assistant_id').notNull().default('self'),
+  sourceChannel: text('source_channel').notNull(),
+  externalUserId: text('external_user_id'),
+  externalChatId: text('external_chat_id'),
+  displayName: text('display_name'),
+  username: text('username'),
+  status: text('status').notNull().default('pending'),
+  policy: text('policy').notNull().default('allow'),
+  inviteId: text('invite_id')
+    .references(() => assistantIngressInvites.id),
+  createdBySessionId: text('created_by_session_id'),
+  revokedReason: text('revoked_reason'),
+  blockedReason: text('blocked_reason'),
+  lastSeenAt: integer('last_seen_at'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+export const assistantInboxThreadState = sqliteTable('assistant_inbox_thread_state', {
+  conversationId: text('conversation_id')
+    .primaryKey()
+    .references(() => conversations.id, { onDelete: 'cascade' }),
+  assistantId: text('assistant_id').notNull().default('self'),
+  sourceChannel: text('source_channel').notNull(),
+  externalChatId: text('external_chat_id').notNull(),
+  externalUserId: text('external_user_id'),
+  displayName: text('display_name'),
+  username: text('username'),
+  lastInboundAt: integer('last_inbound_at'),
+  lastOutboundAt: integer('last_outbound_at'),
+  lastMessageAt: integer('last_message_at'),
+  unreadCount: integer('unread_count').notNull().default(0),
+  pendingEscalationCount: integer('pending_escalation_count').notNull().default(0),
+  hasPendingEscalation: integer('has_pending_escalation').notNull().default(0),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
