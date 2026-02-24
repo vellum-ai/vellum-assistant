@@ -105,6 +105,7 @@ export async function handleTaskSubmit(
       const sessionId = uuid();
       const targetApp = resolveComputerUseTargetAppHint(msg.task);
       const effectiveQa = isQa || (qaLatchActive && !isOptOut);
+      const strictVisualQa = requiresRecording && !!(targetApp?.bundleId || targetApp?.appName);
       const cuMsg: CuSessionCreate = {
         type: 'cu_session_create',
         sessionId,
@@ -116,6 +117,7 @@ export async function handleTaskSubmit(
         ...(targetApp ? { targetAppName: targetApp.appName, targetAppBundleId: targetApp.bundleId } : {}),
         ...(effectiveQa ? { qaMode: true, reportToSessionId: msg.conversationId } : {}),
         ...(requiresRecording ? { requiresRecording: true } : {}),
+        ...(strictVisualQa ? { strictVisualQa: true } : {}),
       };
       handleCuSessionCreate(cuMsg, socket, ctx);
 
@@ -132,6 +134,7 @@ export async function handleTaskSubmit(
           includeAudio: config.qaRecording.includeAudio,
         } : {}),
         ...(requiresRecording ? { requiresRecording: true } : {}),
+        ...(strictVisualQa ? { strictVisualQa: true } : {}),
       });
     } else {
       // Create text QA session and immediately start processing

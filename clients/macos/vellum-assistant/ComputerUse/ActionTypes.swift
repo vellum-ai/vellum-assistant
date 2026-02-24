@@ -42,6 +42,8 @@ struct AgentAction: Codable {
     var resolvedFromElementId: Int?
     var resolvedToElementId: Int?
     var elementDescription: String?
+    /// When true, openApp must resolve via bundle ID or exact name only — no fuzzy matching.
+    var requireExactAppMatch: Bool
 
     init(
         type: ActionType,
@@ -61,7 +63,8 @@ struct AgentAction: Codable {
         script: String? = nil,
         resolvedFromElementId: Int? = nil,
         resolvedToElementId: Int? = nil,
-        elementDescription: String? = nil
+        elementDescription: String? = nil,
+        requireExactAppMatch: Bool = false
     ) {
         self.type = type
         self.reasoning = reasoning
@@ -81,6 +84,7 @@ struct AgentAction: Codable {
         self.resolvedFromElementId = resolvedFromElementId
         self.resolvedToElementId = resolvedToElementId
         self.elementDescription = elementDescription
+        self.requireExactAppMatch = requireExactAppMatch
     }
 
     var targetMode: ActionTargetMode {

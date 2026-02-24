@@ -42,8 +42,8 @@ interface AppHintEntry {
 export const APP_HINTS: AppHintEntry[] = [
   // Vellum (our app — highest priority)
   {
-    patterns: [/\b(vellum|velly)\s+(desktop\s+)?app\b/, /\b(vellum|velly)\s+assistant\b/],
-    appName: 'Vellum Assistant',
+    patterns: [/\b(vellum|velly)\s+(desktop\s+)?app\b/, /\b(vellum|velly)\s+assistant\b/, /\bvellum\b/i],
+    appName: 'Vellum',
     bundleId: 'com.vellum.vellum-assistant',
   },
   // Browsers

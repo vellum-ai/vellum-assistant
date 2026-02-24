@@ -110,6 +110,10 @@ export class ComputerUseSession {
   private readonly requiresRecording: boolean;
   /** Whether this session is operating in QA mode. */
   private readonly qaMode: boolean;
+  /** When true, target app must be frontmost during interaction and recording must be valid. */
+  private readonly strictVisualQa: boolean;
+  /** Set to true when an observation confirms the target app was frontmost. */
+  hasTargetFocusEvidence = false;
   /** Timer for the recording handshake timeout. */
   private recordingHandshakeTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -130,6 +134,7 @@ export class ComputerUseSession {
     targetAppBundleId?: string,
     requiresRecording?: boolean,
     qaMode?: boolean,
+    strictVisualQa?: boolean,
   ) {
     this.sessionId = sessionId;
     this.task = task;
@@ -144,6 +149,7 @@ export class ComputerUseSession {
     this.targetAppBundleId = targetAppBundleId;
     this.requiresRecording = requiresRecording ?? false;
     this.qaMode = qaMode ?? false;
+    this.strictVisualQa = strictVisualQa ?? false;
 
     log.info(
       {
@@ -181,6 +187,17 @@ export class ComputerUseSession {
     // Capture previous AX tree for next turn
     if (obs.axTree != null) {
       this.previousAXTree = obs.axTree;
+    }
+
+    // Track whether the target app was observed frontmost (for strict visual QA).
+    if (!this.hasTargetFocusEvidence && (obs.frontmostBundleId || obs.frontmostAppName)) {
+      const bundleMatch = this.targetAppBundleId && obs.frontmostBundleId
+        && obs.frontmostBundleId === this.targetAppBundleId;
+      const nameMatch = obs.frontmostAppName && this.isTargetAppMatch(obs.frontmostAppName);
+      if (bundleMatch || nameMatch) {
+        this.hasTargetFocusEvidence = true;
+        log.info({ sessionId: this.sessionId, frontmostAppName: obs.frontmostAppName, frontmostBundleId: obs.frontmostBundleId }, 'Target app focus evidence confirmed');
+      }
     }
 
     if (this.state === 'awaiting_observation' && this.pendingObservation) {
@@ -349,8 +366,12 @@ export class ComputerUseSession {
   }
 
   private extractAppleScriptActivationTarget(script: string): string | undefined {
-    const match = /tell\s+application\s+"([^"]+)"\s+to\s+activate/i.exec(script);
-    return match?.[1];
+    // Match `tell application "Name" to activate`
+    const nameMatch = /tell\s+application\s+"([^"]+)"\s+to\s+activate/i.exec(script);
+    if (nameMatch) return nameMatch[1];
+    // Match `tell application id "bundle.id" to activate` — return bundle ID
+    const idMatch = /tell\s+application\s+id\s+"([^"]+)"\s+to\s+activate/i.exec(script);
+    return idMatch?.[1];
   }
 
   private static normalizeAppLabel(value: string): string {
@@ -698,6 +719,33 @@ export class ComputerUseSession {
       if (toolName === 'computer_use_run_applescript') {
         const script = typeof input.script === 'string' ? input.script : undefined;
         const activatedApp = script ? this.extractAppleScriptActivationTarget(script) : undefined;
+
+        // In strict visual QA mode, block ALL AppleScript except activation of the target app itself.
+        // AppleScript can silently interact with apps in the background, bypassing the visual requirement.
+        if (this.strictVisualQa) {
+          // Allow both `tell application "Name" to activate` and `tell application id "bundle.id" to activate`
+          const isActivationScript = script && (
+            /^\s*tell\s+application\s+"[^"]+"\s+to\s+activate\s*$/i.test(script.trim())
+            || /^\s*tell\s+application\s+id\s+"[^"]+"\s+to\s+activate\s*$/i.test(script.trim())
+          );
+          const isTargetByName = activatedApp && this.isTargetAppMatch(activatedApp);
+          const isTargetByBundleId = this.targetAppBundleId && script
+            && new RegExp(`tell\\s+application\\s+id\\s+"${this.targetAppBundleId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"\\s+to\\s+activate`, 'i').test(script);
+          const isTargetActivation = isActivationScript && (isTargetByName || isTargetByBundleId);
+          if (!isTargetActivation) {
+            log.warn({
+              sessionId: this.sessionId,
+              toolName,
+              strictVisualQa: true,
+              script: script?.slice(0, 200),
+            }, 'Blocked AppleScript in strict visual QA mode');
+            return {
+              content: 'Blocked: strict visual QA mode requires all interactions to be visible on screen. AppleScript is not allowed except for activating the target app. Use mouse/keyboard actions instead.',
+              isError: true,
+            };
+          }
+        }
+
         if (
           activatedApp
           && !this.isTargetAppMatch(activatedApp)
@@ -758,6 +806,27 @@ export class ComputerUseSession {
 
       // Check for terminal tools
       if (toolName === 'computer_use_done' || toolName === 'computer_use_respond') {
+        // In strict visual QA mode, reject completion if we never observed the target app frontmost.
+        if (this.strictVisualQa && !this.hasTargetFocusEvidence) {
+          log.warn({
+            sessionId: this.sessionId,
+            toolName,
+            targetAppName: this.targetAppName,
+            targetAppBundleId: this.targetAppBundleId,
+          }, 'Rejected completion in strict visual QA: target app was never observed frontmost');
+
+          this.state = 'error';
+          const failReason = `Strict visual QA failed: target app "${this.targetAppName ?? this.targetAppBundleId}" was never observed as the frontmost application during the session.`;
+          this.sendToClient({
+            type: 'cu_error',
+            sessionId: this.sessionId,
+            message: failReason,
+          });
+          this.abortController?.abort();
+          this.notifyTerminal();
+          return { content: failReason, isError: true };
+        }
+
         const summary =
           toolName === 'computer_use_done'
             ? (typeof input.summary === 'string' ? input.summary : 'Task completed')

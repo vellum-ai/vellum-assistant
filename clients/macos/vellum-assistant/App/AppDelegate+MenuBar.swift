@@ -250,6 +250,11 @@ extension AppDelegate {
         menu.addItem(galleryItem)
         #endif
 
+        let restartItem = NSMenuItem(title: "Restart", action: #selector(performRestart), keyEquivalent: "")
+        restartItem.target = self
+        restartItem.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: nil)
+        menu.addItem(restartItem)
+
         menu.addItem(NSMenuItem.separator())
 
         let logoutItem = NSMenuItem(title: "Sign Out", action: #selector(performLogout), keyEquivalent: "")

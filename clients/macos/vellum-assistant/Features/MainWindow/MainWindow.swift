@@ -15,6 +15,10 @@ import SwiftUI
 class TitleBarZoomableWindow: NSWindow {
     private var preZoomFrame: NSRect?
 
+    /// When true, title-bar double-click minimize is suppressed to prevent
+    /// focus loss during focus-lock QA sessions.
+    var suppressMinimize = false
+
     /// Weak reference to the composer text view so we can redirect typing to it.
     weak var composerTextView: NSTextView?
 
@@ -69,6 +73,7 @@ class TitleBarZoomableWindow: NSWindow {
         let action = UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick") ?? "Maximize"
         switch action {
         case "Minimize":
+            if suppressMinimize { return }
             miniaturize(nil)
         case "None":
             break
@@ -345,6 +350,11 @@ final class MainWindow {
             x: origin.x + 2,
             y: origin.y - 2.5
         ))
+    }
+
+    /// Suppress or restore title-bar minimize for focus-lock sessions.
+    func setSuppressMinimize(_ suppress: Bool) {
+        (window as? TitleBarZoomableWindow)?.suppressMinimize = suppress
     }
 
     /// Hide the window without destroying it (can be restored with `show()`).

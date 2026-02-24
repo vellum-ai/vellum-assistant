@@ -195,7 +195,9 @@ extension IPCCuObservation {
         executionResult: String?,
         executionError: String?,
         axTreeBlob: IPCIpcBlobRef? = nil,
-        screenshotBlob: IPCIpcBlobRef? = nil
+        screenshotBlob: IPCIpcBlobRef? = nil,
+        frontmostAppName: String? = nil,
+        frontmostBundleId: String? = nil
     ) {
         self.init(
             type: "cu_observation",
@@ -213,7 +215,9 @@ extension IPCCuObservation {
             executionResult: executionResult,
             executionError: executionError,
             axTreeBlob: axTreeBlob,
-            screenshotBlob: screenshotBlob
+            screenshotBlob: screenshotBlob,
+            frontmostAppName: frontmostAppName,
+            frontmostBundleId: frontmostBundleId
         )
     }
 }

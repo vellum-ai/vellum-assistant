@@ -2,6 +2,8 @@ import Foundation
 import VellumAssistantShared
 import CoreGraphics
 import AppKit
+import AVFoundation
+import CoreMedia
 import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "Session")
@@ -87,6 +89,8 @@ final class ComputerUseSession: ObservableObject {
     let targetAppName: String?
     /// Target app bundle ID for frontmost-app guard — nil means no constraint.
     let targetAppBundleId: String?
+    /// When true, enforces that the target app must be visually frontmost during the session.
+    let strictVisualQa: Bool
 
     /// Weak reference to the chat view model for extracting tool calls for notifications.
     weak var relatedViewModel: ChatViewModel?
@@ -143,7 +147,8 @@ final class ComputerUseSession: ObservableObject {
         includeAudio: Bool = false,
         requiresRecording: Bool = false,
         targetAppName: String? = nil,
-        targetAppBundleId: String? = nil
+        targetAppBundleId: String? = nil,
+        strictVisualQa: Bool = false
     ) {
         self.id = sessionId ?? UUID().uuidString
         self.task = task
@@ -167,6 +172,7 @@ final class ComputerUseSession: ObservableObject {
         self.requiresRecording = requiresRecording
         self.targetAppName = targetAppName
         self.targetAppBundleId = targetAppBundleId
+        self.strictVisualQa = strictVisualQa
         self.verifier = ActionVerifier(maxSteps: maxSteps)
         self.logger = SessionLogger(task: task, attachments: attachments)
     }
@@ -231,18 +237,42 @@ final class ComputerUseSession: ObservableObject {
                     displayID = CGMainDisplayID()
                 }
                 try await recorder.startRecording(windowID: windowID, displayID: displayID, includeAudio: self.includeAudio)
+
+                // Verify capture pipeline is healthy by waiting for first frame
+                let firstFrameReceived = await recorder.waitForFirstFrame(timeoutSeconds: 5.0)
+                if !firstFrameReceived {
+                    log.error("QA mode: first video frame not received within 5 seconds — capture pipeline unhealthy")
+                    try? daemonClient.send(CuRecordingStatusMessage(sessionId: id, status: "failed", reason: "First frame not received within 5 seconds"))
+                    if requiresRecording {
+                        state = .failed(reason: "Recording required but capture pipeline failed: no frames received")
+                        qaRecordingWarningMessage = "Recording required but no video frames received"
+                        logger.finishSession(result: "failed: first frame timeout")
+                        cancelSafetyNetTask?.cancel()
+                        cancelSafetyNetTask = nil
+                        await finalizeQARecording()
+                        return
+                    }
+                    qaRecordingWarningMessage = "Recording may be incomplete: capture pipeline was slow to start"
+                }
+
                 log.info("QA mode: screen recording started for session \(self.id) (scope: \(self.captureScope))")
                 isRecordingActive = true
                 // Notify daemon that recording started successfully
                 try? daemonClient.send(CuRecordingStatusMessage(sessionId: id, status: "started"))
             } catch {
-                log.error("QA mode: failed to start screen recording: \(error.localizedDescription)")
+                let reason: String
+                if let recorderError = error as? ScreenRecorderError {
+                    reason = recorderError.errorDescription ?? error.localizedDescription
+                } else {
+                    reason = error.localizedDescription
+                }
+                log.error("QA mode: failed to start screen recording: \(reason)")
                 // Notify daemon of recording failure
-                try? daemonClient.send(CuRecordingStatusMessage(sessionId: id, status: "failed", reason: error.localizedDescription))
+                try? daemonClient.send(CuRecordingStatusMessage(sessionId: id, status: "failed", reason: reason))
                 if requiresRecording {
                     // Fail-closed: recording is mandatory — abort the session
-                    state = .failed(reason: "Recording required but failed to start: \(error.localizedDescription)")
-                    qaRecordingWarningMessage = "Recording required but failed: \(error.localizedDescription)"
+                    state = .failed(reason: "Recording required but failed to start: \(reason)")
+                    qaRecordingWarningMessage = "Recording required but failed: \(reason)"
                     logger.finishSession(result: "failed: required recording could not start")
                     cancelSafetyNetTask?.cancel()
                     cancelSafetyNetTask = nil
@@ -250,7 +280,7 @@ final class ComputerUseSession: ObservableObject {
                     return
                 }
                 // Non-fatal for best-effort recording — continue the session without recording
-                qaRecordingWarningMessage = "Unable to start recording. \(error.localizedDescription)"
+                qaRecordingWarningMessage = "Unable to start recording. \(reason)"
             }
         }
 
@@ -544,16 +574,42 @@ final class ComputerUseSession: ObservableObject {
             return
         }
 
+        // FOCUS-LOCK KEY BLOCKLIST — in strict visual QA mode, block key combos that
+        // would steal focus from the target app (hide, minimize, app-switch).
+        if strictVisualQa, agentAction.type == .key, let keyCombo = agentAction.key?.lowercased() {
+            let focusStealingKeys: Set<String> = ["cmd+h", "command+h", "cmd+m", "command+m",
+                                                   "cmd+tab", "command+tab", "cmd+`", "command+`"]
+            if focusStealingKeys.contains(keyCombo) {
+                let blockMsg = "Blocked in focus-lock mode: '\(keyCombo)' would steal focus from the target app."
+                log.warning("[\(action.stepNumber)] Focus-lock key block: \(keyCombo)")
+                let obs = await buildObservation(executionResult: nil, executionError: blockMsg)
+                if let obs {
+                    do { try daemonClient.send(obs) } catch {
+                        log.error("Failed to send focus-lock key block observation: \(error)")
+                    }
+                }
+                state = .thinking(step: action.stepNumber + 1, maxSteps: maxSteps)
+                return
+            }
+        }
+
         // FRONTMOST-APP GUARD — block destructive actions when the wrong app is in front.
         // Non-destructive actions (screenshot, open_app, wait, runAppleScript) are allowed
         // regardless of which app is focused.
         if let guardError = await checkFrontmostAppGuard(for: agentAction) {
             consecutiveFrontmostBlocks += 1
             log.error("Frontmost guard BLOCKED action \(agentAction.type.rawValue) (\(self.consecutiveFrontmostBlocks) consecutive): \(guardError)")
-            if consecutiveFrontmostBlocks >= 3 {
+
+            // In strict mode, fail immediately — the guard already retried activation
+            // internally, so a returned error means focus is unrecoverable.
+            // In normal mode, allow up to 3 cross-step blocks before failing.
+            let shouldFail = strictVisualQa || consecutiveFrontmostBlocks >= 3
+            if shouldFail {
                 isCancelled = true
-                state = .failed(reason: "Target app could not be activated after repeated attempts.")
-                logger.finishSession(result: "failed: frontmost guard — too many blocks")
+                state = .failed(reason: strictVisualQa
+                    ? "Focus-lock failed: \(guardError)"
+                    : "Target app could not be activated after repeated attempts.")
+                logger.finishSession(result: "failed: frontmost guard\(strictVisualQa ? " (strict)" : "") — \(guardError)")
 
                 // Finalize QA recording BEFORE sending abort — the daemon's handleCuSessionAbort
                 // deletes cuSessionMetadata, so cu_session_finalized must arrive first.
@@ -635,22 +691,35 @@ final class ComputerUseSession: ObservableObject {
 
         // When we have a bundle ID, match on that (most reliable)
         if let targetBundleId = targetAppBundleId {
-            let frontmost = NSWorkspace.shared.frontmostApplication
-            let frontmostBundleId = frontmost?.bundleIdentifier
-            let frontmostName = frontmost?.localizedName ?? "unknown"
+            if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == targetBundleId {
+                return nil
+            }
 
-            guard frontmostBundleId != targetBundleId else { return nil }
+            let frontmostName = NSWorkspace.shared.frontmostApplication?.localizedName ?? "unknown"
+            let frontmostBundleId = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
 
             log.warning("Frontmost guard: frontmost=\(frontmostName) (\(frontmostBundleId ?? "nil")), target=\(self.targetAppName ?? "nil") (\(targetBundleId)). Attempting activation retry.")
 
-            // Attempt to activate the target app once
-            if let targetRunning = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == targetBundleId }) {
-                targetRunning.activate()
-                try? await Task.sleep(nanoseconds: 300_000_000) // 300ms for focus to settle
-                if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == targetBundleId {
-                    log.info("Frontmost guard: activation retry succeeded for \(self.targetAppName ?? targetBundleId)")
-                    return nil
+            // Retry activation up to 2 times with 300ms settle delay each
+            let maxRetries = strictVisualQa ? 2 : 1
+            for attempt in 1...maxRetries {
+                // For Vellum target: unhide first since activate() won't work on hidden apps
+                let selfBundleId = Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant"
+                if targetBundleId == selfBundleId {
+                    NSApp.unhide(nil)
                 }
+
+                if let targetRunning = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == targetBundleId }) {
+                    targetRunning.activate(options: [.activateIgnoringOtherApps, .activateAllWindows])
+                    try? await Task.sleep(nanoseconds: 300_000_000) // 300ms for focus to settle
+                    if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == targetBundleId {
+                        log.info("Frontmost guard: activation retry \(attempt) succeeded for \(self.targetAppName ?? targetBundleId)")
+                        return nil
+                    }
+                } else {
+                    break // Target app not running — no point retrying
+                }
+                log.warning("Frontmost guard: activation retry \(attempt)/\(maxRetries) failed")
             }
 
             return "Action blocked: frontmost app is '\(frontmostName)' but target is '\(self.targetAppName ?? targetBundleId)'. Please switch to the target app first."
@@ -855,6 +924,11 @@ final class ComputerUseSession: ObservableObject {
             }
         }
 
+        // Capture frontmost app info for the daemon's focus evidence tracking
+        let frontmostApp = NSWorkspace.shared.frontmostApplication
+        let frontmostAppName = frontmostApp?.localizedName
+        let frontmostBundleId = frontmostApp?.bundleIdentifier
+
         let observation = CuObservationMessage(
             sessionId: id,
             axTree: axTreeInline,
@@ -870,7 +944,9 @@ final class ComputerUseSession: ObservableObject {
             executionResult: executionResult,
             executionError: executionError,
             axTreeBlob: axTreeBlobRef,
-            screenshotBlob: screenshotBlobRef
+            screenshotBlob: screenshotBlobRef,
+            frontmostAppName: frontmostAppName,
+            frontmostBundleId: frontmostBundleId
         )
 
         let screenshotRawBytes = screenshotData?.count ?? 0
@@ -957,7 +1033,8 @@ final class ComputerUseSession: ObservableObject {
             script: script,
             resolvedFromElementId: elementId,
             resolvedToElementId: toElementId,
-            elementDescription: elementDescription
+            elementDescription: elementDescription,
+            requireExactAppMatch: strictVisualQa
         )
     }
 
@@ -1209,6 +1286,32 @@ final class ComputerUseSession: ObservableObject {
 
     // MARK: - QA Recording Finalization
 
+    /// Validates that a video file is playable by checking for a video track with non-zero dimensions and duration.
+    private func validateVideoPlayability(at url: URL) async -> Bool {
+        let asset = AVAsset(url: url)
+        do {
+            let tracks = try await asset.load(.tracks)
+            guard let videoTrack = tracks.first(where: { $0.mediaType == .video }) else {
+                log.warning("QA mode: salvage video has no video track at \(url.lastPathComponent)")
+                return false
+            }
+            let size = try await videoTrack.load(.naturalSize)
+            guard size.width > 0, size.height > 0 else {
+                log.warning("QA mode: salvage video has zero-size video track at \(url.lastPathComponent)")
+                return false
+            }
+            let duration = try await asset.load(.duration)
+            guard CMTimeGetSeconds(duration) > 0 else {
+                log.warning("QA mode: salvage video has zero duration at \(url.lastPathComponent)")
+                return false
+            }
+            return true
+        } catch {
+            log.warning("QA mode: salvage video validation failed at \(url.lastPathComponent): \(error.localizedDescription)")
+            return false
+        }
+    }
+
     /// Stops the screen recorder (if active) and sends a `cu_session_finalized` message to the daemon.
     private func finalizeQARecording() async {
         defer { didFinalizeQARecording = true }
@@ -1264,14 +1367,21 @@ final class ComputerUseSession: ObservableObject {
                 try? daemonClient.send(CuRecordingStatusMessage(sessionId: id, status: "stopped"))
             } catch {
                 isRecordingActive = false
-                log.error("QA mode: failed to stop screen recording: \(error.localizedDescription)")
-                try? daemonClient.send(CuRecordingStatusMessage(sessionId: id, status: "failed", reason: error.localizedDescription))
-                if qaRecordingWarningMessage == nil {
-                    qaRecordingWarningMessage = "Unable to finalize recording. \(error.localizedDescription)"
+                let reason: String
+                if let recorderError = error as? ScreenRecorderError {
+                    reason = recorderError.errorDescription ?? error.localizedDescription
+                } else {
+                    reason = error.localizedDescription
                 }
-                // Salvage: if the partial file exists on disk, track it for cleanup
+                log.error("QA mode: failed to stop screen recording: \(reason)")
+                try? daemonClient.send(CuRecordingStatusMessage(sessionId: id, status: "failed", reason: reason))
+                if qaRecordingWarningMessage == nil {
+                    qaRecordingWarningMessage = "Unable to finalize recording. \(reason)"
+                }
+                // Salvage: if the partial file exists on disk AND is playable, track it for cleanup
                 if let salvageURL = (recorder as? ScreenRecorder)?.lastRecordingFileURL,
-                   FileManager.default.fileExists(atPath: salvageURL.path) {
+                   FileManager.default.fileExists(atPath: salvageURL.path),
+                   await validateVideoPlayability(at: salvageURL) {
                     let attrs = try? FileManager.default.attributesOfItem(atPath: salvageURL.path)
                     let sizeBytes = (attrs?[.size] as? Int) ?? 0
                     let expiresAtEpoch = Int(Date().addingTimeInterval(Double(retentionDays) * 24 * 3600).timeIntervalSince1970 * 1000)
@@ -1288,6 +1398,9 @@ final class ComputerUseSession: ObservableObject {
                         targetBundleId: nil,
                         expiresAt: expiresAtEpoch
                     )
+                } else if let salvageURL = (recorder as? ScreenRecorder)?.lastRecordingFileURL,
+                          FileManager.default.fileExists(atPath: salvageURL.path) {
+                    log.warning("QA mode: salvage recording at \(salvageURL.lastPathComponent) failed playability check — discarding")
                 }
             }
         }

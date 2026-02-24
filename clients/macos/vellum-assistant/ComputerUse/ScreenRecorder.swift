@@ -62,7 +62,14 @@ enum ScreenRecorderError: LocalizedError {
 protocol ScreenRecording {
     func startRecording(windowID: CGWindowID?, displayID: CGDirectDisplayID?, includeAudio: Bool) async throws
     func stopRecording() async throws -> RecordingResult
+    func waitForFirstFrame(timeoutSeconds: Double) async -> Bool
     var isRecording: Bool { get }
+}
+
+extension ScreenRecording {
+    func waitForFirstFrame(timeoutSeconds: Double = 5.0) async -> Bool {
+        return true  // Mocks assume healthy capture by default
+    }
 }
 
 // MARK: - ScreenRecorder
@@ -253,6 +260,30 @@ final class ScreenRecorder: NSObject, ScreenRecording {
         log.info("Screen recording started: \(fileURL.lastPathComponent)")
     }
 
+    // MARK: - First Frame Handshake
+
+    /// Waits for the first video frame to arrive, returning true if received within the timeout.
+    func waitForFirstFrame(timeoutSeconds: Double = 5.0) async -> Bool {
+        guard let handler = outputHandler else { return false }
+
+        return await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                await withCheckedContinuation { continuation in
+                    handler.setFirstFrameContinuation(continuation)
+                }
+                return true
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(timeoutSeconds * 1_000_000_000))
+                handler.cancelFirstFrameWait()
+                return false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
+        }
+    }
+
     // MARK: - Stop Recording
 
     func stopRecording() async throws -> RecordingResult {
@@ -354,12 +385,26 @@ private final class StreamOutputHandler: NSObject, SCStreamOutput, @unchecked Se
     private let audioInput: AVAssetWriterInput?
     private var sessionStarted = false
     private let lock = NSLock()
+    private var firstFrameContinuation: CheckedContinuation<Void, Never>?
+    private let firstFrameLock = NSLock()
 
     init(writer: AVAssetWriter, videoInput: AVAssetWriterInput, audioInput: AVAssetWriterInput?) {
         self.writer = writer
         self.videoInput = videoInput
         self.audioInput = audioInput
         super.init()
+    }
+
+    func setFirstFrameContinuation(_ continuation: CheckedContinuation<Void, Never>?) {
+        firstFrameLock.lock()
+        defer { firstFrameLock.unlock() }
+        firstFrameContinuation = continuation
+    }
+
+    func cancelFirstFrameWait() {
+        firstFrameLock.lock()
+        defer { firstFrameLock.unlock() }
+        firstFrameContinuation = nil
     }
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
@@ -374,6 +419,13 @@ private final class StreamOutputHandler: NSObject, SCStreamOutput, @unchecked Se
             let timestamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
             writer.startSession(atSourceTime: timestamp)
             sessionStarted = true
+
+            // Signal that the first frame has been received
+            firstFrameLock.lock()
+            let cont = firstFrameContinuation
+            firstFrameContinuation = nil
+            firstFrameLock.unlock()
+            cont?.resume()
         }
 
         switch type {

@@ -235,7 +235,7 @@ final class ActionExecutor: ActionExecuting {
             try drag(from: CGPoint(x: fromX, y: fromY), to: CGPoint(x: endX, y: endY))
         case .openApp:
             guard let appName = action.appName else { throw ExecutorError.appNotFound("(no name)") }
-            try await openApp(name: appName, bundleId: action.appBundleId)
+            try await openApp(name: appName, bundleId: action.appBundleId, requireExactMatch: action.requireExactAppMatch)
         case .runAppleScript:
             guard let source = action.script else { throw ExecutorError.appleScriptMissingScript }
             return try await runAppleScript(source)
@@ -447,7 +447,7 @@ final class ActionExecutor: ActionExecuting {
         }
     }
 
-    func openApp(name: String, bundleId: String? = nil) async throws {
+    func openApp(name: String, bundleId: String? = nil, requireExactMatch: Bool = false) async throws {
         let workspace = NSWorkspace.shared
         var attemptedPaths: [String] = []
 
@@ -458,7 +458,18 @@ final class ActionExecutor: ActionExecuting {
                 $0.bundleIdentifier == bundleId
             }) {
                 log.info("openApp resolved via bundle-id (running): \(bundleId, privacy: .public)")
-                runningApp.activate()
+                // For our own app: unhide + deminiaturize to handle hidden/minimized state
+                let selfBundleId = Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant"
+                if bundleId == selfBundleId {
+                    NSApp.unhide(nil)
+                    for window in NSApp.windows where window.isMiniaturized {
+                        window.deminiaturize(nil)
+                    }
+                }
+                if runningApp.isHidden {
+                    runningApp.unhide()
+                }
+                runningApp.activate(options: [.activateIgnoringOtherApps, .activateAllWindows])
                 await verifyFrontmost(expectedName: runningApp.localizedName ?? name)
                 return
             }
@@ -470,25 +481,45 @@ final class ActionExecutor: ActionExecuting {
                 await verifyFrontmost(expectedName: name)
                 return
             }
+            if requireExactMatch {
+                log.error("openApp exact-match mode: bundle-id \(bundleId, privacy: .public) not found, refusing fuzzy fallback")
+                throw ExecutorError.appNotFound("\(name) (bundle: \(bundleId), exact match required)")
+            }
             log.warning("openApp bundle-id not found, falling back to name: \(bundleId, privacy: .public)")
+        } else if requireExactMatch {
+            // In exact-match mode without a bundle ID, only allow exact name match
+            // against running apps — no fuzzy/substring matching
+            attemptedPaths.append("exact-name(\(name))")
+            if let runningApp = workspace.runningApplications.first(where: {
+                $0.localizedName == name
+            }) {
+                log.info("openApp resolved via exact name match (running): \(name, privacy: .public)")
+                runningApp.activate(options: [.activateIgnoringOtherApps, .activateAllWindows])
+                await verifyFrontmost(expectedName: name)
+                return
+            }
+            // Fall through to filesystem/mdfind — those are exact by nature
         }
 
         // 2. Normalized/fuzzy name matching against running apps
-        let normalizedName = Self.normalizeAppName(name)
-        attemptedPaths.append("fuzzy-running(\(name))")
-        // Guard: when the input normalizes to empty (e.g. "---"), String.contains("")
-        // returns true for any string, which would match the first running app arbitrarily.
-        if !normalizedName.isEmpty, let runningApp = workspace.runningApplications.first(where: { app in
-            guard let localizedName = app.localizedName else { return false }
-            let normalized = Self.normalizeAppName(localizedName)
-            return normalized == normalizedName
-                || normalized.contains(normalizedName)
-                || normalizedName.contains(normalized)
-        }) {
-            log.info("openApp resolved via fuzzy name match (running): \(name, privacy: .public) -> \(runningApp.localizedName ?? "?", privacy: .public)")
-            runningApp.activate()
-            await verifyFrontmost(expectedName: runningApp.localizedName ?? name)
-            return
+        // Skip fuzzy matching in exact-match mode — only bundle-ID and exact name are trusted
+        if !requireExactMatch {
+            let normalizedName = Self.normalizeAppName(name)
+            attemptedPaths.append("fuzzy-running(\(name))")
+            // Guard: when the input normalizes to empty (e.g. "---"), String.contains("")
+            // returns true for any string, which would match the first running app arbitrarily.
+            if !normalizedName.isEmpty, let runningApp = workspace.runningApplications.first(where: { app in
+                guard let localizedName = app.localizedName else { return false }
+                let normalized = Self.normalizeAppName(localizedName)
+                return normalized == normalizedName
+                    || normalized.contains(normalizedName)
+                    || normalizedName.contains(normalized)
+            }) {
+                log.info("openApp resolved via fuzzy name match (running): \(name, privacy: .public) -> \(runningApp.localizedName ?? "?", privacy: .public)")
+                runningApp.activate(options: [.activateIgnoringOtherApps, .activateAllWindows])
+                await verifyFrontmost(expectedName: runningApp.localizedName ?? name)
+                return
+            }
         }
 
         // 3. Resolve aliases
@@ -504,7 +535,7 @@ final class ActionExecutor: ActionExecuting {
                 guard let localizedName = app.localizedName else { return false }
                 return Self.normalizeAppName(localizedName) == normalizedResolved
             }) {
-                runningApp.activate()
+                runningApp.activate(options: [.activateIgnoringOtherApps, .activateAllWindows])
                 await verifyFrontmost(expectedName: resolvedName)
                 return
             }

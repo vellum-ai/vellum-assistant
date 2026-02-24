@@ -474,6 +474,9 @@ export class DaemonServer {
     }
     this.sessions.clear();
     this.sessionOptions.clear();
+    // Clear QA latches to prevent unbounded growth
+    const { clearAllQaLatches } = require('./handlers/shared.js');
+    clearAllQaLatches();
     return count;
   }
 

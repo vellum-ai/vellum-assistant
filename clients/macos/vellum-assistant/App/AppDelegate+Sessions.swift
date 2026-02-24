@@ -82,6 +82,25 @@ extension AppDelegate {
         return false
     }
 
+    // MARK: - Screen Recording Permission
+
+    /// Poll for screen recording permission after prompting, giving the user time to grant it in System Settings.
+    private func waitForScreenRecordingPermission() async -> Bool {
+        // Already granted — no need to prompt or poll
+        if PermissionManager.screenRecordingStatus() == .granted { return true }
+
+        // Show the OS prompt / open System Settings
+        PermissionManager.requestScreenRecordingAccess()
+
+        // Poll every 500ms for up to 30 seconds
+        for _ in 0..<60 {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            if Task.isCancelled { return false }
+            if PermissionManager.screenRecordingStatus() == .granted { return true }
+        }
+        return false
+    }
+
     // MARK: - Accessibility Permission
 
     /// Poll for accessibility permission after prompting, giving the user time to grant it in System Settings.
@@ -121,6 +140,23 @@ extension AppDelegate {
                 return
             }
 
+            // Screen recording permission gate — only for QA/recording sessions
+            if routed.qaMode == true || routed.requiresRecording == true {
+                guard await waitForScreenRecordingPermission() else {
+                    log.error("Screen Recording permission denied — cannot start QA session \(routed.sessionId)")
+                    do {
+                        try daemonClient.send(CuSessionAbortMessage(sessionId: routed.sessionId))
+                    } catch {
+                        log.error("Failed to send CU session abort for escalation \(routed.sessionId): \(error)")
+                    }
+                    self.mainWindow?.windowState.showToast(
+                        message: "Computer control requires Screen Recording permission. Grant it in System Settings → Privacy & Security → Screen Recording.",
+                        style: .error
+                    )
+                    return
+                }
+            }
+
             let storedMaxSteps = UserDefaults.standard.integer(forKey: "maxStepsPerSession")
             let maxSteps = storedMaxSteps > 0 ? storedMaxSteps : 50
             let session = ComputerUseSession(
@@ -138,7 +174,8 @@ extension AppDelegate {
                 includeAudio: routed.includeAudio ?? false,
                 requiresRecording: routed.requiresRecording ?? false,
                 targetAppName: routed.targetAppName,
-                targetAppBundleId: routed.targetAppBundleId
+                targetAppBundleId: routed.targetAppBundleId,
+                strictVisualQa: routed.strictVisualQa ?? false
             )
             // Don't bind relatedViewModel for escalated sessions — the active view model
             // may be unrelated if the user switched threads. Tool calls for escalated
@@ -164,7 +201,13 @@ extension AppDelegate {
                 self.showMainWindow()
             }
 
+            // Suppress title-bar minimize during focus-lock sessions targeting Vellum
+            let suppressMinimize = session.strictVisualQa && !self.isExternalAppTarget(bundleId: routed.targetAppBundleId, name: routed.targetAppName)
+            if suppressMinimize { self.mainWindow?.setSuppressMinimize(true) }
+
             await session.run()
+
+            if suppressMinimize { self.mainWindow?.setSuppressMinimize(false) }
             let endMessage = self.computerUseEndMessage(for: session)
             try? await Task.sleep(nanoseconds: 10_000_000_000)
             overlay.close()
@@ -277,6 +320,18 @@ extension AppDelegate {
                     }
                     return
                 }
+                // Screen recording permission gate — only for QA/recording sessions
+                if routed.qaMode == true || routed.requiresRecording == true {
+                    guard await self.waitForScreenRecordingPermission() else {
+                        log.error("Screen Recording permission denied — cannot start QA session \(routed.sessionId)")
+                        do {
+                            try self.daemonClient.send(CuSessionAbortMessage(sessionId: routed.sessionId))
+                        } catch {
+                            log.error("Failed to send CU session abort for \(routed.sessionId): \(error)")
+                        }
+                        return
+                    }
+                }
                 let storedMaxSteps = UserDefaults.standard.integer(forKey: "maxStepsPerSession")
                 let maxSteps = storedMaxSteps > 0 ? storedMaxSteps : 50
                 let session = ComputerUseSession(
@@ -295,7 +350,8 @@ extension AppDelegate {
                     includeAudio: routed.includeAudio ?? false,
                     requiresRecording: routed.requiresRecording ?? false,
                     targetAppName: routed.targetAppName,
-                    targetAppBundleId: routed.targetAppBundleId
+                    targetAppBundleId: routed.targetAppBundleId,
+                    strictVisualQa: routed.strictVisualQa ?? false
                 )
                 // Don't bind relatedViewModel — sessions started via startSession() don't
                 // originate from a chat thread, so there's no ChatViewModel to extract
@@ -317,7 +373,14 @@ extension AppDelegate {
                         self.showMainWindow()
                     }
                 }
+
+                // Suppress title-bar minimize during focus-lock sessions targeting Vellum
+                let suppressMinimize = session.strictVisualQa && !self.isExternalAppTarget(bundleId: routed.targetAppBundleId, name: routed.targetAppName)
+                if suppressMinimize { self.mainWindow?.setSuppressMinimize(true) }
+
                 await session.run()
+
+                if suppressMinimize { self.mainWindow?.setSuppressMinimize(false) }
                 let endMessage = self.computerUseEndMessage(for: session)
                 try? await Task.sleep(nanoseconds: 10_000_000_000)
                 overlay.close()

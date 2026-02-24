@@ -187,6 +187,8 @@ export interface CuSessionCreate {
   targetAppBundleId?: string;
   /** When true, recording MUST start before any destructive action. */
   requiresRecording?: boolean;
+  /** When true, target app must be visually frontmost during interaction and recording must be valid. */
+  strictVisualQa?: boolean;
 }
 
 export interface CuRecordingStatus {
@@ -250,6 +252,10 @@ export interface CuObservation {
   executionError?: string;
   axTreeBlob?: IpcBlobRef;
   screenshotBlob?: IpcBlobRef;
+  /** Name of the frontmost application at observation time. */
+  frontmostAppName?: string;
+  /** Bundle ID of the frontmost application at observation time. */
+  frontmostBundleId?: string;
 }
 
 export interface TaskSubmit {
@@ -1678,6 +1684,8 @@ export interface TaskRouted {
   targetAppBundleId?: string;
   /** When true, recording MUST start before any destructive action. */
   requiresRecording?: boolean;
+  /** When true, target app must be visually frontmost during interaction and recording must be valid. */
+  strictVisualQa?: boolean;
 }
 
 export interface RideShotgunProgress {

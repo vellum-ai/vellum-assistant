@@ -313,6 +313,21 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         authWindow = window
     }
 
+    @objc func performRestart() {
+        // Stop daemon before relaunch
+        assistantCli.stop()
+
+        // Launch a fresh instance then quit
+        let bundleURL = Bundle.main.bundleURL
+        let config = NSWorkspace.OpenConfiguration()
+        config.createsNewApplicationInstance = true
+        NSWorkspace.shared.openApplication(at: bundleURL, configuration: config) { _, _ in
+            DispatchQueue.main.async {
+                NSApp.terminate(nil)
+            }
+        }
+    }
+
     @objc func performLogout() {
         Task {
             await authManager.logout()

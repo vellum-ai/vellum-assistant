@@ -647,7 +647,7 @@ export function migrateRemoveAssistantIdColumns(database: Db): void {
           content_hash TEXT,
           thumbnail_base64 TEXT,
           created_at INTEGER NOT NULL,
-          storage_kind TEXT DEFAULT 'inline_base64',
+          storage_kind TEXT NOT NULL DEFAULT 'inline_base64',
           file_path TEXT,
           sha256 TEXT,
           expires_at INTEGER

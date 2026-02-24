@@ -59,16 +59,16 @@ export function shouldRouteQaToComputerUse(taskText: string): boolean {
     /\bscreen\b/,
     /\bwindow\b/,
     /\bcomposer\b/,
-    /\bthread\b/,
-    /\bchat\b/,
+    /\bin\s+the\s+thread\b/,
+    /\bin\s+the\s+chat\b/,
     /\bbutton\b/,
     /\bclick\b/,
-    /\btype\b/,
+    /\btype\s+(in|into|text)\b/,
     /\btyping\b/,
     /\bscroll\b/,
     /\bnavigate\b/,
-    /\bopen\b/,
-    /\bsend\b/,
+    /\bopen\s+(the\s+)?(app|window|dialog|menu|browser)\b/,
+    /\bsend\s+(a\s+)?(message|button|form)\b/,
     /\bworkflow\b/,
     /\bbehavior\b/,
   ];
@@ -91,5 +91,9 @@ export function shouldRouteQaToComputerUse(taskText: string): boolean {
   if (hasGuiCue) return true;
 
   const hasCodeOnlyCue = codeTestCues.some((pattern) => pattern.test(lower));
-  return !hasCodeOnlyCue;
+  if (hasCodeOnlyCue) return false;
+
+  // No positive GUI cue and no code-only cue — don't force CU routing.
+  // Absence of evidence is not evidence of GUI intent; let the classifier decide.
+  return false;
 }

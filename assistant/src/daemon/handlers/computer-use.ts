@@ -100,6 +100,7 @@ export function handleCuSessionCreate(
     msg.targetAppBundleId,
     msg.requiresRecording,
     msg.qaMode,
+    msg.strictVisualQa,
   );
   sessionRef.current = session;
 

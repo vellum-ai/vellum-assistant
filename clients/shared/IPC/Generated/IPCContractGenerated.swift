@@ -978,8 +978,12 @@ public struct IPCCuObservation: Codable, Sendable {
     public let executionError: String?
     public let axTreeBlob: IPCIpcBlobRef?
     public let screenshotBlob: IPCIpcBlobRef?
+    /// Name of the frontmost application at observation time.
+    public let frontmostAppName: String?
+    /// Bundle ID of the frontmost application at observation time.
+    public let frontmostBundleId: String?
 
-    public init(type: String, sessionId: String, axTree: String? = nil, axDiff: String? = nil, secondaryWindows: String? = nil, screenshot: String? = nil, screenshotWidthPx: Double? = nil, screenshotHeightPx: Double? = nil, screenWidthPt: Double? = nil, screenHeightPt: Double? = nil, coordinateOrigin: String? = nil, captureDisplayId: Double? = nil, executionResult: String? = nil, executionError: String? = nil, axTreeBlob: IPCIpcBlobRef? = nil, screenshotBlob: IPCIpcBlobRef? = nil) {
+    public init(type: String, sessionId: String, axTree: String? = nil, axDiff: String? = nil, secondaryWindows: String? = nil, screenshot: String? = nil, screenshotWidthPx: Double? = nil, screenshotHeightPx: Double? = nil, screenWidthPt: Double? = nil, screenHeightPt: Double? = nil, coordinateOrigin: String? = nil, captureDisplayId: Double? = nil, executionResult: String? = nil, executionError: String? = nil, axTreeBlob: IPCIpcBlobRef? = nil, screenshotBlob: IPCIpcBlobRef? = nil, frontmostAppName: String? = nil, frontmostBundleId: String? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.axTree = axTree
@@ -996,6 +1000,8 @@ public struct IPCCuObservation: Codable, Sendable {
         self.executionError = executionError
         self.axTreeBlob = axTreeBlob
         self.screenshotBlob = screenshotBlob
+        self.frontmostAppName = frontmostAppName
+        self.frontmostBundleId = frontmostBundleId
     }
 }
 
@@ -1041,8 +1047,10 @@ public struct IPCCuSessionCreate: Codable, Sendable {
     public let targetAppBundleId: String?
     /// When true, recording MUST start before any destructive action.
     public let requiresRecording: Bool?
+    /// When true, target app must be visually frontmost during interaction and recording must be valid.
+    public let strictVisualQa: Bool?
 
-    public init(type: String, sessionId: String, task: String, screenWidth: Int, screenHeight: Int, attachments: [IPCUserMessageAttachment]? = nil, interactionType: String? = nil, reportToSessionId: String? = nil, qaMode: Bool? = nil, targetAppName: String? = nil, targetAppBundleId: String? = nil, requiresRecording: Bool? = nil) {
+    public init(type: String, sessionId: String, task: String, screenWidth: Int, screenHeight: Int, attachments: [IPCUserMessageAttachment]? = nil, interactionType: String? = nil, reportToSessionId: String? = nil, qaMode: Bool? = nil, targetAppName: String? = nil, targetAppBundleId: String? = nil, requiresRecording: Bool? = nil, strictVisualQa: Bool? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.task = task
@@ -1055,6 +1063,7 @@ public struct IPCCuSessionCreate: Codable, Sendable {
         self.targetAppName = targetAppName
         self.targetAppBundleId = targetAppBundleId
         self.requiresRecording = requiresRecording
+        self.strictVisualQa = strictVisualQa
     }
 }
 
@@ -3621,8 +3630,10 @@ public struct IPCTaskRouted: Codable, Sendable {
     public let targetAppBundleId: String?
     /// When true, recording MUST start before any destructive action.
     public let requiresRecording: Bool?
+    /// When true, target app must be visually frontmost during interaction and recording must be valid.
+    public let strictVisualQa: Bool?
 
-    public init(type: String, sessionId: String, interactionType: String, task: String? = nil, escalatedFrom: String? = nil, qaMode: Bool? = nil, reportToSessionId: String? = nil, retentionDays: Double? = nil, captureScope: String? = nil, includeAudio: Bool? = nil, targetAppName: String? = nil, targetAppBundleId: String? = nil, requiresRecording: Bool? = nil) {
+    public init(type: String, sessionId: String, interactionType: String, task: String? = nil, escalatedFrom: String? = nil, qaMode: Bool? = nil, reportToSessionId: String? = nil, retentionDays: Double? = nil, captureScope: String? = nil, includeAudio: Bool? = nil, targetAppName: String? = nil, targetAppBundleId: String? = nil, requiresRecording: Bool? = nil, strictVisualQa: Bool? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.interactionType = interactionType
@@ -3636,6 +3647,7 @@ public struct IPCTaskRouted: Codable, Sendable {
         self.targetAppName = targetAppName
         self.targetAppBundleId = targetAppBundleId
         self.requiresRecording = requiresRecording
+        self.strictVisualQa = strictVisualQa
     }
 }
 

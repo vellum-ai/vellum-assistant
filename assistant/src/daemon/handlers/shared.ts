@@ -37,6 +37,13 @@ export function clearQaLatch(conversationId: string): void {
 }
 
 /**
+ * Clear all QA latches (called on session reset / clearAllSessions).
+ */
+export function clearAllQaLatches(): void {
+  qaLatchByConversation.clear();
+}
+
+/**
  * Check whether the QA latch is active for a conversation.
  */
 export function isQaLatchActive(conversationId: string | undefined): boolean {
@@ -269,20 +276,25 @@ export function wireEscalationHandler(
 
     const cuSessionId = uuid();
     const isQa = detectQaIntent(task);
+    const isOptOut = detectQaOptOut(task);
     const qaLatchActive = isQaLatchActive(sourceSessionId);
     const targetApp = resolveComputerUseTargetAppHint(task);
     const config = getConfig();
 
-    // Determine whether recording is required: QA intent or latch + config flag
-    const requiresRecording = (isQa || qaLatchActive) && config.qaRecording.enforceStartBeforeActions;
+    // Compute effective QA mode — respect opt-out for latch-based activation
+    const effectiveQa = isQa || (qaLatchActive && !isOptOut);
+
+    // Determine whether recording is required: effective QA + config flag
+    const requiresRecording = effectiveQa && config.qaRecording.enforceStartBeforeActions;
+    const strictVisualQa = requiresRecording && !!(targetApp?.bundleId || targetApp?.appName);
 
     // Set the QA latch for this conversation when QA intent is detected
     if (isQa) {
       setQaLatch(sourceSessionId);
     }
 
-    // Check for explicit opt-out
-    if (detectQaOptOut(task)) {
+    // Check for explicit opt-out — clear the latch for future turns
+    if (isOptOut) {
       clearQaLatch(sourceSessionId);
     }
 
@@ -295,8 +307,9 @@ export function wireEscalationHandler(
       interactionType: 'computer_use',
       reportToSessionId: sourceSessionId,
       ...(targetApp ? { targetAppName: targetApp.appName, targetAppBundleId: targetApp.bundleId } : {}),
-      ...(isQa || qaLatchActive ? { qaMode: true } : {}),
+      ...(effectiveQa ? { qaMode: true } : {}),
       ...(requiresRecording ? { requiresRecording: true } : {}),
+      ...(strictVisualQa ? { strictVisualQa: true } : {}),
     };
     handleCuSessionCreate(cuMsg, currentSocket, ctx);
 
@@ -308,13 +321,14 @@ export function wireEscalationHandler(
       escalatedFrom: sourceSessionId,
       reportToSessionId: sourceSessionId,
       ...(targetApp ? { targetAppName: targetApp.appName, targetAppBundleId: targetApp.bundleId } : {}),
-      ...(isQa || qaLatchActive ? {
+      ...(effectiveQa ? {
         qaMode: true,
         retentionDays: config.qaRecording.defaultRetentionDays,
         captureScope: config.qaRecording.captureScope,
         includeAudio: config.qaRecording.includeAudio,
       } : {}),
       ...(requiresRecording ? { requiresRecording: true } : {}),
+      ...(strictVisualQa ? { strictVisualQa: true } : {}),
     });
 
     return true;
