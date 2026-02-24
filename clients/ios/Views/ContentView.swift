@@ -58,6 +58,10 @@ struct ContentView: View {
         navigateToConnect = true
     }
 
+    private func navigateToNewConversation() {
+        selectedTab = .chats
+    }
+
     // MARK: - Initial Connection
 
     /// How many consecutive connection failures have occurred (used for exponential backoff on retry).
@@ -162,7 +166,10 @@ struct ContentView: View {
 
     private var tabContent: some View {
         TabView(selection: $selectedTab) {
-            HomeBaseView(onConnectTapped: navigateToConnectSettings)
+            HomeBaseView(
+                onConnectTapped: navigateToConnectSettings,
+                onNewConversation: navigateToNewConversation
+            )
                 .environmentObject(clientProvider)
                 .id(ObjectIdentifier(clientProvider.client as AnyObject))
                 .tag(Tab.home)
