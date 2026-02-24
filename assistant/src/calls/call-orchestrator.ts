@@ -84,7 +84,7 @@ export class CallOrchestrator {
     this.callSessionId = callSessionId;
     this.relay = relay;
     this.task = task;
-    this.isInbound = task === null;
+    this.isInbound = !task;
     this.broadcast = opts?.broadcast;
     this.assistantId = opts?.assistantId ?? 'self';
     this.startDurationTimer();
