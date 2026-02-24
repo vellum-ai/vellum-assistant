@@ -101,6 +101,8 @@ export {
   ContextWindowConfigSchema,
   ModelPricingOverrideSchema,
   SmsConfigSchema,
+  IngressWebhookConfigSchema,
+  IngressRateLimitConfigSchema,
   IngressConfigSchema,
   AssistantInboxConfigSchema,
 } from './core-schema.js';
@@ -115,6 +117,8 @@ export type {
   ContextWindowConfig,
   ModelPricingOverride,
   SmsConfig,
+  IngressWebhookConfig,
+  IngressRateLimitConfig,
   IngressConfig,
   AssistantInboxConfig,
 } from './core-schema.js';
