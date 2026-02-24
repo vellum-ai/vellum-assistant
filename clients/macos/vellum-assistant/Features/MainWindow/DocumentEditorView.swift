@@ -199,7 +199,7 @@ struct DocumentEditorView: NSViewRepresentable {
 private func loadEditorAsset(_ filename: String) -> String {
     let name = (filename as NSString).deletingPathExtension
     let ext = (filename as NSString).pathExtension
-    guard let url = Bundle.main.url(forResource: name, withExtension: ext, subdirectory: "editor"),
+    guard let url = ResourceBundle.bundle.url(forResource: name, withExtension: ext, subdirectory: "editor"),
           let contents = try? String(contentsOf: url, encoding: .utf8) else {
         log.error("Failed to load bundled editor asset: \(filename)")
         return ""
