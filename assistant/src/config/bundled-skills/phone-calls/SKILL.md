@@ -31,6 +31,16 @@ When a call is placed:
 4. An LLM-driven orchestrator manages the conversation — receiving caller speech (transcribed by Deepgram), generating responses via Claude, and streaming text back for TTS playback
 5. The transcript is relayed live to the user's conversation thread
 
+### Inbound calls
+
+When someone dials the assistant's Twilio phone number:
+
+1. Twilio sends a voice webhook to the gateway at `/webhooks/twilio/voice` (no `callSessionId` in the URL)
+2. The gateway resolves which assistant owns the dialed number via `resolveAssistantByPhoneNumber`, falling back to the standard routing chain (chat_id, user_id, default/reject). Unmapped numbers are rejected with TwiML `<Reject>`.
+3. The runtime creates a new session keyed by the Twilio CallSid (`createInboundVoiceSession`)
+4. Twilio opens a ConversationRelay WebSocket. The relay detects the call is inbound when `initiatedFromConversationId == null` and optionally gates the call behind **guardian voice verification** if a pending challenge exists.
+5. Once verified (or if no challenge is pending), the LLM orchestrator greets the caller in a receptionist style: "Hello, this is [user]'s assistant. How can I help you today?"
+6. The assistant converses naturally, using ASK_GUARDIAN to consult the user when needed, just like outbound calls.
 Three voice quality modes are available:
 - **`twilio_standard`** (default) — Fully supported. Standard Twilio TTS with Google voices. No extra setup required.
 - **`twilio_elevenlabs_tts`** — Fully supported. Uses ElevenLabs voices through Twilio ConversationRelay for more natural speech.
