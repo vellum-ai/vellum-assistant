@@ -44,6 +44,7 @@ struct ChatView: View {
     let watchSession: WatchSession?
     var isLearnMode: Bool = false
     var networkEntryCount: Int = 0
+    var idleHint: Bool = false
     let onStopWatch: () -> Void
     var onReportMessage: ((String?) -> Void)?
     var mediaEmbedSettings: MediaEmbedResolverSettings?
@@ -228,7 +229,7 @@ struct ChatView: View {
     @MainActor private var composerOverlay: some View {
         VStack(spacing: 0) {
             if let watchSession, watchSession.state == .capturing {
-                WatchProgressView(session: watchSession, onStop: onStopWatch, isLearnMode: isLearnMode, networkEntryCount: networkEntryCount)
+                WatchProgressView(session: watchSession, onStop: onStopWatch, isLearnMode: isLearnMode, networkEntryCount: networkEntryCount, idleHint: idleHint)
                     .padding(.horizontal, VSpacing.lg)
                     .padding(.bottom, VSpacing.sm)
                     .transition(.move(edge: .bottom).combined(with: .opacity))

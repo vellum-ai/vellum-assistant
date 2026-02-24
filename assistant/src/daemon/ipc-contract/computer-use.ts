@@ -123,6 +123,7 @@ export interface RideShotgunProgress {
   message: string;
   networkEntryCount?: number;
   statusMessage?: string;
+  idleHint?: boolean;
 }
 
 export interface RideShotgunResult {

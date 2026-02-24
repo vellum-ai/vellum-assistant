@@ -23,6 +23,7 @@ public final class RideShotgunSession: ObservableObject {
     @Published public var recordingPath: String?
     @Published public var networkEntryCount: Int = 0
     @Published public var statusMessage: String = ""
+    @Published public var idleHint: Bool = false
 
     // Pass-through from WatchSession
     @Published public var elapsedSeconds: Double = 0
@@ -72,6 +73,9 @@ public final class RideShotgunSession: ObservableObject {
                     }
                     if let msg = progress.statusMessage, !msg.isEmpty {
                         self.statusMessage = msg
+                    }
+                    if let idle = progress.idleHint, idle {
+                        self.idleHint = true
                     }
                 case .rideShotgunResult(let result):
                     self.handleRideShotgunResult(result)

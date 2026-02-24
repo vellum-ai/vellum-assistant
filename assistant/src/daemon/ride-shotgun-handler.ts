@@ -135,18 +135,41 @@ export async function handleRideShotgunStart(
           activeRecorders.set(watchId, recorder);
           log.info({ watchId, targetDomain, attempt }, 'Network recording started for learn session');
 
-          // Send periodic progress updates with network entry counts
+          // Send periodic progress updates with network entry counts and idle detection
+          let lastNetworkEntryCount = 0;
+          let lastActivityTimestamp = Date.now();
+          let idleHintSent = false;
+
           const progressInterval = setInterval(() => {
             if (session.status !== 'active') {
               clearInterval(progressInterval);
               return;
             }
+
+            const currentCount = recorder.entryCount;
+
+            // Track activity: reset idle timer when count changes
+            if (currentCount !== lastNetworkEntryCount) {
+              lastNetworkEntryCount = currentCount;
+              lastActivityTimestamp = Date.now();
+            }
+
+            // Idle detection: if some initial activity happened and no new entries for 15s, hint once
+            const idleMs = Date.now() - lastActivityTimestamp;
+            let idleHint: boolean | undefined;
+            if (!idleHintSent && currentCount > 0 && idleMs >= 15_000) {
+              idleHint = true;
+              idleHintSent = true;
+              log.info({ watchId, currentCount, idleMs }, 'Idle detected — sending idleHint');
+            }
+
             ctx.send(socket, {
               type: 'ride_shotgun_progress',
               watchId,
               message: `Recording network traffic...`,
-              networkEntryCount: recorder.entryCount,
+              networkEntryCount: currentCount,
               statusMessage: 'Recording network traffic...',
+              ...(idleHint !== undefined ? { idleHint } : {}),
             });
           }, 5000);
 

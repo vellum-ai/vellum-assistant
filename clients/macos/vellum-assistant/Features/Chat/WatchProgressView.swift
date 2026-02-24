@@ -6,6 +6,7 @@ struct WatchProgressView: View {
     let onStop: () -> Void
     var isLearnMode: Bool = false
     var networkEntryCount: Int = 0
+    var idleHint: Bool = false
 
     @State private var isPulsing = false
 
@@ -44,11 +45,11 @@ struct WatchProgressView: View {
 
                 Spacer()
 
-                // Stop button
+                // Stop button — highlighted when idle hint is active
                 Button(action: onStop) {
                     Image(systemName: "stop.fill")
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(VColor.error)
+                        .foregroundColor(idleHint ? VColor.accent : VColor.error)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Stop watching")
@@ -74,6 +75,20 @@ struct WatchProgressView: View {
                             .foregroundColor(VColor.textSecondary)
                     }
                 }
+            }
+
+            // Idle hint prompt
+            if idleHint {
+                HStack(spacing: VSpacing.xs) {
+                    Image(systemName: "checkmark.circle")
+                        .foregroundColor(VColor.accent)
+                        .font(.system(size: 12))
+                    Text("No new activity detected. Ready to stop?")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.accent)
+                    Spacer()
+                }
+                .transition(.opacity)
             }
 
             // Current app badge
