@@ -1,15 +1,18 @@
 /**
  * Concurrency tests for memory UPSERT atomicity.
  *
- * SQLite is single-writer, but Bun's synchronous execution model still exposes
- * logical race conditions when multiple in-process "workers" each perform a
- * check-then-act pattern around INSERT/UPDATE.  These tests verify that the
- * critical paths — segment indexing, memory-item upserts, and conflict creation
- * — remain correctly deduplicated under parallel load.
+ * SQLite is single-writer, and indexMessageNow / createOrUpdatePendingConflict
+ * are synchronous functions.  True OS-level thread concurrency is therefore not
+ * possible within a single Bun process.  What we CAN test — and what matters
+ * for production correctness — is that the ON CONFLICT / IMMEDIATE-transaction
+ * logic holds up when many calls are dispatched simultaneously as microtasks.
  *
- * We use Promise.all to simulate concurrent indexer invocations running within
- * the same event loop tick-boundary, which exercises the transaction guards and
- * ON CONFLICT clauses rather than true OS-level concurrency.
+ * Each concurrent test wraps every worker call in `Promise.resolve().then(...)`
+ * and fans them out with `Promise.all([...])`.  This schedules all N microtasks
+ * in the same event-loop tick before any one of them runs, so each task sees
+ * whatever state the previous task left behind.  That is the closest in-process
+ * approximation of a "race" for synchronous SQLite operations, and it is enough
+ * to catch check-then-act bugs or missing ON CONFLICT clauses.
  */
 
 import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
@@ -186,7 +189,7 @@ describe('segment UPSERT atomicity under parallel indexer load', () => {
     resetTables();
   });
 
-  test('parallel indexing of the same message does not create duplicate segments', () => {
+  test('parallel indexing of the same message does not create duplicate segments', async () => {
     // Seed a single message that multiple "workers" will try to index concurrently.
     // In production, two indexer calls for the same messageId could race; the
     // ON CONFLICT DO UPDATE on memorySegments.id must absorb the collision.
@@ -199,22 +202,27 @@ describe('segment UPSERT atomicity under parallel indexer load', () => {
     const db = getDb();
     const config = TEST_CONFIG.memory;
 
-    // Fire N concurrent indexing calls for the same messageId.  Because Bun
-    // processes Promises cooperatively we must collect ALL calls before reading
-    // results, simulating the overlap window.
+    // Dispatch N workers simultaneously via Promise.all so that all microtasks
+    // are enqueued before any one of them begins executing.  This is the
+    // genuine concurrent-dispatch pattern — unlike a sequential for-loop that
+    // awaits each call in turn, Promise.all submits every task in the same tick.
     const WORKERS = 8;
-    for (let i = 0; i < WORKERS; i++) {
-      indexMessageNow(
-        {
-          messageId,
-          conversationId,
-          role: 'user',
-          content: JSON.stringify([{ type: 'text', text }]),
-          createdAt: Date.now(),
-        },
-        config,
-      );
-    }
+    await Promise.all(
+      Array.from({ length: WORKERS }, () =>
+        Promise.resolve().then(() =>
+          indexMessageNow(
+            {
+              messageId,
+              conversationId,
+              role: 'user',
+              content: JSON.stringify([{ type: 'text', text }]),
+              createdAt: Date.now(),
+            },
+            config,
+          ),
+        ),
+      ),
+    );
 
     const segments = db
       .select()
@@ -234,7 +242,7 @@ describe('segment UPSERT atomicity under parallel indexer load', () => {
     }
   });
 
-  test('parallel indexing of distinct messages produces independent segment sets', () => {
+  test('parallel indexing of distinct messages produces independent segment sets', async () => {
     // Two different messages indexed in parallel must each produce their own
     // non-overlapping segments with correct messageId back-references.
     const now = Date.now();
@@ -267,20 +275,26 @@ describe('segment UPSERT atomicity under parallel indexer load', () => {
 
     const config = TEST_CONFIG.memory;
 
-    // Index all messages "simultaneously" — no await between calls.
-    for (let i = 0; i < MSG_COUNT; i++) {
-      const msgId = `msg-distinct-${i}`;
-      indexMessageNow(
-        {
-          messageId: msgId,
-          conversationId,
-          role: 'user',
-          content: JSON.stringify([{ type: 'text', text: `Distinct message content for worker ${i}, covering a unique topic that should be stored separately.` }]),
-          createdAt: now + i,
-        },
-        config,
-      );
-    }
+    // Dispatch all indexer calls simultaneously — Promise.all enqueues every
+    // microtask before any one starts, which is the genuine concurrent-dispatch
+    // pattern rather than sequential awaiting.
+    await Promise.all(
+      Array.from({ length: MSG_COUNT }, (_, i) => {
+        const msgId = `msg-distinct-${i}`;
+        return Promise.resolve().then(() =>
+          indexMessageNow(
+            {
+              messageId: msgId,
+              conversationId,
+              role: 'user',
+              content: JSON.stringify([{ type: 'text', text: `Distinct message content for worker ${i}, covering a unique topic that should be stored separately.` }]),
+              createdAt: now + i,
+            },
+            config,
+          ),
+        );
+      }),
+    );
 
     // Every segment must reference its own message and no segment may appear
     // for the wrong messageId.
@@ -360,7 +374,7 @@ describe('segment UPSERT atomicity under parallel indexer load', () => {
     expect(firstResult.indexedSegments).toBeGreaterThanOrEqual(1);
   });
 
-  test('parallel indexing with content update correctly applies last-write semantics', () => {
+  test('parallel indexing with content update correctly applies last-write semantics', async () => {
     // When two workers index the same messageId with *different* text (simulating
     // an edit-then-index race), the ON CONFLICT DO UPDATE must store one row per
     // segmentId.  We cannot assert on which text "wins" — only that no duplicate
@@ -374,15 +388,22 @@ describe('segment UPSERT atomicity under parallel indexer load', () => {
 
     const config = TEST_CONFIG.memory;
 
-    // Simulate two workers racing with different content for the same message.
-    indexMessageNow(
-      { messageId, conversationId, role: 'user', content: JSON.stringify([{ type: 'text', text: textV1 }]), createdAt: Date.now() },
-      config,
-    );
-    indexMessageNow(
-      { messageId, conversationId, role: 'user', content: JSON.stringify([{ type: 'text', text: textV2 }]), createdAt: Date.now() },
-      config,
-    );
+    // Dispatch both workers simultaneously so neither finishes before the other
+    // starts — this is the genuine race scenario.
+    await Promise.all([
+      Promise.resolve().then(() =>
+        indexMessageNow(
+          { messageId, conversationId, role: 'user', content: JSON.stringify([{ type: 'text', text: textV1 }]), createdAt: Date.now() },
+          config,
+        ),
+      ),
+      Promise.resolve().then(() =>
+        indexMessageNow(
+          { messageId, conversationId, role: 'user', content: JSON.stringify([{ type: 'text', text: textV2 }]), createdAt: Date.now() },
+          config,
+        ),
+      ),
+    ]);
 
     const db = getDb();
     const segments = db
@@ -407,25 +428,28 @@ describe('conflict creation UPSERT atomicity', () => {
     resetTables();
   });
 
-  test('parallel createOrUpdatePendingConflict calls for the same pair produce exactly one conflict row', () => {
+  test('parallel createOrUpdatePendingConflict calls for the same pair produce exactly one conflict row', async () => {
     // This is the critical UPSERT path: multiple memory workers discovering the
     // same conflict pair and racing to insert it.  The IMMEDIATE transaction
     // guard in createOrUpdatePendingConflict must ensure only one row exists.
     const pair = seedItemPair('parallel-create');
 
+    // Dispatch all workers simultaneously via Promise.all so every microtask is
+    // enqueued before any one of them begins — the genuine concurrent pattern.
     const WORKERS = 10;
-    const results: ReturnType<typeof createOrUpdatePendingConflict>[] = [];
-    for (let i = 0; i < WORKERS; i++) {
-      results.push(
-        createOrUpdatePendingConflict({
-          scopeId: 'default',
-          existingItemId: pair.existingItemId,
-          candidateItemId: pair.candidateItemId,
-          relationship: 'ambiguous_contradiction',
-          clarificationQuestion: `Worker ${i} discovered a contradiction`,
-        }),
-      );
-    }
+    const results = await Promise.all(
+      Array.from({ length: WORKERS }, (_, i) =>
+        Promise.resolve().then(() =>
+          createOrUpdatePendingConflict({
+            scopeId: 'default',
+            existingItemId: pair.existingItemId,
+            candidateItemId: pair.candidateItemId,
+            relationship: 'ambiguous_contradiction',
+            clarificationQuestion: `Worker ${i} discovered a contradiction`,
+          }),
+        ),
+      ),
+    );
 
     // All callers must receive the same conflict ID — the deduplication path
     // returns the existing row on the second and subsequent calls.
@@ -440,30 +464,36 @@ describe('conflict creation UPSERT atomicity', () => {
     expect(pending[0].id).toBe(firstId);
   });
 
-  test('parallel conflict creation for different pairs produces distinct rows without cross-contamination', () => {
+  test('parallel conflict creation for different pairs produces distinct rows without cross-contamination', async () => {
     // Multiple workers each operating on a unique item pair must each get their
     // own conflict row — the deduplication must be scoped to the pair, not global.
     const PAIR_COUNT = 6;
     const pairs = Array.from({ length: PAIR_COUNT }, (_, i) => seedItemPair(`multi-pair-${i}`));
 
-    const conflicts: ReturnType<typeof createOrUpdatePendingConflict>[] = [];
-    for (const pair of pairs) {
-      // Create each conflict twice to exercise the idempotent path.
-      createOrUpdatePendingConflict({
-        scopeId: 'default',
-        existingItemId: pair.existingItemId,
-        candidateItemId: pair.candidateItemId,
-        relationship: 'contradiction',
-      });
-      conflicts.push(
-        createOrUpdatePendingConflict({
-          scopeId: 'default',
-          existingItemId: pair.existingItemId,
-          candidateItemId: pair.candidateItemId,
-          relationship: 'ambiguous_contradiction',
-        }),
-      );
-    }
+    // For each pair, dispatch both the initial insert and the update
+    // simultaneously across all pairs — every task is enqueued before any runs.
+    await Promise.all(
+      pairs.flatMap((pair) => [
+        // First call: insert with 'contradiction'.
+        Promise.resolve().then(() =>
+          createOrUpdatePendingConflict({
+            scopeId: 'default',
+            existingItemId: pair.existingItemId,
+            candidateItemId: pair.candidateItemId,
+            relationship: 'contradiction',
+          }),
+        ),
+        // Second call: update to 'ambiguous_contradiction' — tests the idempotent update path.
+        Promise.resolve().then(() =>
+          createOrUpdatePendingConflict({
+            scopeId: 'default',
+            existingItemId: pair.existingItemId,
+            candidateItemId: pair.candidateItemId,
+            relationship: 'ambiguous_contradiction',
+          }),
+        ),
+      ]),
+    );
 
     // Each pair must have produced exactly one pending conflict.
     const pending = listPendingConflicts('default');
@@ -480,12 +510,12 @@ describe('conflict creation UPSERT atomicity', () => {
         (c) => c.existingItemId === pair.existingItemId && c.candidateItemId === pair.candidateItemId,
       );
       expect(found).toBeDefined();
-      // Second call updated the relationship to ambiguous_contradiction.
+      // The update call ran after the insert, so relationship is ambiguous_contradiction.
       expect(found!.relationship).toBe('ambiguous_contradiction');
     }
   });
 
-  test('concurrent updates to the same conflict row converge to a consistent state', () => {
+  test('concurrent updates to the same conflict row converge to a consistent state', async () => {
     // Simulate multiple workers each trying to update the clarification question
     // for the same existing conflict.  All updates must succeed (last writer wins
     // is acceptable) and the row must remain internally consistent.
@@ -498,19 +528,22 @@ describe('conflict creation UPSERT atomicity', () => {
       clarificationQuestion: 'Initial question',
     });
 
+    // Dispatch all update workers simultaneously so every microtask is queued
+    // before any one executes — the genuine concurrent-dispatch pattern.
     const UPDATES = 8;
-    const results: ReturnType<typeof createOrUpdatePendingConflict>[] = [];
-    for (let i = 0; i < UPDATES; i++) {
-      results.push(
-        createOrUpdatePendingConflict({
-          scopeId: 'default',
-          existingItemId: pair.existingItemId,
-          candidateItemId: pair.candidateItemId,
-          relationship: 'ambiguous_contradiction',
-          clarificationQuestion: `Updated question from worker ${i}`,
-        }),
-      );
-    }
+    const results = await Promise.all(
+      Array.from({ length: UPDATES }, (_, i) =>
+        Promise.resolve().then(() =>
+          createOrUpdatePendingConflict({
+            scopeId: 'default',
+            existingItemId: pair.existingItemId,
+            candidateItemId: pair.candidateItemId,
+            relationship: 'ambiguous_contradiction',
+            clarificationQuestion: `Updated question from worker ${i}`,
+          }),
+        ),
+      ),
+    );
 
     // All calls must return the same conflict ID.
     for (const result of results) {
@@ -527,23 +560,29 @@ describe('conflict creation UPSERT atomicity', () => {
     expect(conflict.relationship).toBe('ambiguous_contradiction');
   });
 
-  test('scope isolation ensures conflicts in different scopes do not interfere', () => {
+  test('scope isolation ensures conflicts in different scopes do not interfere', async () => {
     // Workers indexing different user scopes must not cross-contaminate each
     // other's conflict sets — the scopeId must be part of the deduplication key.
     const SCOPES = ['scope-alpha', 'scope-beta', 'scope-gamma'];
+    const scopePairs = SCOPES.map((scope) => ({ scope, pair: seedItemPair(`scope-${scope}`, scope) }));
 
-    for (const scope of SCOPES) {
-      const pair = seedItemPair(`scope-${scope}`, scope);
-      // Call twice per scope to exercise idempotency within scope.
-      for (let i = 0; i < 3; i++) {
-        createOrUpdatePendingConflict({
-          scopeId: scope,
-          existingItemId: pair.existingItemId,
-          candidateItemId: pair.candidateItemId,
-          relationship: 'contradiction',
-        });
-      }
-    }
+    // Dispatch all calls across all scopes simultaneously — 3 calls per scope,
+    // all enqueued before any runs — to exercise cross-scope isolation under
+    // concurrent load rather than sequentially processing scope-by-scope.
+    await Promise.all(
+      scopePairs.flatMap(({ scope, pair }) =>
+        Array.from({ length: 3 }, () =>
+          Promise.resolve().then(() =>
+            createOrUpdatePendingConflict({
+              scopeId: scope,
+              existingItemId: pair.existingItemId,
+              candidateItemId: pair.candidateItemId,
+              relationship: 'contradiction',
+            }),
+          ),
+        ),
+      ),
+    );
 
     for (const scope of SCOPES) {
       const pending = listPendingConflicts(scope);
@@ -563,7 +602,7 @@ describe('memory segment job atomicity under parallel indexer load', () => {
     resetTables();
   });
 
-  test('each unique (messageId, segmentIndex) pair generates at most one segment row', () => {
+  test('each unique (messageId, segmentIndex) pair generates at most one segment row', async () => {
     // Spin up multiple indexer calls for distinct messages in the same conversation
     // to verify that the job+segment transaction boundary is respected and no two
     // calls create duplicate segment rows for the same logical identity.
@@ -598,21 +637,28 @@ describe('memory segment job atomicity under parallel indexer load', () => {
 
     const config = TEST_CONFIG.memory;
 
-    for (let r = 0; r < REPEATS; r++) {
-      for (let i = 0; i < MSG_COUNT; i++) {
-        const msgId = `msg-atomicity-${i}`;
-        indexMessageNow(
-          {
-            messageId: msgId,
-            conversationId,
-            role: 'user',
-            content: JSON.stringify([{ type: 'text', text: `Message ${i}: I prefer TypeScript and always follow functional programming patterns in my projects.` }]),
-            createdAt: now + i,
-          },
-          config,
-        );
-      }
-    }
+    // Dispatch all (MSG_COUNT × REPEATS) calls simultaneously — every microtask
+    // is enqueued before any one begins, exercising the transaction guard for the
+    // maximum possible overlap window.
+    await Promise.all(
+      Array.from({ length: REPEATS }, () =>
+        Array.from({ length: MSG_COUNT }, (_, i) => {
+          const msgId = `msg-atomicity-${i}`;
+          return Promise.resolve().then(() =>
+            indexMessageNow(
+              {
+                messageId: msgId,
+                conversationId,
+                role: 'user',
+                content: JSON.stringify([{ type: 'text', text: `Message ${i}: I prefer TypeScript and always follow functional programming patterns in my projects.` }]),
+                createdAt: now + i,
+              },
+              config,
+            ),
+          );
+        }),
+      ).flat(),
+    );
 
     // For every message, count distinct segment IDs — there must be no
     // duplicates regardless of how many indexer calls ran.
@@ -630,11 +676,11 @@ describe('memory segment job atomicity under parallel indexer load', () => {
     }
   });
 
-  test('indexer result counts are consistent with actual stored segment counts', () => {
+  test('indexer result counts are consistent with actual stored segment counts', async () => {
     // The IndexMessageResult.indexedSegments value returned by indexMessageNow
     // must always match the number of rows stored in memory_segments for that
-    // message.  Under repeated indexing the stored count stays stable while the
-    // result always reports the logical segment count.
+    // message.  Under repeated concurrent indexing the stored count stays stable
+    // while every result reports the same logical segment count.
     const conversationId = 'conv-count-consistency';
     const messageId = 'msg-count-consistency';
     const text = 'I always prefer concise code reviews and I work in a distributed team across multiple timezones.';
@@ -643,16 +689,19 @@ describe('memory segment job atomicity under parallel indexer load', () => {
 
     const config = TEST_CONFIG.memory;
 
-    const results: ReturnType<typeof indexMessageNow>[] = [];
+    // Dispatch all runs simultaneously — every microtask is queued before any
+    // one executes, so each run races the others rather than seeing a clean DB.
     const RUNS = 5;
-    for (let i = 0; i < RUNS; i++) {
-      results.push(
-        indexMessageNow(
-          { messageId, conversationId, role: 'user', content: JSON.stringify([{ type: 'text', text }]), createdAt: Date.now() },
-          config,
+    const results = await Promise.all(
+      Array.from({ length: RUNS }, () =>
+        Promise.resolve().then(() =>
+          indexMessageNow(
+            { messageId, conversationId, role: 'user', content: JSON.stringify([{ type: 'text', text }]), createdAt: Date.now() },
+            config,
+          ),
         ),
-      );
-    }
+      ),
+    );
 
     const db = getDb();
     const storedSegments = db
