@@ -794,7 +794,7 @@ function computePreviewDiff(
       const isNewFile = !pathExists(filePath);
       if (!isNewFile) {
         const stat = safeStatSync(filePath);
-        if (stat && stat.size > MAX_FILE_SIZE_BYTES) return undefined;
+        if (!stat || stat.size > MAX_FILE_SIZE_BYTES) return undefined;
       }
       const oldContent = isNewFile ? '' : readFileSync(filePath, 'utf-8');
       return { filePath, oldContent, newContent: content, isNewFile };
