@@ -169,7 +169,7 @@ function buildFallbackDecision(
       selectedChannels: [...availableChannels],
       reasoningSummary: 'Fallback: high urgency + requires action',
       renderedCopy: copy,
-      dedupeKey: `${signal.sourceEventName}:${signal.signalId}`,
+      dedupeKey: `fallback:${signal.sourceEventName}:${signal.sourceSessionId}`,
       confidence: 0.3,
       fallbackUsed: true,
     };
@@ -180,7 +180,7 @@ function buildFallbackDecision(
     selectedChannels: [],
     reasoningSummary: 'Fallback: suppressed (not high urgency + requires action)',
     renderedCopy: {},
-    dedupeKey: `${signal.sourceEventName}:${signal.signalId}`,
+    dedupeKey: `fallback:${signal.sourceEventName}:${signal.sourceSessionId}`,
     confidence: 0.3,
     fallbackUsed: true,
   };
@@ -199,10 +199,11 @@ function validateDecisionOutput(
   if (typeof input.dedupeKey !== 'string') return null;
 
   if (!Array.isArray(input.selectedChannels)) return null;
-  const validChannels = (input.selectedChannels as unknown[]).filter(
+  const validatedChannels = (input.selectedChannels as unknown[]).filter(
     (ch): ch is NotificationChannel =>
       typeof ch === 'string' && VALID_CHANNELS.has(ch) && availableChannels.includes(ch as NotificationChannel),
   );
+  const validChannels = [...new Set(validatedChannels)];
 
   const confidence = typeof input.confidence === 'number'
     ? Math.max(0, Math.min(1, input.confidence))
