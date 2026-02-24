@@ -1211,6 +1211,8 @@ final class ComputerUseSession: ObservableObject {
 
     /// Stops the screen recorder (if active) and sends a `cu_session_finalized` message to the daemon.
     private func finalizeQARecording() async {
+        defer { didFinalizeQARecording = true }
+
         // Map SessionState to a status string
         let status: String
         let summary: String
@@ -1324,8 +1326,6 @@ final class ComputerUseSession: ObservableObject {
         } catch {
             log.error("QA mode: failed to send cu_session_finalized: \(error.localizedDescription)")
         }
-
-        didFinalizeQARecording = true
     }
 
     // MARK: - Control
