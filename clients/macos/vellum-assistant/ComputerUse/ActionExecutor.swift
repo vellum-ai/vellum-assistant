@@ -328,16 +328,46 @@ final class ActionExecutor: ActionExecuting {
     // MARK: - Open App
 
     static let appAliases: [String: String] = [
+        // Browsers
         "chrome": "Google Chrome",
+        "arc": "Arc",
+        "ff": "Firefox",
+        "firefox": "Firefox",
+        "safari": "Safari",
+        "edge": "Microsoft Edge",
+        // Communication
+        "slack": "Slack",
+        "discord": "Discord",
+        "zoom": "zoom.us",
+        "teams": "Microsoft Teams",
+        "imessage": "Messages",
+        "messages": "Messages",
+        "mail": "Mail",
+        // IDEs & dev tools
+        "code": "Visual Studio Code",
         "vs code": "Visual Studio Code",
         "vscode": "Visual Studio Code",
-        "edge": "Microsoft Edge",
+        "cursor": "Cursor",
+        "xcode": "Xcode",
+        "warp": "Warp",
+        "terminal": "Terminal",
+        "iterm": "iTerm",
+        // Productivity
+        "figma": "Figma",
+        "notion": "Notion",
+        "notes": "Notes",
+        "finder": "Finder",
+        // Microsoft Office
         "word": "Microsoft Word",
         "excel": "Microsoft Excel",
         "powerpoint": "Microsoft PowerPoint",
         "outlook": "Microsoft Outlook",
-        "teams": "Microsoft Teams",
-        "iterm": "iTerm",
+        // System
+        "settings": "System Settings",
+        "preferences": "System Settings",
+        "system preferences": "System Settings",
+        "system settings": "System Settings",
+        // Vellum
         "vellum": "Vellum Assistant",
         "velly": "Vellum Assistant",
     ]
@@ -347,17 +377,79 @@ final class ActionExecutor: ActionExecuting {
         value.lowercased().filter { $0.isLetter || $0.isNumber }
     }
 
+    /// Run `mdfind` as a subprocess with a timeout, returning the first result path or nil.
+    private func mdfindApp(name: String, timeout: UInt64 = 2_000_000_000) async -> URL? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/mdfind")
+        process.arguments = [
+            "kMDItemKind == 'Application' && kMDItemDisplayName == '\(name)'"
+        ]
+
+        let stdout = Pipe()
+        process.standardOutput = stdout
+        process.standardError = Pipe() // discard stderr
+
+        do {
+            try process.run()
+        } catch {
+            log.warning("openApp mdfind failed to launch: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+
+        let timeoutTask = Task {
+            try await Task.sleep(nanoseconds: timeout)
+            if process.isRunning {
+                process.terminate()
+            }
+        }
+
+        return await withCheckedContinuation { continuation in
+            process.terminationHandler = { proc in
+                timeoutTask.cancel()
+
+                guard proc.terminationStatus == 0,
+                      proc.terminationReason != .uncaughtSignal else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+
+                let data = stdout.fileHandleForReading.readDataToEndOfFile()
+                let output = String(data: data, encoding: .utf8)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+
+                // Take the first result line that ends in .app
+                if let firstLine = output?.split(separator: "\n").first,
+                   firstLine.hasSuffix(".app") {
+                    continuation.resume(returning: URL(fileURLWithPath: String(firstLine)))
+                } else {
+                    continuation.resume(returning: nil)
+                }
+            }
+        }
+    }
+
+    /// After activation, verify the expected app became frontmost and log a warning if not.
+    private func verifyFrontmost(expectedName: String) async {
+        try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s
+        if let frontmost = NSWorkspace.shared.frontmostApplication,
+           frontmost.localizedName?.lowercased() != expectedName.lowercased() {
+            log.warning("openApp: app may not have focused — expected \(expectedName, privacy: .public) but frontmost is \(frontmost.localizedName ?? "unknown", privacy: .public)")
+        }
+    }
+
     func openApp(name: String, bundleId: String? = nil) async throws {
         let workspace = NSWorkspace.shared
+        var attemptedPaths: [String] = []
 
         // 1. Bundle-ID resolution — most precise, avoids name ambiguity
         if let bundleId, !bundleId.isEmpty {
+            attemptedPaths.append("bundle-id(\(bundleId))")
             if let runningApp = workspace.runningApplications.first(where: {
                 $0.bundleIdentifier == bundleId
             }) {
                 log.info("openApp resolved via bundle-id (running): \(bundleId, privacy: .public)")
                 runningApp.activate()
-                try await Task.sleep(nanoseconds: 300_000_000)
+                await verifyFrontmost(expectedName: runningApp.localizedName ?? name)
                 return
             }
             if let appURL = workspace.urlForApplication(withBundleIdentifier: bundleId) {
@@ -365,6 +457,7 @@ final class ActionExecutor: ActionExecuting {
                 let config = NSWorkspace.OpenConfiguration()
                 config.activates = true
                 try await workspace.openApplication(at: appURL, configuration: config)
+                await verifyFrontmost(expectedName: name)
                 return
             }
             log.warning("openApp bundle-id not found, falling back to name: \(bundleId, privacy: .public)")
@@ -372,6 +465,7 @@ final class ActionExecutor: ActionExecuting {
 
         // 2. Normalized/fuzzy name matching against running apps
         let normalizedName = Self.normalizeAppName(name)
+        attemptedPaths.append("fuzzy-running(\(name))")
         // Guard: when the input normalizes to empty (e.g. "---"), String.contains("")
         // returns true for any string, which would match the first running app arbitrarily.
         if !normalizedName.isEmpty, let runningApp = workspace.runningApplications.first(where: { app in
@@ -383,7 +477,7 @@ final class ActionExecutor: ActionExecuting {
         }) {
             log.info("openApp resolved via fuzzy name match (running): \(name, privacy: .public) -> \(runningApp.localizedName ?? "?", privacy: .public)")
             runningApp.activate()
-            try await Task.sleep(nanoseconds: 300_000_000)
+            await verifyFrontmost(expectedName: runningApp.localizedName ?? name)
             return
         }
 
@@ -392,6 +486,7 @@ final class ActionExecutor: ActionExecuting {
         let resolvedName = Self.appAliases[nameLower] ?? name
 
         if resolvedName != name {
+            attemptedPaths.append("alias(\(nameLower)->\(resolvedName))")
             log.info("openApp resolved via alias: \(name, privacy: .public) -> \(resolvedName, privacy: .public)")
             // Re-check running apps with the aliased name
             let normalizedResolved = Self.normalizeAppName(resolvedName)
@@ -400,7 +495,7 @@ final class ActionExecutor: ActionExecuting {
                 return Self.normalizeAppName(localizedName) == normalizedResolved
             }) {
                 runningApp.activate()
-                try await Task.sleep(nanoseconds: 300_000_000)
+                await verifyFrontmost(expectedName: resolvedName)
                 return
             }
         }
@@ -413,6 +508,7 @@ final class ActionExecutor: ActionExecuting {
             NSString("~/Applications").expandingTildeInPath,
         ]
 
+        attemptedPaths.append("filesystem-exact(\(searchDirs.joined(separator: ",")))")
         for dir in searchDirs {
             let appPath = "\(dir)/\(resolvedName).app"
             let appURL = URL(fileURLWithPath: appPath)
@@ -421,24 +517,39 @@ final class ActionExecutor: ActionExecuting {
                 let config = NSWorkspace.OpenConfiguration()
                 config.activates = true
                 try await workspace.openApplication(at: appURL, configuration: config)
+                await verifyFrontmost(expectedName: resolvedName)
                 return
             }
         }
 
-        // 5. Case-insensitive filesystem search in /Applications
-        if let found = try? FileManager.default.contentsOfDirectory(atPath: "/Applications")
-            .first(where: {
-                $0.lowercased() == "\(resolvedName.lowercased()).app"
-            }) {
-            let appURL = URL(fileURLWithPath: "/Applications/\(found)")
-            log.info("openApp resolved via filesystem (case-insensitive): \(found, privacy: .public)")
+        // 5. Case-insensitive filesystem search across all common directories
+        attemptedPaths.append("filesystem-case-insensitive(\(searchDirs.joined(separator: ",")))")
+        let targetFilename = "\(resolvedName.lowercased()).app"
+        for dir in searchDirs {
+            if let found = try? FileManager.default.contentsOfDirectory(atPath: dir)
+                .first(where: { $0.lowercased() == targetFilename }) {
+                let appURL = URL(fileURLWithPath: "\(dir)/\(found)")
+                log.info("openApp resolved via filesystem (case-insensitive): \(dir)/\(found, privacy: .public)")
+                let config = NSWorkspace.OpenConfiguration()
+                config.activates = true
+                try await workspace.openApplication(at: appURL, configuration: config)
+                await verifyFrontmost(expectedName: resolvedName)
+                return
+            }
+        }
+
+        // 6. Spotlight/mdfind fallback — catches apps in non-standard locations (e.g. Homebrew Cask)
+        attemptedPaths.append("mdfind(\(resolvedName))")
+        if let appURL = await mdfindApp(name: resolvedName) {
+            log.info("openApp resolved via mdfind: \(appURL.path, privacy: .public)")
             let config = NSWorkspace.OpenConfiguration()
             config.activates = true
             try await workspace.openApplication(at: appURL, configuration: config)
+            await verifyFrontmost(expectedName: resolvedName)
             return
         }
 
-        log.error("openApp failed: app_not_found name=\(name, privacy: .public) bundleId=\(bundleId ?? "nil", privacy: .public)")
+        log.error("openApp failed: app_not_found name=\(name, privacy: .public) resolvedName=\(resolvedName, privacy: .public) bundleId=\(bundleId ?? "nil", privacy: .public) attempted=[\(attemptedPaths.joined(separator: ", "), privacy: .public)]")
         throw ExecutorError.appNotFound(name)
     }
 
