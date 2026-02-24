@@ -40,6 +40,7 @@ APP_DIR="$SCRIPT_DIR/dist/$BUNDLE_DISPLAY_NAME.app"
 CONTENTS="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS/MacOS"
 RESOURCES_DIR="$CONTENTS/Resources"
+FRAMEWORKS_DIR="$CONTENTS/Frameworks"
 
 # Version (overridable via env for CI, defaults to Package.swift)
 if [ -z "${DISPLAY_VERSION:-}" ]; then
@@ -283,7 +284,6 @@ if [ -d "$PORCUPINE_CHECKOUT/lib/mac" ]; then
 fi
 
 # Ensure .app bundle structure exists
-FRAMEWORKS_DIR="$CONTENTS/Frameworks"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR" "$FRAMEWORKS_DIR"
 
 if [ "$NEEDS_REBUILD" = true ]; then
