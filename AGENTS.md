@@ -45,6 +45,10 @@ Comments should explain **why** something is done and provide non-obvious contex
 
 Whenever you introduce, remove, or significantly modify a service, module, or data flow, you MUST update `ARCHITECTURE.md` to reflect the change. The Mermaid diagrams should always accurately represent the current system architecture, including new services, IPC message types, storage locations, and data flows.
 
+## Keep AGENTS.md up to date
+
+When your PR establishes a new mandatory pattern, convention, or architectural constraint that other agents must follow, update `AGENTS.md` in the same PR. Examples: introducing a new abstraction layer that all callsites must use, adding a guard test that enforces an import rule, or changing how a subsystem handles failure modes. If the pattern is only relevant within a single file or module, a code comment is sufficient — only add to `AGENTS.md` when the rule applies project-wide.
+
 ## Slash Commands — TLDR
 
 These are the most commonly used slash commands defined in `.claude/commands/`:
