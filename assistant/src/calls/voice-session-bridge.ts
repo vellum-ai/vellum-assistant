@@ -106,7 +106,7 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
       sourceChannel: 'voice',
       assistantId: opts.assistantId,
       guardianContext: opts.guardianContext,
-      ...(forceStrictSideEffects ? { forceStrictSideEffects } : {}),
+      ...(forceStrictSideEffects ? { forceStrictSideEffects, voiceAutoDenyConfirmations: true } : {}),
       turnChannelContext: {
         userMessageChannel: 'voice',
         assistantMessageChannel: 'voice',
