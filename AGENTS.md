@@ -124,6 +124,17 @@ After creating a PR, consider whether it contains anything that genuinely warran
 **Risk level:** <Medium | High> — <one-sentence explanation of overall risk>
 ```
 
+## Public API / Webhook Ingress
+
+All inbound HTTP endpoints — APIs, webhooks, OAuth callbacks, or any route that receives requests from the internet — **MUST** be routed through the **gateway** (`gateway/`). Never add ingresses, routes, or listeners directly to the daemon runtime (`assistant/`).
+
+Concretely:
+- Define new routes in the gateway and have the gateway forward requests to the assistant over the internal IPC/transport.
+- The gateway's public URL is controlled by the **public ingress URL** setting. All externally-facing URLs you generate or advertise (callback URLs, webhook registration URLs, etc.) must be derived from this setting — never hardcode a hostname or port.
+- The daemon should remain unreachable from the public internet. It only receives traffic from the gateway over the internal network.
+
+Why: the gateway is the single point of ingress, handling TLS termination, auth, rate limiting, and routing. Exposing the daemon directly bypasses these protections and breaks the deployment model.
+
 ## Tooling Direction
 
 Do not add new tool registrations using the `class ____Tool implements Tool {` pattern.
