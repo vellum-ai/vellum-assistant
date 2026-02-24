@@ -27,6 +27,7 @@ import { getTwilioRelayUrl } from '../inbound/public-ingress-urls.js';
 import { fireCallCompletionNotifier } from './call-state.js';
 import { persistCallCompletionMessage } from './call-conversation-messages.js';
 import { resolveVoiceQualityProfile, isVoiceProfileValid } from './voice-quality.js';
+import { createInboundVoiceSession } from './call-domain.js';
 
 const log = getLogger('twilio-routes');
 
@@ -120,16 +121,43 @@ function mapTwilioStatus(twilioStatus: string): CallStatus | null {
 /**
  * Receives the initial voice webhook when Twilio connects the call.
  * Returns TwiML XML that tells Twilio to open a ConversationRelay WebSocket.
+ *
+ * Supports two modes:
+ * - **Outbound** (callSessionId present in query): uses the existing session
+ * - **Inbound** (callSessionId absent): creates or reuses a session keyed
+ *   by the Twilio CallSid. The optional `forwardedAssistantId` is resolved
+ *   by the gateway from the "To" phone number.
  */
-export async function handleVoiceWebhook(req: Request): Promise<Response> {
+export async function handleVoiceWebhook(req: Request, forwardedAssistantId?: string): Promise<Response> {
   const url = new URL(req.url);
   const callSessionId = url.searchParams.get('callSessionId');
 
+  // Parse the Twilio POST body to capture CallSid and caller metadata.
+  const formBody = new URLSearchParams(await req.text());
+  const callSid = formBody.get('CallSid');
+  const callerFrom = formBody.get('From') ?? '';
+  const callerTo = formBody.get('To') ?? '';
+
+  // ── Inbound mode: no callSessionId in query ─────────────────────
   if (!callSessionId) {
-    log.warn('Voice webhook called without callSessionId');
-    return new Response('Missing callSessionId', { status: 400 });
+    if (!callSid) {
+      log.warn('Inbound voice webhook called without CallSid');
+      return new Response('Missing CallSid', { status: 400 });
+    }
+
+    log.info({ callSid, from: callerFrom, to: callerTo, assistantId: forwardedAssistantId }, 'Inbound voice webhook — creating/reusing session');
+
+    const { session } = createInboundVoiceSession({
+      callSid,
+      fromNumber: callerFrom,
+      toNumber: callerTo,
+      assistantId: forwardedAssistantId,
+    });
+
+    return buildVoiceWebhookTwiml(session.id, session.assistantId ?? undefined, session.task);
   }
 
+  // ── Outbound mode: callSessionId is present ─────────────────────
   const session = getCallSession(callSessionId);
   if (!session) {
     log.warn({ callSessionId }, 'Voice webhook: call session not found');
@@ -141,16 +169,25 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
     return new Response('Call session is no longer active', { status: 410 });
   }
 
-  // Parse the Twilio POST body to capture CallSid immediately, so status
-  // callbacks (keyed by CallSid) can locate this session even if the
-  // WebSocket relay hasn't been set up yet.
-  const formBody = new URLSearchParams(await req.text());
-  const callSid = formBody.get('CallSid');
+  // Capture CallSid immediately so status callbacks can locate this session
   if (callSid && callSid !== session.providerCallSid) {
     updateCallSession(callSessionId, { providerCallSid: callSid });
     log.info({ callSessionId, callSid }, 'Stored CallSid from voice webhook');
   }
 
+  return buildVoiceWebhookTwiml(callSessionId, session.assistantId ?? undefined, session.task);
+}
+
+/**
+ * Shared TwiML generation for both inbound and outbound voice webhooks.
+ * Resolves voice quality profile, relay URL, and welcome greeting,
+ * then returns a Response with the generated TwiML.
+ */
+function buildVoiceWebhookTwiml(
+  callSessionId: string,
+  assistantId: string | undefined,
+  task: string | null,
+): Response {
   let profile = resolveVoiceQualityProfile(loadConfig());
 
   log.info({ callSessionId, mode: profile.mode, ttsProvider: profile.ttsProvider, voice: profile.voice }, 'Voice quality profile resolved');
@@ -189,7 +226,7 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
     });
   }
 
-  const twilioConfig = getTwilioConfig(session.assistantId ?? undefined);
+  const twilioConfig = getTwilioConfig(assistantId);
   let relayUrl: string;
   try {
     relayUrl = getTwilioRelayUrl(loadConfig());
@@ -197,7 +234,7 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
     // Fallback to legacy resolution when ingress is not configured
     relayUrl = resolveRelayUrl(twilioConfig.wssBaseUrl, twilioConfig.webhookBaseUrl);
   }
-  const welcomeGreeting = buildWelcomeGreeting(session.task, process.env.CALL_WELCOME_GREETING);
+  const welcomeGreeting = buildWelcomeGreeting(task, process.env.CALL_WELCOME_GREETING);
 
   const twiml = generateTwiML(callSessionId, relayUrl, welcomeGreeting, profile);
 
