@@ -154,7 +154,7 @@ function checkDedupe(
     const cutoff = Date.now() - windowMs;
 
     const existing = db
-      .select({ id: notificationEvents.id })
+      .select({ id: notificationEvents.id, createdAt: notificationEvents.createdAt })
       .from(notificationEvents)
       .where(
         and(
@@ -170,7 +170,9 @@ function checkDedupe(
     for (const row of existing) {
       // The current signal's own event row should not count as a duplicate
       if (row.id === signal.signalId) continue;
-      // If any other event with the same dedupeKey exists, suppress
+      // Only consider events within the dedupe window
+      if (row.createdAt < cutoff) continue;
+      // If any other event with the same dedupeKey exists within the window, suppress
       return {
         passed: false,
         reason: `Dedupe: signal with dedupeKey "${decision.dedupeKey}" was already processed`,
