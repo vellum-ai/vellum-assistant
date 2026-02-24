@@ -29,17 +29,14 @@ import type {
 import { getSecureKey } from '../../../security/secure-keys.js';
 import { readHttpToken } from '../../../util/platform.js';
 import { loadConfig } from '../../../config/loader.js';
+import { getGatewayInternalBaseUrl, getTwilioPhoneNumberEnv } from '../../../config/env.js';
 import { getOrCreateConversation } from '../../../memory/conversation-key-store.js';
 import * as externalConversationStore from '../../../memory/external-conversation-store.js';
 import * as sms from './client.js';
 
 /** Resolve the gateway base URL, preferring GATEWAY_INTERNAL_BASE_URL if set. */
 function getGatewayUrl(): string {
-  if (process.env.GATEWAY_INTERNAL_BASE_URL) {
-    return process.env.GATEWAY_INTERNAL_BASE_URL.replace(/\/+$/, '');
-  }
-  const port = Number(process.env.GATEWAY_PORT) || 7830;
-  return `http://127.0.0.1:${port}`;
+  return getGatewayInternalBaseUrl();
 }
 
 /** Read the runtime HTTP bearer token used to authenticate with the gateway. */
@@ -75,7 +72,7 @@ function getPhoneNumber(assistantId?: string): string | undefined {
     }
   }
 
-  const fromEnv = process.env.TWILIO_PHONE_NUMBER;
+  const fromEnv = getTwilioPhoneNumberEnv();
   if (fromEnv) return fromEnv;
 
   try {

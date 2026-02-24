@@ -2,6 +2,7 @@ import * as net from 'node:net';
 import { getSecureKey, setSecureKey, deleteSecureKey } from '../../security/secure-keys.js';
 import { upsertCredentialMetadata, deleteCredentialMetadata, getCredentialMetadata } from '../../tools/credentials/metadata-store.js';
 import { triggerGatewayReconcile } from './config-ingress.js';
+import { getIngressPublicBaseUrl } from '../../config/env.js';
 import type { TelegramConfigRequest } from '../ipc-protocol.js';
 import { log, defineHandlers, type HandlerContext } from './shared.js';
 
@@ -172,7 +173,7 @@ export async function handleTelegramConfig(
       });
 
       // Trigger gateway reconcile so the webhook registration updates immediately
-      const effectiveUrl = process.env.INGRESS_PUBLIC_BASE_URL;
+      const effectiveUrl = getIngressPublicBaseUrl();
       if (effectiveUrl) {
         triggerGatewayReconcile(effectiveUrl);
       }
@@ -207,7 +208,7 @@ export async function handleTelegramConfig(
       });
 
       // Trigger reconcile to deregister webhook
-      const effectiveUrl = process.env.INGRESS_PUBLIC_BASE_URL;
+      const effectiveUrl = getIngressPublicBaseUrl();
       if (effectiveUrl) {
         triggerGatewayReconcile(effectiveUrl);
       }

@@ -23,6 +23,7 @@ import { syncTwilioWebhooks } from './config-ingress.js';
 import { getReadinessService } from './config-channels.js';
 import type { TwilioConfigRequest } from '../ipc-protocol.js';
 import { log, CONFIG_RELOAD_DEBOUNCE_MS, defineHandlers, type HandlerContext } from './shared.js';
+import { getGatewayInternalBaseUrl } from '../../config/env.js';
 
 /** In-memory store for the last SMS send test result. Shared between sms_send_test and sms_doctor. */
 let _lastTestResult: {
@@ -827,8 +828,7 @@ export async function handleTwilioConfig(
 
       // Send via gateway's /deliver/sms endpoint
       const bearerToken = readHttpToken();
-      const gatewayPort = Number(process.env.GATEWAY_PORT) || 7830;
-      const gatewayUrl = process.env.GATEWAY_INTERNAL_BASE_URL?.replace(/\/+$/, '') || `http://127.0.0.1:${gatewayPort}`;
+      const gatewayUrl = getGatewayInternalBaseUrl();
 
       const sendResp = await fetch(`${gatewayUrl}/deliver/sms`, {
         method: 'POST',
