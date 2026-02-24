@@ -949,7 +949,7 @@ struct SettingsConnectTab: View {
         }
 
         // Helper text
-        Text("Gateway checks the local process. Tunnel checks the public URL.")
+        Text("Gateway checks the local daemon. Tunnel checks the public URL.")
             .font(VFont.caption)
             .foregroundColor(VColor.textMuted)
     }
