@@ -69,22 +69,11 @@ jobs:
           bun install
           bun build --compile --target=bun-darwin-arm64 src/daemon/main.ts \
             --external electron --external "chromium-bidi/*" \
-            --outfile ../clients/macos/daemon-bin/vellum-daemon-arm64
-          bun build --compile --target=bun-darwin-x64 src/daemon/main.ts \
-            --external electron --external "chromium-bidi/*" \
-            --outfile ../clients/macos/daemon-bin/vellum-daemon-x64
-          lipo -create \
-            ../clients/macos/daemon-bin/vellum-daemon-arm64 \
-            ../clients/macos/daemon-bin/vellum-daemon-x64 \
-            -output ../clients/macos/daemon-bin/vellum-daemon
-          rm ../clients/macos/daemon-bin/vellum-daemon-arm64 ../clients/macos/daemon-bin/vellum-daemon-x64
+            --outfile ../clients/macos/daemon-bin/vellum-daemon
           chmod +x ../clients/macos/daemon-bin/vellum-daemon
           cp node_modules/web-tree-sitter/web-tree-sitter.wasm ../clients/macos/daemon-bin/
           cp node_modules/tree-sitter-bash/tree-sitter-bash.wasm ../clients/macos/daemon-bin/
           cp -R src/config/bundled-skills ../clients/macos/daemon-bin/bundled-skills
-          echo "Daemon universal binary built:"
-          ls -lh ../clients/macos/daemon-bin/vellum-daemon
-          file ../clients/macos/daemon-bin/vellum-daemon
 
       - name: Build CLI binary
         working-directory: cli
@@ -92,19 +81,8 @@ jobs:
           bun install
           bun build --compile --target=bun-darwin-arm64 src/index.ts \
             --external react-devtools-core \
-            --outfile ../clients/macos/cli-bin/vellum-cli-arm64
-          bun build --compile --target=bun-darwin-x64 src/index.ts \
-            --external react-devtools-core \
-            --outfile ../clients/macos/cli-bin/vellum-cli-x64
-          lipo -create \
-            ../clients/macos/cli-bin/vellum-cli-arm64 \
-            ../clients/macos/cli-bin/vellum-cli-x64 \
-            -output ../clients/macos/cli-bin/vellum-cli
-          rm ../clients/macos/cli-bin/vellum-cli-arm64 ../clients/macos/cli-bin/vellum-cli-x64
+            --outfile ../clients/macos/cli-bin/vellum-cli
           chmod +x ../clients/macos/cli-bin/vellum-cli
-          echo "CLI universal binary built:"
-          ls -lh ../clients/macos/cli-bin/vellum-cli
-          file ../clients/macos/cli-bin/vellum-cli
 
       - name: Build .app
         working-directory: clients/macos
