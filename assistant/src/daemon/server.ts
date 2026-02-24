@@ -819,6 +819,14 @@ export class DaemonServer {
     return { messageId };
   }
 
+  /**
+   * Expose session lookup for the POST /v1/messages handler.
+   * The handler manages busy-state checking and queueing itself.
+   */
+  async getSessionForMessages(conversationId: string): Promise<Session> {
+    return this.getOrCreateSession(conversationId, undefined, true);
+  }
+
   createRunOrchestrator(): RunOrchestrator {
     return new RunOrchestrator({
       getOrCreateSession: (conversationId, transport) =>
