@@ -3931,7 +3931,7 @@ sequenceDiagram
 
     TwilioAPI->>Gateway: POST /webhooks/twilio/status
     Gateway->>Gateway: validateTwilioWebhookRequest()
-    Gateway->>Routes: forward to runtime /v1/internal/twilio/status (+ params, originalUrl)
+    Gateway->>Routes: forward to runtime /v1/internal/twilio/status (+ params)
     Routes->>CallStore: updateCallSession(status)
 ```
 
@@ -4117,8 +4117,8 @@ Internet-facing Twilio callbacks terminate at the gateway, which validates signa
 | Gateway Route | Validates | Forwards To (Runtime) |
 |---------------|-----------|----------------------|
 | `POST /webhooks/twilio/voice` | HMAC-SHA1 signature, payload size | `POST /v1/internal/twilio/voice-webhook` (JSON: `{ params, originalUrl, assistantId? }`) |
-| `POST /webhooks/twilio/status` | HMAC-SHA1 signature, payload size | `POST /v1/internal/twilio/status` (JSON: `{ params, originalUrl }`) |
-| `POST /webhooks/twilio/connect-action` | HMAC-SHA1 signature, payload size | `POST /v1/internal/twilio/connect-action` (JSON: `{ params, originalUrl }`) |
+| `POST /webhooks/twilio/status` | HMAC-SHA1 signature, payload size | `POST /v1/internal/twilio/status` (JSON: `{ params }`) |
+| `POST /webhooks/twilio/connect-action` | HMAC-SHA1 signature, payload size | `POST /v1/internal/twilio/connect-action` (JSON: `{ params }`) |
 | `WS /webhooks/twilio/relay` | WebSocket upgrade | `WS /v1/calls/relay` (bidirectional proxy) |
 | `POST /webhooks/twilio/sms` | HMAC-SHA1 signature, payload size, MessageSid dedup | `POST /v1/channels/inbound` (normalized `GatewayInboundEventV1` with `sourceChannel: "sms"`) |
 
@@ -4151,8 +4151,8 @@ This makes ingress URL updates smoother in local tunnel workflows because Twilio
 | POST | `/v1/calls/:callSessionId/cancel` | Cancel an active call |
 | POST | `/v1/calls/:callSessionId/answer` | Answer a pending question via HTTP (alternative to in-thread bridge) |
 | POST | `/v1/calls/:callSessionId/instruction` | Relay a steering instruction to an active call's orchestrator (alternative to in-thread bridge) |
-| POST | `/v1/internal/twilio/status` | Internal status callback used by gateway; accepts JSON `{ params, originalUrl }` |
-| POST | `/v1/internal/twilio/connect-action` | Internal connect action callback used by gateway; accepts JSON `{ params, originalUrl }` |
+| POST | `/v1/internal/twilio/status` | Internal status callback used by gateway; accepts JSON `{ params }` |
+| POST | `/v1/internal/twilio/connect-action` | Internal connect action callback used by gateway; accepts JSON `{ params }` |
 | WS | `/v1/calls/relay` | ConversationRelay WebSocket (bidirectional: prompt/interrupt/dtmf from Twilio, text tokens/end to Twilio) |
 
 ### Tools
