@@ -4142,6 +4142,52 @@ describe('deterministic fallback on engine keep_pending — standard path', () =
     deliverSpy.mockRestore();
   });
 
+  test('explicit fallback decision returns stale_ignored when pending disappears before apply', async () => {
+    const orchestrator = makeMockOrchestrator();
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    const initReq = makeInboundRequest({ content: 'init' });
+    await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
+
+    const db = getDb();
+    const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
+    const conversationId = events[0]?.conversation_id;
+    ensureConversation(conversationId!);
+
+    const run = createRun(conversationId!);
+    setRunConfirmation(run.id, sampleConfirmation);
+
+    deliverSpy.mockClear();
+
+    // Simulate a race where the pending confirmation is cleared before
+    // the deterministic fallback decision can be applied.
+    const mockConversationGenerator = mock(async (_ctx: unknown) => {
+      db.$client.prepare('UPDATE message_runs SET pending_confirmation = NULL WHERE id = ?').run(run.id);
+      return {
+        disposition: 'keep_pending' as const,
+        replyText: 'I am not sure what you meant.',
+      };
+    });
+
+    const req = makeInboundRequest({ content: 'approve' });
+    const res = await handleChannelInbound(
+      req, noopProcessMessage, 'token', orchestrator, 'self', undefined, undefined,
+      mockConversationGenerator,
+    );
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    expect(body.approval).toBe('stale_ignored');
+    expect(orchestrator.submitDecision).not.toHaveBeenCalled();
+
+    const staleReply = deliverSpy.mock.calls.find(
+      (call) => (call[1] as { text?: string }).text?.includes('already been resolved'),
+    );
+    expect(staleReply).toBeDefined();
+
+    deliverSpy.mockRestore();
+  });
+
   test('non-decision text with keep_pending still returns assistant_turn', async () => {
     const orchestrator = makeMockOrchestrator();
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
@@ -4247,6 +4293,78 @@ describe('deterministic fallback on engine keep_pending — guardian path', () =
     // Approval record should be updated
     const approval = getPendingApprovalForRun(run.id);
     expect(approval).toBeNull(); // No longer pending — it was resolved
+
+    deliverSpy.mockRestore();
+  });
+
+  test('guardian fallback decision returns stale_ignored when pending disappears before apply', async () => {
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'guardian-user-fb-race',
+      guardianDeliveryChatId: 'guardian-chat-fb-race',
+    });
+
+    const orchestrator = makeMockOrchestrator();
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    const initReq = makeInboundRequest({
+      content: 'init',
+      externalChatId: 'requester-chat-fb-race',
+      senderExternalUserId: 'requester-user-fb-race',
+    });
+    await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
+
+    const db = getDb();
+    const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
+    const conversationId = events[0]?.conversation_id;
+    ensureConversation(conversationId!);
+
+    const run = createRun(conversationId!);
+    setRunConfirmation(run.id, sampleConfirmation);
+
+    createApprovalRequest({
+      runId: run.id,
+      conversationId: conversationId!,
+      assistantId: 'self',
+      channel: 'telegram',
+      requesterExternalUserId: 'requester-user-fb-race',
+      requesterChatId: 'requester-chat-fb-race',
+      guardianExternalUserId: 'guardian-user-fb-race',
+      guardianChatId: 'guardian-chat-fb-race',
+      toolName: 'shell',
+      expiresAt: Date.now() + 300_000,
+    });
+
+    deliverSpy.mockClear();
+
+    const mockConversationGenerator = mock(async (_ctx: unknown) => {
+      db.$client.prepare('UPDATE message_runs SET pending_confirmation = NULL WHERE id = ?').run(run.id);
+      return {
+        disposition: 'keep_pending' as const,
+        replyText: 'I could not understand that.',
+      };
+    });
+
+    const guardianReq = makeInboundRequest({
+      content: 'yes',
+      externalChatId: 'guardian-chat-fb-race',
+      senderExternalUserId: 'guardian-user-fb-race',
+    });
+    const res = await handleChannelInbound(
+      guardianReq, noopProcessMessage, 'token', orchestrator, 'self', undefined, undefined,
+      mockConversationGenerator,
+    );
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    expect(body.approval).toBe('stale_ignored');
+    expect(orchestrator.submitDecision).not.toHaveBeenCalled();
+
+    const staleReply = deliverSpy.mock.calls.find(
+      (call) => (call[1] as { text?: string }).text?.includes('already been resolved'),
+    );
+    expect(staleReply).toBeDefined();
 
     deliverSpy.mockRestore();
   });
@@ -4399,6 +4517,71 @@ describe('requester cancel of guardian-gated pending request', () => {
       (call) => (call[1] as { text?: string }).text?.includes('cancelled the pending request'),
     );
     expect(replyCall).toBeDefined();
+
+    deliverSpy.mockRestore();
+  });
+
+  test('requester cancel returns stale_ignored when pending disappears before apply', async () => {
+    const orchestrator = makeMockOrchestrator();
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    const initReq = makeInboundRequest({
+      content: 'init',
+      externalChatId: 'requester-cancel-race-chat',
+      senderExternalUserId: 'requester-cancel-race-user',
+    });
+    await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
+
+    const db = getDb();
+    const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
+    const conversationId = events[0]?.conversation_id;
+    ensureConversation(conversationId!);
+
+    const run = createRun(conversationId!);
+    setRunConfirmation(run.id, sampleConfirmation);
+
+    createApprovalRequest({
+      runId: run.id,
+      conversationId: conversationId!,
+      assistantId: 'self',
+      channel: 'telegram',
+      requesterExternalUserId: 'requester-cancel-race-user',
+      requesterChatId: 'requester-cancel-race-chat',
+      guardianExternalUserId: 'guardian-cancel',
+      guardianChatId: 'guardian-cancel-chat',
+      toolName: 'shell',
+      expiresAt: Date.now() + 300_000,
+    });
+
+    deliverSpy.mockClear();
+
+    const mockConversationGenerator = mock(async (_ctx: unknown) => {
+      db.$client.prepare('UPDATE message_runs SET pending_confirmation = NULL WHERE id = ?').run(run.id);
+      return {
+        disposition: 'reject' as const,
+        replyText: 'Cancelling that now.',
+      };
+    });
+
+    const req = makeInboundRequest({
+      content: 'never mind cancel',
+      externalChatId: 'requester-cancel-race-chat',
+      senderExternalUserId: 'requester-cancel-race-user',
+    });
+    const res = await handleChannelInbound(
+      req, noopProcessMessage, 'token', orchestrator, 'self', undefined, undefined,
+      mockConversationGenerator,
+    );
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    expect(body.approval).toBe('stale_ignored');
+    expect(orchestrator.submitDecision).not.toHaveBeenCalled();
+
+    const staleReply = deliverSpy.mock.calls.find(
+      (call) => (call[1] as { text?: string }).text?.includes('already been resolved'),
+    );
+    expect(staleReply).toBeDefined();
 
     deliverSpy.mockRestore();
   });

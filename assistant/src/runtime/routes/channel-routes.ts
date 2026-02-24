@@ -1654,9 +1654,11 @@ async function handleApprovalInterception(
               assistantId,
             );
           }
+          return { handled: true, type: 'guardian_decision_applied' };
         }
 
-        return { handled: true, type: 'guardian_decision_applied' };
+        // Race condition: callback arrived after run was already resolved.
+        return { handled: true, type: 'stale_ignored' };
       }
 
       // ── Conversational engine for guardian plain-text messages ──
@@ -1705,14 +1707,48 @@ async function handleApprovalInterception(
                 status: fbStatus,
                 decidedByExternalUserId: senderExternalUserId,
               });
+
+              // Notify the requester's chat about the outcome
+              const fbOutcomeText = await composeApprovalMessageGenerative({
+                scenario: 'guardian_decision_outcome',
+                decision: guardianDeterministic.action === 'reject' ? 'denied' : 'approved',
+                toolName: guardianApproval.toolName,
+                channel: sourceChannel,
+              }, {}, approvalCopyGenerator);
+              try {
+                await deliverChannelReply(replyCallbackUrl, {
+                  chatId: guardianApproval.requesterChatId,
+                  text: fbOutcomeText,
+                  assistantId,
+                }, bearerToken);
+              } catch (err) {
+                log.error({ err, conversationId: guardianApproval.conversationId }, 'Failed to notify requester of guardian decision (deterministic fallback)');
+              }
+
               if (fbResult.runId) {
                 schedulePostDecisionDelivery(
                   orchestrator, fbResult.runId, guardianApproval.conversationId,
                   guardianApproval.requesterChatId, replyCallbackUrl, bearerToken, assistantId,
                 );
               }
+              return { handled: true, type: 'guardian_decision_applied' };
             }
-            return { handled: true, type: 'guardian_decision_applied' };
+
+            // Race condition: run was already resolved. Deliver stale notice.
+            try {
+              const staleText = await composeApprovalMessageGenerative({
+                scenario: 'approval_already_resolved',
+                channel: sourceChannel,
+              }, {}, approvalCopyGenerator);
+              await deliverChannelReply(replyCallbackUrl, {
+                chatId: externalChatId,
+                text: staleText,
+                assistantId,
+              }, bearerToken);
+            } catch (err) {
+              log.error({ err, conversationId: guardianApproval.conversationId }, 'Failed to deliver stale guardian fallback notice');
+            }
+            return { handled: true, type: 'stale_ignored' };
           }
 
           // Non-decision follow-up (clarification, disambiguation, etc.)
@@ -2114,8 +2150,24 @@ async function handleApprovalInterception(
                   replyCallbackUrl, bearerToken, assistantId,
                 );
               }
+              return { handled: true, type: 'decision_applied' };
             }
-            return { handled: true, type: 'decision_applied' };
+
+            // Race condition: approval was already resolved elsewhere.
+            try {
+              const staleText = await composeApprovalMessageGenerative({
+                scenario: 'approval_already_resolved',
+                channel: sourceChannel,
+              }, {}, approvalCopyGenerator);
+              await deliverChannelReply(replyCallbackUrl, {
+                chatId: externalChatId,
+                text: staleText,
+                assistantId,
+              }, bearerToken);
+            } catch (err) {
+              log.error({ err, conversationId }, 'Failed to deliver stale requester-cancel notice');
+            }
+            return { handled: true, type: 'stale_ignored' };
           }
         }
 
@@ -2239,13 +2291,32 @@ async function handleApprovalInterception(
       const deterministicFallback = parseApprovalDecision(content);
       if (deterministicFallback && pending.length === 1) {
         const fbResult = handleChannelDecision(conversationId, deterministicFallback, orchestrator);
-        if (fbResult.applied && fbResult.runId) {
-          schedulePostDecisionDelivery(
-            orchestrator, fbResult.runId, conversationId, externalChatId,
-            replyCallbackUrl, bearerToken, assistantId,
-          );
+        if (fbResult.applied) {
+          if (fbResult.runId) {
+            schedulePostDecisionDelivery(
+              orchestrator, fbResult.runId, conversationId, externalChatId,
+              replyCallbackUrl, bearerToken, assistantId,
+            );
+          }
+          return { handled: true, type: 'decision_applied' };
         }
-        return { handled: true, type: 'decision_applied' };
+
+        // Race condition: pending confirmation disappeared before fallback
+        // decision could be applied.
+        try {
+          const staleText = await composeApprovalMessageGenerative({
+            scenario: 'approval_already_resolved',
+            channel: sourceChannel,
+          }, {}, approvalCopyGenerator);
+          await deliverChannelReply(replyCallbackUrl, {
+            chatId: externalChatId,
+            text: staleText,
+            assistantId,
+          }, bearerToken);
+        } catch (err) {
+          log.error({ err, conversationId }, 'Failed to deliver stale fallback decision notice');
+        }
+        return { handled: true, type: 'stale_ignored' };
       }
 
       // Non-decision follow-up — deliver the engine's reply and keep the run pending
