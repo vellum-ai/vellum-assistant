@@ -14,6 +14,12 @@ import type { QueueDrainReason } from './session-queue-manager.js';
 import type { TraceEmitter } from './trace-emitter.js';
 import { createUserMessage, createAssistantMessage } from '../agent/message-types.js';
 import * as conversationStore from '../memory/conversation-store.js';
+import {
+  getPendingDeliveryByConversation,
+  getGuardianActionRequest,
+  resolveGuardianActionRequest,
+} from '../memory/guardian-action-store.js';
+import { answerCall } from '../calls/call-domain.js';
 import { resolveSlash, type SlashContext } from './session-slash.js';
 import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
@@ -222,6 +228,47 @@ export async function processMessage(
 ): Promise<string> {
   session.currentActiveSurfaceId = activeSurfaceId;
   session.currentPage = currentPage;
+
+  // ── Guardian action answer interception (mac channel) ──
+  // If this conversation has a pending guardian action delivery, treat the
+  // user message as the guardian's answer instead of running the agent loop.
+  const guardianDelivery = getPendingDeliveryByConversation(session.conversationId);
+  if (guardianDelivery) {
+    const guardianRequest = getGuardianActionRequest(guardianDelivery.requestId);
+    if (guardianRequest && guardianRequest.status === 'pending') {
+      const resolved = resolveGuardianActionRequest(guardianRequest.id, content, 'mac');
+      const userMsg = createUserMessage(content, attachments);
+      const persisted = conversationStore.addMessage(
+        session.conversationId,
+        'user',
+        JSON.stringify(userMsg.content),
+      );
+      session.messages.push(userMsg);
+
+      if (resolved) {
+        void answerCall({ callSessionId: guardianRequest.callSessionId, answer: content });
+        const confirmMsg = createAssistantMessage('Your answer has been relayed to the call.');
+        conversationStore.addMessage(
+          session.conversationId,
+          'assistant',
+          JSON.stringify(confirmMsg.content),
+        );
+        session.messages.push(confirmMsg);
+        onEvent({ type: 'assistant_text_delta', text: 'Your answer has been relayed to the call.' });
+      } else {
+        const staleMsg = createAssistantMessage('This question has already been answered from another channel.');
+        conversationStore.addMessage(
+          session.conversationId,
+          'assistant',
+          JSON.stringify(staleMsg.content),
+        );
+        session.messages.push(staleMsg);
+        onEvent({ type: 'assistant_text_delta', text: 'This question has already been answered from another channel.' });
+      }
+      onEvent({ type: 'message_complete', sessionId: session.conversationId });
+      return persisted.id;
+    }
+  }
 
   // Resolve slash commands before persistence
   const slashResult = resolveSlash(content, buildSlashContext(session));

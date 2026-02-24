@@ -18,6 +18,8 @@ import {
 } from '../memory/guardian-action-store.js';
 import { deliverChannelReply } from '../runtime/gateway-client.js';
 import { getUserConsultationTimeoutMs } from './call-constants.js';
+import { getOrCreateConversation } from '../memory/conversation-key-store.js';
+import { addMessage } from '../memory/conversation-store.js';
 import type { CallPendingQuestion } from './types.js';
 import type { ServerMessage } from '../daemon/ipc-contract.js';
 
@@ -106,27 +108,43 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
 
     // Create delivery rows and dispatch
     for (const dest of destinations) {
-      const delivery = createGuardianActionDelivery({
-        requestId: request.id,
-        destinationChannel: dest.channel,
-        destinationChatId: dest.chatId,
-        destinationExternalUserId: dest.externalUserId,
-      });
-
       if (dest.channel === 'mac') {
-        // Emit IPC event for the mac client
+        // Create a dedicated server-side conversation for the mac guardian thread
+        const macConvKey = `asst:${assistantId}:guardian:request:${request.id}`;
+        const { conversationId: macConversationId } = getOrCreateConversation(macConvKey);
+
+        const delivery = createGuardianActionDelivery({
+          requestId: request.id,
+          destinationChannel: 'mac',
+          destinationConversationId: macConversationId,
+        });
+
+        // Add the guardian question as the initial message in the thread
+        addMessage(
+          macConversationId,
+          'assistant',
+          JSON.stringify(`Your assistant needs your input during a phone call.\n\nQuestion: ${request.questionText}\n\nReply to this message with your answer.`),
+        );
+
+        // Emit IPC event for the mac client with the server-created conversation
         if (broadcast) {
           broadcast({
             type: 'guardian_request_thread_created',
-            conversationId,
+            conversationId: macConversationId,
             requestId: request.id,
             callSessionId,
             title: `Guardian question: ${pendingQuestion.questionText.slice(0, 80)}`,
           } as ServerMessage);
         }
         updateDeliveryStatus(delivery.id, 'sent');
-        log.info({ deliveryId: delivery.id, channel: 'mac' }, 'Mac guardian delivery emitted');
+        log.info({ deliveryId: delivery.id, channel: 'mac', macConversationId }, 'Mac guardian delivery emitted');
       } else {
+        const delivery = createGuardianActionDelivery({
+          requestId: request.id,
+          destinationChannel: dest.channel,
+          destinationChatId: dest.chatId,
+          destinationExternalUserId: dest.externalUserId,
+        });
         // External channel — POST to gateway
         void deliverToExternalChannel(delivery.id, dest.channel, dest.chatId!, request.questionText, request.requestCode, assistantId);
       }
