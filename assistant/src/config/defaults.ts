@@ -273,10 +273,4 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     sigkillGracePeriodMs: 2000,
     titleGenerationMaxTokens: 30,
   },
-  assistantInbox: {
-    enabled: false,
-    invitesEnabled: false,
-    memberAclEnabled: false,
-    policyEnabled: false,
-  },
 };

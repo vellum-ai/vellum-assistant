@@ -40,5 +40,4 @@ export type {
   SmsConfig,
   IngressConfig,
   DaemonConfig,
-  AssistantInboxConfig,
 } from './schema.js';

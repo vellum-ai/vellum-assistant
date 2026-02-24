@@ -270,21 +270,6 @@ export const DaemonConfigSchema = z.object({
     .default(30),
 });
 
-export const AssistantInboxConfigSchema = z.object({
-  enabled: z
-    .boolean({ error: 'assistantInbox.enabled must be a boolean' })
-    .default(false),
-  invitesEnabled: z
-    .boolean({ error: 'assistantInbox.invitesEnabled must be a boolean' })
-    .default(false),
-  memberAclEnabled: z
-    .boolean({ error: 'assistantInbox.memberAclEnabled must be a boolean' })
-    .default(false),
-  policyEnabled: z
-    .boolean({ error: 'assistantInbox.policyEnabled must be a boolean' })
-    .default(false),
-});
-
 export type TimeoutConfig = z.infer<typeof TimeoutConfigSchema>;
 export type RateLimitConfig = z.infer<typeof RateLimitConfigSchema>;
 export type SecretDetectionConfig = z.infer<typeof SecretDetectionConfigSchema>;
@@ -299,4 +284,3 @@ export type IngressWebhookConfig = z.infer<typeof IngressWebhookConfigSchema>;
 export type IngressRateLimitConfig = z.infer<typeof IngressRateLimitConfigSchema>;
 export type DaemonConfig = z.infer<typeof DaemonConfigSchema>;
 export type IngressConfig = z.infer<typeof IngressConfigSchema>;
-export type AssistantInboxConfig = z.infer<typeof AssistantInboxConfigSchema>;

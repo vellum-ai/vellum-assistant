@@ -105,7 +105,6 @@ export {
   IngressRateLimitConfigSchema,
   IngressConfigSchema,
   DaemonConfigSchema,
-  AssistantInboxConfigSchema,
 } from './core-schema.js';
 export type {
   TimeoutConfig,
@@ -122,7 +121,6 @@ export type {
   IngressRateLimitConfig,
   IngressConfig,
   DaemonConfig,
-  AssistantInboxConfig,
 } from './core-schema.js';
 
 // Imports for AssistantConfigSchema composition
@@ -144,7 +142,6 @@ import {
   SmsConfigSchema,
   IngressConfigSchema,
   DaemonConfigSchema,
-  AssistantInboxConfigSchema,
 } from './core-schema.js';
 
 const VALID_PROVIDERS = ['anthropic', 'openai', 'gemini', 'ollama', 'fireworks', 'openrouter'] as const;
@@ -439,12 +436,6 @@ export const AssistantConfigSchema = z.object({
     stopTimeoutMs: 5000,
     sigkillGracePeriodMs: 2000,
     titleGenerationMaxTokens: 30,
-  }),
-  assistantInbox: AssistantInboxConfigSchema.default({
-    enabled: false,
-    invitesEnabled: false,
-    memberAclEnabled: false,
-    policyEnabled: false,
   }),
 }).superRefine((config, ctx) => {
   if (config.contextWindow.targetInputTokens >= config.contextWindow.maxInputTokens) {
