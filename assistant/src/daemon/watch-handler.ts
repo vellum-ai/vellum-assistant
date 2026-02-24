@@ -1,5 +1,5 @@
 import type * as net from 'node:net';
-import { getAnthropicProvider, extractText, userMessage } from '../providers/anthropic-send-message.js';
+import { getConfiguredProvider, extractText, userMessage } from '../providers/anthropic-send-message.js';
 import { getLogger } from '../util/logger.js';
 import type { WatchObservation } from './ipc-protocol.js';
 import type { HandlerContext } from './handlers.js';
@@ -84,9 +84,9 @@ export async function handleWatchObservation(
 
 async function generateCommentary(session: WatchSession): Promise<void> {
   try {
-    const provider = getAnthropicProvider();
+    const provider = getConfiguredProvider();
     if (!provider) {
-      log.warn({ watchId: session.watchId }, 'No Anthropic API key available for commentary generation');
+      log.warn({ watchId: session.watchId }, 'Configured provider unavailable for commentary generation');
       return;
     }
     const lastThree = session.observations.slice(-3);
@@ -157,10 +157,10 @@ export async function generateSummary(session: WatchSession): Promise<void> {
       { watchId: session.watchId, sessionId: session.sessionId, observationCount: session.observations.length, commentaryCount: session.commentaryCount },
       'generateSummary starting — calling Sonnet',
     );
-    const provider = getAnthropicProvider();
+    const provider = getConfiguredProvider();
     if (!provider) {
-      log.warn({ watchId: session.watchId }, 'No Anthropic API key available for summary generation');
-      lastSummaryBySession.set(session.sessionId, '[error] No Anthropic API key configured. Check your settings.');
+      log.warn({ watchId: session.watchId }, 'Configured provider unavailable for summary generation');
+      lastSummaryBySession.set(session.sessionId, '[error] Configured provider unavailable. Check your settings.');
       fireWatchCompletionNotifier(session.sessionId, session);
       return;
     }

@@ -4,7 +4,7 @@ import { getConfig } from '../config/loader.js';
 import type { MemoryExtractionConfig } from '../config/types.js';
 import { getLogger } from '../util/logger.js';
 import { truncate } from '../util/truncate.js';
-import { getAnthropicProvider, createTimeout, extractToolUse, userMessage } from '../providers/anthropic-send-message.js';
+import { getConfiguredProvider, createTimeout, extractToolUse, userMessage } from '../providers/anthropic-send-message.js';
 import { computeMemoryFingerprint } from './fingerprint.js';
 import { enqueueMemoryJob } from './jobs-store.js';
 import { extractTextFromStoredMessageContent } from './message-content.js';
@@ -114,9 +114,9 @@ async function extractItemsWithLLM(
   extractionConfig: MemoryExtractionConfig,
   scopeId: string,
 ): Promise<ExtractedItem[]> {
-  const provider = getAnthropicProvider();
+  const provider = getConfiguredProvider();
   if (!provider) {
-    log.debug('No Anthropic API key available for LLM extraction, falling back to pattern-based');
+    log.debug('Configured provider unavailable for LLM extraction, falling back to pattern-based');
     return extractItemsPatternBased(text, scopeId);
   }
 

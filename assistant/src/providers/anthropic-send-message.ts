@@ -1,36 +1,56 @@
 /**
- * Helper for callsites that need the Anthropic provider without direct SDK
- * coupling. Provides lazy Anthropic provider resolution, timeout utilities,
+ * Helper utilities for provider callsites that should stay decoupled from
+ * provider SDK details. Includes provider resolution, timeout utilities,
  * and response extraction helpers.
  */
 
 import type { Provider, ProviderResponse, Message, ContentBlock, ToolUseContent } from './types.js';
-import { getProvider, listProviders, initializeProviders } from './registry.js';
+import { getFailoverProvider, getProvider, listProviders, initializeProviders } from './registry.js';
 import { getConfig } from '../config/loader.js';
 
 /**
- * Lazily resolve the Anthropic provider from the registry.
+ * Resolve the configured provider through the registry/failover path.
  * If providers haven't been initialized yet (e.g. non-daemon code paths),
  * performs a one-shot `initializeProviders(getConfig())`.
  *
- * Returns `null` when no Anthropic API key is configured.
+ * Returns `null` when the configured provider is unavailable.
  */
-export function getAnthropicProvider(): Provider | null {
-  if (!listProviders().includes('anthropic')) {
-    const config = getConfig();
-    if (!config.apiKeys.anthropic && !process.env.ANTHROPIC_API_KEY) {
+export function getConfiguredProvider(): Provider | null {
+  const config = getConfig();
+
+  if (listProviders().length === 0) {
+    try {
+      initializeProviders(config);
+    } catch {
       return null;
     }
-    // Ensure the key is present in the config before initializing
-    const effectiveConfig = {
-      ...config,
-      apiKeys: {
-        ...config.apiKeys,
-        anthropic: config.apiKeys.anthropic ?? process.env.ANTHROPIC_API_KEY!,
-      },
-    };
-    initializeProviders(effectiveConfig);
   }
+
+  if (!listProviders().includes(config.provider)) {
+    return null;
+  }
+
+  try {
+    const providerOrder = Array.isArray(config.providerOrder) ? config.providerOrder : [];
+    return getFailoverProvider(config.provider, providerOrder);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Legacy Anthropic-only resolver kept for compatibility while callsites
+ * migrate to `getConfiguredProvider`.
+ */
+export function getAnthropicProvider(): Provider | null {
+  if (listProviders().length === 0) {
+    try {
+      initializeProviders(getConfig());
+    } catch {
+      return null;
+    }
+  }
+
   try {
     return getProvider('anthropic');
   } catch {

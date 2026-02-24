@@ -1,4 +1,4 @@
-import { getAnthropicProvider, createTimeout, extractToolUse, userMessage } from '../providers/anthropic-send-message.js';
+import { getConfiguredProvider, createTimeout, extractToolUse, userMessage } from '../providers/anthropic-send-message.js';
 import { getLogger } from '../util/logger.js';
 import { truncate } from '../util/truncate.js';
 import type { ThreadMessage, ThreadSummary } from './types.js';
@@ -188,9 +188,9 @@ async function summarizeWithLLM(
   messages: ThreadMessage[],
   maxTokens: number,
 ): Promise<ThreadSummary> {
-  const provider = getAnthropicProvider();
+  const provider = getConfiguredProvider();
   if (!provider) {
-    log.warn('No Anthropic API key available for thread summarization, returning basic summary');
+    log.warn('Configured provider unavailable for thread summarization, returning basic summary');
     return buildFallbackSummary(messages);
   }
 

@@ -3,7 +3,7 @@ import { v4 as uuid } from 'uuid';
 import type { AssistantConfig } from '../../config/types.js';
 import { estimateTextTokens } from '../../context/token-estimator.js';
 import { getLogger } from '../../util/logger.js';
-import { getAnthropicProvider, createTimeout, extractText, userMessage } from '../../providers/anthropic-send-message.js';
+import { getConfiguredProvider, createTimeout, extractText, userMessage } from '../../providers/anthropic-send-message.js';
 import { getConversationMemoryScopeId } from '../conversation-store.js';
 import { getDb } from '../db.js';
 import { enqueueMemoryJob, type MemoryJob } from '../jobs-store.js';
@@ -230,9 +230,9 @@ async function summarizeWithLLM(
     return buildFallbackSummary(existingSummary, newContent, label);
   }
 
-  const provider = getAnthropicProvider();
+  const provider = getConfiguredProvider();
   if (!provider) {
-    log.debug({ label }, 'No Anthropic API key available for summarization, using fallback');
+    log.debug({ label }, 'Configured provider unavailable for summarization, using fallback');
     return buildFallbackSummary(existingSummary, newContent, label);
   }
 

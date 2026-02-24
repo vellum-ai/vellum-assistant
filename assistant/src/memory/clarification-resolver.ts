@@ -1,4 +1,4 @@
-import { getAnthropicProvider, createTimeout, extractToolUse, userMessage } from '../providers/anthropic-send-message.js';
+import { getConfiguredProvider, createTimeout, extractToolUse, userMessage } from '../providers/anthropic-send-message.js';
 import { truncate } from '../util/truncate.js';
 
 const DEFAULT_RESOLVER_MODEL = 'claude-haiku-4-5-20251001';
@@ -54,13 +54,13 @@ export async function resolveConflictClarification(
   const heuristicResult = resolveWithHeuristics(input);
   if (heuristicResult) return heuristicResult;
 
-  const provider = getAnthropicProvider();
+  const provider = getConfiguredProvider();
   if (!provider) {
     return {
       resolution: 'still_unclear',
       strategy: 'no_llm_key',
       resolvedStatement: null,
-      explanation: 'No Anthropic API key available for clarification fallback.',
+      explanation: 'Configured provider unavailable for clarification fallback.',
     };
   }
 
@@ -167,7 +167,7 @@ async function resolveWithLlm(
   input: ClarificationResolverInput,
   options: { model: string; timeoutMs: number },
 ): Promise<ClarificationResolverResult> {
-  const provider = getAnthropicProvider()!;
+  const provider = getConfiguredProvider()!;
   const userPrompt = [
     'You are resolving a memory clarification response.',
     '',

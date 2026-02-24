@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm';
 import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
 import { truncate } from '../util/truncate.js';
-import { getAnthropicProvider, createTimeout, extractToolUse, userMessage } from '../providers/anthropic-send-message.js';
+import { getConfiguredProvider, createTimeout, extractToolUse, userMessage } from '../providers/anthropic-send-message.js';
 import { areStatementsCoherent } from './conflict-intent.js';
 import { isConflictKindEligible, isStatementConflictEligible } from './conflict-policy.js';
 import { createOrUpdatePendingConflict } from './conflict-store.js';
@@ -56,9 +56,9 @@ export async function checkContradictions(newItemId: string): Promise<void> {
     return;
   }
 
-  const provider = getAnthropicProvider();
+  const provider = getConfiguredProvider();
   if (!provider) {
-    log.debug('No Anthropic API key available for contradiction checking');
+    log.debug('Configured provider unavailable for contradiction checking');
     return;
   }
 
@@ -208,7 +208,7 @@ async function classifyRelationship(
   existingItem: MemoryItemRow,
   newItem: MemoryItemRow,
 ): Promise<ClassifyResult> {
-  const provider = getAnthropicProvider()!;
+  const provider = getConfiguredProvider()!;
 
   const userContent = [
     `Subject: ${newItem.subject}`,

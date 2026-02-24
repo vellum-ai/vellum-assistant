@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import { getAnthropicProvider, extractText, userMessageWithImages } from '../../../../providers/anthropic-send-message.js';
+import { getConfiguredProvider, extractText, userMessageWithImages } from '../../../../providers/anthropic-send-message.js';
 import { initializeProviders } from '../../../../providers/registry.js';
 import { loadConfig, invalidateConfigCache } from '../../../../config/loader.js';
 import {
@@ -171,21 +171,19 @@ export async function analyzeKeyframesForAsset(
   // Use the same provider the main agent uses. If the provider registry
   // was cleared or not yet initialized, force-reload the config from
   // keychain/secure storage and re-initialize providers.
-  let provider = getAnthropicProvider();
+  let provider = getConfiguredProvider();
   if (!provider) {
     invalidateConfigCache();
     const freshConfig = loadConfig();
-    if (freshConfig.apiKeys.anthropic) {
-      initializeProviders(freshConfig);
-      provider = getAnthropicProvider();
-    }
+    initializeProviders(freshConfig);
+    provider = getConfiguredProvider();
   }
   if (!provider) {
     updateProcessingStage(stage.id, {
       status: 'failed',
-      lastError: 'Anthropic API key not configured',
+      lastError: 'Configured provider unavailable',
     });
-    throw new Error('No Anthropic API key available. Add one in Settings → Integrations.');
+    throw new Error('No configured provider available. Check your provider settings in Settings → Integrations.');
   }
 
   const effectiveChunkSize = chunkSize ?? 10;
@@ -343,7 +341,7 @@ export async function run(
       msg === 'batch_size must be greater than 0.' ||
       msg.startsWith('Media asset not found:') ||
       msg === 'No keyframes found for this asset. Run extract_keyframes first.' ||
-      msg === 'No Anthropic API key available. Add one in Settings → Integrations.'
+      msg === 'No configured provider available. Check your provider settings in Settings → Integrations.'
     ) {
       return { content: msg, isError: true };
     }

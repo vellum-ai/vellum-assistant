@@ -1,4 +1,4 @@
-import { getAnthropicProvider, createTimeout, extractToolUse, userMessage } from '../providers/anthropic-send-message.js';
+import { getConfiguredProvider, createTimeout, extractToolUse, userMessage } from '../providers/anthropic-send-message.js';
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('classifier');
@@ -17,9 +17,9 @@ export async function classifyInteraction(task: string, source?: 'voice' | 'text
     return 'text_qa';
   }
 
-  const provider = getAnthropicProvider();
+  const provider = getConfiguredProvider();
   if (!provider) {
-    log.warn('No API key available, falling back to heuristic classification');
+    log.warn('No configured provider available, falling back to heuristic classification');
     return classifyHeuristic(task);
   }
 

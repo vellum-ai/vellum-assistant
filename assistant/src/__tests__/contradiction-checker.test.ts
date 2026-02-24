@@ -31,7 +31,7 @@ const classifyRelationshipMock = mock(async () => {
 });
 
 mock.module('../providers/anthropic-send-message.js', () => ({
-  getAnthropicProvider: () => ({
+  getConfiguredProvider: () => ({
     sendMessage: classifyRelationshipMock,
   }),
   createTimeout: (ms: number) => {
