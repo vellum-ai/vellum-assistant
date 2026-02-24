@@ -5,11 +5,23 @@ import VellumAssistantShared
 struct ContentView: View {
     @EnvironmentObject var clientProvider: ClientProvider
     @Bindable var authManager: AuthManager
+    @ObservedObject var ambientAgent: AmbientAgentManager
     @State private var connectPhase: ConnectPhase = .initial
     @State private var selectedTab: Tab = .home
     @State private var navigateToConnect = false
+    /// Single thread store shared between the Chats tab (ThreadListView) and the
+    /// Private Threads settings panel (PrivateThreadsSection). Keeping one store
+    /// prevents the dual-store data-loss race where two independent stores each
+    /// overwrite the other's UserDefaults writes in standalone mode.
+    @StateObject private var threadStore: IOSThreadStore
 
-    private enum Tab { case home, chats, identity, settings }
+    init(authManager: AuthManager, ambientAgent: AmbientAgentManager, daemonClient: any DaemonClientProtocol) {
+        self.authManager = authManager
+        self.ambientAgent = ambientAgent
+        _threadStore = StateObject(wrappedValue: IOSThreadStore(daemonClient: daemonClient))
+    }
+
+    private enum Tab { case home, chats, tasks, identity, settings }
 
     private enum ConnectPhase {
         case initial    // Haven't attempted connection yet
@@ -51,6 +63,52 @@ struct ContentView: View {
         .onChange(of: clientProvider.isConnected) { _, connected in
             if connected { connectPhase = .ready }
         }
+        // When rebuildClient() replaces the DaemonClient, re-bind the thread store
+        // to the new client so it doesn't keep targeting the old disconnected daemon.
+        // ObjectIdentifier changes whenever the client object is replaced.
+        .onChange(of: ObjectIdentifier(clientProvider.client as AnyObject)) { _, _ in
+            threadStore.rebindDaemonClient(clientProvider.client)
+        }
+        // Ride Shotgun invitation sheet
+        .sheet(isPresented: $ambientAgent.showInvitation) {
+            RideShotgunInvitationSheet(
+                onAccept: {
+                    ambientAgent.acceptInvitation(daemonClient: clientProvider.client)
+                },
+                onDecline: {
+                    ambientAgent.declineInvitation()
+                }
+            )
+        }
+        // Progress sheet while the session is running
+        .sheet(item: $ambientAgent.activeSession, onDismiss: {
+            // Sheet dragged away — treat as cancel only if still in an
+            // interruptible state (interactiveDismissDisabled prevents this
+            // for most states but we guard here for safety).
+            ambientAgent.cancelSession()
+        }) { session in
+            RideShotgunProgressSheet(
+                session: session,
+                onStop: { ambientAgent.cancelSession() },
+                onStopEarly: { ambientAgent.stopSessionEarly() }
+            )
+        }
+        // Summary sheet after session completes
+        .sheet(item: $ambientAgent.completedSummary) { summary in
+            RideShotgunSummarySheet(
+                summary: summary,
+                onDismiss: {
+                    ambientAgent.completedSummary = nil
+                },
+                onStartChat: { summaryText in
+                    ambientAgent.completedSummary = nil
+                    selectedTab = .chats
+                    // Buffer the summary text as a pending deep-link message so
+                    // the active ChatViewModel picks it up when the tab appears.
+                    DeepLinkManager.pendingMessage = summaryText
+                }
+            )
+        }
     }
 
     private func navigateToConnectSettings() {
@@ -58,7 +116,14 @@ struct ContentView: View {
         navigateToConnect = true
     }
 
+    private func navigateToNewConversation() {
+        selectedTab = .chats
+    }
+
     // MARK: - Initial Connection
+
+    /// How many consecutive connection failures have occurred (used for exponential backoff on retry).
+    @State private var retryCount: Int = 0
 
     private func attemptInitialConnection() async {
         guard hasSavedSettings, !clientProvider.isConnected else {
@@ -66,11 +131,30 @@ struct ContentView: View {
             return
         }
         connectPhase = .connecting
+
+        // Apply exponential backoff when retrying: 0s, 2s, 4s, 8s … capped at 30s.
+        if retryCount > 0 {
+            let delaySeconds = min(pow(2.0, Double(retryCount - 1)) * 2.0, 30.0)
+            try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
+        }
+
+        // Race the connect call against a 10-second timeout so a hung gateway
+        // never leaves the UI stuck on the spinner indefinitely.
+        let connectTask = Task { try await clientProvider.client.connect() }
+        let timeoutTask = Task {
+            try await Task.sleep(nanoseconds: 10_000_000_000)
+            connectTask.cancel()
+        }
+
         do {
-            try await clientProvider.client.connect()
+            try await connectTask.value
+            timeoutTask.cancel()
+            retryCount = 0
             clientProvider.isConnected = true
             connectPhase = .ready
         } catch {
+            timeoutTask.cancel()
+            retryCount += 1
             connectPhase = .failed
         }
     }
@@ -106,6 +190,13 @@ struct ContentView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, VSpacing.xl)
 
+            if retryCount > 1 {
+                let delaySeconds = Int(min(pow(2.0, Double(retryCount - 1)) * 2.0, 30.0))
+                Text("Retrying in \(delaySeconds)s…")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+            }
+
             VStack(spacing: VSpacing.md) {
                 Button {
                     Task { await attemptInitialConnection() }
@@ -133,7 +224,10 @@ struct ContentView: View {
 
     private var tabContent: some View {
         TabView(selection: $selectedTab) {
-            HomeBaseView(onConnectTapped: navigateToConnectSettings)
+            HomeBaseView(
+                onConnectTapped: navigateToConnectSettings,
+                onNewConversation: navigateToNewConversation
+            )
                 .environmentObject(clientProvider)
                 .id(ObjectIdentifier(clientProvider.client as AnyObject))
                 .tag(Tab.home)
@@ -141,11 +235,19 @@ struct ContentView: View {
                     Label("Home", systemImage: "house")
                 }
 
-            ThreadListView(daemonClient: clientProvider.client)
+            ThreadListView(store: threadStore)
                 .id(ObjectIdentifier(clientProvider.client as AnyObject))
                 .tag(Tab.chats)
                 .tabItem {
                     Label("Chats", systemImage: "message")
+                }
+
+            TasksTabView(onConnectTapped: navigateToConnectSettings)
+                .environmentObject(clientProvider)
+                .id(ObjectIdentifier(clientProvider.client as AnyObject))
+                .tag(Tab.tasks)
+                .tabItem {
+                    Label("Tasks", systemImage: "list.bullet.clipboard")
                 }
 
             IdentityView(onConnectTapped: navigateToConnectSettings)
@@ -156,7 +258,7 @@ struct ContentView: View {
                     Label("Identity", systemImage: "person.text.rectangle")
                 }
 
-            SettingsView(authManager: authManager, navigateToConnect: $navigateToConnect)
+            SettingsView(authManager: authManager, navigateToConnect: $navigateToConnect, threadStore: threadStore)
                 .environmentObject(clientProvider)
                 .tag(Tab.settings)
                 .tabItem {
@@ -167,7 +269,8 @@ struct ContentView: View {
 }
 
 #Preview {
-    ContentView(authManager: AuthManager())
-        .environmentObject(ClientProvider(client: DaemonClient(config: .default)))
+    let client = DaemonClient(config: .default)
+    ContentView(authManager: AuthManager(), ambientAgent: AmbientAgentManager(), daemonClient: client)
+        .environmentObject(ClientProvider(client: client))
 }
 #endif

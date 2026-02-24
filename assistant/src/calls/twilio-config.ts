@@ -2,6 +2,8 @@ import { getSecureKey } from '../security/secure-keys.js';
 import { getLogger } from '../util/logger.js';
 import { loadConfig } from '../config/loader.js';
 import { getPublicBaseUrl, getTwilioRelayUrl } from '../inbound/public-ingress-urls.js';
+import { ConfigError } from '../util/errors.js';
+import { getTwilioPhoneNumberEnv, getTwilioWssBaseUrl } from '../config/env.js';
 
 const log = getLogger('twilio-config');
 
@@ -25,7 +27,7 @@ function resolveTwilioPhoneNumber(assistantId: string | undefined, config: Retur
   // 1. TWILIO_PHONE_NUMBER env var (explicit override)
   // 2. config file sms.phoneNumber (primary storage)
   // 3. credential:twilio:phone_number secure key (backward-compat fallback)
-  return process.env.TWILIO_PHONE_NUMBER || config.sms?.phoneNumber || getSecureKey('credential:twilio:phone_number') || '';
+  return getTwilioPhoneNumberEnv() || config.sms?.phoneNumber || getSecureKey('credential:twilio:phone_number') || '';
 }
 
 export function getTwilioConfig(assistantId?: string): TwilioConfig {
@@ -38,8 +40,8 @@ export function getTwilioConfig(assistantId?: string): TwilioConfig {
   // Always use the centralized relay URL derived from the public ingress base URL.
   // TWILIO_WSS_BASE_URL is ignored.
   let wssBaseUrl: string;
-  if (process.env.TWILIO_WSS_BASE_URL) {
-    log.warn('TWILIO_WSS_BASE_URL env var is ignored. Relay URL is derived from ingress.publicBaseUrl.');
+  if (getTwilioWssBaseUrl()) {
+    log.warn('TWILIO_WSS_BASE_URL env var is deprecated. Relay URL is derived from ingress.publicBaseUrl.');
   }
   try {
     wssBaseUrl = getTwilioRelayUrl(config);
@@ -48,10 +50,10 @@ export function getTwilioConfig(assistantId?: string): TwilioConfig {
   }
 
   if (!accountSid || !authToken) {
-    throw new Error('Twilio credentials not configured. Set credential:twilio:account_sid and credential:twilio:auth_token via the credential_store tool.');
+    throw new ConfigError('Twilio credentials not configured. Set credential:twilio:account_sid and credential:twilio:auth_token via the credential_store tool.');
   }
   if (!phoneNumber) {
-    throw new Error('Twilio phone number not configured.');
+    throw new ConfigError('Twilio phone number not configured.');
   }
 
   log.debug('Twilio config loaded successfully');

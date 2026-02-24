@@ -102,6 +102,7 @@ public struct ToolCallProgressBar: View {
         }
         .buttonStyle(.plain)
         .disabled(!toolCall.isComplete)
+        .accessibilityLabel(toolCall.isError ? "\(toolCall.friendlyName), failed" : toolCall.isComplete ? "\(toolCall.friendlyName), completed" : "\(toolCall.friendlyName), in progress")
     }
 
     // MARK: - Step Label
@@ -164,6 +165,7 @@ public struct ToolCallProgressBar: View {
                         .foregroundColor(VColor.textMuted)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Close details")
             }
 
             // Input summary

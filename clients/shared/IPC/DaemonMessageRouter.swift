@@ -125,6 +125,8 @@ extension DaemonClient {
             onOpenBundleResponse?(msg)
         case .sessionListResponse(let msg):
             onSessionListResponse?(msg)
+        case .sessionTitleUpdated(let msg):
+            onSessionTitleUpdated?(msg)
         case .historyResponse(let msg):
             onHistoryResponse?(msg)
         case .shareToSlackResponse(let msg):
@@ -238,6 +240,14 @@ extension DaemonClient {
             onSubagentStatusChanged?(msg)
         case .subagentDetailResponse(let msg):
             onSubagentDetailResponse?(msg)
+        case .parentalControlGetResponse(let msg):
+            onParentalControlGetResponse?(msg)
+        case .parentalControlVerifyPinResponse(let msg):
+            onParentalControlVerifyPinResponse?(msg)
+        case .parentalControlSetPinResponse(let msg):
+            onParentalControlSetPinResponse?(msg)
+        case .parentalControlUpdateResponse(let msg):
+            onParentalControlUpdateResponse?(msg)
         default:
             break
         }

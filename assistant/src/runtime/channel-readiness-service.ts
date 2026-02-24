@@ -12,6 +12,7 @@ import {
 } from '../calls/twilio-rest.js';
 import { getSecureKey } from '../security/secure-keys.js';
 import { loadRawConfig } from '../config/loader.js';
+import { getTwilioPhoneNumberEnv } from '../config/env.js';
 
 /** Remote check results are cached for 5 minutes before being considered stale. */
 export const REMOTE_TTL_MS = 5 * 60 * 1000;
@@ -64,12 +65,12 @@ function resolveSmsPhoneNumber(assistantId?: string): string {
     const smsConfig = (raw?.sms ?? {}) as Record<string, unknown>;
     const mapped = getAssistantMappedPhoneNumber(smsConfig, assistantId);
     return mapped
-      || process.env.TWILIO_PHONE_NUMBER
+      || getTwilioPhoneNumberEnv()
       || (smsConfig.phoneNumber as string)
       || getSecureKey('credential:twilio:phone_number')
       || '';
   } catch {
-    return process.env.TWILIO_PHONE_NUMBER
+    return getTwilioPhoneNumberEnv()
       || getSecureKey('credential:twilio:phone_number')
       || '';
   }
@@ -180,12 +181,12 @@ function resolveVoicePhoneNumber(assistantId?: string): string {
     const smsConfig = (raw?.sms ?? {}) as Record<string, unknown>;
     const mapped = getAssistantMappedPhoneNumber(smsConfig, assistantId);
     return mapped
-      || process.env.TWILIO_PHONE_NUMBER
+      || getTwilioPhoneNumberEnv()
       || (smsConfig.phoneNumber as string)
       || getSecureKey('credential:twilio:phone_number')
       || '';
   } catch {
-    return process.env.TWILIO_PHONE_NUMBER
+    return getTwilioPhoneNumberEnv()
       || getSecureKey('credential:twilio:phone_number')
       || '';
   }

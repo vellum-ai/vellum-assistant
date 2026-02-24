@@ -9,7 +9,9 @@
 import type { ServerWebSocket } from 'bun';
 import { randomInt } from 'node:crypto';
 import { getLogger } from '../util/logger.js';
+import { parseJsonSafe } from '../util/json.js';
 import { getConfig } from '../config/loader.js';
+import { getCallWelcomeGreeting } from '../config/env.js';
 import {
   getCallSession,
   updateCallSession,
@@ -188,10 +190,8 @@ export class RelayConnection {
    * Handle an inbound message from Twilio via the ConversationRelay WebSocket.
    */
   async handleMessage(data: string): Promise<void> {
-    let parsed: RelayInboundMessage;
-    try {
-      parsed = JSON.parse(data) as RelayInboundMessage;
-    } catch {
+    const parsed = parseJsonSafe<RelayInboundMessage>(data);
+    if (!parsed) {
       log.warn({ callSessionId: this.callSessionId, data }, 'Failed to parse relay message');
       return;
     }
@@ -434,6 +434,7 @@ export class RelayConnection {
         session.initiatedFromConversationId,
         'assistant',
         JSON.stringify([{ type: 'text', text: codeMsg }]),
+        { userMessageChannel: 'voice', assistantMessageChannel: 'voice' },
       );
     }
 
@@ -671,6 +672,7 @@ export class RelayConnection {
         session.conversationId,
         'user',
         JSON.stringify([{ type: 'text', text: msg.voicePrompt }]),
+        { userMessageChannel: 'voice', assistantMessageChannel: 'voice' },
       );
       fireCallTranscriptNotifier(session.conversationId, this.callSessionId, 'caller', msg.voicePrompt);
     }

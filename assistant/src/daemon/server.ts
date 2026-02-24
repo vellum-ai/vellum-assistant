@@ -15,6 +15,7 @@ import { IngressBlockedError } from '../util/errors.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import * as attachmentsStore from '../memory/attachments-store.js';
 import { Session, DEFAULT_MEMORY_POLICY, type SessionMemoryPolicy } from './session.js';
+import { parseChannelId } from '../channels/types.js';
 import { resolveChannelCapabilities } from './session-runtime-assembly.js';
 import { ComputerUseSession } from './computer-use-session.js';
 import {
@@ -357,7 +358,7 @@ export class DaemonServer {
       const parseDurationMs = Number(process.hrtime.bigint() - parseStartNs) / 1_000_000;
       for (const entry of parsed) {
         const msg = entry.msg;
-        if (typeof msg === 'object' && msg !== null && (msg as { type?: unknown }).type === 'cu_observation') {
+        if (typeof msg === 'object' && msg != null && (msg as { type?: unknown }).type === 'cu_observation') {
           const maybeSessionId = (msg as { sessionId?: unknown }).sessionId;
           const sessionId = typeof maybeSessionId === 'string' ? maybeSessionId : 'unknown';
           const previousSequence = this.cuObservationParseSequence.get(sessionId) ?? 0;
@@ -683,6 +684,11 @@ export class DaemonServer {
     session.setGuardianContext(options?.guardianContext ?? null);
     session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel));
     session.setCommandIntent(options?.commandIntent ?? null);
+    const resolvedChannel = parseChannelId(sourceChannel) ?? parseChannelId(options?.transport?.channelId) ?? 'macos';
+    session.setTurnChannelContext({
+      userMessageChannel: resolvedChannel,
+      assistantMessageChannel: resolvedChannel,
+    });
 
     const attachments = attachmentIds
       ? attachmentsStore.getAttachmentsByIds(attachmentIds).map((a) => ({
@@ -725,6 +731,11 @@ export class DaemonServer {
     session.setGuardianContext(options?.guardianContext ?? null);
     session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel));
     session.setCommandIntent(options?.commandIntent ?? null);
+    const resolvedChannel2 = parseChannelId(sourceChannel) ?? parseChannelId(options?.transport?.channelId) ?? 'macos';
+    session.setTurnChannelContext({
+      userMessageChannel: resolvedChannel2,
+      assistantMessageChannel: resolvedChannel2,
+    });
 
     const attachments = attachmentIds
       ? attachmentsStore.getAttachmentsByIds(attachmentIds).map((a) => ({
@@ -738,11 +749,16 @@ export class DaemonServer {
     const slashResult = resolveSlash(content);
 
     if (slashResult.kind === 'unknown') {
+      const serverTurnCtx = session.getTurnChannelContext();
+      const serverChannelMeta = serverTurnCtx
+        ? { userMessageChannel: serverTurnCtx.userMessageChannel, assistantMessageChannel: serverTurnCtx.assistantMessageChannel }
+        : undefined;
       const userMsg = createUserMessage(content, attachments);
       const persisted = conversationStore.addMessage(
         conversationId,
         'user',
         JSON.stringify(userMsg.content),
+        serverChannelMeta,
       );
       session.getMessages().push(userMsg);
 
@@ -751,6 +767,7 @@ export class DaemonServer {
         conversationId,
         'assistant',
         JSON.stringify(assistantMsg.content),
+        serverChannelMeta,
       );
       session.getMessages().push(assistantMsg);
       return { messageId: persisted.id };

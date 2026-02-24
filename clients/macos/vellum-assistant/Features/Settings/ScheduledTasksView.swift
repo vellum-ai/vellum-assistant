@@ -131,6 +131,7 @@ private struct ScheduleRow: View {
     let onDelete: () -> Void
 
     @State private var isExpanded = false
+    @State private var isTriggered = false
 
     private var nextRunText: String {
         guard schedule.enabled else { return "Paused" }
@@ -204,10 +205,16 @@ private struct ScheduleRow: View {
                 Spacer()
 
                 Button {
+                    guard !isTriggered else { return }
                     onRunNow()
+                    withAnimation(.easeInOut(duration: 0.2)) { isTriggered = true }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        withAnimation(.easeInOut(duration: 0.2)) { isTriggered = false }
+                    }
                 } label: {
-                    Image(systemName: "play.fill")
-                        .foregroundStyle(.blue)
+                    Image(systemName: isTriggered ? "checkmark.circle.fill" : "play.fill")
+                        .foregroundStyle(isTriggered ? .green : .blue)
+                        .contentTransition(.symbolEffect(.replace))
                 }
                 .buttonStyle(.borderless)
                 .help("Run now")

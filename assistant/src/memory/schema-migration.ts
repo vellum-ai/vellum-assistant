@@ -1,12 +1,146 @@
-import { Database } from 'bun:sqlite';
-import { drizzle } from 'drizzle-orm/bun-sqlite';
 import { computeMemoryFingerprint } from './fingerprint.js';
-import type * as schema from './schema.js';
+import { getSqliteFrom, type DrizzleDb } from './db-connection.js';
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('memory-db');
 
-type Db = ReturnType<typeof drizzle<typeof schema>>;
+type Db = DrizzleDb;
+
+// ---------------------------------------------------------------------------
+// Migration registry
+// ---------------------------------------------------------------------------
+// Central registry of all checkpoint-based one-shot migrations.  Each entry
+// carries a monotonic version number (for documentation / ordering assertions)
+// and an optional list of prerequisite checkpoint keys that must already be
+// completed before this migration runs.
+//
+// Migrations that use pure DDL guards (CREATE TABLE IF NOT EXISTS, index
+// presence checks, ALTER TABLE ADD COLUMN try/catch) are inherently idempotent
+// and do not need entries here — they are safe to re-run on every startup.
+// ---------------------------------------------------------------------------
+
+export interface MigrationRegistryEntry {
+  /** The checkpoint key written to memory_checkpoints on completion. */
+  key: string;
+  /** Monotonic version number used for ordering assertions. */
+  version: number;
+  /** Keys of other migrations that must complete before this one runs. */
+  dependsOn?: string[];
+  /** Human-readable description for diagnostics and future authorship guidance. */
+  description: string;
+}
+
+export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
+  {
+    key: 'migration_job_deferrals',
+    version: 1,
+    description: 'Reconcile legacy deferral history from attempts column into deferrals column',
+  },
+  {
+    key: 'migration_memory_entity_relations_dedup_v1',
+    version: 2,
+    description: 'Deduplicate entity relation edges before enforcing the (source, target, relation) unique index',
+  },
+  {
+    key: 'migration_memory_items_fingerprint_scope_unique_v1',
+    version: 3,
+    description: 'Replace column-level UNIQUE on fingerprint with compound (fingerprint, scope_id) unique index',
+  },
+  {
+    key: 'migration_memory_items_scope_salted_fingerprints_v1',
+    version: 4,
+    dependsOn: ['migration_memory_items_fingerprint_scope_unique_v1'],
+    description: 'Recompute memory item fingerprints to include scope_id prefix after schema change',
+  },
+  {
+    key: 'migration_normalize_assistant_id_to_self_v1',
+    version: 5,
+    description: 'Normalize all assistant_id values in scoped tables to the implicit "self" single-tenant identity',
+  },
+  {
+    key: 'migration_remove_assistant_id_columns_v1',
+    version: 6,
+    dependsOn: ['migration_normalize_assistant_id_to_self_v1'],
+    description: 'Rebuild four tables to drop the assistant_id column after normalization',
+  },
+  {
+    key: 'migration_remove_assistant_id_lue_v1',
+    version: 7,
+    dependsOn: ['migration_normalize_assistant_id_to_self_v1'],
+    description: 'Remove assistant_id column from llm_usage_events (separate checkpoint from the four-table migration)',
+  },
+];
+
+export interface MigrationValidationResult {
+  /** Keys of migrations whose checkpoint has value 'started' — started but never completed. */
+  crashed: string[];
+  /** Pairs where a completed migration's declared prerequisite is missing from checkpoints. */
+  dependencyViolations: Array<{ migration: string; missingDependency: string }>;
+}
+
+/**
+ * Validate the applied migration state against the registry at startup.
+ *
+ * Logs warnings when a migration started but never completed (crash detected),
+ * and logs errors when a migration was applied but a declared prerequisite is
+ * missing from the checkpoints table (dependency ordering violation).
+ *
+ * Returns structured diagnostic data so callers (e.g. tests) can assert on the
+ * specific issues detected without having to re-query the DB or inspect logs.
+ *
+ * Call this AFTER all DDL and migration functions have run so that the final
+ * state is inspected.
+ */
+export function validateMigrationState(database: Db): MigrationValidationResult {
+  const raw = getSqliteFrom(database);
+
+  let rows: Array<{ key: string; value: string }>;
+  try {
+    rows = raw.query(`SELECT key, value FROM memory_checkpoints`).all() as Array<{ key: string; value: string }>;
+  } catch {
+    // memory_checkpoints may not exist on a very old database; skip.
+    return { crashed: [], dependencyViolations: [] };
+  }
+
+  // Detect crashed migrations: a checkpoint value of 'started' means the
+  // migration wrote its start marker but never reached the completion INSERT.
+  // The migration will re-run on the next startup (its own idempotency guard
+  // will determine safety), but we surface a warning for visibility.
+  const crashed = rows.filter((r) => r.value === 'started').map((r) => r.key);
+  if (crashed.length > 0) {
+    log.warn(
+      { crashed },
+      'Crashed migrations detected — these migrations started but never completed; they will re-run on next startup',
+    );
+  }
+
+  // Only rows whose value is NOT 'started' represent truly completed migrations.
+  // In-progress/crashed checkpoints (value = 'started') must not count as applied
+  // dependencies — the migration never finished, so its postconditions are unmet.
+  const completed = new Set(rows.filter((r) => r.value !== 'started').map((r) => r.key));
+
+  const dependencyViolations: Array<{ migration: string; missingDependency: string }> = [];
+
+  // Validate dependency ordering.
+  for (const entry of MIGRATION_REGISTRY) {
+    if (!entry.dependsOn || entry.dependsOn.length === 0) continue;
+    // Only check entries that have been completed — unapplied or in-progress
+    // migrations have not had a chance to violate their prerequisites yet.
+    if (!completed.has(entry.key)) continue;
+
+    for (const dep of entry.dependsOn) {
+      if (!completed.has(dep)) {
+        log.error(
+          { migration: entry.key, missingDependency: dep, version: entry.version },
+          'Migration dependency violation: this migration is marked complete but its declared prerequisite has no checkpoint — database schema may be inconsistent',
+        );
+        dependencyViolations.push({ migration: entry.key, missingDependency: dep });
+      }
+    }
+  }
+
+  return { crashed, dependencyViolations };
+}
 
 /**
  * One-shot migration: reconcile old deferral history into the new `deferrals` column.
@@ -24,7 +158,7 @@ type Db = ReturnType<typeof drizzle<typeof schema>>;
  * We use a `memory_checkpoints` row to ensure the migration runs exactly once.
  */
 export function migrateJobDeferrals(database: Db): void {
-  const raw = (database as unknown as { $client: Database }).$client;
+  const raw = getSqliteFrom(database);
   const checkpoint = raw.query(
     `SELECT 1 FROM memory_checkpoints WHERE key = 'migration_job_deferrals'`
   ).get();
@@ -58,7 +192,7 @@ export function migrateJobDeferrals(database: Db): void {
  * This is idempotent: it checks whether the FK already exists before migrating.
  */
 export function migrateToolInvocationsFk(database: Db): void {
-  const raw = (database as unknown as { $client: Database }).$client;
+  const raw = getSqliteFrom(database);
   const row = raw.query(`SELECT sql FROM sqlite_master WHERE type='table' AND name='tool_invocations'`).get() as { sql: string } | null;
   if (!row) return; // table doesn't exist yet (will be created above)
 
@@ -99,7 +233,7 @@ export function migrateToolInvocationsFk(database: Db): void {
  * version that may not have had trigger-managed FTS.
  */
 export function migrateMemoryFtsBackfill(database: Db): void {
-  const raw = (database as unknown as { $client: Database }).$client;
+  const raw = getSqliteFrom(database);
   const ftsCountRow = raw.query(`SELECT COUNT(*) AS c FROM memory_segment_fts`).get() as { c: number } | null;
   const ftsCount = ftsCountRow?.c ?? 0;
   if (ftsCount > 0) return;
@@ -115,12 +249,20 @@ export function migrateMemoryFtsBackfill(database: Db): void {
  * enforced on (source_entity_id, target_entity_id, relation).
  */
 export function migrateMemoryEntityRelationDedup(database: Db): void {
-  const raw = (database as unknown as { $client: Database }).$client;
+  const raw = getSqliteFrom(database);
   const checkpointKey = 'migration_memory_entity_relations_dedup_v1';
   const checkpoint = raw.query(
     `SELECT 1 FROM memory_checkpoints WHERE key = ?`,
   ).get(checkpointKey);
   if (checkpoint) return;
+
+  // Drop the staging temp table if it was left behind by a previous failed
+  // attempt in the same connection.  TEMP tables survive ROLLBACK (they live
+  // in a separate SQLite schema) so a mid-migration exception can leave the
+  // table present even after the transaction rolls back.  Clearing it here
+  // makes re-entry safe without needing IF NOT EXISTS semantics on the full
+  // CREATE … AS SELECT.
+  raw.exec(/*sql*/ `DROP TABLE IF EXISTS temp.memory_entity_relation_merge`);
 
   try {
     raw.exec('BEGIN');
@@ -175,7 +317,7 @@ export function migrateMemoryEntityRelationDedup(database: Db): void {
       FROM memory_entity_relation_merge
     `);
 
-    raw.exec(/*sql*/ `DROP TABLE memory_entity_relation_merge`);
+    raw.exec(/*sql*/ `DROP TABLE temp.memory_entity_relation_merge`);
 
     raw.query(
       `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
@@ -194,7 +336,7 @@ export function migrateMemoryEntityRelationDedup(database: Db): void {
  * different scopes independently.
  */
 export function migrateMemoryItemsFingerprintScopeUnique(database: Db): void {
-  const raw = (database as unknown as { $client: Database }).$client;
+  const raw = getSqliteFrom(database);
   const checkpointKey = 'migration_memory_items_fingerprint_scope_unique_v1';
   const checkpoint = raw.query(
     `SELECT 1 FROM memory_checkpoints WHERE key = ?`,
@@ -278,7 +420,7 @@ export function migrateMemoryItemsFingerprintScopeUnique(database: Db): void {
  * causing duplicates and broken deduplication.
  */
 export function migrateMemoryItemsScopeSaltedFingerprints(database: Db): void {
-  const raw = (database as unknown as { $client: Database }).$client;
+  const raw = getSqliteFrom(database);
   const checkpointKey = 'migration_memory_items_scope_salted_fingerprints_v1';
   const checkpoint = raw.query(
     `SELECT 1 FROM memory_checkpoints WHERE key = ?`,
@@ -355,7 +497,7 @@ export function migrateMemoryItemsScopeSaltedFingerprints(database: Db): void {
  *     and key-lookup rows are modified.
  */
 export function migrateAssistantIdToSelf(database: Db): void {
-  const raw = (database as unknown as { $client: Database }).$client;
+  const raw = getSqliteFrom(database);
   const checkpointKey = 'migration_normalize_assistant_id_to_self_v1';
   const checkpoint = raw.query(
     `SELECT 1 FROM memory_checkpoints WHERE key = ?`,
@@ -599,7 +741,7 @@ export function migrateAssistantIdToSelf(database: Db): void {
  *   - llm_usage_events        nullable column with no constraint
  */
 export function migrateRemoveAssistantIdColumns(database: Db): void {
-  const raw = (database as unknown as { $client: Database }).$client;
+  const raw = getSqliteFrom(database);
   const checkpointKey = 'migration_remove_assistant_id_columns_v1';
   const checkpoint = raw.query(
     `SELECT 1 FROM memory_checkpoints WHERE key = ?`,
@@ -798,7 +940,7 @@ export function migrateRemoveAssistantIdColumns(database: Db): void {
  * Safe on fresh installs (DDL guard exits early) and idempotent via checkpoint.
  */
 export function migrateLlmUsageEventsDropAssistantId(database: Db): void {
-  const raw = (database as unknown as { $client: Database }).$client;
+  const raw = getSqliteFrom(database);
   const checkpointKey = 'migration_remove_assistant_id_lue_v1';
   const checkpoint = raw.query(
     `SELECT 1 FROM memory_checkpoints WHERE key = ?`,
@@ -878,7 +1020,7 @@ export function migrateLlmUsageEventsDropAssistantId(database: Db): void {
  * createdAt) is kept; older duplicates are deleted.
  */
 export function migrateExtConvBindingsChannelChatUnique(database: Db): void {
-  const raw = (database as unknown as { $client: Database }).$client;
+  const raw = getSqliteFrom(database);
 
   // If the unique index already exists, nothing to do.
   const idxExists = raw.query(
@@ -932,7 +1074,7 @@ export function migrateExtConvBindingsChannelChatUnique(database: Db): void {
  * For each set of duplicates, the most recently updated row is kept.
  */
 export function migrateCallSessionsProviderSidDedup(database: Db): void {
-  const raw = (database as unknown as { $client: Database }).$client;
+  const raw = getSqliteFrom(database);
 
   // Quick check: if the unique index already exists, no dedup is needed.
   const idxExists = raw.query(
@@ -993,7 +1135,7 @@ export function migrateCallSessionsProviderSidDedup(database: Db): void {
  * db-init.ts for similar additive columns).
  */
 export function migrateCallSessionsAddInitiatedFrom(database: Db): void {
-  const raw = (database as unknown as { $client: Database }).$client;
+  const raw = getSqliteFrom(database);
   try {
     raw.exec(/*sql*/ `ALTER TABLE call_sessions ADD COLUMN initiated_from_conversation_id TEXT`);
   } catch {
@@ -1009,7 +1151,7 @@ export function migrateCallSessionsAddInitiatedFrom(database: Db): void {
  * idempotency across restarts.
  */
 export function migrateGuardianActionTables(database: Db): void {
-  const raw = (database as unknown as { $client: Database }).$client;
+  const raw = getSqliteFrom(database);
 
   raw.exec(/*sql*/ `
     CREATE TABLE IF NOT EXISTS guardian_action_requests (

@@ -88,6 +88,20 @@ public struct MessageBubbleView: View {
                     }
                 }
 
+                // Offline-pending indicator: shown when the message is buffered
+                // locally awaiting daemon reconnect. Replaces the streaming dots.
+                if message.status == .pendingOffline {
+                    HStack(spacing: VSpacing.xs) {
+                        Image(systemName: "clock.arrow.circlepath")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(VColor.textMuted)
+                        Text("Pending")
+                            .font(VFont.small)
+                            .foregroundColor(VColor.textMuted)
+                    }
+                    .padding(.horizontal, VSpacing.sm)
+                }
+
                 // Streaming indicator
                 if message.isStreaming {
                     TimelineView(.animation(minimumInterval: 0.05)) { context in

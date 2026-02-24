@@ -18,6 +18,7 @@ struct AppVersionHistoryPanel: View {
     @State private var restoreError: String?
     @State private var pendingDiffCommitHash: String?
     @State private var fetchHistoryId: UUID?
+    @State private var historyTimeoutTask: Task<Void, Never>?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -90,6 +91,7 @@ struct AppVersionHistoryPanel: View {
         }
         .background(VColor.background)
         .onAppear { fetchHistory() }
+        .onDisappear { historyTimeoutTask?.cancel() }
         .alert("Restore Version?", isPresented: .init(
             get: { restoreConfirmVersion != nil },
             set: { if !$0 { restoreConfirmVersion = nil } }
@@ -271,7 +273,10 @@ struct AppVersionHistoryPanel: View {
         }
         // Timeout: daemon sends a generic error on failure, not app_history_response,
         // so the spinner would get stuck without this fallback.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
+        historyTimeoutTask?.cancel()
+        historyTimeoutTask = Task {
+            try? await Task.sleep(nanoseconds: 10_000_000_000)
+            guard !Task.isCancelled else { return }
             guard fetchHistoryId == currentId else { return }
             if isLoading {
                 isLoading = false

@@ -9,11 +9,14 @@
 
 import { and, eq, lt, inArray } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
-import { getDb } from './db.js';
+import { getDb, rawChanges } from './db.js';
 import {
   guardianActionRequests,
   guardianActionDeliveries,
 } from './schema.js';
+import { getLogger } from '../util/logger.js';
+
+const log = getLogger('guardian-action-store');
 
 // ---------------------------------------------------------------------------
 // Types
@@ -200,9 +203,7 @@ export function resolveGuardianActionRequest(
     .run();
 
   // Check if the update took effect
-  const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
-  const changes = raw.query('SELECT changes() as c').get() as { c: number };
-  if (changes.c === 0) return null;
+  if (rawChanges() === 0) return null;
 
   // Mark all deliveries as 'answered'
   db.update(guardianActionDeliveries)
@@ -344,53 +345,69 @@ export function getPendingDeliveriesByDestination(
   channel: string,
   chatId: string,
 ): GuardianActionDelivery[] {
-  const db = getDb();
+  try {
+    const db = getDb();
 
-  // Join deliveries with requests to filter by assistantId
-  const rows = db
-    .select({
-      delivery: guardianActionDeliveries,
-    })
-    .from(guardianActionDeliveries)
-    .innerJoin(
-      guardianActionRequests,
-      eq(guardianActionDeliveries.requestId, guardianActionRequests.id),
-    )
-    .where(
-      and(
-        eq(guardianActionRequests.assistantId, assistantId),
-        eq(guardianActionRequests.status, 'pending'),
-        eq(guardianActionDeliveries.destinationChannel, channel),
-        eq(guardianActionDeliveries.destinationChatId, chatId),
-        eq(guardianActionDeliveries.status, 'sent'),
-      ),
-    )
-    .all();
+    // Join deliveries with requests to filter by assistantId
+    const rows = db
+      .select({
+        delivery: guardianActionDeliveries,
+      })
+      .from(guardianActionDeliveries)
+      .innerJoin(
+        guardianActionRequests,
+        eq(guardianActionDeliveries.requestId, guardianActionRequests.id),
+      )
+      .where(
+        and(
+          eq(guardianActionRequests.assistantId, assistantId),
+          eq(guardianActionRequests.status, 'pending'),
+          eq(guardianActionDeliveries.destinationChannel, channel),
+          eq(guardianActionDeliveries.destinationChatId, chatId),
+          eq(guardianActionDeliveries.status, 'sent'),
+        ),
+      )
+      .all();
 
-  return rows.map((r) => rowToDelivery(r.delivery));
+    return rows.map((r) => rowToDelivery(r.delivery));
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('no such table')) {
+      log.warn({ err }, 'guardian tables not yet created');
+      return [];
+    }
+    throw err;
+  }
 }
 
 /**
  * Look up a pending delivery by destination conversation ID (for mac channel routing).
  */
 export function getPendingDeliveryByConversation(conversationId: string): GuardianActionDelivery | null {
-  const db = getDb();
-  const rows = db
-    .select({ delivery: guardianActionDeliveries })
-    .from(guardianActionDeliveries)
-    .innerJoin(
-      guardianActionRequests,
-      eq(guardianActionDeliveries.requestId, guardianActionRequests.id),
-    )
-    .where(
-      and(
-        eq(guardianActionDeliveries.destinationConversationId, conversationId),
-        eq(guardianActionDeliveries.status, 'sent'),
-        eq(guardianActionRequests.status, 'pending'),
-      ),
-    )
-    .all();
-  return rows.length > 0 ? rowToDelivery(rows[0].delivery) : null;
+  try {
+    const db = getDb();
+    const rows = db
+      .select({ delivery: guardianActionDeliveries })
+      .from(guardianActionDeliveries)
+      .innerJoin(
+        guardianActionRequests,
+        eq(guardianActionDeliveries.requestId, guardianActionRequests.id),
+      )
+      .where(
+        and(
+          eq(guardianActionDeliveries.destinationConversationId, conversationId),
+          eq(guardianActionDeliveries.status, 'sent'),
+          eq(guardianActionRequests.status, 'pending'),
+        ),
+      )
+      .all();
+    return rows.length > 0 ? rowToDelivery(rows[0].delivery) : null;
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('no such table')) {
+      log.warn({ err }, 'guardian tables not yet created');
+      return null;
+    }
+    throw err;
+  }
 }
 
 export function updateDeliveryStatus(

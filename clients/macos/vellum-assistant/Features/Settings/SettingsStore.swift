@@ -57,14 +57,8 @@ public final class SettingsStore: ObservableObject {
 
     // MARK: - Settings Values
 
-    @Published var maxSteps: Double {
-        didSet { UserDefaults.standard.set(maxSteps, forKey: "maxStepsPerSession") }
-    }
-    @Published var activityNotificationsEnabled: Bool {
-        didSet {
-            UserDefaults.standard.set(activityNotificationsEnabled, forKey: "activityNotificationsEnabled")
-        }
-    }
+    @Published var maxSteps: Double
+    @Published var activityNotificationsEnabled: Bool
 
     // MARK: - Media Embed Settings
 
@@ -130,6 +124,10 @@ public final class SettingsStore: ObservableObject {
     @Published var voiceGuardianVerificationInProgress: Bool = false
     @Published var voiceGuardianInstruction: String?
     @Published var voiceGuardianError: String?
+
+    // MARK: - Email Integration State
+
+    @Published var assistantEmail: String?
 
     // MARK: - Ingress Config State
 
@@ -262,6 +260,24 @@ public final class SettingsStore: ObservableObject {
         NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.refreshAPIKeyState() }
+            .store(in: &cancellables)
+
+        // maxStepsPerSession is read at session startup, so it must be persisted synchronously
+        // to avoid a race where a new session reads a stale value before the debounced write fires.
+        $maxSteps
+            .dropFirst()
+            .sink { value in UserDefaults.standard.set(value, forKey: "maxStepsPerSession") }
+            .store(in: &cancellables)
+
+        // Debounce UserDefaults writes so rapid toggle changes don't thrash disk I/O.
+        // dropFirst must come before debounce: it consumes the synchronous initial emission so that
+        // only genuine user-driven changes flow into debounce and are eventually persisted.
+        // Placing dropFirst after debounce would cause the first real user change to be silently
+        // dropped whenever it arrives within the 300ms debounce window of the initial value.
+        $activityNotificationsEnabled
+            .dropFirst()
+            .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
+            .sink { value in UserDefaults.standard.set(value, forKey: "activityNotificationsEnabled") }
             .store(in: &cancellables)
 
         // Mirror DaemonClient's trust-rules-open flag so views can disable their buttons
@@ -1097,7 +1113,18 @@ public final class SettingsStore: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
     }
 
-    // MARK: - Ingress Config Actions
+    // MARK: - Email Integration
+
+    func refreshAssistantEmail() {
+        guard let daemonClient else { return }
+        let gatewayURL = localGatewayTarget
+        Task {
+            let status = await daemonClient.fetchIntegrationsStatus(gatewayBaseURL: gatewayURL)
+            self.assistantEmail = status?.email.address
+        }
+    }
+
+    // MARK: - Ingress Config
 
     func refreshIngressConfig() {
         do {
@@ -1121,8 +1148,13 @@ public final class SettingsStore: ObservableObject {
         let previousLastChecked = gatewayLastChecked
         ingressReachable = nil
         gatewayLastChecked = nil
+        // Auto-enable ingress when a non-empty URL is saved, auto-disable when cleared.
+        // The dedicated Public Ingress toggle was removed, so this is the only path
+        // that controls the enabled flag.
+        let shouldEnable = !trimmed.isEmpty
+        ingressEnabled = shouldEnable
         do {
-            try daemonClient?.send(IngressConfigRequestMessage(action: "set", publicBaseUrl: trimmed, enabled: ingressEnabled))
+            try daemonClient?.send(IngressConfigRequestMessage(action: "set", publicBaseUrl: trimmed, enabled: shouldEnable))
         } catch {
             // IPC send failed — roll back the optimistic update
             ingressPublicBaseUrl = previous
@@ -1198,19 +1230,6 @@ public final class SettingsStore: ObservableObject {
     /// Resolved bearer token for iOS pairing — uses per-integration override if enabled, else global.
     var resolvedIosBearerToken: String {
         PairingConfiguration.resolvedBearerToken(fallback: readHttpToken() ?? "")
-    }
-
-    /// Resolved gateway URL — uses per-integration override if enabled, else global.
-    var resolvedIngressGatewayUrl: String {
-        UserDefaults.standard.bool(forKey: "ingressUseOverride")
-            ? (nonEmpty(UserDefaults.standard.string(forKey: "ingressGatewayOverride")) ?? ingressPublicBaseUrl)
-            : ingressPublicBaseUrl
-    }
-
-    /// Returns the string if it is non-nil and non-empty after trimming, otherwise nil.
-    private func nonEmpty(_ value: String?) -> String? {
-        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
-        return value
     }
 
     // MARK: - Model Actions

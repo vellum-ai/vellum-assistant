@@ -161,7 +161,7 @@ public final class ToolConfirmationNotificationService {
                 let truncated = message.count > 60 ? String(message.prefix(57)) + "..." : message
                 parts.append("\"\(truncated)\"")
             }
-            return parts.isEmpty ? "\(verb) schedule" : parts.joined(separator: " — ")
+            return parts.isEmpty ? "\(verb) schedule" : "\(verb): \(parts.joined(separator: " — "))"
         case "schedule_delete":
             return (input["job_id"]?.value as? String) ?? "schedule"
         case "reminder_create":
@@ -179,7 +179,7 @@ public final class ToolConfirmationNotificationService {
         case "reminder_list":
             return "List reminders"
         case "reminder_cancel":
-            let id = (input["id"]?.value as? String) ?? ""
+            let id = (input["reminder_id"]?.value as? String) ?? ""
             return id.isEmpty ? "Cancel reminder" : "Cancel reminder \(id)"
         default:
             // Prefer semantically meaningful keys over arbitrary dictionary order

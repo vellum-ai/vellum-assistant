@@ -53,6 +53,7 @@ struct GeneratedPanel: View {
     // Slack sharing state
     @State private var slackSharingAppId: String?
     @State private var slackShareResult: (appId: String, success: Bool)?
+    @State private var slackClearTask: Task<Void, Never>?
 
     init(onClose: @escaping () -> Void, isExpanded: Binding<Bool> = .constant(false), daemonClient: DaemonClient, onOpenApp: ((UiSurfaceShowMessage) -> Void)? = nil, onRecordAppOpen: ((_ id: String, _ name: String, _ icon: String?, _ appType: String?) -> Void)? = nil) {
         self.onClose = onClose
@@ -212,6 +213,7 @@ struct GeneratedPanel: View {
         .onDisappear {
             for task in previewTasks.values { task.cancel() }
             previewTasks.removeAll()
+            slackClearTask?.cancel()
         }
     }
 
@@ -502,7 +504,10 @@ struct GeneratedPanel: View {
                 self.slackShareResult = (appId: itemId, success: response.success)
 
                 // Clear the result indicator after 2 seconds
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                self.slackClearTask?.cancel()
+                self.slackClearTask = Task {
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    guard !Task.isCancelled else { return }
                     if self.slackShareResult?.appId == itemId {
                         self.slackShareResult = nil
                     }
@@ -514,7 +519,10 @@ struct GeneratedPanel: View {
             } catch {
                 self.slackSharingAppId = nil
                 self.slackShareResult = (appId: itemId, success: false)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                self.slackClearTask?.cancel()
+                self.slackClearTask = Task {
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    guard !Task.isCancelled else { return }
                     if self.slackShareResult?.appId == itemId {
                         self.slackShareResult = nil
                     }

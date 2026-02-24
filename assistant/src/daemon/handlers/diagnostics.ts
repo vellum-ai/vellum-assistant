@@ -61,7 +61,7 @@ const SENSITIVE_KEYS = new Set([
 function redactDeep(value: unknown): unknown {
   if (typeof value === 'string') return redact(value);
   if (Array.isArray(value)) return value.map(redactDeep);
-  if (value !== null && typeof value === 'object') {
+  if (value != null && typeof value === 'object') {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
       if (SENSITIVE_KEYS.has(k.toLowerCase())) {

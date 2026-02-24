@@ -23,6 +23,9 @@ const log = getLogger('ride-shotgun-handler');
 /** Active network recorders keyed by watchId. */
 const activeRecorders = new Map<string, NetworkRecorder>();
 
+/** Active progress interval timers keyed by watchId, cleared on session completion. */
+const activeProgressIntervals = new Map<string, NodeJS.Timeout>();
+
 /** Return domain-specific URL patterns that indicate a successful login. */
 function getLoginSignals(targetDomain?: string): string[] {
   if (targetDomain === 'x.com' || targetDomain === 'twitter.com') {
@@ -50,6 +53,13 @@ async function completeSession(session: WatchSession): Promise<void> {
   if (session.timeoutHandle) {
     clearTimeout(session.timeoutHandle);
     session.timeoutHandle = undefined;
+  }
+
+  // Clear progress interval timer if one was registered for this session
+  const progressTimer = activeProgressIntervals.get(session.watchId);
+  if (progressTimer) {
+    clearInterval(progressTimer);
+    activeProgressIntervals.delete(session.watchId);
   }
 
   const { watchId, sessionId } = session;
@@ -135,9 +145,62 @@ export async function handleRideShotgunStart(
           activeRecorders.set(watchId, recorder);
           log.info({ watchId, targetDomain, attempt }, 'Network recording started for learn session');
 
+          // Send periodic progress updates with network entry counts and idle detection
+          let lastNetworkEntryCount = 0;
+          let lastActivityTimestamp = Date.now();
+          let idleHintSent = false;
+
+          const progressInterval: NodeJS.Timeout = setInterval(() => {
+            if (session.status !== 'active') {
+              clearInterval(progressInterval);
+              return;
+            }
+
+            const currentCount = recorder.entryCount;
+
+            // Track activity: reset idle timer when count changes
+            if (currentCount !== lastNetworkEntryCount) {
+              lastNetworkEntryCount = currentCount;
+              lastActivityTimestamp = Date.now();
+              // If we previously sent an idle hint, clear it now that activity resumed
+              if (idleHintSent) {
+                idleHintSent = false;
+                log.info({ watchId, currentCount }, 'Activity resumed — clearing idleHint');
+                ctx.send(socket, {
+                  type: 'ride_shotgun_progress',
+                  watchId,
+                  message: `Recording network traffic...`,
+                  networkEntryCount: currentCount,
+                  statusMessage: 'Recording network traffic...',
+                  idleHint: false,
+                });
+                return;
+              }
+            }
+
+            // Idle detection: if some initial activity happened and no new entries for 15s, hint once
+            const idleMs = Date.now() - lastActivityTimestamp;
+            let idleHint: boolean | undefined;
+            if (!idleHintSent && currentCount > 0 && idleMs >= 15_000) {
+              idleHint = true;
+              idleHintSent = true;
+              log.info({ watchId, currentCount, idleMs }, 'Idle detected — sending idleHint');
+            }
+
+            ctx.send(socket, {
+              type: 'ride_shotgun_progress',
+              watchId,
+              message: `Recording network traffic...`,
+              networkEntryCount: currentCount,
+              statusMessage: 'Recording network traffic...',
+              ...(idleHint !== undefined ? { idleHint } : {}),
+            });
+          }, 5000);
+          activeProgressIntervals.set(watchId, progressInterval);
+
           // For x.com, auto-navigate Chrome through key pages to capture the full API surface.
           // Skip login detection — auto-navigation will complete the session when done.
-          if (targetDomain === 'x.com' || targetDomain === 'twitter.com') {
+          if ((targetDomain === 'x.com' || targetDomain === 'twitter.com') && msg.autoNavigate !== false) {
             // Don't set onLoginDetected — it would kill the session after the first
             // GraphQL call (5s grace), before auto-navigation finishes.
             const abortSignal = { aborted: false };
@@ -192,8 +255,10 @@ export async function handleRideShotgunStart(
                 completeSession(session);
               }
             });
+          } else if (msg.autoNavigate === false && targetDomain) {
+            // Manual mode: just record network traffic until timeout or early stop — no login detection shortcut.
           } else {
-            // No targetDomain: use login detection as before
+            // No targetDomain or targetDomain without explicit autoNavigate=false: use login detection
             recorder.onLoginDetected = () => {
               log.info({ watchId }, 'Login detected — auto-stopping learn session');
               completeSession(session);

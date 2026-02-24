@@ -9,6 +9,7 @@ struct ChatErrorBanner: View {
     let isRetryableError: Bool
     let onRetryError: () -> Void
     let isConnectionError: Bool
+    var connectionDiagnosticHint: String? = nil
     let onOpenDoctor: () -> Void
     let onDismissError: () -> Void
 
@@ -17,9 +18,19 @@ struct ChatErrorBanner: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(VFont.caption)
 
-            Text(text)
-                .font(VFont.caption)
-                .lineLimit(4)
+            VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                Text(text)
+                    .font(VFont.caption)
+                    .lineLimit(4)
+                    .textSelection(.enabled)
+                if isConnectionError, let hint = connectionDiagnosticHint {
+                    Text(hint)
+                        .font(VFont.small)
+                        .opacity(0.8)
+                        .lineLimit(2)
+                        .textSelection(.enabled)
+                }
+            }
 
             Spacer()
 
@@ -98,11 +109,13 @@ struct ChatSessionErrorToast: View {
                     .font(VFont.caption)
                     .foregroundColor(VColor.textPrimary)
                     .lineLimit(2)
+                    .textSelection(.enabled)
 
                 Text(error.recoverySuggestion)
                     .font(VFont.small)
                     .foregroundColor(VColor.textSecondary)
                     .lineLimit(1)
+                    .textSelection(.enabled)
             }
 
             Spacer()

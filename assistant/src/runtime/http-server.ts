@@ -9,9 +9,16 @@ import { existsSync, readFileSync, statSync, statfsSync } from 'node:fs';
 import { resolve, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { timingSafeEqual } from 'node:crypto';
+import { assertChannelId, isChannelId } from '../channels/types.js';
 import { ConfigError, IngressBlockedError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
 import { getWorkspacePromptPath, readLockfile } from '../util/platform.js';
+import {
+  getGatewayInternalBaseUrl,
+  isTwilioWebhookValidationDisabled,
+  isHttpAuthDisabled,
+  getRuntimeGatewayOriginSecret,
+} from '../config/env.js';
 import { TwilioConversationRelayProvider } from '../calls/twilio-provider.js';
 import { loadConfig } from '../config/loader.js';
 import { getPublicBaseUrl } from '../inbound/public-ingress-urls.js';
@@ -22,6 +29,7 @@ import {
   handleListMessages,
   handleSendMessage,
   handleGetSuggestion,
+  handleSearchConversations,
 } from './routes/conversation-routes.js';
 import {
   handleUploadAttachment,
@@ -87,12 +95,14 @@ export type {
   NonBlockingMessageProcessor,
   RuntimeHttpServerOptions,
   RuntimeAttachmentMetadata,
+  ApprovalCopyGenerator,
 } from './http-types.js';
 
 import type {
   MessageProcessor,
   NonBlockingMessageProcessor,
   RuntimeHttpServerOptions,
+  ApprovalCopyGenerator,
 } from './http-types.js';
 
 const log = getLogger('runtime-http');
@@ -102,11 +112,7 @@ const DEFAULT_HOSTNAME = '127.0.0.1';
 
 /** Resolve the gateway base URL for internal delivery callbacks. */
 function getGatewayBaseUrl(): string {
-  if (process.env.GATEWAY_INTERNAL_BASE_URL) {
-    return process.env.GATEWAY_INTERNAL_BASE_URL.replace(/\/+$/, '');
-  }
-  const port = Number(process.env.GATEWAY_PORT) || 7830;
-  return `http://127.0.0.1:${port}`;
+  return getGatewayInternalBaseUrl();
 }
 
 /** Global hard cap on request body size (50 MB). Bun rejects larger payloads before they reach handlers. */
@@ -123,10 +129,11 @@ function parseGuardianRuntimeContext(value: unknown): GuardianRuntimeContext | u
   ) {
     return undefined;
   }
-  const sourceChannel = typeof raw.sourceChannel === 'string' && raw.sourceChannel.trim().length > 0
+  const rawSourceChannel = typeof raw.sourceChannel === 'string' && raw.sourceChannel.trim().length > 0
     ? raw.sourceChannel
     : undefined;
-  if (!sourceChannel) return undefined;
+  if (!rawSourceChannel || !isChannelId(rawSourceChannel)) return undefined;
+  const sourceChannel = rawSourceChannel;
   const denialReason =
     raw.denialReason === 'no_binding' || raw.denialReason === 'no_identity'
       ? raw.denialReason
@@ -308,7 +315,7 @@ async function validateTwilioWebhook(
   const rawBody = await req.text();
 
   // Allow explicit local-dev bypass — must be exactly "true"
-  if (process.env.TWILIO_WEBHOOK_VALIDATION_DISABLED === 'true') {
+  if (isTwilioWebhookValidationDisabled()) {
     log.warn('Twilio webhook signature validation explicitly disabled via TWILIO_WEBHOOK_VALIDATION_DISABLED');
     return { body: rawBody };
   }
@@ -384,6 +391,7 @@ export class RuntimeHttpServer {
   private processMessage?: MessageProcessor;
   private persistAndProcessMessage?: NonBlockingMessageProcessor;
   private runOrchestrator?: RunOrchestrator;
+  private approvalCopyGenerator?: ApprovalCopyGenerator;
   private interfacesDir: string | null;
   private suggestionCache = new Map<string, string>();
   private suggestionInFlight = new Map<string, Promise<string | null>>();
@@ -397,6 +405,7 @@ export class RuntimeHttpServer {
     this.processMessage = options.processMessage;
     this.persistAndProcessMessage = options.persistAndProcessMessage;
     this.runOrchestrator = options.runOrchestrator;
+    this.approvalCopyGenerator = options.approvalCopyGenerator;
     this.interfacesDir = options.interfacesDir ?? null;
   }
 
@@ -453,7 +462,7 @@ export class RuntimeHttpServer {
     // support is available. Guardian approvals can be created even when the
     // generic channel-approval UX flag is disabled.
     if (this.runOrchestrator) {
-      startGuardianExpirySweep(this.runOrchestrator, getGatewayBaseUrl(), this.bearerToken);
+      startGuardianExpirySweep(this.runOrchestrator, getGatewayBaseUrl(), this.bearerToken, this.approvalCopyGenerator);
       log.info('Guardian approval expiry sweep started');
     }
 
@@ -574,7 +583,7 @@ export class RuntimeHttpServer {
     }
 
     // Require bearer token when configured
-    if ((process.env.DISABLE_HTTP_AUTH ?? "").toLowerCase() !== "true" && this.bearerToken) {
+    if (!isHttpAuthDisabled() && this.bearerToken) {
       const authHeader = req.headers.get('authorization');
       const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
       if (!token || !this.verifyToken(token)) {
@@ -715,6 +724,10 @@ export class RuntimeHttpServer {
         return handleListMessages(url, this.interfacesDir);
       }
 
+      if (endpoint === 'search' && req.method === 'GET') {
+        return handleSearchConversations(url);
+      }
+
       if (endpoint === 'messages' && req.method === 'POST') {
         return await handleSendMessage(req, {
           processMessage: this.processMessage,
@@ -785,8 +798,8 @@ export class RuntimeHttpServer {
       }
 
       if (endpoint === 'channels/inbound' && req.method === 'POST') {
-        const gatewayOriginSecret = process.env.RUNTIME_GATEWAY_ORIGIN_SECRET || undefined;
-        return await handleChannelInbound(req, this.processMessage, this.bearerToken, this.runOrchestrator, assistantId, gatewayOriginSecret);
+        const gatewayOriginSecret = getRuntimeGatewayOriginSecret();
+        return await handleChannelInbound(req, this.processMessage, this.bearerToken, this.runOrchestrator, assistantId, gatewayOriginSecret, this.approvalCopyGenerator);
       }
 
       if (endpoint === 'channels/delivery-ack' && req.method === 'POST') {
@@ -946,7 +959,7 @@ export class RuntimeHttpServer {
 
       const content = typeof payload.content === 'string' ? payload.content.trim() : '';
       const attachmentIds = Array.isArray(payload.attachmentIds) ? payload.attachmentIds as string[] : undefined;
-      const sourceChannel = payload.sourceChannel as string;
+      const sourceChannel = assertChannelId(payload.sourceChannel, 'sourceChannel');
       const sourceMetadata = payload.sourceMetadata as Record<string, unknown> | undefined;
       const assistantId = typeof payload.assistantId === 'string'
         ? payload.assistantId

@@ -1,11 +1,12 @@
 import { describe, test, expect, beforeEach } from 'bun:test';
 import { ChannelReadinessService, REMOTE_TTL_MS } from '../runtime/channel-readiness-service.js';
+import type { ChannelId } from '../channels/types.js';
 import type { ChannelProbe, ReadinessCheckResult } from '../runtime/channel-readiness-types.js';
 
 // ── Test helpers ────────────────────────────────────────────────────────────
 
 function makeProbe(
-  channel: string,
+  channel: ChannelId,
   localResults: ReadinessCheckResult[],
   remoteResults?: ReadinessCheckResult[],
 ): ChannelProbe & { localCallCount: number; remoteCallCount: number } {
@@ -166,9 +167,10 @@ describe('ChannelReadinessService', () => {
   });
 
   test('unknown channel returns unsupported_channel reason', async () => {
-    const [snapshot] = await service.getReadiness('carrier_pigeon');
+    // Cast to exercise runtime handling of an unrecognized channel value
+    const [snapshot] = await service.getReadiness('carrier_pigeon' as ChannelId);
 
-    expect(snapshot.channel).toBe('carrier_pigeon');
+    expect(snapshot.channel).toBe('carrier_pigeon' as ChannelId);
     expect(snapshot.ready).toBe(false);
     expect(snapshot.reasons).toEqual([
       { code: 'unsupported_channel', text: 'Channel carrier_pigeon is not supported' },
@@ -177,13 +179,13 @@ describe('ChannelReadinessService', () => {
   });
 
   test('all checks passing yields ready=true', async () => {
-    const probe = makeProbe('test', [
+    const probe = makeProbe('telegram', [
       { name: 'a', passed: true, message: 'ok' },
       { name: 'b', passed: true, message: 'ok' },
     ]);
     service.registerProbe(probe);
 
-    const [snapshot] = await service.getReadiness('test');
+    const [snapshot] = await service.getReadiness('telegram');
 
     expect(snapshot.ready).toBe(true);
     expect(snapshot.reasons).toHaveLength(0);

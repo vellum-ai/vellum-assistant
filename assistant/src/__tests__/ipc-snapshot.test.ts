@@ -41,7 +41,7 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     title: 'New session',
     correlationId: 'corr-001',
     transport: {
-      channelId: 'desktop',
+      channelId: 'macos',
       hints: ['dashboard-capable'],
       uxBrief: 'Prefer dashboard-first onboarding.',
     },
@@ -310,6 +310,12 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
   },
   sessions_clear: {
     type: 'sessions_clear',
+  },
+  conversation_search: {
+    type: 'conversation_search',
+    query: 'hello world',
+    limit: 20,
+    maxMessagesPerConversation: 3,
   },
   ipc_blob_probe: {
     type: 'ipc_blob_probe',
@@ -585,6 +591,25 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
       cursorInTextField: true,
     },
   },
+  parental_control_get: {
+    type: 'parental_control_get',
+  },
+  parental_control_verify_pin: {
+    type: 'parental_control_verify_pin',
+    pin: '123456',
+  },
+  parental_control_set_pin: {
+    type: 'parental_control_set_pin',
+    current_pin: '123456',
+    new_pin: '654321',
+  },
+  parental_control_update: {
+    type: 'parental_control_update',
+    pin: '123456',
+    enabled: true,
+    content_restrictions: ['violence', 'adult_content'],
+    blocked_tool_categories: ['shell', 'network'],
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -689,6 +714,11 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     correlationId: 'corr-001',
     threadType: 'standard',
   },
+  session_title_updated: {
+    type: 'session_title_updated',
+    sessionId: 'sess-001',
+    title: 'Plan sprint rollout',
+  },
   session_list_response: {
     type: 'session_list_response',
     sessions: [
@@ -699,6 +729,25 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   sessions_clear_response: {
     type: 'sessions_clear_response',
     cleared: 3,
+  },
+  conversation_search_response: {
+    type: 'conversation_search_response',
+    query: 'hello world',
+    results: [
+      {
+        conversationId: 'conv-001',
+        conversationTitle: 'My Conversation',
+        conversationUpdatedAt: 1700000000,
+        matchingMessages: [
+          {
+            messageId: 'msg-001',
+            role: 'user',
+            excerpt: '…hello world, how are you?…',
+            createdAt: 1699999000,
+          },
+        ],
+      },
+    ],
   },
   error: {
     type: 'error',
@@ -1596,8 +1645,8 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   guardian_request_thread_created: {
     type: 'guardian_request_thread_created',
     conversationId: 'conv-guardian-001',
-    requestId: 'req-001',
-    callSessionId: 'call-sess-001',
+    requestId: 'req-guardian-001',
+    callSessionId: 'call-001',
     title: 'Guardian action request',
   },
   subagent_spawned: {
@@ -1681,6 +1730,29 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     text: 'Hello world',
     mode: 'dictation',
     actionPlan: undefined,
+  },
+  parental_control_get_response: {
+    type: 'parental_control_get_response',
+    enabled: true,
+    has_pin: true,
+    content_restrictions: ['violence', 'adult_content'],
+    blocked_tool_categories: ['shell', 'network'],
+  },
+  parental_control_verify_pin_response: {
+    type: 'parental_control_verify_pin_response',
+    verified: true,
+  },
+  parental_control_set_pin_response: {
+    type: 'parental_control_set_pin_response',
+    success: true,
+  },
+  parental_control_update_response: {
+    type: 'parental_control_update_response',
+    success: true,
+    enabled: true,
+    has_pin: true,
+    content_restrictions: ['violence', 'adult_content'],
+    blocked_tool_categories: ['shell', 'network'],
   },
 };
 

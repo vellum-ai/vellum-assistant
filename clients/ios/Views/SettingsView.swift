@@ -5,8 +5,12 @@ import VellumAssistantShared
 struct SettingsView: View {
     @EnvironmentObject var clientProvider: ClientProvider
     @Bindable var authManager: AuthManager
-    @AppStorage(UserDefaultsKeys.appearanceMode) private var appearanceMode: String = "system"
+    @AppStorage(UserDefaultsKeys.developerModeEnabled) private var developerModeEnabled: Bool = false
     @Binding var navigateToConnect: Bool
+    @State private var versionTapCount: Int = 0
+    /// Shared thread store — passed through so PrivateThreadsSection can show and
+    /// manage private threads without creating a second store that races on UserDefaults.
+    var threadStore: IOSThreadStore
 
     var body: some View {
         NavigationStack {
@@ -49,15 +53,32 @@ struct SettingsView: View {
                     } label: {
                         Label("Reminders", systemImage: "bell")
                     }
+                    NavigationLink {
+                        IOSParentalControlSection()
+                    } label: {
+                        Label("Parental Controls", systemImage: "lock.shield")
+                    }
+                    NavigationLink {
+                        PrivateThreadsSection(store: threadStore)
+                    } label: {
+                        Label("Private Threads", systemImage: "lock.shield.fill")
+                    }
+                    NavigationLink {
+                        MediaEmbedSettingsSection()
+                    } label: {
+                        Label("Media Embeds", systemImage: "play.rectangle")
+                    }
+                    NavigationLink {
+                        VoiceSettingsSection()
+                    } label: {
+                        Label("Voice", systemImage: "waveform")
+                    }
                 }
 
-                Section("Appearance") {
-                    Picker("Theme", selection: $appearanceMode) {
-                        Text("System").tag("system")
-                        Text("Light").tag("light")
-                        Text("Dark").tag("dark")
-                    }
-                    .pickerStyle(.segmented)
+                NavigationLink {
+                    AppearanceSection()
+                } label: {
+                    Label("Appearance", systemImage: "paintbrush")
                 }
 
                 Section("Permissions") {
@@ -66,7 +87,29 @@ struct SettingsView: View {
                 }
 
                 Section("About") {
+                    // Tapping the version label 7 times unlocks the developer toggle.
+                    // This keeps the feature invisible to regular users while remaining
+                    // accessible to developers without a build-time flag.
                     LabeledContent("Version", value: Bundle.main.appVersion)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            versionTapCount += 1
+                            if versionTapCount >= 7 {
+                                developerModeEnabled = true
+                                versionTapCount = 0
+                            }
+                        }
+                }
+
+                if developerModeEnabled {
+                    Section("Developer") {
+                        Toggle("Developer Mode", isOn: $developerModeEnabled)
+                        NavigationLink {
+                            DeveloperSettingsSection()
+                        } label: {
+                            Label("Debug Panel", systemImage: "ladybug")
+                        }
+                    }
                 }
             }
             .navigationTitle("Settings")
@@ -133,7 +176,8 @@ extension Bundle {
 }
 
 #Preview {
-    SettingsView(authManager: AuthManager(), navigateToConnect: .constant(false))
-        .environmentObject(ClientProvider(client: DaemonClient(config: .fromUserDefaults())))
+    let client = DaemonClient(config: .fromUserDefaults())
+    SettingsView(authManager: AuthManager(), navigateToConnect: .constant(false), threadStore: IOSThreadStore(daemonClient: client))
+        .environmentObject(ClientProvider(client: client))
 }
 #endif

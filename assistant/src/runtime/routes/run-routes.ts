@@ -27,7 +27,7 @@ export async function handleCreateRun(
     return Response.json({ error: 'conversationKey is required' }, { status: 400 });
   }
 
-  if (content !== undefined && content !== null && typeof content !== 'string') {
+  if (content != null && typeof content !== 'string') {
     return Response.json({ error: 'content must be a string' }, { status: 400 });
   }
 

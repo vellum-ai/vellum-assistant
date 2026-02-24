@@ -147,7 +147,7 @@ export function validateAndConsumeChallenge(
 ): ValidateChallengeResult {
   // ── Rate-limit check ──
   const existing = getRateLimit(assistantId, channel, actorExternalUserId, actorChatId);
-  if (existing && existing.lockedUntil !== null && Date.now() < existing.lockedUntil) {
+  if (existing && existing.lockedUntil != null && Date.now() < existing.lockedUntil) {
     // Use the same generic failure message to avoid leaking whether the
     // actor is rate-limited vs. the code is genuinely wrong.
     return {
@@ -240,7 +240,7 @@ export function isGuardian(
   externalUserId: string,
 ): boolean {
   const binding = getActiveBinding(assistantId, channel);
-  return binding !== null && binding.guardianExternalUserId === externalUserId;
+  return binding != null && binding.guardianExternalUserId === externalUserId;
 }
 
 /**

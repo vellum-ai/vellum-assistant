@@ -126,7 +126,7 @@ export async function executeTaskListAdd(
       if (workItem.notes) {
         lines.push(`  Notes: ${workItem.notes}`);
       }
-      if (workItem.sortIndex !== null) {
+      if (workItem.sortIndex !== undefined) {
         lines.push(`  Sort index: ${workItem.sortIndex}`);
       }
 
@@ -221,7 +221,7 @@ export async function executeTaskListAdd(
     if (workItem.notes) {
       lines.push(`  Notes: ${workItem.notes}`);
     }
-    if (workItem.sortIndex !== null) {
+    if (workItem.sortIndex !== undefined) {
       lines.push(`  Sort index: ${workItem.sortIndex}`);
     }
 

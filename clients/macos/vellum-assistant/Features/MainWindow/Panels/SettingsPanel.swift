@@ -8,6 +8,7 @@ enum SettingsTab: String, CaseIterable {
     case reminders = "Schedules"
     case appearance = "Appearance"
     case advanced = "Advanced"
+    case parental = "Parental"
 }
 
 @MainActor
@@ -41,8 +42,6 @@ struct SettingsPanel: View {
     @State private var modelDropdownFrame: CGRect = .zero
     @State private var selectedTab: SettingsTab = .connect
     @State private var testerModel: ToolPermissionTesterModel?
-    @AppStorage("ingressUseOverride") private var ingressUseOverride: Bool = false
-    @AppStorage("ingressGatewayOverride") private var ingressGatewayOverride: String = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -191,6 +190,8 @@ struct SettingsPanel: View {
                 onClose: onClose,
                 daemonClient: daemonClient
             )
+        case .parental:
+            SettingsParentalTab(daemonClient: daemonClient)
         }
     }
 
@@ -229,16 +230,9 @@ struct SettingsPanel: View {
                     }
 
                     SecureField("This is your private generated key", text: $apiKeyText)
-                        .textFieldStyle(.plain)
+                        .vInputStyle()
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
-                        .padding(VSpacing.md)
-                        .background(VColor.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                        )
 
                     Text("Get your API key at console.anthropic.com")
                         .font(VFont.caption)
@@ -309,40 +303,6 @@ struct SettingsPanel: View {
             .animation(VAnimation.fast, value: showModelDropdown)
             .zIndex(showModelDropdown ? 1 : 0)
 
-            // PUBLIC INGRESS section
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                HStack {
-                    Text("Public Ingress")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.textPrimary)
-                    Spacer()
-                    Toggle("", isOn: Binding(
-                        get: { store.ingressEnabled },
-                        set: { store.setIngressEnabled($0) }
-                    ))
-                    .toggleStyle(.switch)
-                    .labelsHidden()
-                    .disabled(store.ingressPublicBaseUrl.isEmpty && !store.ingressEnabled)
-                }
-
-                HStack(alignment: .top, spacing: VSpacing.sm) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(VColor.warning)
-                        .font(.system(size: 12))
-                    Text("Setting a public base URL may expose this computer to the public internet. Use with caution.")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                }
-
-                // Global Gateway & Token readout
-                ingressGlobalConfigCard
-
-                // Override section
-                ingressOverrideSection
-            }
-            .padding(VSpacing.lg)
-            .vCard(background: VColor.surfaceSubtle)
-
             // PERPLEXITY SEARCH section
             VStack(alignment: .leading, spacing: VSpacing.md) {
                 Text("Perplexity Search")
@@ -374,16 +334,9 @@ struct SettingsPanel: View {
                     }
 
                     SecureField("Your Perplexity API key", text: $perplexityKeyText)
-                        .textFieldStyle(.plain)
+                        .vInputStyle()
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
-                        .padding(VSpacing.md)
-                        .background(VColor.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                        )
 
                     Text("Get your API key at perplexity.ai/settings/api")
                         .font(VFont.caption)
@@ -429,16 +382,9 @@ struct SettingsPanel: View {
                     }
 
                     SecureField("Your Brave Search API key", text: $braveKeyText)
-                        .textFieldStyle(.plain)
+                        .vInputStyle()
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
-                        .padding(VSpacing.md)
-                        .background(VColor.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                        )
 
                     Text("Get your API key at brave.com/search/api")
                         .font(VFont.caption)
@@ -502,16 +448,9 @@ struct SettingsPanel: View {
                     }
 
                     SecureField("Your Gemini API key", text: $imageGenKeyText)
-                        .textFieldStyle(.plain)
+                        .vInputStyle()
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
-                        .padding(VSpacing.md)
-                        .background(VColor.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                        )
 
                     Text("Get your API key at aistudio.google.com/apikey")
                         .font(VFont.caption)
@@ -557,16 +496,9 @@ struct SettingsPanel: View {
                     }
 
                     SecureField("Your OpenAI API key", text: $openaiKeyText)
-                        .textFieldStyle(.plain)
+                        .vInputStyle()
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
-                        .padding(VSpacing.md)
-                        .background(VColor.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                        )
 
                     Text("Used for Voice Mode (Whisper transcription). Get your key at platform.openai.com/api-keys")
                         .font(VFont.caption)
@@ -612,16 +544,9 @@ struct SettingsPanel: View {
                     }
 
                     SecureField("Your ElevenLabs API key", text: $elevenLabsKeyText)
-                        .textFieldStyle(.plain)
+                        .vInputStyle()
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
-                        .padding(VSpacing.md)
-                        .background(VColor.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                        )
 
                     Text("Used for Voice Mode (text-to-speech). Get your key at elevenlabs.io/app/settings/api-keys")
                         .font(VFont.caption)
@@ -699,28 +624,14 @@ struct SettingsPanel: View {
                     // Client credentials entry (when not yet configured)
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
                         TextField("OAuth Client ID", text: $twitterClientId)
-                            .textFieldStyle(.plain)
+                            .vInputStyle()
                             .font(VFont.body)
                             .foregroundColor(VColor.textPrimary)
-                            .padding(VSpacing.md)
-                            .background(VColor.surface)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: VRadius.md)
-                                    .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                            )
 
                         SecureField("OAuth Client Secret (optional)", text: $twitterClientSecret)
-                            .textFieldStyle(.plain)
+                            .vInputStyle()
                             .font(VFont.body)
                             .foregroundColor(VColor.textPrimary)
-                            .padding(VSpacing.md)
-                            .background(VColor.surface)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: VRadius.md)
-                                    .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                            )
 
                         HStack {
                             Text("Create an app at developer.x.com")
@@ -1085,78 +996,6 @@ struct SettingsPanel: View {
 
         // Close the settings panel so the user sees the chat
         onClose()
-    }
-
-    // MARK: - Ingress Global Config Card
-
-    /// Card showing the resolved gateway URL, referencing global Connect config.
-    private var ingressGlobalConfigCard: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text("Using Global Gateway & Token")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
-                .textCase(.uppercase)
-
-            HStack(alignment: .top) {
-                Text("Gateway URL")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-                    .frame(width: 90, alignment: .leading)
-                Text(store.resolvedIngressGatewayUrl.isEmpty ? "Not configured" : store.resolvedIngressGatewayUrl)
-                    .font(VFont.mono)
-                    .foregroundColor(store.resolvedIngressGatewayUrl.isEmpty ? VColor.textMuted : VColor.textPrimary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer()
-            }
-
-            Button("Manage in Connect tab") {
-                selectedTab = .connect
-            }
-            .font(VFont.caption)
-            .foregroundColor(VColor.accent)
-        }
-        .padding(VSpacing.md)
-        .background(VColor.surface.opacity(0.5))
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.md)
-                .stroke(VColor.surfaceBorder.opacity(0.3), lineWidth: 1)
-        )
-    }
-
-    /// Collapsed override section for per-integration gateway URL customization.
-    private var ingressOverrideSection: some View {
-        DisclosureGroup("Override") {
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
-                Toggle("Use custom gateway URL", isOn: $ingressUseOverride)
-                    .toggleStyle(.switch)
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
-
-                if ingressUseOverride {
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        Text("Gateway URL Override")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
-                        TextField("https://custom-gateway.example.com", text: $ingressGatewayOverride)
-                            .textFieldStyle(.plain)
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
-                            .padding(VSpacing.md)
-                            .background(VColor.surface)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: VRadius.md)
-                                    .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-                            )
-                    }
-                }
-            }
-            .padding(.top, VSpacing.sm)
-        }
-        .font(VFont.caption)
-        .foregroundColor(VColor.textSecondary)
     }
 
     // MARK: - Permission Row

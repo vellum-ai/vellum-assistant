@@ -14,7 +14,7 @@ const log = getLogger('session-history');
 
 function isUndoableUserMessage(message: Message): boolean {
   if (message.role !== 'user') return false;
-  if (getSummaryFromContextMessage(message) !== null) return false;
+  if (getSummaryFromContextMessage(message) != null) return false;
   // A user message is undoable if it contains user-authored content (non-tool_result
   // blocks). Messages that contain ONLY tool_result blocks (e.g. automated tool
   // responses) are not undoable. Messages that have both tool_result and text blocks

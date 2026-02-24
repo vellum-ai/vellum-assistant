@@ -801,7 +801,7 @@ export async function executeBrowserWaitFor(
   const text = typeof input.text === 'string' && input.text ? input.text : null;
   const duration = typeof input.duration === 'number' ? input.duration : null;
 
-  const modeCount = [selector, text, duration].filter((v) => v !== null).length;
+  const modeCount = [selector, text, duration].filter((v) => v != null).length;
   if (modeCount === 0) {
     return { content: 'Error: Exactly one of selector, text, or duration is required.', isError: true };
   }

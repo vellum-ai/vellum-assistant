@@ -15,6 +15,7 @@ struct ChatBubble: View {
     var onReportMessage: ((String?) -> Void)?
     var mediaEmbedSettings: MediaEmbedResolverSettings?
     var daemonHttpPort: Int?
+    var showAvatar: Bool = true
     var isLatestAssistantMessage: Bool = false
 
     @State private var appearance = AvatarAppearanceManager.shared
@@ -190,7 +191,7 @@ struct ChatBubble: View {
                     }
                 }
                 .overlay(alignment: .topLeading) {
-                    if !isUser {
+                    if !isUser && showAvatar {
                         Image(nsImage: appearance.chatAvatarImage)
                             .interpolation(.none)
                             .resizable()

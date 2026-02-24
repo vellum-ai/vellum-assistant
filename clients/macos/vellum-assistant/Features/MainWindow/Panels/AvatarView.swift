@@ -1,5 +1,6 @@
 import SwiftUI
 import SceneKit
+import VellumAssistantShared
 
 /// 3D voxel dino avatar that the user can rotate by dragging.
 /// Seeded from a string so the same name always produces the same dino.

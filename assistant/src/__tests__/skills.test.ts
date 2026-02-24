@@ -29,6 +29,8 @@ mock.module('../util/logger.js', () => ({
   getLogger: () => new Proxy({} as Record<string, unknown>, {
     get: () => () => {},
   }),
+  isDebug: () => false,
+  truncateForLog: (v: string) => v,
 }));
 
 const { loadSkillCatalog, loadSkillBySelector, resolveSkillSelector } = await import('../config/skills.js');

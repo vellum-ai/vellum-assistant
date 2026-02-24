@@ -1,12 +1,12 @@
-import Anthropic from '@anthropic-ai/sdk';
 import { eq } from 'drizzle-orm';
 import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
 import { truncate } from '../util/truncate.js';
+import { getConfiguredProvider, createTimeout, extractToolUse, userMessage } from '../providers/anthropic-send-message.js';
 import { areStatementsCoherent } from './conflict-intent.js';
 import { isConflictKindEligible, isStatementConflictEligible } from './conflict-policy.js';
 import { createOrUpdatePendingConflict } from './conflict-store.js';
-import { getDb } from './db.js';
+import { getDb, rawAll } from './db.js';
 import { enqueueMemoryJob } from './jobs-store.js';
 import { memoryItems } from './schema.js';
 
@@ -56,12 +56,13 @@ export async function checkContradictions(newItemId: string): Promise<void> {
     return;
   }
 
-  const config = getConfig();
-  const apiKey = config.apiKeys.anthropic ?? process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    log.debug('No Anthropic API key available for contradiction checking');
+  const provider = getConfiguredProvider();
+  if (!provider) {
+    log.debug('Configured provider unavailable for contradiction checking');
     return;
   }
+
+  const config = getConfig();
 
   if (!isConflictKindEligible(newItem.kind, config.memory.conflicts)) {
     log.debug({ newItemId, kind: newItem.kind }, 'Skipping contradiction check — kind not eligible for conflicts');
@@ -91,7 +92,7 @@ export async function checkContradictions(newItemId: string): Promise<void> {
     }
 
     try {
-      const result = await classifyRelationship(apiKey, existing, newItem);
+      const result = await classifyRelationship(existing, newItem);
       await handleRelationship(result, existing, newItem);
       // Only stop when the new item itself is invalidated (update case).
       // For contradiction, the old item is invalidated but the new item remains
@@ -123,8 +124,6 @@ interface MemoryItemRow {
  * Uses LIKE queries on subject and keyword overlap on statement.
  */
 function findSimilarItems(item: MemoryItemRow): MemoryItemRow[] {
-  const db = getDb();
-  const raw = (db as unknown as { $client: { query: (q: string) => { all: (...params: unknown[]) => unknown[] } } }).$client;
 
   // Extract significant words from subject for LIKE matching
   const subjectWords = item.subject
@@ -172,7 +171,7 @@ function findSimilarItems(item: MemoryItemRow): MemoryItemRow[] {
   `;
 
   try {
-    const rows = raw.query(sqlQuery).all(item.kind, item.id, item.scopeId) as Array<{
+    interface SimilarItemRow {
       id: string;
       kind: string;
       subject: string;
@@ -182,7 +181,8 @@ function findSimilarItems(item: MemoryItemRow): MemoryItemRow[] {
       importance: number | null;
       scope_id: string;
       last_seen_at: number;
-    }>;
+    }
+    const rows = rawAll<SimilarItemRow>(sqlQuery, item.kind, item.id, item.scopeId);
 
     return rows.map((row) => ({
       id: row.id,
@@ -205,25 +205,23 @@ function findSimilarItems(item: MemoryItemRow): MemoryItemRow[] {
  * Use LLM to classify the relationship between two memory items.
  */
 async function classifyRelationship(
-  apiKey: string,
   existingItem: MemoryItemRow,
   newItem: MemoryItemRow,
 ): Promise<ClassifyResult> {
-  const client = new Anthropic({ apiKey });
+  const provider = getConfiguredProvider()!;
 
-  const userMessage = [
+  const userContent = [
     `Subject: ${newItem.subject}`,
     '',
     `Old statement: ${existingItem.statement}`,
     `New statement: ${newItem.statement}`,
   ].join('\n');
 
-  const response = await Promise.race([
-    client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 256,
-      system: CONTRADICTION_SYSTEM_PROMPT,
-      tools: [{
+  const { signal, cleanup } = createTimeout(CONTRADICTION_LLM_TIMEOUT_MS);
+  try {
+    const response = await provider.sendMessage(
+      [userMessage(userContent)],
+      [{
         name: 'classify_relationship',
         description: 'Classify the relationship between two memory statements',
         input_schema: {
@@ -242,29 +240,36 @@ async function classifyRelationship(
           required: ['relationship', 'explanation'],
         },
       }],
-      tool_choice: { type: 'tool' as const, name: 'classify_relationship' },
-      messages: [{ role: 'user' as const, content: userMessage }],
-    }),
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('Contradiction check LLM timeout')), CONTRADICTION_LLM_TIMEOUT_MS),
-    ),
-  ]);
+      CONTRADICTION_SYSTEM_PROMPT,
+      {
+        config: {
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 256,
+          tool_choice: { type: 'tool' as const, name: 'classify_relationship' },
+        },
+        signal,
+      },
+    );
+    cleanup();
 
-  const toolBlock = response.content.find((b) => b.type === 'tool_use');
-  if (!toolBlock || toolBlock.type !== 'tool_use') {
-    throw new Error('No tool_use block in contradiction check response');
+    const toolBlock = extractToolUse(response);
+    if (!toolBlock) {
+      throw new Error('No tool_use block in contradiction check response');
+    }
+
+    const input = toolBlock.input as { relationship?: string; explanation?: string };
+    const relationship = input.relationship as Relationship;
+    if (!['contradiction', 'update', 'complement', 'ambiguous_contradiction'].includes(relationship)) {
+      throw new Error(`Invalid relationship type: ${relationship}`);
+    }
+
+    return {
+      relationship,
+      explanation: truncate(String(input.explanation ?? ''), 500, ''),
+    };
+  } finally {
+    cleanup();
   }
-
-  const input = toolBlock.input as { relationship?: string; explanation?: string };
-  const relationship = input.relationship as Relationship;
-  if (!['contradiction', 'update', 'complement', 'ambiguous_contradiction'].includes(relationship)) {
-    throw new Error(`Invalid relationship type: ${relationship}`);
-  }
-
-  return {
-    relationship,
-    explanation: truncate(String(input.explanation ?? ''), 500, ''),
-  };
 }
 
 /**

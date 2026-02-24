@@ -304,7 +304,7 @@ struct InlineVideoAttachmentView: View {
                         try FileManager.default.moveItem(at: tempURL, to: destURL)
                     }
                 } catch {
-                    print("Failed to save video: \(error)")
+                    log.error("Failed to save video: \(error)")
                 }
                 await MainActor.run { isSaving = false }
             }

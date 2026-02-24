@@ -16,6 +16,8 @@ public enum ChatMessageStatus: Equatable {
     case sent
     case queued(position: Int)
     case processing
+    /// Message is buffered in the local offline queue pending daemon reconnect.
+    case pendingOffline
 }
 
 /// Tracks the state of an inline tool confirmation request.
@@ -107,7 +109,7 @@ public struct ToolConfirmationData: Equatable {
     /// Used in the "More details" section so the user can see exactly what will happen.
     public var fullInputPreview: String {
         switch toolName {
-        case "bash", "host_bash":
+        case "bash":
             let command = (input["command"]?.value as? String) ?? ""
             var extras: [String] = []
             if let networkMode = input["network_mode"]?.value as? String, !networkMode.isEmpty {
@@ -122,6 +124,12 @@ public struct ToolConfirmationData: Equatable {
             }
             if extras.isEmpty { return command }
             return command + "\n\n" + extras.joined(separator: "\n")
+        case "host_bash":
+            let command = (input["command"]?.value as? String) ?? ""
+            if let timeout = input["timeout_seconds"]?.value {
+                return command + "\n\ntimeout_seconds: \(timeout)"
+            }
+            return command
         default:
             break
         }
@@ -176,7 +184,7 @@ public struct ToolConfirmationData: Equatable {
         case "reminder_list":
             return "List reminders"
         case "reminder_cancel":
-            let id = (input["id"]?.value as? String) ?? ""
+            let id = (input["reminder_id"]?.value as? String) ?? ""
             return id.isEmpty ? "Cancel reminder" : "Cancel reminder \(id)"
         case "credential_store":
             return Self.credentialPreview(input: input)
@@ -578,6 +586,10 @@ public struct ToolCallData: Identifiable, Equatable {
     public let inputSummary: String
     /// Full (untruncated) input text for display in expanded views.
     public let inputFull: String
+    /// Untruncated raw value of the primary input key (e.g. file path).
+    /// Unlike inputSummary (truncated to 80 chars) this preserves the full value
+    /// for use in file existence checks and opening files.
+    public let inputRawValue: String
     public var result: String?
     public var isError: Bool
     public var isComplete: Bool
@@ -610,16 +622,18 @@ public struct ToolCallData: Identifiable, Equatable {
             && lhs.isComplete == rhs.isComplete
             && lhs.arrivedBeforeText == rhs.arrivedBeforeText
             && lhs.inputFull == rhs.inputFull
+            && lhs.inputRawValue == rhs.inputRawValue
             && lhs.imageData == rhs.imageData
             && lhs.buildingStatus == rhs.buildingStatus
             && lhs.claudeCodeSteps == rhs.claudeCodeSteps
     }
 
-    public init(id: UUID = UUID(), toolName: String, inputSummary: String, inputFull: String? = nil, result: String? = nil, isError: Bool = false, isComplete: Bool = false, arrivedBeforeText: Bool = true, imageData: String? = nil, startedAt: Date? = nil, completedAt: Date? = nil) {
+    public init(id: UUID = UUID(), toolName: String, inputSummary: String, inputFull: String? = nil, inputRawValue: String? = nil, result: String? = nil, isError: Bool = false, isComplete: Bool = false, arrivedBeforeText: Bool = true, imageData: String? = nil, startedAt: Date? = nil, completedAt: Date? = nil) {
         self.id = id
         self.toolName = toolName
         self.inputSummary = inputSummary
         self.inputFull = inputFull ?? inputSummary
+        self.inputRawValue = inputRawValue ?? inputSummary
         self.result = result
         self.isError = isError
         self.isComplete = isComplete

@@ -8,10 +8,6 @@ import Combine
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ThreadManager")
 private let archivedSessionsKey = "archivedSessionIds"
 
-/// Haiku is used for title generation because it's cost-effective and fast enough
-/// for simple summarization tasks without sacrificing quality.
-private let titleGenerationModel = "claude-haiku-4-5-20251001"
-
 @MainActor
 final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     @AppStorage("restoreRecentThreads") private(set) var restoreRecentThreads = true
@@ -121,13 +117,10 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         let viewModel = makeViewModel()
         viewModel.isHistoryLoaded = true  // No session yet — nothing to load
         let threadId = thread.id
-        viewModel.onFirstUserMessage = { [weak self] text in
+        viewModel.onFirstUserMessage = { [weak self] _ in
             self?.completedConversationCount += 1
             self?.updateThreadTitle(id: threadId, title: "Untitled")
             self?.updateLastInteracted(threadId: threadId)
-            Task { @MainActor in
-                await self?.generateTitle(for: threadId, userMessage: text)
-            }
         }
         threads.insert(thread, at: 0)
         chatViewModels[thread.id] = viewModel
@@ -140,13 +133,10 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         let viewModel = makeViewModel()
         viewModel.isHistoryLoaded = true  // No session yet — nothing to load
         let threadId = thread.id
-        viewModel.onFirstUserMessage = { [weak self] text in
+        viewModel.onFirstUserMessage = { [weak self] _ in
             self?.completedConversationCount += 1
             self?.updateThreadTitle(id: threadId, title: "Untitled")
             self?.updateLastInteracted(threadId: threadId)
-            Task { @MainActor in
-                await self?.generateTitle(for: threadId, userMessage: text)
-            }
         }
         threads.insert(thread, at: 0)
         chatViewModels[thread.id] = viewModel
@@ -425,8 +415,8 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         // Don't reshuffle threads that are already visible in the collapsed sidebar.
         // The sidebar shows regular threads (top 5) and schedule/reminder threads (top 3) separately.
         let visible = visibleThreads
-        let regularIds = visible.filter { $0.source != "schedule" && $0.source != "reminder" }.prefix(5).map(\.id)
-        let scheduleIds = visible.filter { $0.source == "schedule" || $0.source == "reminder" }.prefix(3).map(\.id)
+        let regularIds = visible.filter { !$0.isScheduleThread }.prefix(5).map(\.id)
+        let scheduleIds = visible.filter { $0.isScheduleThread }.prefix(3).map(\.id)
         let visibleIds = Set(regularIds + scheduleIds)
         guard !visibleIds.contains(threadId) else { return }
         threads[index].lastInteractedAt = Date()
@@ -579,69 +569,6 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         activeThreadId = id
     }
 
-    /// Derive a short title from the first user message, truncated at a word boundary around 50 chars.
-    static func deriveTitle(from text: String) -> String {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "New Conversation" }
-        if trimmed.count <= 50 { return trimmed }
-        let prefix = trimmed.prefix(50)
-        // Find the last space to break at a word boundary
-        if let lastSpace = prefix.lastIndex(of: " ") {
-            return String(prefix[prefix.startIndex..<lastSpace]) + "..."
-        }
-        return String(prefix) + "..."
-    }
-
-    /// Generate a conversation title via LLM and update the thread.
-    private func generateTitle(for threadId: UUID, userMessage: String) async {
-        let fallback = Self.deriveTitle(from: userMessage)
-
-        guard let apiKey = APIKeyManager.getKey() else {
-            log.warning("No API key available for title generation")
-            updateThreadTitle(id: threadId, title: fallback)
-            return
-        }
-
-        let client = AnthropicClient(apiKey: apiKey)
-        let tool: [String: Any] = [
-            "name": "set_title",
-            "description": "Set a short conversation title",
-            "input_schema": [
-                "type": "object",
-                "required": ["title"],
-                "properties": [
-                    "title": [
-                        "type": "string",
-                        "description": "A concise conversation title, 2-6 words. Sentence case. No quotes, no markdown."
-                    ]
-                ]
-            ]
-        ]
-
-        do {
-            let result = try await client.sendToolUseRequest(
-                model: titleGenerationModel,
-                maxTokens: 60,
-                system: "Generate a short, descriptive title (2-6 words) for this conversation based on the user's first message. Use sentence case (only capitalize the first word and proper nouns). Be specific and concise. Never use quotes, asterisks, or any markdown formatting.",
-                tools: [tool],
-                toolChoice: ["type": "any"],
-                messages: [["role": "user", "content": userMessage]],
-                timeout: 10
-            )
-            if let raw = result.input["title"] as? String, !raw.isEmpty {
-                let title = raw.replacingOccurrences(of: "*", with: "")
-                    .replacingOccurrences(of: "#", with: "")
-                    .replacingOccurrences(of: "\"", with: "")
-                    .replacingOccurrences(of: "_", with: " ")
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                updateThreadTitle(id: threadId, title: title.isEmpty ? fallback : title)
-            }
-        } catch {
-            log.warning("Title generation failed: \(error.localizedDescription)")
-            updateThreadTitle(id: threadId, title: fallback)
-        }
-    }
-
     // MARK: - Private
 
     /// Backfill ThreadModel.sessionId when the daemon assigns a session to a new thread.
@@ -712,7 +639,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         guard let viewModel = activeViewModel else { return }
 
         // Observe message count changes to drive the sidebar unread indicator.
-        activeViewModelCancellable = viewModel.$messages
+        activeViewModelCancellable = viewModel.messageManager.$messages
             .map { $0.count }
             .removeDuplicates()
             .sink { [weak self] _ in

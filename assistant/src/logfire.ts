@@ -1,6 +1,7 @@
 import type { Provider, ProviderResponse, SendMessageOptions, Message, ToolDefinition } from './providers/types.js';
 import { APP_VERSION } from './version.js';
 import { getLogger } from './util/logger.js';
+import { getLogfireToken, isMonitoringEnabled } from './config/env.js';
 
 const log = getLogger('logfire');
 
@@ -8,8 +9,8 @@ type LogfireModule = typeof import('@pydantic/logfire-node');
 
 const LOGFIRE_ENABLED: boolean =
   APP_VERSION === '0.0.0-dev' &&
-  !!process.env.LOGFIRE_TOKEN &&
-  process.env.VELLUM_ENABLE_MONITORING === '1';
+  !!getLogfireToken() &&
+  isMonitoringEnabled();
 
 let logfireInstance: LogfireModule | null = null;
 
@@ -24,7 +25,7 @@ export async function initLogfire(): Promise<void> {
   try {
     const logfire = await import('@pydantic/logfire-node');
     logfire.configure({
-      token: process.env.LOGFIRE_TOKEN,
+      token: getLogfireToken(),
       serviceName: 'vellum-assistant',
       serviceVersion: APP_VERSION,
     });

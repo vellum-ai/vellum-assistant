@@ -69,7 +69,7 @@ function normalizeAttributes(
 }
 
 function normalizeValue(value: unknown): string | number | boolean | null {
-  if (value === null || value === undefined) return null;
+  if (value == null) return null;
   if (typeof value === 'boolean' || typeof value === 'number') return value;
   if (typeof value === 'string') return truncate(value, ATTRIBUTE_VALUE_MAX_LENGTH);
   // Coerce non-primitives to string

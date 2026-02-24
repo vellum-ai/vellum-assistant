@@ -4,6 +4,7 @@ import { messages as messagesTable } from '../memory/schema.js';
 import { createTask } from './task-store.js';
 import type { Task } from './task-store.js';
 import { truncate } from '../util/truncate.js';
+import { parseJsonSafe } from '../util/json.js';
 import { sanitizeToolList } from './tool-sanitizer.js';
 
 /** Output schema for the task compiler. */
@@ -91,20 +92,14 @@ export function saveCompiledTask(compiled: CompiledTask, conversationId: string)
  * string or a JSON array of Anthropic content blocks.
  */
 function extractTextContent(content: string): string {
-  try {
-    const parsed = JSON.parse(content);
-    if (Array.isArray(parsed)) {
-      return parsed
-        .filter((block: Record<string, unknown>) => block.type === 'text')
-        .map((block: Record<string, unknown>) => block.text as string)
-        .join('\n');
-    }
-    // If it parsed but isn't an array, treat as plain text
-    return content;
-  } catch {
-    // Not JSON — it's a plain text message
-    return content;
+  const parsed = parseJsonSafe(content);
+  if (Array.isArray(parsed)) {
+    return parsed
+      .filter((block: Record<string, unknown>) => block.type === 'text')
+      .map((block: Record<string, unknown>) => block.text as string)
+      .join('\n');
   }
+  return content;
 }
 
 /**
@@ -118,22 +113,18 @@ function extractToolNames(
   for (const msg of msgs) {
     if (msg.role !== 'assistant') continue;
 
-    try {
-      const parsed = JSON.parse(msg.content);
-      if (!Array.isArray(parsed)) continue;
+    const parsed = parseJsonSafe(msg.content);
+    if (!Array.isArray(parsed)) continue;
 
-      for (const block of parsed) {
-        if (
-          block &&
-          typeof block === 'object' &&
-          block.type === 'tool_use' &&
-          typeof block.name === 'string'
-        ) {
-          tools.add(block.name);
-        }
+    for (const block of parsed) {
+      if (
+        block &&
+        typeof block === 'object' &&
+        block.type === 'tool_use' &&
+        typeof block.name === 'string'
+      ) {
+        tools.add(block.name);
       }
-    } catch {
-      // Not JSON content — skip
     }
   }
 

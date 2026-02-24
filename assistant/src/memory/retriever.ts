@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { inArray } from 'drizzle-orm';
 import type { AssistantConfig } from '../config/types.js';
 import { estimateTextTokens } from '../context/token-estimator.js';
 import { getLogger } from '../util/logger.js';
@@ -108,26 +108,48 @@ async function collectAndMergeCandidates(
     : [];
 
   // Direct item search supplements FTS with LIKE-based matching.
-  // Overfetch when exclusions are present so that filtering doesn't
-  // silently drop valid candidates just below the SQL LIMIT cutoff.
+  // When exclusions are present, adaptively increase the fetch size until
+  // we collect directLimit valid (non-excluded) items or exhaust the DB.
   const directLimit = Math.max(10, config.memory.retrieval.lexicalTopK);
-  const directFetchLimit = excludeMessageIds.length > 0
-    ? Math.max(directLimit + 24, directLimit * 2)
-    : directLimit;
-  let directItems = directItemSearch(query, directFetchLimit, scopeIds);
 
-  // Filter direct items by excluded message IDs -- items whose only evidence
-  // comes from excluded messages should not leak back into recall.
-  if (excludeMessageIds.length > 0 && directItems.length > 0) {
+  // Helper: filter fetched direct items to those with at least one non-excluded source.
+  const filterDirectItems = (items: Candidate[]): Candidate[] => {
+    if (items.length === 0) return items;
     const db = getDb();
-    directItems = directItems.filter((candidate) => {
-      const sources = db.select().from(memoryItemSources)
-        .where(eq(memoryItemSources.memoryItemId, candidate.id)).all();
-      if (sources.length === 0) return true;
-      const nonExcluded = sources.filter((s) => !excludeMessageIds.includes(s.messageId));
-      return nonExcluded.length > 0;
-    });
-    directItems = directItems.slice(0, directLimit);
+    const excludedSet = new Set(excludeMessageIds);
+    const allSources = db.select({
+      memoryItemId: memoryItemSources.memoryItemId,
+      messageId: memoryItemSources.messageId,
+    }).from(memoryItemSources)
+      .where(inArray(memoryItemSources.memoryItemId, items.map((c) => c.id)))
+      .all();
+    const hasNonExcluded = new Set<string>();
+    const hasSources = new Set<string>();
+    for (const s of allSources) {
+      hasSources.add(s.memoryItemId);
+      if (!excludedSet.has(s.messageId)) {
+        hasNonExcluded.add(s.memoryItemId);
+      }
+    }
+    return items.filter((c) => !hasSources.has(c.id) || hasNonExcluded.has(c.id));
+  };
+
+  let directItems: Candidate[];
+  if (excludeMessageIds.length > 0) {
+    // Adaptive loop: double fetch size on each iteration until quota met or DB exhausted.
+    const MAX_FETCH_MULTIPLIER = 8;
+    let fetchSize = Math.max(directLimit * 2, directLimit + 24);
+    directItems = [];
+    while (true) {
+      const fetched = directItemSearch(query, fetchSize, scopeIds);
+      directItems = filterDirectItems(fetched).slice(0, directLimit);
+      if (directItems.length >= directLimit || fetched.length < fetchSize || fetchSize >= directLimit * MAX_FETCH_MULTIPLIER) {
+        break;
+      }
+      fetchSize = Math.min(fetchSize * 2, directLimit * MAX_FETCH_MULTIPLIER);
+    }
+  } else {
+    directItems = directItemSearch(query, directLimit, scopeIds);
   }
 
   // -- Early termination check --
@@ -161,40 +183,50 @@ async function collectAndMergeCandidates(
     && cheapCandidates.filter((c) => c.lexical >= etConfig.confidenceThreshold).length >= etConfig.minHighConfidence;
 
   // -- Phase 2: expensive searches (skipped on early termination) --
+  // Semantic search (async Qdrant network call) and entity search (sync
+  // SQLite graph traversal) are independent. Start the network call first,
+  // run the sync work while it's in flight, then await the result.
   let semantic: Candidate[] = [];
   let semanticSearchFailed = false;
-  if (queryVector && !canTerminateEarly) {
-    try {
-      semantic = await semanticSearch(queryVector, opts?.provider ?? 'unknown', opts?.model ?? 'unknown', config.memory.retrieval.semanticTopK, excludeMessageIds, scopeIds);
-    } catch (err) {
-      semanticSearchFailed = true;
-      if (isQdrantConnectionError(err)) {
-        log.warn({ err }, 'Qdrant is unavailable — semantic search disabled, memory recall will be degraded');
-      } else {
-        log.warn({ err }, 'Semantic search failed, continuing with other retrieval methods');
-      }
-    }
-  }
-
   let entity: Candidate[] = [];
   let candidateDepths: Map<string, number> | undefined;
   let relationSeedEntityCount = 0;
   let relationTraversedEdgeCount = 0;
   let relationNeighborEntityCount = 0;
   let relationExpandedItemCount = 0;
-  if (config.memory.entity.enabled && !canTerminateEarly) {
-    const entitySearchResult = entitySearch(
-      query,
-      config.memory.entity,
-      scopeIds,
-      excludeMessageIds,
-    );
-    entity = entitySearchResult.candidates;
-    candidateDepths = entitySearchResult.candidateDepths;
-    relationSeedEntityCount = entitySearchResult.relationSeedEntityCount;
-    relationTraversedEdgeCount = entitySearchResult.relationTraversedEdgeCount;
-    relationNeighborEntityCount = entitySearchResult.relationNeighborEntityCount;
-    relationExpandedItemCount = entitySearchResult.relationExpandedItemCount;
+
+  if (!canTerminateEarly) {
+    const semanticPromise = queryVector
+      ? semanticSearch(queryVector, opts?.provider ?? 'unknown', opts?.model ?? 'unknown', config.memory.retrieval.semanticTopK, excludeMessageIds, scopeIds)
+          .catch((err): Candidate[] => {
+            semanticSearchFailed = true;
+            if (isQdrantConnectionError(err)) {
+              log.warn({ err }, 'Qdrant is unavailable — semantic search disabled, memory recall will be degraded');
+            } else {
+              log.warn({ err }, 'Semantic search failed, continuing with other retrieval methods');
+            }
+            return [];
+          })
+      : null;
+
+    if (config.memory.entity.enabled) {
+      const entitySearchResult = entitySearch(
+        query,
+        config.memory.entity,
+        scopeIds,
+        excludeMessageIds,
+      );
+      entity = entitySearchResult.candidates;
+      candidateDepths = entitySearchResult.candidateDepths;
+      relationSeedEntityCount = entitySearchResult.relationSeedEntityCount;
+      relationTraversedEdgeCount = entitySearchResult.relationTraversedEdgeCount;
+      relationNeighborEntityCount = entitySearchResult.relationNeighborEntityCount;
+      relationExpandedItemCount = entitySearchResult.relationExpandedItemCount;
+    }
+
+    if (semanticPromise) {
+      semantic = await semanticPromise;
+    }
   }
 
   if (canTerminateEarly) {

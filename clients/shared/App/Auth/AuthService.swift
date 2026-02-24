@@ -59,7 +59,8 @@ public final class AuthService {
     }
 
     public func fetchOIDCDiscovery(url: String) async throws -> OIDCDiscovery {
-        guard let requestURL = URL(string: url) else {
+        guard let requestURL = URL(string: url),
+              requestURL.scheme?.lowercased() == "https" else {
             throw AuthServiceError.invalidURL
         }
         let (data, _) = try await URLSession.shared.data(from: requestURL)
@@ -73,7 +74,8 @@ public final class AuthService {
         codeVerifier: String,
         redirectURI: String
     ) async throws -> OIDCTokenResponse {
-        guard let url = URL(string: tokenEndpoint) else {
+        guard let url = URL(string: tokenEndpoint),
+              url.scheme?.lowercased() == "https" else {
             throw AuthServiceError.invalidURL
         }
 
@@ -149,7 +151,7 @@ public final class AuthService {
             decoded = try JSONDecoder().decode(AllauthResponse<T>.self, from: data)
         } catch {
             let rawBody = String(data: data, encoding: .utf8) ?? "<non-utf8>"
-            log.error("Failed to decode auth response for \(method) \(path): \(error)\nRaw body: \(rawBody)")
+            log.error("Failed to decode auth response for \(method, privacy: .public) \(path, privacy: .public): \(error)\nRaw body: \(rawBody, privacy: .private)")
             throw AuthServiceError.decodingError(error)
         }
 

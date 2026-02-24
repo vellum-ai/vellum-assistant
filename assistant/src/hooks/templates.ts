@@ -1,6 +1,6 @@
-import { existsSync, readdirSync, readFileSync, cpSync, chmodSync, rmSync } from 'node:fs';
+import { readdirSync, readFileSync, cpSync, chmodSync, rmSync, type Dirent } from 'node:fs';
 import { join } from 'node:path';
-import type { Dirent } from 'node:fs';
+import { pathExists } from '../util/fs.js';
 import { getHooksDir } from '../util/platform.js';
 import { ensureHookInConfig } from './config.js';
 import { getLogger } from '../util/logger.js';
@@ -15,7 +15,7 @@ const log = getLogger('hooks-templates');
  */
 export function installTemplates(): void {
   const templatesDir = join(import.meta.dirname ?? __dirname, '../../hook-templates');
-  if (!existsSync(templatesDir)) return;
+  if (!pathExists(templatesDir)) return;
 
   const hooksDir = getHooksDir();
   const entries = readdirSync(templatesDir, { withFileTypes: true }) as Dirent[];
@@ -24,7 +24,7 @@ export function installTemplates(): void {
     if (!entry.isDirectory()) continue;
 
     const targetDir = join(hooksDir, entry.name);
-    if (existsSync(targetDir)) continue; // Never overwrite user hooks
+    if (pathExists(targetDir)) continue; // Never overwrite user hooks
 
     try {
       // Copy template directory
@@ -32,7 +32,7 @@ export function installTemplates(): void {
 
       // Make script executable
       const manifestPath = join(targetDir, 'hook.json');
-      if (existsSync(manifestPath)) {
+      if (pathExists(manifestPath)) {
         const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8'));
         if (manifest.script) {
           chmodSync(join(targetDir, manifest.script), 0o755);

@@ -1,4 +1,5 @@
 import type { GatewayConfig } from "../config.js";
+import { fetchImpl } from "../fetch.js";
 import { getLogger } from "../logger.js";
 
 const log = getLogger("twilio-send-sms");
@@ -37,7 +38,7 @@ export async function sendSmsReply(
   const authHeader =
     "Basic " + Buffer.from(`${config.twilioAccountSid}:${config.twilioAuthToken}`).toString("base64");
 
-  const response = await globalThis.fetch(url, {
+  const response = await fetchImpl(url, {
     method: "POST",
     headers: {
       Authorization: authHeader,

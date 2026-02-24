@@ -14,6 +14,7 @@ export const conversations = sqliteTable('conversations', {
   threadType: text('thread_type').notNull().default('standard'),
   source: text('source').notNull().default('user'),
   memoryScopeId: text('memory_scope_id').notNull().default('default'),
+  originChannel: text('origin_channel'),
 });
 
 export const messages = sqliteTable('messages', {

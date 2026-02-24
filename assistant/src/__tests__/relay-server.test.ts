@@ -17,7 +17,6 @@ import { describe, test, expect, beforeEach, afterAll, mock, type Mock } from 'b
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { EventEmitter } from 'node:events';
 
 const testDir = mkdtempSync(join(tmpdir(), 'relay-server-test-'));
 
@@ -33,6 +32,7 @@ mock.module('../util/platform.js', () => ({
   getDbPath: () => join(testDir, 'test.db'),
   getLogPath: () => join(testDir, 'test.log'),
   ensureDataDir: () => {},
+  readHttpToken: () => null,
 }));
 
 mock.module('../util/logger.js', () => ({
@@ -45,6 +45,8 @@ mock.module('../util/logger.js', () => ({
 // ── Config mock ─────────────────────────────────────────────────────
 
 const mockConfig = {
+  provider: 'anthropic',
+  providerOrder: ['anthropic'],
   apiKeys: { anthropic: 'test-key' },
   calls: {
     enabled: true,
@@ -59,45 +61,58 @@ const mockConfig = {
       codeLength: 6,
     },
   },
+  memory: { enabled: false },
 };
 
 mock.module('../config/loader.js', () => ({
   getConfig: () => mockConfig,
 }));
 
-// ── Anthropic SDK mock ──────────────────────────────────────────────
+// ── Helpers for building mock provider responses ────────────────────
 
-function createMockStream(tokens: string[]) {
-  const emitter = new EventEmitter();
+function createMockProviderResponse(tokens: string[]) {
   const fullText = tokens.join('');
-
-  const stream = {
-    on: (event: string, handler: (...args: unknown[]) => void) => {
-      emitter.on(event, handler);
-      return stream;
-    },
-    finalMessage: () => {
-      for (const token of tokens) {
-        emitter.emit('text', token);
-      }
-      return Promise.resolve({
-        content: [{ type: 'text', text: fullText }],
-      });
-    },
+  return async (
+    _messages: unknown[],
+    _tools: unknown[],
+    _systemPrompt: string,
+    options?: { onEvent?: (event: { type: string; text?: string }) => void; signal?: AbortSignal },
+  ) => {
+    for (const token of tokens) {
+      options?.onEvent?.({ type: 'text_delta', text: token });
+    }
+    return {
+      content: [{ type: 'text', text: fullText }],
+      model: 'claude-sonnet-4-20250514',
+      usage: { inputTokens: 100, outputTokens: 50 },
+      stopReason: 'end_turn',
+    };
   };
-
-  return stream;
 }
 
-let mockStreamFn: Mock<(...args: unknown[]) => unknown>;
+// ── Provider registry mock ──────────────────────────────────────────
 
-mock.module('@anthropic-ai/sdk', () => {
-  mockStreamFn = mock((..._args: unknown[]) => createMockStream(['Hello']));
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let mockSendMessage: Mock<any>;
+
+mock.module('../providers/registry.js', () => {
+  mockSendMessage = mock(createMockProviderResponse(['Hello']));
   return {
-    default: class MockAnthropic {
-      messages = {
-        stream: (...args: unknown[]) => mockStreamFn(...args),
+    listProviders: () => ['anthropic'],
+    getFailoverProvider: () => ({
+      name: 'anthropic',
+      sendMessage: (...args: unknown[]) => mockSendMessage(...args),
+    }),
+    getDefaultModel: (providerName: string) => {
+      const defaults: Record<string, string> = {
+        anthropic: 'claude-opus-4-6',
+        openai: 'gpt-5.2',
+        gemini: 'gemini-3-flash',
+        ollama: 'llama3.2',
+        fireworks: 'accounts/fireworks/models/kimi-k2p5',
+        openrouter: 'x-ai/grok-4',
       };
+      return defaults[providerName] ?? defaults.anthropic;
     },
   };
 });
@@ -171,9 +186,13 @@ function ensureConversation(id: string): void {
 
 function resetTables() {
   const db = getDb();
+  db.run('DELETE FROM guardian_action_deliveries');
+  db.run('DELETE FROM guardian_action_requests');
   db.run('DELETE FROM call_pending_questions');
   db.run('DELETE FROM call_events');
   db.run('DELETE FROM call_sessions');
+  db.run('DELETE FROM tool_invocations');
+  db.run('DELETE FROM messages');
   db.run('DELETE FROM conversations');
   db.run('DELETE FROM channel_guardian_verification_challenges');
   db.run('DELETE FROM channel_guardian_bindings');
@@ -189,7 +208,7 @@ function getLatestAssistantText(conversationId: string): string | null {
     const parsed = JSON.parse(latest.content) as unknown;
     if (Array.isArray(parsed)) {
       return parsed
-        .filter((block): block is { type: string; text?: string } => typeof block === 'object' && block !== null)
+        .filter((block): block is { type: string; text?: string } => typeof block === 'object' && block != null)
         .filter((block) => block.type === 'text')
         .map((block) => block.text ?? '')
         .join('');
@@ -205,7 +224,7 @@ describe('relay-server', () => {
   beforeEach(() => {
     resetTables();
     activeRelayConnections.clear();
-    mockStreamFn.mockImplementation(() => createMockStream(['Hello']));
+    mockSendMessage.mockImplementation(createMockProviderResponse(['Hello']));
     mockConfig.calls.verification.enabled = false;
     mockConfig.calls.verification.maxAttempts = 3;
     mockConfig.calls.verification.codeLength = 6;
@@ -259,7 +278,7 @@ describe('relay-server', () => {
       task: 'Confirm appointment time',
     });
 
-    mockStreamFn.mockImplementation(() => createMockStream(['Hello, I am calling to confirm your appointment.']));
+    mockSendMessage.mockImplementation(createMockProviderResponse(['Hello, I am calling to confirm your appointment.']));
 
     const { ws, relay } = createMockWs(session.id);
 

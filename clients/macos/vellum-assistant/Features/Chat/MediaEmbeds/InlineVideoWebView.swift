@@ -1,5 +1,5 @@
 import SwiftUI
-import WebKit
+@preconcurrency import WebKit
 
 /// Isolated WKWebView wrapper for inline video embeds.
 ///

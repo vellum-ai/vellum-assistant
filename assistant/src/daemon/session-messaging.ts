@@ -7,6 +7,7 @@
 
 import { v4 as uuid } from 'uuid';
 import type { Message } from '../providers/types.js';
+import type { TurnChannelContext } from '../channels/types.js';
 import type { ServerMessage, UserMessageAttachment } from './ipc-protocol.js';
 import { createUserMessage } from '../agent/message-types.js';
 import * as conversationStore from '../memory/conversation-store.js';
@@ -25,6 +26,7 @@ export interface MessagingSessionContext {
   abortController: AbortController | null;
   currentRequestId?: string;
   readonly queue: MessageQueue;
+  getTurnChannelContext(): TurnChannelContext | null;
 }
 
 // ── enqueueMessage ───────────────────────────────────────────────────
@@ -82,12 +84,22 @@ export function persistUserMessage(
   ctx.messages.push(userMessage);
 
   try {
+    const turnCtx = ctx.getTurnChannelContext();
+    const channelMetadata = turnCtx
+      ? { userMessageChannel: turnCtx.userMessageChannel, assistantMessageChannel: turnCtx.assistantMessageChannel }
+      : {};
+    const mergedMetadata = { ...metadata, ...channelMetadata };
+
     const persistedUserMessage = conversationStore.addMessage(
       ctx.conversationId,
       'user',
       JSON.stringify(userMessage.content),
-      metadata,
+      mergedMetadata,
     );
+
+    if (turnCtx) {
+      conversationStore.setConversationOriginChannelIfUnset(ctx.conversationId, turnCtx.userMessageChannel);
+    }
 
     if (!persistedUserMessage.id) {
       throw new Error('Failed to persist user message');

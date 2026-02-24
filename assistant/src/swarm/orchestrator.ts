@@ -128,7 +128,7 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
         const r = results.get(depId);
         return r ? { taskId: depId, summary: r.summary } : null;
       })
-      .filter((d): d is { taskId: string; summary: string } => d !== null);
+      .filter((d): d is { taskId: string; summary: string } => d !== undefined);
 
     let result = await runWorkerTask({
       task,

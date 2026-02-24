@@ -1,6 +1,14 @@
 import { describe, test, expect, mock, afterEach } from "bun:test";
-import { createTelegramDeliverHandler } from "../http/routes/telegram-deliver.js";
 import type { GatewayConfig } from "../config.js";
+
+type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(async () => new Response());
+
+mock.module("../fetch.js", () => ({
+  fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
+}));
+
+const { createTelegramDeliverHandler } = await import("../http/routes/telegram-deliver.js");
 
 const TOKEN = "test-deliver-token";
 
@@ -37,6 +45,14 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     smsDeliverAuthBypass: false,
     ingressPublicBaseUrl: undefined,
     gatewayInternalBaseUrl: "http://127.0.0.1:7830",
+    whatsappPhoneNumberId: undefined,
+    whatsappAccessToken: undefined,
+    whatsappAppSecret: undefined,
+    whatsappWebhookVerifyToken: undefined,
+    whatsappDeliverAuthBypass: false,
+    whatsappTimeoutMs: 15000,
+    whatsappMaxRetries: 3,
+    whatsappInitialBackoffMs: 1000,
     ...overrides,
   };
   if (merged.runtimeGatewayOriginSecret === undefined) {
@@ -45,26 +61,24 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   return merged;
 }
 
-const originalFetch = globalThis.fetch;
-
 afterEach(() => {
-  globalThis.fetch = originalFetch;
+  fetchMock = mock(async () => new Response());
 });
 
 function mockTelegramApi() {
-  globalThis.fetch = mock(async () => {
+  fetchMock = mock(async () => {
     return new Response(JSON.stringify({ ok: true, result: {} }), {
       status: 200,
       headers: { "content-type": "application/json" },
     });
-  }) as any;
+  });
 }
 
 describe("/deliver/telegram attachment delivery without assistantId", () => {
   test("delivers attachments without assistantId using assistant-less download path", async () => {
     const calls: string[] = [];
-    globalThis.fetch = mock(async (url: string | URL | Request) => {
-      const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
+    fetchMock = mock(async (input: string | URL | Request) => {
+      const urlStr = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       calls.push(urlStr);
       // Runtime attachment download (assistant-less path)
       if (urlStr.includes("/v1/attachments/att-1")) {
@@ -84,7 +98,7 @@ describe("/deliver/telegram attachment delivery without assistantId", () => {
         status: 200,
         headers: { "content-type": "application/json" },
       });
-    }) as any;
+    });
 
     const handler = createTelegramDeliverHandler(
       makeConfig({ runtimeProxyBearerToken: undefined, telegramDeliverAuthBypass: true }),
@@ -117,8 +131,8 @@ describe("/deliver/telegram attachment delivery without assistantId", () => {
 
   test("delivers attachments with assistantId using legacy download path", async () => {
     const calls: string[] = [];
-    globalThis.fetch = mock(async (url: string | URL | Request) => {
-      const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
+    fetchMock = mock(async (input: string | URL | Request) => {
+      const urlStr = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       calls.push(urlStr);
       // Runtime attachment download (legacy path)
       if (urlStr.includes("/attachments/att-2")) {
@@ -137,7 +151,7 @@ describe("/deliver/telegram attachment delivery without assistantId", () => {
         status: 200,
         headers: { "content-type": "application/json" },
       });
-    }) as any;
+    });
 
     const handler = createTelegramDeliverHandler(
       makeConfig({ runtimeProxyBearerToken: undefined, telegramDeliverAuthBypass: true }),
@@ -169,8 +183,8 @@ describe("/deliver/telegram attachment delivery without assistantId", () => {
 describe("/deliver/telegram ID-only attachment validation", () => {
   test("accepts ID-only attachments (no filename, mimeType, sizeBytes)", async () => {
     const calls: string[] = [];
-    globalThis.fetch = mock(async (url: string | URL | Request) => {
-      const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
+    fetchMock = mock(async (input: string | URL | Request) => {
+      const urlStr = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       calls.push(urlStr);
       if (urlStr.includes("/v1/attachments/att-id-only")) {
         return new Response(
@@ -188,7 +202,7 @@ describe("/deliver/telegram ID-only attachment validation", () => {
         status: 200,
         headers: { "content-type": "application/json" },
       });
-    }) as any;
+    });
 
     const handler = createTelegramDeliverHandler(
       makeConfig({ runtimeProxyBearerToken: undefined, telegramDeliverAuthBypass: true }),
@@ -235,8 +249,8 @@ describe("/deliver/telegram ID-only attachment validation", () => {
 
   test("full-metadata attachments still accepted (backward compatibility)", async () => {
     const calls: string[] = [];
-    globalThis.fetch = mock(async (url: string | URL | Request) => {
-      const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
+    fetchMock = mock(async (input: string | URL | Request) => {
+      const urlStr = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       calls.push(urlStr);
       if (urlStr.includes("/v1/attachments/att-compat")) {
         return new Response(
@@ -254,7 +268,7 @@ describe("/deliver/telegram ID-only attachment validation", () => {
         status: 200,
         headers: { "content-type": "application/json" },
       });
-    }) as any;
+    });
 
     const handler = createTelegramDeliverHandler(
       makeConfig({ runtimeProxyBearerToken: undefined, telegramDeliverAuthBypass: true }),

@@ -34,6 +34,9 @@ struct SettingsConnectTab: View {
     // Twilio number picker
     @State private var twilioNumberPickerExpanded = false
 
+    // Email copy state
+    @State private var emailCopied: Bool = false
+
     // Guardian copy state (tracks which channel's command was just copied)
     @State private var guardianCommandCopiedChannel: String?
 
@@ -53,6 +56,7 @@ struct SettingsConnectTab: View {
         }
         .onAppear {
             store.refreshIngressConfig()
+            store.refreshAssistantEmail()
             gatewayUrlText = store.ingressPublicBaseUrl
             refreshBearerToken()
             store.refreshChannelGuardianStatus(channel: "telegram")
@@ -97,90 +101,77 @@ struct SettingsConnectTab: View {
     // MARK: - Gateway Section
 
     private var gatewaySection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            DisclosureGroup(isExpanded: $gatewayExpanded) {
-                VStack(alignment: .leading, spacing: VSpacing.md) {
-                    // Gateway URL field
-                    HStack(spacing: VSpacing.xs) {
-                        Text("Gateway URL")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
-                    }
-
-                    TextField("https://your-tunnel.example.com", text: $gatewayUrlText)
-                        .focused($isGatewayUrlFocused)
-                        .vInputStyle()
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
-
-                    VButton(label: "Save", style: .primary) {
-                        store.saveIngressPublicBaseUrl(gatewayUrlText)
-                    }
-
-                    Divider()
-                        .background(VColor.surfaceBorder)
-
-                    // Local Gateway Target (read-only)
-                    HStack(spacing: VSpacing.xs) {
-                        Text("Local Gateway Target")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
-                    }
-
-                    HStack(spacing: VSpacing.sm) {
-                        Text(store.localGatewayTarget)
-                            .font(VFont.mono)
-                            .foregroundColor(VColor.textPrimary)
-                            .textSelection(.enabled)
-                            .padding(VSpacing.md)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(VColor.surface.opacity(0.5))
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: VRadius.md)
-                                    .stroke(VColor.surfaceBorder.opacity(0.3), lineWidth: 1)
-                            )
-
-                        Button {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(store.localGatewayTarget, forType: .string)
-                            gatewayTargetCopied = true
-                            Task {
-                                try? await Task.sleep(nanoseconds: 2_000_000_000)
-                                gatewayTargetCopied = false
-                            }
-                        } label: {
-                            Image(systemName: gatewayTargetCopied ? "checkmark" : "doc.on.doc")
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(gatewayTargetCopied ? VColor.success : VColor.textSecondary)
-                                .frame(width: 28, height: 28)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Copy gateway address")
-                        .help("Copy address")
-                    }
-
-                    Text("Point your tunnel (ngrok, Cloudflare, etc.) to this address.")
+        VDisclosureSection(
+            title: "Gateway",
+            icon: "network",
+            subtitle: !gatewayExpanded && !store.ingressPublicBaseUrl.isEmpty ? store.ingressPublicBaseUrl : nil,
+            isExpanded: $gatewayExpanded
+        ) {
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                // Gateway URL field
+                HStack(spacing: VSpacing.xs) {
+                    Text("Gateway URL")
                         .font(VFont.caption)
                         .foregroundColor(VColor.textSecondary)
                 }
-                .padding(.top, VSpacing.sm)
-            } label: {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Gateway")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.textPrimary)
-                    if !gatewayExpanded && !store.ingressPublicBaseUrl.isEmpty {
-                        Text(store.ingressPublicBaseUrl)
-                            .font(VFont.mono)
-                            .foregroundColor(VColor.textMuted)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
+
+                TextField("https://your-tunnel.example.com", text: $gatewayUrlText)
+                    .focused($isGatewayUrlFocused)
+                    .vInputStyle()
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+
+                VButton(label: "Save", style: .primary) {
+                    store.saveIngressPublicBaseUrl(gatewayUrlText)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
+
+                Divider()
+                    .background(VColor.surfaceBorder)
+
+                // Local Gateway Target (read-only)
+                HStack(spacing: VSpacing.xs) {
+                    Text("Local Gateway Target")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                }
+
+                HStack(spacing: VSpacing.sm) {
+                    Text(store.localGatewayTarget)
+                        .font(VFont.mono)
+                        .foregroundColor(VColor.textPrimary)
+                        .textSelection(.enabled)
+                        .padding(VSpacing.md)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(VColor.surface.opacity(0.5))
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .stroke(VColor.surfaceBorder.opacity(0.3), lineWidth: 1)
+                        )
+
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(store.localGatewayTarget, forType: .string)
+                        gatewayTargetCopied = true
+                        Task {
+                            try? await Task.sleep(nanoseconds: 2_000_000_000)
+                            gatewayTargetCopied = false
+                        }
+                    } label: {
+                        Image(systemName: gatewayTargetCopied ? "checkmark" : "doc.on.doc")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(gatewayTargetCopied ? VColor.success : VColor.textSecondary)
+                            .frame(width: 28, height: 28)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Copy gateway address")
+                    .help("Copy address")
+                }
+
+                Text("Point your tunnel (ngrok, Cloudflare, etc.) to this address.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
             }
         }
         .padding(VSpacing.lg)
@@ -275,41 +266,90 @@ struct SettingsConnectTab: View {
                 Text("Channels")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
-                Text("Telegram, SMS, and Voice integrations")
+                Text("Email, Telegram, SMS, and Voice integrations")
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
             }
 
+            emailCard
             telegramCard
             twilioCard
             voiceCard
         }
     }
 
-    // MARK: - Advanced Section
+    // MARK: - Email Channel Card
 
-    private var advancedSection: some View {
+    private var emailCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            DisclosureGroup(isExpanded: $advancedExpanded) {
-                VStack(alignment: .leading, spacing: VSpacing.md) {
-                    bearerTokenContent
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("Email")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+                Text("Send and receive emails as your assistant")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+            }
 
-                    Divider().background(VColor.surfaceBorder)
-
-                    developerLocalPairingContent
-                }
-                .padding(.top, VSpacing.sm)
-            } label: {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Advanced")
-                        .font(VFont.sectionTitle)
+            if let email = store.assistantEmail {
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(VColor.success)
+                        .font(.system(size: 14))
+                    Text(email)
+                        .font(VFont.mono)
                         .foregroundColor(VColor.textPrimary)
-                    Text("Bearer token, developer options")
+                        .textSelection(.enabled)
+                    Spacer()
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(email, forType: .string)
+                        emailCopied = true
+                        Task {
+                            try? await Task.sleep(nanoseconds: 2_000_000_000)
+                            emailCopied = false
+                        }
+                    } label: {
+                        Image(systemName: emailCopied ? "checkmark" : "doc.on.doc")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(emailCopied ? VColor.success : VColor.textSecondary)
+                            .frame(width: 28, height: 28)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Copy email address")
+                    .help("Copy email address")
+                }
+            } else {
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .foregroundColor(VColor.warning)
+                        .font(.system(size: 12))
+                    Text("Not configured — run the Email Setup skill to assign an address")
                         .font(VFont.caption)
                         .foregroundColor(VColor.textMuted)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
+            }
+        }
+        .padding(VSpacing.lg)
+        .vCard(background: VColor.surfaceSubtle)
+    }
+
+    // MARK: - Advanced Section
+
+    private var advancedSection: some View {
+        VDisclosureSection(
+            title: "Advanced",
+            icon: "gearshape",
+            subtitle: "Bearer token, developer options",
+            isExpanded: $advancedExpanded
+        ) {
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                bearerTokenContent
+
+                Divider().background(VColor.surfaceBorder)
+
+                developerLocalPairingContent
             }
         }
         .padding(VSpacing.lg)
@@ -336,7 +376,7 @@ struct SettingsConnectTab: View {
                     icon: "checkmark.circle.fill",
                     iconColor: VColor.success,
                     value: store.telegramBotUsername.map { "@\($0)" } ?? "Configured",
-                    valueURL: store.telegramBotUsername.map { URL(string: "https://web.telegram.org/k/#@\($0)")! },
+                    valueURL: store.telegramBotUsername.flatMap { URL(string: "https://web.telegram.org/k/#@\($0)") },
                     action: .init(label: "Clear", style: .danger, disabled: store.telegramSaveInProgress) {
                         store.clearTelegramCredentials()
                         telegramBotTokenText = ""
@@ -712,6 +752,9 @@ struct SettingsConnectTab: View {
                 Link(value, destination: url)
                     .font(valueFont)
                     .lineLimit(1)
+                    .onHover { hovering in
+                        if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                    }
             } else {
                 Text(value)
                     .font(valueFont)
@@ -824,6 +867,9 @@ struct SettingsConnectTab: View {
         }()
         let primaryIdentity = guardianPrimaryIdentity(channel: channel, identity: identity)
         let secondaryIdentity = guardianSecondaryIdentity(primary: primaryIdentity, identity: identity)
+        let telegramProfileURL: URL? = channel == "telegram"
+            ? identity.flatMap { URL(string: "https://web.telegram.org/a/#\($0)") }
+            : nil
 
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             if verified {
@@ -833,15 +879,33 @@ struct SettingsConnectTab: View {
                         .foregroundColor(VColor.success)
                         .font(.system(size: 12))
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(primaryIdentity ?? "Verified")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
-                            .lineLimit(1)
-                        if let secondaryIdentity {
-                            Text(secondaryIdentity)
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
+                        if let telegramProfileURL {
+                            Link(primaryIdentity ?? "Verified", destination: telegramProfileURL)
+                                .font(VFont.body)
                                 .lineLimit(1)
+                                .onHover { hovering in
+                                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                                }
+                        } else {
+                            Text(primaryIdentity ?? "Verified")
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textSecondary)
+                                .lineLimit(1)
+                        }
+                        if let secondaryIdentity {
+                            if let telegramProfileURL {
+                                Link(secondaryIdentity, destination: telegramProfileURL)
+                                    .font(VFont.caption)
+                                    .lineLimit(1)
+                                    .onHover { hovering in
+                                        if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                                    }
+                            } else {
+                                Text(secondaryIdentity)
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.textMuted)
+                                    .lineLimit(1)
+                            }
                         }
                     }
                     Spacer()
@@ -1096,22 +1160,17 @@ struct SettingsConnectTab: View {
     // MARK: - Diagnostics Section (merged Status + Test Connection)
 
     private var diagnosticsSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            DisclosureGroup(isExpanded: $diagnosticsExpanded) {
-                VStack(alignment: .leading, spacing: VSpacing.md) {
-                    statusContent
+        VDisclosureSection(
+            title: "Diagnostics",
+            icon: "stethoscope",
+            isExpanded: $diagnosticsExpanded
+        ) {
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                statusContent
 
-                    Divider().background(VColor.surfaceBorder)
+                Divider().background(VColor.surfaceBorder)
 
-                    testConnectionContent
-                }
-                .padding(.top, VSpacing.sm)
-            } label: {
-                Text("Diagnostics")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
+                testConnectionContent
             }
         }
         .padding(VSpacing.lg)

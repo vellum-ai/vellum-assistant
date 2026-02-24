@@ -31,13 +31,22 @@ vellum email create <your-username>
 
 For `<your-username>`, use your assistant name (lowercased, alphanumeric only). Check your identity from `IDENTITY.md` or `USER.md` to determine your name. If you don't have a name yet, ask the user what username they'd like for your email.
 
-## Step 3: Confirm Setup
+## Step 3: Persist Your Email
 
-After the inbox is created successfully:
+After the inbox is created successfully, persist your email address to the workspace config so the desktop app can display it:
 
-1. Parse the command output to extract your new email address.
-2. Tell the user your new email address.
-3. Store a note in your memory or `USER.md` that your email has been provisioned so you remember it in future conversations.
+```bash
+vellum config set email.address <your-new-email-address>
+```
+
+Replace `<your-new-email-address>` with the full email address returned from the create command (e.g. `sam@agentmail.to`).
+
+## Step 4: Confirm Setup
+
+After the inbox is created and persisted:
+
+1. Tell the user your new email address.
+2. Store a note in your memory or `USER.md` that your email has been provisioned so you remember it in future conversations.
 
 ## Rules
 

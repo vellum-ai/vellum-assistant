@@ -1,4 +1,6 @@
+import Combine
 import Foundation
+import Network
 import os
 import UniformTypeIdentifiers
 #if os(macOS)
@@ -11,58 +13,199 @@ import UIKit
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ChatViewModel")
 
+/// Facade that owns the three focused sub-managers and forwards all property
+/// accesses to them via computed properties.  Existing call sites require no
+/// changes because the public API surface is identical to the previous monolith.
 @MainActor
 public final class ChatViewModel: ObservableObject {
-    @Published public var messages: [ChatMessage] = []
-    @Published public var inputText: String = ""
-    @Published public var isThinking: Bool = false
-    @Published public var isSending: Bool = false
-    @Published public var errorText: String?
-    @Published public var sessionError: SessionError?
-    @Published public var pendingQueuedCount: Int = 0
-    @Published public var suggestion: String?
-    @Published public var pendingAttachments: [ChatAttachment] = []
-    @Published public var isRecording: Bool = false
-    @Published public var isWorkspaceRefinementInFlight: Bool = false
-    @Published public var refinementMessagePreview: String?   // user's sent text
-    @Published public var refinementStreamingText: String?     // AI response as it streams
+
+    // MARK: - Sub-managers
+
+    /// Owns message-list and send-state properties.
+    public let messageManager = ChatMessageManager()
+    /// Owns the pending-attachment list and image-processing helpers.
+    public let attachmentManager = ChatAttachmentManager()
+    /// Owns errorText, sessionError, and connection-diagnostic properties.
+    public let errorManager = ChatErrorManager()
+
+    private var cancellables: Set<AnyCancellable> = []
+
+    // MARK: - Forwarding properties — ChatMessageManager
+
+    public var messages: [ChatMessage] {
+        get { messageManager.messages }
+        set { messageManager.messages = newValue }
+    }
+    public var inputText: String {
+        get { messageManager.inputText }
+        set { messageManager.inputText = newValue }
+    }
+    public var isThinking: Bool {
+        get { messageManager.isThinking }
+        set { messageManager.isThinking = newValue }
+    }
+    public var isSending: Bool {
+        get { messageManager.isSending }
+        set { messageManager.isSending = newValue }
+    }
+    public var pendingQueuedCount: Int {
+        get { messageManager.pendingQueuedCount }
+        set { messageManager.pendingQueuedCount = newValue }
+    }
+    public var suggestion: String? {
+        get { messageManager.suggestion }
+        set { messageManager.suggestion = newValue }
+    }
+    public var isRecording: Bool {
+        get { messageManager.isRecording }
+        set { messageManager.isRecording = newValue }
+    }
+    public var isWorkspaceRefinementInFlight: Bool {
+        get { messageManager.isWorkspaceRefinementInFlight }
+        set { messageManager.isWorkspaceRefinementInFlight = newValue }
+    }
+    /// The user's sent text shown while a refinement is in progress.
+    public var refinementMessagePreview: String? {
+        get { messageManager.refinementMessagePreview }
+        set { messageManager.refinementMessagePreview = newValue }
+    }
+    /// The AI response as it streams during a refinement.
+    public var refinementStreamingText: String? {
+        get { messageManager.refinementStreamingText }
+        set { messageManager.refinementStreamingText = newValue }
+    }
     /// Tracks whether a cancel was initiated during a workspace refinement.
     /// Used by `messageComplete` to correctly suppress refinement side-effects
     /// even though `isWorkspaceRefinementInFlight` is cleared immediately for UI.
-    var cancelledDuringRefinement: Bool = false
+    var cancelledDuringRefinement: Bool {
+        get { messageManager.cancelledDuringRefinement }
+        set { messageManager.cancelledDuringRefinement = newValue }
+    }
     /// Text buffered during a workspace refinement (normally suppressed from chat).
     /// Surfaced to the user if the refinement completes without a surface update.
-    var refinementTextBuffer: String = ""
-    var refinementReceivedSurfaceUpdate: Bool = false
+    var refinementTextBuffer: String {
+        get { messageManager.refinementTextBuffer }
+        set { messageManager.refinementTextBuffer = newValue }
+    }
+    var refinementReceivedSurfaceUpdate: Bool {
+        get { messageManager.refinementReceivedSurfaceUpdate }
+        set { messageManager.refinementReceivedSurfaceUpdate = newValue }
+    }
     /// When non-nil, displays a toast in the workspace with the AI's response
     /// after a refinement that produced no surface update.
-    @Published public var refinementFailureText: String?
-    var refinementFailureDismissTask: Task<Void, Never>?
+    public var refinementFailureText: String? {
+        get { messageManager.refinementFailureText }
+        set { messageManager.refinementFailureText = newValue }
+    }
+    var refinementFailureDismissTask: Task<Void, Never>? {
+        get { messageManager.refinementFailureDismissTask }
+        set { messageManager.refinementFailureDismissTask = newValue }
+    }
     /// Number of undo steps available for the active workspace surface.
-    @Published public var surfaceUndoCount: Int = 0
-    @Published public var pendingSkillInvocation: SkillInvocationData?
-    @Published public var isWatchSessionActive: Bool = false
-    @Published public var activeSubagents: [SubagentInfo] = []
-    public let subagentDetailStore = SubagentDetailStore()
+    public var surfaceUndoCount: Int {
+        get { messageManager.surfaceUndoCount }
+        set { messageManager.surfaceUndoCount = newValue }
+    }
+    public var pendingSkillInvocation: SkillInvocationData? {
+        get { messageManager.pendingSkillInvocation }
+        set { messageManager.pendingSkillInvocation = newValue }
+    }
+    public var isWatchSessionActive: Bool {
+        get { messageManager.isWatchSessionActive }
+        set { messageManager.isWatchSessionActive = newValue }
+    }
+    public var activeSubagents: [SubagentInfo] {
+        get { messageManager.activeSubagents }
+        set { messageManager.activeSubagents = newValue }
+    }
     /// Widget IDs dismissed by the user, persisted across view recreation.
-    @Published public var dismissedDocumentSurfaceIds: Set<String> = []
-
+    public var dismissedDocumentSurfaceIds: Set<String> {
+        get { messageManager.dismissedDocumentSurfaceIds }
+        set { messageManager.dismissedDocumentSurfaceIds = newValue }
+    }
     /// The currently active model ID, updated via `model_info` IPC messages.
-    @Published public var selectedModel: String = "claude-opus-4-6"
+    public var selectedModel: String {
+        get { messageManager.selectedModel }
+        set { messageManager.selectedModel = newValue }
+    }
     /// Set of provider keys with configured API keys, updated via `model_info` IPC messages.
-    @Published public var configuredProviders: Set<String> = ["anthropic"]
+    public var configuredProviders: Set<String> {
+        get { messageManager.configuredProviders }
+        set { messageManager.configuredProviders = newValue }
+    }
+    /// Whether the memory backend is currently degraded (e.g. embedding failures).
+    /// Updated from `memory_status` IPC messages. When `true`, semantic recall is
+    /// unavailable and the assistant falls back to lexical-only search.
+    public var isMemoryDegraded: Bool {
+        get { messageManager.isMemoryDegraded }
+        set { messageManager.isMemoryDegraded = newValue }
+    }
+    /// Human-readable reason for degradation (e.g. "memory.embedding_failure: API 401").
+    /// Nil when memory is healthy or memory is disabled.
+    public var memoryDegradedReason: String? {
+        get { messageManager.memoryDegradedReason }
+        set { messageManager.memoryDegradedReason = newValue }
+    }
+
+    // MARK: - Forwarding properties — ChatAttachmentManager
+
+    public var pendingAttachments: [ChatAttachment] {
+        get { attachmentManager.pendingAttachments }
+        set { attachmentManager.pendingAttachments = newValue }
+    }
+    /// True while at least one attachment is still being loaded in the background.
+    /// The send button checks this to prevent sending before async load finishes.
+    public var isLoadingAttachment: Bool {
+        attachmentManager.isLoadingAttachment
+    }
+
+    // MARK: - Forwarding properties — ChatErrorManager
+
+    public var errorText: String? {
+        get { errorManager.errorText }
+        set { errorManager.errorText = newValue }
+    }
+    public var sessionError: SessionError? {
+        get { errorManager.sessionError }
+        set { errorManager.sessionError = newValue }
+    }
+    /// Supplemental diagnostic hint shown alongside a daemon connection error.
+    /// Nil when no connection error is active or the error has been dismissed.
+    public var connectionDiagnosticHint: String? {
+        get { errorManager.connectionDiagnosticHint }
+        set { errorManager.connectionDiagnosticHint = newValue }
+    }
+
+    // MARK: - Static size limits (forwarded to attachment manager for use in extensions)
 
     /// Maximum file size per attachment (20 MB).
-    static let maxFileSize = 20 * 1024 * 1024
+    static let maxFileSize = ChatAttachmentManager.maxFileSize
     /// Maximum image size before compression (4 MB - leaves headroom for base64 encoding).
     /// Anthropic has a 5MB limit per image; base64 encoding adds ~33% overhead.
-    static let maxImageSize = 4 * 1024 * 1024
+    static let maxImageSize = ChatAttachmentManager.maxImageSize
     /// Maximum number of attachments per message.
-    public static let maxAttachments = 5
+    public static let maxAttachments = ChatAttachmentManager.maxAttachments
 
+    public let subagentDetailStore = SubagentDetailStore()
     let daemonClient: any DaemonClientProtocol
-    public var sessionId: String?
+    public var sessionId: String? {
+        didSet {
+            #if os(iOS)
+            // If the daemon reconnected before this VM had a session ID, a deferred
+            // flush was requested. Now that we have a session, run it.
+            if sessionId != nil && needsOfflineFlush {
+                needsOfflineFlush = false
+                flushOfflineQueue()
+            }
+            #endif
+        }
+    }
     private var reconnectObserver: NSObjectProtocol?
+    #if os(iOS)
+    /// Set to true when daemonDidReconnect fires before sessionId is populated.
+    /// Cleared and actioned in the sessionId didSet observer.
+    private var needsOfflineFlush: Bool = false
+    #endif
     var pendingUserMessage: String?
     /// Optional callback for sending notifications when tool-use messages complete
     public var onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)?
@@ -189,6 +332,54 @@ public final class ChatViewModel: ObservableObject {
     /// Observers can check this to avoid treating the history hydration as new activity.
     public private(set) var isLoadingHistory: Bool = false
 
+    // MARK: - Message Pagination
+
+    /// Page size for chat message display; older messages are loaded in this increment.
+    public static let messagePageSize = 50
+
+    /// Number of messages currently revealed at the top of the conversation.
+    /// The view slices `messages` to `messages.suffix(displayedMessageCount)`.
+    /// Grows by `messagePageSize` each time the user scrolls to the top.
+    /// Set to `Int.max` when the user has loaded all history ("show all" mode), so that new
+    /// incoming messages don't collapse the window back to `suffix(messagePageSize)`.
+    @Published public var displayedMessageCount: Int = messagePageSize
+
+    /// True while a previous-page load is in progress (brief async delay for UX).
+    @Published public var isLoadingMoreMessages: Bool = false
+
+    /// The subset of messages that are actually displayed (excludes subagent notifications
+    /// and other UI-only messages that the view filters before rendering).
+    public var displayedMessages: [ChatMessage] { messages.filter { !$0.isSubagentNotification } }
+
+    /// Whether there are more messages above the current display window.
+    /// Compares against the filtered (displayed) count so the "load more" sentinel
+    /// appears only when there are genuinely more visible messages to reveal.
+    /// When `displayedMessageCount == Int.max` (show-all mode), this is always false.
+    public var hasMoreMessages: Bool { displayedMessageCount < displayedMessages.count }
+
+    /// Load the previous page of messages by expanding the display window.
+    /// Returns `true` if there were additional messages to reveal.
+    @discardableResult
+    public func loadPreviousMessagePage() async -> Bool {
+        guard hasMoreMessages, !isLoadingMoreMessages else { return false }
+        isLoadingMoreMessages = true
+        // Brief delay so the loading indicator is visible before the list shifts.
+        try? await Task.sleep(nanoseconds: 150_000_000)
+        let next = displayedMessageCount + Self.messagePageSize
+        let total = displayedMessages.count
+        // When all messages fit within the expanded window, switch to show-all mode
+        // (Int.max) so future incoming messages don't shrink the visible history back
+        // to a suffix window — the regression described in the parent PR.
+        displayedMessageCount = next >= total ? Int.max : next
+        isLoadingMoreMessages = false
+        return true
+    }
+
+    /// Reset pagination when the thread switches or history is reloaded.
+    public func resetMessagePagination() {
+        displayedMessageCount = Self.messagePageSize
+    }
+
     /// Surface the user is currently viewing in workspace mode.
     /// Set by MainWindowView when the dynamic workspace is expanded.
     public var activeSurfaceId: String? {
@@ -212,6 +403,26 @@ public final class ChatViewModel: ObservableObject {
     public init(daemonClient: any DaemonClientProtocol, onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)? = nil) {
         self.daemonClient = daemonClient
         self.onToolCallsComplete = onToolCallsComplete
+
+        // Pipe sub-manager objectWillChange signals through this object so that
+        // SwiftUI views observing ChatViewModel are notified whenever any
+        // sub-manager @Published property changes.
+        messageManager.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+        attachmentManager.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+        errorManager.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+
+        // Surface attachment validation errors in the error manager so the UI
+        // can show them without the attachment manager needing a direct reference.
+        attachmentManager.onError = { [weak self] message in
+            self?.errorManager.errorText = message
+        }
+
         reconnectObserver = NotificationCenter.default.addObserver(
             forName: .daemonDidReconnect,
             object: nil,
@@ -222,6 +433,22 @@ public final class ChatViewModel: ObservableObject {
                 self?.pendingMessageIds.removeAll()
                 self?.requestIdToMessageId.removeAll()
                 self?.pendingLocalDeletions.removeAll()
+                // Do NOT reset isMemoryDegraded/memoryDegradedReason here: the daemon
+                // only emits memory_status during turn processing (prepareMemoryContext),
+                // not as part of a reconnect handshake. Clearing on reconnect would
+                // produce a false healthy state after transient disconnects — the banner
+                // would disappear until the user sends another message. Preserve the
+                // last-known state; it will be updated when the next turn is processed.
+                #if os(iOS)
+                // If we already have a session ID, flush immediately. Otherwise
+                // defer: sessionId's didSet will trigger flushOfflineQueue() once
+                // the session is restored from history (cold-start reconnect case).
+                if self?.sessionId != nil {
+                    self?.flushOfflineQueue()
+                } else {
+                    self?.needsOfflineFlush = true
+                }
+                #endif
             }
         }
     }
@@ -293,6 +520,7 @@ public final class ChatViewModel: ObservableObject {
                 lastFailedMessageText = nil
                 lastFailedMessageAttachments = nil
                 lastFailedSendError = nil
+                connectionDiagnosticHint = nil
                 secretBlockedMessageText = nil
                 secretBlockedAttachments = nil
                 secretBlockedActiveSurfaceId = nil
@@ -339,6 +567,7 @@ public final class ChatViewModel: ObservableObject {
         lastFailedMessageText = nil
         lastFailedMessageAttachments = nil
         lastFailedSendError = nil
+        connectionDiagnosticHint = nil
         secretBlockedMessageText = nil
         secretBlockedAttachments = nil
         secretBlockedActiveSurfaceId = nil
@@ -393,6 +622,7 @@ public final class ChatViewModel: ObservableObject {
                     self.lastFailedMessageText = self.pendingUserMessage
                     self.lastFailedMessageAttachments = self.pendingUserAttachments
                     self.lastFailedSendError = "Failed to connect to the assistant."
+                    self.connectionDiagnosticHint = Self.connectionDiagnosticHint(for: error)
                     self.pendingUserMessage = nil
                     self.pendingUserAttachments = nil
                     self.errorText = self.lastFailedSendError
@@ -432,6 +662,26 @@ public final class ChatViewModel: ObservableObject {
         // daemon has disconnected between turns.
         guard daemonClient.isConnected else {
             log.error("Cannot send user_message: daemon not connected")
+
+            #if os(iOS)
+            // On iOS, buffer the primary (non-queued-retry) send in the offline queue
+            // instead of surfacing an error. The message stays visible with a
+            // "pending" indicator and is flushed automatically on reconnect.
+            if queuedMessageId == nil {
+                log.info("Buffering message in offline queue (session: \(sessionId))")
+                OfflineMessageQueue.shared.enqueue(sessionId: sessionId, text: text, attachments: attachments)
+                // Mark the corresponding chat message as offline-pending so the UI
+                // can show a visual indicator. Find the last user message with this
+                // text — it is the one just appended by sendMessage().
+                if let idx = messages.indices.reversed().first(where: { messages[$0].role == .user && messages[$0].text == text }) {
+                    messages[idx].status = .pendingOffline
+                }
+                // Don't show the error banner — the pending indicator on the bubble
+                // communicates the offline state without interrupting the conversation.
+                return
+            }
+            #endif
+
             // Always track the failed message for retry support.
             lastFailedMessageText = text
             lastFailedMessageAttachments = attachments
@@ -497,6 +747,56 @@ public final class ChatViewModel: ObservableObject {
             }
         }
     }
+
+    // MARK: - Offline Queue Flush (iOS only)
+
+    #if os(iOS)
+    /// Drain the persistent offline queue and send all buffered messages in order.
+    ///
+    /// Called automatically when the daemon reconnects. Only flushes messages whose
+    /// sessionId matches this view model's current session, so concurrent view models
+    /// on different sessions don't interfere with each other's queued messages.
+    ///
+    /// Messages are removed from persistent storage one at a time, immediately before
+    /// each send, so a crash mid-flush leaves unprocessed messages intact rather than
+    /// silently dropping them.
+    func flushOfflineQueue() {
+        let queue = OfflineMessageQueue.shared
+        guard !queue.isEmpty else { return }
+
+        guard let currentSessionId = sessionId else {
+            // No session yet — defer until sessionId is populated.
+            needsOfflineFlush = true
+            return
+        }
+
+        // Read the queue contents without clearing. Filter for this session only;
+        // other sessions' messages stay in the persistent store for their own VMs.
+        let mine = queue.allMessages.filter { $0.sessionId == currentSessionId }
+        guard !mine.isEmpty else { return }
+
+        log.info("Flushing \(mine.count) offline-queued message(s) for session \(currentSessionId)")
+
+        // Update message bubbles: clear pendingOffline status so they show as sent.
+        for queued in mine {
+            if let idx = messages.indices.reversed().first(where: {
+                messages[$0].role == .user
+                    && messages[$0].text == queued.text
+                    && messages[$0].status == .pendingOffline
+            }) {
+                messages[idx].status = .sent
+            }
+        }
+
+        // Remove each message from persistent storage and send it. Removal happens
+        // before the send attempt so a successful removal + failed send is recoverable
+        // via the normal error retry path, rather than duplicating on the next flush.
+        for queued in mine {
+            queue.remove(id: queued.id)
+            sendUserMessage(queued.text, attachments: queued.ipcAttachments)
+        }
+    }
+    #endif
 
     public func startMessageLoop() {
         messageLoopTask?.cancel()
@@ -926,6 +1226,7 @@ public final class ChatViewModel: ObservableObject {
         lastFailedMessageText = nil
         lastFailedMessageAttachments = nil
         lastFailedSendError = nil
+        connectionDiagnosticHint = nil
         secretBlockedMessageText = nil
         secretBlockedAttachments = nil
         secretBlockedActiveSurfaceId = nil
@@ -1054,6 +1355,7 @@ public final class ChatViewModel: ObservableObject {
         lastFailedMessageAttachments = nil
         lastFailedSendError = nil
         errorText = nil
+        connectionDiagnosticHint = nil
 
         if sessionId == nil {
             bootstrapSession(userMessage: text, attachments: attachments)
@@ -1236,6 +1538,7 @@ public final class ChatViewModel: ObservableObject {
                         toolName: tc.name,
                         inputSummary: summarizeToolInput(tc.input),
                         inputFull: formatAllToolInput(tc.input),
+                        inputRawValue: extractToolInput(tc.input),
                         result: tc.result,
                         isError: tc.isError ?? false,
                         isComplete: true,
@@ -1428,6 +1731,8 @@ public final class ChatViewModel: ObservableObject {
         }
         self.isLoadingHistory = false
         self.isHistoryLoaded = true
+        // Reset pagination so the view shows the most-recent page after history loads.
+        self.displayedMessageCount = Self.messagePageSize
         // Surfaces are now included directly in the history response and populated above
     }
 
@@ -1436,5 +1741,13 @@ public final class ChatViewModel: ObservableObject {
         if let observer = reconnectObserver {
             NotificationCenter.default.removeObserver(observer)
         }
+    }
+
+    // MARK: - Connection diagnostics
+
+    /// Map a raw connection error to a short, actionable diagnostic hint.
+    /// Delegates to ChatErrorManager so the logic lives in one place.
+    static func connectionDiagnosticHint(for error: Error) -> String? {
+        ChatErrorManager.connectionDiagnosticHint(for: error)
     }
 }

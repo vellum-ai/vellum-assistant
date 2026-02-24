@@ -78,6 +78,7 @@ struct ObservationSummaryView: View {
                         Text(proposalText)
                             .font(VFont.body)
                             .foregroundColor(VColor.textSecondary)
+                            .textSelection(.enabled)
                             .transition(.opacity.combined(with: .offset(y: 6)))
                             .onAppear {
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
@@ -138,6 +139,7 @@ private struct InsightRow: View {
             Text(text)
                 .font(VFont.body)
                 .foregroundColor(VColor.textPrimary)
+                .textSelection(.enabled)
         }
         .opacity(appeared ? 1 : 0)
         .offset(y: appeared ? 0 : 4)

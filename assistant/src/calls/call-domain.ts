@@ -6,6 +6,7 @@
  */
 
 import { getLogger } from '../util/logger.js';
+import { getTwilioUserPhoneNumber } from '../config/env.js';
 import { isDeniedNumber } from './call-constants.js';
 import {
   createCallSession,
@@ -17,6 +18,7 @@ import {
   answerPendingQuestion,
   expirePendingQuestions,
 } from './call-store.js';
+import { isTerminalState } from './call-state-machine.js';
 import { getCallOrchestrator, unregisterCallOrchestrator } from './call-state.js';
 import { activeRelayConnections } from './relay-server.js';
 import { TwilioConversationRelayProvider } from './twilio-provider.js';
@@ -137,8 +139,8 @@ export async function resolveCallerIdentity(
   if (identityConfig.userNumber) {
     userNumber = identityConfig.userNumber;
     numberSource = 'user_config';
-  } else if (process.env.TWILIO_USER_PHONE_NUMBER) {
-    userNumber = process.env.TWILIO_USER_PHONE_NUMBER;
+  } else if (getTwilioUserPhoneNumber()) {
+    userNumber = getTwilioUserPhoneNumber()!;
     numberSource = 'env_var';
   } else {
     const secureKeyValue = getSecureKey('credential:twilio:user_phone_number');
@@ -410,7 +412,7 @@ export async function cancelCall(input: CancelCallInput): Promise<{ ok: true; se
     return { ok: false, error: `No call session found with ID ${callSessionId}`, status: 404 };
   }
 
-  if (session.status === 'completed' || session.status === 'failed' || session.status === 'cancelled') {
+  if (isTerminalState(session.status)) {
     return { ok: false, error: `Call session ${callSessionId} has already ended with status: ${session.status}`, status: 409 };
   }
 
@@ -515,7 +517,7 @@ export async function relayInstruction(input: RelayInstructionInput): Promise<{ 
     return { ok: false, error: `No call session found with ID ${callSessionId}`, status: 404 };
   }
 
-  if (session.status === 'completed' || session.status === 'failed' || session.status === 'cancelled') {
+  if (isTerminalState(session.status)) {
     return { ok: false, error: `Call session ${callSessionId} is not active (status: ${session.status})`, status: 409 };
   }
 

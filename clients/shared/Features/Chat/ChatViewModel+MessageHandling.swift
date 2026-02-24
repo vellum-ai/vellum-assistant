@@ -747,7 +747,7 @@ extension ChatViewModel {
             }
 
         case .error(let err):
-            log.error("Server error: \(err.message)")
+            log.error("Server error: \(err.message, privacy: .private)")
             // Only process errors relevant to this chat session. Generic daemon
             // errors (e.g., IPC validation failures from unrelated message types
             // like work_item_delete) should not pollute the chat UI.
@@ -904,6 +904,7 @@ extension ChatViewModel {
                 toolName: msg.toolName,
                 inputSummary: summarizeToolInput(msg.input),
                 inputFull: formatAllToolInput(msg.input),
+                inputRawValue: extractToolInput(msg.input),
                 arrivedBeforeText: !currentAssistantHasText,
                 startedAt: Date()
             )
@@ -1168,7 +1169,7 @@ extension ChatViewModel {
 
         case .sessionError(let msg):
             guard sessionId != nil, belongsToSession(msg.sessionId) else { return }
-            log.error("Session error [\(msg.code.rawValue)]: \(msg.userMessage)")
+            log.error("Session error [\(msg.code.rawValue, privacy: .public)]: \(msg.userMessage, privacy: .private)")
             isWorkspaceRefinementInFlight = false
             refinementMessagePreview = nil
             refinementStreamingText = nil
@@ -1287,6 +1288,12 @@ extension ChatViewModel {
             if let providers = msg.configuredProviders {
                 configuredProviders = Set(providers)
             }
+
+        case .memoryStatus(let status):
+            // Update degradation state so the UI can surface a subtle warning banner.
+            let degraded = status.enabled && status.degraded
+            isMemoryDegraded = degraded
+            memoryDegradedReason = degraded ? status.reason : nil
 
         default:
             break

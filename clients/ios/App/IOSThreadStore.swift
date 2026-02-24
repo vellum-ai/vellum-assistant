@@ -15,14 +15,18 @@ struct IOSThread: Identifiable {
     /// When non-nil, this thread is backed by a daemon session (Connected mode).
     var sessionId: String?
     var isArchived: Bool
+    /// Private threads are excluded from the normal thread list and persist only
+    /// for the current session. They match the macOS "temporary chat" behavior.
+    var isPrivate: Bool
 
-    init(id: UUID = UUID(), title: String = "New Chat", createdAt: Date = Date(), lastActivityAt: Date? = nil, sessionId: String? = nil, isArchived: Bool = false) {
+    init(id: UUID = UUID(), title: String = "New Chat", createdAt: Date = Date(), lastActivityAt: Date? = nil, sessionId: String? = nil, isArchived: Bool = false, isPrivate: Bool = false) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
         self.lastActivityAt = lastActivityAt ?? createdAt
         self.sessionId = sessionId
         self.isArchived = isArchived
+        self.isPrivate = isPrivate
     }
 }
 
@@ -35,6 +39,7 @@ private struct PersistedThread: Codable {
     var createdAt: Date
     var lastActivityAt: Date?
     var isArchived: Bool?
+    var isPrivate: Bool?
 }
 
 // MARK: - IOSThreadStore
@@ -48,16 +53,40 @@ private struct PersistedThread: Codable {
 class IOSThreadStore: ObservableObject {
     @Published var threads: [IOSThread] = []
     @Published var isConnectedMode: Bool = false
+    /// True while an additional page of threads is being fetched from the daemon.
+    @Published var isLoadingMoreThreads: Bool = false
+    /// Whether the daemon indicated more sessions exist beyond what is currently loaded.
+    @Published var hasMoreThreads: Bool = false
 
     /// ViewModels keyed by thread ID, created lazily on first access.
     private var viewModels: [UUID: ChatViewModel] = [:]
-    private let daemonClient: any DaemonClientProtocol
+    private var daemonClient: any DaemonClientProtocol
     private static let persistenceKey = "ios_threads_v1"
     private var cancellables: Set<AnyCancellable> = []
     /// Maps daemon session IDs to thread IDs for history loading.
     private var pendingHistoryBySessionId: [String: UUID] = [:]
     /// Tracks thread IDs that already have an activity-tracking observer to avoid duplicates.
     private var observedActivityThreadIds: Set<UUID> = []
+    /// Number of threads per page when listing sessions from the daemon.
+    private static let threadPageSize = 50
+    /// Current offset used for the next page fetch; advances by `threadPageSize` on each load.
+    private var threadListOffset: Int = 0
+    /// Reconnect-generation counter. Incremented only when pagination is reset due to a
+    /// reconnect (or a `rebindDaemonClient` call). Never incremented on ordinary
+    /// `loadMoreThreads` calls.
+    ///
+    /// Because the daemon does not echo a request ID back in session-list responses, we
+    /// cannot correlate individual responses to individual requests within the same
+    /// connection.  What we *can* do is reject any response that arrived from the *old*
+    /// connection after a reconnect has already started a fresh page-1 sequence.  This is
+    /// exactly what the generation counter provides: every page-1 send captures the current
+    /// generation in `expectedSessionListGeneration`; the response handler discards any
+    /// response whose expected generation no longer matches the live counter.
+    private var sessionListGeneration: UInt64 = 0
+    /// Generation captured at the time the most-recent page-1 session-list request was sent.
+    /// The response handler compares this against `sessionListGeneration` to detect and
+    /// discard stale responses from the previous connection.
+    private var expectedSessionListGeneration: UInt64 = 0
 
     init(daemonClient: any DaemonClientProtocol) {
         self.daemonClient = daemonClient
@@ -97,25 +126,139 @@ class IOSThreadStore: ObservableObject {
         // Fetch session list once connected. Try immediately if already connected,
         // otherwise wait for the daemonDidReconnect notification.
         if daemon.isConnected {
-            try? daemon.sendSessionList()
+            threadListOffset = 0
+            sessionListGeneration += 1
+            sendPageOneSessionList(daemon: daemon)
         }
 
         NotificationCenter.default.publisher(for: .daemonDidReconnect)
             .sink { [weak self, weak daemon] _ in
-                guard let daemon, self != nil else { return }
-                try? daemon.sendSessionList()
+                guard let self, let daemon else { return }
+                // Reset pagination state so the list refreshes from page 1.
+                self.threadListOffset = 0
+                self.hasMoreThreads = false
+                // Bump the generation counter WITHOUT touching expectedSessionListGeneration.
+                // There is now a gap where sessionListGeneration = N but
+                // expectedSessionListGeneration = N-1.  Any in-flight response from the
+                // old connection that arrives in this window fails the
+                // expectedSessionListGeneration == sessionListGeneration guard in
+                // handleSessionListResponse and is correctly discarded.
+                //
+                // expectedSessionListGeneration is updated to N only when the new page-1
+                // request is actually sent (inside sendPageOneSessionList), so if the send
+                // throws the guard stays closed.
+                //
+                // Limitation: responses that arrive after the new page-1 has been sent
+                // cannot be distinguished from the new page-1 response because the daemon
+                // does not echo a request ID. Only reconnect-era staleness is detectable.
+                self.sessionListGeneration += 1
+                self.sendPageOneSessionList(daemon: daemon)
             }
             .store(in: &cancellables)
     }
 
-    private func handleSessionListResponse(_ response: SessionListResponseMessage) {
-        guard !response.sessions.isEmpty else { return }
+    /// Capture the current generation as expected and send a page-1 session-list request.
+    ///
+    /// `expectedSessionListGeneration` is updated here — not in the reconnect handler — so
+    /// the guard window (sessionListGeneration != expectedSessionListGeneration) remains open
+    /// for any response that arrives between the generation bump and this send.  If the send
+    /// throws, the expected generation is not advanced and the guard stays closed.
+    private func sendPageOneSessionList(daemon: DaemonClient) {
+        do {
+            try daemon.sendSessionList(offset: 0, limit: Self.threadPageSize)
+            expectedSessionListGeneration = sessionListGeneration
+        } catch {
+            // Send failed — leave expectedSessionListGeneration unchanged so the
+            // guard stays closed and stale responses are rejected.
+        }
+    }
 
-        let recentSessions = Array(response.sessions.filter { $0.threadType != "private" }.prefix(10))
-        guard !recentSessions.isEmpty else { return }
+    /// Re-point the store at a freshly constructed DaemonClient after `rebuildClient()`.
+    ///
+    /// `@StateObject` is initialised once by SwiftUI and never replaced when `ContentView`
+    /// re-initialises, so when the connection is rebuilt (QR pairing, settings change) the
+    /// store would otherwise keep sending messages to the old, disconnected client.  This
+    /// method swaps the client reference, cancels Combine subscriptions that captured the old
+    /// client, drops stale ChatViewModels (they reference the old client via `ChatViewModel`'s
+    /// own stored reference), resets pagination, and re-registers daemon callbacks on the new
+    /// client so the thread list is refreshed from the new connection.
+    func rebindDaemonClient(_ newClient: any DaemonClientProtocol) {
+        // Drop Combine subscriptions tied to the old DaemonClient so the reconnect
+        // publisher from setupDaemonCallbacks doesn't fire against the wrong daemon.
+        cancellables.removeAll()
+
+        // Nil out callbacks on the old daemon before replacing the reference.
+        // In-flight HTTP responses (session-list, history, subagent-detail) are launched
+        // in fire-and-forget Tasks and are not cancelled by disconnect.  Without this,
+        // a response arriving after the rebind would invoke the closures registered by
+        // the previous setupDaemonCallbacks call, which capture [weak self] and would
+        // still call back into this store — potentially corrupting the thread list with
+        // stale sessions from the old connection.
+        if let oldDaemon = daemonClient as? DaemonClient {
+            oldDaemon.onSessionListResponse = nil
+            oldDaemon.onHistoryResponse = nil
+            oldDaemon.onSubagentDetailResponse = nil
+        }
+
+        daemonClient = newClient
+
+        // Existing ViewModels hold a reference to the old, disconnected client inside
+        // ChatViewModel.  Discard them so new ones are created with the new client.
+        viewModels.removeAll()
+        observedActivityThreadIds.removeAll()
+        pendingHistoryBySessionId.removeAll()
+
+        if let daemon = newClient as? DaemonClient {
+            // Connected mode — reset thread list and re-fetch from the new daemon.
+            // Bump the generation so any in-flight response from the old client is
+            // discarded by the handler (setupDaemonCallbacks will bump it again on
+            // the fresh page-1 send, keeping expectedSessionListGeneration in sync).
+            isConnectedMode = true
+            threads = [IOSThread()]
+            threadListOffset = 0
+            sessionListGeneration += 1
+            hasMoreThreads = false
+            isLoadingMoreThreads = false
+            setupDaemonCallbacks(daemon)
+        } else {
+            // Switched back to standalone mode — reload persisted threads.
+            isConnectedMode = false
+            let loaded = Self.load()
+            if loaded.isEmpty {
+                let thread = IOSThread()
+                threads = [thread]
+                save()
+            } else {
+                threads = loaded
+            }
+        }
+    }
+
+    private func handleSessionListResponse(_ response: SessionListResponseMessage) {
+        // Discard responses from a previous connection.  The daemon does not echo a
+        // request ID, so within a single connection all responses are accepted in order.
+        // Reconnect-era staleness is detected via the generation counter: when the
+        // connection is reset, sessionListGeneration is bumped and
+        // expectedSessionListGeneration is updated to match only for the new page-1
+        // send.  Any response still arriving from the old connection carries the stale
+        // expected generation and is dropped here.
+        guard expectedSessionListGeneration == sessionListGeneration else {
+            return
+        }
+
+        let filteredSessions = response.sessions.filter { $0.threadType != "private" }
+        guard !filteredSessions.isEmpty || (response.hasMore == false && threadListOffset == 0) else {
+            // Empty non-first page means nothing more to append.
+            isLoadingMoreThreads = false
+            hasMoreThreads = response.hasMore ?? false
+            return
+        }
+
+        hasMoreThreads = response.hasMore ?? false
+        isLoadingMoreThreads = false
 
         var restoredThreads: [IOSThread] = []
-        for session in recentSessions {
+        for session in filteredSessions {
             let thread = IOSThread(
                 title: session.title,
                 createdAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
@@ -127,33 +270,69 @@ class IOSThreadStore: ObservableObject {
             restoredThreads.append(thread)
         }
 
-        // Replace the default empty thread with daemon threads
-        let defaultIsEmpty = threads.count == 1
-            && viewModels[threads[0].id]?.messages.isEmpty ?? true
-            && viewModels[threads[0].id]?.sessionId == nil
-        if defaultIsEmpty, let defaultThread = threads.first {
-            viewModels.removeValue(forKey: defaultThread.id)
-            threads = restoredThreads
-        } else {
-            // Deduplicate: only prepend restored threads whose sessionId
-            // doesn't already exist in the current thread list.
-            let existingSessionIds: Set<String> = Set(
-                threads.compactMap { thread -> String? in
-                    // Check both the thread's own sessionId AND the VM's bound sessionId
-                    if let sid = thread.sessionId { return sid }
-                    return viewModels[thread.id]?.sessionId
+        // First page: replace the default empty placeholder thread if present.
+        if threadListOffset == 0 {
+            let defaultIsEmpty = threads.count == 1
+                && viewModels[threads[0].id]?.messages.isEmpty ?? true
+                && viewModels[threads[0].id]?.sessionId == nil
+            if defaultIsEmpty, let defaultThread = threads.first {
+                viewModels.removeValue(forKey: defaultThread.id)
+                threads = restoredThreads
+            } else {
+                // Deduplicate: only prepend restored threads whose sessionId
+                // doesn't already exist in the current thread list.
+                let existingSessionIds: Set<String> = Set(
+                    threads.compactMap { thread -> String? in
+                        // Check both the thread's own sessionId AND the VM's bound sessionId
+                        if let sid = thread.sessionId { return sid }
+                        return viewModels[thread.id]?.sessionId
+                    }
+                )
+                var newThreads: [IOSThread] = []
+                for restored in restoredThreads {
+                    if let sid = restored.sessionId, existingSessionIds.contains(sid) {
+                        // Already have a thread for this session — discard the duplicate VM.
+                        viewModels.removeValue(forKey: restored.id)
+                    } else {
+                        newThreads.append(restored)
+                    }
                 }
-            )
-            var newThreads: [IOSThread] = []
+                threads = newThreads + threads
+            }
+        } else {
+            // Subsequent pages: append only sessions not already in the list.
+            let existingSessionIds: Set<String> = Set(threads.compactMap { thread -> String? in
+                if let sid = thread.sessionId { return sid }
+                return viewModels[thread.id]?.sessionId
+            })
             for restored in restoredThreads {
                 if let sid = restored.sessionId, existingSessionIds.contains(sid) {
-                    // Already have a thread for this session — discard the duplicate VM.
                     viewModels.removeValue(forKey: restored.id)
                 } else {
-                    newThreads.append(restored)
+                    threads.append(restored)
                 }
             }
-            threads = newThreads + threads
+        }
+    }
+
+    /// Load the next page of threads from the daemon (Connected mode only).
+    func loadMoreThreads() {
+        guard isConnectedMode,
+              let daemon = daemonClient as? DaemonClient,
+              !isLoadingMoreThreads,
+              hasMoreThreads else { return }
+        isLoadingMoreThreads = true
+        let nextOffset = threadListOffset + Self.threadPageSize
+        threadListOffset = nextOffset
+        // Do not touch sessionListGeneration or expectedSessionListGeneration here.
+        // The generation counter tracks reconnect boundaries only; within a single
+        // connection all responses are accepted (the daemon doesn't echo request IDs).
+        do {
+            try daemon.sendSessionList(offset: nextOffset, limit: Self.threadPageSize)
+        } catch {
+            // Request failed before being sent — roll back pagination state.
+            isLoadingMoreThreads = false
+            threadListOffset -= Self.threadPageSize
         }
     }
 
@@ -202,7 +381,7 @@ class IOSThreadStore: ObservableObject {
         // Find the thread's default title; skip if already customized.
         guard threads.first(where: { $0.id == threadId })?.title == "New Chat" else { return }
 
-        vm.$messages
+        vm.messageManager.$messages
             .dropFirst()
             .compactMap { messages -> String? in
                 // Trigger once we have at least one user message and the first assistant
@@ -238,7 +417,7 @@ class IOSThreadStore: ObservableObject {
         guard !observedActivityThreadIds.contains(threadId) else { return }
         observedActivityThreadIds.insert(threadId)
 
-        vm.$messages
+        vm.messageManager.$messages
             .dropFirst()
             .map(\.count)
             .removeDuplicates()
@@ -249,6 +428,12 @@ class IOSThreadStore: ObservableObject {
             .store(in: &cancellables)
     }
 
+    /// Private threads are excluded from the session list response filter, so they
+    /// won't appear in the normal active thread list.
+    var privateThreads: [IOSThread] {
+        threads.filter { $0.isPrivate }
+    }
+
     @discardableResult
     func newThread() -> IOSThread {
         let thread = IOSThread()
@@ -257,11 +442,28 @@ class IOSThreadStore: ObservableObject {
         return thread
     }
 
+    /// Create a new private thread with the given name. The thread is immediately
+    /// backed by a daemon session with threadType "private" so it is persisted on
+    /// the daemon side and excluded from normal thread restoration.
+    @discardableResult
+    func newPrivateThread(name: String = "Private Thread") -> IOSThread {
+        let thread = IOSThread(title: name, isPrivate: true)
+        threads.append(thread)
+        // Get or create the view model after appending so activity tracking
+        // can find the thread in self.threads.
+        let vm = viewModel(for: thread.id)
+        vm.createSessionIfNeeded(threadType: "private")
+        save()
+        return thread
+    }
+
     func deleteThread(_ thread: IOSThread) {
         viewModels.removeValue(forKey: thread.id)
         threads.removeAll { $0.id == thread.id }
-        // Always keep at least one active (non-archived) thread.
-        if threads.filter({ !$0.isArchived }).isEmpty {
+        // Always keep at least one active (non-archived) non-private thread.
+        // Private threads are managed separately and should not prevent the
+        // regular thread list from being empty.
+        if threads.filter({ !$0.isArchived && !$0.isPrivate }).isEmpty {
             newThread()
         } else {
             save()
@@ -307,7 +509,7 @@ class IOSThreadStore: ObservableObject {
     private func save() {
         // Don't persist daemon-synced threads — they're loaded on connect.
         guard !isConnectedMode else { return }
-        let persisted = threads.map { PersistedThread(id: $0.id, title: $0.title, createdAt: $0.createdAt, lastActivityAt: $0.lastActivityAt, isArchived: $0.isArchived) }
+        let persisted = threads.map { PersistedThread(id: $0.id, title: $0.title, createdAt: $0.createdAt, lastActivityAt: $0.lastActivityAt, isArchived: $0.isArchived, isPrivate: $0.isPrivate) }
         if let data = try? JSONEncoder().encode(persisted) {
             UserDefaults.standard.set(data, forKey: Self.persistenceKey)
         }
@@ -318,7 +520,7 @@ class IOSThreadStore: ObservableObject {
               let persisted = try? JSONDecoder().decode([PersistedThread].self, from: data) else {
             return []
         }
-        return persisted.map { IOSThread(id: $0.id, title: $0.title, createdAt: $0.createdAt, lastActivityAt: $0.lastActivityAt, isArchived: $0.isArchived ?? false) }
+        return persisted.map { IOSThread(id: $0.id, title: $0.title, createdAt: $0.createdAt, lastActivityAt: $0.lastActivityAt, isArchived: $0.isArchived ?? false, isPrivate: $0.isPrivate ?? false) }
     }
 }
 #endif

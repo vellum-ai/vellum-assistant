@@ -77,7 +77,7 @@ export class FailoverProvider implements Provider {
       const now = Date.now();
 
       // Skip providers that are still in cooldown
-      if (health.unhealthySince !== null) {
+      if (health.unhealthySince != null) {
         const elapsed = now - health.unhealthySince;
         if (elapsed < this.cooldownMs) {
           log.debug(
@@ -93,7 +93,7 @@ export class FailoverProvider implements Provider {
       try {
         const response = await provider.sendMessage(messages, tools, systemPrompt, options);
         // Success — mark healthy
-        if (health.unhealthySince !== null) {
+        if (health.unhealthySince != null) {
           log.info({ provider: provider.name }, 'Provider recovered, marking healthy');
           health.unhealthySince = null;
         }

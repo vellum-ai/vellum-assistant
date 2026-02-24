@@ -1,9 +1,11 @@
 import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, chmodSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { arch, platform } from 'node:os';
+import { createHash } from 'node:crypto';
 import type { Subprocess } from 'bun';
 import { getLogger } from '../util/logger.js';
 import { getDataDir } from '../util/platform.js';
+import { getQdrantUrlEnv } from '../config/env.js';
 
 const log = getLogger('qdrant-manager');
 
@@ -15,6 +17,12 @@ const SHUTDOWN_GRACE_MS = 5_000;
 export interface QdrantManagerConfig {
   url: string;
   storagePath?: string;
+  /** Override readyz poll interval (ms). Default: 200 */
+  readyzPollIntervalMs?: number;
+  /** Override readyz timeout (ms). Default: 30 000 */
+  readyzTimeoutMs?: number;
+  /** Override SIGTERM→SIGKILL grace period (ms). Default: 5 000 */
+  shutdownGraceMs?: number;
 }
 
 /**
@@ -36,6 +44,9 @@ export class QdrantManager {
   private readonly storagePath: string;
   private readonly pidPath: string;
   private readonly isExternal: boolean;
+  private readonly readyzPollIntervalMs: number;
+  private readonly readyzTimeoutMs: number;
+  private readonly shutdownGraceMs: number;
 
   constructor(config: QdrantManagerConfig) {
     this.url = config.url;
@@ -45,8 +56,12 @@ export class QdrantManager {
     this.storagePath = config.storagePath ?? join(getDataDir(), 'qdrant');
     this.pidPath = join(getDataDir(), 'qdrant', 'qdrant.pid');
 
+    this.readyzPollIntervalMs = config.readyzPollIntervalMs ?? READYZ_POLL_INTERVAL_MS;
+    this.readyzTimeoutMs = config.readyzTimeoutMs ?? READYZ_TIMEOUT_MS;
+    this.shutdownGraceMs = config.shutdownGraceMs ?? SHUTDOWN_GRACE_MS;
+
     // External mode only if QDRANT_URL is explicitly set
-    this.isExternal = Boolean(process.env.QDRANT_URL?.trim());
+    this.isExternal = Boolean(getQdrantUrlEnv());
   }
 
   async start(): Promise<void> {
@@ -107,7 +122,7 @@ export class QdrantManager {
     // Wait for graceful shutdown
     const graceful = await Promise.race([
       this.process.exited.then(() => true),
-      new Promise<false>((resolve) => setTimeout(() => resolve(false), SHUTDOWN_GRACE_MS)),
+      new Promise<false>((resolve) => setTimeout(() => resolve(false), this.shutdownGraceMs)),
     ]);
 
     if (!graceful) {
@@ -146,15 +161,41 @@ export class QdrantManager {
     }
 
     const filename = `qdrant-${target}.tar.gz`;
-    const url = `https://github.com/qdrant/qdrant/releases/download/v${QDRANT_VERSION}/${filename}`;
+    const baseUrl = `https://github.com/qdrant/qdrant/releases/download/v${QDRANT_VERSION}`;
+    const url = `${baseUrl}/${filename}`;
+    const checksumUrl = `${baseUrl}/${filename}.sha256`;
+
     log.info({ url, binaryPath }, 'Downloading Qdrant binary');
 
-    const response = await fetch(url);
+    // Fetch the tarball and its SHA-256 checksum in parallel
+    const [response, checksumResponse] = await Promise.all([
+      fetch(url),
+      fetch(checksumUrl),
+    ]);
+
     if (!response.ok) {
       throw new Error(`Failed to download Qdrant: ${response.status} ${response.statusText} from ${url}`);
     }
 
     const tarball = await response.arrayBuffer();
+
+    // Verify SHA-256 integrity if the checksum file is available
+    if (checksumResponse.ok) {
+      const checksumText = (await checksumResponse.text()).trim();
+      // Checksum files contain "<hex>  <filename>" or just "<hex>"
+      const expectedHash = checksumText.split(/\s+/)[0].toLowerCase();
+      const actualHash = createHash('sha256').update(Buffer.from(tarball)).digest('hex');
+
+      if (actualHash !== expectedHash) {
+        throw new Error(
+          `Qdrant binary checksum mismatch! ` +
+          `expected=${expectedHash} actual=${actualHash} url=${url}`,
+        );
+      }
+      log.info({ hash: actualHash }, 'Qdrant binary checksum verified');
+    } else {
+      log.warn({ checksumUrl, status: checksumResponse.status }, 'Could not fetch Qdrant checksum — skipping integrity check');
+    }
 
     // Extract the qdrant binary from the tarball
     const binDir = dirname(binaryPath);
@@ -185,16 +226,16 @@ export class QdrantManager {
 
   private async waitForReady(): Promise<void> {
     const start = Date.now();
-    while (Date.now() - start < READYZ_TIMEOUT_MS) {
+    while (Date.now() - start < this.readyzTimeoutMs) {
       try {
         const res = await fetch(`${this.url}/readyz`);
         if (res.ok) return;
       } catch {
         // Not ready yet
       }
-      await Bun.sleep(READYZ_POLL_INTERVAL_MS);
+      await Bun.sleep(this.readyzPollIntervalMs);
     }
-    throw new Error(`Qdrant did not become ready within ${READYZ_TIMEOUT_MS}ms at ${this.url}`);
+    throw new Error(`Qdrant did not become ready within ${this.readyzTimeoutMs}ms at ${this.url}`);
   }
 
   private getBinaryPath(): string {
@@ -203,7 +244,7 @@ export class QdrantManager {
 
   private cleanupStaleProcess(): void {
     const pid = this.readPid();
-    if (pid === null) return;
+    if (pid == null) return;
 
     try {
       process.kill(pid, 0); // Check if process exists

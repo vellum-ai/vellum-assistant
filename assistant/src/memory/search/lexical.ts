@@ -1,11 +1,37 @@
 import { and, desc, eq, inArray, notInArray } from 'drizzle-orm';
 import { getLogger } from '../../util/logger.js';
-import { getDb } from '../db.js';
+import { getDb, rawAll } from '../db.js';
 import { memorySegments } from '../schema.js';
 import type { Candidate, CandidateType } from './types.js';
 import { computeRecencyScore } from './ranking.js';
 
 const log = getLogger('memory-retriever');
+
+// Threshold beyond which a raw SQL query is considered slow and logged as a warning.
+const SLOW_QUERY_MS = 2000;
+
+/**
+ * Execute a synchronous raw SQL query with timing. Logs a warning if the
+ * query exceeds SLOW_QUERY_MS. Since bun:sqlite queries are synchronous,
+ * we can't abort them mid-execution, but we can detect and report slowness.
+ */
+function timedRawQuery<T>(label: string, fn: () => T[]): T[] {
+  const start = performance.now();
+  const result = fn();
+  const elapsed = performance.now() - start;
+  if (elapsed >= SLOW_QUERY_MS) {
+    log.warn({ label, elapsedMs: Math.round(elapsed) }, 'Raw SQL query exceeded slow threshold');
+  }
+  return result;
+}
+
+interface FtsRow {
+  segment_id: string;
+  message_id: string;
+  text: string;
+  created_at: number;
+  rank: number;
+}
 
 export function lexicalSearch(query: string, limit: number, excludedMessageIds: string[] = [], scopeIds?: string[]): Candidate[] {
   const trimmed = query.trim();
@@ -13,50 +39,53 @@ export function lexicalSearch(query: string, limit: number, excludedMessageIds: 
   const matchQuery = buildFtsMatchQuery(trimmed);
   if (!matchQuery) return [];
   const excluded = new Set(excludedMessageIds);
-  const db = getDb();
-  const raw = (db as unknown as { $client: { query: (q: string) => { all: (...params: unknown[]) => unknown[] } } }).$client;
-  let rows: Array<{
-    segment_id: string;
-    message_id: string;
-    text: string;
-    created_at: number;
-    rank: number;
-  }> = [];
-  const queryLimit = excluded.size > 0
-    ? Math.max(limit + 24, limit * 2)
-    : limit;
   const scopeClause = scopeIds
     ? ` AND s.scope_id IN (${scopeIds.map(() => '?').join(',')})`
     : '';
-  const params: unknown[] = [matchQuery, ...(scopeIds ?? []), queryLimit];
-  try {
-    rows = raw.query(`
-      SELECT
-        f.segment_id AS segment_id,
-        s.message_id AS message_id,
-        s.text AS text,
-        s.created_at AS created_at,
-        bm25(memory_segment_fts) AS rank
-      FROM memory_segment_fts f
-      JOIN memory_segments s ON s.id = f.segment_id
-      WHERE memory_segment_fts MATCH ?${scopeClause}
-      ORDER BY rank
-      LIMIT ?
-    `).all(...params) as Array<{
-      segment_id: string;
-      message_id: string;
-      text: string;
-      created_at: number;
-      rank: number;
-    }>;
-  } catch (err) {
-    log.warn({ err, query: truncate(trimmed, 80) }, 'Memory lexical search query parse failed');
-    return [];
+
+  // Adaptive overfetch: when exclusions are present, double the SQL LIMIT until we
+  // collect `limit` visible rows or the DB has no more matching results to offer.
+  // This handles dense exclusion sets without wasteful fixed-ratio over-fetching.
+  const MAX_FETCH_MULTIPLIER = 8;
+  let queryLimit = excluded.size > 0 ? Math.max(limit * 2, limit + 24) : limit;
+  let visibleRows: FtsRow[] = [];
+
+  while (true) {
+    let rows: FtsRow[] = [];
+    try {
+      rows = timedRawQuery('lexicalSearch', () =>
+        rawAll<FtsRow>(`
+          SELECT
+            f.segment_id AS segment_id,
+            s.message_id AS message_id,
+            s.text AS text,
+            s.created_at AS created_at,
+            bm25(memory_segment_fts) AS rank
+          FROM memory_segment_fts f
+          JOIN memory_segments s ON s.id = f.segment_id
+          WHERE memory_segment_fts MATCH ?${scopeClause}
+          ORDER BY rank
+          LIMIT ?
+        `, matchQuery, ...(scopeIds ?? []), queryLimit),
+      );
+    } catch (err) {
+      log.warn({ err, query: truncate(trimmed, 80) }, 'Memory lexical search query parse failed');
+      return [];
+    }
+
+    visibleRows = excluded.size > 0
+      ? rows.filter((row) => !excluded.has(row.message_id))
+      : rows;
+
+    // Stop when we have enough rows, the DB returned fewer than requested
+    // (no more results exist), or we've reached the safety cap.
+    if (visibleRows.length >= limit || rows.length < queryLimit || queryLimit >= limit * MAX_FETCH_MULTIPLIER) {
+      break;
+    }
+    queryLimit = Math.min(queryLimit * 2, limit * MAX_FETCH_MULTIPLIER);
   }
 
-  const visibleRows = excluded.size > 0
-    ? rows.filter((row) => !excluded.has(row.message_id)).slice(0, limit)
-    : rows;
+  visibleRows = visibleRows.slice(0, limit);
 
   const finiteRanks = visibleRows
     .map((row) => row.rank)
@@ -124,17 +153,19 @@ export function recencySearch(conversationId: string, limit: number, excludedMes
  * Supplements FTS-based lexical search with LIKE-based matching on items.
  */
 export function directItemSearch(query: string, limit: number, scopeIds?: string[]): Candidate[] {
-  const db = getDb();
   const tokens = [...new Set(query
     .toLowerCase()
     .split(/[^a-z0-9_.-]+/g)
     .filter((t) => t.length >= 2))];
   if (tokens.length === 0) return [];
 
-  const raw = (db as unknown as { $client: { query: (q: string) => { all: (...params: unknown[]) => unknown[] } } }).$client;
   const likeClauses = tokens.map(
-    (t) => `(LOWER(subject) LIKE '%${escapeSqlLike(t)}%' OR LOWER(statement) LIKE '%${escapeSqlLike(t)}%')`,
+    () => `(LOWER(subject) LIKE ? OR LOWER(statement) LIKE ?)`,
   );
+  const likeParams = tokens.flatMap((t) => {
+    const pattern = `%${escapeLikeWildcards(t)}%`;
+    return [pattern, pattern];
+  });
   const scopeClause = scopeIds
     ? ` AND scope_id IN (${scopeIds.map(() => '?').join(',')})`
     : '';
@@ -145,9 +176,8 @@ export function directItemSearch(query: string, limit: number, scopeIds?: string
     ORDER BY last_seen_at DESC
     LIMIT ?
   `;
-  const params: unknown[] = [...(scopeIds ?? []), limit];
 
-  let rows: Array<{
+  interface ItemRow {
     id: string;
     kind: string;
     subject: string;
@@ -156,9 +186,13 @@ export function directItemSearch(query: string, limit: number, scopeIds?: string
     importance: number | null;
     first_seen_at: number;
     last_seen_at: number;
-  }> = [];
+  }
+
+  let rows: ItemRow[] = [];
   try {
-    rows = raw.query(sqlQuery).all(...params) as typeof rows;
+    rows = timedRawQuery('directItemSearch', () =>
+      rawAll<ItemRow>(sqlQuery, ...likeParams, ...(scopeIds ?? []), limit),
+    );
   } catch {
     return [];
   }
@@ -212,11 +246,6 @@ export function buildFtsMatchQuery(text: string): string | null {
     .join(' OR ');
 }
 
-export function escapeSqlLike(s: string): string {
-  return s.replace(/'/g, "''").replace(/%/g, '').replace(/_/g, '');
-}
-
-/** Escape only LIKE wildcards (% and _) for use with parameterized queries where the driver handles quoting. */
 export function escapeLikeWildcards(s: string): string {
   return s.replace(/%/g, '').replace(/_/g, '');
 }

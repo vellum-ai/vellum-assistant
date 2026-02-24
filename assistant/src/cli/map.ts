@@ -72,6 +72,75 @@ async function isCdpReady(): Promise<boolean> {
   }
 }
 
+/**
+ * Bring the Chrome CDP tab to the foreground so the user sees the right window.
+ * Optionally navigates to a URL first (used when Chrome was already running).
+ */
+async function bringChromeToFront(navigateUrl?: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${CDP_BASE}/json/list`);
+    if (!res.ok) return null;
+    const targets = (await res.json()) as Array<{ type: string; url: string; webSocketDebuggerUrl: string }>;
+    const pageTarget = targets.find(t => t.type === 'page');
+    if (!pageTarget?.webSocketDebuggerUrl) return null;
+
+    const ws = new WebSocket(pageTarget.webSocketDebuggerUrl);
+    await new Promise<void>((resolve, reject) => {
+      ws.onopen = () => resolve();
+      ws.onerror = (e) => reject(new Error(`CDP WebSocket error: ${e}`));
+    });
+
+    let nextId = 1;
+    const cdpSend = (method: string, params?: Record<string, unknown>): Promise<unknown> =>
+      new Promise((resolve, reject) => {
+        const id = nextId++;
+        const cleanup = () => {
+          clearTimeout(timeout);
+          ws.removeEventListener('message', handler);
+          ws.removeEventListener('close', onClose);
+          ws.removeEventListener('error', onError);
+        };
+        const timeout = setTimeout(() => {
+          cleanup();
+          reject(new Error(`CDP command ${method} timed out`));
+        }, 5000);
+        const onClose = () => {
+          cleanup();
+          reject(new Error('WebSocket closed before CDP response'));
+        };
+        const onError = (e: Event) => {
+          cleanup();
+          reject(new Error(`WebSocket error: ${e}`));
+        };
+        const handler = (event: MessageEvent) => {
+          const msg = JSON.parse(String(event.data));
+          if (msg.id === id) {
+            cleanup();
+            if (msg.error) reject(new Error(msg.error.message));
+            else resolve(msg.result);
+          }
+        };
+        ws.addEventListener('message', handler);
+        ws.addEventListener('close', onClose);
+        ws.addEventListener('error', onError);
+        ws.send(JSON.stringify({ id, method, params }));
+      });
+
+    if (navigateUrl) {
+      await cdpSend('Page.navigate', { url: navigateUrl });
+      // Brief wait for navigation to start
+      await new Promise(r => setTimeout(r, 500));
+    }
+
+    await cdpSend('Page.bringToFront');
+    const tabUrl = navigateUrl ?? pageTarget.url;
+    ws.close();
+    return tabUrl;
+  } catch {
+    return null;
+  }
+}
+
 async function ensureChromeWithCDP(domain: string): Promise<void> {
   // Already running with CDP?
   if (await isCdpReady()) return;
@@ -110,8 +179,15 @@ async function startLearnSession(
   navigateDomain: string,
   recordDomain: string,
   durationSeconds: number,
+  autoNavigate: boolean = true,
 ): Promise<LearnResult> {
   await ensureChromeWithCDP(navigateDomain);
+
+  // Activate the Chrome window so the user knows which tab to watch
+  const tabUrl = await bringChromeToFront(`https://${navigateDomain}/`);
+  if (tabUrl) {
+    process.stderr.write(`Chrome is ready — using tab at ${tabUrl}\n`);
+  }
 
   return new Promise((resolve, reject) => {
     const socketPath = getSocketPath();
@@ -140,7 +216,7 @@ async function startLearnSession(
           mode: 'learn',
           targetDomain: recordDomain,
           navigateDomain,
-          autoNavigate: true,
+          autoNavigate,
         } as unknown as import('../daemon/ipc-protocol.js').ClientMessage),
       );
     };
@@ -211,11 +287,15 @@ export function registerMapCommand(program: Command): void {
       'then analyzes captured network traffic.',
     )
     .argument('<domain>', 'Domain to map (e.g., example.com)')
-    .option('--duration <seconds>', 'Recording duration in seconds', '120')
+    .option('--duration <seconds>', 'Recording duration in seconds')
+    .option('--manual', 'Manual mode: browse the site yourself while network traffic is recorded')
     .option('--json', 'Machine-readable JSON output')
-    .action(async (domain: string, opts: { duration: string; json?: boolean }, cmd: Command) => {
+    .action(async (domain: string, opts: { duration?: string; manual?: boolean; json?: boolean }, cmd: Command) => {
       const json = getJson(cmd);
-      const duration = parseInt(opts.duration, 10);
+      const manual = opts.manual ?? false;
+      const duration = opts.duration
+        ? parseInt(opts.duration, 10)
+        : manual ? 60 : 120;
 
       try {
         // Split into navigation domain (what Chrome browses) and recording domain (network filter).
@@ -224,13 +304,16 @@ export function registerMapCommand(program: Command): void {
         const recordDomain = getBaseDomain(domain);
 
         if (!json) {
-          if (navigateDomain !== recordDomain) {
+          if (manual) {
+            console.log(`Starting manual API map session for ${domain} (${duration}s)...`);
+            console.log('Browse the site manually. Press Ctrl+C or wait for idle detection to stop recording.');
+          } else if (navigateDomain !== recordDomain) {
             console.log(`Starting API map session: navigating ${navigateDomain}, recording *.${recordDomain} (${duration}s)...`);
           } else {
             console.log(`Starting API map session for ${domain} (${duration}s)...`);
           }
         }
-        const result = await startLearnSession(navigateDomain, recordDomain, duration);
+        const result = await startLearnSession(navigateDomain, recordDomain, duration, !manual);
 
         if (!result.recordingId) {
           outputError('Recording completed but no recording ID returned');

@@ -84,8 +84,8 @@ public struct ToolCallChip: View {
                     // Image preview (for browser_screenshot etc.)
                     if let cachedImage = toolCall.cachedImage {
                         #if os(macOS)
-                        let canOpenImage = !toolCall.inputSummary.isEmpty
-                            && FileManager.default.fileExists(atPath: toolCall.inputSummary)
+                        let canOpenImage = !toolCall.inputRawValue.isEmpty
+                            && FileManager.default.fileExists(atPath: toolCall.inputRawValue)
                         if canOpenImage {
                             Image(nsImage: cachedImage)
                                 .resizable()
@@ -94,7 +94,7 @@ public struct ToolCallChip: View {
                                 .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                                 .padding(.horizontal, VSpacing.sm)
                                 .onTapGesture(count: 2) {
-                                    NSWorkspace.shared.open(URL(fileURLWithPath: toolCall.inputSummary))
+                                    NSWorkspace.shared.open(URL(fileURLWithPath: toolCall.inputRawValue))
                                 }
                                 .onHover { hovering in
                                     if hovering { NSCursor.pointingHand.push() }

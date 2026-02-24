@@ -1,5 +1,4 @@
-import { Database } from 'bun:sqlite';
-import { getDb } from './db-connection.js';
+import { getDb, getSqliteFrom } from './db-connection.js';
 import { getLogger } from '../util/logger.js';
 import {
   migrateJobDeferrals,
@@ -15,6 +14,7 @@ import {
   migrateCallSessionsAddInitiatedFrom,
   migrateMemoryFtsBackfill,
   migrateGuardianActionTables,
+  validateMigrationState,
 } from './schema-migration.js';
 
 const log = getLogger('memory-db');
@@ -529,6 +529,7 @@ export function initializeDb(): void {
   try { database.run(/*sql*/ `ALTER TABLE conversations ADD COLUMN thread_type TEXT NOT NULL DEFAULT 'standard'`); } catch { /* already exists */ }
   try { database.run(/*sql*/ `ALTER TABLE conversations ADD COLUMN source TEXT NOT NULL DEFAULT 'user'`); } catch { /* already exists */ }
   try { database.run(/*sql*/ `ALTER TABLE conversations ADD COLUMN memory_scope_id TEXT NOT NULL DEFAULT 'default'`); } catch { /* already exists */ }
+  try { database.run(/*sql*/ `ALTER TABLE conversations ADD COLUMN origin_channel TEXT`); } catch { /* already exists */ }
   try { database.run(/*sql*/ `ALTER TABLE attachments ADD COLUMN thumbnail_base64 TEXT`); } catch { /* already exists */ }
   try { database.run(/*sql*/ `ALTER TABLE cron_jobs ADD COLUMN schedule_syntax TEXT NOT NULL DEFAULT 'cron'`); } catch { /* already exists */ }
   try { database.run(/*sql*/ `ALTER TABLE messages ADD COLUMN metadata TEXT`); } catch { /* already exists */ }
@@ -566,6 +567,14 @@ export function initializeDb(): void {
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_items_status_invalid_at ON memory_items(status, invalid_at)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_items_scope_status_kind ON memory_items(scope_id, status, kind)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_items_last_seen_at ON memory_items(last_seen_at)`);
+  // Partial covering index for directItemSearch: the LIKE '%term%' pattern can't
+  // seek a B-tree, but this index lets SQLite scan only active non-invalidated rows
+  // and evaluate LIKE + return columns without touching the main table.
+  database.run(/*sql*/ `
+    CREATE INDEX IF NOT EXISTS idx_memory_items_active_search
+    ON memory_items(last_seen_at DESC, subject, statement, id, kind, confidence, importance, first_seen_at, scope_id)
+    WHERE status = 'active' AND invalid_at IS NULL
+  `);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_embeddings_target ON memory_embeddings(target_type, target_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_embeddings_provider_model ON memory_embeddings(provider, model)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_embeddings_content_hash ON memory_embeddings(content_hash, provider, model)`);
@@ -587,7 +596,7 @@ export function initializeDb(): void {
   // Deduplicate before creating unique index — existing DBs may have duplicate content_hash values.
   // Re-point message_attachments to the survivor (MIN rowid per content_hash), then delete dupes.
   {
-    const raw = (database as unknown as { $client: Database }).$client;
+    const raw = getSqliteFrom(database);
     raw.exec(/*sql*/ `
       UPDATE message_attachments
       SET attachment_id = (
@@ -1172,4 +1181,6 @@ export function initializeDb(): void {
   migrateGuardianActionTables(database);
 
   migrateMemoryFtsBackfill(database);
+
+  validateMigrationState(database);
 }

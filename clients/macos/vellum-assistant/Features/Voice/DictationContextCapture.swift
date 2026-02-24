@@ -104,8 +104,20 @@ struct DictationContextCapture {
         guard CFGetTypeID(focusedRef as CFTypeRef) == AXUIElementGetTypeID() else { return (nil, false) }
         let focused = focusedRef as! AXUIElement
 
-        // Selected text
-        let selectedText = axStringAttribute(focused, kAXSelectedTextAttribute as CFString)
+        // Selected text — try AX first, fall back to clipboard for apps like
+        // Chrome/Google Docs where AX returns whitespace instead of the real selection.
+        var selectedText = axStringAttribute(focused, kAXSelectedTextAttribute as CFString)
+        if let text = selectedText, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            // AX returned real content — use it
+        } else if selectedText != nil {
+            // AX returned whitespace-only — try clipboard fallback
+            log.info("AX selectedText is whitespace-only, trying clipboard fallback")
+            if let clipboardText = clipboardSelectedText() {
+                selectedText = clipboardText
+            } else {
+                selectedText = nil
+            }
+        }
 
         // Role check for text field
         let role = axStringAttribute(focused, kAXRoleAttribute as CFString) ?? ""
@@ -119,5 +131,78 @@ struct DictationContextCapture {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, attribute, &value) == .success else { return nil }
         return value as? String
+    }
+
+    /// Capture selected text via clipboard (Cmd+C) as fallback for apps where AX
+    /// doesn't return the real selection (e.g. Chrome with Google Docs).
+    /// Saves and restores the previous clipboard contents.
+    private static func clipboardSelectedText() -> String? {
+        let pasteboard = NSPasteboard.general
+        let changeCount = pasteboard.changeCount
+
+        // Save all existing clipboard items with all their types
+        let savedItems: [[(NSPasteboard.PasteboardType, Data)]] = (pasteboard.pasteboardItems ?? []).map { item in
+            item.types.compactMap { type in
+                guard let data = item.data(forType: type) else { return nil }
+                return (type, data)
+            }
+        }
+
+        // Simulate Cmd+C
+        let source = CGEventSource(stateID: .hidSystemState)
+        guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 8, keyDown: true),
+              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 8, keyDown: false) else {
+            return nil
+        }
+        keyDown.flags = .maskCommand
+        keyUp.flags = .maskCommand
+        keyDown.post(tap: .cghidEventTap)
+        keyUp.post(tap: .cghidEventTap)
+
+        // Poll for clipboard change with run loop alive so the target app
+        // can process the Cmd+C keystroke and update the clipboard.
+        // Use a generous timeout — busy apps or large selections can be slow.
+        let copyDeadline = Date().addingTimeInterval(0.5) // 500ms max wait
+        while pasteboard.changeCount == changeCount && Date() < copyDeadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+
+        let text: String?
+        if pasteboard.changeCount != changeCount {
+            // Wait a bit longer after the initial change to let the app finish
+            // writing all pasteboard types (the changeCount updates on first write
+            // but apps may add multiple representations asynchronously).
+            let settleCount = pasteboard.changeCount
+            let settleDeadline = Date().addingTimeInterval(0.05)
+            while Date() < settleDeadline {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+            }
+            // If the app wrote again during settle, wait a bit more
+            if pasteboard.changeCount != settleCount {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            }
+
+            let raw = pasteboard.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            text = (raw?.isEmpty == true) ? nil : raw
+            log.info("Clipboard fallback captured \(text?.count ?? 0) chars")
+        } else {
+            text = nil
+            log.info("Clipboard unchanged after Cmd+C — no selection to copy")
+        }
+
+        // Restore previous clipboard contents after copy is fully settled
+        pasteboard.clearContents()
+        let newItems: [NSPasteboardItem] = savedItems.map { pairs in
+            let item = NSPasteboardItem()
+            for (type, data) in pairs {
+                item.setData(data, forType: type)
+            }
+            return item
+        }
+        if !newItems.isEmpty {
+            pasteboard.writeObjects(newItems)
+        }
+
+        return text
     }
 }

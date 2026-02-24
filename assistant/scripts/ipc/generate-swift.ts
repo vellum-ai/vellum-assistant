@@ -21,10 +21,24 @@ import * as TJS from 'typescript-json-schema';
 
 const ROOT = path.resolve(import.meta.dirname ?? __dirname, '../..');
 const CONTRACT_PATH = path.join(ROOT, 'src/daemon/ipc-contract.ts');
+const DOMAIN_DIR = path.join(ROOT, 'src/daemon/ipc-contract');
 const OUTPUT_PATH = path.resolve(
   ROOT,
   '../clients/shared/IPC/Generated/IPCContractGenerated.swift',
 );
+
+/** Collect all .ts files: the barrel + domain files. */
+function getContractFiles(): string[] {
+  const files = [CONTRACT_PATH];
+  if (fs.existsSync(DOMAIN_DIR)) {
+    for (const f of fs.readdirSync(DOMAIN_DIR)) {
+      if (f.endsWith('.ts')) {
+        files.push(path.join(DOMAIN_DIR, f));
+      }
+    }
+  }
+  return files;
+}
 
 const PREAMBLE = `// AUTO-GENERATED from assistant/src/daemon/ipc-contract.ts — DO NOT EDIT
 // Regenerate: cd assistant && bun run generate:ipc
@@ -76,7 +90,9 @@ interface SchemaDef {
 // --- Step 1: Generate JSON Schema from TypeScript ---
 
 function generateSchemas(): Record<string, SchemaDef> {
-  const program = TJS.getProgramFromFiles([CONTRACT_PATH], {
+  const contractFiles = getContractFiles();
+
+  const program = TJS.getProgramFromFiles(contractFiles, {
     strict: true,
     target: 99,
     module: 199,
@@ -95,7 +111,7 @@ function generateSchemas(): Record<string, SchemaDef> {
     throw new Error('Failed to create schema generator');
   }
 
-  const symbols = generator.getMainFileSymbols(program, [CONTRACT_PATH]);
+  const symbols = generator.getMainFileSymbols(program, contractFiles);
   const result: Record<string, SchemaDef> = {};
 
   const skipped: string[] = [];

@@ -3,22 +3,13 @@
  *
  * Generates approval prompt text through a priority chain:
  *   1. Assistant preface (macOS parity — reuse existing assistant text)
- *   2. Provider-generated rewrite of deterministic fallback text
+ *   2. Generator-produced rewrite of deterministic fallback text (when provided by daemon)
  *   3. Deterministic fallback templates (natural, scenario-specific messages)
  */
-import { getConfig } from '../config/loader.js';
-import { getFailoverProvider, listProviders } from '../providers/registry.js';
-import type { Provider } from '../providers/types.js';
 import { getLogger } from '../util/logger.js';
+import type { ApprovalCopyGenerator } from './http-types.js';
 
 const log = getLogger('approval-message-composer');
-const APPROVAL_COPY_TIMEOUT_MS = 4_000;
-const APPROVAL_COPY_MAX_TOKENS = 180;
-const APPROVAL_COPY_SYSTEM_PROMPT =
-  'You are an assistant writing one user-facing message about permissions/approval state. '
-  + 'Keep it concise, natural, and actionable. Preserve factual details exactly. '
-  + 'Do not mention internal systems, scenario IDs, or policy engine details. '
-  + 'Return plain text only.';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -93,11 +84,13 @@ export function composeApprovalMessage(context: ApprovalMessageContext): string 
   return getFallbackMessage(context);
 }
 
-function escapeRegExp(input: string): string {
+/** @internal Exported for use by the daemon-injected generator implementation. */
+export function escapeRegExp(input: string): string {
   return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function includesRequiredKeywords(text: string, requiredKeywords: string[] | undefined): boolean {
+/** @internal Exported for use by the daemon-injected generator implementation. */
+export function includesRequiredKeywords(text: string, requiredKeywords: string[] | undefined): boolean {
   if (!requiredKeywords || requiredKeywords.length === 0) return true;
   return requiredKeywords.every((keyword) => {
     const re = new RegExp(`\\b${escapeRegExp(keyword)}\\b`, 'i');
@@ -105,7 +98,8 @@ function includesRequiredKeywords(text: string, requiredKeywords: string[] | und
   });
 }
 
-function buildGenerationPrompt(
+/** @internal Exported for use by the daemon-injected generator implementation. */
+export function buildGenerationPrompt(
   context: ApprovalMessageContext,
   fallbackText: string,
   requiredKeywords: string[] | undefined,
@@ -122,45 +116,27 @@ function buildGenerationPrompt(
   ].filter(Boolean).join('\n\n');
 }
 
-async function generateApprovalMessage(
-  provider: Provider,
-  context: ApprovalMessageContext,
-  fallbackText: string,
-  options: ComposeApprovalMessageGenerativeOptions,
-): Promise<string | null> {
-  const requiredKeywords = options.requiredKeywords?.map((kw) => kw.trim()).filter((kw) => kw.length > 0);
-  const prompt = buildGenerationPrompt(context, fallbackText, requiredKeywords);
-  const response = await provider.sendMessage(
-    [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
-    [],
-    APPROVAL_COPY_SYSTEM_PROMPT,
-    {
-      config: {
-        max_tokens: options.maxTokens ?? APPROVAL_COPY_MAX_TOKENS,
-      },
-      signal: AbortSignal.timeout(options.timeoutMs ?? APPROVAL_COPY_TIMEOUT_MS),
-    },
-  );
-
-  const block = response.content.find((entry) => entry.type === 'text');
-  const text = block && 'text' in block ? block.text.trim() : '';
-  if (!text) return null;
-  const cleaned = text
-    .replace(/^["'`]+/, '')
-    .replace(/["'`]+$/, '')
-    .trim();
-  if (!cleaned) return null;
-  if (!includesRequiredKeywords(cleaned, requiredKeywords)) return null;
-  return cleaned;
-}
+/** Constants for the generator implementation (moved to exports for daemon lifecycle). */
+export const APPROVAL_COPY_TIMEOUT_MS = 4_000;
+export const APPROVAL_COPY_MAX_TOKENS = 180;
+export const APPROVAL_COPY_SYSTEM_PROMPT =
+  'You are an assistant writing one user-facing message about permissions/approval state. '
+  + 'Keep it concise, natural, and actionable. Preserve factual details exactly. '
+  + 'Do not mention internal systems, scenario IDs, or policy engine details. '
+  + 'Return plain text only.';
 
 /**
- * Compose user-facing approval copy using the active provider when available,
- * with deterministic fallback for reliability.
+ * Compose user-facing approval copy using the daemon-injected generator when
+ * available, with deterministic fallback for reliability.
+ *
+ * The generator parameter is the daemon-provided function that knows about
+ * providers. When absent (or in test env), only the deterministic fallback
+ * is used.
  */
 export async function composeApprovalMessageGenerative(
   context: ApprovalMessageContext,
   options: ComposeApprovalMessageGenerativeOptions = {},
+  generator?: ApprovalCopyGenerator,
 ): Promise<string> {
   if (context.assistantPreface && context.assistantPreface.trim().length > 0) {
     return context.assistantPreface;
@@ -172,16 +148,13 @@ export async function composeApprovalMessageGenerative(
     return fallbackText;
   }
 
-  try {
-    const config = getConfig();
-    if (!listProviders().includes(config.provider)) {
-      return fallbackText;
+  if (generator) {
+    try {
+      const generated = await generator(context, options);
+      if (generated) return generated;
+    } catch (err) {
+      log.warn({ err, scenario: context.scenario }, 'Failed to generate approval copy, using fallback');
     }
-    const provider = getFailoverProvider(config.provider, config.providerOrder);
-    const generated = await generateApprovalMessage(provider, context, fallbackText, options);
-    if (generated) return generated;
-  } catch (err) {
-    log.warn({ err, scenario: context.scenario }, 'Failed to generate approval copy, using fallback');
   }
 
   return fallbackText;

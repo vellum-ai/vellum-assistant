@@ -85,7 +85,7 @@ export async function runWatchersOnce(
         log.info({ watcherId: watcher.id, watermark }, 'Initialized watermark');
       }
 
-      const result = await provider.fetchNew(watcher.credentialService, watermark, config);
+      const result = await provider.fetchNew(watcher.credentialService, watermark, config, watcher.id);
 
       // Store new events with dedup
       let newEvents = 0;
@@ -118,6 +118,10 @@ export async function runWatchersOnce(
       if ((watcher.consecutiveErrors + 1) >= MAX_CONSECUTIVE_ERRORS) {
         const reason = `Disabled after ${MAX_CONSECUTIVE_ERRORS} consecutive errors. Last: ${message}`;
         disableWatcher(watcher.id, reason);
+        // Do NOT call provider.cleanup() here — auto-disable is reversible.
+        // If the watcher is re-enabled later, it must diff against the same
+        // baseline to avoid missing events that occurred while disabled.
+        // Cleanup is only correct on true deletion (see tools/watcher/delete.ts).
         log.warn({ watcherId: watcher.id, name: watcher.name }, 'Watcher disabled by circuit breaker');
         notify({
           title: `Watcher disabled: ${watcher.name}`,

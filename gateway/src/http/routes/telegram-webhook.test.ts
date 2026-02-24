@@ -80,6 +80,14 @@ const baseConfig: GatewayConfig = {
   smsDeliverAuthBypass: false,
   ingressPublicBaseUrl: undefined,
   unmappedPolicy: "default",
+  whatsappPhoneNumberId: undefined,
+  whatsappAccessToken: undefined,
+  whatsappAppSecret: undefined,
+  whatsappWebhookVerifyToken: undefined,
+  whatsappDeliverAuthBypass: false,
+  whatsappTimeoutMs: 15000,
+  whatsappMaxRetries: 3,
+  whatsappInitialBackoffMs: 1000,
 };
 
 function makeCallbackQueryBody(data: string, updateId = 200) {

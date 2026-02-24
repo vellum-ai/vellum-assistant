@@ -1,7 +1,8 @@
 import { readFile } from 'node:fs/promises';
-import Anthropic from '@anthropic-ai/sdk';
-import { getConfig } from '../../../../config/loader.js';
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
+import { getConfiguredProvider, extractText, userMessageWithImages } from '../../../../providers/anthropic-send-message.js';
+import { initializeProviders } from '../../../../providers/registry.js';
+import { loadConfig, invalidateConfigCache } from '../../../../config/loader.js';
 import {
   getMediaAssetById,
   getKeyframesForAsset,
@@ -14,7 +15,7 @@ import {
   type ProcessingStage,
 } from '../../../../memory/media-store.js';
 
-const VLM_PROMPT = `Analyze this image frame extracted from a video. Return a JSON object with the following fields:
+const _VLM_PROMPT = `Analyze this image frame extracted from a video. Return a JSON object with the following fields:
 
 {
   "sceneDescription": "A concise description of the overall scene",
@@ -25,18 +26,115 @@ const VLM_PROMPT = `Analyze this image frame extracted from a video. Return a JS
 
 Return ONLY the JSON object, no additional text.`;
 
+const CHUNKED_VLM_PROMPT = `You are analyzing a sequence of {N} consecutive video frames extracted at regular intervals from a video. The frames are in chronological order.
+
+For EACH frame, provide a JSON object with:
+- "frameIndex": the 0-based index within this chunk
+- "sceneDescription": concise description of the scene in this frame
+- "subjects": array of identifiable subjects/objects/people
+- "actions": array of actions or activities occurring
+- "context": environmental or situational context
+- "transitions": any notable changes from the previous frame (empty string for the first frame)
+
+Return a JSON array of these objects, one per frame. Return ONLY the JSON array, no additional text.`;
+
+function buildChunks(keyframes: MediaKeyframe[], chunkSize: number, overlap: number): MediaKeyframe[][] {
+  const chunks: MediaKeyframe[][] = [];
+  const step = Math.max(1, chunkSize - overlap);
+  for (let i = 0; i < keyframes.length; i += step) {
+    chunks.push(keyframes.slice(i, i + chunkSize));
+  }
+  return chunks;
+}
+
+async function analyzeChunk(
+  provider: import('../../../../providers/types.js').Provider,
+  chunk: MediaKeyframe[],
+): Promise<Array<{ keyframeId: string; output: Record<string, unknown>; confidence: number }>> {
+  const images: Array<{ base64: string; mediaType: string }> = [];
+
+  for (const keyframe of chunk) {
+    const imageData = await readFile(keyframe.filePath);
+    const base64 = imageData.toString('base64');
+    const ext = keyframe.filePath.split('.').pop()?.toLowerCase() ?? 'jpg';
+    const mediaTypeMap: Record<string, string> = {
+      jpg: 'image/jpeg',
+      jpeg: 'image/jpeg',
+      png: 'image/png',
+      gif: 'image/gif',
+      webp: 'image/webp',
+    };
+    const mediaType = mediaTypeMap[ext] ?? 'image/jpeg';
+    images.push({ base64, mediaType });
+  }
+
+  const prompt = CHUNKED_VLM_PROMPT.replace('{N}', String(chunk.length));
+
+  const response = await provider.sendMessage(
+    [userMessageWithImages(images, prompt)],
+    undefined,
+    undefined,
+    {
+      config: {
+        model: 'claude-sonnet-4-6',
+        max_tokens: 4096,
+      },
+    },
+  );
+
+  const responseText = extractText(response);
+
+  let parsed: Array<Record<string, unknown>>;
+  try {
+    const jsonMatch = responseText.match(/```(?:json)?\s*([\s\S]*?)```/) ?? [null, responseText];
+    parsed = JSON.parse(jsonMatch[1]!.trim()) as Array<Record<string, unknown>>;
+  } catch {
+    // If parsing fails, return a single entry wrapping the raw text
+    parsed = chunk.map((_, idx) => ({
+      frameIndex: idx,
+      sceneDescription: idx === 0 ? responseText : '',
+      subjects: [],
+      actions: [],
+      context: '',
+      transitions: '',
+    }));
+  }
+
+  return chunk.map((keyframe, idx) => {
+    const entry = parsed[idx] ?? {
+      frameIndex: idx,
+      sceneDescription: '',
+      subjects: [],
+      actions: [],
+      context: '',
+      transitions: '',
+    };
+    // Add timestamp context
+    entry.timestamp = keyframe.timestamp;
+    return { keyframeId: keyframe.id, output: entry, confidence: 0.8 };
+  });
+}
+
 export async function analyzeKeyframesForAsset(
   assetId: string,
   analysisType?: string,
   batchSize?: number,
   onProgress?: (msg: string) => void,
   signal?: AbortSignal,
+  chunkSize?: number,
+  overlap?: number,
 ): Promise<void> {
   const type = analysisType ?? 'scene_description';
   const batch = batchSize ?? 10;
 
   if (batch <= 0) {
     throw new Error('batch_size must be greater than 0.');
+  }
+  if (chunkSize !== undefined && chunkSize <= 0) {
+    throw new Error('chunk_size must be at least 1.');
+  }
+  if (overlap !== undefined && overlap < 0) {
+    throw new Error('overlap must be non-negative.');
   }
 
   const asset = getMediaAssetById(assetId);
@@ -70,74 +168,84 @@ export async function analyzeKeyframesForAsset(
 
   updateProcessingStage(stage.id, { status: 'running', startedAt: Date.now() });
 
-  const config = getConfig();
-  const apiKey = config.apiKeys.anthropic ?? process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
+  // Use the same provider the main agent uses. If the provider registry
+  // was cleared or not yet initialized, force-reload the config from
+  // keychain/secure storage and re-initialize providers.
+  let provider = getConfiguredProvider();
+  if (!provider) {
+    invalidateConfigCache();
+    const freshConfig = loadConfig();
+    initializeProviders(freshConfig);
+    provider = getConfiguredProvider();
+  }
+  if (!provider) {
     updateProcessingStage(stage.id, {
       status: 'failed',
-      lastError: 'Anthropic API key not configured',
+      lastError: 'Configured provider unavailable',
     });
-    throw new Error('No Anthropic API key available. Configure it in settings or set ANTHROPIC_API_KEY.');
+    throw new Error('No configured provider available. Check your provider settings in Settings → Integrations.');
   }
 
-  const client = new Anthropic({ apiKey });
+  const effectiveChunkSize = chunkSize ?? 10;
+  const effectiveOverlap = overlap ?? 2;
+
   let analyzedCount = analyzedKeyframeIds.size;
   const totalKeyframes = keyframes.length;
 
-  onProgress?.(`Analyzing ${pendingKeyframes.length} keyframes (${analyzedKeyframeIds.size} already done)...\n`);
+  const chunks = buildChunks(pendingKeyframes, effectiveChunkSize, effectiveOverlap);
+
+  onProgress?.(`Analyzing ${pendingKeyframes.length} keyframes in ${chunks.length} chunks (${analyzedKeyframeIds.size} already done)...\n`);
 
   let aborted = false;
 
   try {
-    // Process in batches
-    for (let i = 0; i < pendingKeyframes.length; i += batch) {
+    for (let chunkIdx = 0; chunkIdx < chunks.length; chunkIdx++) {
       if (signal?.aborted) {
         onProgress?.('Aborted.\n');
         aborted = true;
         break;
       }
 
-      const currentBatch = pendingKeyframes.slice(i, i + batch);
-      const batchResults: Array<{
-        assetId: string;
-        keyframeId: string;
-        analysisType: string;
-        output: Record<string, unknown>;
-        confidence?: number;
-      }> = [];
+      const chunk = chunks[chunkIdx]!;
 
-      for (const keyframe of currentBatch) {
-        if (signal?.aborted) {
-          onProgress?.('Aborted.\n');
-          aborted = true;
-          break;
-        }
+      try {
+        const chunkResults = await analyzeChunk(provider, chunk);
 
-        try {
-          const result = await analyzeKeyframe(client, keyframe);
+        const batchResults: Array<{
+          assetId: string;
+          keyframeId: string;
+          analysisType: string;
+          output: Record<string, unknown>;
+          confidence?: number;
+        }> = [];
+
+        for (const result of chunkResults) {
+          // Overlap dedup: skip keyframes already inserted from a previous chunk
+          if (analyzedKeyframeIds.has(result.keyframeId)) {
+            continue;
+          }
+          analyzedKeyframeIds.add(result.keyframeId);
+          analyzedCount++;
           batchResults.push({
             assetId,
-            keyframeId: keyframe.id,
+            keyframeId: result.keyframeId,
             analysisType: type,
             output: result.output,
             confidence: result.confidence,
           });
-          analyzedCount++;
-        } catch (err) {
-          onProgress?.(`  Warning: failed to analyze frame at ${keyframe.timestamp}s: ${(err as Error).message}\n`);
         }
+
+        if (batchResults.length > 0) {
+          insertVisionOutputsBatch(batchResults);
+        }
+      } catch (err) {
+        onProgress?.(`  Warning: failed to analyze chunk ${chunkIdx + 1}: ${(err as Error).message}\n`);
       }
 
-      // Batch insert results
-      if (batchResults.length > 0) {
-        insertVisionOutputsBatch(batchResults);
-      }
-
-      // Update progress
       const progress = Math.round((analyzedCount / totalKeyframes) * 100);
       updateProcessingStage(stage.id, { progress });
 
-      onProgress?.(`  Batch ${Math.floor(i / batch) + 1}: analyzed ${batchResults.length}/${currentBatch.length} frames (${progress}% total)\n`);
+      onProgress?.(`  Chunk ${chunkIdx + 1}/${chunks.length}: ${chunk.length} frames (${progress}% total)\n`);
     }
 
     if (aborted) {
@@ -171,7 +279,17 @@ export async function run(
   }
 
   const analysisType = (input.analysis_type as string) || 'scene_description';
-  const batchSize = (input.batch_size as number) || 10;
+  const batchSize = (input.batch_size as number) ?? 10;
+  const chunkSizeInput = (input.chunk_size as number) ?? 10;
+  const overlapInput = (input.overlap as number) ?? 2;
+
+  // Validate: chunk_size must be at least 1, overlap must be non-negative
+  if (chunkSizeInput < 1) {
+    return { content: 'chunk_size must be at least 1.', isError: true };
+  }
+  if (overlapInput < 0) {
+    return { content: 'overlap must be non-negative.', isError: true };
+  }
 
   try {
     // Check if all keyframes are already analyzed before calling the core function
@@ -193,7 +311,7 @@ export async function run(
       };
     }
 
-    await analyzeKeyframesForAsset(assetId, analysisType, batchSize, context.onOutput, context.signal);
+    await analyzeKeyframesForAsset(assetId, analysisType, batchSize, context.onOutput, context.signal, chunkSizeInput, overlapInput);
 
     // Gather final stats
     const allKeyframes = getKeyframesForAsset(assetId);
@@ -223,79 +341,10 @@ export async function run(
       msg === 'batch_size must be greater than 0.' ||
       msg.startsWith('Media asset not found:') ||
       msg === 'No keyframes found for this asset. Run extract_keyframes first.' ||
-      msg === 'No Anthropic API key available. Configure it in settings or set ANTHROPIC_API_KEY.'
+      msg === 'No configured provider available. Check your provider settings in Settings → Integrations.'
     ) {
       return { content: msg, isError: true };
     }
     return { content: `Vision analysis failed: ${(err as Error).message}`, isError: true };
   }
-}
-
-async function analyzeKeyframe(
-  client: Anthropic,
-  keyframe: MediaKeyframe,
-): Promise<{ output: Record<string, unknown>; confidence: number }> {
-  // Read the image file and encode as base64
-  const imageData = await readFile(keyframe.filePath);
-  const base64 = imageData.toString('base64');
-
-  // Determine media type from file extension
-  const ext = keyframe.filePath.split('.').pop()?.toLowerCase() ?? 'jpg';
-  const mediaTypeMap: Record<string, string> = {
-    jpg: 'image/jpeg',
-    jpeg: 'image/jpeg',
-    png: 'image/png',
-    gif: 'image/gif',
-    webp: 'image/webp',
-  };
-  const mediaType = mediaTypeMap[ext] ?? 'image/jpeg';
-
-  const response = await client.messages.create({
-    model: 'claude-sonnet-4-6-20250514',
-    max_tokens: 1024,
-    messages: [
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'image',
-            source: {
-              type: 'base64',
-              media_type: mediaType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
-              data: base64,
-            },
-          },
-          {
-            type: 'text',
-            text: VLM_PROMPT,
-          },
-        ],
-      },
-    ],
-  });
-
-  // Extract text from response
-  const textBlock = response.content.find((block) => block.type === 'text');
-  const responseText = textBlock && 'text' in textBlock ? textBlock.text : '';
-
-  // Parse JSON from response
-  let output: Record<string, unknown>;
-  try {
-    // Try to extract JSON from the response (handle markdown code fences)
-    const jsonMatch = responseText.match(/```(?:json)?\s*([\s\S]*?)```/) ?? [null, responseText];
-    output = JSON.parse(jsonMatch[1]!.trim()) as Record<string, unknown>;
-  } catch {
-    // If JSON parsing fails, wrap raw text as output
-    output = {
-      sceneDescription: responseText,
-      subjects: [],
-      actions: [],
-      context: '',
-    };
-  }
-
-  // Add timestamp context to the output
-  output.timestamp = keyframe.timestamp;
-
-  return { output, confidence: 0.8 };
 }

@@ -1,13 +1,12 @@
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
-import Anthropic from '@anthropic-ai/sdk';
-import { getConfig } from './loader.js';
 import { getWorkspaceSkillsDir } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
 import { stripCommentLines } from './system-prompt.js';
 import { parseFrontmatterFields } from '../skills/frontmatter.js';
 import { parseToolManifestFile } from '../skills/tool-manifest.js';
 import { computeSkillVersionHash } from '../skills/version-hash.js';
+import { getConfiguredProvider, extractAllText, userMessage } from '../providers/anthropic-send-message.js';
 
 const log = getLogger('skills');
 
@@ -174,7 +173,7 @@ export function checkSkillRequirements(
 
   // anyBins: at least one must exist
   if (requires.anyBins && requires.anyBins.length > 0) {
-    const hasAny = requires.anyBins.some((bin) => Bun.which(bin) !== null);
+    const hasAny = requires.anyBins.some((bin) => Bun.which(bin) != null);
     if (!hasAny) {
       missingBins.push(`(one of: ${requires.anyBins.join(', ')})`);
     }
@@ -887,27 +886,24 @@ export function loadSkillBySelector(selector: string, workspaceSkillsDir?: strin
 // ─── Icon generation ─────────────────────────────────────────────────────────
 
 async function generateSkillIcon(name: string, description: string): Promise<string> {
-  const config = getConfig();
-  const apiKey = config.apiKeys.anthropic ?? process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    throw new Error('No Anthropic API key available for icon generation');
+  const provider = getConfiguredProvider();
+  if (!provider) {
+    throw new Error('Configured provider unavailable for icon generation');
   }
 
-  const client = new Anthropic({ apiKey });
-  const response = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 1024,
-    system: 'You are a pixel art icon designer. When asked, return ONLY a single <svg> element — no explanation, no markdown, no code fences. The SVG must be a 16x16 grid pixel art icon using <rect> elements. Use a limited palette (3-5 colors). Keep it under 2KB. The viewBox should be "0 0 16 16" with each pixel being a 1x1 rect.',
-    messages: [{
-      role: 'user',
-      content: `Create a 16x16 pixel art SVG icon representing this skill:\nName: ${name}\nDescription: ${description}`,
-    }],
-  });
+  const response = await provider.sendMessage(
+    [userMessage(`Create a 16x16 pixel art SVG icon representing this skill:\nName: ${name}\nDescription: ${description}`)],
+    undefined,
+    'You are a pixel art icon designer. When asked, return ONLY a single <svg> element — no explanation, no markdown, no code fences. The SVG must be a 16x16 grid pixel art icon using <rect> elements. Use a limited palette (3-5 colors). Keep it under 2KB. The viewBox should be "0 0 16 16" with each pixel being a 1x1 rect.',
+    {
+      config: {
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1024,
+      },
+    },
+  );
 
-  const text = response.content
-    .filter((block): block is Anthropic.TextBlock => block.type === 'text')
-    .map((block) => block.text)
-    .join('');
+  const text = extractAllText(response);
 
   const svgMatch = text.match(/<svg[\s\S]*<\/svg>/i);
   if (!svgMatch) {

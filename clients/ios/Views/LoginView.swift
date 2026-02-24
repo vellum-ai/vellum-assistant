@@ -4,6 +4,10 @@ import VellumAssistantShared
 
 struct LoginView: View {
     @Bindable var authManager: AuthManager
+    /// Called after a successful login so the onboarding flow can advance.
+    var onContinue: (() -> Void)?
+    /// Called when the user cancels or auth fails and they want to go back.
+    var onCancel: (() -> Void)?
 
     var body: some View {
         VStack(spacing: VSpacing.xl) {
@@ -32,7 +36,13 @@ struct LoginView: View {
             }
 
             Button {
-                Task { await authManager.startWorkOSLogin() }
+                Task {
+                    await authManager.startWorkOSLogin()
+                    // Advance once the auth state reflects a successful login.
+                    if authManager.isAuthenticated {
+                        onContinue?()
+                    }
+                }
             } label: {
                 if authManager.isSubmitting {
                     ProgressView()
@@ -42,6 +52,13 @@ struct LoginView: View {
                 }
             }
             .buttonStyle(.borderedProminent)
+            .disabled(authManager.isSubmitting)
+
+            // Allow users to go back if they cancel or can't complete login right now.
+            Button("Back") {
+                onCancel?()
+            }
+            .foregroundColor(VColor.textSecondary)
             .disabled(authManager.isSubmitting)
 
             Spacer()

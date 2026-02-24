@@ -291,8 +291,17 @@ extension IPCSessionCreateRequest {
 public typealias UserMessageMessage = IPCUserMessage
 
 extension IPCUserMessage {
-    public init(sessionId: String, content: String, attachments: [IPCAttachment]?, activeSurfaceId: String? = nil, currentPage: String? = nil, bypassSecretCheck: Bool? = nil) {
-        self.init(type: "user_message", sessionId: sessionId, content: content, attachments: attachments, activeSurfaceId: activeSurfaceId, currentPage: currentPage, bypassSecretCheck: bypassSecretCheck)
+    /// Platform-derived default channel identifier.
+    private static var defaultChannel: String {
+        #if os(iOS)
+        return "ios"
+        #else
+        return "macos"
+        #endif
+    }
+
+    public init(sessionId: String, content: String, attachments: [IPCAttachment]?, activeSurfaceId: String? = nil, currentPage: String? = nil, bypassSecretCheck: Bool? = nil, channel: String? = nil) {
+        self.init(type: "user_message", sessionId: sessionId, content: content, attachments: attachments, activeSurfaceId: activeSurfaceId, currentPage: currentPage, bypassSecretCheck: bypassSecretCheck, channel: channel ?? Self.defaultChannel)
     }
 }
 
@@ -741,6 +750,16 @@ extension IPCSessionInfo {
     }
 }
 
+/// Session title update push message emitted after first-turn auto-titling.
+/// Backed by generated `IPCSessionTitleUpdated`.
+public typealias SessionTitleUpdatedMessage = IPCSessionTitleUpdated
+
+extension IPCSessionTitleUpdated {
+    public init(sessionId: String, title: String) {
+        self.init(type: "session_title_updated", sessionId: sessionId, title: title)
+    }
+}
+
 /// Memory recall telemetry event.
 /// Backed by generated `IPCMemoryRecalled`.
 public typealias MemoryRecalledMessage = IPCMemoryRecalled
@@ -998,6 +1017,12 @@ public typealias SkillsListResponseMessage = IPCSkillsListResponse
 /// Response containing the full body of a specific skill.
 /// Backed by generated `IPCSkillDetailResponse`.
 public typealias SkillDetailResponseMessage = IPCSkillDetailResponse
+
+// MARK: - Conversation Search
+
+/// Response containing conversation search results.
+/// Backed by generated `IPCConversationSearchResponse`.
+public typealias ConversationSearchResponseMessage = IPCConversationSearchResponse
 
 // MARK: - Workspace Files
 
@@ -2062,6 +2087,7 @@ public enum ServerMessage: Decodable, Sendable {
     case assistantThinkingDelta(AssistantThinkingDeltaMessage)
     case messageComplete(MessageCompleteMessage)
     case sessionInfo(SessionInfoMessage)
+    case sessionTitleUpdated(SessionTitleUpdatedMessage)
     case sessionListResponse(SessionListResponseMessage)
     case historyResponse(HistoryResponseMessage)
     case memoryStatus(MemoryStatusMessage)
@@ -2171,6 +2197,11 @@ public enum ServerMessage: Decodable, Sendable {
     case workspaceFileReadResponse(WorkspaceFileReadResponseMessage)
     case identityGetResponse(IdentityGetResponseMessage)
     case channelReadinessResponse(IPCChannelReadinessResponse)
+    case parentalControlGetResponse(ParentalControlGetResponseMessage)
+    case parentalControlVerifyPinResponse(ParentalControlVerifyPinResponseMessage)
+    case parentalControlSetPinResponse(ParentalControlSetPinResponseMessage)
+    case parentalControlUpdateResponse(ParentalControlUpdateResponseMessage)
+    case conversationSearchResponse(ConversationSearchResponseMessage)
     case pong
     case unknown(String)
 
@@ -2213,6 +2244,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "session_info":
             let message = try SessionInfoMessage(from: decoder)
             self = .sessionInfo(message)
+        case "session_title_updated":
+            let message = try SessionTitleUpdatedMessage(from: decoder)
+            self = .sessionTitleUpdated(message)
         case "session_list_response":
             let message = try SessionListResponseMessage(from: decoder)
             self = .sessionListResponse(message)
@@ -2540,6 +2574,21 @@ public enum ServerMessage: Decodable, Sendable {
         case "channel_readiness_response":
             let message = try IPCChannelReadinessResponse(from: decoder)
             self = .channelReadinessResponse(message)
+        case "parental_control_get_response":
+            let message = try ParentalControlGetResponseMessage(from: decoder)
+            self = .parentalControlGetResponse(message)
+        case "parental_control_verify_pin_response":
+            let message = try ParentalControlVerifyPinResponseMessage(from: decoder)
+            self = .parentalControlVerifyPinResponse(message)
+        case "parental_control_set_pin_response":
+            let message = try ParentalControlSetPinResponseMessage(from: decoder)
+            self = .parentalControlSetPinResponse(message)
+        case "parental_control_update_response":
+            let message = try ParentalControlUpdateResponseMessage(from: decoder)
+            self = .parentalControlUpdateResponse(message)
+        case "conversation_search_response":
+            let message = try ConversationSearchResponseMessage(from: decoder)
+            self = .conversationSearchResponse(message)
         case "pong":
             self = .pong
         default:
@@ -2580,6 +2629,73 @@ public typealias AppFilesChangedMessage = IPCAppFilesChanged
 /// Server push — tells the client to open/focus the tasks window.
 /// Backed by generated `IPCOpenTasksWindow`.
 public typealias OpenTasksWindowMessage = IPCOpenTasksWindow
+
+// MARK: - Parental Control Messages
+
+/// Fetch current parental control settings and PIN status.
+/// Backed by generated `IPCParentalControlGetRequest`.
+public typealias ParentalControlGetRequestMessage = IPCParentalControlGetRequest
+
+extension IPCParentalControlGetRequest {
+    public init() {
+        self.init(type: "parental_control_get")
+    }
+}
+
+/// Parental control settings + PIN status response.
+/// Backed by generated `IPCParentalControlGetResponse`.
+public typealias ParentalControlGetResponseMessage = IPCParentalControlGetResponse
+
+/// Verify a PIN attempt without changing state.
+/// Backed by generated `IPCParentalControlVerifyPinRequest`.
+public typealias ParentalControlVerifyPinRequestMessage = IPCParentalControlVerifyPinRequest
+
+extension IPCParentalControlVerifyPinRequest {
+    public init(pin: String) {
+        self.init(type: "parental_control_verify_pin", pin: pin)
+    }
+}
+
+/// Result of a PIN verification attempt.
+/// Backed by generated `IPCParentalControlVerifyPinResponse`.
+public typealias ParentalControlVerifyPinResponseMessage = IPCParentalControlVerifyPinResponse
+
+/// Set, change, or clear the parental control PIN.
+/// Backed by generated `IPCParentalControlSetPinRequest`.
+public typealias ParentalControlSetPinRequestMessage = IPCParentalControlSetPinRequest
+
+extension IPCParentalControlSetPinRequest {
+    /// Set a PIN for the first time.
+    public static func set(newPin: String) -> Self {
+        Self(type: "parental_control_set_pin", new_pin: newPin)
+    }
+    /// Change an existing PIN.
+    public static func change(currentPin: String, newPin: String) -> Self {
+        Self(type: "parental_control_set_pin", current_pin: currentPin, new_pin: newPin)
+    }
+    /// Clear the PIN.
+    public static func clear(currentPin: String) -> Self {
+        Self(type: "parental_control_set_pin", current_pin: currentPin, clear: true)
+    }
+}
+
+/// Result of a set/change/clear PIN operation.
+/// Backed by generated `IPCParentalControlSetPinResponse`.
+public typealias ParentalControlSetPinResponseMessage = IPCParentalControlSetPinResponse
+
+/// Update parental control settings (enable/disable mode, content restrictions, tool blocks).
+/// Backed by generated `IPCParentalControlUpdateRequest`.
+public typealias ParentalControlUpdateRequestMessage = IPCParentalControlUpdateRequest
+
+extension IPCParentalControlUpdateRequest {
+    public init(pin: String? = nil, enabled: Bool? = nil, contentRestrictions: [String]? = nil, blockedToolCategories: [String]? = nil) {
+        self.init(type: "parental_control_update", pin: pin, enabled: enabled, content_restrictions: contentRestrictions, blocked_tool_categories: blockedToolCategories)
+    }
+}
+
+/// Result of a parental control settings update.
+/// Backed by generated `IPCParentalControlUpdateResponse`.
+public typealias ParentalControlUpdateResponseMessage = IPCParentalControlUpdateResponse
 
 // MARK: - Layout Config Wire Types
 // Defined here temporarily; canonical home is LayoutConfig.swift (M1 / #2973)

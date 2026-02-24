@@ -17,8 +17,9 @@ import {
   createCipheriv,
   createDecipheriv,
 } from 'node:crypto';
-import { readFileSync, writeFileSync, existsSync, mkdirSync, chmodSync } from 'node:fs';
+import { readFileSync, writeFileSync, chmodSync } from 'node:fs';
 import { join, dirname } from 'node:path';
+import { pathExists, ensureDir } from '../util/fs.js';
 import { hostname, userInfo } from 'node:os';
 import { getRootDir, getPlatformName } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
@@ -98,7 +99,7 @@ function deriveKey(salt: Buffer): Buffer {
  */
 function readStore(): StoreFile | null {
   const path = getStorePath();
-  if (!existsSync(path)) return null;
+  if (!pathExists(path)) return null;
 
   const raw = readFileSync(path, 'utf-8');
   const parsed = JSON.parse(raw);
@@ -114,10 +115,7 @@ function readStore(): StoreFile | null {
 
 function writeStore(store: StoreFile): void {
   const path = getStorePath();
-  const dir = dirname(path);
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
+  ensureDir(dirname(path));
   writeFileSync(path, JSON.stringify(store, null, 2), { mode: 0o600 });
   // Enforce 0600 even if the file already existed with permissive bits
   chmodSync(path, 0o600);
@@ -125,7 +123,7 @@ function writeStore(store: StoreFile): void {
 
 function getOrCreateStore(): StoreFile {
   const path = getStorePath();
-  if (existsSync(path)) {
+  if (pathExists(path)) {
     // File exists — must be parseable, otherwise fail to prevent data loss
     return readStore()!;
   }
