@@ -185,6 +185,13 @@ final class PorcupineBinding {
         keywordPaths: [String],
         sensitivities: [Float]
     ) throws {
+        guard keywordPaths.count == sensitivities.count else {
+            throw PorcupineBindingError.invalidArgument(
+                "Number of keyword paths (\(keywordPaths.count)) does not match number of sensitivities (\(sensitivities.count))",
+                []
+            )
+        }
+
         // Build a C-compatible array of keyword path strings using strdup
         // (same pattern as the iOS binding)
         var cKeywordPaths = keywordPaths.map { UnsafePointer<CChar>(strdup($0)) }
@@ -205,6 +212,9 @@ final class PorcupineBinding {
             throw mapStatus(status, message: "pv_porcupine_init failed", stack: messageStack)
         }
 
+        // Release any previously-initialized engine before overwriting the handle
+        delete()
+
         self.handle = porcupineHandle
         Self.logger.info("Porcupine engine initialized with \(keywordPaths.count) keyword(s)")
     }
@@ -217,6 +227,13 @@ final class PorcupineBinding {
     func process(pcm: [Int16]) throws -> Int32 {
         guard let handle = self.handle else {
             throw PorcupineBindingError.invalidState("Porcupine not initialized", [])
+        }
+
+        guard pcm.count == Int(frameLength) else {
+            throw PorcupineBindingError.invalidArgument(
+                "PCM frame must contain exactly \(frameLength) samples, got \(pcm.count)",
+                []
+            )
         }
 
         var keywordIndex: Int32 = -1
