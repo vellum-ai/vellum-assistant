@@ -65,3 +65,47 @@ export interface NotificationDeliveryResult {
   errorMessage?: string;
   sentAt?: number;
 }
+
+// ── Channel adapter interfaces ──────────────────────────────────────────────
+
+/** Copy rendered by the copy-composer for a single notification delivery. */
+export interface PreparedDelivery {
+  notificationType: NotificationType;
+  title: string;
+  body: string;
+  threadTitle?: string;
+  threadSeedMessage?: string;
+  deepLinkMetadata?: Record<string, unknown>;
+}
+
+/** Result returned by a channel adapter after attempting to send. */
+export interface DeliveryResult {
+  success: boolean;
+  error?: string;
+}
+
+/** Resolved destination for a specific channel. */
+export interface ChannelDestination {
+  channel: NotificationChannel;
+  endpoint?: string;
+  metadata?: Record<string, unknown>;
+}
+
+/** Interface that each channel adapter must implement. */
+export interface ChannelAdapter {
+  channel: NotificationChannel;
+  send(delivery: PreparedDelivery, destination: ChannelDestination): Promise<DeliveryResult>;
+}
+
+/** Signal context provided by notification producers to the orchestrator. */
+export interface NotificationSignalContext {
+  type: NotificationType;
+  assistantId: string;
+  sourceChannel: NotificationChannel;
+  sourceSessionId: string;
+  sourceEventId: string;
+  requiresAction: boolean;
+  payload: Record<string, unknown>;
+  dedupeKey?: string;
+  priority?: NotificationPriority;
+}
