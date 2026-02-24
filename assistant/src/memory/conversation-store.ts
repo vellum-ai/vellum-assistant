@@ -142,9 +142,24 @@ export function deleteConversation(id: string): void {
   });
 }
 
+/**
+ * A conversation is considered orphaned when it has user messages but no
+ * assistant response.  This typically happens when a session_create is
+ * processed by the daemon but the response never reaches the client (e.g.
+ * due to a disconnection).  The client then retries, creating a second
+ * conversation with the same content while the first one lingers with no
+ * assistant reply.
+ */
+const orphanFilter = sql`${conversations.id} NOT IN (
+  SELECT c2.id FROM conversations c2
+  WHERE c2.id IN (SELECT m1.conversation_id FROM messages m1 WHERE m1.role = 'user')
+    AND c2.id NOT IN (SELECT m2.conversation_id FROM messages m2 WHERE m2.role = 'assistant')
+)`;
+
 export function listConversations(limit?: number, includeBackground = false, offset = 0): ConversationRow[] {
   const db = getDb();
-  const where = includeBackground ? undefined : sql`${conversations.threadType} != 'background'`;
+  const backgroundFilter = includeBackground ? undefined : sql`${conversations.threadType} != 'background'`;
+  const where = backgroundFilter ? sql`${backgroundFilter} AND ${orphanFilter}` : orphanFilter;
   const query = db
     .select()
     .from(conversations)
@@ -157,7 +172,8 @@ export function listConversations(limit?: number, includeBackground = false, off
 
 export function countConversations(includeBackground = false): number {
   const db = getDb();
-  const where = includeBackground ? undefined : sql`${conversations.threadType} != 'background'`;
+  const backgroundFilter = includeBackground ? undefined : sql`${conversations.threadType} != 'background'`;
+  const where = backgroundFilter ? sql`${backgroundFilter} AND ${orphanFilter}` : orphanFilter;
   const [{ total }] = db
     .select({ total: count() })
     .from(conversations)

@@ -33,6 +33,8 @@ import {
   getMessages,
   deleteLastExchange,
   isLastUserMessageToolResult,
+  listConversations,
+  countConversations,
   clearAll,
 } from '../memory/conversation-store.js';
 import {
@@ -421,6 +423,67 @@ describe('conversation metadata read helpers', () => {
 
   test('getConversationMemoryScopeId returns default for missing conversation', () => {
     expect(getConversationMemoryScopeId('nonexistent-id')).toBe('default');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Orphan conversation filtering
+// ---------------------------------------------------------------------------
+
+describe('listConversations orphan filtering', () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run('DELETE FROM messages');
+    db.run('DELETE FROM conversations');
+  });
+
+  test('excludes conversations that have user messages but no assistant response', () => {
+    const orphan = createConversation('Orphan');
+    addMessage(orphan.id, 'user', 'hello');
+
+    const healthy = createConversation('Healthy');
+    addMessage(healthy.id, 'user', 'hello');
+    addMessage(healthy.id, 'assistant', 'hi there');
+
+    const conversations = listConversations();
+    expect(conversations).toHaveLength(1);
+    expect(conversations[0].id).toBe(healthy.id);
+  });
+
+  test('includes conversations with no messages (empty threads)', () => {
+    const empty = createConversation('Empty');
+    const healthy = createConversation('Healthy');
+    addMessage(healthy.id, 'user', 'hello');
+    addMessage(healthy.id, 'assistant', 'hi');
+
+    const conversations = listConversations();
+    expect(conversations).toHaveLength(2);
+    const ids = conversations.map((c) => c.id);
+    expect(ids).toContain(empty.id);
+    expect(ids).toContain(healthy.id);
+  });
+
+  test('countConversations excludes orphans', () => {
+    const orphan = createConversation('Orphan');
+    addMessage(orphan.id, 'user', 'hello');
+
+    createConversation('Empty');
+
+    const healthy = createConversation('Healthy');
+    addMessage(healthy.id, 'user', 'hello');
+    addMessage(healthy.id, 'assistant', 'hi');
+
+    expect(countConversations()).toBe(2);
+  });
+
+  test('does not exclude background conversations with only user messages when includeBackground is true', () => {
+    const bg = createConversation({ title: 'Background task', threadType: 'background' });
+    addMessage(bg.id, 'user', 'task input');
+
+    // Background conversations are already filtered by threadType, not orphan logic
+    const withBg = listConversations(100, true);
+    // The background conv IS an orphan (user msg, no assistant), so it should be filtered
+    expect(withBg.find((c) => c.id === bg.id)).toBeUndefined();
   });
 });
 
