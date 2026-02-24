@@ -115,9 +115,9 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
     // Create delivery rows and dispatch
     for (const dest of destinations) {
       if (dest.channel === 'macos') {
-        const guardianCopy = await guardianCopyPromise;
-
-        // Create a dedicated server-side conversation for the mac guardian thread
+        // Create conversation and delivery row synchronously so they exist
+        // before awaiting LLM copy — prevents a race where an external channel
+        // reply resolves the request before the macOS delivery is created.
         const macConvKey = `asst:${assistantId}:guardian:request:${request.id}`;
         const { conversationId: macConversationId } = getOrCreateConversation(macConvKey);
 
@@ -126,6 +126,9 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
           destinationChannel: 'macos',
           destinationConversationId: macConversationId,
         });
+
+        // Now await LLM-generated copy for the message content and thread title
+        const guardianCopy = await guardianCopyPromise;
 
         // Add the guardian question as the initial message in the thread
         addMessage(
