@@ -2690,6 +2690,8 @@ Note: OAuth2 scopes (`tweet.read`, `tweet.write`, `users.read`, `offline.access`
 | `assistant/src/config/bundled-skills/messaging/` | Unified messaging skill (SKILL.md, TOOLS.json, tools/) |
 | `assistant/src/watcher/providers/slack.ts` | Slack watcher for DMs, mentions, thread replies |
 | `assistant/src/watcher/providers/gmail.ts` | Gmail watcher using History API |
+| `assistant/src/watcher/providers/github.ts` | GitHub watcher for PRs, issues, review requests, and mentions |
+| `assistant/src/watcher/providers/linear.ts` | Linear watcher for assigned issues, status changes, and @mentions |
 | `assistant/src/daemon/handlers/twitter-auth.ts` | Twitter OAuth2 flow handlers (`twitter_auth_start`, `twitter_auth_status`) |
 | `assistant/src/twitter/client.ts` | Twitter CDP client: GraphQL mutations/queries via Chrome DevTools Protocol |
 | `assistant/src/twitter/oauth-client.ts` | OAuth-backed Twitter client: X API v2 post/reply via stored tokens using `withValidToken()` |
@@ -3280,6 +3282,8 @@ graph TD
         GMAIL["Gmail Provider"]
         SLACK_W["Slack Provider"]
         GCAL["Google Calendar Provider"]
+        GH_W["GitHub Provider"]
+        LINEAR_W["Linear Provider"]
         FUTURE["Future Providers..."]
     end
 
@@ -3297,6 +3301,8 @@ graph TD
     POLL --> GMAIL
     POLL --> SLACK_W
     POLL --> GCAL
+    POLL --> GH_W
+    POLL --> LINEAR_W
     POLL --> FUTURE
     POLL --> DEDUP
     DEDUP --> PROCESS
