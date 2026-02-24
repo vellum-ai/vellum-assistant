@@ -1,7 +1,8 @@
 // Channel readiness types — reusable primitive for all channels.
 
-/** Logical channel identifier. Well-known channels have literal types; custom channels use string. */
-export type ChannelId = 'sms' | 'telegram' | 'voice' | string;
+import type { ChannelId } from '../channels/types.js';
+
+export type { ChannelId };
 
 /** Result of a single readiness check (local or remote). */
 export interface ReadinessCheckResult {

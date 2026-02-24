@@ -5,6 +5,7 @@
  * before it is sent to the provider.  They are pure (no side effects).
  */
 
+import type { ChannelId } from '../channels/types.js';
 import type { Message } from '../providers/types.js';
 import { listAppFiles, getAppsDir } from '../memory/app-store.js';
 import { statSync } from 'node:fs';
@@ -27,7 +28,7 @@ export interface ChannelCapabilities {
 
 /** Guardian identity/trust context for external chat channels. */
 export interface GuardianRuntimeContext {
-  sourceChannel: string;
+  sourceChannel: ChannelId;
   actorRole: 'guardian' | 'non-guardian' | 'unverified_channel';
   guardianChatId?: string;
   guardianExternalUserId?: string;

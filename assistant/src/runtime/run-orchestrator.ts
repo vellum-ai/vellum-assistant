@@ -13,6 +13,7 @@
  * status and submit a decision or secret via the respective endpoints.
  */
 
+import type { ChannelId } from '../channels/types.js';
 import * as runsStore from '../memory/runs-store.js';
 import type { Run } from '../memory/runs-store.js';
 import type { Session } from '../daemon/session.js';
@@ -39,7 +40,7 @@ interface PendingRunState {
 
 export interface RunOrchestratorDeps {
   getOrCreateSession: (conversationId: string, transport?: {
-    channelId: string;
+    channelId: ChannelId;
     hints?: string[];
     uxBrief?: string;
   }) => Promise<Session>;
@@ -71,7 +72,7 @@ export interface RunStartOptions {
    * channel capabilities are resolved for this channel instead of the
    * default 'http-api'.
    */
-  sourceChannel?: string;
+  sourceChannel?: ChannelId;
   /**
    * Transport hints from sourceMetadata (e.g. reply-context cues).
    * Forwarded to the session so the agent loop can incorporate them.

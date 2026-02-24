@@ -1,5 +1,7 @@
 // External service integrations: Slack, Telegram, Twilio, Twitter, Vercel, ingress, channel readiness, guardian.
 
+import type { ChannelId } from '../../channels/types.js';
+
 // === Client → Server ===
 
 export interface SlackWebhookConfigRequest {
@@ -69,7 +71,7 @@ export interface TwilioConfigRequest {
 export interface ChannelReadinessRequest {
   type: 'channel_readiness';
   action: 'get' | 'refresh';
-  channel?: string;
+  channel?: ChannelId;
   assistantId?: string;
   includeRemote?: boolean;
 }
@@ -77,7 +79,7 @@ export interface ChannelReadinessRequest {
 export interface GuardianVerificationRequest {
   type: 'guardian_verification';
   action: 'create_challenge' | 'status' | 'revoke';
-  channel?: string;  // Defaults to 'telegram'
+  channel?: ChannelId;  // Defaults to 'telegram'
   sessionId?: string;
   assistantId?: string;  // Defaults to 'self'
 }
@@ -203,7 +205,7 @@ export interface ChannelReadinessResponse {
   type: 'channel_readiness_response';
   success: boolean;
   snapshots?: Array<{
-    channel: string;
+    channel: ChannelId;
     ready: boolean;
     checkedAt: number;
     stale: boolean;
@@ -223,7 +225,7 @@ export interface GuardianVerificationResponse {
   bound?: boolean;
   guardianExternalUserId?: string;
   /** The channel this status pertains to (e.g. "telegram", "sms"). Present when action is 'status'. */
-  channel?: string;
+  channel?: ChannelId;
   /** The assistant ID scoped to this status. Present when action is 'status'. */
   assistantId?: string;
   /** The delivery chat ID for the guardian (e.g. Telegram chat ID). Present when action is 'status' and bound is true. */

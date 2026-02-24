@@ -2,6 +2,8 @@
  * Route handlers for channel inbound messages, delivery acks, and
  * conversation deletion.
  */
+import { assertChannelId } from '../../channels/types.js';
+import type { ChannelId } from '../../channels/types.js';
 import { timingSafeEqual } from 'node:crypto';
 import { deleteConversationKey } from '../../memory/conversation-key-store.js';
 import * as conversationStore from '../../memory/conversation-store.js';
@@ -125,7 +127,7 @@ export interface GuardianContext {
   denialReason?: DenialReason;
 }
 
-function toGuardianRuntimeContext(sourceChannel: string, ctx: GuardianContext): GuardianRuntimeContext {
+function toGuardianRuntimeContext(sourceChannel: ChannelId, ctx: GuardianContext): GuardianRuntimeContext {
   return {
     sourceChannel,
     actorRole: ctx.actorRole,
@@ -153,7 +155,7 @@ function requiredDecisionKeywords(actions: ApprovalUIMetadata['actions']): strin
 interface DeliverGeneratedApprovalPromptParams {
   replyCallbackUrl: string;
   chatId: string;
-  sourceChannel: string;
+  sourceChannel: ChannelId;
   assistantId: string;
   bearerToken?: string;
   prompt: ChannelApprovalPrompt;
@@ -262,7 +264,7 @@ async function deliverGeneratedApprovalPrompt(params: DeliverGeneratedApprovalPr
 function buildGuardianDenyContext(
   toolName: string,
   denialReason: DenialReason,
-  _sourceChannel: string,
+  _sourceChannel: ChannelId,
 ): string {
   if (denialReason === 'no_identity') {
     return `Permission denied for "${toolName}": guardian approval was required, but requester identity could not be verified for this channel. In your next assistant reply, explain this clearly, avoid retrying yet, and ask the user to message from a verifiable direct account/chat before retrying.`;
@@ -371,7 +373,6 @@ export async function handleChannelInbound(
   };
 
   const {
-    sourceChannel,
     externalChatId,
     externalMessageId,
     content,
@@ -380,9 +381,12 @@ export async function handleChannelInbound(
     sourceMetadata,
   } = body;
 
-  if (!sourceChannel || typeof sourceChannel !== 'string') {
+  if (!body.sourceChannel || typeof body.sourceChannel !== 'string') {
     return Response.json({ error: 'sourceChannel is required' }, { status: 400 });
   }
+  // Validate and narrow to canonical ChannelId at the boundary — the gateway
+  // only sends well-known channel strings, so an unknown value is rejected.
+  const sourceChannel = assertChannelId(body.sourceChannel, 'sourceChannel');
   if (!externalChatId || typeof externalChatId !== 'string') {
     return Response.json({ error: 'externalChatId is required' }, { status: 400 });
   }
@@ -900,7 +904,7 @@ interface BackgroundProcessingParams {
   eventId: string;
   content: string;
   attachmentIds?: string[];
-  sourceChannel: string;
+  sourceChannel: ChannelId;
   externalChatId: string;
   guardianCtx: GuardianContext;
   metadataHints: string[];
@@ -1006,7 +1010,7 @@ interface ApprovalProcessingParams {
   content: string;
   attachmentIds?: string[];
   externalChatId: string;
-  sourceChannel: string;
+  sourceChannel: ChannelId;
   replyCallbackUrl: string;
   bearerToken?: string;
   guardianCtx: GuardianContext;
@@ -1332,7 +1336,7 @@ interface ApprovalInterceptionParams {
   callbackData?: string;
   content: string;
   externalChatId: string;
-  sourceChannel: string;
+  sourceChannel: ChannelId;
   senderExternalUserId?: string;
   replyCallbackUrl: string;
   bearerToken?: string;

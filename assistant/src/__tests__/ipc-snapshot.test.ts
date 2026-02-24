@@ -41,7 +41,7 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     title: 'New session',
     correlationId: 'corr-001',
     transport: {
-      channelId: 'desktop',
+      channelId: 'macos',
       hints: ['dashboard-capable'],
       uxBrief: 'Prefer dashboard-first onboarding.',
     },

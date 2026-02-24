@@ -9,6 +9,7 @@ import { existsSync, readFileSync, statSync, statfsSync } from 'node:fs';
 import { resolve, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { timingSafeEqual } from 'node:crypto';
+import { assertChannelId, isChannelId } from '../channels/types.js';
 import { ConfigError, IngressBlockedError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
 import { getWorkspacePromptPath, readLockfile } from '../util/platform.js';
@@ -128,10 +129,11 @@ function parseGuardianRuntimeContext(value: unknown): GuardianRuntimeContext | u
   ) {
     return undefined;
   }
-  const sourceChannel = typeof raw.sourceChannel === 'string' && raw.sourceChannel.trim().length > 0
+  const rawSourceChannel = typeof raw.sourceChannel === 'string' && raw.sourceChannel.trim().length > 0
     ? raw.sourceChannel
     : undefined;
-  if (!sourceChannel) return undefined;
+  if (!rawSourceChannel || !isChannelId(rawSourceChannel)) return undefined;
+  const sourceChannel = rawSourceChannel;
   const denialReason =
     raw.denialReason === 'no_binding' || raw.denialReason === 'no_identity'
       ? raw.denialReason
@@ -957,7 +959,7 @@ export class RuntimeHttpServer {
 
       const content = typeof payload.content === 'string' ? payload.content.trim() : '';
       const attachmentIds = Array.isArray(payload.attachmentIds) ? payload.attachmentIds as string[] : undefined;
-      const sourceChannel = payload.sourceChannel as string;
+      const sourceChannel = assertChannelId(payload.sourceChannel, 'sourceChannel');
       const sourceMetadata = payload.sourceMetadata as Record<string, unknown> | undefined;
       const assistantId = typeof payload.assistantId === 'string'
         ? payload.assistantId

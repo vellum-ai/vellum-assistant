@@ -1,5 +1,5 @@
 import { describe, test, expect, mock, afterEach } from "bun:test";
-import type { RuntimeAttachmentMeta } from "../runtime/client.js";
+import type { RuntimeAttachmentMeta, RuntimeInboundPayload } from "../runtime/client.js";
 import type { GatewayConfig } from "../config.js";
 
 type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
@@ -66,7 +66,7 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   return merged;
 }
 
-const payload = {
+const payload: RuntimeInboundPayload = {
   sourceChannel: "telegram",
   externalChatId: "99001",
   externalMessageId: "123",

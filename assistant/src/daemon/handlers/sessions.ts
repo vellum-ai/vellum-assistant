@@ -1,4 +1,6 @@
 import * as net from 'node:net';
+import { isChannelId } from '../../channels/types.js';
+import type { ChannelId } from '../../channels/types.js';
 import { silentlyWithLog } from '../../util/silently.js';
 import { v4 as uuid } from 'uuid';
 import * as conversationStore from '../../memory/conversation-store.js';
@@ -219,7 +221,7 @@ export function handleSessionList(socket: net.Socket, ctx: HandlerContext, offse
         updatedAt: c.updatedAt,
         threadType: normalizeThreadType(c.threadType),
         source: c.source ?? 'user',
-        ...(binding ? {
+        ...(binding && isChannelId(binding.sourceChannel) ? {
           channelBinding: {
             sourceChannel: binding.sourceChannel,
             externalChatId: binding.externalChatId,

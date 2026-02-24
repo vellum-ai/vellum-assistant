@@ -1,3 +1,4 @@
+import type { ChannelId } from '../channels/types.js';
 import type { GatewayConfig } from "../config.js";
 import { fetchImpl } from "../fetch.js";
 import { getLogger } from "../logger.js";
@@ -40,7 +41,7 @@ export class AttachmentValidationError extends Error {
 }
 
 export type RuntimeInboundPayload = {
-  sourceChannel: string;
+  sourceChannel: ChannelId;
   externalChatId: string;
   externalMessageId: string;
   content: string;
@@ -161,7 +162,7 @@ export async function forwardToRuntime(
 export async function resetConversation(
   config: GatewayConfig,
   assistantId: string,
-  sourceChannel: string,
+  sourceChannel: ChannelId,
   externalChatId: string,
 ): Promise<void> {
   const url = `${config.assistantRuntimeBaseUrl}/v1/assistants/${encodeURIComponent(assistantId)}/channels/conversation`;

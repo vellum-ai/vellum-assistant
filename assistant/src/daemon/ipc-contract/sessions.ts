@@ -1,5 +1,6 @@
 // Session lifecycle, auth, model config, and history types.
 
+import type { ChannelId } from '../../channels/types.js';
 import type { ThreadType } from './shared.js';
 import type { UserMessageAttachment } from './shared.js';
 
@@ -16,7 +17,7 @@ export interface SessionListRequest {
 /** Lightweight session transport metadata for channel identity and natural-language guidance. */
 export interface SessionTransportMetadata {
   /** Logical channel identifier (e.g. "desktop", "telegram", "mobile"). */
-  channelId: string;
+  channelId: ChannelId;
   /** Optional natural-language hints for channel-specific UX behavior. */
   hints?: string[];
   /** Optional concise UX brief for this channel. */
@@ -148,7 +149,7 @@ export interface SessionInfo {
 
 /** Channel binding metadata exposed in session/conversation list APIs. */
 export interface ChannelBinding {
-  sourceChannel: string;
+  sourceChannel: ChannelId;
   externalChatId: string;
   externalUserId?: string | null;
   displayName?: string | null;

@@ -1,6 +1,7 @@
 /**
  * Route handlers for conversation messages and suggestions.
  */
+import { parseChannelId } from '../../channels/types.js';
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import {
@@ -148,7 +149,8 @@ export async function handleSendMessage(
     sourceChannel?: string;
   };
 
-  const { conversationKey, content, attachmentIds, sourceChannel } = body;
+  const { conversationKey, content, attachmentIds } = body;
+  const sourceChannel = parseChannelId(body.sourceChannel) ?? undefined;
 
   if (!conversationKey) {
     return Response.json(
