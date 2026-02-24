@@ -36,6 +36,11 @@ export interface ParsedCommand {
 }
 
 const SHELL_PROGRAMS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish']);
+// Script interpreters that can execute arbitrary code from stdin — piping
+// untrusted data into these is as dangerous as piping into a shell.
+const SCRIPT_INTERPRETERS = new Set([
+  'python', 'python3', 'ruby', 'perl', 'node', 'deno', 'bun',
+]);
 const OPAQUE_PROGRAMS = new Set(['eval', 'source', 'alias']);
 const DANGEROUS_ENV_VARS = new Set([
   'LD_PRELOAD', 'LD_LIBRARY_PATH',
@@ -245,7 +250,7 @@ function detectDangerousPatterns(node: TSNode, segments: CommandSegment[]): Dang
   for (let i = 1; i < segments.length; i++) {
     if (segments[i].operator === '|') {
       const prog = segments[i].program;
-      if (SHELL_PROGRAMS.has(prog) || prog === 'eval' || prog === 'xargs') {
+      if (SHELL_PROGRAMS.has(prog) || prog === 'eval' || prog === 'xargs' || SCRIPT_INTERPRETERS.has(prog)) {
         patterns.push({
           type: 'pipe_to_shell',
           description: `Pipeline into ${prog}`,
