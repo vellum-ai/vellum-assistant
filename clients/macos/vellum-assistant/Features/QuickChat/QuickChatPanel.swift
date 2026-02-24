@@ -2,6 +2,13 @@ import AppKit
 import SwiftUI
 import VellumAssistantShared
 
+/// Borderless NSPanel subclass that can become key window.
+/// Without this override, borderless windows refuse key status
+/// and SwiftUI TextEditor won't accept keyboard input.
+private class KeyablePanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+}
+
 /// A borderless, floating NSPanel that hosts the Quick Chat text editor.
 /// Appears centered on the active screen with a vibrancy/blur background.
 /// Dismisses itself when it resigns key window status.
@@ -10,11 +17,15 @@ final class QuickChatPanel {
     private var panel: NSPanel?
     private var toastPanel: NSPanel?
     private var resignObserver: Any?
+    private var previousApp: NSRunningApplication?
 
     /// Callback invoked when the user submits a message.
     var onSubmit: ((String) -> Void)?
 
     func show() {
+        // Remember the frontmost app so we can restore focus on dismiss
+        previousApp = NSWorkspace.shared.frontmostApplication
+
         if let existing = panel {
             existing.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
@@ -38,7 +49,7 @@ final class QuickChatPanel {
 
         let hostingController = NSHostingController(rootView: view)
 
-        let panel = NSPanel(
+        let panel = KeyablePanel(
             contentRect: NSRect(x: 0, y: 0, width: 400, height: 60),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
@@ -91,6 +102,11 @@ final class QuickChatPanel {
         resignObserver = nil
 
         guard let panel else { return }
+
+        // Restore focus to the app that was active before Quick Chat appeared
+        let appToRestore = previousApp
+        previousApp = nil
+
         // Animate out: fade to transparent, then close
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = VAnimation.durationFast
@@ -99,6 +115,7 @@ final class QuickChatPanel {
         }, completionHandler: { [weak self] in
             panel.close()
             self?.panel = nil
+            appToRestore?.activate()
         })
     }
 
