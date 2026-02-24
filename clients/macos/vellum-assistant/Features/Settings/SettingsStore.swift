@@ -1243,18 +1243,18 @@ public final class SettingsStore: ObservableObject {
 
     func removeApprovedDevice(hashedDeviceId: String) {
         guard let daemonClient else { return }
-        daemonClient.onApprovedDeviceRemoveResponse = { [weak self] msg in
-            if msg.success {
-                self?.approvedDevices.removeAll { $0.hashedDeviceId == hashedDeviceId }
-            }
-        }
+        approvedDevices.removeAll { $0.hashedDeviceId == hashedDeviceId }
         try? daemonClient.sendApprovedDeviceRemove(hashedDeviceId: hashedDeviceId)
     }
 
     func clearAllApprovedDevices() {
         guard let daemonClient else { return }
-        try? daemonClient.sendApprovedDevicesClear()
-        approvedDevices = []
+        do {
+            try daemonClient.sendApprovedDevicesClear()
+            approvedDevices = []
+        } catch {
+            // IPC failed — don't clear local state
+        }
     }
 
     // MARK: - Override Resolution
