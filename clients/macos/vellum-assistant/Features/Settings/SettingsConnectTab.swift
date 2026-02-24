@@ -907,9 +907,28 @@ struct SettingsConnectTab: View {
         return String(instruction[range]).trimmingCharacters(in: CharacterSet(charactersIn: "`"))
     }
 
+    /// Extracts a six-digit verification code from voice-style instruction text.
+    /// Voice instructions use a format like "...six-digit code: 123456..." instead of the
+    /// `/guardian_verify <hex>` command used by Telegram and SMS channels.
+    private func extractVoiceGuardianCode(from instruction: String) -> String? {
+        guard let range = instruction.range(of: #"six-digit code:\s*(\d{6})"#, options: .regularExpression) else {
+            return nil
+        }
+        let match = String(instruction[range])
+        // Extract just the digits from "six-digit code: 123456"
+        guard let digitRange = match.range(of: #"\d{6}"#, options: .regularExpression) else {
+            return nil
+        }
+        return String(match[digitRange])
+    }
+
     @ViewBuilder
     private func guardianInstructionView(channel: String, instruction: String) -> some View {
-        let command = extractGuardianCommand(from: instruction)
+        // Voice uses a different instruction format ("six-digit code: 123456") vs
+        // Telegram/SMS which use "/guardian_verify <hex>".
+        let command: String? = channel == "voice"
+            ? extractVoiceGuardianCode(from: instruction)
+            : extractGuardianCommand(from: instruction)
         let isCopied = guardianCommandCopiedChannel == channel
 
         VStack(alignment: .leading, spacing: VSpacing.sm) {
