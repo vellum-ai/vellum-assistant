@@ -90,9 +90,6 @@ const inlineHandlers = defineHandlers({
   integration_disconnect: () => { /* no-op — integration registry removed */ },
 
   // Stub handlers: inbox operations — real implementations will be added in a follow-up PR.
-  ingress_member: (_msg, socket, ctx) => {
-    ctx.send(socket, { type: 'ingress_member_response', success: false, error: 'Not yet implemented' });
-  },
   assistant_inbox: (_msg, socket, ctx) => {
     ctx.send(socket, { type: 'assistant_inbox_response', success: false, error: 'Not yet implemented' });
   },
