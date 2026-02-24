@@ -17,6 +17,7 @@ Use this skill to browse the web. After loading this skill, the following browse
 - `browser_press_key` — Press a keyboard key
 - `browser_wait_for` — Wait for a condition
 - `browser_extract` — Extract page text content
+- `browser_wait_for_download` — Wait for a file download to complete
 - `browser_fill_credential` — Fill a stored credential into a form field
 
 ## Typical Workflow
