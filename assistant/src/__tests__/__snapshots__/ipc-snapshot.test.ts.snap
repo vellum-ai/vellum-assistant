@@ -601,6 +601,15 @@ exports[`IPC message snapshots ClientMessage types twilio_config serializes to e
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types channel_readiness serializes to expected JSON 1`] = `
+{
+  "action": "get",
+  "channel": "sms",
+  "includeRemote": true,
+  "type": "channel_readiness",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types guardian_verification serializes to expected JSON 1`] = `
 {
   "action": "create_challenge",
@@ -905,6 +914,20 @@ exports[`IPC message snapshots ClientMessage types tool_permission_simulate seri
 exports[`IPC message snapshots ClientMessage types tool_names_list serializes to expected JSON 1`] = `
 {
   "type": "tool_names_list",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types dictation_request serializes to expected JSON 1`] = `
+{
+  "context": {
+    "appName": "Example App",
+    "bundleIdentifier": "com.example.app",
+    "cursorInTextField": true,
+    "selectedText": "some selected text",
+    "windowTitle": "Main Window",
+  },
+  "transcription": "Hello world",
+  "type": "dictation_request",
 }
 `;
 
@@ -1320,6 +1343,14 @@ exports[`IPC message snapshots ServerMessage types task_routed serializes to exp
   "interactionType": "computer_use",
   "sessionId": "sess-routed-001",
   "type": "task_routed",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types ride_shotgun_progress serializes to expected JSON 1`] = `
+{
+  "message": "Observing user activity...",
+  "type": "ride_shotgun_progress",
+  "watchId": "watch-shotgun-001",
 }
 `;
 
@@ -1936,6 +1967,44 @@ exports[`IPC message snapshots ServerMessage types twilio_config_response serial
 }
 `;
 
+exports[`IPC message snapshots ServerMessage types channel_readiness_response serializes to expected JSON 1`] = `
+{
+  "snapshots": [
+    {
+      "channel": "sms",
+      "checkedAt": 1700000000000,
+      "localChecks": [
+        {
+          "message": "Twilio credentials are not configured",
+          "name": "twilio_credentials",
+          "passed": false,
+        },
+        {
+          "message": "Phone number is assigned",
+          "name": "phone_number",
+          "passed": true,
+        },
+        {
+          "message": "Public ingress URL is configured",
+          "name": "ingress",
+          "passed": true,
+        },
+      ],
+      "ready": false,
+      "reasons": [
+        {
+          "code": "twilio_credentials",
+          "text": "Twilio credentials are not configured",
+        },
+      ],
+      "stale": false,
+    },
+  ],
+  "success": true,
+  "type": "channel_readiness_response",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types guardian_verification_response serializes to expected JSON 1`] = `
 {
   "instruction": "Send this code to the Telegram bot",
@@ -2497,5 +2566,13 @@ exports[`IPC message snapshots ServerMessage types tool_names_list_response seri
     "file_write",
   ],
   "type": "tool_names_list_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types dictation_response serializes to expected JSON 1`] = `
+{
+  "mode": "dictation",
+  "text": "Hello world",
+  "type": "dictation_response",
 }
 `;

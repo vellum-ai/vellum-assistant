@@ -583,6 +583,29 @@ export interface TwilioConfigResponse {
   warning?: string;
 }
 
+export interface ChannelReadinessRequest {
+  type: 'channel_readiness';
+  action: 'get' | 'refresh';
+  channel?: string;
+  assistantId?: string;
+  includeRemote?: boolean;
+}
+
+export interface ChannelReadinessResponse {
+  type: 'channel_readiness_response';
+  success: boolean;
+  snapshots?: Array<{
+    channel: string;
+    ready: boolean;
+    checkedAt: number;
+    stale: boolean;
+    reasons: Array<{ code: string; text: string }>;
+    localChecks: Array<{ name: string; passed: boolean; message: string }>;
+    remoteChecks?: Array<{ name: string; passed: boolean; message: string }>;
+  }>;
+  error?: string;
+}
+
 export interface GuardianVerificationRequest {
   type: 'guardian_verification';
   action: 'create_challenge' | 'status' | 'revoke';
@@ -1102,6 +1125,7 @@ export type ClientMessage =
   | TwitterIntegrationConfigRequest
   | TelegramConfigRequest
   | TwilioConfigRequest
+  | ChannelReadinessRequest
   | GuardianVerificationRequest
   | TwitterAuthStartRequest
   | TwitterAuthStatusRequest
@@ -2485,6 +2509,7 @@ export type ServerMessage =
   | TwitterIntegrationConfigResponse
   | TelegramConfigResponse
   | TwilioConfigResponse
+  | ChannelReadinessResponse
   | GuardianVerificationResponse
   | TwitterAuthResult
   | TwitterAuthStatusResponse

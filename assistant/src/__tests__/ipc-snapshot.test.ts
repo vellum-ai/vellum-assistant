@@ -382,6 +382,12 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'twilio_config',
     action: 'get',
   },
+  channel_readiness: {
+    type: 'channel_readiness',
+    action: 'get',
+    channel: 'sms',
+    includeRemote: true,
+  },
   guardian_verification: {
     type: 'guardian_verification',
     action: 'create_challenge',
@@ -1243,6 +1249,24 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     success: true,
     hasCredentials: true,
     phoneNumber: '+15551234567',
+  },
+  channel_readiness_response: {
+    type: 'channel_readiness_response',
+    success: true,
+    snapshots: [
+      {
+        channel: 'sms',
+        ready: false,
+        checkedAt: 1700000000000,
+        stale: false,
+        reasons: [{ code: 'twilio_credentials', text: 'Twilio credentials are not configured' }],
+        localChecks: [
+          { name: 'twilio_credentials', passed: false, message: 'Twilio credentials are not configured' },
+          { name: 'phone_number', passed: true, message: 'Phone number is assigned' },
+          { name: 'ingress', passed: true, message: 'Public ingress URL is configured' },
+        ],
+      },
+    ],
   },
   guardian_verification_response: {
     type: 'guardian_verification_response',

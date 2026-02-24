@@ -251,6 +251,34 @@ Guardian bindings, verification challenges, and approval requests are all scoped
 
 The channel guardian service generates verification challenge instructions with channel-appropriate wording. The `channelLabel()` function maps `sourceChannel` values to human-readable labels (e.g., `"telegram"` -> `"Telegram"`, `"sms"` -> `"SMS"`), so challenge prompts reference the correct channel name.
 
+## Channel Readiness
+
+The `channel_readiness` IPC contract provides a unified way to check whether a channel (SMS, Telegram, etc.) is fully configured and operational. It runs local checks (credential presence, phone number assignment, ingress config) synchronously and optional remote checks (API reachability) asynchronously with a 5-minute TTL cache.
+
+### `channel_readiness` IPC Contract
+
+| Action | Description |
+|--------|-------------|
+| `get` | Returns readiness snapshots for the specified channel (or all channels if omitted). Local checks always run; remote checks run only when `includeRemote=true` and cache is stale. |
+| `refresh` | Invalidates the cache for the specified channel (or all channels), then returns fresh snapshots. |
+
+Request fields: `action` (required), `channel` (optional filter), `assistantId` (optional), `includeRemote` (optional boolean).
+
+Response type: `channel_readiness_response` with `success`, optional `snapshots` array (each with `channel`, `ready`, `checkedAt`, `stale`, `reasons`, `localChecks`, optional `remoteChecks`), and optional `error`.
+
+### Built-in Channel Probes
+
+- **SMS**: Checks Twilio credentials, phone number assignment, and public ingress URL.
+- **Telegram**: Checks bot token, webhook secret, and public ingress URL.
+
+### Key modules
+
+| File | Purpose |
+|------|---------|
+| `src/runtime/channel-readiness-types.ts` | Shared types: `ChannelId`, `ReadinessCheckResult`, `ChannelReadinessSnapshot`, `ChannelProbe` |
+| `src/runtime/channel-readiness-service.ts` | Service class with probe registration, cached readiness evaluation, and built-in SMS/Telegram probes |
+| `src/daemon/handlers/config.ts` | `handleChannelReadiness` — IPC handler for `channel_readiness` messages |
+
 ## Database
 
 SQLite via Drizzle ORM, stored at `~/.vellum/workspace/data/db/assistant.db`. Key tables include conversations, messages, tool invocations, attachments, memory segments (with FTS5), memory items, entities, reminders, and recurrence schedules (cron + RRULE).
