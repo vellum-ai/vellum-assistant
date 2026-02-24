@@ -1061,8 +1061,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let panel = QuickChatPanel()
-        panel.onSubmit = { message in
-            print("[QuickChat] \(message)")
+        panel.onSubmit = { [weak self] message in
+            self?.startBackgroundSession(task: message, source: "quick_chat")
         }
         panel.show()
         quickChatPanel = panel
