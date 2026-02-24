@@ -1,4 +1,25 @@
 /**
+ * Detect whether the user is explicitly opting out of QA/recording mode.
+ * Used to clear the thread-level QA latch.
+ */
+export function detectQaOptOut(text: string): boolean {
+  const lower = text.toLowerCase().trim();
+  const optOutPatterns = [
+    /\bstop\s+qa\s+mode\b/,
+    /\bno\s+recording\b/,
+    /\bdisable\s+recording\b/,
+    /\bstop\s+testing\b/,
+    /\bstop\s+recording\b/,
+    /\bturn\s+off\s+qa\b/,
+    /\bturn\s+off\s+recording\b/,
+    /\bend\s+qa\s+mode\b/,
+    /\bexit\s+qa\s+mode\b/,
+    /\bquit\s+qa\s+mode\b/,
+  ];
+  return optOutPatterns.some(p => p.test(lower));
+}
+
+/**
  * Detect whether a user's task text indicates a QA/test workflow.
  * Uses keyword/pattern matching for v1 — can be upgraded to semantic detection later.
  */

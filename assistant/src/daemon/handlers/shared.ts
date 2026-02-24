@@ -9,10 +9,38 @@ import type { ClientMessage, CuSessionCreate, ServerMessage, SessionTransportMet
 import type { SecretPromptResult } from '../../permissions/secret-prompter.js';
 import { getConfig } from '../../config/loader.js';
 import type { DebouncerMap } from '../../util/debounce.js';
-import { detectQaIntent } from '../qa-intent.js';
+import { detectQaIntent, detectQaOptOut } from '../qa-intent.js';
 import { resolveComputerUseTargetAppHint } from '../target-app-hints.js';
 
 const log = getLogger('handlers');
+
+/**
+ * Per-conversation QA latch. When a QA intent is detected in a conversation,
+ * the latch is set so subsequent CU turns in that thread default to
+ * requiresRecording=true. Cleared when the user explicitly opts out.
+ */
+export const qaLatchByConversation = new Map<string, boolean>();
+
+/**
+ * Set the QA latch for a conversation (thread).
+ */
+export function setQaLatch(conversationId: string): void {
+  qaLatchByConversation.set(conversationId, true);
+}
+
+/**
+ * Clear the QA latch for a conversation (thread).
+ */
+export function clearQaLatch(conversationId: string): void {
+  qaLatchByConversation.delete(conversationId);
+}
+
+/**
+ * Check whether the QA latch is active for a conversation.
+ */
+export function isQaLatchActive(conversationId: string | undefined): boolean {
+  return conversationId != null && (qaLatchByConversation.get(conversationId) === true);
+}
 
 export { log };
 
@@ -238,8 +266,23 @@ export function wireEscalationHandler(
 
     const cuSessionId = uuid();
     const isQa = detectQaIntent(task);
+    const qaLatchActive = isQaLatchActive(sourceSessionId);
     const targetApp = resolveComputerUseTargetAppHint(task);
     const config = getConfig();
+
+    // Determine whether recording is required: QA intent or latch + config flag
+    const requiresRecording = (isQa || qaLatchActive) && config.qaRecording.enforceStartBeforeActions;
+
+    // Set the QA latch for this conversation when QA intent is detected
+    if (isQa) {
+      setQaLatch(sourceSessionId);
+    }
+
+    // Check for explicit opt-out
+    if (detectQaOptOut(task)) {
+      clearQaLatch(sourceSessionId);
+    }
+
     const cuMsg: CuSessionCreate = {
       type: 'cu_session_create',
       sessionId: cuSessionId,
@@ -249,7 +292,8 @@ export function wireEscalationHandler(
       interactionType: 'computer_use',
       reportToSessionId: sourceSessionId,
       ...(targetApp ? { targetAppName: targetApp.appName, targetAppBundleId: targetApp.bundleId } : {}),
-      ...(isQa ? { qaMode: true } : {}),
+      ...(isQa || qaLatchActive ? { qaMode: true } : {}),
+      ...(requiresRecording ? { requiresRecording: true } : {}),
     };
     handleCuSessionCreate(cuMsg, currentSocket, ctx);
 
@@ -261,12 +305,13 @@ export function wireEscalationHandler(
       escalatedFrom: sourceSessionId,
       reportToSessionId: sourceSessionId,
       ...(targetApp ? { targetAppName: targetApp.appName, targetAppBundleId: targetApp.bundleId } : {}),
-      ...(isQa ? {
+      ...(isQa || qaLatchActive ? {
         qaMode: true,
         retentionDays: config.qaRecording.defaultRetentionDays,
         captureScope: config.qaRecording.captureScope,
         includeAudio: config.qaRecording.includeAudio,
       } : {}),
+      ...(requiresRecording ? { requiresRecording: true } : {}),
     });
 
     return true;
