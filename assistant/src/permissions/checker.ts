@@ -16,16 +16,23 @@ import type { ManifestOverride } from '../tools/execution-target.js';
 
 // ── Risk classification cache ────────────────────────────────────────────────
 // classifyRisk() is called on every permission check and can invoke WASM
-// parsing for shell commands. Cache results keyed on (toolName, inputHash).
+// parsing for shell commands. Cache results keyed on
+// (toolName, inputHash, workingDir, manifestOverride).
 // Invalidated when trust rules change since risk classification for file tools
 // depends on skill source path checks which reference config, but the core
 // risk logic is input-deterministic.
 const RISK_CACHE_MAX = 256;
 const riskCache = new Map<string, RiskLevel>();
 
-function riskCacheKey(toolName: string, input: Record<string, unknown>): string {
+function riskCacheKey(toolName: string, input: Record<string, unknown>, workingDir?: string, manifestOverride?: ManifestOverride): string {
   const inputJson = JSON.stringify(input);
-  const hash = createHash('sha256').update(inputJson).digest('hex');
+  const hash = createHash('sha256')
+    .update(inputJson)
+    .update('\0')
+    .update(workingDir ?? '')
+    .update('\0')
+    .update(manifestOverride ? JSON.stringify(manifestOverride) : '')
+    .digest('hex');
   return `${toolName}\0${hash}`;
 }
 
@@ -309,7 +316,7 @@ export async function classifyRisk(toolName: string, input: Record<string, unkno
 
   // Check cache first (skip when preParsed is provided since caller already
   // parsed and we'd just be duplicating the key computation cost).
-  const cacheKey = preParsed ? null : riskCacheKey(toolName, input);
+  const cacheKey = preParsed ? null : riskCacheKey(toolName, input, workingDir, manifestOverride);
   if (cacheKey) {
     const cached = riskCache.get(cacheKey);
     if (cached !== undefined) {
