@@ -22,7 +22,7 @@ export function createTwilioVoiceWebhookHandler(config: GatewayConfig) {
     // chain (defaultAssistantId / unmapped policy) — mirroring how the SMS
     // webhook handles phone-number lookup misses.
     const url = new URL(req.url);
-    const hasCallSessionId = url.searchParams.has("callSessionId");
+    const hasCallSessionId = !!url.searchParams.get("callSessionId");
     let assistantId: string | undefined;
 
     if (!hasCallSessionId) {

@@ -192,6 +192,24 @@ describe("twilio voice webhook handler", () => {
     expect(lastForwardedAssistantId).toBeUndefined();
   });
 
+  test("empty callSessionId is treated as inbound (resolves assistant by To number)", async () => {
+    const handler = createTwilioVoiceWebhookHandler(baseConfig);
+    const req = makeVoiceRequest(
+      {
+        CallSid: "CA_empty_session",
+        From: "+14155551234",
+        To: "+15550001111",
+      },
+      "?callSessionId=",
+    );
+
+    const res = await handler(req);
+
+    expect(res.status).toBe(200);
+    expect(lastForwardedAssistantId).toBe("assistant-abc");
+    expect(lastForwardedParams?.CallSid).toBe("CA_empty_session");
+  });
+
   test("inbound call resolves second assistant by To number", async () => {
     const handler = createTwilioVoiceWebhookHandler(baseConfig);
     const req = makeVoiceRequest({
