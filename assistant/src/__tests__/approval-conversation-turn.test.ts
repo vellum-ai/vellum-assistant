@@ -132,6 +132,22 @@ describe('runApprovalConversationTurn', () => {
     expect(result.replyText).toBe('Can you tell me more about this request?');
   });
 
+  test('fail-closed when single pending approval and hallucinated targetRunId', async () => {
+    // Only one pending approval, but model returns a non-matching targetRunId
+    const result = await runApprovalConversationTurn(
+      makeContext({
+        pendingApprovals: [{ runId: 'run-1', toolName: 'execute_shell' }],
+      }),
+      makeGenerator({
+        disposition: 'approve_once',
+        replyText: 'Approved!',
+        targetRunId: 'run-nonexistent',
+      }),
+    );
+    expect(result.disposition).toBe('keep_pending');
+    expect(result.replyText).toContain("couldn't process");
+  });
+
   test('fail-closed when targetRunId does not match any pending approval', async () => {
     const contextWithMultiple = makeContext({
       pendingApprovals: [
