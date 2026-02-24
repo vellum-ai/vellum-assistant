@@ -110,7 +110,9 @@ final class ComputerUseSession: ObservableObject {
     private var consecutiveUnchangedSteps = 0
     private var currentStepNumber = 0
     private var consecutiveFrontmostBlocks = 0
-    private(set) var qaRecordingWarningMessage: String?
+    @Published private(set) var qaRecordingWarningMessage: String?
+    /// Whether screen recording is currently active (for UI indicator).
+    @Published private(set) var isRecordingActive: Bool = false
 
     /// Adaptive delay configuration
     private let adaptiveDelayEnabled: Bool
@@ -174,6 +176,7 @@ final class ComputerUseSession: ObservableObject {
         isPaused = false
         pendingToolPermissionPrompt = nil
         qaRecordingWarningMessage = nil
+        isRecordingActive = false
         previousAXTreeText = nil
         previousElements = nil
         previousFlatElements = nil
@@ -227,6 +230,7 @@ final class ComputerUseSession: ObservableObject {
                 }
                 try await recorder.startRecording(windowID: windowID, displayID: displayID, includeAudio: self.includeAudio)
                 log.info("QA mode: screen recording started for session \(self.id) (scope: \(self.captureScope))")
+                isRecordingActive = true
                 // Notify daemon that recording started successfully
                 try? daemonClient.send(CuRecordingStatusMessage(sessionId: id, status: "started"))
             } catch {
@@ -1216,10 +1220,12 @@ final class ComputerUseSession: ObservableObject {
                     targetBundleId: result.targetBundleId,
                     expiresAt: expiresAtEpoch
                 )
+                isRecordingActive = false
                 log.info("QA recording finalized: \(result.fileURL.lastPathComponent) (\(result.sizeBytes) bytes, \(result.durationMs)ms)")
                 // Notify daemon that recording stopped successfully
                 try? daemonClient.send(CuRecordingStatusMessage(sessionId: id, status: "stopped"))
             } catch {
+                isRecordingActive = false
                 log.error("QA mode: failed to stop screen recording: \(error.localizedDescription)")
                 try? daemonClient.send(CuRecordingStatusMessage(sessionId: id, status: "failed", reason: error.localizedDescription))
                 if qaRecordingWarningMessage == nil {
