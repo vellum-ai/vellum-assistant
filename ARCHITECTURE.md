@@ -4277,6 +4277,14 @@ When the LLM emits `[ASK_GUARDIAN: question]` during a voice call, the orchestra
 
 7. **Separation from channel guardian approvals**: Guardian action requests are SEPARATE from `channelGuardianApprovalRequests` (the existing channel tool-approval system). The channel guardian approval system handles tool-use permission grants (approve/deny a specific tool invocation). Guardian action requests handle free-form questions from voice calls that require human input to continue the conversation.
 
+#### Guardian Request Copy Generation Pipeline
+
+Thread titles and initial messages for guardian question threads are generated via `guardian-question-copy.ts`. The module calls the configured LLM provider (with `modelIntent: 'latency-optimized'`) to produce an emoji-prefixed, attention-oriented title and a richer initial message that explains the live-call context. A 5-second timeout guards the generation call. When no provider is configured, generation times out, or parsing fails, the module falls back to deterministic copy (`buildFallbackCopy`) that uses a warning emoji prefix and a simple template containing the question text. The generative copy is awaited only in the macOS delivery branch so that Telegram/SMS deliveries dispatch without LLM latency.
+
+#### macOS Notification + Deep-Link Flow
+
+When a guardian question is dispatched while the macOS app is backgrounded, the Swift client posts a native `UNUserNotificationCenter` notification under the `GUARDIAN_REQUEST` category. The notification title mirrors the emoji-prefixed thread title from the copy generation pipeline. Tapping the notification triggers the `openConversationThread` deep-link handler, which switches the main window to the guardian question thread so the user can reply immediately.
+
 ### SQLite Tables
 
 All five tables live in `~/.vellum/workspace/data/db/assistant.db` alongside existing tables:
