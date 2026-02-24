@@ -265,8 +265,9 @@ struct SessionOverlayView: View {
                             .foregroundColor(VColor.error)
                             .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
                     }
-                    .frame(maxHeight: 60)
+                    .frame(maxHeight: 80)
                 }
                 .padding(.horizontal, VSpacing.xs)
             } else if session.isRecordingActive {
