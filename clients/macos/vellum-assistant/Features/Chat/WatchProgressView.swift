@@ -47,6 +47,7 @@ struct WatchProgressView: View {
                 Text(isLearnMode ? "Recording network traffic..." : "Watching your workflow...")
                     .font(VFont.bodyMedium)
                     .foregroundColor(VColor.textPrimary)
+                    .textSelection(.enabled)
 
                 Spacer()
 
@@ -69,15 +70,18 @@ struct WatchProgressView: View {
                     Text("\(elapsedFormatted) / \(totalFormatted)")
                         .font(VFont.caption)
                         .foregroundColor(VColor.textSecondary)
+                        .textSelection(.enabled)
                     Spacer()
                     if isLearnMode {
                         Text("\(networkEntryCount) network entries")
                             .font(VFont.caption)
                             .foregroundColor(VColor.textSecondary)
+                            .textSelection(.enabled)
                     } else {
                         Text("\(session.captureCount)/\(session.totalExpected) captures")
                             .font(VFont.caption)
                             .foregroundColor(VColor.textSecondary)
+                            .textSelection(.enabled)
                     }
                 }
             }
@@ -91,6 +95,7 @@ struct WatchProgressView: View {
                     Text("No new activity detected. Ready to stop?")
                         .font(VFont.caption)
                         .foregroundColor(VColor.accent)
+                        .textSelection(.enabled)
                     Spacer()
                 }
                 .transition(.opacity)
@@ -102,6 +107,7 @@ struct WatchProgressView: View {
                     Text(session.currentApp)
                         .font(VFont.body)
                         .foregroundColor(VColor.textSecondary)
+                        .textSelection(.enabled)
                         .padding(.horizontal, VSpacing.sm)
                         .padding(.vertical, VSpacing.xs)
                         .background(

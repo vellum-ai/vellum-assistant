@@ -16,6 +16,7 @@ struct BrowserPiPView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .foregroundColor(.secondary)
+                    .textSelection(.enabled)
                 Spacer()
 
                 // Interactive mode toggle
@@ -92,6 +93,7 @@ struct BrowserPiPView: View {
                             Text(handoffMsg)
                                 .font(.system(size: 11, weight: .medium))
                                 .foregroundColor(.white)
+                                .textSelection(.enabled)
                             Spacer()
                             Button("Hand back") {
                                 manager.toggleInteractiveMode()
@@ -118,6 +120,7 @@ struct BrowserPiPView: View {
                                 .padding(.vertical, 4)
                                 .background(Color.black.opacity(0.75))
                                 .cornerRadius(4)
+                                .textSelection(.enabled)
                             Spacer()
                         }
                         .padding(8)
@@ -169,6 +172,7 @@ struct BrowserTabView: View {
                 .font(.system(size: 10))
                 .lineLimit(1)
                 .frame(maxWidth: 120)
+                .textSelection(.enabled)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)

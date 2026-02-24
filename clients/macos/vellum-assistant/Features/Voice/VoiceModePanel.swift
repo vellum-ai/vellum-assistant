@@ -64,6 +64,7 @@ struct VoiceModePanel: View {
                         .font(VFont.caption)
                         .foregroundColor(VColor.textMuted)
                 }
+                .textSelection(.enabled)
                 .padding(VSpacing.lg)
                 .background(VColor.surface)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
@@ -81,11 +82,13 @@ struct VoiceModePanel: View {
                     Text("OpenAI API key required")
                         .font(VFont.bodyMedium)
                         .foregroundColor(VColor.textSecondary)
+                        .textSelection(.enabled)
                     Text("Add your OpenAI API key in Settings to use voice mode with Whisper and TTS.")
                         .font(VFont.caption)
                         .foregroundColor(VColor.textMuted)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, VSpacing.xl)
+                        .textSelection(.enabled)
                 }
             } else {
                 // Voice orb
@@ -97,6 +100,7 @@ struct VoiceModePanel: View {
                     .font(VFont.bodyMedium)
                     .foregroundColor(VColor.textSecondary)
                     .padding(.bottom, VSpacing.sm)
+                    .textSelection(.enabled)
 
                 // Error message
                 if !manager.errorMessage.isEmpty {
@@ -108,6 +112,7 @@ struct VoiceModePanel: View {
                             .font(VFont.caption)
                             .foregroundColor(VColor.warning)
                             .multilineTextAlignment(.center)
+                            .textSelection(.enabled)
                     }
                     .padding(.horizontal, VSpacing.xl)
                     .padding(.vertical, VSpacing.md)

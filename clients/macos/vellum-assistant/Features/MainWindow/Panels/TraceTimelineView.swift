@@ -109,19 +109,23 @@ struct TraceTimelineView: View {
                 Text(requestId.isEmpty ? "System" : "Request \(requestId.prefix(8))")
                     .font(VFont.captionMedium)
                     .foregroundColor(VColor.textSecondary)
+                    .textSelection(.enabled)
 
                 if groupStatus == .cancelled {
                     Text("Cancelled")
                         .font(VFont.small)
                         .foregroundColor(Amber._500)
+                        .textSelection(.enabled)
                 } else if groupStatus == .handedOff {
                     Text("Handed off")
                         .font(VFont.small)
                         .foregroundColor(Forest._400)
+                        .textSelection(.enabled)
                 } else if groupStatus == .error {
                     Text("Error")
                         .font(VFont.small)
                         .foregroundColor(Danger._500)
+                        .textSelection(.enabled)
                 }
 
                 Rectangle()
@@ -194,10 +198,12 @@ struct TraceTimelineView: View {
                             Text(key)
                                 .font(VFont.small)
                                 .foregroundColor(VColor.textMuted)
+                                .textSelection(.enabled)
                             Text(stringValue(attrs[key]))
                                 .font(VFont.small)
                                 .foregroundColor(VColor.textSecondary)
                                 .lineLimit(3)
+                                .textSelection(.enabled)
                         }
                     }
                 }

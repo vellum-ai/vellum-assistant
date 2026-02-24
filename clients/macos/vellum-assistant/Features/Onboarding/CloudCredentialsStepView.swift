@@ -29,6 +29,7 @@ struct CloudCredentialsStepView: View {
         Text(titleText)
             .font(.system(size: 32, weight: .regular, design: .serif))
             .foregroundColor(VColor.textPrimary)
+            .textSelection(.enabled)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.md)
@@ -37,6 +38,7 @@ struct CloudCredentialsStepView: View {
             .font(.system(size: 16))
             .foregroundColor(VColor.textSecondary)
             .multilineTextAlignment(.center)
+            .textSelection(.enabled)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
 
@@ -262,6 +264,7 @@ struct CloudCredentialsStepView: View {
         }
         .padding(VSpacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .textSelection(.enabled)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg)
                 .fill(adaptiveColor(light: Color(nsColor: NSColor(red: 0.95, green: 0.95, blue: 0.97, alpha: 1)), dark: VColor.surface.opacity(0.5)))
@@ -281,6 +284,7 @@ struct CloudCredentialsStepView: View {
         }
         .padding(VSpacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .textSelection(.enabled)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg)
                 .fill(adaptiveColor(light: Color(nsColor: NSColor(red: 0.95, green: 0.95, blue: 0.97, alpha: 1)), dark: VColor.surface.opacity(0.5)))
@@ -308,6 +312,7 @@ struct CloudCredentialsStepView: View {
         }
         .padding(VSpacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .textSelection(.enabled)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg)
                 .fill(adaptiveColor(light: Color(nsColor: NSColor(red: 0.95, green: 0.95, blue: 0.97, alpha: 1)), dark: VColor.surface.opacity(0.5)))
@@ -360,6 +365,7 @@ struct CloudCredentialsStepView: View {
                     .foregroundColor(VColor.textPrimary)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    .textSelection(.enabled)
                 Spacer()
                 Button(action: onClear) {
                     Image(systemName: "xmark.circle.fill")

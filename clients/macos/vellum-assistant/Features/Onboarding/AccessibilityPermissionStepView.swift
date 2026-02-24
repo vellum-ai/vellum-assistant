@@ -13,12 +13,14 @@ struct AccessibilityPermissionStepView: View {
                 Text("Computer control stays optional")
                     .font(VFont.onboardingTitle)
                     .foregroundColor(VColor.textPrimary)
+                    .textSelection(.enabled)
 
                 Text("Do not request Accessibility permission during initial onboarding. Enable computer control later from Home Base when you explicitly choose it.")
                     .font(VFont.onboardingSubtitle)
                     .foregroundColor(VColor.textSecondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 420)
+                    .textSelection(.enabled)
             }
             .opacity(showContent ? 1 : 0)
             .offset(y: showContent ? 0 : 8)
@@ -27,10 +29,12 @@ struct AccessibilityPermissionStepView: View {
                 Text("Deferred setup")
                     .font(VFont.bodyMedium)
                     .foregroundColor(VColor.textPrimary)
+                    .textSelection(.enabled)
 
                 Text("Home Base task: Enable computer control. Accessibility and screen permissions are requested only after that user-initiated step.")
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
+                    .textSelection(.enabled)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(VSpacing.lg)

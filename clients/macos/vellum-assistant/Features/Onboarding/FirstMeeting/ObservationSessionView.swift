@@ -52,9 +52,10 @@ struct ObservationSessionView: View {
                         .frame(width: 8, height: 8)
                         .opacity(pulseOpacity)
 
-                    Text("Observing")
-                        .font(VFont.captionMedium)
-                        .foregroundColor(VColor.success)
+                Text("Observing")
+                    .font(VFont.captionMedium)
+                    .foregroundColor(VColor.success)
+                    .textSelection(.enabled)
                 }
             }
 
@@ -66,10 +67,12 @@ struct ObservationSessionView: View {
                             Text("Observation in progress")
                                 .font(VFont.headline)
                                 .foregroundColor(VColor.textPrimary)
+                                .textSelection(.enabled)
 
                             Text("\(timeDisplay) remaining")
                                 .font(VFont.mono)
                                 .foregroundColor(VColor.textSecondary)
+                                .textSelection(.enabled)
                         }
 
                         Spacer()
@@ -233,6 +236,7 @@ private struct NarrationBubble: View {
                 Text(text)
                     .font(VFont.body)
                     .foregroundColor(VColor.textPrimary)
+                    .textSelection(.enabled)
             }
             .padding(.horizontal, VSpacing.lg)
             .padding(.vertical, VSpacing.md)

@@ -129,6 +129,7 @@ private struct MessageBubble: View {
             Text(message.text)
                 .font(VFont.body)
                 .foregroundColor(isAssistant ? VColor.textPrimary : .white)
+                .textSelection(.enabled)
                 .padding(.horizontal, VSpacing.lg)
                 .padding(.vertical, VSpacing.md)
                 .background(

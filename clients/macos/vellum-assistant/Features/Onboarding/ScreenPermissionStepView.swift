@@ -13,12 +13,14 @@ struct ScreenPermissionStepView: View {
                 Text("Screen access comes later")
                     .font(VFont.onboardingTitle)
                     .foregroundColor(VColor.textPrimary)
+                    .textSelection(.enabled)
 
                 Text("Skip screen-recording permission during the first conversation. Start it later from Home Base when you explicitly choose computer-control setup.")
                     .font(VFont.onboardingSubtitle)
                     .foregroundColor(VColor.textSecondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 420)
+                    .textSelection(.enabled)
             }
             .opacity(showContent ? 1 : 0)
             .offset(y: showContent ? 0 : 8)
@@ -27,10 +29,12 @@ struct ScreenPermissionStepView: View {
                 Text("Deferred setup")
                     .font(VFont.bodyMedium)
                     .foregroundColor(VColor.textPrimary)
+                    .textSelection(.enabled)
 
                 Text("Screen Recording requests should follow the optional Home Base task flow, never proactive onboarding prompts.")
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
+                    .textSelection(.enabled)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(VSpacing.lg)
