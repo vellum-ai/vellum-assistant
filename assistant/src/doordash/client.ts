@@ -26,6 +26,23 @@ import {
 import { loadCapturedQueries } from './query-extractor.js';
 import { truncate } from '../util/truncate.js';
 import { ProviderError, RateLimitError } from '../util/errors.js';
+import type {
+  DDFacetFeed,
+  DDSearchClickData,
+  DDStorepageFeed,
+  DDRetailStorePageFeed,
+  DDRetailSearchResult,
+  DDRetailItemCustom,
+  DDItemPage,
+  DDOptionChoice,
+  DDNestedExtra,
+  DDOptionList,
+  DDCart,
+  DDDropoffOption,
+  DDPaymentMethod,
+  DDCreateOrderResult,
+  DDMenuCategory,
+} from './types.js';
 
 export { RateLimitError };
 
@@ -246,7 +263,7 @@ export interface SearchResult {
 }
 
 export async function search(query: string): Promise<SearchResult[]> {
-  const data = await graphql<{ autocompleteFacetFeed: unknown }>(
+  const data = await graphql<{ autocompleteFacetFeed: DDFacetFeed }>(
     'autocompleteFacetFeed',
     getQuery('autocompleteFacetFeed', SEARCH_QUERY),
     { query, serializedBundleGlobalSearchContext: null },
@@ -259,7 +276,7 @@ export async function search(query: string): Promise<SearchResult[]> {
  * This works for convenience/retail stores that don't expose menus through storepageFeed.
  */
 export async function searchItems(query: string, opts?: { debug?: boolean }): Promise<SearchResult[]> {
-  const data = await graphql<{ homePageFacetFeed: unknown }>(
+  const data = await graphql<{ homePageFacetFeed: DDFacetFeed }>(
     'homePageFacetFeed',
     getQuery('homePageFacetFeed', HOME_PAGE_QUERY),
     {
@@ -287,7 +304,7 @@ export async function retailSearch(storeId: string, query: string, opts?: { limi
   totalCount: number;
   suggestedKeyword?: string;
 }> {
-  const data = await graphql<{ retailSearch: Record<string, unknown> }>(
+  const data = await graphql<{ retailSearch: DDRetailSearchResult }>(
     'convenienceSearchQuery',
     getQuery('convenienceSearchQuery', RETAIL_SEARCH_QUERY),
     {
@@ -305,28 +322,28 @@ export async function retailSearch(storeId: string, query: string, opts?: { limi
     },
   );
   const result = data.retailSearch;
-  const legoItems = (result.legoRetailItems ?? []) as Array<Record<string, unknown>>;
-  const summary = (result.searchSummary ?? {}) as Record<string, unknown>;
+  const legoItems = result.legoRetailItems ?? [];
+  const summary = result.searchSummary ?? {};
 
   const items: MenuItem[] = [];
   for (const facet of legoItems) {
     try {
-      const customStr = facet.custom as string | undefined;
+      const customStr = facet.custom;
       if (!customStr) continue;
-      const custom = JSON.parse(customStr) as Record<string, unknown>;
-      const itemData = custom.item_data as Record<string, unknown> | undefined;
+      const custom = JSON.parse(customStr) as DDRetailItemCustom;
+      const itemData = custom.item_data;
       if (!itemData) continue;
-      const price = itemData.price as Record<string, unknown> | undefined;
-      const image = custom.image as Record<string, Record<string, string>> | undefined;
+      const price = itemData.price;
+      const image = custom.image;
       items.push({
         id: String(itemData.item_id ?? ''),
         name: String(itemData.item_name ?? ''),
-        description: itemData.description as string | undefined,
-        price: price?.display_string as string | undefined,
+        description: itemData.description,
+        price: price?.display_string,
         imageUrl: image?.remote?.uri,
         storeId: String(itemData.store_id ?? ''),
         menuId: String(itemData.menu_id ?? ''),
-        unitAmount: price?.unit_amount as number | undefined,
+        unitAmount: price?.unit_amount,
       });
     } catch { /* skip malformed entries */ }
   }
@@ -334,7 +351,7 @@ export async function retailSearch(storeId: string, query: string, opts?: { limi
   return {
     items,
     totalCount: Number(summary.totalCount ?? items.length),
-    suggestedKeyword: summary.suggestedSearchKeyword as string | undefined,
+    suggestedKeyword: summary.suggestedSearchKeyword,
   };
 }
 
@@ -370,7 +387,7 @@ export async function getStoreMenu(
   menuId?: string,
   opts?: { debug?: boolean },
 ): Promise<StoreInfo> {
-  const data = await graphql<{ storepageFeed: Record<string, unknown> }>(
+  const data = await graphql<{ storepageFeed: DDStorepageFeed }>(
     'storepageFeed',
     getQuery('storepageFeed', STORE_PAGE_QUERY),
     {
@@ -384,11 +401,11 @@ export async function getStoreMenu(
     },
   );
   const feed = data.storepageFeed;
-  const rawItemLists = (feed.itemLists ?? []) as unknown[];
-  const rawCarousels = (feed.carousels ?? []) as unknown[];
+  const rawItemLists = feed.itemLists ?? [];
+  const rawCarousels = feed.carousels ?? [];
 
   if (opts?.debug) {
-    const menuBook = feed.menuBook as Record<string, unknown> | undefined;
+    const menuBook = feed.menuBook;
     process.stderr.write(
       `[debug] storepageFeed keys: ${Object.keys(feed).join(', ')}\n` +
       `[debug] itemLists count: ${rawItemLists.length}, carousels count: ${rawCarousels.length}\n` +
@@ -418,7 +435,7 @@ export async function getRetailStoreMenu(
   storeId: string,
   opts?: { debug?: boolean },
 ): Promise<StoreInfo> {
-  const data = await graphql<{ retailStorePageFeed: Record<string, unknown> }>(
+  const data = await graphql<{ retailStorePageFeed: DDRetailStorePageFeed }>(
     'storeFeed',
     getQuery('storeFeed', RETAIL_STORE_FEED_QUERY),
     {
@@ -430,9 +447,9 @@ export async function getRetailStoreMenu(
   );
   if (opts?.debug) {
     const feed = data.retailStorePageFeed;
-    const l1Cats = (feed.l1Categories ?? []) as unknown[];
-    const collections = (feed.collections ?? []) as unknown[];
-    const page = feed.page as Record<string, unknown> | undefined;
+    const l1Cats = feed.l1Categories ?? [];
+    const collections = feed.collections ?? [];
+    const page = feed.page;
     process.stderr.write(
       `[debug] retailStorePageFeed keys: ${Object.keys(feed).join(', ')}\n` +
       `[debug] l1Categories count: ${l1Cats.length}, collections count: ${collections.length}\n` +
@@ -487,7 +504,7 @@ export async function getItemDetails(
   storeId: string,
   itemId: string,
 ): Promise<ItemDetails> {
-  const data = await graphql<{ itemPage: Record<string, unknown> }>(
+  const data = await graphql<{ itemPage: DDItemPage }>(
     'itemPage',
     getQuery('itemPage', ITEM_PAGE_QUERY),
     {
@@ -530,7 +547,7 @@ export async function addToCart(opts: {
   specialInstructions?: string;
 }): Promise<CartSummary> {
   // Use updateCartItemV2 — DoorDash now uses this for both adding and updating cart items
-  const data = await graphql<{ updateCartItemV2: Record<string, unknown> }>(
+  const data = await graphql<{ updateCartItemV2: DDCart }>(
     'updateCartItem',
     getQuery('updateCartItem', UPDATE_CART_ITEM_QUERY),
     {
@@ -575,7 +592,7 @@ export async function removeFromCart(
   cartId: string,
   itemId: string,
 ): Promise<CartSummary> {
-  const data = await graphql<{ removeCartItemV2: Record<string, unknown> }>(
+  const data = await graphql<{ removeCartItemV2: DDCart }>(
     'removeCartItem',
     getQuery('removeCartItem', REMOVE_CART_ITEM_QUERY),
     {
@@ -591,7 +608,7 @@ export async function removeFromCart(
 }
 
 export async function viewCart(cartId: string): Promise<CartSummary> {
-  const data = await graphql<{ orderCart: Record<string, unknown> }>(
+  const data = await graphql<{ orderCart: DDCart }>(
     'detailedCartItems',
     getQuery('detailedCartItems', DETAILED_CART_QUERY),
     { orderCartId: cartId, isCardPayment: true },
@@ -600,7 +617,13 @@ export async function viewCart(cartId: string): Promise<CartSummary> {
 }
 
 export async function listCarts(storeId?: string): Promise<CartSummary[]> {
-  const input: Record<string, unknown> = {
+  const input: {
+    cartFilter: { shouldIncludeSubmitted: boolean };
+    cartContextFilter?: {
+      experienceCase: string;
+      multiCartExperienceContext: { storeId: string };
+    };
+  } = {
     cartFilter: { shouldIncludeSubmitted: true },
   };
   if (storeId) {
@@ -609,7 +632,7 @@ export async function listCarts(storeId?: string): Promise<CartSummary[]> {
       multiCartExperienceContext: { storeId },
     };
   }
-  const data = await graphql<{ listCarts: Record<string, unknown>[] }>(
+  const data = await graphql<{ listCarts: DDCart[] }>(
     'listCarts',
     getQuery('listCarts', LIST_CARTS_QUERY),
     { input },
@@ -629,7 +652,7 @@ export async function getDropoffOptions(
   addressId?: string,
 ): Promise<DropoffOption[]> {
   const data = await graphql<{
-    dropoffOptions: Array<Record<string, unknown>>;
+    dropoffOptions: DDDropoffOption[];
   }>('dropoffOptions', getQuery('dropoffOptions', DROPOFF_OPTIONS_QUERY), {
     cartId,
     addressId: addressId ?? null,
@@ -651,7 +674,7 @@ export interface PaymentMethod {
 }
 
 export async function getPaymentMethods(): Promise<PaymentMethod[]> {
-  const data = await graphql<{ getPaymentMethodList: Array<Record<string, unknown>> }>(
+  const data = await graphql<{ getPaymentMethodList: DDPaymentMethod[] }>(
     'paymentMethodQuery',
     getQuery('paymentMethodQuery', PAYMENT_METHODS_QUERY),
     {
@@ -703,7 +726,7 @@ export async function placeOrder(opts: {
     ? JSON.stringify([{ typename: 'DropoffPreference', option_id: opts.dropoffOptionId, is_default: true, instructions: '' }])
     : '[]';
 
-  const data = await graphql<{ createOrderFromCart: Record<string, unknown> }>(
+  const data = await graphql<{ createOrderFromCart: DDCreateOrderResult }>(
     'createOrderFromCart',
     getQuery('createOrderFromCart', CREATE_ORDER_FROM_CART_QUERY),
     {
@@ -751,22 +774,21 @@ export async function placeOrder(opts: {
 // Response extraction helpers
 // ---------------------------------------------------------------------------
 
-function extractSearchResults(feed: unknown): SearchResult[] {
+function extractSearchResults(feed: DDFacetFeed | null | undefined): SearchResult[] {
   const results: SearchResult[] = [];
-  if (!feed || typeof feed !== 'object') return results;
-  const f = feed as Record<string, unknown>;
-  const bodies = (f.body ?? []) as Array<Record<string, unknown>>;
+  if (!feed) return results;
+  const bodies = feed.body ?? [];
   for (const section of bodies) {
-    const items = (section.body ?? []) as Array<Record<string, unknown>>;
+    const items = section.body ?? [];
     for (const item of items) {
-      const text = item.text as Record<string, string> | undefined;
-      const images = item.images as Record<string, Record<string, string>> | undefined;
-      const events = item.events as Record<string, Record<string, string>> | undefined;
+      const text = item.text;
+      const images = item.images;
+      const events = item.events;
       let storeId: string | undefined;
       // Try click event data first
       if (events?.click?.data) {
         try {
-          const clickData = JSON.parse(events.click.data) as Record<string, unknown>;
+          const clickData = JSON.parse(events.click.data) as DDSearchClickData;
           storeId = String(clickData.store_id ?? clickData.storeId ?? '');
         } catch { /* ignore */ }
       }
@@ -791,16 +813,16 @@ function extractSearchResults(feed: unknown): SearchResult[] {
   return results;
 }
 
-function extractStoreInfo(feed: Record<string, unknown>): StoreInfo {
-  const header = (feed.storeHeader ?? {}) as Record<string, unknown>;
-  const menuBook = (feed.menuBook ?? {}) as Record<string, unknown>;
-  const itemLists = (feed.itemLists ?? []) as Array<Record<string, unknown>>;
-  const address = header.address as Record<string, string> | undefined;
-  const ratings = header.ratings as Record<string, unknown> | undefined;
-  const deliveryFee = header.deliveryFeeLayout as Record<string, string> | undefined;
-  const deliveryTime = header.deliveryTimeLayout as Record<string, string> | undefined;
+function extractStoreInfo(feed: DDStorepageFeed): StoreInfo {
+  const header = feed.storeHeader ?? {};
+  const menuBook = feed.menuBook ?? {};
+  const itemLists = feed.itemLists ?? [];
+  const address = header.address;
+  const ratings = header.ratings;
+  const deliveryFee = header.deliveryFeeLayout;
+  const deliveryTime = header.deliveryTimeLayout;
 
-  const categories = ((menuBook.menuCategories ?? []) as Array<Record<string, unknown>>).map(c => ({
+  const categories = (menuBook.menuCategories ?? []).map((c: DDMenuCategory) => ({
     id: String(c.id),
     name: String(c.name),
     numItems: Number(c.numItems ?? 0),
@@ -808,28 +830,28 @@ function extractStoreInfo(feed: Record<string, unknown>): StoreInfo {
 
   const items: MenuItem[] = [];
   for (const list of itemLists) {
-    for (const item of (list.items ?? []) as Array<Record<string, unknown>>) {
+    for (const item of list.items ?? []) {
       items.push({
         id: String(item.id),
         name: String(item.name ?? ''),
-        description: item.description as string | undefined,
-        price: item.displayPrice as string | undefined,
-        imageUrl: item.imageUrl as string | undefined,
-        storeId: item.storeId as string | undefined,
+        description: item.description,
+        price: item.displayPrice,
+        imageUrl: item.imageUrl,
+        storeId: item.storeId,
       });
     }
   }
 
   // Also extract from carousels (used by convenience/pharmacy stores)
-  const carousels = (feed.carousels ?? []) as Array<Record<string, unknown>>;
+  const carousels = feed.carousels ?? [];
   for (const carousel of carousels) {
-    for (const item of (carousel.items ?? []) as Array<Record<string, unknown>>) {
+    for (const item of carousel.items ?? []) {
       items.push({
         id: String(item.id),
         name: String(item.name ?? ''),
-        description: item.description as string | undefined,
-        price: item.displayPrice as string | undefined,
-        imageUrl: item.imgUrl as string | undefined,
+        description: item.description,
+        price: item.displayPrice,
+        imageUrl: item.imgUrl,
       });
     }
   }
@@ -837,55 +859,55 @@ function extractStoreInfo(feed: Record<string, unknown>): StoreInfo {
   return {
     id: String(header.id ?? ''),
     name: String(header.name ?? ''),
-    description: header.description as string | undefined,
+    description: header.description,
     address: address?.displayAddress,
-    rating: ratings?.averageRating as number | undefined,
-    numRatings: ratings?.numRatingsDisplayString as string | undefined,
+    rating: ratings?.averageRating,
+    numRatings: ratings?.numRatingsDisplayString,
     deliveryFee: deliveryFee?.title,
     deliveryTime: deliveryTime?.title,
-    priceRange: header.priceRangeDisplayString as string | undefined,
+    priceRange: header.priceRangeDisplayString,
     categories,
     items,
   };
 }
 
-function extractNestedOptions(extrasList: Array<Record<string, unknown>>): ItemDetails['options'][number]['choices'][number]['nestedOptions'] {
+function extractNestedOptions(extrasList: DDNestedExtra[]): ItemDetails['options'][number]['choices'][number]['nestedOptions'] {
   return extrasList.map(nested => ({
     id: String(nested.id),
     name: String(nested.name ?? ''),
     required: !nested.isOptional,
-    choices: ((nested.options ?? []) as Array<Record<string, unknown>>).map(o => ({
+    choices: (nested.options ?? []).map(o => ({
       id: String(o.id),
       name: String(o.name ?? ''),
-      price: o.displayString as string | undefined,
+      price: o.displayString,
     })),
   }));
 }
 
-function extractItemDetails(page: Record<string, unknown>): ItemDetails {
-  const header = (page.itemHeader ?? {}) as Record<string, unknown>;
-  const optionLists = (page.optionLists ?? []) as Array<Record<string, unknown>>;
-  const itemPreferences = page.itemPreferences as Record<string, unknown> | undefined;
+function extractItemDetails(page: DDItemPage): ItemDetails {
+  const header = page.itemHeader ?? {};
+  const optionLists = page.optionLists ?? [];
+  const itemPreferences = page.itemPreferences;
 
   const result: ItemDetails = {
     id: String(header.id ?? ''),
     name: String(header.name ?? ''),
-    description: header.description as string | undefined,
-    price: header.displayString as string | undefined,
-    unitAmount: header.unitAmount as number | undefined,
-    currency: header.currency as string | undefined,
-    imageUrl: header.imgUrl as string | undefined,
-    menuId: header.menuId as string | undefined,
-    options: optionLists.map(ol => {
-      const choices = ((ol.options ?? []) as Array<Record<string, unknown>>).map(o => {
+    description: header.description,
+    price: header.displayString,
+    unitAmount: header.unitAmount,
+    currency: header.currency,
+    imageUrl: header.imgUrl,
+    menuId: header.menuId,
+    options: optionLists.map((ol: DDOptionList) => {
+      const choices = (ol.options ?? []).map((o: DDOptionChoice) => {
         const choice: ItemDetails['options'][number]['choices'][number] = {
           id: String(o.id),
           name: String(o.name ?? ''),
-          price: o.displayString as string | undefined,
-          unitAmount: o.unitAmount as number | undefined,
-          defaultQuantity: o.defaultQuantity as number | undefined,
+          price: o.displayString,
+          unitAmount: o.unitAmount,
+          defaultQuantity: o.defaultQuantity,
         };
-        const nestedExtrasList = (o.nestedExtrasList ?? []) as Array<Record<string, unknown>>;
+        const nestedExtrasList = o.nestedExtrasList ?? [];
         if (nestedExtrasList.length > 0) {
           choice.nestedOptions = extractNestedOptions(nestedExtrasList);
         }
@@ -896,18 +918,18 @@ function extractItemDetails(page: Record<string, unknown>): ItemDetails {
         id: String(ol.id),
         name: String(ol.name ?? ''),
         required: !ol.isOptional,
-        minSelections: ol.minNumOptions as number | undefined,
-        maxSelections: ol.maxNumOptions as number | undefined,
+        minSelections: ol.minNumOptions,
+        maxSelections: ol.maxNumOptions,
         choices,
       };
     }),
   };
 
   if (itemPreferences) {
-    const specialInstructions = (itemPreferences.specialInstructions ?? {}) as Record<string, unknown>;
+    const specialInstructions = itemPreferences.specialInstructions ?? {};
     result.specialInstructionsConfig = {
       maxLength: Number(specialInstructions.characterMaxLength ?? 500),
-      placeholderText: specialInstructions.placeholderText as string | undefined,
+      placeholderText: specialInstructions.placeholderText,
       isEnabled: specialInstructions.isEnabled !== false,
     };
   }
@@ -915,15 +937,15 @@ function extractItemDetails(page: Record<string, unknown>): ItemDetails {
   return result;
 }
 
-function extractRetailStoreInfo(feed: Record<string, unknown>): StoreInfo {
-  const storeDetails = (feed.storeDetails ?? {}) as Record<string, unknown>;
-  const storeHeader = (storeDetails.storeHeader ?? {}) as Record<string, unknown>;
-  const ratings = storeHeader.ratings as Record<string, unknown> | undefined;
-  const deliveryFee = storeHeader.deliveryFeeLayout as Record<string, string> | undefined;
-  const status = storeHeader.status as Record<string, Record<string, unknown>> | undefined;
+function extractRetailStoreInfo(feed: DDRetailStorePageFeed): StoreInfo {
+  const storeDetails = feed.storeDetails ?? {};
+  const storeHeader = storeDetails.storeHeader ?? {};
+  const ratings = storeHeader.ratings;
+  const deliveryFee = storeHeader.deliveryFeeLayout;
+  const status = storeHeader.status;
 
-  const l1Categories = (feed.l1Categories ?? []) as Array<Record<string, unknown>>;
-  const collections = (feed.collections ?? []) as Array<Record<string, unknown>>;
+  const l1Categories = feed.l1Categories ?? [];
+  const collections = feed.collections ?? [];
 
   const categories = l1Categories.map(c => ({
     id: String(c.id),
@@ -934,61 +956,61 @@ function extractRetailStoreInfo(feed: Record<string, unknown>): StoreInfo {
   const items: MenuItem[] = [];
   for (const collection of collections) {
     // Retail collections use `products`, not `items`
-    const products = (collection.products ?? collection.items ?? []) as Array<Record<string, unknown>>;
+    const products = collection.products ?? collection.items ?? [];
     for (const item of products) {
-      const price = item.price as Record<string, unknown> | undefined;
+      const price = item.price;
       items.push({
         id: String(item.id),
         name: String(item.name ?? ''),
-        description: item.description as string | undefined,
-        price: (price?.displayString ?? item.displayPrice) as string | undefined,
-        imageUrl: (item.imageUrl ?? item.imgUrl) as string | undefined,
-        storeId: item.storeId as string | undefined,
+        description: item.description,
+        price: price?.displayString ?? item.displayPrice,
+        imageUrl: item.imageUrl ?? item.imgUrl,
+        storeId: item.storeId,
       });
     }
   }
 
-  const address = storeHeader.address as Record<string, string> | undefined;
+  const address = storeHeader.address;
 
   return {
     id: String(storeDetails.id ?? ''),
     name: String(storeHeader.name ?? storeDetails.name ?? ''),
-    description: storeHeader.description as string | undefined,
+    description: storeHeader.description,
     address: address?.displayAddress,
-    rating: ratings?.averageRating as number | undefined,
-    numRatings: ratings?.numRatingsDisplayString as string | undefined,
+    rating: ratings?.averageRating,
+    numRatings: ratings?.numRatingsDisplayString,
     deliveryFee: deliveryFee?.title,
-    deliveryTime: status?.delivery?.etaDisplayString as string | undefined,
-    priceRange: storeHeader.priceRangeDisplayString as string | undefined,
+    deliveryTime: status?.delivery?.etaDisplayString,
+    priceRange: storeHeader.priceRangeDisplayString,
     categories,
     items,
     isRetail: true,
   };
 }
 
-function extractCartSummary(cart: Record<string, unknown>): CartSummary {
-  const restaurant = (cart.restaurant ?? {}) as Record<string, unknown>;
-  const orders = (cart.orders ?? []) as Array<Record<string, unknown>>;
+function extractCartSummary(cart: DDCart): CartSummary {
+  const restaurant = cart.restaurant ?? {};
+  const orders = cart.orders ?? [];
 
   const items: CartSummary['items'] = [];
   for (const order of orders) {
-    for (const oi of (order.orderItems ?? []) as Array<Record<string, unknown>>) {
-      const item = (oi.item ?? {}) as Record<string, unknown>;
+    for (const oi of order.orderItems ?? []) {
+      const item = oi.item ?? {};
       items.push({
         id: String(oi.id ?? ''),
         name: String(item.name ?? ''),
         quantity: Number(oi.quantity ?? 1),
-        price: oi.priceDisplayString as string | undefined,
+        price: oi.priceDisplayString,
       });
     }
   }
 
   return {
     cartId: String(cart.id ?? ''),
-    storeName: restaurant.name as string | undefined,
-    storeId: restaurant.id as string | undefined,
-    subtotal: cart.subtotal as number | undefined,
-    total: cart.total as number | undefined,
+    storeName: restaurant.name,
+    storeId: restaurant.id,
+    subtotal: cart.subtotal,
+    total: cart.total,
     items,
   };
 }
