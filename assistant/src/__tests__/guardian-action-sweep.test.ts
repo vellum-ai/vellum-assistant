@@ -190,7 +190,7 @@ describe('guardian-action-sweep', () => {
     expect(getPendingQuestion(session.id)).not.toBeNull();
   });
 
-  test('sweepExpiredGuardianActions sends external channel expiry notices for sent deliveries', () => {
+  test('sweepExpiredGuardianActions sends external channel expiry notices for sent deliveries', async () => {
     const convId = 'conv-sweep-4';
     ensureConversation(convId);
 
@@ -221,10 +221,11 @@ describe('guardian-action-sweep', () => {
 
     sweepExpiredGuardianActions('http://localhost:3000');
 
+    // Wait for the fire-and-forget async delivery to complete
+    await new Promise(resolve => setTimeout(resolve, 50));
+
     // The external delivery should trigger an HTTP POST to the gateway
-    // (async fire-and-forget, but we can check the mock was called)
-    // Since the delivery is async, check after a brief delay
-    expect(deliveredMessages.length).toBeGreaterThanOrEqual(0);
+    expect(deliveredMessages.length).toBeGreaterThanOrEqual(1);
   });
 
   test('sweepExpiredGuardianActions skips failed deliveries', () => {
