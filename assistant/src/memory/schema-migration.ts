@@ -92,8 +92,6 @@ export function validateMigrationState(database: Db): void {
     return;
   }
 
-  const applied = new Map(rows.map((r) => [r.key, r.value]));
-
   // Detect crashed migrations: a checkpoint value of 'started' means the
   // migration wrote its start marker but never reached the completion INSERT.
   // The migration will re-run on the next startup (its own idempotency guard
@@ -106,15 +104,20 @@ export function validateMigrationState(database: Db): void {
     );
   }
 
+  // Only rows whose value is NOT 'started' represent truly completed migrations.
+  // In-progress/crashed checkpoints (value = 'started') must not count as applied
+  // dependencies — the migration never finished, so its postconditions are unmet.
+  const completed = new Set(rows.filter((r) => r.value !== 'started').map((r) => r.key));
+
   // Validate dependency ordering.
   for (const entry of MIGRATION_REGISTRY) {
     if (!entry.dependsOn || entry.dependsOn.length === 0) continue;
-    // Only check entries that have been applied — unapplied migrations have
-    // not had a chance to violate their prerequisites yet.
-    if (!applied.has(entry.key)) continue;
+    // Only check entries that have been completed — unapplied or in-progress
+    // migrations have not had a chance to violate their prerequisites yet.
+    if (!completed.has(entry.key)) continue;
 
     for (const dep of entry.dependsOn) {
-      if (!applied.has(dep)) {
+      if (!completed.has(dep)) {
         log.error(
           { migration: entry.key, missingDependency: dep, version: entry.version },
           'Migration dependency violation: this migration is marked complete but its declared prerequisite has no checkpoint — database schema may be inconsistent',
