@@ -341,7 +341,7 @@ describe("telegram-webhook callback query acknowledgment", () => {
           accepted: true,
           duplicate: false,
           eventId: "evt-3",
-          approval: "reminder_sent",
+          approval: "assistant_turn",
         },
       }),
     );
