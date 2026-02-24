@@ -254,6 +254,12 @@ extension DaemonClient {
             onAssistantInboxReplyResponse?(msg)
         case .assistantInboxEscalationResponse(let msg):
             onAssistantInboxEscalationResponse?(msg)
+        case .pairingApprovalRequest(let msg):
+            onPairingApprovalRequest?(msg)
+        case .approvedDevicesListResponse(let msg):
+            onApprovedDevicesListResponse?(msg)
+        case .approvedDeviceRemoveResponse(let msg):
+            onApprovedDeviceRemoveResponse?(msg)
         default:
             break
         }
