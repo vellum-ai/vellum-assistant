@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { client } from "./commands/client";
+import { config } from "./commands/config";
 import { email } from "./commands/email";
 import { hatch } from "./commands/hatch";
 import { ps } from "./commands/ps";
@@ -17,6 +18,7 @@ import { wake } from "./commands/wake";
 
 const commands = {
   client,
+  config,
   email,
   hatch,
   ps,
@@ -64,6 +66,7 @@ async function main() {
     console.log("");
     console.log("Commands:");
     console.log("  client   Connect to a hatched assistant");
+    console.log("  config   Manage configuration");
     console.log("  email    Email operations (status, create inbox)");
     console.log("  hatch    Create a new assistant instance");
     console.log("  ps       List assistants (or processes for a specific assistant)");
