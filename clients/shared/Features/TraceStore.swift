@@ -7,6 +7,8 @@ import Foundation
 @MainActor
 public final class TraceStore: ObservableObject {
 
+    public init() {}
+
     // MARK: - Types
 
     /// A single trace event with stable ordering metadata.
