@@ -700,6 +700,7 @@ export class RuntimeHttpServer {
         return Response.json({
           sessions: conversations.map((c) => {
             const binding = bindings.get(c.id);
+            const originChannel = parseChannelId(c.originChannel);
             return {
               id: c.id,
               title: c.title ?? 'Untitled',
@@ -714,6 +715,7 @@ export class RuntimeHttpServer {
                   username: binding.username,
                 },
               } : {}),
+              ...(originChannel ? { conversationOriginChannel: originChannel } : {}),
             };
           }),
           hasMore: offset + conversations.length < totalCount,
