@@ -99,28 +99,38 @@ export class NotificationBroadcaster {
       const deliveryId = uuid();
       const destinationLabel = destination.endpoint ?? channel;
 
-      // Use the persisted decision row ID for the FK; fall back to dedupeKey
-      // only if persistence failed (in which case the FK won't resolve, but we
-      // still record the delivery for debugging).
-      const decisionRowId = decision.persistedDecisionId ?? decision.dedupeKey;
+      // Only create a delivery audit record when we have a persisted decision ID
+      // for the FK. If decision persistence failed (persistedDecisionId is
+      // undefined), we still dispatch via the adapter but skip the delivery
+      // record — using dedupeKey would violate the FK constraint.
+      const hasPersistedDecision = decision.persistedDecisionId != null;
 
       try {
-        createDelivery({
-          id: deliveryId,
-          notificationDecisionId: decisionRowId,
-          assistantId: signal.assistantId,
-          channel,
-          destination: destinationLabel,
-          status: 'pending',
-          attempt: 1,
-          renderedTitle: copy.title,
-          renderedBody: copy.body,
-        });
+        if (hasPersistedDecision) {
+          createDelivery({
+            id: deliveryId,
+            notificationDecisionId: decision.persistedDecisionId,
+            assistantId: signal.assistantId,
+            channel,
+            destination: destinationLabel,
+            status: 'pending',
+            attempt: 1,
+            renderedTitle: copy.title,
+            renderedBody: copy.body,
+          });
+        } else {
+          log.warn(
+            { channel, signalId: signal.signalId },
+            'No persisted decision ID -- skipping delivery record creation',
+          );
+        }
 
         const adapterResult = await adapter.send(payload, destination);
 
         if (adapterResult.success) {
-          updateDeliveryStatus(deliveryId, 'sent');
+          if (hasPersistedDecision) {
+            updateDeliveryStatus(deliveryId, 'sent');
+          }
           results.push({
             channel,
             destination: destinationLabel,
@@ -128,7 +138,9 @@ export class NotificationBroadcaster {
             sentAt: Date.now(),
           });
         } else {
-          updateDeliveryStatus(deliveryId, 'failed', { message: adapterResult.error });
+          if (hasPersistedDecision) {
+            updateDeliveryStatus(deliveryId, 'failed', { message: adapterResult.error });
+          }
           results.push({
             channel,
             destination: destinationLabel,
@@ -140,10 +152,12 @@ export class NotificationBroadcaster {
         const errorMessage = err instanceof Error ? err.message : String(err);
         log.error({ err, channel, signalId: signal.signalId }, 'Unexpected error during channel delivery');
 
-        try {
-          updateDeliveryStatus(deliveryId, 'failed', { message: errorMessage });
-        } catch {
-          // Swallow -- the delivery record may not exist if createDelivery failed
+        if (hasPersistedDecision) {
+          try {
+            updateDeliveryStatus(deliveryId, 'failed', { message: errorMessage });
+          } catch {
+            // Swallow -- the delivery record may not exist if createDelivery failed
+          }
         }
 
         results.push({
