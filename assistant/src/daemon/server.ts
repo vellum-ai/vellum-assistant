@@ -762,6 +762,10 @@ export class DaemonServer {
       );
       session.getMessages().push(userMsg);
 
+      if (serverTurnCtx) {
+        conversationStore.setConversationOriginChannelIfUnset(conversationId, serverTurnCtx.userMessageChannel);
+      }
+
       const assistantMsg = createAssistantMessage(slashResult.message);
       conversationStore.addMessage(
         conversationId,

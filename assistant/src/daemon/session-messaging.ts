@@ -87,8 +87,12 @@ export function persistUserMessage(
     const turnCtx = ctx.getTurnChannelContext();
     const channelMetadata = turnCtx
       ? { userMessageChannel: turnCtx.userMessageChannel, assistantMessageChannel: turnCtx.assistantMessageChannel }
-      : {};
-    const mergedMetadata = { ...metadata, ...channelMetadata };
+      : undefined;
+    // NOTE: When a message is queued and persisted later, turnCtx reflects the
+    // session's *current* channel context at persistence time, which may differ
+    // from the channel that was active when the user originally sent the message.
+    // A proper fix would capture channel context per queued request at enqueue time.
+    const mergedMetadata = (metadata || channelMetadata) ? { ...metadata, ...channelMetadata } : undefined;
 
     const persistedUserMessage = conversationStore.addMessage(
       ctx.conversationId,
