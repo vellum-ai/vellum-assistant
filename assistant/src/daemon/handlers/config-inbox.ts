@@ -1,5 +1,5 @@
 import * as net from 'node:net';
-import type { IngressInviteRequest, IngressMemberRequest } from '../ipc-protocol.js';
+import type { IngressInviteRequest, IngressMemberRequest, AssistantInboxEscalationRequest } from '../ipc-protocol.js';
 import { log, defineHandlers, type HandlerContext } from './shared.js';
 import {
   createInvite,
@@ -15,6 +15,12 @@ import {
   blockMember,
   type IngressMember,
 } from '../../memory/ingress-member-store.js';
+import {
+  listPendingApprovalRequests,
+  resolveApprovalRequest,
+  type ApprovalRequestStatus,
+} from '../../memory/channel-guardian-store.js';
+import { refreshThreadEscalation } from '../../memory/inbox-escalation-projection.js';
 
 export function handleIngressInvite(
   msg: IngressInviteRequest,
@@ -257,7 +263,82 @@ export function handleIngressMember(
   }
 }
 
+export function handleInboxEscalation(
+  msg: AssistantInboxEscalationRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  try {
+    switch (msg.action) {
+      case 'list': {
+        const escalations = listPendingApprovalRequests({
+          assistantId: msg.assistantId,
+          status: (msg.status as ApprovalRequestStatus) ?? undefined,
+        });
+        ctx.send(socket, {
+          type: 'assistant_inbox_escalation_response',
+          success: true,
+          escalations: escalations.map((req) => ({
+            id: req.id,
+            runId: req.runId,
+            conversationId: req.conversationId,
+            channel: req.channel,
+            requesterExternalUserId: req.requesterExternalUserId,
+            requesterChatId: req.requesterChatId,
+            status: req.status,
+            requestSummary: req.reason ?? undefined,
+            createdAt: req.createdAt,
+          })),
+        });
+        return;
+      }
+
+      case 'decide': {
+        if (!msg.approvalRequestId) {
+          ctx.send(socket, { type: 'assistant_inbox_escalation_response', success: false, error: 'approvalRequestId is required for decide' });
+          return;
+        }
+        if (!msg.decision) {
+          ctx.send(socket, { type: 'assistant_inbox_escalation_response', success: false, error: 'decision is required for decide' });
+          return;
+        }
+
+        const mappedDecision = msg.decision === 'approve' ? 'approved' : 'denied';
+        const resolved = resolveApprovalRequest(msg.approvalRequestId, mappedDecision);
+
+        if (!resolved) {
+          ctx.send(socket, { type: 'assistant_inbox_escalation_response', success: false, error: 'Approval request not found or already resolved' });
+          return;
+        }
+
+        // Update thread escalation state so inbox badges stay accurate
+        refreshThreadEscalation(resolved.conversationId, resolved.assistantId);
+
+        ctx.send(socket, {
+          type: 'assistant_inbox_escalation_response',
+          success: true,
+          decision: {
+            id: resolved.id,
+            status: resolved.status,
+            decidedAt: resolved.updatedAt,
+          },
+        });
+        return;
+      }
+
+      default: {
+        ctx.send(socket, { type: 'assistant_inbox_escalation_response', success: false, error: `Unknown action: ${String((msg as Record<string, unknown>).action)}` });
+      }
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'assistant_inbox_escalation handler error');
+    ctx.send(socket, { type: 'assistant_inbox_escalation_response', success: false, error: message });
+  }
+}
+
 export const inboxInviteHandlers = defineHandlers({
   ingress_invite: handleIngressInvite,
   ingress_member: handleIngressMember,
+  assistant_inbox_escalation: handleInboxEscalation,
 });
