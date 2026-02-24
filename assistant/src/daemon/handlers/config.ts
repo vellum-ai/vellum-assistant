@@ -13,6 +13,7 @@
  *   config-twilio.ts      — Twilio SMS/voice configuration
  *   config-channels.ts    — Channel guardian & readiness
  *   config-tools.ts       — Env vars, tool permission simulation, tool names
+ *   config-parental.ts    — Parental control PIN + content/tool restrictions
  */
 
 // Re-export individual handlers for direct import by tests and other modules
@@ -26,6 +27,7 @@ export { handleTelegramConfig, summarizeTelegramError } from './config-telegram.
 export { handleTwilioConfig } from './config-twilio.js';
 export { handleGuardianVerification, handleChannelReadiness, getReadinessService } from './config-channels.js';
 export { handleEnvVarsRequest, handleToolPermissionSimulate, handleToolNamesList } from './config-tools.js';
+export { handleParentalControlGet, handleParentalControlVerifyPin, handleParentalControlSetPin, handleParentalControlUpdate } from './config-parental.js';
 
 // Assemble the combined dispatch map from domain-specific handler groups
 import { modelHandlers } from './config-model.js';
@@ -38,6 +40,7 @@ import { telegramHandlers } from './config-telegram.js';
 import { twilioHandlers } from './config-twilio.js';
 import { channelHandlers } from './config-channels.js';
 import { toolHandlers } from './config-tools.js';
+import { parentalControlHandlers } from './config-parental.js';
 
 export const configHandlers = {
   ...modelHandlers,
@@ -50,4 +53,5 @@ export const configHandlers = {
   ...twilioHandlers,
   ...channelHandlers,
   ...toolHandlers,
+  ...parentalControlHandlers,
 };

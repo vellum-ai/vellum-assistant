@@ -238,6 +238,14 @@ extension DaemonClient {
             onSubagentStatusChanged?(msg)
         case .subagentDetailResponse(let msg):
             onSubagentDetailResponse?(msg)
+        case .parentalControlGetResponse(let msg):
+            onParentalControlGetResponse?(msg)
+        case .parentalControlVerifyPinResponse(let msg):
+            onParentalControlVerifyPinResponse?(msg)
+        case .parentalControlSetPinResponse(let msg):
+            onParentalControlSetPinResponse?(msg)
+        case .parentalControlUpdateResponse(let msg):
+            onParentalControlUpdateResponse?(msg)
         default:
             break
         }

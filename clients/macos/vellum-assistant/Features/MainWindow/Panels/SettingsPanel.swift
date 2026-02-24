@@ -8,6 +8,7 @@ enum SettingsTab: String, CaseIterable {
     case reminders = "Schedules"
     case appearance = "Appearance"
     case advanced = "Advanced"
+    case parental = "Parental"
 }
 
 @MainActor
@@ -191,6 +192,8 @@ struct SettingsPanel: View {
                 onClose: onClose,
                 daemonClient: daemonClient
             )
+        case .parental:
+            SettingsParentalTab(daemonClient: daemonClient)
         }
     }
 
