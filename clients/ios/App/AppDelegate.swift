@@ -1,8 +1,11 @@
 #if canImport(UIKit)
 import Combine
+import os
 import UIKit
 import UserNotifications
 import VellumAssistantShared
+
+private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "AppDelegate")
 
 /// Observable wrapper that holds the active DaemonClientProtocol implementation.
 /// Allows SwiftUI views to receive the client via @EnvironmentObject without
@@ -112,7 +115,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
         // Log failure but don't crash — push is optional
-        print("[APNS] Failed to register: \(error.localizedDescription)")
+        log.error("APNS registration failed: \(error.localizedDescription)")
     }
 
     private func sendDeviceTokenToDaemon(_ token: String) async throws {

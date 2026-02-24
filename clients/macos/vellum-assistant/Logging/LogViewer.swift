@@ -1,5 +1,8 @@
+import os
 import SwiftUI
 import Foundation
+
+private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "LogViewer")
 
 struct LogViewer: View {
     @State private var logFiles: [URL] = []
@@ -79,7 +82,7 @@ struct LogViewer: View {
             decoder.dateDecodingStrategy = .iso8601
             selectedLog = try decoder.decode(SessionLog.self, from: data)
         } catch {
-            print("Failed to load log: \(error)")
+            log.error("Failed to load log: \(error)")
         }
     }
 }
