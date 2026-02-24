@@ -40,11 +40,9 @@ struct SettingsConnectTab: View {
     // Guardian copy state (tracks which channel's command was just copied)
     @State private var guardianCommandCopiedChannel: String?
 
-    // Developer local pairing state
-    @AppStorage(PairingConfiguration.overrideEnabledKey) private var iosPairingUseOverride: Bool = false
+    // Override fields for power users / debugging
     @AppStorage(PairingConfiguration.gatewayOverrideKey) private var iosPairingGatewayOverride: String = ""
     @AppStorage(PairingConfiguration.tokenOverrideKey) private var iosPairingTokenOverride: String = ""
-    @State private var lanUrlCopied: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
@@ -1120,12 +1118,12 @@ struct SettingsConnectTab: View {
             // cached bearerToken + override for token (avoids synchronous disk read).
             let hasGateway = !store.resolvedIosGatewayUrl.isEmpty
             let trimmedOverrideToken = iosPairingTokenOverride.trimmingCharacters(in: .whitespacesAndNewlines)
-            let hasToken = !bearerToken.isEmpty || (iosPairingUseOverride && !trimmedOverrideToken.isEmpty)
+            // Has a usable token — either the daemon file token or a non-empty override.
+            let hasToken = !bearerToken.isEmpty || !trimmedOverrideToken.isEmpty
 
-            // Token is from daemon file — true unless override mode is active WITH a
-            // custom token. When override only sets the URL (token override empty), the
-            // resolver falls back to the daemon token, so regeneration is still useful.
-            let tokenFromDaemon = !bearerToken.isEmpty && !(iosPairingUseOverride && !trimmedOverrideToken.isEmpty)
+            // Token originates from the daemon file — true when the daemon token
+            // is present and no override token has been entered.
+            let tokenFromDaemon = !bearerToken.isEmpty && trimmedOverrideToken.isEmpty
 
             if hasGateway && hasToken {
                 // "Ready to pair" — green checkmark + subtle regenerate (daemon token only)

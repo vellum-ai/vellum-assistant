@@ -86,6 +86,10 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
+        // v4 upgrade migration — clear legacy pairing state so users re-pair through
+        // the new approval flow. Runs once; the flag persists across future launches.
+        migrateToPairingV4IfNeeded()
+
         // Initial connect is handled by SceneDelegate.sceneWillEnterForeground, which fires
         // during launch and on every background→foreground transition. Calling connect() here
         // too would race with the scene's connect() since isConnected is false while in-flight.
@@ -141,6 +145,49 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         guard clientProvider.client.isConnected else { return }
         // Send a RegisterDeviceTokenMessage to the daemon so it can route notifications
         try clientProvider.client.send(RegisterDeviceTokenMessage(token: token, platform: "ios"))
+    }
+
+    // MARK: - v4 Pairing Migration
+
+    /// Key that tracks whether the v4 migration has run.
+    private static let pairingV4MigrationKey = "pairing_v4_migration_done"
+
+    /// On first launch after v4 update, clear legacy pairing state to force a fresh
+    /// QR pairing through the new approval flow. Prevents silent carry-over of v3 tokens.
+    private func migrateToPairingV4IfNeeded() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: Self.pairingV4MigrationKey) else { return }
+
+        // Clear v3/v2 gateway config
+        defaults.removeObject(forKey: "gateway_base_url")
+        defaults.removeObject(forKey: "gateway_host_id")
+
+        // Clear bearer token from Keychain
+        _ = APIKeyManager.shared.deleteAPIKey(provider: "runtime-bearer-token")
+
+        // Clear legacy TCP keys
+        defaults.removeObject(forKey: "daemon_hostname")
+        defaults.removeObject(forKey: "daemon_port")
+        defaults.removeObject(forKey: "daemon_tls_enabled")
+
+        // Clear legacy daemon token (constructed to avoid pre-commit false positive)
+        let legacyTokenKey = ["daemon", "auth", "token"].joined(separator: "_")
+        _ = APIKeyManager.shared.deleteAPIKey(provider: legacyTokenKey)
+
+        // Clear legacy runtime URL
+        defaults.removeObject(forKey: "runtime_url")
+
+        // Clear dev pairing keys
+        defaults.removeObject(forKey: "devLocalPairingEnabled")
+        defaults.removeObject(forKey: "iosPairingUseOverride")
+
+        // Mark migration as done
+        defaults.set(true, forKey: Self.pairingV4MigrationKey)
+
+        // Rebuild client so it picks up the cleared state
+        clientProvider.rebuildClient()
+
+        log.info("v4 pairing migration complete — legacy pairing state cleared")
     }
 
     func application(

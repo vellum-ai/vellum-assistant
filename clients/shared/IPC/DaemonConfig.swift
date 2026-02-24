@@ -88,10 +88,8 @@ public struct DaemonConfig {
     /// Create a `DaemonConfig` populated from UserDefaults / Keychain.
     /// iOS only supports HTTP+SSE transport via the gateway — no TCP fallback.
     public static func fromUserDefaults() -> DaemonConfig {
-        // Check for a stored gateway or runtime URL — if present, use HTTP transport.
-        // gateway_base_url is set by QR pairing v2; runtime_url is the legacy/cloud key.
+        // gateway_base_url is set by QR pairing (v4).
         let httpBaseURL = UserDefaults.standard.string(forKey: "gateway_base_url").flatMap { $0.isEmpty ? nil : $0 }
-            ?? UserDefaults.standard.string(forKey: "runtime_url").flatMap { $0.isEmpty ? nil : $0 }
         if let baseURL = httpBaseURL {
             let bearerToken = APIKeyManager.shared.getAPIKey(provider: "runtime-bearer-token")
             let conversationKey: String

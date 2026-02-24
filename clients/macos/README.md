@@ -52,7 +52,7 @@ Requires either:
 
 Requires Apple Developer account + App Store Connect setup. Deferred to PR 12-13 (deployment).
 
-**Daemon Connection Note:** The iOS app connects to the daemon through the HTTP gateway. Pair via QR code (Settings → Connect → Show QR Code on Mac, Scan QR Code on iPhone) or enter the gateway URL and bearer token manually in the iOS app's Settings → Connect → Manual Setup.
+**Daemon Connection Note:** The iOS app connects to the daemon through the HTTP gateway. Pair via QR code (Settings → Connect → Show QR Code on Mac, Scan QR Code on iPhone). All pairings require Mac-side approval. Devices approved with "Always Allow" auto-approve on future pairings.
 
 ## Download
 
