@@ -912,11 +912,13 @@ struct MainWindowView: View {
             } label: {
                 Label(thread.isPinned ? "Unpin" : "Pin to Top", systemImage: thread.isPinned ? "pin.slash" : "pin")
             }
-            Button {
-                renamingThreadId = thread.id
-                renameText = thread.title
-            } label: {
-                Label("Rename", systemImage: "pencil")
+            if thread.sessionId != nil {
+                Button {
+                    renamingThreadId = thread.id
+                    renameText = thread.title
+                } label: {
+                    Label("Rename", systemImage: "pencil")
+                }
             }
             if threadManager.visibleThreads.count > 1 {
                 Button {
