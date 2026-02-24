@@ -28,18 +28,23 @@ type BreakerState = 'closed' | 'open' | 'half-open';
 let breakerState: BreakerState = 'closed';
 let consecutiveFailures = 0;
 let openedAt = 0;
+// Ensures only one request passes through during half-open state
+let halfOpenProbeInFlight = false;
 
 function qdrantBreakerAllows(): boolean {
   if (breakerState === 'closed') return true;
   if (breakerState === 'open') {
     if (Date.now() - openedAt >= COOLDOWN_MS) {
       breakerState = 'half-open';
+      halfOpenProbeInFlight = true;
       log.info('Qdrant circuit breaker entering half-open state — allowing probe request');
       return true;
     }
     return false;
   }
-  // half-open: allow the single probe
+  // half-open: only allow through if no probe is already in flight
+  if (halfOpenProbeInFlight) return false;
+  halfOpenProbeInFlight = true;
   return true;
 }
 
@@ -50,10 +55,12 @@ function qdrantBreakerRecordSuccess(): void {
   consecutiveFailures = 0;
   breakerState = 'closed';
   openedAt = 0;
+  halfOpenProbeInFlight = false;
 }
 
 function qdrantBreakerRecordFailure(): void {
   consecutiveFailures++;
+  halfOpenProbeInFlight = false;
   if (consecutiveFailures >= FAILURE_THRESHOLD) {
     breakerState = 'open';
     openedAt = Date.now();
@@ -74,6 +81,7 @@ export function _resetQdrantBreaker(): void {
   breakerState = 'closed';
   consecutiveFailures = 0;
   openedAt = 0;
+  halfOpenProbeInFlight = false;
 }
 
 /** @internal Test-only: get breaker state */
@@ -91,10 +99,10 @@ export async function semanticSearch(
 ): Promise<Candidate[]> {
   if (limit <= 0) return [];
 
-  // Circuit breaker: skip Qdrant when the breaker is open
+  // Circuit breaker: throw so the caller's .catch() marks the result as degraded
   if (!qdrantBreakerAllows()) {
     log.debug('Qdrant circuit breaker open — skipping semantic search');
-    return [];
+    throw new Error('Qdrant circuit breaker open');
   }
 
   const qdrant = getQdrantClient();
