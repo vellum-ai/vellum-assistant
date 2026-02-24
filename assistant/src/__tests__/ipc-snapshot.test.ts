@@ -1682,13 +1682,6 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     mode: 'dictation',
     actionPlan: undefined,
   },
-  guardian_request_thread_created: {
-    type: 'guardian_request_thread_created',
-    conversationId: 'conv-guardian-req-001',
-    requestId: 'req-guardian-001',
-    callSessionId: 'call-guardian-001',
-    title: 'Guardian action request',
-  },
 };
 
 // ---------------------------------------------------------------------------
