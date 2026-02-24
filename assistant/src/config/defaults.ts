@@ -16,7 +16,7 @@ export const DEFAULT_CONFIG: AssistantConfig = {
   },
   contextWindow: {
     enabled: true,
-    maxInputTokens: 180000,
+    maxInputTokens: 200000,
     targetInputTokens: 110000,
     compactThreshold: 0.8,
     preserveRecentUserTurns: 8,
