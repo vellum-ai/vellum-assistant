@@ -22,7 +22,8 @@ struct VellumAssistantApp: App {
                 if onboardingCompleted {
                     ContentView(
                         authManager: appDelegate.authManager,
-                        ambientAgent: appDelegate.ambientAgentManager
+                        ambientAgent: appDelegate.ambientAgentManager,
+                        daemonClient: appDelegate.clientProvider.client
                     )
                     .environmentObject(appDelegate.clientProvider)
                 } else {

@@ -7,7 +7,7 @@ import VellumAssistantShared
 
 struct ThreadListView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @StateObject private var store: IOSThreadStore
+    @ObservedObject var store: IOSThreadStore
     @State private var navigationPath: [UUID] = []
     @State private var selectedThreadId: UUID?
     @State private var searchText: String = ""
@@ -15,16 +15,14 @@ struct ThreadListView: View {
     @State private var renameText: String = ""
     @State private var showArchived: Bool = false
 
-    init(daemonClient: any DaemonClientProtocol) {
-        _store = StateObject(wrappedValue: IOSThreadStore(daemonClient: daemonClient))
-    }
-
     private var activeThreads: [IOSThread] {
-        store.threads.filter { !$0.isArchived }
+        // Exclude private threads — they are managed separately via the Private Threads
+        // settings panel and must not appear in the main chat list.
+        store.threads.filter { !$0.isArchived && !$0.isPrivate }
     }
 
     private var archivedThreads: [IOSThread] {
-        store.threads.filter { $0.isArchived }
+        store.threads.filter { $0.isArchived && !$0.isPrivate }
     }
 
     private var filteredActiveThreads: [IOSThread] {

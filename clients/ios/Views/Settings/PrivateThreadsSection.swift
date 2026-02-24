@@ -6,19 +6,16 @@ import VellumAssistantShared
 /// workflow. Private threads are backed by daemon sessions with threadType "private"
 /// so they are excluded from normal session restoration and the main thread list.
 struct PrivateThreadsSection: View {
-    @StateObject private var store: IOSThreadStore
+    /// Shared with the main ThreadListView so both views read from and write to the
+    /// same in-memory thread list. This prevents the dual-store data-loss bug where
+    /// two independent stores each overwrite the other's UserDefaults changes.
+    @ObservedObject var store: IOSThreadStore
     @State private var showingCreateSheet = false
     @State private var newThreadName = ""
     @State private var renamingThread: IOSThread?
     @State private var renameText = ""
     @State private var threadToDelete: IOSThread?
     @State private var showingDeleteConfirmation = false
-
-    init(daemonClient: any DaemonClientProtocol) {
-        // Use the secondary initializer so this store does not register global
-        // session-list callbacks that would overwrite the main thread store's handlers.
-        _store = StateObject(wrappedValue: IOSThreadStore(daemonClient: daemonClient, registerDaemonCallbacks: false))
-    }
 
     var body: some View {
         Form {
@@ -176,7 +173,7 @@ struct PrivateThreadsSection: View {
 #if DEBUG
 #Preview {
     NavigationStack {
-        PrivateThreadsSection(daemonClient: MockDaemonClient())
+        PrivateThreadsSection(store: IOSThreadStore(daemonClient: MockDaemonClient()))
     }
 }
 #endif

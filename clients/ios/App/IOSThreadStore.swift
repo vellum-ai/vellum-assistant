@@ -101,28 +101,6 @@ class IOSThreadStore: ObservableObject {
         }
     }
 
-    /// Initializer for secondary stores (e.g. the Private Threads settings panel)
-    /// that need access to the daemon client for sending messages but should not
-    /// register global session-list callbacks that would clobber the main store's
-    /// handlers. In standalone mode, loads persisted threads from UserDefaults.
-    init(daemonClient: any DaemonClientProtocol, registerDaemonCallbacks: Bool) {
-        self.daemonClient = daemonClient
-
-        if daemonClient is DaemonClient {
-            isConnectedMode = true
-            // No default thread — secondary stores start empty and show only
-            // what has been created within the current session.
-            threads = []
-        } else {
-            let loaded = Self.load()
-            threads = loaded
-        }
-
-        if registerDaemonCallbacks, let daemon = daemonClient as? DaemonClient {
-            setupDaemonCallbacks(daemon)
-        }
-    }
-
     // MARK: - Daemon Thread Sync
 
     private func setupDaemonCallbacks(_ daemon: DaemonClient) {

@@ -8,6 +8,9 @@ struct SettingsView: View {
     @AppStorage(UserDefaultsKeys.developerModeEnabled) private var developerModeEnabled: Bool = false
     @Binding var navigateToConnect: Bool
     @State private var versionTapCount: Int = 0
+    /// Shared thread store — passed through so PrivateThreadsSection can show and
+    /// manage private threads without creating a second store that races on UserDefaults.
+    var threadStore: IOSThreadStore
 
     var body: some View {
         NavigationStack {
@@ -56,7 +59,7 @@ struct SettingsView: View {
                         Label("Parental Controls", systemImage: "lock.shield")
                     }
                     NavigationLink {
-                        PrivateThreadsSection(daemonClient: clientProvider.client)
+                        PrivateThreadsSection(store: threadStore)
                     } label: {
                         Label("Private Threads", systemImage: "lock.shield.fill")
                     }
@@ -173,7 +176,8 @@ extension Bundle {
 }
 
 #Preview {
-    SettingsView(authManager: AuthManager(), navigateToConnect: .constant(false))
-        .environmentObject(ClientProvider(client: DaemonClient(config: .fromUserDefaults())))
+    let client = DaemonClient(config: .fromUserDefaults())
+    SettingsView(authManager: AuthManager(), navigateToConnect: .constant(false), threadStore: IOSThreadStore(daemonClient: client))
+        .environmentObject(ClientProvider(client: client))
 }
 #endif

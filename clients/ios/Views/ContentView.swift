@@ -9,6 +9,17 @@ struct ContentView: View {
     @State private var connectPhase: ConnectPhase = .initial
     @State private var selectedTab: Tab = .home
     @State private var navigateToConnect = false
+    /// Single thread store shared between the Chats tab (ThreadListView) and the
+    /// Private Threads settings panel (PrivateThreadsSection). Keeping one store
+    /// prevents the dual-store data-loss race where two independent stores each
+    /// overwrite the other's UserDefaults writes in standalone mode.
+    @StateObject private var threadStore: IOSThreadStore
+
+    init(authManager: AuthManager, ambientAgent: AmbientAgentManager, daemonClient: any DaemonClientProtocol) {
+        self.authManager = authManager
+        self.ambientAgent = ambientAgent
+        _threadStore = StateObject(wrappedValue: IOSThreadStore(daemonClient: daemonClient))
+    }
 
     private enum Tab { case home, chats, tasks, identity, settings }
 
@@ -218,7 +229,7 @@ struct ContentView: View {
                     Label("Home", systemImage: "house")
                 }
 
-            ThreadListView(daemonClient: clientProvider.client)
+            ThreadListView(store: threadStore)
                 .id(ObjectIdentifier(clientProvider.client as AnyObject))
                 .tag(Tab.chats)
                 .tabItem {
@@ -241,7 +252,7 @@ struct ContentView: View {
                     Label("Identity", systemImage: "person.text.rectangle")
                 }
 
-            SettingsView(authManager: authManager, navigateToConnect: $navigateToConnect)
+            SettingsView(authManager: authManager, navigateToConnect: $navigateToConnect, threadStore: threadStore)
                 .environmentObject(clientProvider)
                 .tag(Tab.settings)
                 .tabItem {
@@ -252,7 +263,8 @@ struct ContentView: View {
 }
 
 #Preview {
-    ContentView(authManager: AuthManager(), ambientAgent: AmbientAgentManager())
-        .environmentObject(ClientProvider(client: DaemonClient(config: .default)))
+    let client = DaemonClient(config: .default)
+    ContentView(authManager: AuthManager(), ambientAgent: AmbientAgentManager(), daemonClient: client)
+        .environmentObject(ClientProvider(client: client))
 }
 #endif
