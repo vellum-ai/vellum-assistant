@@ -54,4 +54,4 @@ export const configHandlers = {
   ...channelHandlers,
   ...toolHandlers,
   ...parentalControlHandlers,
-;
+};
