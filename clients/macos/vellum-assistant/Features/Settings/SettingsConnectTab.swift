@@ -180,7 +180,6 @@ struct SettingsConnectTab: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
-                .onTapGesture { withAnimation(VAnimation.standard) { gatewayExpanded.toggle() } }
             }
         }
         .padding(VSpacing.lg)
@@ -309,7 +308,6 @@ struct SettingsConnectTab: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
-                .onTapGesture { withAnimation(VAnimation.standard) { advancedExpanded.toggle() } }
             }
         }
         .padding(VSpacing.lg)
@@ -979,7 +977,6 @@ struct SettingsConnectTab: View {
                     .foregroundColor(VColor.textPrimary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
-                    .onTapGesture { withAnimation(VAnimation.standard) { diagnosticsExpanded.toggle() } }
             }
         }
         .padding(VSpacing.lg)

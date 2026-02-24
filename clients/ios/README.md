@@ -75,7 +75,7 @@ cd clients/ios
 
 ### Connected to Mac Mode
 
-Requires the Vellum daemon running on your Mac (via the macOS desktop app or `bun run src/index.ts daemon start`). The iOS app connects to the daemon through an HTTP gateway using a bearer token for authentication.
+Requires the Vellum daemon running on your Mac (via the macOS desktop app or `cd assistant && bun run src/index.ts daemon start` from the repo root). The iOS app connects to the daemon through an HTTP gateway using a bearer token for authentication.
 
 **QR Code Pairing (recommended):**
 
