@@ -13,10 +13,9 @@ const eslintConfig = defineConfig([
 
       // Standardize on `undefined` only — avoid `null` in new code.
       // Prefer `=== undefined`, `?? fallback`, or `?.` optional chaining
-      // instead of `=== null`. Existing code is grandfathered in (warn, not
-      // error) so we don't need a mass refactor.
+      // instead of `=== null`.
       "no-restricted-syntax": [
-        "warn",
+        "error",
         {
           selector:
             "BinaryExpression[operator='==='][right.type='Literal'][right.raw='null']",
