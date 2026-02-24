@@ -381,32 +381,21 @@ final class ActionExecutor: ActionExecuting {
     private func mdfindApp(name: String, timeout: UInt64 = 2_000_000_000) async -> URL? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/mdfind")
+        // Escape single quotes in the app name to prevent breaking the mdfind query
+        let sanitizedName = name.replacingOccurrences(of: "'", with: "'\\''")
         process.arguments = [
-            "kMDItemKind == 'Application' && kMDItemDisplayName == '\(name)'"
+            "kMDItemKind == 'Application' && kMDItemDisplayName == '\(sanitizedName)'"
         ]
 
         let stdout = Pipe()
         process.standardOutput = stdout
         process.standardError = Pipe() // discard stderr
 
-        do {
-            try process.run()
-        } catch {
-            log.warning("openApp mdfind failed to launch: \(error.localizedDescription, privacy: .public)")
-            return nil
-        }
-
-        let timeoutTask = Task {
-            try await Task.sleep(nanoseconds: timeout)
-            if process.isRunning {
-                process.terminate()
-            }
-        }
-
         return await withCheckedContinuation { continuation in
+            // Register termination handler BEFORE starting the process to avoid
+            // a race where mdfind exits before the handler is set, which would
+            // cause withCheckedContinuation to never resume and hang forever.
             process.terminationHandler = { proc in
-                timeoutTask.cancel()
-
                 guard proc.terminationStatus == 0,
                       proc.terminationReason != .uncaughtSignal else {
                     continuation.resume(returning: nil)
@@ -423,6 +412,23 @@ final class ActionExecutor: ActionExecuting {
                     continuation.resume(returning: URL(fileURLWithPath: String(firstLine)))
                 } else {
                     continuation.resume(returning: nil)
+                }
+            }
+
+            do {
+                try process.run()
+            } catch {
+                // process.run() failed so terminationHandler won't fire — resume manually
+                log.warning("openApp mdfind failed to launch: \(error.localizedDescription, privacy: .public)")
+                continuation.resume(returning: nil)
+                return
+            }
+
+            // Timeout — terminate the subprocess if it takes too long
+            Task {
+                try? await Task.sleep(nanoseconds: timeout)
+                if process.isRunning {
+                    process.terminate()
                 }
             }
         }
