@@ -124,5 +124,10 @@ function parseGeneratedCopy(text: string): GuardianCopy | null {
     return null;
   }
 
+  // Reject the old static prefix — the model is guided towards better titles but has final say
+  if (/^guardian question:/i.test(title)) {
+    return null;
+  }
+
   return { threadTitle: title, initialMessage: message };
 }
