@@ -164,8 +164,13 @@ class IOSThreadStore: ObservableObject {
     /// for any response that arrives between the generation bump and this send.  If the send
     /// throws, the expected generation is not advanced and the guard stays closed.
     private func sendPageOneSessionList(daemon: DaemonClient) {
-        expectedSessionListGeneration = sessionListGeneration
-        try? daemon.sendSessionList(offset: 0, limit: Self.threadPageSize)
+        do {
+            try daemon.sendSessionList(offset: 0, limit: Self.threadPageSize)
+            expectedSessionListGeneration = sessionListGeneration
+        } catch {
+            // Send failed — leave expectedSessionListGeneration unchanged so the
+            // guard stays closed and stale responses are rejected.
+        }
     }
 
     /// Re-point the store at a freshly constructed DaemonClient after `rebuildClient()`.
