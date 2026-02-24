@@ -320,6 +320,30 @@ export async function getTollFreeVerificationStatus(
   return parseTollFreeVerification(verifications[0]);
 }
 
+/** Fetch a specific toll-free verification by SID. */
+export async function getTollFreeVerificationBySid(
+  accountSid: string,
+  authToken: string,
+  verificationSid: string,
+): Promise<TollFreeVerification | null> {
+  const res = await fetch(`${TOLLFREE_VERIFICATION_BASE}/${encodeURIComponent(verificationSid)}`, {
+    method: 'GET',
+    headers: { Authorization: twilioAuthHeader(accountSid, authToken) },
+  });
+
+  if (res.status === 404) {
+    return null;
+  }
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Twilio Toll-Free Verification fetch error ${res.status}: ${text}`);
+  }
+
+  const data = (await res.json()) as Record<string, unknown>;
+  return parseTollFreeVerification(data);
+}
+
 export interface TollFreeVerificationSubmitParams {
   tollfreePhoneNumberSid: string;
   businessName: string;

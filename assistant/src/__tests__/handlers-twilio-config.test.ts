@@ -1595,6 +1595,49 @@ describe('Twilio config handler', () => {
     expect(capturedBody).toContain('BusinessType=SOLE_PROPRIETOR');
   });
 
+  test('sms_submit_tollfree_verification accepts current Twilio enum ACCOUNT_NOTIFICATIONS', async () => {
+    secureKeyStore['credential:twilio:account_sid'] = 'AC1234567890abcdef1234567890abcdef';
+    secureKeyStore['credential:twilio:auth_token'] = 'test_auth_token';
+
+    let capturedBody = '';
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+      if (urlStr.includes('Tollfree/Verifications') && init?.method === 'POST') {
+        capturedBody = init?.body?.toString() ?? '';
+        return new Response(JSON.stringify({
+          sid: 'TF_VER_NEW',
+          status: 'PENDING_REVIEW',
+        }), { status: 201 });
+      }
+      return originalFetch(url);
+    }) as typeof fetch;
+
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'sms_submit_tollfree_verification',
+      verificationParams: {
+        tollfreePhoneNumberSid: 'PN123',
+        businessName: 'Test Biz',
+        businessWebsite: 'https://test.com',
+        notificationEmail: 'test@test.com',
+        useCaseCategories: ['ACCOUNT_NOTIFICATIONS'],
+        useCaseSummary: 'Account alerts',
+        productionMessageSample: 'Your account was updated',
+        optInImageUrls: ['https://test.com/optin.png'],
+        optInType: 'WEB_FORM',
+        messageVolume: '100',
+      },
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { success: boolean };
+    expect(res.success).toBe(true);
+    expect(capturedBody).toContain('UseCaseCategories=ACCOUNT_NOTIFICATIONS');
+  });
+
   test('sms_submit_tollfree_verification rejects invalid useCaseCategories', async () => {
     secureKeyStore['credential:twilio:account_sid'] = 'AC1234567890abcdef1234567890abcdef';
     secureKeyStore['credential:twilio:auth_token'] = 'test_auth_token';
@@ -1795,5 +1838,88 @@ describe('Twilio config handler', () => {
     const res = sent[0] as { type: string; success: boolean; error?: string };
     expect(res.success).toBe(false);
     expect(res.error).toContain('verificationSid is required');
+  });
+
+  test('sms_update_tollfree_verification blocks updates when rejected verification is not editable', async () => {
+    secureKeyStore['credential:twilio:account_sid'] = 'AC1234567890abcdef1234567890abcdef';
+    secureKeyStore['credential:twilio:auth_token'] = 'test_auth_token';
+
+    let attemptedUpdate = false;
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+      if (urlStr.includes('Tollfree/Verifications/TF_VER_001') && init?.method === 'GET') {
+        return new Response(JSON.stringify({
+          sid: 'TF_VER_001',
+          status: 'TWILIO_REJECTED',
+          edit_allowed: false,
+          edit_expiration: '2026-01-01T00:00:00Z',
+        }), { status: 200 });
+      }
+      if (urlStr.includes('Tollfree/Verifications/TF_VER_001') && init?.method === 'POST') {
+        attemptedUpdate = true;
+        return new Response(JSON.stringify({
+          sid: 'TF_VER_001',
+          status: 'IN_REVIEW',
+        }), { status: 200 });
+      }
+      return originalFetch(url);
+    }) as typeof fetch;
+
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'sms_update_tollfree_verification',
+      verificationSid: 'TF_VER_001',
+      verificationParams: { useCaseSummary: 'Updated summary' },
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { success: boolean; error?: string; compliance?: Record<string, unknown> };
+    expect(res.success).toBe(false);
+    expect(res.error).toContain('cannot be updated');
+    expect(res.compliance?.editAllowed).toBe(false);
+    expect(attemptedUpdate).toBe(false);
+  });
+
+  test('sms_doctor resolves toll-free verification using phone SID lookup', async () => {
+    secureKeyStore['credential:twilio:account_sid'] = 'AC1234567890abcdef1234567890abcdef';
+    secureKeyStore['credential:twilio:auth_token'] = 'test_auth_token';
+    rawConfigStore = { sms: { phoneNumber: '+18001234567' } };
+
+    let verificationLookupUrl = '';
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+      if (urlStr.includes('IncomingPhoneNumbers.json') && urlStr.includes('PhoneNumber=%2B18001234567')) {
+        return new Response(JSON.stringify({
+          incoming_phone_numbers: [{ sid: 'PN123abc', phone_number: '+18001234567' }],
+        }), { status: 200 });
+      }
+      if (urlStr.includes('Tollfree/Verifications')) {
+        verificationLookupUrl = urlStr;
+        return new Response(JSON.stringify({
+          verifications: [{ sid: 'TF_VER_001', status: 'TWILIO_APPROVED' }],
+        }), { status: 200 });
+      }
+      return originalFetch(url);
+    }) as typeof fetch;
+
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'sms_doctor',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as {
+      success: boolean;
+      diagnostics?: { compliance?: { status?: string } };
+    };
+    expect(res.success).toBe(true);
+    expect(verificationLookupUrl).toContain('TollfreePhoneNumberSid=PN123abc');
+    expect(res.diagnostics?.compliance?.status).toBe('TWILIO_APPROVED');
   });
 });

@@ -44,6 +44,7 @@ import {
   provisionPhoneNumber,
   updatePhoneNumberWebhooks,
   getTollFreeVerificationStatus,
+  getTollFreeVerificationBySid,
   submitTollFreeVerification,
   updateTollFreeVerification,
   deleteTollFreeVerification,
@@ -1215,6 +1216,35 @@ function mapTwilioErrorRemediation(errorCode: string | undefined): string | unde
   return map[errorCode];
 }
 
+const TWILIO_USE_CASE_ALIASES: Record<string, string> = {
+  ACCOUNT_NOTIFICATION: 'ACCOUNT_NOTIFICATIONS',
+  DELIVERY_NOTIFICATION: 'DELIVERY_NOTIFICATIONS',
+  FRAUD_ALERT: 'FRAUD_ALERT_MESSAGING',
+  POLLING_AND_VOTING: 'POLLING_AND_VOTING_NON_POLITICAL',
+};
+
+const TWILIO_VALID_USE_CASE_CATEGORIES = [
+  'TWO_FACTOR_AUTHENTICATION',
+  'ACCOUNT_NOTIFICATIONS',
+  'CUSTOMER_CARE',
+  'CHARITY_NONPROFIT',
+  'DELIVERY_NOTIFICATIONS',
+  'FRAUD_ALERT_MESSAGING',
+  'EVENTS',
+  'HIGHER_EDUCATION',
+  'K12',
+  'MARKETING',
+  'POLLING_AND_VOTING_NON_POLITICAL',
+  'POLITICAL_ELECTION_CAMPAIGNS',
+  'PUBLIC_SERVICE_ANNOUNCEMENT',
+  'SECURITY_ALERT',
+] as const;
+
+function normalizeUseCaseCategories(rawCategories: string[]): string[] {
+  const normalized = rawCategories.map((value) => TWILIO_USE_CASE_ALIASES[value] ?? value);
+  return Array.from(new Set(normalized));
+}
+
 export async function handleTwilioConfig(
   msg: TwilioConfigRequest,
   socket: net.Socket,
@@ -1648,18 +1678,16 @@ export async function handleTwilioConfig(
       }
 
       // Validate enum values
-      const validUseCaseCategories = [
-        'TWO_FACTOR_AUTHENTICATION', 'ACCOUNT_NOTIFICATION', 'CUSTOMER_CARE',
-        'DELIVERY_NOTIFICATION', 'FRAUD_ALERT', 'HIGHER_EDUCATION', 'MARKETING',
-        'POLLING_AND_VOTING', 'PUBLIC_SERVICE_ANNOUNCEMENT', 'SECURITY_ALERT',
-      ];
-      const invalidCategories = (vp.useCaseCategories ?? []).filter((c) => !validUseCaseCategories.includes(c));
+      const normalizedUseCaseCategories = normalizeUseCaseCategories(vp.useCaseCategories ?? []);
+      const invalidCategories = normalizedUseCaseCategories.filter(
+        (c) => !TWILIO_VALID_USE_CASE_CATEGORIES.includes(c as (typeof TWILIO_VALID_USE_CASE_CATEGORIES)[number]),
+      );
       if (invalidCategories.length > 0) {
         ctx.send(socket, {
           type: 'twilio_config_response',
           success: false,
           hasCredentials: true,
-          error: `Invalid useCaseCategories: ${invalidCategories.join(', ')}. Valid values: ${validUseCaseCategories.join(', ')}`,
+          error: `Invalid useCaseCategories: ${invalidCategories.join(', ')}. Valid values: ${TWILIO_VALID_USE_CASE_CATEGORIES.join(', ')}`,
         });
         return;
       }
@@ -1697,7 +1725,7 @@ export async function handleTwilioConfig(
         businessName: vp.businessName!,
         businessWebsite: vp.businessWebsite!,
         notificationEmail: vp.notificationEmail!,
-        useCaseCategories: vp.useCaseCategories!,
+        useCaseCategories: normalizedUseCaseCategories,
         useCaseSummary: vp.useCaseSummary!,
         productionMessageSample: vp.productionMessageSample!,
         optInImageUrls: vp.optInImageUrls!,
@@ -1742,6 +1770,43 @@ export async function handleTwilioConfig(
 
       const accountSid = getSecureKey('credential:twilio:account_sid')!;
       const authToken = getSecureKey('credential:twilio:auth_token')!;
+
+      const currentVerification = await getTollFreeVerificationBySid(accountSid, authToken, msg.verificationSid);
+      if (!currentVerification) {
+        ctx.send(socket, {
+          type: 'twilio_config_response',
+          success: false,
+          hasCredentials: true,
+          error: `Verification ${msg.verificationSid} was not found on this Twilio account.`,
+        });
+        return;
+      }
+
+      if (currentVerification.status === 'TWILIO_REJECTED') {
+        const expirationMillis = currentVerification.editExpiration
+          ? Date.parse(currentVerification.editExpiration)
+          : Number.NaN;
+        const editExpired = Number.isFinite(expirationMillis) && Date.now() > expirationMillis;
+        if (currentVerification.editAllowed === false || editExpired) {
+          const detail = editExpired
+            ? `edit_expiration=${currentVerification.editExpiration}`
+            : 'edit_allowed=false';
+          ctx.send(socket, {
+            type: 'twilio_config_response',
+            success: false,
+            hasCredentials: true,
+            error: `Verification ${msg.verificationSid} cannot be updated (${detail}). Delete and resubmit instead.`,
+            compliance: {
+              numberType: 'toll_free',
+              verificationSid: currentVerification.sid,
+              verificationStatus: currentVerification.status,
+              editAllowed: currentVerification.editAllowed,
+              editExpiration: currentVerification.editExpiration,
+            },
+          });
+          return;
+        }
+      }
 
       const verification = await updateTollFreeVerification(
         accountSid,
@@ -2004,7 +2069,7 @@ export async function handleTwilioConfig(
       const readinessIssues: string[] = [];
       try {
         const readinessService = getReadinessService();
-        const snapshots = await readinessService.getReadiness('sms', false);
+        const snapshots = await readinessService.getReadiness('sms', true, msg.assistantId);
         const snapshot = snapshots[0];
         if (snapshot) {
           readinessReady = snapshot.ready;
@@ -2026,7 +2091,14 @@ export async function handleTwilioConfig(
         try {
           const raw = loadRawConfig();
           const smsSection = (raw?.sms ?? {}) as Record<string, unknown>;
-          const phoneNumber = (smsSection.phoneNumber as string | undefined) || getSecureKey('credential:twilio:phone_number') || '';
+          let phoneNumber = '';
+          if (msg.assistantId) {
+            const mapping = (smsSection.assistantPhoneNumbers as Record<string, string> | undefined) ?? {};
+            phoneNumber = mapping[msg.assistantId] ?? '';
+          }
+          if (!phoneNumber) {
+            phoneNumber = (smsSection.phoneNumber as string | undefined) || getSecureKey('credential:twilio:phone_number') || '';
+          }
           if (phoneNumber) {
             const accountSid = getSecureKey('credential:twilio:account_sid')!;
             const authToken = getSecureKey('credential:twilio:auth_token')!;
@@ -2036,24 +2108,37 @@ export async function handleTwilioConfig(
             );
             if (isTollFree) {
               try {
-                const verification = await getTollFreeVerificationStatus(accountSid, authToken, phoneNumber);
-                if (verification) {
-                  const status = verification.status;
-                  complianceStatus = status;
-                  complianceDetail = `Toll-free verification: ${status}`;
-                  if (status === 'TWILIO_APPROVED') {
-                    complianceRemediation = undefined;
-                  } else if (status === 'PENDING_REVIEW' || status === 'IN_REVIEW') {
-                    complianceRemediation = 'Toll-free verification is pending. Messaging may have limited throughput until approved.';
-                  } else if (status === 'TWILIO_REJECTED') {
-                    complianceRemediation = 'Toll-free verification was rejected. Check rejection reasons and resubmit.';
-                  } else {
-                    complianceRemediation = 'Submit a toll-free verification to enable full messaging throughput.';
-                  }
+                const phoneSid = await getPhoneNumberSid(accountSid, authToken, phoneNumber);
+                if (!phoneSid) {
+                  complianceStatus = 'check_failed';
+                  complianceDetail = `Assigned number ${phoneNumber} was not found on the Twilio account`;
+                  complianceRemediation = 'Reassign the number in twilio-setup or update credentials to the matching account.';
                 } else {
-                  complianceStatus = 'unverified';
-                  complianceDetail = 'Toll-free number without verification';
-                  complianceRemediation = 'Submit a toll-free verification request to avoid filtering.';
+                  const verification = await getTollFreeVerificationStatus(accountSid, authToken, phoneSid);
+                  if (verification) {
+                    const status = verification.status;
+                    complianceStatus = status;
+                    complianceDetail = `Toll-free verification: ${status}`;
+                    if (status === 'TWILIO_APPROVED') {
+                      complianceRemediation = undefined;
+                    } else if (status === 'PENDING_REVIEW' || status === 'IN_REVIEW') {
+                      complianceRemediation = 'Toll-free verification is pending. Messaging may have limited throughput until approved.';
+                    } else if (status === 'TWILIO_REJECTED') {
+                      if (verification.editAllowed) {
+                        complianceRemediation = verification.editExpiration
+                          ? `Toll-free verification was rejected but can still be edited until ${verification.editExpiration}. Update and resubmit it.`
+                          : 'Toll-free verification was rejected but can still be edited. Update and resubmit it.';
+                      } else {
+                        complianceRemediation = 'Toll-free verification was rejected and is no longer editable. Delete and resubmit it.';
+                      }
+                    } else {
+                      complianceRemediation = 'Submit a toll-free verification to enable full messaging throughput.';
+                    }
+                  } else {
+                    complianceStatus = 'unverified';
+                    complianceDetail = 'Toll-free number without verification';
+                    complianceRemediation = 'Submit a toll-free verification request to avoid filtering.';
+                  }
                 }
               } catch {
                 complianceStatus = 'check_failed';
@@ -2259,13 +2344,13 @@ export async function handleChannelReadiness(
 
     if (msg.action === 'refresh') {
       if (msg.channel) {
-        service.invalidateChannel(msg.channel);
+        service.invalidateChannel(msg.channel, msg.assistantId);
       } else {
         service.invalidateAll();
       }
     }
 
-    const snapshots = await service.getReadiness(msg.channel, msg.includeRemote);
+    const snapshots = await service.getReadiness(msg.channel, msg.includeRemote, msg.assistantId);
 
     ctx.send(socket, {
       type: 'channel_readiness_response',

@@ -1,6 +1,7 @@
 import type {
   ChannelId,
   ChannelProbe,
+  ChannelProbeContext,
   ChannelReadinessSnapshot,
   ReadinessCheckResult,
 } from './channel-readiness-types.js';
@@ -29,9 +30,54 @@ function hasIngressConfigured(): boolean {
   }
 }
 
+function getAssistantMappedPhoneNumber(
+  smsConfig: Record<string, unknown>,
+  assistantId?: string,
+): string | undefined {
+  if (!assistantId) return undefined;
+  const mapping = (smsConfig.assistantPhoneNumbers as Record<string, string> | undefined) ?? {};
+  return mapping[assistantId];
+}
+
+function hasAnyAssistantMappedPhoneNumber(smsConfig: Record<string, unknown>): boolean {
+  const mapping = (smsConfig.assistantPhoneNumbers as Record<string, string> | undefined) ?? {};
+  return Object.keys(mapping).length > 0;
+}
+
+function hasAnyAssistantMappedPhoneNumberSafe(): boolean {
+  try {
+    const raw = loadRawConfig();
+    const smsConfig = (raw?.sms ?? {}) as Record<string, unknown>;
+    return hasAnyAssistantMappedPhoneNumber(smsConfig);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolve SMS from-number with canonical precedence:
+ * assistant mapping -> env override -> config sms.phoneNumber -> secure key fallback.
+ */
+function resolveSmsPhoneNumber(assistantId?: string): string {
+  try {
+    const raw = loadRawConfig();
+    const smsConfig = (raw?.sms ?? {}) as Record<string, unknown>;
+    const mapped = getAssistantMappedPhoneNumber(smsConfig, assistantId);
+    return mapped
+      || process.env.TWILIO_PHONE_NUMBER
+      || (smsConfig.phoneNumber as string)
+      || getSecureKey('credential:twilio:phone_number')
+      || '';
+  } catch {
+    return process.env.TWILIO_PHONE_NUMBER
+      || getSecureKey('credential:twilio:phone_number')
+      || '';
+  }
+}
+
 const smsProbe: ChannelProbe = {
   channel: 'sms',
-  runLocalChecks(): ReadinessCheckResult[] {
+  runLocalChecks(context?: ChannelProbeContext): ReadinessCheckResult[] {
     const results: ReadinessCheckResult[] = [];
 
     const hasCreds = hasTwilioCredentials();
@@ -43,23 +89,18 @@ const smsProbe: ChannelProbe = {
         : 'Twilio Account SID and Auth Token are not configured',
     });
 
-    let hasPhone = !!process.env.TWILIO_PHONE_NUMBER;
-    if (!hasPhone) {
-      try {
-        const raw = loadRawConfig();
-        const smsConfig = (raw?.sms ?? {}) as Record<string, unknown>;
-        hasPhone = !!(smsConfig.phoneNumber as string);
-      } catch { /* ignore */ }
-    }
-    if (!hasPhone) {
-      hasPhone = !!getSecureKey('credential:twilio:phone_number');
-    }
+    const resolvedNumber = resolveSmsPhoneNumber(context?.assistantId);
+    const hasPhone = !!resolvedNumber || (!context?.assistantId && hasAnyAssistantMappedPhoneNumberSafe());
     results.push({
       name: 'phone_number',
       passed: hasPhone,
       message: hasPhone
-        ? 'Phone number is assigned'
-        : 'No phone number assigned',
+        ? (context?.assistantId && !resolvedNumber
+          ? `Assistant ${context.assistantId} has no direct mapping, but SMS phone numbers are assigned`
+          : 'Phone number is assigned')
+        : (context?.assistantId
+          ? `No phone number assigned for assistant ${context.assistantId}`
+          : 'No phone number assigned'),
     });
 
     const hasIngress = hasIngressConfigured();
@@ -73,20 +114,14 @@ const smsProbe: ChannelProbe = {
 
     return results;
   },
-  async runRemoteChecks(): Promise<ReadinessCheckResult[]> {
+  async runRemoteChecks(context?: ChannelProbeContext): Promise<ReadinessCheckResult[]> {
     if (!hasTwilioCredentials()) return [];
 
     const accountSid = getSecureKey('credential:twilio:account_sid');
     const authToken = getSecureKey('credential:twilio:auth_token');
     if (!accountSid || !authToken) return [];
 
-    // Resolve the assigned phone number using fallback chain
-    const raw = loadRawConfig();
-    const smsConfig = (raw?.sms ?? {}) as Record<string, unknown>;
-    const phoneNumber = process.env.TWILIO_PHONE_NUMBER
-      || (smsConfig.phoneNumber as string)
-      || getSecureKey('credential:twilio:phone_number')
-      || '';
+    const phoneNumber = resolveSmsPhoneNumber(context?.assistantId);
     if (!phoneNumber) return [];
 
     // Only toll-free numbers need verification checks
@@ -173,7 +208,7 @@ const telegramProbe: ChannelProbe = {
 
 export class ChannelReadinessService {
   private probes = new Map<ChannelId, ChannelProbe>();
-  private snapshots = new Map<ChannelId, ChannelReadinessSnapshot>();
+  private snapshots = new Map<string, ChannelReadinessSnapshot>();
 
   registerProbe(probe: ChannelProbe): void {
     this.probes.set(probe.channel, probe);
@@ -187,6 +222,7 @@ export class ChannelReadinessService {
   async getReadiness(
     channel?: ChannelId,
     includeRemote?: boolean,
+    assistantId?: string,
   ): Promise<ChannelReadinessSnapshot[]> {
     const channels = channel
       ? [channel]
@@ -200,32 +236,40 @@ export class ChannelReadinessService {
         continue;
       }
 
-      const localChecks = probe.runLocalChecks();
+      const probeContext: ChannelProbeContext = { assistantId };
+      const localChecks = probe.runLocalChecks(probeContext);
       let remoteChecks: ReadinessCheckResult[] | undefined;
       let remoteChecksFreshlyFetched = false;
+      let remoteChecksAffectReadiness = false;
       let stale = false;
 
-      const cached = this.snapshots.get(ch);
+      const cacheKey = this.snapshotCacheKey(ch, assistantId);
+      const cached = this.snapshots.get(cacheKey);
       const now = Date.now();
 
       if (includeRemote && probe.runRemoteChecks) {
         const cacheExpired = !cached || !cached.remoteChecks || (now - cached.checkedAt) >= REMOTE_TTL_MS;
         if (cacheExpired) {
-          remoteChecks = await probe.runRemoteChecks();
+          remoteChecks = await probe.runRemoteChecks(probeContext);
           remoteChecksFreshlyFetched = true;
+          remoteChecksAffectReadiness = true;
         } else {
           // Reuse cached remote checks
           remoteChecks = cached.remoteChecks;
+          remoteChecksAffectReadiness = true;
         }
       } else if (cached?.remoteChecks) {
-        // Surface cached remote checks even when not explicitly requested,
-        // but mark stale if TTL has elapsed
+        // Surface cached remote checks when present. Stale checks are included
+        // for visibility but do not affect readiness until explicitly refreshed.
         remoteChecks = cached.remoteChecks;
         stale = (now - cached.checkedAt) >= REMOTE_TTL_MS;
+        remoteChecksAffectReadiness = !stale;
       }
 
       const allLocalPassed = localChecks.every((c) => c.passed);
-      const allRemotePassed = remoteChecks ? remoteChecks.every((c) => c.passed) : true;
+      const allRemotePassed = (remoteChecks && remoteChecksAffectReadiness)
+        ? remoteChecks.every((c) => c.passed)
+        : true;
       const ready = allLocalPassed && allRemotePassed;
 
       const reasons: Array<{ code: string; text: string }> = [];
@@ -234,7 +278,7 @@ export class ChannelReadinessService {
           reasons.push({ code: check.name, text: check.message });
         }
       }
-      if (remoteChecks) {
+      if (remoteChecks && remoteChecksAffectReadiness) {
         for (const check of remoteChecks) {
           if (!check.passed) {
             reasons.push({ code: check.name, text: check.message });
@@ -252,7 +296,7 @@ export class ChannelReadinessService {
         remoteChecks,
       };
 
-      this.snapshots.set(ch, snapshot);
+      this.snapshots.set(cacheKey, snapshot);
       results.push(snapshot);
     }
 
@@ -260,8 +304,17 @@ export class ChannelReadinessService {
   }
 
   /** Clear cached snapshot for a specific channel, forcing re-evaluation on next call. */
-  invalidateChannel(channel: ChannelId): void {
-    this.snapshots.delete(channel);
+  invalidateChannel(channel: ChannelId, assistantId?: string): void {
+    if (assistantId) {
+      this.snapshots.delete(this.snapshotCacheKey(channel, assistantId));
+      return;
+    }
+    const prefix = `${channel}::`;
+    for (const key of this.snapshots.keys()) {
+      if (key.startsWith(prefix)) {
+        this.snapshots.delete(key);
+      }
+    }
   }
 
   /** Clear all cached snapshots. */
@@ -278,6 +331,10 @@ export class ChannelReadinessService {
       reasons: [{ code: 'unsupported_channel', text: `Channel ${channel} is not supported` }],
       localChecks: [],
     };
+  }
+
+  private snapshotCacheKey(channel: ChannelId, assistantId?: string): string {
+    return `${channel}::${assistantId ?? '__default__'}`;
   }
 }
 

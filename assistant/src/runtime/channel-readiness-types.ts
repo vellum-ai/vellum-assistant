@@ -21,9 +21,14 @@ export interface ChannelReadinessSnapshot {
   remoteChecks?: ReadinessCheckResult[];
 }
 
+/** Optional probe context for assistant-scoped readiness checks. */
+export interface ChannelProbeContext {
+  assistantId?: string;
+}
+
 /** Probe interface that channels implement to provide readiness checks. */
 export interface ChannelProbe {
   channel: ChannelId;
-  runLocalChecks(): ReadinessCheckResult[];
-  runRemoteChecks?(): Promise<ReadinessCheckResult[]>;
+  runLocalChecks(context?: ChannelProbeContext): ReadinessCheckResult[];
+  runRemoteChecks?(context?: ChannelProbeContext): Promise<ReadinessCheckResult[]>;
 }

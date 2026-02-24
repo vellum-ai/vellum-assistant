@@ -114,7 +114,7 @@ describe('ChannelReadinessService', () => {
     expect(probe.remoteCallCount).toBe(1);
 
     // Manually age the cached snapshot beyond TTL
-    const cached = (service as unknown as { snapshots: Map<string, { checkedAt: number }> }).snapshots.get('sms')!;
+    const cached = (service as unknown as { snapshots: Map<string, { checkedAt: number }> }).snapshots.get('sms::__default__')!;
     cached.checkedAt = Date.now() - REMOTE_TTL_MS - 1;
 
     // Second call should re-run remote checks
@@ -253,5 +253,48 @@ describe('ChannelReadinessService', () => {
     expect(snapshot.reasons).toEqual([
       { code: 'api_check', text: 'API unreachable' },
     ]);
+  });
+
+  test('stale cached remote failures do not affect local-only readiness', async () => {
+    const probe = makeProbe(
+      'sms',
+      [{ name: 'creds', passed: true, message: 'ok' }],
+      [{ name: 'api_check', passed: false, message: 'API unreachable' }],
+    );
+    service.registerProbe(probe);
+
+    // Prime remote cache with a failing check
+    await service.getReadiness('sms', true);
+
+    // Age snapshot beyond TTL so remote checks are stale
+    const cached = (service as unknown as { snapshots: Map<string, { checkedAt: number }> }).snapshots.get('sms::__default__')!;
+    cached.checkedAt = Date.now() - REMOTE_TTL_MS - 1;
+
+    // Local-only call should not be blocked by stale remote failure
+    const [snapshot] = await service.getReadiness('sms', false);
+    expect(snapshot.stale).toBe(true);
+    expect(snapshot.ready).toBe(true);
+    expect(snapshot.reasons).toEqual([]);
+  });
+
+  test('remote cache is scoped per assistantId', async () => {
+    const remoteCalls: Record<string, number> = {};
+    const probe: ChannelProbe = {
+      channel: 'sms',
+      runLocalChecks: () => [{ name: 'local', passed: true, message: 'ok' }],
+      async runRemoteChecks(context) {
+        const key = context?.assistantId ?? '__default__';
+        remoteCalls[key] = (remoteCalls[key] ?? 0) + 1;
+        return [{ name: 'remote', passed: true, message: `ok-${key}` }];
+      },
+    };
+    service.registerProbe(probe);
+
+    await service.getReadiness('sms', true, 'ast-alpha');
+    await service.getReadiness('sms', true, 'ast-beta');
+    await service.getReadiness('sms', true, 'ast-alpha');
+
+    expect(remoteCalls['ast-alpha']).toBe(1);
+    expect(remoteCalls['ast-beta']).toBe(1);
   });
 });

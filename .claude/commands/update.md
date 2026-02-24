@@ -182,7 +182,17 @@ PY
 
    GATEWAY_PIDS=$(pgrep -f "gateway/src/index" 2>/dev/null | wc -l | tr -d ' ')
    if [ "$GATEWAY_PIDS" -gt 1 ]; then
-     echo "WARNING: Multiple gateway processes detected ($GATEWAY_PIDS). Kill extras with: pkill -f 'gateway/src/index'"
+     echo ""
+     echo "ERROR: Multiple gateway processes detected ($GATEWAY_PIDS)."
+     echo "PIDs:"
+     pgrep -f "gateway/src/index" || true
+     echo "Recent gateway logs:"
+     tail -n 80 "${HOME}/.vellum/gateway-dev.log" 2>/dev/null || echo "(no log file found)"
+     echo ""
+     echo "Kill extras and retry:"
+     echo "  pkill -f 'gateway/src/index' && /update"
+     echo ""
+     exit 1
    fi
    ```
 

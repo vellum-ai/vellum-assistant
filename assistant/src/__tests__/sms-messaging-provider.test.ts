@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
 
-const sendSmsMock = mock(async (..._args: unknown[]) => ({ messageSid: 'SM-mock-sid', status: 'queued' }));
+const sendSmsMock = mock(async (..._args: unknown[]): Promise<{ messageSid?: string; status?: string }> => ({
+  messageSid: 'SM-mock-sid',
+  status: 'queued',
+}));
 const getOrCreateConversationMock = mock((_key: string) => ({ conversationId: 'conv-1' }));
 const upsertOutboundBindingMock = mock((_input: Record<string, unknown>) => {});
 
