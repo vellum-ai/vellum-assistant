@@ -333,7 +333,7 @@ function handleRelationship(
         );
         db.update(memoryItems)
           .set({
-            statement: freshNew!.statement,
+            statement: newItem.statement,
             lastSeenAt: Math.max(freshExisting.lastSeenAt, freshNew!.lastSeenAt),
             confidence: Math.max(freshExisting.confidence, freshNew!.confidence),
           })
