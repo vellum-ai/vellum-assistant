@@ -13,6 +13,7 @@ struct ChatEmptyStateView: View {
     let isRecording: Bool
     let suggestion: String?
     let pendingAttachments: [ChatAttachment]
+    var isLoadingAttachment: Bool = false
     let errorText: String?
     let onSend: () -> Void
     let onStop: () -> Void
@@ -99,6 +100,7 @@ struct ChatEmptyStateView: View {
                     isRecording: isRecording,
                     suggestion: suggestion,
                     pendingAttachments: pendingAttachments,
+                    isLoadingAttachment: isLoadingAttachment,
                     onSend: onSend,
                     onStop: onStop,
                     onAcceptSuggestion: onAcceptSuggestion,
@@ -142,6 +144,7 @@ struct ChatTemporaryChatEmptyStateView: View {
     let isRecording: Bool
     let suggestion: String?
     let pendingAttachments: [ChatAttachment]
+    var isLoadingAttachment: Bool = false
     let errorText: String?
     let onSend: () -> Void
     let onStop: () -> Void
@@ -201,6 +204,7 @@ struct ChatTemporaryChatEmptyStateView: View {
                     isRecording: isRecording,
                     suggestion: suggestion,
                     pendingAttachments: pendingAttachments,
+                    isLoadingAttachment: isLoadingAttachment,
                     onSend: onSend,
                     onStop: onStop,
                     onAcceptSuggestion: onAcceptSuggestion,

@@ -153,6 +153,11 @@ public final class ChatViewModel: ObservableObject {
         get { attachmentManager.pendingAttachments }
         set { attachmentManager.pendingAttachments = newValue }
     }
+    /// True while at least one attachment is still being loaded in the background.
+    /// The send button checks this to prevent sending before async load finishes.
+    public var isLoadingAttachment: Bool {
+        attachmentManager.isLoadingAttachment
+    }
 
     // MARK: - Forwarding properties — ChatErrorManager
 
