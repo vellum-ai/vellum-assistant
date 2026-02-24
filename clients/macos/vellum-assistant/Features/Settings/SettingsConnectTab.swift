@@ -18,6 +18,9 @@ struct SettingsConnectTab: View {
     @State private var gatewayTargetCopied: Bool = false
     @State private var showingPairingQR: Bool = false
     @State private var showingRegenerateConfirmation: Bool = false
+    @State private var iosPairingEnabled: Bool = false
+    @State private var showingPairingWarning: Bool = false
+    @State private var devPairingExpanded: Bool = false
 
     // Telegram credential entry
     @State private var telegramBotTokenText = ""
@@ -42,11 +45,11 @@ struct SettingsConnectTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
+            pairingSection
             gatewaySection
             bearerTokenSection
             telegramCard
             twilioCard
-            pairingSection
             statusSection
             testConnectionSection
             developerLocalPairingSection
@@ -57,6 +60,7 @@ struct SettingsConnectTab: View {
             refreshBearerToken()
             store.refreshChannelGuardianStatus(channel: "telegram")
             store.refreshChannelGuardianStatus(channel: "sms")
+            iosPairingEnabled = FileManager.default.fileExists(atPath: NSHomeDirectory() + "/.vellum/ios-pairing-enabled")
         }
         .onChange(of: store.ingressPublicBaseUrl) { _, newValue in
             if !isGatewayUrlFocused {
@@ -75,6 +79,17 @@ struct SettingsConnectTab: View {
             }
         } message: {
             Text("This will replace the current bearer token and restart the daemon. Any paired devices will need to reconnect.")
+        }
+        .alert("Enable iOS Pairing", isPresented: $showingPairingWarning) {
+            Button("Cancel", role: .cancel) {
+                iosPairingEnabled = false
+            }
+            Button("Enable") {
+                UserDefaults.standard.set(true, forKey: "ios_pairing_warning_shown")
+                setIOSPairingEnabled(true)
+            }
+        } message: {
+            Text("Your iPhone will connect through the gateway. Only devices with a valid session token can reach your assistant.")
         }
         .sheet(isPresented: $showingPairingQR) {
             PairingQRCodeSheet(
@@ -822,6 +837,34 @@ struct SettingsConnectTab: View {
                 .font(VFont.sectionTitle)
                 .foregroundColor(VColor.textPrimary)
 
+            // Enable iOS Pairing toggle
+            HStack {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Enable iOS Pairing")
+                        .font(VFont.bodyMedium)
+                        .foregroundColor(VColor.textPrimary)
+                    Text("Allow your iPhone to connect via the gateway (bearer-token authenticated).")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                }
+                Spacer()
+                Toggle("", isOn: $iosPairingEnabled)
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+                    .onChange(of: iosPairingEnabled) { _, enabled in
+                        if enabled {
+                            if !UserDefaults.standard.bool(forKey: "ios_pairing_warning_shown") {
+                                showingPairingWarning = true
+                            } else {
+                                setIOSPairingEnabled(true)
+                            }
+                        } else {
+                            setIOSPairingEnabled(false)
+                        }
+                    }
+            }
+
+            // QR code button
             HStack {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text("Pair an iOS device")
@@ -835,6 +878,46 @@ struct SettingsConnectTab: View {
                 VButton(label: "Show QR Code", style: .primary) {
                     showingPairingQR = true
                 }
+            }
+
+            // Gateway & token readout (when pairing is enabled)
+            if iosPairingEnabled {
+                Divider().background(VColor.surfaceBorder)
+
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    HStack(alignment: .top) {
+                        Text("Gateway URL")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                            .frame(width: 90, alignment: .leading)
+                        Text(store.resolvedIosGatewayUrl.isEmpty ? "Not configured" : store.resolvedIosGatewayUrl)
+                            .font(VFont.mono)
+                            .foregroundColor(store.resolvedIosGatewayUrl.isEmpty ? VColor.textMuted : VColor.textPrimary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer()
+                    }
+
+                    HStack(alignment: .top) {
+                        Text("Bearer Token")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                            .frame(width: 90, alignment: .leading)
+                        Text(store.resolvedIosBearerToken.isEmpty
+                             ? "Not configured"
+                             : String(repeating: "\u{2022}", count: 8))
+                            .font(VFont.mono)
+                            .foregroundColor(store.resolvedIosBearerToken.isEmpty ? VColor.textMuted : VColor.textPrimary)
+                        Spacer()
+                    }
+                }
+                .padding(VSpacing.md)
+                .background(VColor.surface.opacity(0.5))
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .stroke(VColor.surfaceBorder.opacity(0.3), lineWidth: 1)
+                )
             }
         }
         .padding(VSpacing.lg)
@@ -965,10 +1048,20 @@ struct SettingsConnectTab: View {
 
     private var developerLocalPairingSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Developer Local Pairing (LAN-only)")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
+            DisclosureGroup(isExpanded: $devPairingExpanded) {
+                developerLocalPairingContent
+            } label: {
+                Text("Developer Local Pairing (LAN-only)")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+            }
+        }
+        .padding(VSpacing.lg)
+        .vCard(background: VColor.surfaceSubtle)
+    }
 
+    private var developerLocalPairingContent: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
             // Enable toggle
             HStack {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
@@ -1071,8 +1164,6 @@ struct SettingsConnectTab: View {
                 }
             }
         }
-        .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceSubtle)
     }
 
     // MARK: - Connection Status Helpers
@@ -1149,6 +1240,17 @@ struct SettingsConnectTab: View {
         let hours = minutes / 60
         if hours == 1 { return "1 hour ago" }
         return "\(hours) hours ago"
+    }
+
+    // MARK: - iOS Pairing Helpers
+
+    private func setIOSPairingEnabled(_ enabled: Bool) {
+        let flagPath = NSHomeDirectory() + "/.vellum/ios-pairing-enabled"
+        if enabled {
+            FileManager.default.createFile(atPath: flagPath, contents: nil)
+        } else {
+            try? FileManager.default.removeItem(atPath: flagPath)
+        }
     }
 
     // MARK: - Token Helpers

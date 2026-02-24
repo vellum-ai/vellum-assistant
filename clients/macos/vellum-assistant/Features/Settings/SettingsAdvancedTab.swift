@@ -3,17 +3,14 @@ import SwiftUI
 import VellumAssistantShared
 
 /// Advanced settings tab — computer usage limits, private threads,
-/// archived threads, iOS device pairing, and developer tools.
+/// archived threads, and developer tools.
 @MainActor
 struct SettingsAdvancedTab: View {
     @ObservedObject var store: SettingsStore
     @ObservedObject var threadManager: ThreadManager
     var onClose: () -> Void
     var daemonClient: DaemonClient?
-    var onNavigateToConnect: (() -> Void)?
 
-    @State private var iosPairingEnabled: Bool = false
-    @State private var showingPairingWarning: Bool = false
     @State private var showingRetireConfirmation: Bool = false
     @State private var isRetiring: Bool = false
     @State private var lockfileAssistants: [LockfileAssistant] = []
@@ -21,9 +18,6 @@ struct SettingsAdvancedTab: View {
     @State private var identity: IdentityInfo?
     @State private var remoteIdentity: RemoteIdentityInfo?
     @State private var flagStates: [(flag: FeatureFlag, enabled: Bool)] = []
-    @AppStorage(PairingConfiguration.overrideEnabledKey) private var iosPairingUseOverride: Bool = false
-    @AppStorage(PairingConfiguration.gatewayOverrideKey) private var iosPairingGatewayOverride: String = ""
-    @AppStorage(PairingConfiguration.tokenOverrideKey) private var iosPairingTokenOverride: String = ""
 
     #if DEBUG
     @State private var showingEnvVars = false
@@ -37,7 +31,6 @@ struct SettingsAdvancedTab: View {
             computerUsageSection
             privateThreadSection
             archivedThreadsSection
-            iosDeviceSection
             switchAssistantSection
             retireAssistantSection
             hatchNewAssistantSection
@@ -48,8 +41,6 @@ struct SettingsAdvancedTab: View {
             #endif
         }
         .onAppear {
-            let flagPath = NSHomeDirectory() + "/.vellum/ios-pairing-enabled"
-            iosPairingEnabled = FileManager.default.fileExists(atPath: flagPath)
             lockfileAssistants = LockfileAssistant.loadAll()
             selectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
             identity = IdentityInfo.load()
@@ -264,158 +255,6 @@ struct SettingsAdvancedTab: View {
             .vCard(background: VColor.surfaceSubtle)
         }
     }
-
-    // MARK: - iOS Device
-
-    private var iosDeviceSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("iOS Device")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
-
-            // Pairing toggle
-            HStack {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Enable iOS Pairing")
-                        .font(VFont.bodyMedium)
-                        .foregroundColor(VColor.textPrimary)
-                    Text("Allow your iPhone to connect via the gateway (bearer-token authenticated).")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                }
-                Spacer()
-                Toggle("", isOn: $iosPairingEnabled)
-                    .toggleStyle(.switch)
-                    .labelsHidden()
-                    .onChange(of: iosPairingEnabled) { _, enabled in
-                        if enabled {
-                            if !UserDefaults.standard.bool(forKey: "ios_pairing_warning_shown") {
-                                showingPairingWarning = true
-                            } else {
-                                setIOSPairingEnabled(true)
-                            }
-                        } else {
-                            setIOSPairingEnabled(false)
-                        }
-                    }
-            }
-
-            // Global Gateway & Token readout
-            if iosPairingEnabled {
-                iosGlobalConfigCard
-                iosOverrideSection
-            }
-        }
-        .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceSubtle)
-        .alert("Enable iOS Pairing", isPresented: $showingPairingWarning) {
-            Button("Cancel", role: .cancel) {
-                iosPairingEnabled = false
-            }
-            Button("Enable") {
-                UserDefaults.standard.set(true, forKey: "ios_pairing_warning_shown")
-                setIOSPairingEnabled(true)
-            }
-        } message: {
-            Text("Your iPhone will connect through the gateway. Only devices with a valid session token can reach your assistant.")
-        }
-    }
-
-    /// Card showing the resolved gateway URL and masked bearer token for iOS pairing.
-    private var iosGlobalConfigCard: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text("Using Global Gateway & Token")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
-                .textCase(.uppercase)
-
-            HStack(alignment: .top) {
-                Text("Gateway URL")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-                    .frame(width: 90, alignment: .leading)
-                Text(store.resolvedIosGatewayUrl.isEmpty ? "Not configured" : store.resolvedIosGatewayUrl)
-                    .font(VFont.mono)
-                    .foregroundColor(store.resolvedIosGatewayUrl.isEmpty ? VColor.textMuted : VColor.textPrimary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer()
-            }
-
-            HStack(alignment: .top) {
-                Text("Bearer Token")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-                    .frame(width: 90, alignment: .leading)
-                Text(store.resolvedIosBearerToken.isEmpty
-                     ? "Not configured"
-                     : String(repeating: "\u{2022}", count: 8))
-                    .font(VFont.mono)
-                    .foregroundColor(store.resolvedIosBearerToken.isEmpty ? VColor.textMuted : VColor.textPrimary)
-                Spacer()
-            }
-
-            Button("Manage in Connect tab") {
-                onNavigateToConnect?()
-            }
-            .font(VFont.caption)
-            .foregroundColor(VColor.accent)
-        }
-        .padding(VSpacing.md)
-        .background(VColor.surface.opacity(0.5))
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.md)
-                .stroke(VColor.surfaceBorder.opacity(0.3), lineWidth: 1)
-        )
-    }
-
-    /// Collapsed override section for per-integration iOS gateway/token customization.
-    private var iosOverrideSection: some View {
-        DisclosureGroup("Override") {
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
-                Toggle("Use custom gateway for iOS", isOn: $iosPairingUseOverride)
-                    .toggleStyle(.switch)
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
-
-                if iosPairingUseOverride {
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        Text("Gateway URL Override")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
-                        TextField("https://custom-gateway.example.com", text: $iosPairingGatewayOverride)
-                            .vInputStyle()
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
-                    }
-
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        Text("Token Override")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
-                        SecureField("Custom bearer token", text: $iosPairingTokenOverride)
-                            .vInputStyle()
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
-                    }
-                }
-            }
-            .padding(.top, VSpacing.sm)
-        }
-        .font(VFont.caption)
-        .foregroundColor(VColor.textSecondary)
-    }
-
-    private func setIOSPairingEnabled(_ enabled: Bool) {
-        let flagPath = NSHomeDirectory() + "/.vellum/ios-pairing-enabled"
-        if enabled {
-            FileManager.default.createFile(atPath: flagPath, contents: nil)
-        } else {
-            try? FileManager.default.removeItem(atPath: flagPath)
-        }
-    }
-
 
     // MARK: - Switch Assistant
 
