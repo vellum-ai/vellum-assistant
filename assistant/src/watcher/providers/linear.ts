@@ -303,6 +303,15 @@ function getStateCache(watcherKey: string): Map<string, string> {
   return cache;
 }
 
+/**
+ * Evict the state cache for a watcher that has been deleted or permanently
+ * disabled. Prevents unbounded growth of `knownIssueStateIdsByWatcher` in
+ * environments that create and delete watchers frequently (watcher churn).
+ */
+export function clearLinearStateCache(watcherKey: string): void {
+  knownIssueStateIdsByWatcher.delete(watcherKey);
+}
+
 // ── Event type mapping ────────────────────────────────────────────────────────
 
 /**
@@ -383,6 +392,10 @@ export const linearProvider: WatcherProvider = {
   async getInitialWatermark(_credentialService: string): Promise<string> {
     // Start from "now" so we don't replay all existing notifications
     return new Date().toISOString();
+  },
+
+  cleanup(watcherKey: string): void {
+    clearLinearStateCache(watcherKey);
   },
 
   async fetchNew(

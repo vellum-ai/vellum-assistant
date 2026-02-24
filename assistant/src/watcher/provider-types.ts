@@ -52,4 +52,14 @@ export interface WatcherProvider {
    * Get the initial watermark (start from "now" so we don't replay history).
    */
   getInitialWatermark(credentialService: string): Promise<string>;
+
+  /**
+   * Release any in-process state held for a watcher instance.
+   * Called when a watcher is deleted or permanently disabled so that
+   * providers with per-watcher caches (e.g. the Linear issue-state map)
+   * can evict the stale entry and prevent unbounded memory growth.
+   *
+   * Optional — providers with no per-watcher state need not implement this.
+   */
+  cleanup?(watcherKey: string): void;
 }
