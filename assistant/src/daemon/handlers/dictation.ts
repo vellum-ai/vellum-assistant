@@ -144,7 +144,7 @@ export async function handleDictationRequest(
 
   const userText = mode === 'dictation'
     ? msg.transcription
-    : msg.transcription; // command prompt already embeds the selected text and instruction
+    : `Selected text:\n${msg.context.selectedText}\n\nInstruction: ${msg.transcription}`;
 
   try {
     const config = getConfig();
