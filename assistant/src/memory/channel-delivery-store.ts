@@ -11,7 +11,7 @@
  * and a replay endpoint allows manual recovery of dead-lettered ones.
  */
 
-import { eq, and, lte, isNotNull } from 'drizzle-orm';
+import { eq, and, desc, lte, isNotNull } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb } from './db.js';
 import { channelInboundEvents, conversations } from './schema.js';
@@ -227,6 +227,35 @@ export function clearPayload(eventId: string): void {
     .set({ rawPayload: null, updatedAt: Date.now() })
     .where(eq(channelInboundEvents.id, eventId))
     .run();
+}
+
+/**
+ * Retrieve the stored raw payload for a given conversation's most recent
+ * inbound event. Used by the escalation decide flow to recover the
+ * original message content after an approve/deny decision.
+ */
+export function getLatestStoredPayload(conversationId: string): Record<string, unknown> | null {
+  const db = getDb();
+  const row = db
+    .select({
+      rawPayload: channelInboundEvents.rawPayload,
+    })
+    .from(channelInboundEvents)
+    .where(
+      and(
+        eq(channelInboundEvents.conversationId, conversationId),
+        isNotNull(channelInboundEvents.rawPayload),
+      ),
+    )
+    .orderBy(desc(channelInboundEvents.createdAt))
+    .get();
+
+  if (!row?.rawPayload) return null;
+  try {
+    return JSON.parse(row.rawPayload) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
 }
 
 /** Mark an event as successfully processed. */
