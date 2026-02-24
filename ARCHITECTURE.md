@@ -4603,6 +4603,34 @@ Keep-alive heartbeats (every 30 s by default):
 
 ---
 
+## Notification System — Signal-Driven Decision Engine
+
+The notification module (`assistant/src/notifications/`) uses a signal-based architecture where producers emit free-form events and an LLM-backed decision engine determines whether, where, and how to notify the user. See `assistant/src/notifications/README.md` for the full developer guide.
+
+```
+Producer → NotificationSignal → Decision Engine (LLM) → Deterministic Checks → Broadcaster → Adapters → Delivery
+                                       ↑
+                               Preference Summary
+```
+
+**Key modules:**
+
+| Module | Purpose |
+|--------|---------|
+| `assistant/src/notifications/emit-signal.ts` | Single entry point for all producers; orchestrates the full pipeline |
+| `assistant/src/notifications/decision-engine.ts` | LLM-based routing decisions with deterministic fallback |
+| `assistant/src/notifications/deterministic-checks.ts` | Hard invariant checks (dedupe, source-active suppression, channel availability) |
+| `assistant/src/notifications/broadcaster.ts` | Dispatches decisions to channel adapters |
+| `assistant/src/notifications/adapters/` | Per-channel delivery (macOS IPC, Telegram gateway) |
+| `assistant/src/notifications/preference-extractor.ts` | Detects preference statements in conversation messages |
+| `assistant/src/notifications/preferences-store.ts` | CRUD for user notification preferences |
+
+**Audit trail (SQLite):** `notification_events` → `notification_decisions` → `notification_deliveries`
+
+**Configuration:** `notifications.enabled`, `notifications.shadowMode`, `notifications.decisionModel` in `config.json`.
+
+---
+
 ## Storage Summary
 
 | What | Where | Format | ORM/Driver | Retention |
@@ -4643,6 +4671,10 @@ Keep-alive heartbeats (every 30 s by default):
 | Ingress invites | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; token hash stored, raw token never persisted |
 | Ingress members | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; revoked/blocked members retained |
 | Inbox thread state | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; denormalized projection of per-contact threads |
+| Notification events | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; deduplicated by dedupeKey |
+| Notification decisions | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; FK to notification_events |
+| Notification deliveries | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; FK to notification_decisions |
+| Notification preferences | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; per-assistant conversational preferences |
 | IPC transport | `~/.vellum/vellum.sock` | Unix domain socket | NWConnection (Swift) / Bun net | Ephemeral |
 
 ## SMS/Twilio Parity Verification Checklist

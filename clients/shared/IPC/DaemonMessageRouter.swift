@@ -79,6 +79,8 @@ extension DaemonClient {
             onDictationResponse?(msg)
         case .reminderFired(let msg):
             onReminderFired?(msg)
+        case .notificationIntent(let msg):
+            onNotificationIntent?(msg)
         case .scheduleComplete(let msg):
             onScheduleComplete?(msg)
         case .trustRulesListResponse(let msg):

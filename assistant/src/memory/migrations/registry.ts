@@ -69,6 +69,11 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     version: 9,
     description: 'Drop old idx_memory_items_active_search so it can be recreated with updated covering columns',
   },
+  {
+    key: 'migration_notification_tables_schema_v1',
+    version: 10,
+    description: 'Drop legacy enum-based notification tables so they can be recreated with the new signal-contract schema',
+  },
 ];
 
 export interface MigrationValidationResult {

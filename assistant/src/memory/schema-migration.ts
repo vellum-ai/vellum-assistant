@@ -19,6 +19,7 @@ export {
   migrateGuardianActionTables,
   migrateBackfillInboxThreadStateFromBindings,
   migrateDropActiveSearchIndex,
+  migrateNotificationTablesSchema,
   migrateMemorySegmentsIndexes,
   migrateMemoryItemsIndexes,
   migrateRemainingTableIndexes,

@@ -10,7 +10,9 @@
  */
 
 import { getLogger } from '../util/logger.js';
+import { getConfig } from '../config/loader.js';
 import { getGatewayInternalBaseUrl } from '../config/env.js';
+import { emitNotificationSignal } from '../notifications/emit-signal.js';
 import { getActiveBinding } from '../memory/channel-guardian-store.js';
 import {
   createGuardianActionRequest,
@@ -74,6 +76,39 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
       { requestId: request.id, requestCode: request.requestCode, callSessionId },
       'Created guardian action request',
     );
+
+    // Emit notification signal through the unified pipeline (fire-and-forget).
+    // The existing guardian dispatch logic below handles the actual delivery
+    // to specific channels (telegram, sms, macos), so this signal is
+    // supplementary — it lets the decision engine log and potentially route
+    // to additional channels in the future.
+    void emitNotificationSignal({
+      sourceEventName: 'guardian.question',
+      sourceChannel: 'voice',
+      sourceSessionId: callSessionId,
+      assistantId,
+      attentionHints: {
+        requiresAction: true,
+        urgency: 'high',
+        deadlineAt: expiresAt,
+        isAsyncBackground: false,
+        visibleInSourceNow: false,
+      },
+      contextPayload: {
+        requestId: request.id,
+        requestCode: request.requestCode,
+        callSessionId,
+        questionText: pendingQuestion.questionText,
+        pendingQuestionId: pendingQuestion.id,
+      },
+      dedupeKey: `guardian:${request.id}`,
+    });
+
+    // When the notification system is fully active (enabled + not shadow),
+    // it handles external channel delivery (Telegram, SMS) — skip the
+    // legacy dispatch for those channels to avoid duplicate alerts.
+    const notifConfig = getConfig().notifications;
+    const notificationsActive = notifConfig?.enabled === true && notifConfig.shadowMode !== true;
 
     // Determine delivery destinations
     const destinations: Array<{
@@ -158,8 +193,13 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
           destinationChatId: dest.chatId,
           destinationExternalUserId: dest.externalUserId,
         });
-        // External channel — POST to gateway
-        void deliverToExternalChannel(delivery.id, dest.channel, dest.chatId!, request.questionText, request.requestCode, assistantId, readHttpToken() ?? undefined);
+        // External channel — POST to gateway (skip when notification pipeline handles delivery)
+        if (!notificationsActive) {
+          void deliverToExternalChannel(delivery.id, dest.channel, dest.chatId!, request.questionText, request.requestCode, assistantId, readHttpToken() ?? undefined);
+        } else {
+          updateDeliveryStatus(delivery.id, 'sent');
+          log.info({ deliveryId: delivery.id, channel: dest.channel }, 'Skipping legacy external delivery — notification pipeline active');
+        }
       }
     }
   } catch (err) {

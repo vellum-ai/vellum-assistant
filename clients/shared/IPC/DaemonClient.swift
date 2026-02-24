@@ -222,6 +222,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when a reminder fires.
     public var onReminderFired: ((ReminderFiredMessage) -> Void)?
 
+    /// Called when the daemon emits a generic `notification_intent` payload.
+    public var onNotificationIntent: ((NotificationIntentMessage) -> Void)?
+
     /// Called when a scheduled task completes.
     public var onScheduleComplete: ((ScheduleCompleteMessage) -> Void)?
 

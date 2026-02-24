@@ -22,3 +22,4 @@ export { migrateDropActiveSearchIndex } from './015-drop-active-search-index.js'
 export { migrateMemorySegmentsIndexes } from './016-memory-segments-indexes.js';
 export { migrateMemoryItemsIndexes } from './017-memory-items-indexes.js';
 export { migrateRemainingTableIndexes } from './018-remaining-table-indexes.js';
+export { migrateNotificationTablesSchema } from './019-notification-tables-schema-migration.js';

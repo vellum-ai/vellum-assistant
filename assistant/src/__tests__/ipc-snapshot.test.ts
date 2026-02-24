@@ -51,6 +51,11 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'session_switch',
     sessionId: 'sess-002',
   },
+  session_rename: {
+    type: 'session_rename',
+    sessionId: 'sess-002',
+    title: 'Renamed session',
+  },
   ping: {
     type: 'ping',
   },
@@ -1063,6 +1068,15 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     reminderId: 'rem-001',
     label: 'Call Sidd',
     message: 'Remember to call Sidd about the project',
+  },
+  notification_intent: {
+    type: 'notification_intent',
+    sourceEventName: 'guardian.question',
+    title: '⚠️ Attention needed',
+    body: 'Your assistant needs your input.',
+    deepLinkMetadata: {
+      conversationId: 'conv-guardian-001',
+    },
   },
   schedule_complete: {
     type: 'schedule_complete',
