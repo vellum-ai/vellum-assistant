@@ -52,7 +52,7 @@ const STDIN_EXEC_FLAGS = new Set(['-c', '-e', '-']);
 const INTERPRETER_VALUE_FLAGS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   ['python', new Set(['-W', '-X', '-Q'])],
   ['python3', new Set(['-W', '-X', '-Q'])],
-  ['ruby', new Set(['-r', '-I'])],
+  ['ruby', new Set(['-r', '--require', '-I'])],
   ['node', new Set(['-r', '--require', '--import', '--conditions'])],
   ['deno', new Set()],
   ['bun', new Set()],
