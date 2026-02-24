@@ -4,6 +4,7 @@ import { getDb, rawGet, rawExec } from './db.js';
 import { conversations, messages, toolInvocations, messageRuns, channelInboundEvents, memoryItemSources, memoryItems, memoryEmbeddings, memoryItemEntities, memorySegments, messageAttachments, llmRequestLogs } from './schema.js';
 import { getConfig } from '../config/loader.js';
 import { indexMessageNow } from './indexer.js';
+import { parseChannelId } from '../channels/types.js';
 import type { ChannelId } from '../channels/types.js';
 import { getLogger } from '../util/logger.js';
 import { deleteOrphanAttachments } from './attachments-store.js';
@@ -665,5 +666,5 @@ export function getConversationOriginChannel(conversationId: string): ChannelId 
     .from(conversations)
     .where(eq(conversations.id, conversationId))
     .get();
-  return (row?.originChannel as ChannelId) ?? null;
+  return parseChannelId(row?.originChannel) ?? null;
 }
