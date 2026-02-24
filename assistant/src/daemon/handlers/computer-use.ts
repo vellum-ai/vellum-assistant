@@ -98,6 +98,7 @@ export function handleCuSessionCreate(
     undefined,
     msg.targetAppName,
     msg.targetAppBundleId,
+    msg.requiresRecording,
   );
   sessionRef.current = session;
 
@@ -393,6 +394,9 @@ function handleCuRecordingStatus(msg: CuRecordingStatus, _socket: net.Socket, ct
     'CU recording status update',
   );
   session.recordingGateStatus = msg.status;
+  if (msg.status === 'failed' && msg.reason) {
+    session.recordingFailureReason = msg.reason;
+  }
 }
 
 export const computerUseHandlers = defineHandlers({
