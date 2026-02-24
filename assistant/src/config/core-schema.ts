@@ -223,8 +223,17 @@ const IngressBaseSchema = z.object({
       'ingress.publicBaseUrl must be an absolute URL starting with http:// or https://',
     )
     .default(''),
-  webhook: IngressWebhookConfigSchema.default({}),
-  rateLimit: IngressRateLimitConfigSchema.default({}),
+  webhook: IngressWebhookConfigSchema.default({
+    secret: '',
+    timeoutMs: 30_000,
+    maxRetries: 2,
+    initialBackoffMs: 500,
+    maxPayloadBytes: 1_048_576,
+  }),
+  rateLimit: IngressRateLimitConfigSchema.default({
+    maxRequestsPerMinute: 0,
+    maxRequestsPerHour: 0,
+  }),
   shutdownDrainMs: z
     .number({ error: 'ingress.shutdownDrainMs must be a number' })
     .int('ingress.shutdownDrainMs must be an integer')
@@ -233,7 +242,21 @@ const IngressBaseSchema = z.object({
 });
 
 export const IngressConfigSchema = IngressBaseSchema
-  .default({})
+  .default({
+    publicBaseUrl: '',
+    webhook: {
+      secret: '',
+      timeoutMs: 30_000,
+      maxRetries: 2,
+      initialBackoffMs: 500,
+      maxPayloadBytes: 1_048_576,
+    },
+    rateLimit: {
+      maxRequestsPerMinute: 0,
+      maxRequestsPerHour: 0,
+    },
+    shutdownDrainMs: 5_000,
+  })
   .transform((val) => ({
     ...val,
     // Backward compatibility: if `enabled` was never explicitly set (undefined),

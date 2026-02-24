@@ -111,7 +111,7 @@ function redactValue(value: unknown, depth: number): unknown {
 // ---------------------------------------------------------------------------
 
 function serializeError(err: unknown, depth: number): unknown {
-  if (depth > 8 || err === null || err === undefined) return err;
+  if (depth > 8 || err == null) return err;
 
   if (!(err instanceof Error)) {
     return err;
