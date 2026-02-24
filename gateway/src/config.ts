@@ -60,7 +60,7 @@ export type GatewayConfig = {
   /** Canonical public ingress base URL, used for webhook signature reconstruction. */
   ingressPublicBaseUrl: string | undefined;
   /** The assistant's own email address, persisted by the email setup skill. */
-  assistantEmail: string | undefined;
+  assistantEmail?: string | undefined;
   unmappedPolicy: "reject" | "default";
 };
 

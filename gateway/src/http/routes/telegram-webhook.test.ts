@@ -78,7 +78,6 @@ const baseConfig: GatewayConfig = {
   twilioAccountSid: undefined,
   twilioPhoneNumber: undefined,
   smsDeliverAuthBypass: false,
-  assistantEmail: undefined,
   ingressPublicBaseUrl: undefined,
   unmappedPolicy: "default",
 };
