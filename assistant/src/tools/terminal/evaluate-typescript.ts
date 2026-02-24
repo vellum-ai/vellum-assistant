@@ -8,6 +8,7 @@ import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
 import { getConfig } from '../../config/loader.js';
 import { getLogger } from '../../util/logger.js';
+import { parseJsonSafe } from '../../util/json.js';
 import { wrapCommand } from './sandbox.js';
 import { buildSanitizedEnv } from './safe-env.js';
 
@@ -126,9 +127,7 @@ export class EvaluateTypescriptTool implements Tool {
     if (Buffer.byteLength(mockInputJson) > MAX_MOCK_INPUT_BYTES) {
       return { content: `Error: mock_input_json exceeds maximum size of ${MAX_MOCK_INPUT_BYTES} bytes`, isError: true };
     }
-    try {
-      JSON.parse(mockInputJson);
-    } catch {
+    if (parseJsonSafe(mockInputJson) === null) {
       return { content: 'Error: mock_input_json must be valid JSON', isError: true };
     }
 
@@ -222,14 +221,10 @@ export class EvaluateTypescriptTool implements Tool {
             const lineStart = stdout.lastIndexOf('\n', markerIdx) + 1;
             const lineEnd = stdout.indexOf('\n', markerIdx);
             const line = stdout.slice(lineStart, lineEnd === -1 ? undefined : lineEnd);
-            try {
-              const parsed = JSON.parse(line);
-              if (parsed && typeof parsed === 'object' && '__eval_result' in parsed) {
-                result = parsed.__eval_result;
-                break;
-              }
-            } catch {
-              // malformed line — continue scanning earlier occurrences
+            const parsed = parseJsonSafe<Record<string, unknown>>(line);
+            if (parsed && typeof parsed === 'object' && '__eval_result' in parsed) {
+              result = parsed.__eval_result;
+              break;
             }
             searchFrom = lineStart;
           }
