@@ -155,6 +155,7 @@ describe('twilio webhook routes', () => {
     resetTables();
     mockWssBaseUrl = 'wss://test.example.com';
     mockWebhookBaseUrl = 'https://test.example.com';
+    delete process.env.CALL_WELCOME_GREETING;
   });
 
   afterAll(() => {
@@ -417,32 +418,9 @@ describe('twilio webhook routes', () => {
   });
 
   describe('buildWelcomeGreeting', () => {
-    test('builds a contextual opener from task text', () => {
+    test('returns empty by default so orchestrator drives first opener', () => {
       const greeting = buildWelcomeGreeting('check store hours for tomorrow');
-      expect(greeting).toBe('Hello, I am calling about check store hours for tomorrow. Is now a good time to talk?');
-    });
-
-    test('strips Task prefix from task line', () => {
-      const greeting = buildWelcomeGreeting('Task: check store hours for tomorrow');
-      expect(greeting).toBe('Hello, I am calling about check store hours for tomorrow. Is now a good time to talk?');
-    });
-
-    test('ignores appended Context block when building opener', () => {
-      const greeting = buildWelcomeGreeting('check store hours\n\nContext: Caller asked by email');
-      expect(greeting).toBe('Hello, I am calling about check store hours. Is now a good time to talk?');
-      expect(greeting).not.toContain('Context:');
-    });
-
-    test('falls back to default opener for prompt-like task text', () => {
-      const greeting = buildWelcomeGreeting('You are on a live phone call on behalf of my human. IMPORTANT RULES: ...');
-      expect(greeting).toBe('Hello, this is an assistant calling. Is now a good time to talk?');
-    });
-
-    test('falls back to default opener for overly long multi-step task text', () => {
-      const greeting = buildWelcomeGreeting(
-        'Check store hours, ask about holiday closures, ask about parking validation, ask about wheelchair access, and ask to transfer to the manager.',
-      );
-      expect(greeting).toBe('Hello, this is an assistant calling. Is now a good time to talk?');
+      expect(greeting).toBe('');
     });
 
     test('uses configured greeting override when provided', () => {
@@ -482,7 +460,7 @@ describe('twilio webhook routes', () => {
       expect(twiml).toContain('wss://gateway.example.com/v1/calls/relay');
     });
 
-    test('TwiML welcome greeting is task-aware by default', async () => {
+    test('TwiML omits welcome greeting by default so call opener is model-driven', async () => {
       const session = createTestSession(
         'conv-twiml-3',
         'CA_twiml_3',
@@ -494,29 +472,19 @@ describe('twilio webhook routes', () => {
 
       expect(res.status).toBe(200);
       const twiml = await res.text();
-      expect(twiml).toContain(
-        'welcomeGreeting="Hello, I am calling about confirm appointment time. Is now a good time to talk?"',
-      );
-      expect(twiml).not.toContain('Hello, how can I help you today?');
+      expect(twiml).not.toContain('welcomeGreeting=');
     });
 
-    test('TwiML welcome greeting does not leak prompt-like task text', async () => {
-      const session = createTestSession(
-        'conv-twiml-4',
-        'CA_twiml_4',
-        'You are on a live phone call on behalf of my human. IMPORTANT RULES: respond naturally and include [ASK_USER: ...]',
-      );
+    test('TwiML includes explicit welcome greeting override when configured', async () => {
+      process.env.CALL_WELCOME_GREETING = 'Custom transport greeting';
+      const session = createTestSession('conv-twiml-4', 'CA_twiml_4');
       const req = makeVoiceRequest(session.id, { CallSid: 'CA_twiml_4' });
 
       const res = await handleVoiceWebhook(req);
 
       expect(res.status).toBe(200);
       const twiml = await res.text();
-      expect(twiml).toContain(
-        'welcomeGreeting="Hello, this is an assistant calling. Is now a good time to talk?"',
-      );
-      expect(twiml).not.toContain('IMPORTANT RULES');
-      expect(twiml).not.toContain('ASK_USER');
+      expect(twiml).toContain('welcomeGreeting="Custom transport greeting"');
     });
   });
 

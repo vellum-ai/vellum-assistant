@@ -30,7 +30,9 @@ const ASK_USER_CAPTURE_REGEX = /\[ASK_USER:\s*(.+?)\]/;
 const ASK_USER_MARKER_REGEX = /\[ASK_USER:\s*.+?\]/g;
 const USER_ANSWERED_MARKER_REGEX = /\[USER_ANSWERED:\s*.+?\]/g;
 const USER_INSTRUCTION_MARKER_REGEX = /\[USER_INSTRUCTION:\s*.+?\]/g;
+const CALL_OPENING_MARKER_REGEX = /\[CALL_OPENING\]/g;
 const END_CALL_MARKER_REGEX = /\[END_CALL\]/g;
+const CALL_OPENING_MARKER = '[CALL_OPENING]';
 const END_CALL_MARKER = '[END_CALL]';
 
 function stripInternalSpeechMarkers(text: string): string {
@@ -38,6 +40,7 @@ function stripInternalSpeechMarkers(text: string): string {
     .replace(ASK_USER_MARKER_REGEX, '')
     .replace(USER_ANSWERED_MARKER_REGEX, '')
     .replace(USER_INSTRUCTION_MARKER_REGEX, '')
+    .replace(CALL_OPENING_MARKER_REGEX, '')
     .replace(END_CALL_MARKER_REGEX, '');
 }
 
@@ -56,6 +59,8 @@ export class CallOrchestrator {
   private task: string | null;
   /** Instructions queued while an LLM turn is in-flight or during waiting_on_user */
   private pendingInstructions: string[] = [];
+  /** Ensures the outbound-call opener is triggered at most once per call. */
+  private initialGreetingStarted = false;
   /** Monotonic run id used to suppress stale turn side effects after interruption. */
   private llmRunVersion = 0;
 
@@ -73,6 +78,19 @@ export class CallOrchestrator {
    */
   getState(): OrchestratorState {
     return this.state;
+  }
+
+  /**
+   * Kick off the first outbound call utterance from the assistant.
+   */
+  async startInitialGreeting(): Promise<void> {
+    if (this.initialGreetingStarted) return;
+    if (this.state !== 'idle') return;
+
+    this.initialGreetingStarted = true;
+    this.resetSilenceTimer();
+    this.conversationHistory.push({ role: 'user', content: CALL_OPENING_MARKER });
+    await this.runLlm();
   }
 
   /**
@@ -245,6 +263,7 @@ export class CallOrchestrator {
       '7. Do not make up information — ask the user if unsure.',
       '8. Keep responses short — 1-3 sentences is ideal for phone conversation.',
       '9. When caller text includes [SPEAKER id="..." label="..."], treat each speaker as a distinct person and personalize responses using that speaker\'s prior context in this call.',
+      '10. If the latest user turn is [CALL_OPENING], produce the first outbound-call line: briefly state the reason for calling using the Task context and ask if now is a good time to talk.',
     ]
       .filter(Boolean)
       .join('\n');
@@ -328,10 +347,13 @@ export class CallOrchestrator {
             '[ASK_USER:'.startsWith(afterBracket) ||
             '[USER_ANSWERED:'.startsWith(afterBracket) ||
             '[USER_INSTRUCTION:'.startsWith(afterBracket) ||
+            '[CALL_OPENING]'.startsWith(afterBracket) ||
             '[END_CALL]'.startsWith(afterBracket) ||
             afterBracket.startsWith('[ASK_USER:') ||
             afterBracket.startsWith('[USER_ANSWERED:') ||
             afterBracket.startsWith('[USER_INSTRUCTION:') ||
+            afterBracket === '[CALL_OPENING' ||
+            afterBracket.startsWith('[CALL_OPENING]') ||
             afterBracket === '[END_CALL' ||
             afterBracket.startsWith('[END_CALL]');
 
