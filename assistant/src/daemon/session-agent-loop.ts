@@ -621,6 +621,7 @@ export async function runAgentLoopImpl(
           activeSurface,
           workspaceTopLevelContext: ctx.workspaceTopLevelContext,
           channelCapabilities: ctx.channelCapabilities ?? null,
+          channelCommandContext: ctx.commandIntent ?? null,
           guardianContext: ctx.guardianContext ?? null,
           temporalContext,
         });
@@ -654,6 +655,7 @@ export async function runAgentLoopImpl(
             activeSurface,
             workspaceTopLevelContext: ctx.workspaceTopLevelContext,
             channelCapabilities: ctx.channelCapabilities ?? null,
+            channelCommandContext: ctx.commandIntent ?? null,
             guardianContext: ctx.guardianContext ?? null,
             temporalContext,
           });
