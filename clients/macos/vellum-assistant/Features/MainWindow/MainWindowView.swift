@@ -869,19 +869,21 @@ struct MainWindowView: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel(thread.isPinned ? "Unpin \(thread.title)" : "Pin \(thread.title)")
 
-                    Button {
-                        threadPendingDeletion = thread.id
-                    } label: {
-                        Image(systemName: "archivebox")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(VColor.textSecondary)
-                            .frame(width: 20, height: 20)
-                            .background(VColor.backgroundSubtle)
-                            .clipShape(Circle())
-                            .contentShape(Rectangle())
+                    if threadManager.visibleThreads.count > 1 {
+                        Button {
+                            threadPendingDeletion = thread.id
+                        } label: {
+                            Image(systemName: "archivebox")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(VColor.textSecondary)
+                                .frame(width: 20, height: 20)
+                                .background(VColor.backgroundSubtle)
+                                .clipShape(Circle())
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Archive \(thread.title)")
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Archive \(thread.title)")
                 }
                 .padding(.trailing, VSpacing.xs)
             } else if thread.isPinned {
@@ -906,10 +908,12 @@ struct MainWindowView: View {
             } label: {
                 Label(thread.isPinned ? "Unpin" : "Pin to Top", systemImage: thread.isPinned ? "pin.slash" : "pin")
             }
-            Button {
-                threadManager.archiveThread(id: thread.id)
-            } label: {
-                Label("Archive", systemImage: "archivebox")
+            if threadManager.visibleThreads.count > 1 {
+                Button {
+                    threadManager.archiveThread(id: thread.id)
+                } label: {
+                    Label("Archive", systemImage: "archivebox")
+                }
             }
         }
         .onHover { hovering in
