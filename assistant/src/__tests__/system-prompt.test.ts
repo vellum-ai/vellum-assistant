@@ -59,9 +59,13 @@ mock.module('../config/user-reference.js', () => ({
 // Import after mock
 const { buildSystemPrompt, ensurePromptFiles, stripCommentLines, buildExternalCommsIdentitySection } = await import('../config/system-prompt.js');
 
-/** Strip the Configuration and Skills sections so base-prompt tests stay focused. */
+/** Strip the Configuration, Skills, and Response Style sections so base-prompt tests stay focused. */
 function basePrompt(result: string): string {
   let s = result;
+  // Strip ## Response Style as an inline block (it sits between soul and user content)
+  s = s.replace(/\n\n## Response Style\n[\s\S]*?(?=\n\n[#]|\n\n[^#\-\n]|$)/, '');
+  if (s.startsWith('## Response Style')) s = s.replace(/## Response Style\n[\s\S]*?(?=\n\n[#]|\n\n[^#\-\n]|$)/, '').replace(/^\n+/, '');
+  // Strip trailing sections (Configuration, Skills)
   for (const heading of ['## Configuration', '## Skills Catalog', '## Available Skills']) {
     if (s.startsWith(heading)) { s = ''; break; }
     const idx = s.indexOf(`\n\n${heading}`);

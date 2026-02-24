@@ -139,7 +139,7 @@ function buildResponseStyleSection(): string {
     '## Response Style',
     '- Be direct. Lead with the answer or action, not context-setting.',
     '- Default to 1-3 sentences. Go longer only when the task requires it.',
-    '- Never restate the user\'s request back to them.',
+    '- Don\'t gratuitously restate the user\'s request unless they ask for confirmation or the situation requires it.',
     '- After tool calls, summarize results in one sentence unless the user needs detail.',
     '- Skip filler phrases like "Sure!", "Great question!", "I\'d be happy to help!".',
   ].join('\n');
