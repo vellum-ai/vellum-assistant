@@ -890,35 +890,39 @@ export const assistantInboxThreadState = sqliteTable('assistant_inbox_thread_sta
 
 // ── Notification System ──────────────────────────────────────────────
 
-export const notificationPreferences = sqliteTable('notification_preferences', {
-  assistantId: text('assistant_id').notNull(),
-  notificationType: text('notification_type').notNull(),
-  channel: text('channel').notNull(),
-  enabled: integer('enabled').notNull().default(1),
-  createdAt: integer('created_at').notNull(),
-  updatedAt: integer('updated_at').notNull(),
-});
-
 export const notificationEvents = sqliteTable('notification_events', {
   id: text('id').primaryKey(),
   assistantId: text('assistant_id').notNull(),
-  notificationType: text('notification_type').notNull(),
-  deliveryClass: text('delivery_class').notNull(),
+  sourceEventName: text('source_event_name').notNull(),
   sourceChannel: text('source_channel').notNull(),
   sourceSessionId: text('source_session_id').notNull(),
-  sourceEventId: text('source_event_id').notNull(),
-  requiresAction: integer('requires_action').notNull().default(0),
+  attentionHintsJson: text('attention_hints_json').notNull().default('{}'),
   payloadJson: text('payload_json').notNull().default('{}'),
   dedupeKey: text('dedupe_key'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });
 
-export const notificationDeliveries = sqliteTable('notification_deliveries', {
+export const notificationDecisions = sqliteTable('notification_decisions', {
   id: text('id').primaryKey(),
   notificationEventId: text('notification_event_id')
     .notNull()
-    .references(() => notificationEvents.id),
+    .references(() => notificationEvents.id, { onDelete: 'cascade' }),
+  shouldNotify: integer('should_notify').notNull(),
+  selectedChannels: text('selected_channels').notNull().default('[]'),
+  reasoningSummary: text('reasoning_summary').notNull(),
+  confidence: real('confidence').notNull(),
+  fallbackUsed: integer('fallback_used').notNull().default(0),
+  promptVersion: text('prompt_version'),
+  validationResults: text('validation_results'),
+  createdAt: integer('created_at').notNull(),
+});
+
+export const notificationDeliveries = sqliteTable('notification_deliveries', {
+  id: text('id').primaryKey(),
+  notificationDecisionId: text('notification_decision_id')
+    .notNull()
+    .references(() => notificationDecisions.id, { onDelete: 'cascade' }),
   assistantId: text('assistant_id').notNull(),
   channel: text('channel').notNull(),
   destination: text('destination').notNull(),

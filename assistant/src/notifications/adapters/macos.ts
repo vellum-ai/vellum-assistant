@@ -34,21 +34,21 @@ export class MacOSAdapter implements ChannelAdapter {
     try {
       this.broadcast({
         type: 'notification_intent',
-        notificationType: delivery.notificationType,
+        sourceEventName: delivery.sourceEventName,
         title: delivery.title,
         body: delivery.body,
         deepLinkMetadata: delivery.deepLinkMetadata,
       } as ServerMessage);
 
       log.info(
-        { notificationType: delivery.notificationType, title: delivery.title },
+        { sourceEventName: delivery.sourceEventName, title: delivery.title },
         'macOS notification intent broadcast',
       );
 
       return { success: true };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      log.error({ err, notificationType: delivery.notificationType }, 'Failed to broadcast macOS notification intent');
+      log.error({ err, sourceEventName: delivery.sourceEventName }, 'Failed to broadcast macOS notification intent');
       return { success: false, error: message };
     }
   }

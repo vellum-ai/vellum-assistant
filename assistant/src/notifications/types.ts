@@ -1,58 +1,12 @@
 /**
  * Core domain types for the unified notification system.
+ *
+ * The old rigid NotificationType enum and delivery-class map have been removed
+ * in favor of the signal-based model (see signal.ts). What remains here are
+ * the channel-adapter interfaces that the broadcaster and adapters depend on.
  */
 
-// All notification event types the system can emit.
-export enum NotificationType {
-  ReminderFired = 'reminder_fired',
-  ScheduleComplete = 'schedule_complete',
-  GuardianQuestionRequiredAction = 'guardian_question_required_action',
-  IngressEscalationRequiredAction = 'ingress_escalation_required_action',
-  ToolConfirmationRequiredAction = 'tool_confirmation_required_action',
-  ActivityComplete = 'activity_complete',
-  QuickChatResponseReady = 'quick_chat_response_ready',
-  VoiceResponseReady = 'voice_response_ready',
-  RideShotgunInvitation = 'ride_shotgun_invitation',
-}
-
-// Whether a notification should stay on the originating device or fan out cross-channel.
-export enum NotificationDeliveryClass {
-  LocalOnly = 'local_only',
-  CrossChannelEligible = 'cross_channel_eligible',
-}
-
-/** Maps each notification type to its default delivery class. */
-export const NOTIFICATION_DELIVERY_CLASS_MAP: Record<NotificationType, NotificationDeliveryClass> = {
-  [NotificationType.ReminderFired]: NotificationDeliveryClass.CrossChannelEligible,
-  [NotificationType.ScheduleComplete]: NotificationDeliveryClass.CrossChannelEligible,
-  [NotificationType.GuardianQuestionRequiredAction]: NotificationDeliveryClass.CrossChannelEligible,
-  [NotificationType.IngressEscalationRequiredAction]: NotificationDeliveryClass.CrossChannelEligible,
-  [NotificationType.ToolConfirmationRequiredAction]: NotificationDeliveryClass.CrossChannelEligible,
-  [NotificationType.ActivityComplete]: NotificationDeliveryClass.CrossChannelEligible,
-  [NotificationType.QuickChatResponseReady]: NotificationDeliveryClass.LocalOnly,
-  [NotificationType.VoiceResponseReady]: NotificationDeliveryClass.LocalOnly,
-  [NotificationType.RideShotgunInvitation]: NotificationDeliveryClass.LocalOnly,
-};
-
 export type NotificationChannel = 'macos' | 'telegram';
-
-export type NotificationPriority = 'low' | 'normal' | 'high' | 'critical';
-
-/** Envelope wrapping a single notification event through the delivery pipeline. */
-export interface NotificationEnvelope {
-  id: string;
-  assistantId: string;
-  type: NotificationType;
-  deliveryClass: NotificationDeliveryClass;
-  priority: NotificationPriority;
-  requiresAction: boolean;
-  sourceChannel: NotificationChannel;
-  sourceSessionId: string;
-  sourceEventId: string;
-  payload: Record<string, unknown>;
-  dedupeKey?: string;
-  createdAt: number;
-}
 
 export type NotificationDeliveryStatus = 'pending' | 'sent' | 'failed' | 'skipped';
 
@@ -66,11 +20,11 @@ export interface NotificationDeliveryResult {
   sentAt?: number;
 }
 
-// ── Channel adapter interfaces ──────────────────────────────────────────────
+// -- Channel adapter interfaces -----------------------------------------------
 
 /** Copy rendered by the copy-composer for a single notification delivery. */
 export interface PreparedDelivery {
-  notificationType: NotificationType;
+  sourceEventName: string;
   title: string;
   body: string;
   threadTitle?: string;
@@ -95,17 +49,4 @@ export interface ChannelDestination {
 export interface ChannelAdapter {
   channel: NotificationChannel;
   send(delivery: PreparedDelivery, destination: ChannelDestination): Promise<DeliveryResult>;
-}
-
-/** Signal context provided by notification producers to the orchestrator. */
-export interface NotificationSignalContext {
-  type: NotificationType;
-  assistantId: string;
-  sourceChannel: NotificationChannel;
-  sourceSessionId: string;
-  sourceEventId: string;
-  requiresAction: boolean;
-  payload: Record<string, unknown>;
-  dedupeKey?: string;
-  priority?: NotificationPriority;
 }

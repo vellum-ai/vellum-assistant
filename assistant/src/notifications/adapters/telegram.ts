@@ -27,7 +27,7 @@ export class TelegramAdapter implements ChannelAdapter {
   async send(delivery: PreparedDelivery, destination: ChannelDestination): Promise<DeliveryResult> {
     const chatId = destination.endpoint;
     if (!chatId) {
-      log.warn({ notificationType: delivery.notificationType }, 'Telegram destination has no chat ID — skipping');
+      log.warn({ sourceEventName: delivery.sourceEventName }, 'Telegram destination has no chat ID — skipping');
       return { success: false, error: 'No chat ID configured for Telegram destination' };
     }
 
@@ -44,7 +44,7 @@ export class TelegramAdapter implements ChannelAdapter {
       );
 
       log.info(
-        { notificationType: delivery.notificationType, chatId },
+        { sourceEventName: delivery.sourceEventName, chatId },
         'Telegram notification delivered',
       );
 
@@ -52,7 +52,7 @@ export class TelegramAdapter implements ChannelAdapter {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log.error(
-        { err, notificationType: delivery.notificationType, chatId },
+        { err, sourceEventName: delivery.sourceEventName, chatId },
         'Failed to deliver Telegram notification',
       );
       return { success: false, error: message };

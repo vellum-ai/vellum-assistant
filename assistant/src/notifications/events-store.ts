@@ -1,25 +1,23 @@
 /**
  * Notification event persistence.
  *
- * Each row represents a single notification event that was emitted by
- * the system (e.g. a reminder fired, a schedule completed). Delivery
- * records are tracked separately in deliveries-store.ts.
+ * Each row represents a single notification signal that was emitted by
+ * the system. The event captures the source event name, attention hints,
+ * and context payload. Decision/delivery records are tracked separately.
  */
 
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { getDb } from '../memory/db.js';
 import { notificationEvents } from '../memory/schema.js';
-import type { NotificationType, NotificationDeliveryClass, NotificationChannel } from './types.js';
+import type { AttentionHints } from './signal.js';
 
 export interface NotificationEventRow {
   id: string;
   assistantId: string;
-  notificationType: string;
-  deliveryClass: string;
+  sourceEventName: string;
   sourceChannel: string;
   sourceSessionId: string;
-  sourceEventId: string;
-  requiresAction: boolean;
+  attentionHintsJson: string;
   payloadJson: string;
   dedupeKey: string | null;
   createdAt: number;
@@ -30,12 +28,10 @@ function rowToEvent(row: typeof notificationEvents.$inferSelect): NotificationEv
   return {
     id: row.id,
     assistantId: row.assistantId,
-    notificationType: row.notificationType,
-    deliveryClass: row.deliveryClass,
+    sourceEventName: row.sourceEventName,
     sourceChannel: row.sourceChannel,
     sourceSessionId: row.sourceSessionId,
-    sourceEventId: row.sourceEventId,
-    requiresAction: row.requiresAction === 1,
+    attentionHintsJson: row.attentionHintsJson,
     payloadJson: row.payloadJson,
     dedupeKey: row.dedupeKey,
     createdAt: row.createdAt,
@@ -46,12 +42,10 @@ function rowToEvent(row: typeof notificationEvents.$inferSelect): NotificationEv
 export interface CreateEventParams {
   id: string;
   assistantId: string;
-  notificationType: NotificationType;
-  deliveryClass: NotificationDeliveryClass;
-  sourceChannel: NotificationChannel;
+  sourceEventName: string;
+  sourceChannel: string;
   sourceSessionId: string;
-  sourceEventId: string;
-  requiresAction: boolean;
+  attentionHints: AttentionHints;
   payload: Record<string, unknown>;
   dedupeKey?: string;
 }
@@ -84,12 +78,10 @@ export function createEvent(params: CreateEventParams): NotificationEventRow | n
   const row = {
     id: params.id,
     assistantId: params.assistantId,
-    notificationType: params.notificationType,
-    deliveryClass: params.deliveryClass,
+    sourceEventName: params.sourceEventName,
     sourceChannel: params.sourceChannel,
     sourceSessionId: params.sourceSessionId,
-    sourceEventId: params.sourceEventId,
-    requiresAction: params.requiresAction ? 1 : 0,
+    attentionHintsJson: JSON.stringify(params.attentionHints),
     payloadJson: JSON.stringify(params.payload),
     dedupeKey: normalizedDedupeKey,
     createdAt: now,
@@ -98,10 +90,7 @@ export function createEvent(params: CreateEventParams): NotificationEventRow | n
 
   db.insert(notificationEvents).values(row).run();
 
-  return {
-    ...row,
-    requiresAction: params.requiresAction,
-  };
+  return row;
 }
 
 /** Get a single notification event by ID. */
@@ -117,7 +106,7 @@ export function getEventById(id: string): NotificationEventRow | null {
 }
 
 export interface ListEventsFilters {
-  notificationType?: NotificationType;
+  sourceEventName?: string;
   limit?: number;
 }
 
@@ -129,8 +118,8 @@ export function listEvents(
   const db = getDb();
   const conditions = [eq(notificationEvents.assistantId, assistantId)];
 
-  if (filters?.notificationType) {
-    conditions.push(eq(notificationEvents.notificationType, filters.notificationType));
+  if (filters?.sourceEventName) {
+    conditions.push(eq(notificationEvents.sourceEventName, filters.sourceEventName));
   }
 
   const limit = filters?.limit ?? 50;
