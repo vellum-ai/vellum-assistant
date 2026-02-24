@@ -57,14 +57,8 @@ public final class SettingsStore: ObservableObject {
 
     // MARK: - Settings Values
 
-    @Published var maxSteps: Double {
-        didSet { UserDefaults.standard.set(maxSteps, forKey: "maxStepsPerSession") }
-    }
-    @Published var activityNotificationsEnabled: Bool {
-        didSet {
-            UserDefaults.standard.set(activityNotificationsEnabled, forKey: "activityNotificationsEnabled")
-        }
-    }
+    @Published var maxSteps: Double
+    @Published var activityNotificationsEnabled: Bool
 
     // MARK: - Media Embed Settings
 
@@ -252,6 +246,19 @@ public final class SettingsStore: ObservableObject {
         NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.refreshAPIKeyState() }
+            .store(in: &cancellables)
+
+        // Debounce UserDefaults writes so rapid slider movements don't thrash disk I/O
+        $maxSteps
+            .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
+            .dropFirst()
+            .sink { value in UserDefaults.standard.set(value, forKey: "maxStepsPerSession") }
+            .store(in: &cancellables)
+
+        $activityNotificationsEnabled
+            .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
+            .dropFirst()
+            .sink { value in UserDefaults.standard.set(value, forKey: "activityNotificationsEnabled") }
             .store(in: &cancellables)
 
         // Mirror DaemonClient's trust-rules-open flag so views can disable their buttons
