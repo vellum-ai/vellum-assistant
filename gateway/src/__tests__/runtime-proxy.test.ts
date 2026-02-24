@@ -203,7 +203,7 @@ describe("runtime proxy handler", () => {
   });
 
   test("passes AbortSignal.timeout to upstream fetch", async () => {
-    let capturedSignal: AbortSignal | undefined;
+    let capturedSignal: AbortSignal | null | undefined;
     fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
       capturedSignal = init?.signal;
       return new Response("ok", { status: 200 });

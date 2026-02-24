@@ -1,23 +1,18 @@
-import { describe, it, expect, mock, beforeEach } from "bun:test";
+import { describe, it, expect, mock, beforeEach, afterEach } from "bun:test";
 import type { ApprovalPayload } from "../http/routes/telegram-deliver.js";
-import { buildInlineKeyboard, sendTelegramReply } from "./send.js";
 import type { GatewayConfig } from "../config.js";
 
-// Capture calls to callTelegramApi so we can inspect payloads without
-// hitting the network.
-const callTelegramApiMock = mock(
-  (_config: GatewayConfig, _method: string, _body: Record<string, unknown>) =>
-    Promise.resolve({}),
-);
+// Mock fetch at the transport level (same pattern as all other test files)
+// instead of mocking ./api.js — mock.module for api.js leaks across test
+// files in the same Bun process, poisoning callTelegramApi for other tests.
+type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(async () => new Response());
 
-// Mock the api module before importing send.ts functions. The import
-// above resolved the real module, but Bun's mock.module patches the
-// resolved module so subsequent internal imports from send.ts pick up the
-// mock.
-mock.module("./api.js", () => ({
-  callTelegramApi: callTelegramApiMock,
-  callTelegramApiMultipart: mock(() => Promise.resolve({})),
+mock.module("../fetch.js", () => ({
+  fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
 }));
+
+const { buildInlineKeyboard, sendTelegramReply } = await import("./send.js");
 
 const baseConfig: GatewayConfig = {
   assistantRuntimeBaseUrl: "http://localhost:7821",
@@ -42,7 +37,7 @@ const baseConfig: GatewayConfig = {
   telegramBotToken: "test-token",
   telegramDeliverAuthBypass: true,
   telegramInitialBackoffMs: 1000,
-  telegramMaxRetries: 3,
+  telegramMaxRetries: 0,
   telegramTimeoutMs: 15000,
   telegramWebhookSecret: undefined,
   twilioAuthToken: undefined,
@@ -63,6 +58,32 @@ const sampleApproval: ApprovalPayload = {
   ],
   plainTextFallback: "Reply: approve, always, or reject",
 };
+
+function makeTelegramResponse(result: unknown) {
+  return new Response(JSON.stringify({ ok: true, result }), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+let fetchCalls: { url: string; body: unknown }[];
+
+beforeEach(() => {
+  fetchCalls = [];
+  fetchMock = mock(async (input: string | URL | Request, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    let body: unknown;
+    try {
+      if (init?.body) body = JSON.parse(String(init.body));
+    } catch { /* FormData or non-JSON body */ }
+    fetchCalls.push({ url, body });
+    return makeTelegramResponse({});
+  });
+});
+
+afterEach(() => {
+  fetchMock = mock(async () => new Response());
+});
 
 describe("buildInlineKeyboard", () => {
   it("maps each action to its own row with compact callback data", () => {
@@ -130,28 +151,26 @@ describe("buildInlineKeyboard", () => {
 });
 
 describe("sendTelegramReply", () => {
-  beforeEach(() => {
-    callTelegramApiMock.mockClear();
-  });
-
   it("sends a plain message without reply_markup when no approval", async () => {
     await sendTelegramReply(baseConfig, "chat-1", "Hello");
 
-    expect(callTelegramApiMock).toHaveBeenCalledTimes(1);
-    const payload = callTelegramApiMock.mock.calls[0][2];
-    expect(payload.chat_id).toBe("chat-1");
-    expect(payload.text).toBe("Hello");
-    expect(payload.reply_markup).toBeUndefined();
+    expect(fetchCalls).toHaveLength(1);
+    expect(fetchCalls[0].url).toContain("/sendMessage");
+    const body = fetchCalls[0].body as Record<string, unknown>;
+    expect(body.chat_id).toBe("chat-1");
+    expect(body.text).toBe("Hello");
+    expect(body.reply_markup).toBeUndefined();
   });
 
   it("attaches inline keyboard when approval is provided", async () => {
     await sendTelegramReply(baseConfig, "chat-1", "Approve?", sampleApproval);
 
-    expect(callTelegramApiMock).toHaveBeenCalledTimes(1);
-    const payload = callTelegramApiMock.mock.calls[0][2];
-    expect(payload.reply_markup).toBeDefined();
+    expect(fetchCalls).toHaveLength(1);
+    expect(fetchCalls[0].url).toContain("/sendMessage");
+    const body = fetchCalls[0].body as Record<string, unknown>;
+    expect(body.reply_markup).toBeDefined();
 
-    const markup = payload.reply_markup as {
+    const markup = body.reply_markup as {
       inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
     };
     expect(markup.inline_keyboard).toHaveLength(3);
@@ -163,12 +182,12 @@ describe("sendTelegramReply", () => {
     const longText = "A".repeat(4001);
     await sendTelegramReply(baseConfig, "chat-1", longText, sampleApproval);
 
-    expect(callTelegramApiMock).toHaveBeenCalledTimes(2);
+    expect(fetchCalls).toHaveLength(2);
 
-    const firstPayload = callTelegramApiMock.mock.calls[0][2];
-    expect(firstPayload.reply_markup).toBeUndefined();
+    const firstBody = fetchCalls[0].body as Record<string, unknown>;
+    expect(firstBody.reply_markup).toBeUndefined();
 
-    const lastPayload = callTelegramApiMock.mock.calls[1][2];
-    expect(lastPayload.reply_markup).toBeDefined();
+    const lastBody = fetchCalls[1].body as Record<string, unknown>;
+    expect(lastBody.reply_markup).toBeDefined();
   });
 });
