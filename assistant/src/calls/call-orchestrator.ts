@@ -59,7 +59,6 @@ export class CallOrchestrator {
   private state: OrchestratorState = 'idle';
   private conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }> = [];
   private abortController: AbortController = new AbortController();
-  private callStartTime: number = Date.now();
   private silenceTimer: ReturnType<typeof setTimeout> | null = null;
   private durationTimer: ReturnType<typeof setTimeout> | null = null;
   private durationWarningTimer: ReturnType<typeof setTimeout> | null = null;

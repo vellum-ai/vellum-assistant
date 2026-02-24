@@ -87,7 +87,8 @@ function createMockProviderResponse(tokens: string[]) {
 
 // ── Provider registry mock ──────────────────────────────────────────
 
-let mockSendMessage: Mock<(...args: unknown[]) => Promise<unknown>>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let mockSendMessage: Mock<(...args: any[]) => Promise<any>>;
 
 mock.module('../providers/registry.js', () => {
   mockSendMessage = mock(createMockProviderResponse(['Hello', ' there']));
