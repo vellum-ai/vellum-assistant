@@ -24,9 +24,14 @@ final class ClientProvider: ObservableObject {
     /// state to `isConnected`.
     private var isConnectedSubscription: AnyCancellable?
 
+    /// Shared trace store updated by the daemon client's onTraceEvent callback.
+    let traceStore: TraceStore
+
     init(client: any DaemonClientProtocol) {
         self.client = client
+        self.traceStore = TraceStore()
         bindCombineBridge()
+        bindTraceEvents()
     }
 
     /// Recreate the DaemonClient from current UserDefaults/Keychain settings.
@@ -38,6 +43,7 @@ final class ClientProvider: ObservableObject {
         self.client = DaemonClient(config: .fromUserDefaults())
         self.isConnected = false
         bindCombineBridge()
+        bindTraceEvents()
     }
 
     private func bindCombineBridge() {
@@ -52,6 +58,15 @@ final class ClientProvider: ObservableObject {
                 .sink { [weak self] value in
                     self?.isConnected = value
                 }
+        }
+    }
+
+    private func bindTraceEvents() {
+        guard let daemon = client as? DaemonClient else { return }
+        daemon.onTraceEvent = { [weak self] msg in
+            Task { @MainActor [weak self] in
+                self?.traceStore.ingest(msg)
+            }
         }
     }
 }

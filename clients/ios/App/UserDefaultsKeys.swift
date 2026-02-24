@@ -3,6 +3,7 @@ import Foundation
 
 enum UserDefaultsKeys {
     static let daemonHostname = "daemon_hostname"
+    static let developerModeEnabled = "developer_mode_enabled"
     static let daemonPort = "daemon_port"
     static let daemonTLSEnabled = "daemon_tls_enabled"
     static let appearanceMode = "appearance_mode"

@@ -1,5 +1,4 @@
 import Foundation
-import VellumAssistantShared
 
 /// In-memory store for real-time execution trace events, keyed by session.
 ///
