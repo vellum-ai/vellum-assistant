@@ -104,6 +104,7 @@ export {
   IngressWebhookConfigSchema,
   IngressRateLimitConfigSchema,
   IngressConfigSchema,
+  DaemonConfigSchema,
   AssistantInboxConfigSchema,
 } from './core-schema.js';
 export type {
@@ -120,6 +121,7 @@ export type {
   IngressWebhookConfig,
   IngressRateLimitConfig,
   IngressConfig,
+  DaemonConfig,
   AssistantInboxConfig,
 } from './core-schema.js';
 
@@ -141,6 +143,7 @@ import {
   ModelPricingOverrideSchema,
   SmsConfigSchema,
   IngressConfigSchema,
+  DaemonConfigSchema,
   AssistantInboxConfigSchema,
 } from './core-schema.js';
 
@@ -430,6 +433,12 @@ export const AssistantConfigSchema = z.object({
     phoneNumber: '',
   }),
   ingress: IngressConfigSchema,
+  daemon: DaemonConfigSchema.default({
+    startupSocketWaitMs: 5000,
+    stopTimeoutMs: 5000,
+    sigkillGracePeriodMs: 2000,
+    titleGenerationMaxTokens: 30,
+  }),
   assistantInbox: AssistantInboxConfigSchema.default({
     enabled: false,
     invitesEnabled: false,

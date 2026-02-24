@@ -247,6 +247,29 @@ export const IngressConfigSchema = IngressBaseSchema
     enabled: val.enabled ?? (val.publicBaseUrl ? true : undefined),
   }));
 
+export const DaemonConfigSchema = z.object({
+  startupSocketWaitMs: z
+    .number({ error: 'daemon.startupSocketWaitMs must be a number' })
+    .int('daemon.startupSocketWaitMs must be an integer')
+    .positive('daemon.startupSocketWaitMs must be a positive integer')
+    .default(5000),
+  stopTimeoutMs: z
+    .number({ error: 'daemon.stopTimeoutMs must be a number' })
+    .int('daemon.stopTimeoutMs must be an integer')
+    .positive('daemon.stopTimeoutMs must be a positive integer')
+    .default(5000),
+  sigkillGracePeriodMs: z
+    .number({ error: 'daemon.sigkillGracePeriodMs must be a number' })
+    .int('daemon.sigkillGracePeriodMs must be an integer')
+    .positive('daemon.sigkillGracePeriodMs must be a positive integer')
+    .default(2000),
+  titleGenerationMaxTokens: z
+    .number({ error: 'daemon.titleGenerationMaxTokens must be a number' })
+    .int('daemon.titleGenerationMaxTokens must be an integer')
+    .positive('daemon.titleGenerationMaxTokens must be a positive integer')
+    .default(30),
+});
+
 export const AssistantInboxConfigSchema = z.object({
   enabled: z
     .boolean({ error: 'assistantInbox.enabled must be a boolean' })
@@ -274,5 +297,6 @@ export type ModelPricingOverride = z.infer<typeof ModelPricingOverrideSchema>;
 export type SmsConfig = z.infer<typeof SmsConfigSchema>;
 export type IngressWebhookConfig = z.infer<typeof IngressWebhookConfigSchema>;
 export type IngressRateLimitConfig = z.infer<typeof IngressRateLimitConfigSchema>;
+export type DaemonConfig = z.infer<typeof DaemonConfigSchema>;
 export type IngressConfig = z.infer<typeof IngressConfigSchema>;
 export type AssistantInboxConfig = z.infer<typeof AssistantInboxConfigSchema>;

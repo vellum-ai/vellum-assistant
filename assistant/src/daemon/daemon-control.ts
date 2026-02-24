@@ -9,6 +9,7 @@ import {
 } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
 import { DaemonError } from '../util/errors.js';
+import { getConfig } from '../config/loader.js';
 
 const log = getLogger('lifecycle');
 
@@ -124,7 +125,8 @@ export async function startDaemon(): Promise<{
   writePid(pid);
 
   // Wait for socket to appear
-  const maxWait = 5000;
+  const config = getConfig();
+  const maxWait = config.daemon.startupSocketWaitMs;
   const interval = 100;
   let waited = 0;
   while (waited < maxWait) {
@@ -146,7 +148,7 @@ export async function startDaemon(): Promise<{
   }
 
   throw new DaemonError(
-    'Daemon started but socket not available after 5 seconds',
+    `Daemon started but socket not available after ${maxWait}ms`,
   );
 }
 
@@ -163,8 +165,10 @@ export async function stopDaemon(): Promise<StopResult> {
 
   process.kill(pid, 'SIGTERM');
 
+  const config = getConfig();
+
   // Wait for process to exit
-  const maxWait = 5000;
+  const maxWait = config.daemon.stopTimeoutMs;
   const interval = 100;
   let waited = 0;
   while (waited < maxWait) {
@@ -186,7 +190,7 @@ export async function stopDaemon(): Promise<StopResult> {
   // Wait for the process to actually die after SIGKILL. Without this,
   // startDaemon() can race with the dying process's shutdown handler,
   // which removes the socket file and bricks the new daemon.
-  const killMaxWait = 2000;
+  const killMaxWait = config.daemon.sigkillGracePeriodMs;
   let killWaited = 0;
   while (killWaited < killMaxWait && isProcessRunning(pid)) {
     await new Promise((r) => setTimeout(r, 100));
