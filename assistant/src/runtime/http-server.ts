@@ -84,6 +84,8 @@ import {
 } from '../calls/twilio-routes.js';
 import { RelayConnection, activeRelayConnections } from '../calls/relay-server.js';
 import type { RelayWebSocketData } from '../calls/relay-server.js';
+import { extensionRelayServer } from '../browser-extension-relay/server.js';
+import type { BrowserRelayWebSocketData } from '../browser-extension-relay/server.js';
 import { handleSubscribeAssistantEvents } from './routes/events-routes.js';
 import { consumeCallback, consumeCallbackError } from '../security/oauth-callback-registry.js';
 import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
@@ -419,29 +421,53 @@ export class RuntimeHttpServer {
   }
 
   async start(): Promise<void> {
-    this.server = Bun.serve<RelayWebSocketData>({
+    type AllWebSocketData = RelayWebSocketData | BrowserRelayWebSocketData;
+    this.server = Bun.serve<AllWebSocketData>({
       port: this.port,
       hostname: this.hostname,
       maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
       fetch: (req, server) => this.handleRequest(req, server),
       websocket: {
         open(ws) {
-          const callSessionId = ws.data?.callSessionId;
+          const data = ws.data as AllWebSocketData;
+          if ('wsType' in data && data.wsType === 'browser-relay') {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            extensionRelayServer.handleOpen(ws as any);
+            return;
+          }
+          // call-relay
+          const callSessionId = (data as RelayWebSocketData).callSessionId;
           log.info({ callSessionId }, 'ConversationRelay WebSocket opened');
           if (callSessionId) {
-            const connection = new RelayConnection(ws, callSessionId);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const connection = new RelayConnection(ws as any, callSessionId);
             activeRelayConnections.set(callSessionId, connection);
           }
         },
         message(ws, message) {
-          const callSessionId = ws.data?.callSessionId;
+          const data = ws.data as AllWebSocketData;
+          const raw = typeof message === 'string' ? message : new TextDecoder().decode(message);
+          if ('wsType' in data && data.wsType === 'browser-relay') {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            extensionRelayServer.handleMessage(ws as any, raw);
+            return;
+          }
+          // call-relay
+          const callSessionId = (data as RelayWebSocketData).callSessionId;
           if (callSessionId) {
             const connection = activeRelayConnections.get(callSessionId);
-            connection?.handleMessage(typeof message === 'string' ? message : new TextDecoder().decode(message));
+            connection?.handleMessage(raw);
           }
         },
         close(ws, code, reason) {
-          const callSessionId = ws.data?.callSessionId;
+          const data = ws.data as AllWebSocketData;
+          if ('wsType' in data && data.wsType === 'browser-relay') {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            extensionRelayServer.handleClose(ws as any, code, reason?.toString());
+            return;
+          }
+          // call-relay
+          const callSessionId = (data as RelayWebSocketData).callSessionId;
           log.info({ callSessionId, code, reason: reason?.toString() }, 'ConversationRelay WebSocket closed');
           if (callSessionId) {
             const connection = activeRelayConnections.get(callSessionId);
@@ -515,6 +541,35 @@ export class RuntimeHttpServer {
     // Health checks are unauthenticated — they expose no sensitive data.
     if (path === '/healthz' && req.method === 'GET') {
       return this.handleHealth();
+    }
+
+    // WebSocket upgrade for the Chrome extension browser relay.
+    // Localhost-only; optional bearer token via ?token= query param.
+    if (path === '/v1/browser-relay' && req.headers.get('upgrade')?.toLowerCase() === 'websocket') {
+      if (!isLoopbackHost(new URL(req.url).hostname) && !isPrivateNetworkPeer(server, req)) {
+        return Response.json(
+          { error: 'Browser relay only accepts connections from localhost', code: 'LOCALHOST_ONLY' },
+          { status: 403 },
+        );
+      }
+
+      // Optional bearer token check via ?token= query param
+      if ((process.env.DISABLE_HTTP_AUTH ?? '').toLowerCase() !== 'true' && this.bearerToken) {
+        const wsUrl = new URL(req.url);
+        const token = wsUrl.searchParams.get('token');
+        if (!token || !this.verifyToken(token)) {
+          return Response.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+      }
+
+      const connectionId = crypto.randomUUID();
+      const upgraded = server.upgrade(req, {
+        data: { wsType: 'browser-relay', connectionId } satisfies BrowserRelayWebSocketData,
+      });
+      if (!upgraded) {
+        return new Response('WebSocket upgrade failed', { status: 500 });
+      }
+      return undefined as unknown as Response;
     }
 
     // WebSocket upgrade for ConversationRelay — before auth check because
@@ -691,6 +746,20 @@ export class RuntimeHttpServer {
     try {
       if (endpoint === 'health' && req.method === 'GET') {
         return this.handleHealth();
+      }
+
+      if (endpoint === 'browser-relay/status' && req.method === 'GET') {
+        return Response.json(extensionRelayServer.getStatus());
+      }
+
+      if (endpoint === 'browser-relay/command' && req.method === 'POST') {
+        try {
+          const body = await req.json() as Record<string, unknown>;
+          const resp = await extensionRelayServer.sendCommand(body as any);
+          return Response.json(resp);
+        } catch (err) {
+          return Response.json({ success: false, error: err instanceof Error ? err.message : String(err) }, { status: 500 });
+        }
       }
 
       if (endpoint === 'conversations' && req.method === 'GET') {
