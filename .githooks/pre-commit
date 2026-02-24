@@ -65,6 +65,10 @@ declare -a SAFE_LINE_PATTERNS=(
     "[Pp]rivate[_-]?[Kk]ey['\"]?:[[:space:]]*(String|string|Data|data)[?]?[[:space:]]*($|[,){;]|=[[:space:]]*nil|=[[:space:]]*['\"]['\"])"
     "(secret|Secret)['\"]?[[:space:]]*[:=][[:space:]]*['\"]<(optional|required|placeholder|none|empty|unset|redacted|your-[a-z-]+-here|[a-zA-Z][a-zA-Z_/ '-]*[A-Z_/][a-zA-Z_/ '.-]*)>['\"]"
     "[a-zA-Z_-]*[[:space:]]*[:=][[:space:]]*\\\$\\{\\{[[:space:]]*secrets\\.[a-zA-Z_][a-zA-Z0-9_]*[[:space:]]*\\}\\}([[:space:]]+#.*)?[[:space:]]*$"
+    # TS/JS: camelCase property names containing clientSecret used as identifiers
+    # (typeof checks, null/undefined comparisons, variable/property references).
+    # Avoids false positives like `oauth2ClientSecret: typeof record.oauth2ClientSecret`.
+    "[a-zA-Z0-9_]*[Cc]lient[Ss]ecret[[:space:]]*[:=]+[[:space:]]*(typeof[[:space:]]|null[[:space:];,){}]|undefined[[:space:];,){}]|[a-zA-Z_][a-zA-Z0-9_]*[.?]+[a-zA-Z_])"
 )
 
 matches_safe_line_pattern() {
@@ -142,6 +146,12 @@ if [ "${1:-}" = "--self-test" ]; then
     SAFE_GHA_SECRETS_LINE='          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}'
     SAFE_GHA_SECRETS_COMMENT_LINE='          client_secret: ${{ secrets.CLIENT_SECRET }} # rotated monthly'
     UNSAFE_GHA_SECRETS_FALLBACK='          client_secret: ${{ secrets.CLIENT_SECRET || "SuperSecretFallback12345" }}'
+
+    # TS/JS: camelCase property identifiers (false positives to avoid)
+    SAFE_TS_TYPEOF_LINE='    oauth2ClientSecret: typeof record.oauth2ClientSecret === '\''string'\'' ? record.oauth2ClientSecret : undefined,'
+    SAFE_TS_DOTREF_LINE='    existing.oauth2ClientSecret = policy.oauth2ClientSecret;'
+    SAFE_TS_NULLCHECK_LINE='      if (policy.oauth2ClientSecret === null) {'
+    SAFE_TS_OPTIONAL_LINE='    oauth2ClientSecret: policy?.oauth2ClientSecret ?? undefined,'
 
     if matches_secret_pattern "$SAFE_ARCHITECTURE_LINE"; then
         echo -e "${RED}Self-test failed:${NC} ARCHITECTURE allowlist case still matches"
@@ -293,6 +303,22 @@ if [ "${1:-}" = "--self-test" ]; then
     fi
     if matches_secret_pattern "$UNSAFE_GHA_SECRETS_FALLBACK" && matches_safe_line_pattern "$UNSAFE_GHA_SECRETS_FALLBACK"; then
         echo -e "${RED}Self-test failed:${NC} GHA secrets with fallback value was incorrectly whitelisted"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_TS_TYPEOF_LINE" && ! matches_safe_line_pattern "$SAFE_TS_TYPEOF_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} TS typeof clientSecret property check false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_TS_DOTREF_LINE" && ! matches_safe_line_pattern "$SAFE_TS_DOTREF_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} TS dotted clientSecret assignment false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_TS_NULLCHECK_LINE" && ! matches_safe_line_pattern "$SAFE_TS_NULLCHECK_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} TS clientSecret null comparison false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_TS_OPTIONAL_LINE" && ! matches_safe_line_pattern "$SAFE_TS_OPTIONAL_LINE"; then
+        echo -e "${RED}Self-test failed:${NC} TS optional chaining clientSecret false positive"
         exit 1
     fi
 
