@@ -130,6 +130,12 @@ export async function analyzeKeyframesForAsset(
   if (batch <= 0) {
     throw new Error('batch_size must be greater than 0.');
   }
+  if (chunkSize !== undefined && chunkSize <= 0) {
+    throw new Error('chunk_size must be at least 1.');
+  }
+  if (overlap !== undefined && overlap < 0) {
+    throw new Error('overlap must be non-negative.');
+  }
 
   const asset = getMediaAssetById(assetId);
   if (!asset) {
@@ -278,6 +284,14 @@ export async function run(
   const batchSize = (input.batch_size as number) ?? 10;
   const chunkSizeInput = (input.chunk_size as number) ?? 10;
   const overlapInput = (input.overlap as number) ?? 2;
+
+  // Validate: chunk_size must be at least 1, overlap must be non-negative
+  if (chunkSizeInput < 1) {
+    return { content: 'chunk_size must be at least 1.', isError: true };
+  }
+  if (overlapInput < 0) {
+    return { content: 'overlap must be non-negative.', isError: true };
+  }
 
   try {
     // Check if all keyframes are already analyzed before calling the core function
