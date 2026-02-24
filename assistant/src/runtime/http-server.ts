@@ -19,6 +19,7 @@ import {
   isHttpAuthDisabled,
   getRuntimeGatewayOriginSecret,
 } from '../config/env.js';
+import { getBaseDataDir } from '../config/env-registry.js';
 import { TwilioConversationRelayProvider } from '../calls/twilio-provider.js';
 import { loadConfig } from '../config/loader.js';
 import { getPublicBaseUrl } from '../inbound/public-ingress-urls.js';
@@ -169,7 +170,7 @@ interface DiskSpaceInfo {
 
 function getDiskSpaceInfo(): DiskSpaceInfo | null {
   try {
-    const baseDataDir = process.env.BASE_DATA_DIR?.trim();
+    const baseDataDir = getBaseDataDir();
     const diskPath = baseDataDir && existsSync(baseDataDir) ? baseDataDir : '/';
     const stats = statfsSync(diskPath);
     const totalBytes = stats.bsize * stats.blocks;

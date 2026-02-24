@@ -2,6 +2,14 @@ import { mkdirSync, existsSync, statSync, unlinkSync, renameSync, readFileSync, 
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { isPlainObject } from './object.js';
+import {
+  getBaseDataDir,
+  getDaemonSocket,
+  getDaemonTcpPort,
+  getDaemonTcpEnabled,
+  getDaemonTcpHost,
+  getDaemonIosPairing,
+} from '../config/env-registry.js';
 /**
  * Stderr-only logger for migration code. Using the pino logger during
  * migration is unsafe because pino initialization calls ensureDataDir(),
@@ -53,7 +61,7 @@ export function getClipboardCommand(): string | null {
  * Returns null if neither file exists or both are malformed.
  */
 export function readLockfile(): Record<string, unknown> | null {
-  const base = process.env.BASE_DATA_DIR?.trim() || homedir();
+  const base = getBaseDataDir() || homedir();
   const candidates = [
     join(base, '.vellum.lock.json'),
     join(base, '.vellum.lockfile.json'),
@@ -105,7 +113,7 @@ export function normalizeAssistantId(assistantId: string): string {
  * Respects BASE_DATA_DIR for non-standard home directories.
  */
 export function writeLockfile(data: Record<string, unknown>): void {
-  const base = process.env.BASE_DATA_DIR?.trim() || homedir();
+  const base = getBaseDataDir() || homedir();
   writeFileSync(join(base, '.vellum.lock.json'), JSON.stringify(data, null, 2) + '\n');
 }
 
@@ -114,7 +122,7 @@ export function writeLockfile(data: Record<string, unknown>): void {
  * files, skills) and runtime files (socket, PID) live here.
  */
 export function getRootDir(): string {
-  return join(process.env.BASE_DATA_DIR?.trim() || homedir(), '.vellum');
+  return join(getBaseDataDir() || homedir(), '.vellum');
 }
 
 /**
@@ -155,7 +163,7 @@ export function getInterfacesDir(): string {
 }
 
 export function getSocketPath(): string {
-  const override = process.env.VELLUM_DAEMON_SOCKET?.trim();
+  const override = getDaemonSocket();
   if (override) {
     return expandHomePath(override);
   }
@@ -171,12 +179,7 @@ export function getSessionTokenPath(): string {
  * Reads VELLUM_DAEMON_TCP_PORT env var; defaults to 8765.
  */
 export function getTCPPort(): number {
-  const override = process.env.VELLUM_DAEMON_TCP_PORT?.trim();
-  if (override) {
-    const port = parseInt(override, 10);
-    if (!isNaN(port) && port > 0 && port <= 65535) return port;
-  }
-  return 8765;
+  return getDaemonTcpPort();
 }
 
 /**
@@ -191,9 +194,8 @@ export function getTCPPort(): number {
  * The macOS CLI (AssistantCli) also sets the env var for bundled-binary deployments.
  */
 export function isTCPEnabled(): boolean {
-  const override = process.env.VELLUM_DAEMON_TCP_ENABLED?.trim();
-  if (override === 'true' || override === '1') return true;
-  if (override === 'false' || override === '0') return false;
+  const envValue = getDaemonTcpEnabled();
+  if (envValue !== undefined) return envValue;
   return existsSync(join(getRootDir(), 'tcp-enabled'));
 }
 
@@ -205,7 +207,7 @@ export function isTCPEnabled(): boolean {
  *   3. Default: '127.0.0.1' (localhost only)
  */
 export function getTCPHost(): string {
-  const override = process.env.VELLUM_DAEMON_TCP_HOST?.trim();
+  const override = getDaemonTcpHost();
   if (override) return override;
   if (isIOSPairingEnabled()) return '0.0.0.0';
   return '127.0.0.1';
@@ -226,9 +228,8 @@ export function getTCPHost(): string {
  * access without exposing the daemon to the LAN.
  */
 export function isIOSPairingEnabled(): boolean {
-  const override = process.env.VELLUM_DAEMON_IOS_PAIRING?.trim();
-  if (override === 'true' || override === '1') return true;
-  if (override === 'false' || override === '0') return false;
+  const envValue = getDaemonIosPairing();
+  if (envValue !== undefined) return envValue;
   return existsSync(join(getRootDir(), 'ios-pairing-enabled'));
 }
 
