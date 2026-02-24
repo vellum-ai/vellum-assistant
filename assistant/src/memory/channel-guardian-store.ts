@@ -8,7 +8,7 @@
  * requests track per-run guardian approval decisions.
  */
 
-import { and, desc, eq, gt, lte } from 'drizzle-orm';
+import { and, count, desc, eq, gt, lte } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb } from './db.js';
 import {
@@ -537,6 +537,164 @@ export function updateApprovalDecision(
     })
     .where(eq(channelGuardianApprovalRequests.id, id))
     .run();
+}
+
+// ---------------------------------------------------------------------------
+// Inbox / Escalation Query Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * List approval requests filtered by assistant, and optionally by channel,
+ * conversation, and status. Designed for the inbox UI to show a paginated
+ * list of escalations.
+ */
+export function listPendingApprovalRequests(params: {
+  assistantId?: string;
+  channel?: string;
+  conversationId?: string;
+  status?: ApprovalRequestStatus;
+  limit?: number;
+  offset?: number;
+}): GuardianApprovalRequest[] {
+  const db = getDb();
+
+  const conditions = [
+    eq(channelGuardianApprovalRequests.assistantId, params.assistantId ?? 'self'),
+  ];
+  if (params.channel) {
+    conditions.push(eq(channelGuardianApprovalRequests.channel, params.channel));
+  }
+  if (params.conversationId) {
+    conditions.push(eq(channelGuardianApprovalRequests.conversationId, params.conversationId));
+  }
+  conditions.push(
+    eq(channelGuardianApprovalRequests.status, params.status ?? 'pending'),
+  );
+
+  let query = db
+    .select()
+    .from(channelGuardianApprovalRequests)
+    .where(and(...conditions))
+    .orderBy(desc(channelGuardianApprovalRequests.createdAt));
+
+  if (params.limit !== undefined) {
+    query = query.limit(params.limit) as typeof query;
+  }
+  if (params.offset !== undefined) {
+    query = query.offset(params.offset) as typeof query;
+  }
+
+  return query.all().map(rowToApprovalRequest);
+}
+
+/**
+ * Fetch a single approval request by its primary key.
+ */
+export function getApprovalRequestById(id: string): GuardianApprovalRequest | null {
+  const db = getDb();
+
+  const row = db
+    .select()
+    .from(channelGuardianApprovalRequests)
+    .where(eq(channelGuardianApprovalRequests.id, id))
+    .get();
+
+  return row ? rowToApprovalRequest(row) : null;
+}
+
+/**
+ * Fetch a single approval request by run ID (any status).
+ * Useful for checking whether a run has an associated approval request.
+ */
+export function getApprovalRequestByRunId(runId: string): GuardianApprovalRequest | null {
+  const db = getDb();
+
+  const row = db
+    .select()
+    .from(channelGuardianApprovalRequests)
+    .where(eq(channelGuardianApprovalRequests.runId, runId))
+    .orderBy(desc(channelGuardianApprovalRequests.createdAt))
+    .get();
+
+  return row ? rowToApprovalRequest(row) : null;
+}
+
+/**
+ * Resolve a pending approval request with a decision.
+ *
+ * Idempotent: if the request is already resolved with the same decision,
+ * the existing record is returned unchanged. Returns null if the request
+ * does not exist or was resolved with a *different* decision.
+ */
+export function resolveApprovalRequest(
+  id: string,
+  decision: 'approved' | 'denied',
+  decidedByExternalUserId?: string,
+): GuardianApprovalRequest | null {
+  const db = getDb();
+
+  const existing = db
+    .select()
+    .from(channelGuardianApprovalRequests)
+    .where(eq(channelGuardianApprovalRequests.id, id))
+    .get();
+
+  if (!existing) return null;
+
+  // Idempotent: already resolved with the same decision
+  if (existing.status === decision) {
+    return rowToApprovalRequest(existing);
+  }
+
+  // Only resolve if currently pending
+  if (existing.status !== 'pending') {
+    return null;
+  }
+
+  const now = Date.now();
+
+  db.update(channelGuardianApprovalRequests)
+    .set({
+      status: decision,
+      decidedByExternalUserId: decidedByExternalUserId ?? null,
+      updatedAt: now,
+    })
+    .where(eq(channelGuardianApprovalRequests.id, id))
+    .run();
+
+  return rowToApprovalRequest({
+    ...existing,
+    status: decision,
+    decidedByExternalUserId: decidedByExternalUserId ?? null,
+    updatedAt: now,
+  });
+}
+
+/**
+ * Count pending approval requests for a given conversation.
+ * Used by thread state projection to compute `pending_escalation_count`.
+ */
+export function countPendingByConversation(
+  conversationId: string,
+  assistantId?: string,
+): number {
+  const db = getDb();
+
+  const conditions = [
+    eq(channelGuardianApprovalRequests.conversationId, conversationId),
+    eq(channelGuardianApprovalRequests.status, 'pending'),
+  ];
+  if (assistantId) {
+    conditions.push(eq(channelGuardianApprovalRequests.assistantId, assistantId));
+  }
+
+  const result = db
+    .select({ count: count() })
+    .from(channelGuardianApprovalRequests)
+    .where(and(...conditions))
+    .get();
+
+  return result?.count ?? 0;
 }
 
 // ---------------------------------------------------------------------------
