@@ -68,9 +68,51 @@ jobs:
           echo "**SHA tag:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Digest:** \`${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
 
+  push-sandbox:
+    name: Build & Push Sandbox Image
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker us-central1-docker.pkg.dev
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: gateway
+          push: true
+          platforms: linux/amd64
+          tags: |
+            us-central1-docker.pkg.dev/vellum-ai-prod/sandbox-images/assistant-gateway:latest
+            us-central1-docker.pkg.dev/vellum-ai-prod/sandbox-images/assistant-gateway:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Summary
+        run: |
+          echo "## Sandbox Gateway Image Published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** \`us-central1-docker.pkg.dev/vellum-ai-prod/sandbox-images/assistant-gateway:latest\`" >> $GITHUB_STEP_SUMMARY
+          echo "**SHA tag:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Digest:** \`${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+
   notify-failure:
     if: failure()
-    needs: [push]
+    needs: [push, push-sandbox]
     runs-on: ubuntu-latest
     steps:
       - name: Notify Slack of build failure
@@ -86,7 +128,7 @@ jobs:
               - type: header
                 text:
                   type: plain_text
-                  text: "\u274c Push Gateway Image to GCP Failed"
+                  text: "❌ Push Gateway Image to GCP Failed"
               - type: section
                 text:
                   type: mrkdwn
