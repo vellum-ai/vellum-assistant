@@ -9,6 +9,7 @@ import VellumAssistantShared
 struct SettingsConnectTab: View {
     @ObservedObject var store: SettingsStore
     var daemonClient: DaemonClient?
+    var authManager: AuthManager
 
     @State private var gatewayUrlText: String = ""
     @FocusState private var isGatewayUrlFocused: Bool
@@ -48,6 +49,7 @@ struct SettingsConnectTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
+            vellumSection
             pairingSection
             gatewaySection
             advancedSection
@@ -55,6 +57,7 @@ struct SettingsConnectTab: View {
             channelsSection
         }
         .onAppear {
+            Task { await authManager.checkSession() }
             store.refreshIngressConfig()
             store.refreshAssistantEmail()
             gatewayUrlText = store.ingressPublicBaseUrl
@@ -96,6 +99,68 @@ struct SettingsConnectTab: View {
                 isLocalOverride: PairingConfiguration.isOverrideEnabled
             )
         }
+    }
+
+    // MARK: - Vellum Section
+
+    private var vellumSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            Text("Vellum")
+                .font(VFont.sectionTitle)
+                .foregroundColor(VColor.textPrimary)
+
+            if authManager.isLoading {
+                channelStatusRow(
+                    label: "Account",
+                    icon: "arrow.trianglehead.2.counterclockwise",
+                    iconColor: VColor.textMuted,
+                    value: "Checking..."
+                )
+            } else if let user = authManager.currentUser {
+                channelStatusRow(
+                    label: "Account",
+                    icon: "checkmark.circle.fill",
+                    iconColor: VColor.success,
+                    value: user.email ?? user.display ?? "Signed in",
+                    action: .init(label: "Log Out", style: .danger) {
+                        Task { await authManager.logout() }
+                    }
+                )
+            } else {
+                channelStatusRow(
+                    label: "Account",
+                    icon: "xmark.circle",
+                    iconColor: VColor.textMuted,
+                    value: "Not signed in",
+                    action: .init(
+                        label: authManager.isSubmitting ? "Signing in..." : "Log In",
+                        style: .primary,
+                        disabled: authManager.isSubmitting
+                    ) {
+                        Task { await authManager.startWorkOSLogin() }
+                    }
+                )
+            }
+
+            if let error = authManager.errorMessage {
+                Text(error)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.error)
+            }
+
+            Divider().background(VColor.surfaceBorder)
+
+            channelStatusRow(
+                label: "Platform URL",
+                icon: "link",
+                iconColor: VColor.textMuted,
+                value: AuthService.shared.baseURL,
+                valueFont: VFont.mono
+            )
+        }
+        .padding(VSpacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .vCard(background: VColor.surfaceSubtle)
     }
 
     // MARK: - Gateway Section

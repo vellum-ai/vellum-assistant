@@ -86,7 +86,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var onboardingWindow: OnboardingWindow?
     private var authWindow: NSWindow?
-    let authManager = AuthManager()
+    var authManager: AuthManager { services.authManager }
     var mainWindow: MainWindow?
     var bundleConfirmationWindow: BundleConfirmationWindow?
     private var tasksWindow: TasksWindow?

@@ -47,6 +47,7 @@ struct MainWindowView: View {
     let surfaceManager: SurfaceManager
     let ambientAgent: AmbientAgent
     let settingsStore: SettingsStore
+    let authManager: AuthManager
     @ObservedObject var documentManager: DocumentManager
     let avatarEvolutionState: AvatarEvolutionState?
     @State private var lastAppliedBootstrapTurn: Int = 0
@@ -60,7 +61,7 @@ struct MainWindowView: View {
     /// Whether the "coming alive" overlay is currently showing.
     @State private var showComingAlive: Bool
 
-    init(threadManager: ThreadManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, windowState: MainWindowState, documentManager: DocumentManager, avatarEvolutionState: AvatarEvolutionState? = nil, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager = VoiceModeManager(), onSendWakeUp: (() -> Void)? = nil) {
+    init(threadManager: ThreadManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, avatarEvolutionState: AvatarEvolutionState? = nil, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager = VoiceModeManager(), onSendWakeUp: (() -> Void)? = nil) {
         self.threadManager = threadManager
         self.appListManager = appListManager
         self.zoomManager = zoomManager
@@ -69,6 +70,7 @@ struct MainWindowView: View {
         self.surfaceManager = surfaceManager
         self.ambientAgent = ambientAgent
         self.settingsStore = settingsStore
+        self.authManager = authManager
         self.windowState = windowState
         self.documentManager = documentManager
         self.avatarEvolutionState = avatarEvolutionState

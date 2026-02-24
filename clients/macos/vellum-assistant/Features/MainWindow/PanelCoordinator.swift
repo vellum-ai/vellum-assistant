@@ -23,7 +23,7 @@ extension MainWindowView {
         case .chat:
             chatView
         case .settings:
-            SettingsPanel(onClose: { windowState.selection = nil }, store: settingsStore, daemonClient: daemonClient, threadManager: threadManager)
+            SettingsPanel(onClose: { windowState.selection = nil }, store: settingsStore, daemonClient: daemonClient, threadManager: threadManager, authManager: authManager)
         case .agent:
             AgentPanel(onClose: { windowState.selection = nil }, onInvokeSkill: { skill in
                 if threadManager.activeViewModel == nil {
@@ -422,7 +422,7 @@ extension MainWindowView {
     func fullWindowPanel(_ panel: SidePanelType) -> some View {
         switch panel {
         case .settings:
-            SettingsPanel(onClose: { windowState.dismissOverlay() }, store: settingsStore, daemonClient: daemonClient, threadManager: threadManager)
+            SettingsPanel(onClose: { windowState.dismissOverlay() }, store: settingsStore, daemonClient: daemonClient, threadManager: threadManager, authManager: authManager)
                 .background(adaptiveColor(light: Moss._50, dark: Moss._950))
         case .agent:
             AgentPanel(onClose: { windowState.dismissOverlay() }, onInvokeSkill: { skill in
@@ -903,7 +903,7 @@ struct DynamicWorkspaceWrapper: View {
 struct MainWindowView_Previews: PreviewProvider {
     static var previews: some View {
         let dc = DaemonClient()
-        MainWindowView(threadManager: ThreadManager(daemonClient: dc), appListManager: AppListManager(), zoomManager: ZoomManager(), traceStore: TraceStore(), daemonClient: dc, surfaceManager: SurfaceManager(), ambientAgent: AmbientAgent(), settingsStore: SettingsStore(daemonClient: dc), windowState: MainWindowState(), documentManager: DocumentManager())
+        MainWindowView(threadManager: ThreadManager(daemonClient: dc), appListManager: AppListManager(), zoomManager: ZoomManager(), traceStore: TraceStore(), daemonClient: dc, surfaceManager: SurfaceManager(), ambientAgent: AmbientAgent(), settingsStore: SettingsStore(daemonClient: dc), authManager: AuthManager(), windowState: MainWindowState(), documentManager: DocumentManager())
             .frame(width: 900, height: 600)
             .padding(.top, 36)
     }
