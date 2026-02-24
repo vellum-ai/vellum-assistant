@@ -39,6 +39,14 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: vellum-gateway:ci-${{ github.event.pull_request.number || github.sha }}
+          format: table
+          exit-code: '1'
+          severity: HIGH,CRITICAL
+
       - name: Smoke check - container boots
         run: |
           docker run --rm -d --name gateway-smoke \
