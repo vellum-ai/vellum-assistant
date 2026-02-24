@@ -688,6 +688,90 @@ public struct IPCChannelBinding: Codable, Sendable {
     }
 }
 
+public struct IPCChannelReadinessRequest: Codable, Sendable {
+    public let type: String
+    public let action: String
+    public let channel: String?
+    public let assistantId: String?
+    public let includeRemote: Bool?
+
+    public init(type: String, action: String, channel: String? = nil, assistantId: String? = nil, includeRemote: Bool? = nil) {
+        self.type = type
+        self.action = action
+        self.channel = channel
+        self.assistantId = assistantId
+        self.includeRemote = includeRemote
+    }
+}
+
+public struct IPCChannelReadinessResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let snapshots: [IPCChannelReadinessResponseSnapshot]?
+    public let error: String?
+
+    public init(type: String, success: Bool, snapshots: [IPCChannelReadinessResponseSnapshot]? = nil, error: String? = nil) {
+        self.type = type
+        self.success = success
+        self.snapshots = snapshots
+        self.error = error
+    }
+}
+
+public struct IPCChannelReadinessResponseSnapshot: Codable, Sendable {
+    public let channel: String
+    public let ready: Bool
+    public let checkedAt: Int
+    public let stale: Bool
+    public let reasons: [IPCChannelReadinessResponseSnapshotReason]
+    public let localChecks: [IPCChannelReadinessResponseSnapshotLocalCheck]
+    public let remoteChecks: [IPCChannelReadinessResponseSnapshotRemoteCheck]?
+
+    public init(channel: String, ready: Bool, checkedAt: Int, stale: Bool, reasons: [IPCChannelReadinessResponseSnapshotReason], localChecks: [IPCChannelReadinessResponseSnapshotLocalCheck], remoteChecks: [IPCChannelReadinessResponseSnapshotRemoteCheck]? = nil) {
+        self.channel = channel
+        self.ready = ready
+        self.checkedAt = checkedAt
+        self.stale = stale
+        self.reasons = reasons
+        self.localChecks = localChecks
+        self.remoteChecks = remoteChecks
+    }
+}
+
+public struct IPCChannelReadinessResponseSnapshotLocalCheck: Codable, Sendable {
+    public let name: String
+    public let passed: Bool
+    public let message: String
+
+    public init(name: String, passed: Bool, message: String) {
+        self.name = name
+        self.passed = passed
+        self.message = message
+    }
+}
+
+public struct IPCChannelReadinessResponseSnapshotReason: Codable, Sendable {
+    public let code: String
+    public let text: String
+
+    public init(code: String, text: String) {
+        self.code = code
+        self.text = text
+    }
+}
+
+public struct IPCChannelReadinessResponseSnapshotRemoteCheck: Codable, Sendable {
+    public let name: String
+    public let passed: Bool
+    public let message: String
+
+    public init(name: String, passed: Bool, message: String) {
+        self.name = name
+        self.passed = passed
+        self.message = message
+    }
+}
+
 public struct IPCConfirmationRequest: Codable, Sendable {
     public let type: String
     public let requestId: String
@@ -3790,8 +3874,11 @@ public struct IPCTwilioConfigRequest: Codable, Sendable {
     public let areaCode: String?
     public let country: String?
     public let assistantId: String?
+    public let verificationSid: String?
+    public let verificationParams: IPCTwilioConfigRequestVerificationParams?
+    public let text: String?
 
-    public init(type: String, action: String, accountSid: String? = nil, authToken: String? = nil, phoneNumber: String? = nil, areaCode: String? = nil, country: String? = nil, assistantId: String? = nil) {
+    public init(type: String, action: String, accountSid: String? = nil, authToken: String? = nil, phoneNumber: String? = nil, areaCode: String? = nil, country: String? = nil, assistantId: String? = nil, verificationSid: String? = nil, verificationParams: IPCTwilioConfigRequestVerificationParams? = nil, text: String? = nil) {
         self.type = type
         self.action = action
         self.accountSid = accountSid
@@ -3800,6 +3887,39 @@ public struct IPCTwilioConfigRequest: Codable, Sendable {
         self.areaCode = areaCode
         self.country = country
         self.assistantId = assistantId
+        self.verificationSid = verificationSid
+        self.verificationParams = verificationParams
+        self.text = text
+    }
+}
+
+public struct IPCTwilioConfigRequestVerificationParams: Codable, Sendable {
+    public let tollfreePhoneNumberSid: String?
+    public let businessName: String?
+    public let businessWebsite: String?
+    public let notificationEmail: String?
+    public let useCaseCategories: [String]?
+    public let useCaseSummary: String?
+    public let productionMessageSample: String?
+    public let optInImageUrls: [String]?
+    public let optInType: String?
+    public let messageVolume: String?
+    public let businessType: String?
+    public let customerProfileSid: String?
+
+    public init(tollfreePhoneNumberSid: String? = nil, businessName: String? = nil, businessWebsite: String? = nil, notificationEmail: String? = nil, useCaseCategories: [String]? = nil, useCaseSummary: String? = nil, productionMessageSample: String? = nil, optInImageUrls: [String]? = nil, optInType: String? = nil, messageVolume: String? = nil, businessType: String? = nil, customerProfileSid: String? = nil) {
+        self.tollfreePhoneNumberSid = tollfreePhoneNumberSid
+        self.businessName = businessName
+        self.businessWebsite = businessWebsite
+        self.notificationEmail = notificationEmail
+        self.useCaseCategories = useCaseCategories
+        self.useCaseSummary = useCaseSummary
+        self.productionMessageSample = productionMessageSample
+        self.optInImageUrls = optInImageUrls
+        self.optInType = optInType
+        self.messageVolume = messageVolume
+        self.businessType = businessType
+        self.customerProfileSid = customerProfileSid
     }
 }
 
@@ -3812,8 +3932,13 @@ public struct IPCTwilioConfigResponse: Codable, Sendable {
     public let error: String?
     /// Non-fatal warning message (e.g. webhook sync failure that did not prevent the primary operation).
     public let warning: String?
+    public let compliance: IPCTwilioConfigResponseCompliance?
+    /// Present when action is 'sms_send_test'.
+    public let testResult: IPCTwilioConfigResponseTestResult?
+    /// Present when action is 'sms_doctor'.
+    public let diagnostics: IPCTwilioConfigResponseDiagnostics?
 
-    public init(type: String, success: Bool, hasCredentials: Bool, phoneNumber: String? = nil, numbers: [IPCTwilioConfigResponseNumber]? = nil, error: String? = nil, warning: String? = nil) {
+    public init(type: String, success: Bool, hasCredentials: Bool, phoneNumber: String? = nil, numbers: [IPCTwilioConfigResponseNumber]? = nil, error: String? = nil, warning: String? = nil, compliance: IPCTwilioConfigResponseCompliance? = nil, testResult: IPCTwilioConfigResponseTestResult? = nil, diagnostics: IPCTwilioConfigResponseDiagnostics? = nil) {
         self.type = type
         self.success = success
         self.hasCredentials = hasCredentials
@@ -3821,6 +3946,81 @@ public struct IPCTwilioConfigResponse: Codable, Sendable {
         self.numbers = numbers
         self.error = error
         self.warning = warning
+        self.compliance = compliance
+        self.testResult = testResult
+        self.diagnostics = diagnostics
+    }
+}
+
+public struct IPCTwilioConfigResponseCompliance: Codable, Sendable {
+    public let numberType: String?
+    public let verificationSid: String?
+    public let verificationStatus: String?
+    public let rejectionReason: String?
+    public let rejectionReasons: [String]?
+    public let errorCode: String?
+    public let editAllowed: Bool?
+    public let editExpiration: String?
+
+    public init(numberType: String? = nil, verificationSid: String? = nil, verificationStatus: String? = nil, rejectionReason: String? = nil, rejectionReasons: [String]? = nil, errorCode: String? = nil, editAllowed: Bool? = nil, editExpiration: String? = nil) {
+        self.numberType = numberType
+        self.verificationSid = verificationSid
+        self.verificationStatus = verificationStatus
+        self.rejectionReason = rejectionReason
+        self.rejectionReasons = rejectionReasons
+        self.errorCode = errorCode
+        self.editAllowed = editAllowed
+        self.editExpiration = editExpiration
+    }
+}
+
+public struct IPCTwilioConfigResponseDiagnostics: Codable, Sendable {
+    public let readiness: IPCTwilioConfigResponseDiagnosticsReadiness
+    public let compliance: IPCTwilioConfigResponseDiagnosticsCompliance
+    public let lastSend: IPCTwilioConfigResponseDiagnosticsLastSend?
+    public let overallStatus: String
+    public let actionItems: [String]
+
+    public init(readiness: IPCTwilioConfigResponseDiagnosticsReadiness, compliance: IPCTwilioConfigResponseDiagnosticsCompliance, lastSend: IPCTwilioConfigResponseDiagnosticsLastSend? = nil, overallStatus: String, actionItems: [String]) {
+        self.readiness = readiness
+        self.compliance = compliance
+        self.lastSend = lastSend
+        self.overallStatus = overallStatus
+        self.actionItems = actionItems
+    }
+}
+
+public struct IPCTwilioConfigResponseDiagnosticsCompliance: Codable, Sendable {
+    public let status: String
+    public let detail: String?
+    public let remediation: String?
+
+    public init(status: String, detail: String? = nil, remediation: String? = nil) {
+        self.status = status
+        self.detail = detail
+        self.remediation = remediation
+    }
+}
+
+public struct IPCTwilioConfigResponseDiagnosticsLastSend: Codable, Sendable {
+    public let status: String
+    public let errorCode: String?
+    public let remediation: String?
+
+    public init(status: String, errorCode: String? = nil, remediation: String? = nil) {
+        self.status = status
+        self.errorCode = errorCode
+        self.remediation = remediation
+    }
+}
+
+public struct IPCTwilioConfigResponseDiagnosticsReadiness: Codable, Sendable {
+    public let ready: Bool
+    public let issues: [String]
+
+    public init(ready: Bool, issues: [String]) {
+        self.ready = ready
+        self.issues = issues
     }
 }
 
@@ -3843,6 +4043,24 @@ public struct IPCTwilioConfigResponseNumberCapabilities: Codable, Sendable {
     public init(voice: Bool, sms: Bool) {
         self.voice = voice
         self.sms = sms
+    }
+}
+
+public struct IPCTwilioConfigResponseTestResult: Codable, Sendable {
+    public let messageSid: String
+    public let to: String
+    public let initialStatus: String
+    public let finalStatus: String
+    public let errorCode: String?
+    public let errorMessage: String?
+
+    public init(messageSid: String, to: String, initialStatus: String, finalStatus: String, errorCode: String? = nil, errorMessage: String? = nil) {
+        self.messageSid = messageSid
+        self.to = to
+        self.initialStatus = initialStatus
+        self.finalStatus = finalStatus
+        self.errorCode = errorCode
+        self.errorMessage = errorMessage
     }
 }
 
