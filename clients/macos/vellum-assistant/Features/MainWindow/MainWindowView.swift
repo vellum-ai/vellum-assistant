@@ -560,11 +560,16 @@ struct MainWindowView: View {
                                 toggleVoiceMode()
                             }
 
-                            TemporaryChatToggle(
-                                isActive: threadManager.activeThread?.kind == .private,
-                                tooltip: threadManager.activeThread?.kind == .private ? "Exit temporary chat" : "Temporary chat",
-                                onToggle: { toggleTemporaryChat() }
-                            )
+                            // Temporary chat toggle — only visible on brand new threads with no messages
+                            if threadManager.activeViewModel?.messages.contains(where: {
+                                !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            }) != true {
+                                TemporaryChatToggle(
+                                    isActive: threadManager.activeThread?.kind == .private,
+                                    tooltip: threadManager.activeThread?.kind == .private ? "Exit temporary chat" : "Temporary chat",
+                                    onToggle: { toggleTemporaryChat() }
+                                )
+                            }
                         }
                     }
                     .padding(.leading, trafficLightPadding)
