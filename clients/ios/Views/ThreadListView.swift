@@ -153,6 +153,25 @@ struct ThreadListView: View {
                     }
                 }
             }
+
+            // Load-more trigger: appears when the daemon has additional sessions beyond
+            // the current page. Becomes visible as the user scrolls toward the bottom.
+            if store.hasMoreThreads || store.isLoadingMoreThreads {
+                HStack {
+                    Spacer()
+                    if store.isLoadingMoreThreads {
+                        VLoadingIndicator(size: 18)
+                    } else {
+                        // Invisible sentinel: triggers the next page fetch on appear.
+                        Color.clear.frame(height: 1)
+                    }
+                    Spacer()
+                }
+                .listRowSeparator(.hidden)
+                .onAppear {
+                    store.loadMoreThreads()
+                }
+            }
         }
         .searchable(text: $searchText, prompt: "Search chats")
         .navigationTitle("Chats")
