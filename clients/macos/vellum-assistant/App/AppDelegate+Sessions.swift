@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import UserNotifications
 import VellumAssistantShared
 import os
@@ -25,6 +26,45 @@ extension AppDelegate {
             if ActionExecutor.checkAccessibilityPermission(prompt: false) { return true }
         }
         return false
+    }
+
+    // MARK: - Recording Source Picker
+
+    /// Determines whether the recording source picker should be shown, and if so,
+    /// presents it as a modal window. Returns the selected recording options, or nil
+    /// if the user cancelled.
+    ///
+    /// Auto-applies saved preferences when valid, skipping the picker entirely.
+    private func resolveRecordingOptions(for routed: TaskRoutedMessage) async -> IPCRecordingOptions? {
+        let pickerVM = RecordingSourcePickerViewModel()
+
+        let needsPicker = routed.recordingOptions?.promptForSource == true || pickerVM.hasMultipleDisplays
+
+        guard needsPicker else {
+            // Single display, no prompt requested — use default options
+            return pickerVM.selectedRecordingOptions
+        }
+
+        // Try auto-apply from saved preference
+        if pickerVM.canAutoApply() {
+            log.info("Auto-applied saved recording source preference")
+            return pickerVM.selectedRecordingOptions
+        }
+
+        // Show the picker and wait for user selection
+        return await withCheckedContinuation { continuation in
+            let pickerWindow = RecordingSourcePickerWindow(
+                viewModel: pickerVM,
+                onStart: {
+                    continuation.resume(returning: pickerVM.selectedRecordingOptions)
+                },
+                onCancel: {
+                    continuation.resume(returning: nil)
+                }
+            )
+            pickerWindow.show()
+            self.recordingPickerWindow = pickerWindow
+        }
     }
 
     // MARK: - Escalation
@@ -185,6 +225,27 @@ extension AppDelegate {
                     }
                     return
                 }
+
+                // Resolve recording options if the session requires recording.
+                // The resolved options are logged here; a subsequent milestone will
+                // pass them to the session/recorder init.
+                if routed.requiresRecording == true {
+                    if let pickerResult = await self.resolveRecordingOptions(for: routed) {
+                        log.info("Recording options resolved — scope: \(pickerResult.captureScope ?? "default"), audio: \(pickerResult.includeAudio ?? false)")
+                    } else {
+                        // User cancelled the picker — abort the session
+                        log.info("User cancelled recording source picker — aborting session \(routed.sessionId)")
+                        do {
+                            try self.daemonClient.send(CuSessionAbortMessage(sessionId: routed.sessionId))
+                        } catch {
+                            log.error("Failed to send CU session abort after picker cancel: \(error)")
+                        }
+                        return
+                    }
+                    self.recordingPickerWindow?.close()
+                    self.recordingPickerWindow = nil
+                }
+
                 let storedMaxSteps = UserDefaults.standard.integer(forKey: "maxStepsPerSession")
                 let maxSteps = storedMaxSteps > 0 ? storedMaxSteps : 50
                 let session = ComputerUseSession(

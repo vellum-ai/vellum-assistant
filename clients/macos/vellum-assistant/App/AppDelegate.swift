@@ -106,6 +106,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var wakeWordCoordinator: WakeWordCoordinator?
     private var voiceTranscriptionWindow: VoiceTranscriptionWindow?
     var thinkingWindow: ThinkingIndicatorWindow?
+    var recordingPickerWindow: RecordingSourcePickerWindow?
     private var quickInputWindow: QuickInputWindow?
     private var quickInputHotKeyRef: EventHotKeyRef?
     private var quickInputEventHandlerRef: EventHandlerRef?
