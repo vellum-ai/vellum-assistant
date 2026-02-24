@@ -178,6 +178,9 @@ struct SettingsConnectTab: View {
                             .truncationMode(.middle)
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .onTapGesture { withAnimation(VAnimation.standard) { gatewayExpanded.toggle() } }
             }
         }
         .padding(VSpacing.lg)
@@ -304,6 +307,9 @@ struct SettingsConnectTab: View {
                         .font(VFont.caption)
                         .foregroundColor(VColor.textMuted)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .onTapGesture { withAnimation(VAnimation.standard) { advancedExpanded.toggle() } }
             }
         }
         .padding(VSpacing.lg)
@@ -958,7 +964,7 @@ struct SettingsConnectTab: View {
 
     private var diagnosticsSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            DisclosureGroup("Diagnostics", isExpanded: $diagnosticsExpanded) {
+            DisclosureGroup(isExpanded: $diagnosticsExpanded) {
                 VStack(alignment: .leading, spacing: VSpacing.md) {
                     statusContent
 
@@ -967,9 +973,14 @@ struct SettingsConnectTab: View {
                     testConnectionContent
                 }
                 .padding(.top, VSpacing.sm)
+            } label: {
+                Text("Diagnostics")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                    .onTapGesture { withAnimation(VAnimation.standard) { diagnosticsExpanded.toggle() } }
             }
-            .font(VFont.sectionTitle)
-            .foregroundColor(VColor.textPrimary)
         }
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
