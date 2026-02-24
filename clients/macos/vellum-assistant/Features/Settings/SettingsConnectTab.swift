@@ -335,7 +335,7 @@ struct SettingsConnectTab: View {
                     icon: "checkmark.circle.fill",
                     iconColor: VColor.success,
                     value: store.telegramBotUsername.map { "@\($0)" } ?? "Configured",
-                    valueURL: store.telegramBotUsername.map { URL(string: "https://web.telegram.org/k/#@\($0)")! },
+                    valueURL: store.telegramBotUsername.flatMap { URL(string: "https://web.telegram.org/k/#@\($0)") },
                     action: .init(label: "Clear", style: .danger, disabled: store.telegramSaveInProgress) {
                         store.clearTelegramCredentials()
                         telegramBotTokenText = ""

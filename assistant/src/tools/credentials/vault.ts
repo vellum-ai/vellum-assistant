@@ -13,7 +13,7 @@ import { upsertCredentialMetadata, deleteCredentialMetadata, getCredentialMetada
 import { validatePolicyInput, toPolicyFromInput } from './policy-validate.js';
 import type { CredentialPolicyInput, CredentialInjectionTemplate } from './policy-types.js';
 import { credentialBroker } from './broker.js';
-import { startOAuth2Flow } from '../../security/oauth2.js';
+import { startOAuth2Flow, type TokenEndpointAuthMethod } from '../../security/oauth2.js';
 import { authTest, conversationsOpen, postMessage } from '../../messaging/providers/slack/client.js';
 import { getConfig } from '../../config/loader.js';
 import { getLogger } from '../../util/logger.js';
@@ -197,6 +197,11 @@ class CredentialStoreTool implements Tool {
           client_secret: {
             type: 'string',
             description: 'OAuth2 client secret for providers that require it (e.g. Google, Slack). If omitted, looked up from previously stored credentials; if still absent, PKCE-only is used (only for oauth2_connect action)',
+          },
+          token_endpoint_auth_method: {
+            type: 'string',
+            enum: ['client_secret_basic', 'client_secret_post'],
+            description: 'How to send client credentials at the token endpoint: "client_secret_post" (default, in POST body) or "client_secret_basic" (HTTP Basic Auth header). Only for oauth2_connect action.',
           },
           alias: {
             type: 'string',
@@ -540,6 +545,7 @@ class CredentialStoreTool implements Tool {
           ?? findStoredOAuthField(service, ['client_id', 'oauth_client_id']);
         const clientSecret = (input.client_secret as string | undefined)
           ?? findStoredOAuthField(service, ['client_secret', 'oauth_client_secret']);
+        const tokenEndpointAuthMethod = input.token_endpoint_auth_method as TokenEndpointAuthMethod | undefined;
 
         if (!authUrl) return { content: 'Error: auth_url is required for oauth2_connect action (no well-known config for this service)', isError: true };
         if (!tokenUrl) return { content: 'Error: token_url is required for oauth2_connect action (no well-known config for this service)', isError: true };
@@ -560,7 +566,7 @@ class CredentialStoreTool implements Tool {
           const allowedTools = input.allowed_tools as string[] | undefined;
 
           const { tokens, grantedScopes, rawTokenResponse } = await startOAuth2Flow(
-            { authUrl, tokenUrl, scopes, clientId, clientSecret, extraParams, userinfoUrl },
+            { authUrl, tokenUrl, scopes, clientId, clientSecret, extraParams, userinfoUrl, tokenEndpointAuthMethod },
             {
               openUrl: (url) => {
                 context.sendToClient?.({ type: 'open_url', url, title: `Connect ${service}` });
@@ -610,6 +616,7 @@ class CredentialStoreTool implements Tool {
             oauth2TokenUrl: tokenUrl,
             oauth2ClientId: clientId,
             ...(clientSecret ? { oauth2ClientSecret: clientSecret } : {}),
+            ...(tokenEndpointAuthMethod ? { oauth2TokenEndpointAuthMethod: tokenEndpointAuthMethod } : {}),
           });
 
           if (tokens.refreshToken) {

@@ -18,6 +18,8 @@ const log = getLogger('oauth2');
 // Types
 // ---------------------------------------------------------------------------
 
+export type TokenEndpointAuthMethod = 'client_secret_basic' | 'client_secret_post';
+
 export interface OAuth2Config {
   authUrl: string;
   tokenUrl: string;
@@ -28,6 +30,13 @@ export interface OAuth2Config {
   extraParams?: Record<string, string>;
   /** URL to fetch user identity info after OAuth. If omitted, account info is not fetched. */
   userinfoUrl?: string;
+  /**
+   * How the client authenticates at the token endpoint when a clientSecret is present.
+   * - `client_secret_post`: Send client_id and client_secret in the POST body (default).
+   * - `client_secret_basic`: Send an HTTP Basic Auth header with base64(client_id:client_secret).
+   * Defaults to `client_secret_post` for backward compatibility.
+   */
+  tokenEndpointAuthMethod?: TokenEndpointAuthMethod;
 }
 
 export interface OAuth2TokenResult {
@@ -80,6 +89,8 @@ async function exchangeCodeForTokens(
   redirectUri: string,
   codeVerifier: string,
 ): Promise<OAuth2FlowResult> {
+  const authMethod = config.tokenEndpointAuthMethod ?? 'client_secret_post';
+
   const tokenBody: Record<string, string> = {
     grant_type: 'authorization_code',
     code,
@@ -91,11 +102,14 @@ async function exchangeCodeForTokens(
     'Content-Type': 'application/x-www-form-urlencoded',
   };
 
-  if (config.clientSecret) {
+  if (config.clientSecret && authMethod === 'client_secret_basic') {
     const credentials = Buffer.from(`${config.clientId}:${config.clientSecret}`).toString('base64');
     headers['Authorization'] = `Basic ${credentials}`;
   } else {
     tokenBody.client_id = config.clientId;
+    if (config.clientSecret) {
+      tokenBody.client_secret = config.clientSecret;
+    }
   }
 
   const tokenResp = await fetch(config.tokenUrl, {
@@ -233,19 +247,32 @@ export async function refreshOAuth2Token(
   clientId: string,
   refreshToken: string,
   clientSecret?: string,
+  tokenEndpointAuthMethod?: TokenEndpointAuthMethod,
 ): Promise<OAuth2TokenResult> {
+  const authMethod = tokenEndpointAuthMethod ?? 'client_secret_post';
+
   const body: Record<string, string> = {
     grant_type: 'refresh_token',
     refresh_token: refreshToken,
-    client_id: clientId,
   };
-  if (clientSecret) {
-    body.client_secret = clientSecret;
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/x-www-form-urlencoded',
+  };
+
+  if (clientSecret && authMethod === 'client_secret_basic') {
+    const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+    headers['Authorization'] = `Basic ${credentials}`;
+  } else {
+    body.client_id = clientId;
+    if (clientSecret) {
+      body.client_secret = clientSecret;
+    }
   }
 
   const resp = await fetch(tokenUrl, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    headers,
     body: new URLSearchParams(body),
   });
 

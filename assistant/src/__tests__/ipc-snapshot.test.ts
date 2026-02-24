@@ -1593,13 +1593,6 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     workItemId: 'wi-001',
     title: 'Process report',
   },
-  guardian_request_thread_created: {
-    type: 'guardian_request_thread_created',
-    conversationId: 'conv-guardian-001',
-    requestId: 'req-001',
-    callSessionId: 'call-sess-001',
-    title: 'Guardian approval request',
-  },
   subagent_spawned: {
     type: 'subagent_spawned',
     subagentId: 'sub-001',
@@ -1681,6 +1674,13 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     text: 'Hello world',
     mode: 'dictation',
     actionPlan: undefined,
+  },
+  guardian_request_thread_created: {
+    type: 'guardian_request_thread_created',
+    conversationId: 'conv-guardian-req-001',
+    requestId: 'req-guardian-001',
+    callSessionId: 'call-guardian-001',
+    title: 'Guardian action request',
   },
 };
 
