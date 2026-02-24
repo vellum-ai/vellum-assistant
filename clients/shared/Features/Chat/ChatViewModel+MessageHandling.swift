@@ -904,6 +904,7 @@ extension ChatViewModel {
                 toolName: msg.toolName,
                 inputSummary: summarizeToolInput(msg.input),
                 inputFull: formatAllToolInput(msg.input),
+                inputRawValue: extractToolInput(msg.input),
                 arrivedBeforeText: !currentAssistantHasText,
                 startedAt: Date()
             )

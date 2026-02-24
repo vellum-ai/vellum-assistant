@@ -275,8 +275,8 @@ private struct UsedToolsRow: View {
     /// Open the image in Preview.app. Tries the original file path first; falls
     /// back to writing the NSImage to a temp file when the path is unavailable.
     private func openImageInPreview(_ image: NSImage) {
-        // Use inputSummary (bare value without key prefix) for file path checks
-        let path = toolCall.inputSummary
+        // Use inputRawValue (untruncated) for file path checks
+        let path = toolCall.inputRawValue
         if !path.isEmpty && FileManager.default.fileExists(atPath: path) {
             openInPreview(URL(fileURLWithPath: path))
             return
