@@ -21,6 +21,7 @@ import type {
 import { log, wireEscalationHandler, renderHistoryContent, defineHandlers, setQaLatch, clearQaLatch, isQaLatchActive, type HandlerContext } from './shared.js';
 import { handleCuSessionCreate } from './computer-use.js';
 import { detectQaIntent, detectQaOptOut, shouldRouteQaToComputerUse } from '../qa-intent.js';
+import { detectRecordingIntent } from '../recording-intent.js';
 import { resolveComputerUseTargetAppHint } from '../target-app-hints.js';
 
 // ─── Task submit handler ────────────────────────────────────────────────────
@@ -72,9 +73,10 @@ export async function handleTaskSubmit(
     const isOptOut = detectQaOptOut(msg.task);
     const qaLatchActive = isQaLatchActive(msg.conversationId);
     const forceQaComputerUse = shouldRouteQaToComputerUse(msg.task);
+    const isRecordingRequested = detectRecordingIntent(msg.task);
     const interactionType = slashCandidate.kind === 'candidate'
       ? 'text_qa' as const
-      : forceQaComputerUse
+      : (forceQaComputerUse || isRecordingRequested)
         ? 'computer_use' as const
         : await classifyInteraction(msg.task, msg.source);
 
@@ -87,14 +89,17 @@ export async function handleTaskSubmit(
     }
 
     const config = getConfig();
-    // Determine whether recording is required: explicit flag on the message, or (QA intent or active latch) + config flag
-    const requiresRecording = msg.requiresRecording ?? ((isQa || (qaLatchActive && !isOptOut)) && config.qaRecording.enforceStartBeforeActions);
+    const effectiveQa = isQa || (qaLatchActive && !isOptOut);
+    // Recording required when: explicit flag, standalone recording request, or QA intent + config flag
+    const requiresRecording = msg.requiresRecording
+      ?? (isRecordingRequested || (effectiveQa && config.qaRecording.enforceStartBeforeActions));
 
     rlog.info({
       interactionType,
       slashBypass: slashCandidate.kind === 'candidate',
       taskLength: msg.task.length,
       isQa,
+      isRecordingRequested,
       forceQaComputerUse,
       qaLatchActive,
       requiresRecording,
@@ -104,8 +109,8 @@ export async function handleTaskSubmit(
       // Create CU session (reuse handleCuSessionCreate logic)
       const sessionId = uuid();
       const targetApp = resolveComputerUseTargetAppHint(msg.task);
-      const effectiveQa = isQa || (qaLatchActive && !isOptOut);
-      const strictVisualQa = requiresRecording && !!(targetApp?.bundleId || targetApp?.appName);
+      // strictVisualQa only for QA mode — generic recording should NOT inherit QA guardrails
+      const strictVisualQa = effectiveQa && requiresRecording && !!(targetApp?.bundleId || targetApp?.appName);
       const cuMsg: CuSessionCreate = {
         type: 'cu_session_create',
         sessionId,
@@ -115,7 +120,9 @@ export async function handleTaskSubmit(
         attachments: msg.attachments,
         interactionType: 'computer_use',
         ...(targetApp ? { targetAppName: targetApp.appName, targetAppBundleId: targetApp.bundleId } : {}),
-        ...(effectiveQa ? { qaMode: true, reportToSessionId: msg.conversationId } : {}),
+        ...(effectiveQa ? { qaMode: true } : {}),
+        // reportToSessionId needed for both QA and recording-only so the video attaches back to chat
+        ...(requiresRecording || effectiveQa ? { reportToSessionId: msg.conversationId } : {}),
         ...(requiresRecording ? { requiresRecording: true } : {}),
         ...(strictVisualQa ? { strictVisualQa: true } : {}),
       };
@@ -126,8 +133,9 @@ export async function handleTaskSubmit(
         sessionId,
         interactionType: 'computer_use',
         ...(targetApp ? { targetAppName: targetApp.appName, targetAppBundleId: targetApp.bundleId } : {}),
-        ...(effectiveQa ? {
-          qaMode: true,
+        ...(effectiveQa ? { qaMode: true } : {}),
+        // Recording config for both QA and standalone recording sessions
+        ...(requiresRecording || effectiveQa ? {
           reportToSessionId: msg.conversationId,
           retentionDays: config.qaRecording.defaultRetentionDays,
           captureScope: config.qaRecording.captureScope,

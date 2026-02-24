@@ -102,6 +102,8 @@ export interface TaskSubmit {
   source?: 'voice' | 'text';
   /** When set, overrides the QA-based requiresRecording computation. */
   requiresRecording?: boolean;
+  /** Active conversation/thread ID — used for QA latch tracking and reportToSessionId. */
+  conversationId?: string;
 }
 
 export interface RideShotgunStart {

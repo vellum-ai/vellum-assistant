@@ -30,9 +30,18 @@ protocol AccessibilityTreeProviding {
     func enumerateSecondaryWindows(excludingPID: pid_t?, maxWindows: Int) -> [WindowInfo]
     /// Optional element registry — populated during enumeration for AX-first action targeting.
     var elementRegistry: AXElementRegistry? { get }
+    /// When true, enumerating Vellum's own window is allowed (for self-targeted CU sessions).
+    var allowSelfEnumeration: Bool { get }
+}
+
+extension AccessibilityTreeProviding {
+    var allowSelfEnumeration: Bool { false }
 }
 
 final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
+    /// When true, enumerating Vellum's own window is allowed instead of skipping to the previous app.
+    var allowSelfEnumeration: Bool = false
+
     private var nextId = 1
     /// PID of the last successfully enumerated target app, used to resolve the
     /// correct app when our own window is frontmost.
@@ -118,7 +127,8 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
         }
 
         // Skip our own app — we want the window behind the overlay
-        if let myId = myBundleId, frontApp.bundleIdentifier == myId {
+        // Unless allowSelfEnumeration is set (self-targeted CU sessions)
+        if let myId = myBundleId, frontApp.bundleIdentifier == myId, !allowSelfEnumeration {
             log.info("Skipping own app, looking for previous app")
             return enumeratePreviousApp()
         }

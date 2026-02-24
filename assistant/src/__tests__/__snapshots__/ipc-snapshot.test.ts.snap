@@ -37,7 +37,7 @@ exports[`IPC message snapshots ClientMessage types session_create serializes to 
   "threadType": "standard",
   "title": "New session",
   "transport": {
-    "channelId": "desktop",
+    "channelId": "macos",
     "hints": [
       "dashboard-capable",
     ],
@@ -222,6 +222,7 @@ exports[`IPC message snapshots ClientMessage types watch_observation serializes 
 
 exports[`IPC message snapshots ClientMessage types task_submit serializes to expected JSON 1`] = `
 {
+  "conversationId": "conv-001",
   "screenHeight": 1080,
   "screenWidth": 1920,
   "task": "Open Safari and search for weather",
@@ -640,6 +641,14 @@ exports[`IPC message snapshots ClientMessage types twilio_config serializes to e
 {
   "action": "get",
   "type": "twilio_config",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types channel_readiness serializes to expected JSON 1`] = `
+{
+  "action": "get",
+  "channel": "telegram",
+  "type": "channel_readiness",
 }
 `;
 
@@ -2064,6 +2073,29 @@ exports[`IPC message snapshots ServerMessage types twilio_config_response serial
   "phoneNumber": "+15551234567",
   "success": true,
   "type": "twilio_config_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types channel_readiness_response serializes to expected JSON 1`] = `
+{
+  "snapshots": [
+    {
+      "channel": "telegram",
+      "checkedAt": 1700000000,
+      "localChecks": [
+        {
+          "message": "Bot token configured",
+          "name": "bot_token",
+          "passed": true,
+        },
+      ],
+      "ready": true,
+      "reasons": [],
+      "stale": false,
+    },
+  ],
+  "success": true,
+  "type": "channel_readiness_response",
 }
 `;
 

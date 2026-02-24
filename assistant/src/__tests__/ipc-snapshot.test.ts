@@ -162,6 +162,7 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     task: 'Open Safari and search for weather',
     screenWidth: 1920,
     screenHeight: 1080,
+    conversationId: 'conv-001',
   },
   ui_surface_action: {
     type: 'ui_surface_action',
@@ -408,6 +409,11 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
   twilio_config: {
     type: 'twilio_config',
     action: 'get',
+  },
+  channel_readiness: {
+    type: 'channel_readiness',
+    action: 'get',
+    channel: 'telegram',
   },
   guardian_verification: {
     type: 'guardian_verification',
@@ -1313,6 +1319,20 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     success: true,
     hasCredentials: true,
     phoneNumber: '+15551234567',
+  },
+  channel_readiness_response: {
+    type: 'channel_readiness_response',
+    success: true,
+    snapshots: [
+      {
+        channel: 'telegram',
+        ready: true,
+        checkedAt: 1700000000,
+        stale: false,
+        reasons: [],
+        localChecks: [{ name: 'bot_token', passed: true, message: 'Bot token configured' }],
+      },
+    ],
   },
   guardian_verification_response: {
     type: 'guardian_verification_response',

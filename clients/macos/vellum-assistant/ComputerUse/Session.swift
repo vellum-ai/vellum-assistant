@@ -70,7 +70,7 @@ final class ComputerUseSession: ObservableObject {
     private let skipSessionCreate: Bool
     private let notificationService: ActivityNotificationServiceProtocol?
 
-    /// Screen recorder for QA mode — nil when not in QA mode.
+    /// Screen recorder — nil when recording is not requested (neither QA nor standalone recording).
     private let screenRecorder: ScreenRecording?
     /// Origin chat session ID for result injection (QA workflow).
     let reportToSessionId: String?
@@ -78,9 +78,9 @@ final class ComputerUseSession: ObservableObject {
     let qaMode: Bool
     /// Recording retention in days (from daemon config, default 7).
     let retentionDays: Int
-    /// Capture scope for QA recording (from daemon config, default "display").
+    /// Capture scope for screen recording (from daemon config, default "display").
     let captureScope: String
-    /// Whether to include audio in QA recording (from daemon config, default false).
+    /// Whether to include audio in screen recording (from daemon config, default false).
     let includeAudio: Bool
     /// When true, recording MUST start before any action; failure aborts the session.
     let requiresRecording: Bool
@@ -119,7 +119,9 @@ final class ComputerUseSession: ObservableObject {
     private var consecutiveUnchangedSteps = 0
     private var currentStepNumber = 0
     private var consecutiveFrontmostBlocks = 0
-    private var didFinalizeQARecording = false
+    private var didFinalizeRecording = false
+    /// Whether this session should finalize recording on completion (has a recorder, regardless of QA mode).
+    private var shouldFinalizeRecording: Bool { screenRecorder != nil }
     @Published private(set) var qaRecordingWarningMessage: String?
     /// Whether screen recording is currently active (for UI indicator).
     @Published private(set) var isRecordingActive: Bool = false
@@ -133,7 +135,7 @@ final class ComputerUseSession: ObservableObject {
     init(
         task: String,
         daemonClient: DaemonClientProtocol,
-        enumerator: AccessibilityTreeProviding = AccessibilityTreeEnumerator(),
+        enumerator: AccessibilityTreeProviding? = nil,
         screenCapture: ScreenCaptureProviding = ScreenCapture(),
         executor: ActionExecuting = ActionExecutor(),
         maxSteps: Int = 50,
@@ -160,7 +162,28 @@ final class ComputerUseSession: ObservableObject {
         self.attachments = attachments
         self.daemonClient = daemonClient
         self.interactionType = interactionType
-        self.enumerator = enumerator
+
+        // Auto-configure enumerator: when the session targets Vellum itself,
+        // allow enumerating our own window instead of skipping to the previous app.
+        if let enumerator = enumerator {
+            self.enumerator = enumerator
+        } else {
+            let selfBundleId = Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant"
+            let isSelfTargeted: Bool
+            if let bid = targetAppBundleId, !bid.isEmpty {
+                isSelfTargeted = bid == selfBundleId
+            } else if let name = targetAppName, !name.isEmpty {
+                let lower = name.lowercased()
+                isSelfTargeted = lower == "vellum" || lower == "vellum assistant"
+            } else {
+                isSelfTargeted = false
+            }
+            let newEnumerator = AccessibilityTreeEnumerator()
+            if isSelfTargeted {
+                newEnumerator.allowSelfEnumeration = true
+            }
+            self.enumerator = newEnumerator
+        }
         self.screenCapture = screenCapture
         self.executor = executor
         self.maxSteps = maxSteps
@@ -195,7 +218,7 @@ final class ComputerUseSession: ObservableObject {
         consecutiveUnchangedSteps = 0
         currentStepNumber = 0
         consecutiveFrontmostBlocks = 0
-        didFinalizeQARecording = false
+        didFinalizeRecording = false
         state = .running(step: 0, maxSteps: maxSteps, lastAction: "Starting...", reasoning: "")
 
         // QA sessions auto-approve low/medium tools from the start.
@@ -214,8 +237,8 @@ final class ComputerUseSession: ObservableObject {
             try? await Task.sleep(nanoseconds: initialDelayMs * 1_000_000)
         }
 
-        // Start screen recording in QA mode
-        if qaMode, let recorder = screenRecorder {
+        // Start screen recording when a recorder is available (QA or standalone recording)
+        if let recorder = screenRecorder {
             do {
                 var windowID: CGWindowID?
                 var displayID: CGDirectDisplayID?
@@ -236,7 +259,7 @@ final class ComputerUseSession: ObservableObject {
                         }
                     }
                     if windowID == nil {
-                        log.warning("QA mode: captureScope is 'window' but no suitable target window found — falling back to display capture")
+                        log.warning("Recording: captureScope is 'window' but no suitable target window found — falling back to display capture")
                     }
                 } else {
                     displayID = CGMainDisplayID()
@@ -246,7 +269,7 @@ final class ComputerUseSession: ObservableObject {
                 // Verify capture pipeline is healthy by waiting for first frame
                 let firstFrameReceived = await recorder.waitForFirstFrame(timeoutSeconds: 5.0)
                 if !firstFrameReceived {
-                    log.error("QA mode: first video frame not received within 5 seconds — capture pipeline unhealthy")
+                    log.error("Recording: first video frame not received within 5 seconds — capture pipeline unhealthy")
                     try? daemonClient.send(CuRecordingStatusMessage(sessionId: id, status: "failed", reason: "First frame not received within 5 seconds"))
                     if requiresRecording {
                         state = .failed(reason: "Recording required but capture pipeline failed: no frames received")
@@ -254,13 +277,13 @@ final class ComputerUseSession: ObservableObject {
                         logger.finishSession(result: "failed: first frame timeout")
                         cancelSafetyNetTask?.cancel()
                         cancelSafetyNetTask = nil
-                        await finalizeQARecording()
+                        await finalizeRecording()
                         return
                     }
                     qaRecordingWarningMessage = "Recording may be incomplete: capture pipeline was slow to start"
                 }
 
-                log.info("QA mode: screen recording started for session \(self.id) (scope: \(self.captureScope))")
+                log.info("Recording: screen recording started for session \(self.id) (scope: \(self.captureScope))")
                 isRecordingActive = true
                 // Notify daemon that recording started successfully
                 try? daemonClient.send(CuRecordingStatusMessage(sessionId: id, status: "started"))
@@ -271,7 +294,7 @@ final class ComputerUseSession: ObservableObject {
                 } else {
                     reason = error.localizedDescription
                 }
-                log.error("QA mode: failed to start screen recording: \(reason)")
+                log.error("Recording: failed to start screen recording: \(reason)")
                 // Notify daemon of recording failure
                 try? daemonClient.send(CuRecordingStatusMessage(sessionId: id, status: "failed", reason: reason))
                 if requiresRecording {
@@ -281,7 +304,7 @@ final class ComputerUseSession: ObservableObject {
                     logger.finishSession(result: "failed: required recording could not start")
                     cancelSafetyNetTask?.cancel()
                     cancelSafetyNetTask = nil
-                    await finalizeQARecording()
+                    await finalizeRecording()
                     return
                 }
                 // Non-fatal for best-effort recording — continue the session without recording
@@ -327,8 +350,8 @@ final class ComputerUseSession: ObservableObject {
                 // Disarm cancel safety net — this run is terminating early.
                 cancelSafetyNetTask?.cancel()
                 cancelSafetyNetTask = nil
-                if qaMode {
-                    await finalizeQARecording()
+                if shouldFinalizeRecording {
+                    await finalizeRecording()
                 }
                 return
             }
@@ -346,8 +369,8 @@ final class ComputerUseSession: ObservableObject {
                 // Disarm cancel safety net — this run is terminating early.
                 cancelSafetyNetTask?.cancel()
                 cancelSafetyNetTask = nil
-                if qaMode {
-                    await finalizeQARecording()
+                if shouldFinalizeRecording {
+                    await finalizeRecording()
                 }
                 return
             }
@@ -359,11 +382,11 @@ final class ComputerUseSession: ObservableObject {
             cancelSafetyNetTask?.cancel()
             cancelSafetyNetTask = nil
 
-            // Finalize QA recording BEFORE sending abort — the daemon's handleCuSessionAbort
+            // Finalize recording BEFORE sending abort — the daemon's handleCuSessionAbort
             // deletes cuSessionMetadata, so cu_session_finalized must arrive first for
             // summary injection to work.
-            if qaMode {
-                await finalizeQARecording()
+            if shouldFinalizeRecording {
+                await finalizeRecording()
             }
             do {
                 try daemonClient.send(CuSessionAbortMessage(sessionId: id))
@@ -458,10 +481,10 @@ final class ComputerUseSession: ObservableObject {
         cancelSafetyNetTask?.cancel()
         cancelSafetyNetTask = nil
 
-        // Finalize QA recording and send cu_session_finalized
+        // Finalize recording and send cu_session_finalized
         // Guard: skip if already finalized (e.g. frontmost guard limit triggered finalization early)
-        if qaMode && !didFinalizeQARecording {
-            await finalizeQARecording()
+        if shouldFinalizeRecording && !didFinalizeRecording {
+            await finalizeRecording()
 
             // Send the abort immediately after finalization for cancelled QA sessions.
             // This arrives before cancel()'s 2-second safety-net abort fires.
@@ -616,10 +639,10 @@ final class ComputerUseSession: ObservableObject {
                     : "Target app could not be activated after repeated attempts.")
                 logger.finishSession(result: "failed: frontmost guard\(strictVisualQa ? " (strict)" : "") — \(guardError)")
 
-                // Finalize QA recording BEFORE sending abort — the daemon's handleCuSessionAbort
+                // Finalize recording BEFORE sending abort — the daemon's handleCuSessionAbort
                 // deletes cuSessionMetadata, so cu_session_finalized must arrive first.
-                if qaMode {
-                    await finalizeQARecording()
+                if shouldFinalizeRecording {
+                    await finalizeRecording()
                 }
                 do {
                     try daemonClient.send(CuSessionAbortMessage(sessionId: id))
@@ -704,8 +727,8 @@ final class ComputerUseSession: ObservableObject {
                     isCancelled = true
                     state = .failed(reason: "FOCUS_ACQUIRE_FAILED: open_app '\(openedAppName ?? openedAppBundleId ?? "unknown")' — \(reason)")
                     logger.finishSession(result: "failed: open_app focus verification — \(reason)")
-                    if qaMode {
-                        await finalizeQARecording()
+                    if shouldFinalizeRecording {
+                        await finalizeRecording()
                     }
                     do {
                         try daemonClient.send(CuSessionAbortMessage(sessionId: id))
@@ -730,8 +753,8 @@ final class ComputerUseSession: ObservableObject {
                 isCancelled = true
                 state = .failed(reason: "FOCUS_ACQUIRE_FAILED: post-action drift — \(reason)")
                 logger.finishSession(result: "failed: post-action focus drift — \(reason)")
-                if qaMode {
-                    await finalizeQARecording()
+                if shouldFinalizeRecording {
+                    await finalizeRecording()
                 }
                 do {
                     try daemonClient.send(CuSessionAbortMessage(sessionId: id))
@@ -809,6 +832,7 @@ final class ComputerUseSession: ObservableObject {
         var axDiffText: String?
         var secondaryWindowsText: String?
         var primaryPID: pid_t?
+        var mergedExecutionError = executionError
 
         let stepNumber = currentStepNumber + 1
 
@@ -835,6 +859,25 @@ final class ComputerUseSession: ObservableObject {
             } else {
                 isExternalTarget = false
             }
+
+            // SELF-TARGET DRIFT DETECTION — if this session explicitly targets Vellum
+            // but the frontmost app is something else, the AX tree may be from the wrong app.
+            // Surface a warning in executionError so the agent can react (e.g., refocus Vellum).
+            let isSelfTargeted = !isExternalTarget && (targetAppBundleId != nil || targetAppName != nil)
+            if isSelfTargeted {
+                let selfBundleId = Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant"
+                if let frontApp = NSWorkspace.shared.frontmostApplication,
+                   frontApp.bundleIdentifier != selfBundleId {
+                    let driftMsg = "SELF_TARGET_FOCUS_DRIFT: Session targets Vellum but frontmost app is '\(frontApp.localizedName ?? frontApp.bundleIdentifier ?? "unknown")'. AX tree may be from wrong app."
+                    log.warning("\(driftMsg)")
+                    if let existing = mergedExecutionError {
+                        mergedExecutionError = "\(existing)\n\(driftMsg)"
+                    } else {
+                        mergedExecutionError = driftMsg
+                    }
+                }
+            }
+
             if !didChromeAccessibilityCheck,
                !isExternalTarget,
                let frontApp = NSWorkspace.shared.frontmostApplication,
@@ -1003,7 +1046,7 @@ final class ComputerUseSession: ObservableObject {
             coordinateOrigin: screenSizePt != nil ? "top_left" : nil,
             captureDisplayId: screenshotMetadata.map { Double($0.captureDisplayId) },
             executionResult: executionResult,
-            executionError: executionError,
+            executionError: mergedExecutionError,
             axTreeBlob: axTreeBlobRef,
             screenshotBlob: screenshotBlobRef,
             frontmostAppName: frontmostAppName,
@@ -1345,7 +1388,7 @@ final class ComputerUseSession: ObservableObject {
             .flatMap { $0.toolCalls }
     }
 
-    // MARK: - QA Recording Finalization
+    // MARK: - Recording Finalization
 
     /// Validates that a video file is playable by checking for a video track with non-zero dimensions and duration.
     private func validateVideoPlayability(at url: URL) async -> Bool {
@@ -1353,29 +1396,29 @@ final class ComputerUseSession: ObservableObject {
         do {
             let tracks = try await asset.load(.tracks)
             guard let videoTrack = tracks.first(where: { $0.mediaType == .video }) else {
-                log.warning("QA mode: salvage video has no video track at \(url.lastPathComponent)")
+                log.warning("Recording: salvage video has no video track at \(url.lastPathComponent)")
                 return false
             }
             let size = try await videoTrack.load(.naturalSize)
             guard size.width > 0, size.height > 0 else {
-                log.warning("QA mode: salvage video has zero-size video track at \(url.lastPathComponent)")
+                log.warning("Recording: salvage video has zero-size video track at \(url.lastPathComponent)")
                 return false
             }
             let duration = try await asset.load(.duration)
             guard CMTimeGetSeconds(duration) > 0 else {
-                log.warning("QA mode: salvage video has zero duration at \(url.lastPathComponent)")
+                log.warning("Recording: salvage video has zero duration at \(url.lastPathComponent)")
                 return false
             }
             return true
         } catch {
-            log.warning("QA mode: salvage video validation failed at \(url.lastPathComponent): \(error.localizedDescription)")
+            log.warning("Recording: salvage video validation failed at \(url.lastPathComponent): \(error.localizedDescription)")
             return false
         }
     }
 
     /// Stops the screen recorder (if active) and sends a `cu_session_finalized` message to the daemon.
-    private func finalizeQARecording() async {
-        defer { didFinalizeQARecording = true }
+    private func finalizeRecording() async {
+        defer { didFinalizeRecording = true }
 
         // Map SessionState to a status string
         let status: String
@@ -1423,7 +1466,7 @@ final class ComputerUseSession: ObservableObject {
                     expiresAt: expiresAtEpoch
                 )
                 isRecordingActive = false
-                log.info("QA recording finalized: \(result.fileURL.lastPathComponent) (\(result.sizeBytes) bytes, \(result.durationMs)ms)")
+                log.info("Recording finalized: \(result.fileURL.lastPathComponent) (\(result.sizeBytes) bytes, \(result.durationMs)ms)")
                 // Notify daemon that recording stopped successfully
                 try? daemonClient.send(CuRecordingStatusMessage(sessionId: id, status: "stopped"))
             } catch {
@@ -1434,7 +1477,7 @@ final class ComputerUseSession: ObservableObject {
                 } else {
                     reason = error.localizedDescription
                 }
-                log.error("QA mode: failed to stop screen recording: \(reason)")
+                log.error("Recording: failed to stop screen recording: \(reason)")
                 try? daemonClient.send(CuRecordingStatusMessage(sessionId: id, status: "failed", reason: reason))
                 if qaRecordingWarningMessage == nil {
                     qaRecordingWarningMessage = "Unable to finalize recording. \(reason)"
@@ -1446,7 +1489,7 @@ final class ComputerUseSession: ObservableObject {
                     let attrs = try? FileManager.default.attributesOfItem(atPath: salvageURL.path)
                     let sizeBytes = (attrs?[.size] as? Int) ?? 0
                     let expiresAtEpoch = Int(Date().addingTimeInterval(Double(retentionDays) * 24 * 3600).timeIntervalSince1970 * 1000)
-                    log.info("QA mode: salvaging partial recording at \(salvageURL.lastPathComponent) (\(sizeBytes) bytes)")
+                    log.info("Recording: salvaging partial recording at \(salvageURL.lastPathComponent) (\(sizeBytes) bytes)")
                     recordingData = IPCCuSessionFinalizedRecording(
                         localPath: salvageURL.path,
                         mimeType: "video/mp4",
@@ -1461,14 +1504,14 @@ final class ComputerUseSession: ObservableObject {
                     )
                 } else if let salvageURL = (recorder as? ScreenRecorder)?.lastRecordingFileURL,
                           FileManager.default.fileExists(atPath: salvageURL.path) {
-                    log.warning("QA mode: salvage recording at \(salvageURL.lastPathComponent) failed playability check — discarding")
+                    log.warning("Recording: salvage recording at \(salvageURL.lastPathComponent) failed playability check — discarding")
                 }
             }
         }
 
         // If recording was required but no artifact was produced, mark as failure
         if requiresRecording && recordingData == nil && status != "failed" {
-            log.error("QA mode: recording was required but no recording artifact exists")
+            log.error("Recording: recording was required but no recording artifact exists")
             // Override status to failed — the session cannot be considered successful without a recording
             let failedStatus = "failed"
             let failedSummary = "Recording required but no recording artifact produced"
@@ -1480,9 +1523,9 @@ final class ComputerUseSession: ObservableObject {
                     stepCount: stepCount,
                     recording: nil
                 ))
-                log.info("QA mode: sent cu_session_finalized for session \(self.id) (status: \(failedStatus))")
+                log.info("Recording: sent cu_session_finalized for session \(self.id) (status: \(failedStatus))")
             } catch {
-                log.error("QA mode: failed to send cu_session_finalized: \(error.localizedDescription)")
+                log.error("Recording: failed to send cu_session_finalized: \(error.localizedDescription)")
             }
             return
         }
@@ -1496,9 +1539,9 @@ final class ComputerUseSession: ObservableObject {
                 stepCount: stepCount,
                 recording: recordingData
             ))
-            log.info("QA mode: sent cu_session_finalized for session \(self.id) (status: \(status))")
+            log.info("Recording: sent cu_session_finalized for session \(self.id) (status: \(status))")
         } catch {
-            log.error("QA mode: failed to send cu_session_finalized: \(error.localizedDescription)")
+            log.error("Recording: failed to send cu_session_finalized: \(error.localizedDescription)")
         }
     }
 
@@ -1521,7 +1564,7 @@ final class ComputerUseSession: ObservableObject {
         confirmationContinuation = nil
         pendingToolPermissionPrompt = nil
 
-        if qaMode {
+        if shouldFinalizeRecording {
             // Deferred abort: give run() a chance to send finalization first,
             // but guarantee abort eventually fires as a safety net in case
             // run() never reaches the post-loop block (e.g., throws or gets stuck).

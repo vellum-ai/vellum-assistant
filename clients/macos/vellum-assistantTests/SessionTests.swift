@@ -56,6 +56,7 @@ final class MockAccessibilityTreeEnumerator: AccessibilityTreeProviding {
     var result: (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)?
     var secondaryWindowCallCount = 0
     let elementRegistry: AXElementRegistry? = nil
+    var allowSelfEnumeration: Bool = false
 
     init(result: (elements: [AXElement], windowTitle: String, appName: String)? = nil) {
         if let r = result {
@@ -1672,6 +1673,68 @@ final class SessionTests: XCTestCase {
         // Large scenario: inline >400KB (300KB screenshot → 400KB base64 + 12KB AX tree), blob <1KB
         XCTAssertGreaterThan(inlineLargeJSON.count, 400_000)
         XCTAssertLessThan(blobLargeJSON.count, 1_000)
+    }
+
+    // MARK: - Self-Enumeration
+
+    @MainActor
+    func testAllowSelfEnumeration_defaultsFalse() async {
+        let enumerator = AccessibilityTreeEnumerator()
+        XCTAssertFalse(enumerator.allowSelfEnumeration, "allowSelfEnumeration should default to false")
+    }
+
+    @MainActor
+    func testMockAllowSelfEnumeration_defaultsFalse() async {
+        let mock = MockAccessibilityTreeEnumerator()
+        XCTAssertFalse(mock.allowSelfEnumeration, "Mock allowSelfEnumeration should default to false")
+    }
+
+    @MainActor
+    func testSelfTargetedSession_includesVellumAXTree() async {
+        let daemonClient = MockDaemonClient()
+        let continuation = daemonClient.setupTestStream()
+        let enumerator = MockAccessibilityTreeEnumerator(
+            result: (elements: makeTestElements(), windowTitle: "Vellum Window", appName: "Vellum")
+        )
+        // Simulate a self-targeted session — the enumerator should be used as-is
+        let session = ComputerUseSession(
+            task: "test self-targeted",
+            daemonClient: daemonClient,
+            enumerator: enumerator,
+            screenCapture: MockScreenCapture(),
+            executor: MockActionExecutor(),
+            maxSteps: 50,
+            initialDelayMs: 0,
+            adaptiveDelay: false,
+            targetAppName: "Vellum"
+        )
+
+        let runTask = Task { @MainActor in
+            await session.run()
+        }
+
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        // The observation should contain the AX tree from the enumerator (Vellum's own window)
+        let obsMessages = daemonClient.sentMessages.compactMap { $0 as? CuObservationMessage }
+        XCTAssertGreaterThanOrEqual(obsMessages.count, 1, "Should have sent at least one observation")
+        let firstObs = obsMessages[0]
+        XCTAssertNotNil(firstObs.axTree, "Self-targeted session should include AX tree")
+        XCTAssertTrue(firstObs.axTree?.contains("Vellum") == true, "AX tree should reference Vellum app")
+
+        // Clean up
+        continuation.yield(.cuComplete(makeCompleteMessage(
+            sessionId: session.id,
+            summary: "Self-target done",
+            stepCount: 1
+        )))
+        await runTask.value
+
+        if case .completed(let summary, _) = session.state {
+            XCTAssertEqual(summary, "Self-target done")
+        } else {
+            XCTFail("Expected completed state, got \(session.state)")
+        }
     }
 }
 

@@ -3075,14 +3075,16 @@ public struct IPCSessionListResponseSession: Codable, Sendable {
     public let source: String?
     /// Channel binding metadata exposed in session/conversation list APIs.
     public let channelBinding: IPCChannelBinding?
+    public let conversationOriginChannel: String?
 
-    public init(id: String, title: String, updatedAt: Int, threadType: String? = nil, source: String? = nil, channelBinding: IPCChannelBinding? = nil) {
+    public init(id: String, title: String, updatedAt: Int, threadType: String? = nil, source: String? = nil, channelBinding: IPCChannelBinding? = nil, conversationOriginChannel: String? = nil) {
         self.id = id
         self.title = title
         self.updatedAt = updatedAt
         self.threadType = threadType
         self.source = source
         self.channelBinding = channelBinding
+        self.conversationOriginChannel = conversationOriginChannel
     }
 }
 
@@ -3901,16 +3903,19 @@ public struct IPCTaskSubmit: Codable, Sendable {
     public let screenHeight: Int
     public let attachments: [IPCUserMessageAttachment]?
     public let source: String?
-    /// The originating conversation/thread ID, if submitting from a chat context.
+    /// When set, overrides the QA-based requiresRecording computation.
+    public let requiresRecording: Bool?
+    /// Active conversation/thread ID — used for QA latch tracking and reportToSessionId.
     public let conversationId: String?
 
-    public init(type: String, task: String, screenWidth: Int, screenHeight: Int, attachments: [IPCUserMessageAttachment]? = nil, source: String? = nil, conversationId: String? = nil) {
+    public init(type: String, task: String, screenWidth: Int, screenHeight: Int, attachments: [IPCUserMessageAttachment]? = nil, source: String? = nil, requiresRecording: Bool? = nil, conversationId: String? = nil) {
         self.type = type
         self.task = task
         self.screenWidth = screenWidth
         self.screenHeight = screenHeight
         self.attachments = attachments
         self.source = source
+        self.requiresRecording = requiresRecording
         self.conversationId = conversationId
     }
 }
