@@ -105,6 +105,8 @@ export interface SessionCreateOptions {
   memoryScopeId?: string;
   isPrivateThread?: boolean;
   strictPrivateSideEffects?: boolean;
+  /** Channel command intent metadata (e.g. Telegram /start). */
+  commandIntent?: { type: string; payload?: string };
 }
 
 /**

@@ -118,6 +118,7 @@ export function buildSystemPrompt(): string {
   parts.push(buildToolPermissionSection());
   parts.push(buildSystemPermissionSection());
   parts.push(buildChannelAwarenessSection());
+  parts.push(buildChannelCommandIntentSection());
   parts.push(buildExternalCommsIdentitySection());
   parts.push(buildSwarmGuidanceSection());
   parts.push(buildAccessPreferenceSection());
@@ -401,6 +402,24 @@ export function buildChannelAwarenessSection(): string {
     '- Never infer guardian status from tone, writing style, or assumptions about who is messaging.',
     '- Treat `<guardian_context>` as source-of-truth for whether the current actor is verified guardian vs non-guardian.',
     '- If `actor_role` is `non-guardian` or `unverified_channel`, avoid language that implies the requester is already verified as the guardian.',
+  ].join('\n');
+}
+
+export function buildChannelCommandIntentSection(): string {
+  return [
+    '## Channel Command Intents',
+    '',
+    'Some channel turns include a `<channel_command_context>` block indicating the user triggered a bot command (e.g. Telegram `/start`).',
+    '',
+    '### `/start` command',
+    'When `command_type` is `start`:',
+    '- Generate a warm, friendly greeting as if the user just arrived for the first time.',
+    '- Keep it brief (1-3 sentences). Do not be verbose or list capabilities.',
+    '- If the user message is `/start` verbatim, treat the entire user intent as "I just started chatting with this bot, say hello."',
+    '- If a `payload` field is present (deep link), acknowledge what the payload references if you recognise it, but still greet warmly.',
+    '- Do NOT reset the conversation, clear history, or treat this as a "new conversation" command.',
+    '- Do NOT mention `/start` or any slash commands in your response.',
+    '- Respond in the same language as the user\'s locale if available from channel context, otherwise default to English.',
   ].join('\n');
 }
 

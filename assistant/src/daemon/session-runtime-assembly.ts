@@ -276,6 +276,34 @@ export function injectChannelCapabilityContext(message: Message, caps: ChannelCa
   };
 }
 
+/** Channel command intent metadata (e.g. Telegram /start). */
+export interface ChannelCommandContext {
+  type: string;
+  payload?: string;
+}
+
+/**
+ * Prepend channel command context to the last user message so the
+ * model knows this turn was triggered by a channel command (e.g. /start).
+ */
+export function injectChannelCommandContext(message: Message, ctx: ChannelCommandContext): Message {
+  const lines: string[] = ['<channel_command_context>'];
+  lines.push(`command_type: ${ctx.type}`);
+  if (ctx.payload) {
+    lines.push(`payload: ${ctx.payload}`);
+  }
+  lines.push('</channel_command_context>');
+
+  const block = lines.join('\n');
+  return {
+    ...message,
+    content: [
+      { type: 'text', text: block },
+      ...message.content,
+    ],
+  };
+}
+
 /**
  * Prepend guardian trust/identity facts to the last user message so the
  * model can reason about guardian status from deterministic runtime facts.
@@ -398,9 +426,15 @@ export function stripActiveSurfaceContext(messages: Message[]): Message[] {
 // Declarative strip pipeline
 // ---------------------------------------------------------------------------
 
+/** Strip `<channel_command_context>` blocks injected by `injectChannelCommandContext`. */
+export function stripChannelCommandContext(messages: Message[]): Message[] {
+  return stripUserTextBlocksByPrefix(messages, ['<channel_command_context>']);
+}
+
 /** Prefixes stripped by the pipeline (order doesn't matter — single pass). */
 const RUNTIME_INJECTION_PREFIXES = [
   '<channel_capabilities>',
+  '<channel_command_context>',
   '<guardian_context>',
   '<workspace_top_level>',
   TEMPORAL_INJECTED_PREFIX,
@@ -442,6 +476,7 @@ export function applyRuntimeInjections(
     activeSurface?: ActiveSurfaceContext | null;
     workspaceTopLevelContext?: string | null;
     channelCapabilities?: ChannelCapabilities | null;
+    channelCommandContext?: ChannelCommandContext | null;
     guardianContext?: GuardianRuntimeContext | null;
     temporalContext?: string | null;
   },
@@ -474,6 +509,16 @@ export function applyRuntimeInjections(
       result = [
         ...result.slice(0, -1),
         injectChannelCapabilityContext(userTail, options.channelCapabilities),
+      ];
+    }
+  }
+
+  if (options.channelCommandContext) {
+    const userTail = result[result.length - 1];
+    if (userTail && userTail.role === 'user') {
+      result = [
+        ...result.slice(0, -1),
+        injectChannelCommandContext(userTail, options.channelCommandContext),
       ];
     }
   }

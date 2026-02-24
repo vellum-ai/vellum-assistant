@@ -1123,6 +1123,7 @@ export async function handleTelegramConfig(
 
       const commands = msg.commands ?? [
         { command: 'new', description: 'Start a new conversation' },
+        { command: 'help', description: 'Show available commands' },
         { command: 'guardian_verify', description: 'Verify your guardian identity' },
       ];
 

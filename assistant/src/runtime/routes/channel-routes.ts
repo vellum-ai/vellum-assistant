@@ -495,6 +495,12 @@ export async function handleChannelInbound(
     ? sourceMetadata.uxBrief.trim()
     : undefined;
 
+  // Extract channel command intent (e.g. /start from Telegram)
+  const rawCommandIntent = sourceMetadata?.commandIntent;
+  const commandIntent = rawCommandIntent && typeof rawCommandIntent === 'object' && !Array.isArray(rawCommandIntent)
+    ? rawCommandIntent as Record<string, unknown>
+    : undefined;
+
   const replyCallbackUrl = body.replyCallbackUrl;
 
   // ── Guardian verification command intercept ──
@@ -703,6 +709,7 @@ export async function handleChannelInbound(
         assistantId,
         metadataHints,
         metadataUxBrief,
+        commandIntent,
       });
     } else {
       // Fire-and-forget: process the message and deliver the reply in the background.
@@ -718,6 +725,7 @@ export async function handleChannelInbound(
         guardianCtx,
         metadataHints,
         metadataUxBrief,
+        commandIntent,
         replyCallbackUrl,
         bearerToken,
         assistantId,
@@ -746,6 +754,7 @@ interface BackgroundProcessingParams {
   replyCallbackUrl?: string;
   bearerToken?: string;
   assistantId?: string;
+  commandIntent?: Record<string, unknown>;
 }
 
 function processChannelMessageInBackground(params: BackgroundProcessingParams): void {
@@ -763,10 +772,14 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
     replyCallbackUrl,
     bearerToken,
     assistantId,
+    commandIntent,
   } = params;
 
   (async () => {
     try {
+      const cmdIntent = commandIntent && typeof commandIntent.type === 'string'
+        ? { type: commandIntent.type as string, ...(typeof commandIntent.payload === 'string' ? { payload: commandIntent.payload } : {}) }
+        : undefined;
       const { messageId: userMessageId } = await processMessage(
         conversationId,
         content,
@@ -779,6 +792,7 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
           },
           assistantId,
           guardianContext: toGuardianRuntimeContext(sourceChannel, guardianCtx),
+          ...(cmdIntent ? { commandIntent: cmdIntent } : {}),
         },
         sourceChannel,
       );
@@ -843,6 +857,7 @@ interface ApprovalProcessingParams {
   assistantId: string;
   metadataHints: string[];
   metadataUxBrief?: string;
+  commandIntent?: Record<string, unknown>;
 }
 
 /**
@@ -872,10 +887,15 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
     assistantId,
     metadataHints,
     metadataUxBrief,
+    commandIntent,
   } = params;
 
   const isNonGuardian = guardianCtx.actorRole === 'non-guardian';
   const isUnverifiedChannel = guardianCtx.actorRole === 'unverified_channel';
+
+  const cmdIntent = commandIntent && typeof commandIntent.type === 'string'
+    ? { type: commandIntent.type as string, ...(typeof commandIntent.payload === 'string' ? { payload: commandIntent.payload } : {}) }
+    : undefined;
 
   (async () => {
     try {
@@ -890,6 +910,7 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
           uxBrief: metadataUxBrief,
           assistantId,
           guardianContext: toGuardianRuntimeContext(sourceChannel, guardianCtx),
+          ...(cmdIntent ? { commandIntent: cmdIntent } : {}),
         },
       );
 

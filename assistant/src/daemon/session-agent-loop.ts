@@ -34,7 +34,7 @@ import {
   stripInjectedContext,
 } from './session-runtime-assembly.js';
 import { buildTemporalContext } from './date-context.js';
-import type { ActiveSurfaceContext, ChannelCapabilities, GuardianRuntimeContext } from './session-runtime-assembly.js';
+import type { ActiveSurfaceContext, ChannelCapabilities, ChannelCommandContext, GuardianRuntimeContext } from './session-runtime-assembly.js';
 import {
   cleanAssistantContent,
   drainDirectiveDisplayBuffer,
@@ -95,6 +95,7 @@ export interface AgentLoopSessionContext {
   workspaceTopLevelContext: string | null;
   workspaceTopLevelDirty: boolean;
   channelCapabilities?: ChannelCapabilities;
+  commandIntent?: { type: string; payload?: string };
   guardianContext?: GuardianRuntimeContext;
 
   readonly coreToolNames: Set<string>;
@@ -297,6 +298,7 @@ export async function runAgentLoopImpl(
       activeSurface,
       workspaceTopLevelContext: ctx.workspaceTopLevelContext,
       channelCapabilities: ctx.channelCapabilities ?? null,
+      channelCommandContext: ctx.commandIntent ?? null,
       guardianContext: ctx.guardianContext ?? null,
       temporalContext,
     });

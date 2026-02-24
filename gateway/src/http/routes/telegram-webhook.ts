@@ -27,6 +27,18 @@ export function buildTelegramTransportMetadata(): { hints: string[]; uxBrief: st
   };
 }
 
+/**
+ * Parse `/start` or `/start <payload>` from Telegram message content.
+ * Returns null if the message is not a /start command.
+ */
+export function parseTelegramStartCommand(content: string): { payload?: string } | null {
+  const trimmed = content.trim();
+  if (/^\/start$/i.test(trimmed)) return {};
+  const match = trimmed.match(/^\/start\s+(.+)$/i);
+  if (match) return { payload: match[1].trim() };
+  return null;
+}
+
 // Rate limiter for routing rejection notices — at most one reply per chat
 // within the cooldown window to avoid spamming the user.
 const REJECTION_NOTICE_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
@@ -255,6 +267,88 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
       },
       "Webhook received",
     );
+
+    // Handle /start command — forward to runtime as a channel command intent
+    const startCmd = parseTelegramStartCommand(normalized.message.content);
+    if (startCmd !== null) {
+      const startRouting = resolveAssistant(
+        config,
+        normalized.message.externalChatId,
+        normalized.sender.externalUserId,
+      );
+
+      if (isRejection(startRouting)) {
+        tlog.warn(
+          { chatId: normalized.message.externalChatId, reason: startRouting.reason },
+          "Routing rejected /start command",
+        );
+        if (shouldSendRejectionNotice(normalized.message.externalChatId)) {
+          sendTelegramReply(
+            config,
+            normalized.message.externalChatId,
+            "\u26a0\ufe0f This bot is not fully set up yet. Please check the gateway configuration.",
+          ).catch((err) => {
+            tlog.error({ err, chatId: normalized.message.externalChatId }, "Failed to send /start routing rejection notice");
+          });
+        }
+        return respond({ ok: true });
+      }
+
+      // Forward to runtime with command-intent metadata so the assistant
+      // generates a natural greeting via the normal agent loop.
+      try {
+        const result = await handleInbound(config, normalized, {
+          transportMetadata: buildTelegramTransportMetadata(),
+          replyCallbackUrl: `${config.gatewayInternalBaseUrl}/deliver/telegram`,
+          traceId,
+          sourceMetadata: {
+            commandIntent: {
+              type: "start",
+              ...(startCmd.payload ? { payload: startCmd.payload } : {}),
+            },
+            languageCode: normalized.sender.languageCode,
+          },
+        });
+
+        if (result.rejected) {
+          tlog.warn(
+            { chatId: normalized.message.externalChatId, reason: result.rejectionReason },
+            "Routing rejected /start forward",
+          );
+          if (shouldSendRejectionNotice(normalized.message.externalChatId)) {
+            sendTelegramReply(
+              config,
+              normalized.message.externalChatId,
+              "\u26a0\ufe0f This bot is not fully set up yet. Please check the gateway configuration.",
+            ).catch((err) => {
+              tlog.error({ err, chatId: normalized.message.externalChatId }, "Failed to send /start rejection notice");
+            });
+          }
+        } else if (!result.forwarded) {
+          tlog.error({ updateId: payload.update_id }, "Failed to forward /start to runtime");
+          sendTelegramReply(
+            config,
+            normalized.message.externalChatId,
+            "Welcome! I'm having a brief setup hiccup. Please try again in a moment.",
+          ).catch((err) => {
+            tlog.error({ err }, "Failed to send /start fallback reply");
+          });
+        } else {
+          tlog.info({ status: "forwarded" }, "Forwarded /start to runtime");
+        }
+      } catch (err) {
+        tlog.error({ err, updateId: payload.update_id }, "Failed to process /start command");
+        sendTelegramReply(
+          config,
+          normalized.message.externalChatId,
+          "Welcome! I'm having a brief setup hiccup. Please try again in a moment.",
+        ).catch((replyErr) => {
+          tlog.error({ err: replyErr }, "Failed to send /start error fallback");
+        });
+      }
+
+      return respond({ ok: true });
+    }
 
     // Handle /new command — reset conversation before it reaches the runtime
     if (normalized.message.content.trim() === "/new") {

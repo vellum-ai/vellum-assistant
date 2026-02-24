@@ -669,6 +669,7 @@ export class DaemonServer {
     session.setAssistantId(options?.assistantId ?? 'self');
     session.setGuardianContext(options?.guardianContext ?? null);
     session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel));
+    session.setCommandIntent(options?.commandIntent ?? null);
 
     const attachments = attachmentIds
       ? attachmentsStore.getAttachmentsByIds(attachmentIds).map((a) => ({
@@ -725,6 +726,7 @@ export class DaemonServer {
     session.setAssistantId(options?.assistantId ?? 'self');
     session.setGuardianContext(options?.guardianContext ?? null);
     session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel));
+    session.setCommandIntent(options?.commandIntent ?? null);
 
     const attachments = attachmentIds
       ? attachmentsStore.getAttachmentsByIds(attachmentIds).map((a) => ({

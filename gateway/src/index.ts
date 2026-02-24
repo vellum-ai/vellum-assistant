@@ -159,7 +159,10 @@ function main() {
 
   function registerTelegramCommands(): void {
     callTelegramApi(config, "setMyCommands", {
-      commands: [{ command: "new", description: "Start a new conversation" }],
+      commands: [
+        { command: "new", description: "Start a new conversation" },
+        { command: "help", description: "Show available commands" },
+      ],
     }).catch((err) => {
       log.error({ err }, "Failed to register Telegram bot commands");
     });

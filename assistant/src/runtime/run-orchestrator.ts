@@ -86,6 +86,8 @@ export interface RunStartOptions {
   assistantId?: string;
   /** Guardian trust/identity context for the inbound actor. */
   guardianContext?: GuardianRuntimeContext;
+  /** Channel command intent metadata (e.g. Telegram /start). */
+  commandIntent?: { type: string; payload?: string };
 }
 
 // ---------------------------------------------------------------------------
@@ -152,6 +154,7 @@ export class RunOrchestrator {
     };
     session.setAssistantId(options?.assistantId ?? 'self');
     session.setGuardianContext(options?.guardianContext ?? null);
+    session.setCommandIntent(options?.commandIntent ?? null);
 
     const attachments = attachmentIds
       ? this.deps.resolveAttachments(attachmentIds)
