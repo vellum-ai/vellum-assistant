@@ -17,6 +17,7 @@ import {
   NOTIFICATION_DELIVERY_CLASS_MAP,
 } from '../../notifications/types.js';
 import type { NotificationChannel } from '../../notifications/types.js';
+import { getSecureKey } from '../../security/secure-keys.js';
 
 const SUPPORTED_CHANNELS: NotificationChannel[] = ['macos', 'telegram'];
 
@@ -31,11 +32,12 @@ function buildSettingsResponse(ctx: HandlerContext) {
     deliveryClass: NOTIFICATION_DELIVERY_CLASS_MAP[t],
   }));
 
-  // Channel readiness: for now, macos is always ready. Telegram readiness
-  // would require checking config; start with a simple placeholder.
   const channelReadiness = SUPPORTED_CHANNELS.map((ch) => ({
     channel: ch,
-    ready: ch === 'macos', // telegram readiness will be wired in a follow-up
+    ready: ch === 'macos'
+      || (ch === 'telegram'
+        && !!getSecureKey('credential:telegram:bot_token')
+        && !!getSecureKey('credential:telegram:webhook_secret')),
   }));
 
   return {
