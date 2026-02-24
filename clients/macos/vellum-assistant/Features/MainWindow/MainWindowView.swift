@@ -961,9 +961,10 @@ struct MainWindowView: View {
             }
         }
         .padding(VSpacing.xs)
+        .frame(width: sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth, alignment: .leading)
         .background(adaptiveColor(light: Moss._50, dark: Moss._950))
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-        .frame(width: sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth)
+        .clipped()
     }
 
     @ViewBuilder
@@ -1079,13 +1080,13 @@ struct MainWindowView: View {
     @ViewBuilder
     private var collapsedSidebarContent: some View {
         VStack(spacing: VSpacing.sm) {
-            CollapsedNavIcon(icon: "square.grid.2x2", label: "Home Base", isActive: windowState.activePanel == .directory) {
+            SidebarNavRow(icon: "square.grid.2x2", label: "Home Base", isActive: windowState.activePanel == .directory, isExpanded: false) {
                 windowState.togglePanel(.directory)
             }
-            CollapsedNavIcon(icon: "person.crop.circle", label: "Identity", isActive: windowState.activePanel == .identity) {
+            SidebarNavRow(icon: "person.crop.circle", label: "Identity", isActive: windowState.activePanel == .identity, isExpanded: false) {
                 windowState.togglePanel(.identity)
             }
-            CollapsedNavIcon(icon: "sparkles", label: "Skills", isActive: windowState.activePanel == .agent) {
+            SidebarNavRow(icon: "sparkles", label: "Skills", isActive: windowState.activePanel == .agent, isExpanded: false) {
                 windowState.togglePanel(.agent)
             }
 
@@ -1093,14 +1094,14 @@ struct MainWindowView: View {
                 .frame(height: 1)
                 .padding(.horizontal, VSpacing.xs)
 
-            CollapsedNavIcon(icon: "square.and.pencil", label: "New Chat", isActive: false) {
+            SidebarNavRow(icon: "square.and.pencil", label: "New Chat", isActive: false, isExpanded: false) {
                 windowState.selection = nil
                 threadManager.createThread()
             }
 
             Spacer()
 
-            CollapsedNavIcon(icon: "gearshape", label: "Control Center", isActive: false) {
+            SidebarNavRow(icon: "gearshape", label: "Control Center", isActive: false, isExpanded: false) {
                 withAnimation(VAnimation.panel) {
                     sidebarExpanded = true
                 }
@@ -1240,6 +1241,7 @@ private struct SidebarNavRow: View {
     let icon: String
     let label: String
     var isActive: Bool = false
+    var isExpanded: Bool = true
     let action: () -> Void
     @State private var isHovered = false
 
@@ -1253,6 +1255,8 @@ private struct SidebarNavRow: View {
                 Text(label)
                     .font(VFont.bodyMedium)
                     .foregroundColor(VColor.textPrimary)
+                    .fixedSize()
+                    .opacity(isExpanded ? 1 : 0)
                 Spacer()
             }
             .padding(.leading, VSpacing.md)
@@ -1264,32 +1268,7 @@ private struct SidebarNavRow: View {
         }
         .buttonStyle(.plain)
         .padding(.horizontal, VSpacing.sm)
-        .onHover { hovering in
-            isHovered = hovering
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-        }
-    }
-}
-
-private struct CollapsedNavIcon: View {
-    let icon: String
-    let label: String
-    var isActive: Bool = false
-    let action: () -> Void
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: 15, weight: .medium))
-                .foregroundColor(VColor.textPrimary)
-                .frame(width: 32, height: 32)
-                .background(isActive ? adaptiveColor(light: Moss._100, dark: Moss._700) : isHovered ? adaptiveColor(light: Moss._100, dark: Moss._700).opacity(0.5) : .clear)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help(label)
+        .help(isExpanded ? "" : label)
         .onHover { hovering in
             isHovered = hovering
             if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
