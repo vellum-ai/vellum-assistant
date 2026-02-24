@@ -13,6 +13,7 @@
 import { v4 as uuid } from 'uuid';
 import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
+import { getActiveBinding } from '../memory/channel-guardian-store.js';
 import { createEvent } from './events-store.js';
 import { evaluateSignal } from './decision-engine.js';
 import { runDeterministicChecks, type DeterministicCheckContext } from './deterministic-checks.js';
@@ -56,15 +57,19 @@ function getBroadcaster(): NotificationBroadcaster {
 
 // ── Connected channels resolution ──────────────────────────────────────
 
-function getConnectedChannels(): NotificationChannel[] {
+function getConnectedChannels(assistantId: string): NotificationChannel[] {
   // macOS is always considered connected (IPC socket is always available
-  // when the daemon is running). Telegram is connected if its adapter
-  // can resolve a destination.
+  // when the daemon is running).
   const channels: NotificationChannel[] = ['macos'];
-  // Telegram availability is checked downstream by the destination
-  // resolver, so we always include it as available and let the
-  // deterministic checks handle cases where no binding exists.
-  channels.push('telegram');
+  // Only report Telegram as connected when there is an active guardian
+  // binding for this assistant. Without a binding, the destination
+  // resolver will fail to resolve a chat ID and dispatch will silently
+  // drop the message — which is worse than the decision engine knowing
+  // up front that the channel is unavailable.
+  const telegramBinding = getActiveBinding(assistantId, 'telegram');
+  if (telegramBinding) {
+    channels.push('telegram');
+  }
   return channels;
 }
 
@@ -134,7 +139,7 @@ export async function emitNotificationSignal(params: EmitSignalParams): Promise<
     }
 
     // Step 2: Evaluate the signal through the decision engine
-    const connectedChannels = getConnectedChannels();
+    const connectedChannels = getConnectedChannels(assistantId);
     const decision = await evaluateSignal(signal, connectedChannels);
 
     // Step 3: Run deterministic pre-send checks
