@@ -94,15 +94,35 @@ async function bringChromeToFront(navigateUrl?: string): Promise<string | null> 
     const cdpSend = (method: string, params?: Record<string, unknown>): Promise<unknown> =>
       new Promise((resolve, reject) => {
         const id = nextId++;
+        const timeout = setTimeout(() => {
+          ws.removeEventListener('message', handler);
+          reject(new Error(`CDP command ${method} timed out`));
+        }, 5000);
+        const onClose = () => {
+          clearTimeout(timeout);
+          ws.removeEventListener('message', handler);
+          reject(new Error('WebSocket closed before CDP response'));
+        };
+        const onError = (e: Event) => {
+          clearTimeout(timeout);
+          ws.removeEventListener('message', handler);
+          ws.removeEventListener('close', onClose);
+          reject(new Error(`WebSocket error: ${e}`));
+        };
         const handler = (event: MessageEvent) => {
           const msg = JSON.parse(String(event.data));
           if (msg.id === id) {
+            clearTimeout(timeout);
             ws.removeEventListener('message', handler);
+            ws.removeEventListener('close', onClose);
+            ws.removeEventListener('error', onError);
             if (msg.error) reject(new Error(msg.error.message));
             else resolve(msg.result);
           }
         };
         ws.addEventListener('message', handler);
+        ws.addEventListener('close', onClose);
+        ws.addEventListener('error', onError);
         ws.send(JSON.stringify({ id, method, params }));
       });
 
