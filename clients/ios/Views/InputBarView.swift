@@ -23,6 +23,10 @@ struct InputBarView: View {
     @ObservedObject var viewModel: ChatViewModel
 
     @State private var isRecording = false
+    /// True after the audio engine and tap have been torn down (set by finishRecordingForAutoStop
+    /// and stopRecording). Prevents double-stop when the auto-stop path and the isFinal callback
+    /// both reach teardown code.
+    @State private var isAudioEngineStopped = false
     @State private var recognitionTask: SFSpeechRecognitionTask?
     @State private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     @State private var audioEngine = AVAudioEngine()
@@ -340,9 +344,10 @@ struct InputBarView: View {
             return
         }
 
-        // Reset silence-detection state for the new recording session.
+        // Reset per-session state for the new recording session.
         lastSpeechTime = Date()
         hasSpeechOccurred = false
+        isAudioEngineStopped = false
 
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
             request.append(buffer)
@@ -411,7 +416,10 @@ struct InputBarView: View {
                     let silenceDuration = Date().timeIntervalSince(self.lastSpeechTime)
                     if silenceDuration >= capturedThreshold {
                         log.info("Silence threshold reached (\(capturedThreshold, privacy: .public)s), stopping recording")
-                        self.stopRecording()
+                        // Use finishRecordingForAutoStop so the recognizer can deliver a
+                        // final transcript before the session is fully torn down.
+                        self.finishRecordingForAutoStop()
+                        self.isVoiceOrbExpanded = false
                     }
                 }
             }
@@ -422,7 +430,10 @@ struct InputBarView: View {
                 DispatchQueue.main.async {
                     guard self.isRecording else { return }
                     log.info("Listening timeout (\(capturedTimeout, privacy: .public)s), stopping recording")
-                    self.stopRecording()
+                    // Use finishRecordingForAutoStop so the recognizer can deliver a
+                    // final transcript before the session is fully torn down.
+                    self.finishRecordingForAutoStop()
+                    self.isVoiceOrbExpanded = false
                 }
             }
         } catch {
@@ -446,11 +457,44 @@ struct InputBarView: View {
         silenceTimer?.invalidate()
         silenceTimer = nil
 
+        // Only tear down the audio engine if finishRecordingForAutoStop hasn't already done so.
+        if !isAudioEngineStopped {
+            audioEngine.stop()
+            audioEngine.inputNode.removeTap(onBus: 0)
+            recognitionRequest?.endAudio()
+            isAudioEngineStopped = true
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        }
+        cleanupRecognition()
+        isRecording = false
+        micAmplitude = 0
+    }
+
+    /// Ends the recording session without immediately cancelling the recognition task,
+    /// allowing SFSpeechRecognizer to deliver a final transcription result naturally.
+    /// The recognition callback will call stopRecording() once isFinal fires, which
+    /// performs full cleanup. Use this from auto-stop paths (silence detection, listening
+    /// timeout) so that in-flight speech is not dropped when the timer fires before the
+    /// last recognition result arrives.
+    private func finishRecordingForAutoStop() {
+        guard isRecording else { return }
+        log.info("Voice recording finishing (auto-stop) — awaiting final transcription")
+
+        // Disarm auto-stop timers so they don't fire again.
+        listeningTimeoutTimer?.invalidate()
+        listeningTimeoutTimer = nil
+        silenceTimer?.invalidate()
+        silenceTimer = nil
+
+        // Stop the audio engine and signal end-of-audio to the recognizer.
+        // Do NOT cancel the recognition task and do NOT clear isRecording — the existing
+        // isFinal callback in the recognition task will call stopRecording() to complete
+        // teardown once the final transcript is delivered. isAudioEngineStopped prevents
+        // stopRecording() from tearing down the engine a second time.
         audioEngine.stop()
         audioEngine.inputNode.removeTap(onBus: 0)
         recognitionRequest?.endAudio()
-        cleanupRecognition()
-        isRecording = false
+        isAudioEngineStopped = true
         micAmplitude = 0
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
