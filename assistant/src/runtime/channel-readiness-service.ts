@@ -43,7 +43,17 @@ const smsProbe: ChannelProbe = {
         : 'Twilio Account SID and Auth Token are not configured',
     });
 
-    const hasPhone = !!getSecureKey('credential:twilio:phone_number');
+    let hasPhone = !!process.env.TWILIO_PHONE_NUMBER;
+    if (!hasPhone) {
+      try {
+        const raw = loadRawConfig();
+        const smsConfig = (raw?.sms ?? {}) as Record<string, unknown>;
+        hasPhone = !!(smsConfig.phoneNumber as string);
+      } catch { /* ignore */ }
+    }
+    if (!hasPhone) {
+      hasPhone = !!getSecureKey('credential:twilio:phone_number');
+    }
     results.push({
       name: 'phone_number',
       passed: hasPhone,
@@ -189,15 +199,17 @@ export class ChannelReadinessService {
 
       const localChecks = probe.runLocalChecks();
       let remoteChecks: ReadinessCheckResult[] | undefined;
+      let remoteChecksFreshlyFetched = false;
       let stale = false;
 
       const cached = this.snapshots.get(ch);
       const now = Date.now();
 
       if (includeRemote && probe.runRemoteChecks) {
-        const cacheExpired = !cached || (now - cached.checkedAt) >= REMOTE_TTL_MS;
+        const cacheExpired = !cached || !cached.remoteChecks || (now - cached.checkedAt) >= REMOTE_TTL_MS;
         if (cacheExpired) {
           remoteChecks = await probe.runRemoteChecks();
+          remoteChecksFreshlyFetched = true;
         } else {
           // Reuse cached remote checks
           remoteChecks = cached.remoteChecks;
@@ -230,7 +242,7 @@ export class ChannelReadinessService {
       const snapshot: ChannelReadinessSnapshot = {
         channel: ch,
         ready,
-        checkedAt: now,
+        checkedAt: (remoteChecks && cached && !remoteChecksFreshlyFetched) ? cached.checkedAt : now,
         stale,
         reasons,
         localChecks,

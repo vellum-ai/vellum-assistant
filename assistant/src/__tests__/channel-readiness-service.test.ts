@@ -200,6 +200,45 @@ describe('ChannelReadinessService', () => {
     expect(channels).toEqual(['sms', 'telegram']);
   });
 
+  test('cached remote checks preserve original checkedAt (TTL not reset on reuse)', async () => {
+    const probe = makeProbe(
+      'sms',
+      [{ name: 'creds', passed: true, message: 'ok' }],
+      [{ name: 'api_check', passed: true, message: 'remote ok' }],
+    );
+    service.registerProbe(probe);
+
+    // First call populates cache with freshly fetched remote checks
+    const [first] = await service.getReadiness('sms', true);
+    const originalCheckedAt = first.checkedAt;
+    expect(probe.remoteCallCount).toBe(1);
+
+    // Second call within TTL reuses cache — checkedAt must stay at the original value
+    const [second] = await service.getReadiness('sms', true);
+    expect(probe.remoteCallCount).toBe(1);
+    expect(second.checkedAt).toBe(originalCheckedAt);
+  });
+
+  test('includeRemote runs remote checks when cache exists without remote data', async () => {
+    const probe = makeProbe(
+      'sms',
+      [{ name: 'creds', passed: true, message: 'ok' }],
+      [{ name: 'api_check', passed: true, message: 'remote ok' }],
+    );
+    service.registerProbe(probe);
+
+    // First call without includeRemote — cache has no remote data
+    await service.getReadiness('sms', false);
+    expect(probe.remoteCallCount).toBe(0);
+
+    // Second call with includeRemote — should run remote checks even though
+    // the cached snapshot exists (because it has no remoteChecks)
+    const [snapshot] = await service.getReadiness('sms', true);
+    expect(probe.remoteCallCount).toBe(1);
+    expect(snapshot.remoteChecks).toHaveLength(1);
+    expect(snapshot.remoteChecks![0].passed).toBe(true);
+  });
+
   test('failed remote check makes channel not ready', async () => {
     const probe = makeProbe(
       'sms',
