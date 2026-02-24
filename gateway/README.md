@@ -118,7 +118,7 @@ Caller → Twilio → Gateway /webhooks/twilio/voice (no callSessionId)
   → forward to runtime /v1/internal/twilio/voice-webhook (JSON: { params, originalUrl, assistantId })
   → runtime returns TwiML (ConversationRelay connect)
   → Twilio opens WebSocket → Gateway /webhooks/twilio/relay → Runtime /v1/calls/relay
-  → RelayConnection detects inbound (task=null), optional guardian verification gate, then receptionist-style LLM greeting
+  → RelayConnection detects inbound (`initiatedFromConversationId == null`), optional guardian verification gate, then receptionist-style LLM greeting
 ```
 
 ## SMS Ingress (Twilio)

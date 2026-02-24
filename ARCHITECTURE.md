@@ -4158,7 +4158,7 @@ sequenceDiagram
     TwilioAPI->>Gateway: WebSocket /webhooks/twilio/relay
     Gateway->>WS: proxy WS to runtime /v1/calls/relay
     WS->>WS: setup message (callSid)
-    WS->>WS: detect isInbound (session.task == null)
+    WS->>WS: detect isInbound (`session.initiatedFromConversationId == null`)
 
     alt Pending voice guardian challenge exists
         WS->>GuardianSvc: getPendingChallenge(assistantId, 'voice')
@@ -4198,7 +4198,7 @@ sequenceDiagram
     end
 ```
 
-**Inbound vs. outbound detection**: The relay server determines call direction by checking `session.task`. Outbound calls always have a task (the user-provided objective). Inbound calls have `task == null` because the caller dialed in — the assistant's role is to greet and assist rather than execute a specific task.
+**Inbound vs. outbound detection**: The relay server determines call direction by checking `session.initiatedFromConversationId`. Outbound calls are initiated from an existing conversation (`initiatedFromConversationId` set). Inbound calls are bootstrapped from Twilio webhooks and therefore have `initiatedFromConversationId == null`.
 
 **Inbound system prompt**: The `CallOrchestrator.buildInboundSystemPrompt()` generates a receptionist-style prompt: "You are on a live phone call, answering an incoming call on behalf of [user]. The caller dialed in to reach you. You do not have a specific task -- your role is to greet them warmly, find out what they need, and assist them."
 
