@@ -1,9 +1,8 @@
 import { inArray, sql } from 'drizzle-orm';
-import Anthropic from '@anthropic-ai/sdk';
 import type { AssistantConfig, MemoryRerankingConfig } from '../../config/types.js';
-import { getConfig } from '../../config/loader.js';
 import { estimateTextTokens } from '../../context/token-estimator.js';
 import { getLogger } from '../../util/logger.js';
+import { getAnthropicProvider, extractText, userMessage } from '../../providers/anthropic-send-message.js';
 import { getDb } from '../db.js';
 import { memoryItems } from '../schema.js';
 import type { Candidate, CandidateSource, ItemMetadata } from './types.js';
@@ -296,9 +295,8 @@ export async function rerankWithLLM(
   candidates: Candidate[],
   rerankingConfig: MemoryRerankingConfig,
 ): Promise<Candidate[]> {
-  const config = getConfig();
-  const apiKey = config.apiKeys.anthropic ?? process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
+  const provider = getAnthropicProvider();
+  if (!provider) {
     log.debug('No Anthropic API key available for LLM re-ranking, skipping');
     return candidates;
   }
@@ -309,26 +307,27 @@ export async function rerankWithLLM(
     text: truncate(c.text, 200),
   }));
 
-  const client = new Anthropic({ apiKey });
-  const response = await client.messages.create({
-    model: rerankingConfig.model,
-    max_tokens: 1024,
-    system: 'You are a relevance scoring assistant. Given a query and a list of memory candidates, rate each candidate\'s relevance to the query on a scale of 0-10. Return ONLY a JSON array of objects with "index" (the candidate index) and "score" (0-10 integer). No explanation.',
-    messages: [{
-      role: 'user',
-      content: `Query: ${truncate(query, 200)}\n\nCandidates:\n${candidateList.map((c) => `[${c.index}] ${c.text}`).join('\n')}`,
-    }],
-  });
+  const response = await provider.sendMessage(
+    [userMessage(`Query: ${truncate(query, 200)}\n\nCandidates:\n${candidateList.map((c) => `[${c.index}] ${c.text}`).join('\n')}`)],
+    undefined,
+    'You are a relevance scoring assistant. Given a query and a list of memory candidates, rate each candidate\'s relevance to the query on a scale of 0-10. Return ONLY a JSON array of objects with "index" (the candidate index) and "score" (0-10 integer). No explanation.',
+    {
+      config: {
+        model: rerankingConfig.model,
+        max_tokens: 1024,
+      },
+    },
+  );
 
   // Extract text from the response
-  const textBlock = response.content.find((block) => block.type === 'text');
-  if (!textBlock || textBlock.type !== 'text') {
+  const responseText = extractText(response);
+  if (!responseText) {
     log.warn('LLM re-ranking returned no text block, skipping');
     return candidates;
   }
 
   // Parse the JSON array from the response
-  const jsonMatch = textBlock.text.match(/\[[\s\S]*\]/);
+  const jsonMatch = responseText.match(/\[[\s\S]*\]/);
   if (!jsonMatch) {
     log.warn('LLM re-ranking response did not contain JSON array, skipping');
     return candidates;

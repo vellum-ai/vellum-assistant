@@ -1,7 +1,6 @@
 import { readFile } from 'node:fs/promises';
-import Anthropic from '@anthropic-ai/sdk';
-import { getConfig } from '../../../../config/loader.js';
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
+import { getAnthropicProvider, extractText, userMessageWithImage } from '../../../../providers/anthropic-send-message.js';
 import {
   getMediaAssetById,
   getKeyframesForAsset,
@@ -70,9 +69,8 @@ export async function analyzeKeyframesForAsset(
 
   updateProcessingStage(stage.id, { status: 'running', startedAt: Date.now() });
 
-  const config = getConfig();
-  const apiKey = config.apiKeys.anthropic ?? process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
+  const provider = getAnthropicProvider();
+  if (!provider) {
     updateProcessingStage(stage.id, {
       status: 'failed',
       lastError: 'Anthropic API key not configured',
@@ -80,7 +78,6 @@ export async function analyzeKeyframesForAsset(
     throw new Error('No Anthropic API key available. Configure it in settings or set ANTHROPIC_API_KEY.');
   }
 
-  const client = new Anthropic({ apiKey });
   let analyzedCount = analyzedKeyframeIds.size;
   const totalKeyframes = keyframes.length;
 
@@ -114,7 +111,7 @@ export async function analyzeKeyframesForAsset(
         }
 
         try {
-          const result = await analyzeKeyframe(client, keyframe);
+          const result = await analyzeKeyframe(provider, keyframe);
           batchResults.push({
             assetId,
             keyframeId: keyframe.id,
@@ -232,7 +229,7 @@ export async function run(
 }
 
 async function analyzeKeyframe(
-  client: Anthropic,
+  provider: import('../../../../providers/types.js').Provider,
   keyframe: MediaKeyframe,
 ): Promise<{ output: Record<string, unknown>; confidence: number }> {
   // Read the image file and encode as base64
@@ -250,33 +247,20 @@ async function analyzeKeyframe(
   };
   const mediaType = mediaTypeMap[ext] ?? 'image/jpeg';
 
-  const response = await client.messages.create({
-    model: 'claude-sonnet-4-6-20250514',
-    max_tokens: 1024,
-    messages: [
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'image',
-            source: {
-              type: 'base64',
-              media_type: mediaType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
-              data: base64,
-            },
-          },
-          {
-            type: 'text',
-            text: VLM_PROMPT,
-          },
-        ],
+  const response = await provider.sendMessage(
+    [userMessageWithImage(base64, mediaType, VLM_PROMPT)],
+    undefined,
+    undefined,
+    {
+      config: {
+        model: 'claude-sonnet-4-6-20250514',
+        max_tokens: 1024,
       },
-    ],
-  });
+    },
+  );
 
   // Extract text from response
-  const textBlock = response.content.find((block) => block.type === 'text');
-  const responseText = textBlock && 'text' in textBlock ? textBlock.text : '';
+  const responseText = extractText(response);
 
   // Parse JSON from response
   let output: Record<string, unknown>;

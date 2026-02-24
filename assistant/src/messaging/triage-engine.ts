@@ -7,7 +7,7 @@
  * table for accuracy review.
  */
 
-import Anthropic from '@anthropic-ai/sdk';
+import { getAnthropicProvider, createTimeout, extractToolUse, userMessage } from '../providers/anthropic-send-message.js';
 import { truncate } from '../util/truncate.js';
 import { v4 as uuid } from 'uuid';
 import { and, eq, isNull, desc } from 'drizzle-orm';
@@ -189,9 +189,8 @@ export async function triageMessage(
   const playbookMatches = fetchMatchingPlaybooks(message.channel, scopeId);
 
   // Step 3: Classify with LLM
-  const config = getConfig();
-  const apiKey = config.apiKeys.anthropic ?? process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
+  const provider = getAnthropicProvider();
+  if (!provider) {
     log.warn('No Anthropic API key available for triage classification, returning fallback');
     const result = buildFallbackResult();
     persistTriageResult(message, result, playbookMatches);
@@ -200,7 +199,7 @@ export async function triageMessage(
 
   let result: TriageResult;
   try {
-    result = await classifyWithLLM(message, contact, playbookMatches, apiKey);
+    result = await classifyWithLLM(message, contact, playbookMatches);
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     log.warn({ err: errMsg }, 'Triage LLM call failed, returning fallback');
@@ -217,77 +216,70 @@ async function classifyWithLLM(
   message: InboundMessage,
   contact: ContactWithChannels | null,
   playbookMatches: PlaybookMatch[],
-  apiKey: string,
 ): Promise<TriageResult> {
-  const client = new Anthropic({ apiKey });
-  const abortController = new AbortController();
-  let timer: ReturnType<typeof setTimeout>;
+  const provider = getAnthropicProvider()!;
+  const { signal, cleanup } = createTimeout(TRIAGE_CLASSIFICATION_TIMEOUT_MS);
 
   const systemPrompt = buildSystemPrompt(contact, playbookMatches);
   const userPrompt = buildUserPrompt(message);
 
-  const apiCall = client.messages.create({
-    model: TRIAGE_MODEL,
-    max_tokens: 1024,
-    system: systemPrompt,
-    tools: [STORE_TRIAGE_TOOL],
-    tool_choice: { type: 'tool' as const, name: 'store_triage_result' },
-    messages: [{
-      role: 'user' as const,
-      content: userPrompt,
-    }],
-  }, { signal: abortController.signal });
+  try {
+    const response = await provider.sendMessage(
+      [userMessage(userPrompt)],
+      [STORE_TRIAGE_TOOL],
+      systemPrompt,
+      {
+        config: {
+          model: TRIAGE_MODEL,
+          max_tokens: 1024,
+          tool_choice: { type: 'tool' as const, name: 'store_triage_result' },
+        },
+        signal,
+      },
+    );
+    cleanup();
 
-  // Swallow the abort rejection that fires when the timeout wins the race
-  apiCall.catch(() => {});
-  const response = await Promise.race([
-    apiCall.finally(() => clearTimeout(timer)),
-    new Promise<never>((_, reject) => {
-      timer = setTimeout(() => {
-        abortController.abort();
-        reject(new Error('Triage classification LLM timeout'));
-      }, TRIAGE_CLASSIFICATION_TIMEOUT_MS);
-    }),
-  ]);
+    const toolBlock = extractToolUse(response);
+    if (!toolBlock) {
+      log.warn('No tool_use block in triage response, returning fallback');
+      return buildFallbackResult();
+    }
 
-  const toolBlock = response.content.find((b) => b.type === 'tool_use');
-  if (!toolBlock || toolBlock.type !== 'tool_use') {
-    log.warn('No tool_use block in triage response, returning fallback');
-    return buildFallbackResult();
+    const input = toolBlock.input as {
+      category?: string;
+      confidence?: number;
+      suggestedAction?: string;
+      matchedPlaybookTriggers?: string[];
+    };
+
+    const matchedTriggers = new Set(
+      Array.isArray(input.matchedPlaybookTriggers) ? input.matchedPlaybookTriggers : [],
+    );
+
+    // Map LLM-identified triggers back to the full playbook data
+    const matchedPlaybooks = playbookMatches
+      .filter(({ playbook }) => matchedTriggers.has(playbook.trigger))
+      .map(({ playbook }) => ({
+        trigger: playbook.trigger,
+        action: playbook.action,
+        autonomyLevel: playbook.autonomyLevel,
+      }));
+
+    const confidence = typeof input.confidence === 'number'
+      ? Math.max(0, Math.min(1, input.confidence))
+      : 0.5;
+
+    return {
+      category: typeof input.category === 'string' ? input.category : 'needs_response',
+      confidence,
+      suggestedAction: typeof input.suggestedAction === 'string'
+        ? truncate(input.suggestedAction, 500, '')
+        : 'Review manually',
+      matchedPlaybooks,
+    };
+  } finally {
+    cleanup();
   }
-
-  const input = toolBlock.input as {
-    category?: string;
-    confidence?: number;
-    suggestedAction?: string;
-    matchedPlaybookTriggers?: string[];
-  };
-
-  const matchedTriggers = new Set(
-    Array.isArray(input.matchedPlaybookTriggers) ? input.matchedPlaybookTriggers : [],
-  );
-
-  // Map LLM-identified triggers back to the full playbook data
-  const matchedPlaybooks = playbookMatches
-    .filter(({ playbook }) => matchedTriggers.has(playbook.trigger))
-    .map(({ playbook }) => ({
-      trigger: playbook.trigger,
-      action: playbook.action,
-      autonomyLevel: playbook.autonomyLevel,
-    }));
-
-  const confidence = typeof input.confidence === 'number'
-    ? Math.max(0, Math.min(1, input.confidence))
-    : 0.5;
-
-  return {
-    category: typeof input.category === 'string' ? input.category : 'needs_response',
-    confidence,
-    suggestedAction: typeof input.suggestedAction === 'string'
-      ? truncate(input.suggestedAction, 500, '')
-      : 'Review manually',
-    matchedPlaybooks,
-  };
 }
 
 // ── Persistence ─────────────────────────────────────────────────────

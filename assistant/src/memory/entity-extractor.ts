@@ -1,9 +1,9 @@
-import Anthropic from '@anthropic-ai/sdk';
 import { eq, sql } from 'drizzle-orm';
 import { getConfig } from '../config/loader.js';
 import type { MemoryEntityConfig } from '../config/types.js';
 import { getLogger } from '../util/logger.js';
 import { truncate } from '../util/truncate.js';
+import { getAnthropicProvider, createTimeout, extractToolUse, userMessage } from '../providers/anthropic-send-message.js';
 import { getDb } from './db.js';
 import { memoryEntities, memoryEntityRelations, memoryItemEntities } from './schema.js';
 
@@ -123,9 +123,8 @@ export async function extractEntitiesWithLLM(
   text: string,
   entityConfig: MemoryEntityConfig,
 ): Promise<ExtractedEntityGraph> {
-  const config = getConfig();
-  const apiKey = config.apiKeys.anthropic ?? process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
+  const provider = getAnthropicProvider();
+  if (!provider) {
     log.debug('No Anthropic API key available for entity extraction');
     return { entities: [], relations: [] };
   }
@@ -133,41 +132,46 @@ export async function extractEntitiesWithLLM(
   const extractRelations = entityConfig.extractRelations?.enabled ?? false;
 
   try {
-    const client = new Anthropic({ apiKey });
-    const response = await Promise.race([
-      client.messages.create({
-        model: entityConfig.model,
-        max_tokens: 1024,
-        system: ENTITY_EXTRACTION_SYSTEM_PROMPT,
-        tools: [{
+    const { signal, cleanup } = createTimeout(ENTITY_EXTRACTION_TIMEOUT_MS);
+    try {
+      const response = await provider.sendMessage(
+        [userMessage(text)],
+        [{
           name: 'store_entities',
           description: 'Store extracted entities from the text',
           input_schema: buildToolInputSchema(extractRelations),
         }],
-        tool_choice: { type: 'tool' as const, name: 'store_entities' },
-        messages: [{ role: 'user' as const, content: text }],
-      }) as Promise<Anthropic.Message>,
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Entity extraction LLM timeout')), ENTITY_EXTRACTION_TIMEOUT_MS),
-      ),
-    ]) as Anthropic.Message;
+        ENTITY_EXTRACTION_SYSTEM_PROMPT,
+        {
+          config: {
+            model: entityConfig.model,
+            max_tokens: 1024,
+            tool_choice: { type: 'tool' as const, name: 'store_entities' },
+          },
+          signal,
+        },
+      );
+      cleanup();
 
-    const toolBlock = response.content.find((block) => block.type === 'tool_use');
-    if (!toolBlock || toolBlock.type !== 'tool_use') {
-      log.warn('No tool_use block in entity extraction response');
-      return { entities: [], relations: [] };
+      const toolBlock = extractToolUse(response);
+      if (!toolBlock) {
+        log.warn('No tool_use block in entity extraction response');
+        return { entities: [], relations: [] };
+      }
+
+      const input = toolBlock.input as { entities?: LLMExtractedEntity[]; relations?: LLMExtractedRelation[] };
+      if (!Array.isArray(input.entities)) {
+        log.warn('Invalid entities in entity extraction response');
+        return { entities: [], relations: [] };
+      }
+
+      const entities = parseExtractedEntities(input.entities);
+      const relations = extractRelations ? parseExtractedRelations(input.relations) : [];
+
+      return { entities, relations };
+    } finally {
+      cleanup();
     }
-
-    const input = toolBlock.input as { entities?: LLMExtractedEntity[]; relations?: LLMExtractedRelation[] };
-    if (!Array.isArray(input.entities)) {
-      log.warn('Invalid entities in entity extraction response');
-      return { entities: [], relations: [] };
-    }
-
-    const entities = parseExtractedEntities(input.entities);
-    const relations = extractRelations ? parseExtractedRelations(input.relations) : [];
-
-    return { entities, relations };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.warn({ err: message }, 'Entity extraction LLM call failed');

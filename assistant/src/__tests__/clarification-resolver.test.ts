@@ -6,33 +6,53 @@ let llmResolution: 'keep_existing' | 'keep_candidate' | 'merge' | 'still_unclear
 let llmResolvedStatement = '';
 let llmExplanation = 'Unclear response from user.';
 
-mock.module('@anthropic-ai/sdk', () => ({
-  default: class MockAnthropic {
-    messages = {
-      create: async (_body: unknown, opts?: { signal?: AbortSignal }) => {
-        llmCallCount += 1;
-        if (llmDelayMs > 0) {
-          await new Promise((resolve, reject) => {
-            const timer = setTimeout(resolve, llmDelayMs);
-            opts?.signal?.addEventListener('abort', () => {
-              clearTimeout(timer);
-              reject(new Error('Request was aborted.'));
-            });
+mock.module('../providers/anthropic-send-message.js', () => ({
+  getAnthropicProvider: () => ({
+    sendMessage: async (
+      _messages: unknown,
+      _tools: unknown,
+      _system: unknown,
+      opts?: { signal?: AbortSignal },
+    ) => {
+      llmCallCount += 1;
+      if (llmDelayMs > 0) {
+        await new Promise((resolve, reject) => {
+          const timer = setTimeout(resolve, llmDelayMs);
+          opts?.signal?.addEventListener('abort', () => {
+            clearTimeout(timer);
+            reject(new Error('Request was aborted.'));
           });
-        }
-        return {
-          content: [{
-            type: 'tool_use',
-            input: {
-              resolution: llmResolution,
-              resolved_statement: llmResolvedStatement,
-              explanation: llmExplanation,
-            },
-          }],
-        };
-      },
+        });
+      }
+      return {
+        content: [{
+          type: 'tool_use' as const,
+          id: 'test-tool-use-id',
+          name: 'resolve_conflict',
+          input: {
+            resolution: llmResolution,
+            resolved_statement: llmResolvedStatement,
+            explanation: llmExplanation,
+          },
+        }],
+        model: 'claude-haiku-4-5-20251001',
+        stopReason: 'tool_use',
+        usage: { inputTokens: 0, outputTokens: 0 },
+      };
+    },
+  }),
+  createTimeout: (ms: number) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ms);
+    return {
+      signal: controller.signal,
+      cleanup: () => clearTimeout(timer),
     };
   },
+  extractToolUse: (response: { content: Array<{ type: string }> }) => {
+    return response.content.find((b: { type: string }) => b.type === 'tool_use');
+  },
+  userMessage: (text: string) => ({ role: 'user', content: [{ type: 'text', text }] }),
 }));
 
 mock.module('../config/loader.js', () => ({
