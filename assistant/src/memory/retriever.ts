@@ -108,27 +108,21 @@ async function collectAndMergeCandidates(
     : [];
 
   // Direct item search supplements FTS with LIKE-based matching.
-  // Overfetch when exclusions are present so that filtering doesn't
-  // silently drop valid candidates just below the SQL LIMIT cutoff.
+  // When exclusions are present, adaptively increase the fetch size until
+  // we collect directLimit valid (non-excluded) items or exhaust the DB.
   const directLimit = Math.max(10, config.memory.retrieval.lexicalTopK);
-  const directFetchLimit = excludeMessageIds.length > 0
-    ? Math.max(directLimit + 24, directLimit * 2)
-    : directLimit;
-  let directItems = directItemSearch(query, directFetchLimit, scopeIds);
 
-  // Filter direct items by excluded message IDs -- items whose only evidence
-  // comes from excluded messages should not leak back into recall.
-  if (excludeMessageIds.length > 0 && directItems.length > 0) {
+  // Helper: filter fetched direct items to those with at least one non-excluded source.
+  const filterDirectItems = (items: Candidate[]): Candidate[] => {
+    if (items.length === 0) return items;
     const db = getDb();
     const excludedSet = new Set(excludeMessageIds);
     const allSources = db.select({
       memoryItemId: memoryItemSources.memoryItemId,
       messageId: memoryItemSources.messageId,
     }).from(memoryItemSources)
-      .where(inArray(memoryItemSources.memoryItemId, directItems.map((c) => c.id)))
+      .where(inArray(memoryItemSources.memoryItemId, items.map((c) => c.id)))
       .all();
-
-    // Track which items have at least one non-excluded source
     const hasNonExcluded = new Set<string>();
     const hasSources = new Set<string>();
     for (const s of allSources) {
@@ -137,11 +131,25 @@ async function collectAndMergeCandidates(
         hasNonExcluded.add(s.memoryItemId);
       }
     }
+    return items.filter((c) => !hasSources.has(c.id) || hasNonExcluded.has(c.id));
+  };
 
-    directItems = directItems.filter((c) =>
-      !hasSources.has(c.id) || hasNonExcluded.has(c.id),
-    );
-    directItems = directItems.slice(0, directLimit);
+  let directItems: Candidate[];
+  if (excludeMessageIds.length > 0) {
+    // Adaptive loop: double fetch size on each iteration until quota met or DB exhausted.
+    const MAX_FETCH_MULTIPLIER = 8;
+    let fetchSize = Math.max(directLimit * 2, directLimit + 24);
+    directItems = [];
+    while (true) {
+      const fetched = directItemSearch(query, fetchSize, scopeIds);
+      directItems = filterDirectItems(fetched).slice(0, directLimit);
+      if (directItems.length >= directLimit || fetched.length < fetchSize || fetchSize >= directLimit * MAX_FETCH_MULTIPLIER) {
+        break;
+      }
+      fetchSize = Math.min(fetchSize * 2, directLimit * MAX_FETCH_MULTIPLIER);
+    }
+  } else {
+    directItems = directItemSearch(query, directLimit, scopeIds);
   }
 
   // -- Early termination check --

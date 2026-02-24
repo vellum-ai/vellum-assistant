@@ -39,37 +39,53 @@ export function lexicalSearch(query: string, limit: number, excludedMessageIds: 
   const matchQuery = buildFtsMatchQuery(trimmed);
   if (!matchQuery) return [];
   const excluded = new Set(excludedMessageIds);
-  let rows: FtsRow[] = [];
-  const queryLimit = excluded.size > 0
-    ? Math.max(limit + 24, limit * 2)
-    : limit;
   const scopeClause = scopeIds
     ? ` AND s.scope_id IN (${scopeIds.map(() => '?').join(',')})`
     : '';
-  try {
-    rows = timedRawQuery('lexicalSearch', () =>
-      rawAll<FtsRow>(`
-        SELECT
-          f.segment_id AS segment_id,
-          s.message_id AS message_id,
-          s.text AS text,
-          s.created_at AS created_at,
-          bm25(memory_segment_fts) AS rank
-        FROM memory_segment_fts f
-        JOIN memory_segments s ON s.id = f.segment_id
-        WHERE memory_segment_fts MATCH ?${scopeClause}
-        ORDER BY rank
-        LIMIT ?
-      `, matchQuery, ...(scopeIds ?? []), queryLimit),
-    );
-  } catch (err) {
-    log.warn({ err, query: truncate(trimmed, 80) }, 'Memory lexical search query parse failed');
-    return [];
+
+  // Adaptive overfetch: when exclusions are present, double the SQL LIMIT until we
+  // collect `limit` visible rows or the DB has no more matching results to offer.
+  // This handles dense exclusion sets without wasteful fixed-ratio over-fetching.
+  const MAX_FETCH_MULTIPLIER = 8;
+  let queryLimit = excluded.size > 0 ? Math.max(limit * 2, limit + 24) : limit;
+  let visibleRows: FtsRow[] = [];
+
+  while (true) {
+    let rows: FtsRow[] = [];
+    try {
+      rows = timedRawQuery('lexicalSearch', () =>
+        rawAll<FtsRow>(`
+          SELECT
+            f.segment_id AS segment_id,
+            s.message_id AS message_id,
+            s.text AS text,
+            s.created_at AS created_at,
+            bm25(memory_segment_fts) AS rank
+          FROM memory_segment_fts f
+          JOIN memory_segments s ON s.id = f.segment_id
+          WHERE memory_segment_fts MATCH ?${scopeClause}
+          ORDER BY rank
+          LIMIT ?
+        `, matchQuery, ...(scopeIds ?? []), queryLimit),
+      );
+    } catch (err) {
+      log.warn({ err, query: truncate(trimmed, 80) }, 'Memory lexical search query parse failed');
+      return [];
+    }
+
+    visibleRows = excluded.size > 0
+      ? rows.filter((row) => !excluded.has(row.message_id))
+      : rows;
+
+    // Stop when we have enough rows, the DB returned fewer than requested
+    // (no more results exist), or we've reached the safety cap.
+    if (visibleRows.length >= limit || rows.length < queryLimit || queryLimit >= limit * MAX_FETCH_MULTIPLIER) {
+      break;
+    }
+    queryLimit = Math.min(queryLimit * 2, limit * MAX_FETCH_MULTIPLIER);
   }
 
-  const visibleRows = excluded.size > 0
-    ? rows.filter((row) => !excluded.has(row.message_id)).slice(0, limit)
-    : rows;
+  visibleRows = visibleRows.slice(0, limit);
 
   const finiteRanks = visibleRows
     .map((row) => row.rank)
