@@ -3550,6 +3550,19 @@ iOS App  --HTTPS-->  Ingress (tunnel/public URL)  -->  Gateway  -->  Runtime
 | `clients/shared/IPC/DaemonConfig.swift` | Transport config; iOS uses `.http` exclusively |
 | `clients/shared/IPC/HTTPDaemonClient.swift` | HTTP+SSE client implementation |
 
+### Offline Message Queue (iOS)
+
+When the daemon is unreachable, outgoing user messages are buffered in `OfflineMessageQueue` (a persistent FIFO stored in UserDefaults) instead of surfacing an error. The message bubble shows a "Pending" indicator (`ChatMessageStatus.pendingOffline`) while offline. On reconnect (`daemonDidReconnect`), `ChatViewModel.flushOfflineQueue()` drains the queue and sends messages in order, clearing the pending indicator.
+
+| Component | Role |
+|-----------|------|
+| `clients/ios/App/OfflineMessageQueue.swift` | Persistent FIFO queue; serialized to `offline_message_queue_v1` in UserDefaults |
+| `ChatMessageStatus.pendingOffline` | Message status for locally buffered, unsent messages |
+| `ChatViewModel.flushOfflineQueue()` | Drains the queue on reconnect, sending messages in FIFO order |
+| `MessageBubbleView` | Renders a clock icon + "Pending" label for `.pendingOffline` messages |
+
+Storage key: `offline_message_queue_v1` (UserDefaults).
+
 ---
 
 ## Ingress Boundary Architecture — Gateway-Only Public Ingress
