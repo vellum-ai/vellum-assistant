@@ -1,0 +1,225 @@
+import type {
+  ChannelId,
+  ChannelProbe,
+  ChannelReadinessSnapshot,
+  ReadinessCheckResult,
+} from './channel-readiness-types.js';
+import { hasTwilioCredentials } from '../calls/twilio-rest.js';
+import { getSecureKey } from '../security/secure-keys.js';
+import { loadRawConfig } from '../config/loader.js';
+
+/** Remote check results are cached for 5 minutes before being considered stale. */
+export const REMOTE_TTL_MS = 5 * 60 * 1000;
+
+// ── SMS Probe ───────────────────────────────────────────────────────────────
+
+function hasIngressConfigured(): boolean {
+  try {
+    const raw = loadRawConfig();
+    const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
+    const publicBaseUrl = (ingress.publicBaseUrl as string) ?? '';
+    const enabled = (ingress.enabled as boolean | undefined) ?? (publicBaseUrl ? true : false);
+    return enabled && publicBaseUrl.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+const smsProbe: ChannelProbe = {
+  channel: 'sms',
+  runLocalChecks(): ReadinessCheckResult[] {
+    const results: ReadinessCheckResult[] = [];
+
+    const hasCreds = hasTwilioCredentials();
+    results.push({
+      name: 'twilio_credentials',
+      passed: hasCreds,
+      message: hasCreds
+        ? 'Twilio credentials are configured'
+        : 'Twilio Account SID and Auth Token are not configured',
+    });
+
+    const hasPhone = !!getSecureKey('credential:twilio:phone_number');
+    results.push({
+      name: 'phone_number',
+      passed: hasPhone,
+      message: hasPhone
+        ? 'Phone number is assigned'
+        : 'No phone number assigned',
+    });
+
+    const hasIngress = hasIngressConfigured();
+    results.push({
+      name: 'ingress',
+      passed: hasIngress,
+      message: hasIngress
+        ? 'Public ingress URL is configured'
+        : 'Public ingress URL is not configured or disabled',
+    });
+
+    return results;
+  },
+  // Placeholder for remote checks (will be extended in PR3 with Twilio API calls)
+  async runRemoteChecks(): Promise<ReadinessCheckResult[]> {
+    return [];
+  },
+};
+
+// ── Telegram Probe ──────────────────────────────────────────────────────────
+
+const telegramProbe: ChannelProbe = {
+  channel: 'telegram',
+  runLocalChecks(): ReadinessCheckResult[] {
+    const results: ReadinessCheckResult[] = [];
+
+    const hasBotToken = !!getSecureKey('credential:telegram:bot_token');
+    results.push({
+      name: 'bot_token',
+      passed: hasBotToken,
+      message: hasBotToken
+        ? 'Telegram bot token is configured'
+        : 'Telegram bot token is not configured',
+    });
+
+    const hasWebhookSecret = !!getSecureKey('credential:telegram:webhook_secret');
+    results.push({
+      name: 'webhook_secret',
+      passed: hasWebhookSecret,
+      message: hasWebhookSecret
+        ? 'Telegram webhook secret is configured'
+        : 'Telegram webhook secret is not configured',
+    });
+
+    const hasIngress = hasIngressConfigured();
+    results.push({
+      name: 'ingress',
+      passed: hasIngress,
+      message: hasIngress
+        ? 'Public ingress URL is configured'
+        : 'Public ingress URL is not configured or disabled',
+    });
+
+    return results;
+  },
+  // Telegram has no remote checks currently
+};
+
+// ── Service ─────────────────────────────────────────────────────────────────
+
+export class ChannelReadinessService {
+  private probes = new Map<ChannelId, ChannelProbe>();
+  private snapshots = new Map<ChannelId, ChannelReadinessSnapshot>();
+
+  registerProbe(probe: ChannelProbe): void {
+    this.probes.set(probe.channel, probe);
+  }
+
+  /**
+   * Get readiness snapshots for the specified channel (or all registered channels).
+   * Local checks always run inline. Remote checks run only when `includeRemote`
+   * is true and the cache is stale or missing.
+   */
+  async getReadiness(
+    channel?: ChannelId,
+    includeRemote?: boolean,
+  ): Promise<ChannelReadinessSnapshot[]> {
+    const channels = channel
+      ? [channel]
+      : Array.from(this.probes.keys());
+
+    const results: ChannelReadinessSnapshot[] = [];
+    for (const ch of channels) {
+      const probe = this.probes.get(ch);
+      if (!probe) {
+        results.push(this.unsupportedSnapshot(ch));
+        continue;
+      }
+
+      const localChecks = probe.runLocalChecks();
+      let remoteChecks: ReadinessCheckResult[] | undefined;
+      let stale = false;
+
+      const cached = this.snapshots.get(ch);
+      const now = Date.now();
+
+      if (includeRemote && probe.runRemoteChecks) {
+        const cacheExpired = !cached || (now - cached.checkedAt) >= REMOTE_TTL_MS;
+        if (cacheExpired) {
+          remoteChecks = await probe.runRemoteChecks();
+        } else {
+          // Reuse cached remote checks
+          remoteChecks = cached.remoteChecks;
+        }
+      } else if (cached?.remoteChecks) {
+        // Surface cached remote checks even when not explicitly requested,
+        // but mark stale if TTL has elapsed
+        remoteChecks = cached.remoteChecks;
+        stale = (now - cached.checkedAt) >= REMOTE_TTL_MS;
+      }
+
+      const allLocalPassed = localChecks.every((c) => c.passed);
+      const allRemotePassed = remoteChecks ? remoteChecks.every((c) => c.passed) : true;
+      const ready = allLocalPassed && allRemotePassed;
+
+      const reasons: Array<{ code: string; text: string }> = [];
+      for (const check of localChecks) {
+        if (!check.passed) {
+          reasons.push({ code: check.name, text: check.message });
+        }
+      }
+      if (remoteChecks) {
+        for (const check of remoteChecks) {
+          if (!check.passed) {
+            reasons.push({ code: check.name, text: check.message });
+          }
+        }
+      }
+
+      const snapshot: ChannelReadinessSnapshot = {
+        channel: ch,
+        ready,
+        checkedAt: now,
+        stale,
+        reasons,
+        localChecks,
+        remoteChecks,
+      };
+
+      this.snapshots.set(ch, snapshot);
+      results.push(snapshot);
+    }
+
+    return results;
+  }
+
+  /** Clear cached snapshot for a specific channel, forcing re-evaluation on next call. */
+  invalidateChannel(channel: ChannelId): void {
+    this.snapshots.delete(channel);
+  }
+
+  /** Clear all cached snapshots. */
+  invalidateAll(): void {
+    this.snapshots.clear();
+  }
+
+  private unsupportedSnapshot(channel: ChannelId): ChannelReadinessSnapshot {
+    return {
+      channel,
+      ready: false,
+      checkedAt: Date.now(),
+      stale: false,
+      reasons: [{ code: 'unsupported_channel', text: `Channel ${channel} is not supported` }],
+      localChecks: [],
+    };
+  }
+}
+
+// ── Factory ─────────────────────────────────────────────────────────────────
+
+/** Create a service instance with built-in SMS and Telegram probes registered. */
+export function createReadinessService(): ChannelReadinessService {
+  const service = new ChannelReadinessService();
+  service.registerProbe(smsProbe);
+  service.registerProbe(telegramProbe);
+  return service;
+}

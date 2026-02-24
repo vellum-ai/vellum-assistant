@@ -33,6 +33,7 @@ import type {
   TwitterIntegrationConfigRequest,
   TelegramConfigRequest,
   TwilioConfigRequest,
+  ChannelReadinessRequest,
   GuardianVerificationRequest,
   ToolPermissionSimulateRequest,
 } from '../ipc-protocol.js';
@@ -50,6 +51,7 @@ import {
   type IngressConfig,
 } from '../../inbound/public-ingress-urls.js';
 import { createVerificationChallenge, getGuardianBinding, revokeBinding as revokeGuardianBinding } from '../../runtime/channel-guardian-service.js';
+import { createReadinessService, type ChannelReadinessService } from '../../runtime/channel-readiness-service.js';
 import { log, CONFIG_RELOAD_DEBOUNCE_MS, defineHandlers, type HandlerContext } from './shared.js';
 import { MODEL_TO_PROVIDER } from '../session-slash.js';
 
@@ -1588,6 +1590,57 @@ export function handleGuardianVerification(
   }
 }
 
+// Lazy singleton — created on first use so module-load stays lightweight.
+let _readinessService: ChannelReadinessService | undefined;
+function getReadinessService(): ChannelReadinessService {
+  if (!_readinessService) {
+    _readinessService = createReadinessService();
+  }
+  return _readinessService;
+}
+
+export async function handleChannelReadiness(
+  msg: ChannelReadinessRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): Promise<void> {
+  try {
+    const service = getReadinessService();
+
+    if (msg.action === 'refresh') {
+      if (msg.channel) {
+        service.invalidateChannel(msg.channel);
+      } else {
+        service.invalidateAll();
+      }
+    }
+
+    const snapshots = await service.getReadiness(msg.channel, msg.includeRemote);
+
+    ctx.send(socket, {
+      type: 'channel_readiness_response',
+      success: true,
+      snapshots: snapshots.map((s) => ({
+        channel: s.channel,
+        ready: s.ready,
+        checkedAt: s.checkedAt,
+        stale: s.stale,
+        reasons: s.reasons,
+        localChecks: s.localChecks,
+        remoteChecks: s.remoteChecks,
+      })),
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'Failed to handle channel readiness');
+    ctx.send(socket, {
+      type: 'channel_readiness_response',
+      success: false,
+      error: message,
+    });
+  }
+}
+
 export function handleEnvVarsRequest(socket: net.Socket, ctx: HandlerContext): void {
   const vars: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
@@ -1770,6 +1823,7 @@ export const configHandlers = defineHandlers({
   twitter_integration_config: handleTwitterIntegrationConfig,
   telegram_config: handleTelegramConfig,
   twilio_config: handleTwilioConfig,
+  channel_readiness: handleChannelReadiness,
   guardian_verification: handleGuardianVerification,
   env_vars_request: (_msg, socket, ctx) => handleEnvVarsRequest(socket, ctx),
   tool_permission_simulate: handleToolPermissionSimulate,

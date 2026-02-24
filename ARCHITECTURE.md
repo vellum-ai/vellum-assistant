@@ -451,6 +451,8 @@ All three paths are best-effort: webhook sync failures do not prevent the primar
 
 **Limitations (v1)**: Text-only — MMS payloads are explicitly rejected with a user-facing notice rather than silently dropped.
 
+**Channel Readiness**: The `channel_readiness` IPC contract (`ChannelReadinessService` in `src/runtime/channel-readiness-service.ts`) provides a unified readiness subsystem for all channels. Each channel registers a `ChannelProbe` that runs synchronous local checks (credential presence, phone number, ingress config) and optional async remote checks (API reachability) with a 5-minute TTL cache. Built-in probes: SMS (Twilio credentials, phone number, ingress) and Telegram (bot token, webhook secret, ingress). The `get` action returns cached snapshots; `refresh` invalidates the cache first. Unknown channels return `unsupported_channel`.
+
 ---
 
 ## macOS App — Service and State Ownership
