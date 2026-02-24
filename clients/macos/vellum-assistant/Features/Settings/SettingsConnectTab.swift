@@ -892,7 +892,7 @@ struct SettingsConnectTab: View {
             }
 
             // Status line
-            if !store.ingressPublicBaseUrl.isEmpty && !bearerToken.isEmpty {
+            if !store.resolvedIosGatewayUrl.isEmpty && !store.resolvedIosBearerToken.isEmpty {
                 HStack(spacing: VSpacing.sm) {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundColor(VColor.success)
@@ -901,7 +901,7 @@ struct SettingsConnectTab: View {
                         .font(VFont.body)
                         .foregroundColor(VColor.success)
                 }
-            } else if store.ingressPublicBaseUrl.isEmpty {
+            } else if store.resolvedIosGatewayUrl.isEmpty {
                 HStack(spacing: VSpacing.sm) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundColor(VColor.warning)
@@ -922,6 +922,7 @@ struct SettingsConnectTab: View {
             }
         }
         .padding(VSpacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
     }
 
