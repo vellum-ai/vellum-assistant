@@ -841,6 +841,7 @@ export class RuntimeHttpServer {
         return await handleSendMessage(req, {
           processMessage: this.processMessage,
           persistAndProcessMessage: this.persistAndProcessMessage,
+          runOrchestrator: this.runOrchestrator,
         });
       }
 

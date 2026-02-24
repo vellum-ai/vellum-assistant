@@ -18,6 +18,7 @@ import type {
   RuntimeMessagePayload,
 } from '../http-types.js';
 import { getLogger } from '../../util/logger.js';
+import type { RunOrchestrator } from '../run-orchestrator.js';
 import { parseSendRequest, isValidationError } from './send-validation.js';
 
 const log = getLogger('runtime-http');
@@ -135,11 +136,16 @@ export function handleListMessages(
   return Response.json({ messages });
 }
 
+/**
+ * @deprecated Use POST /v1/runs instead. This endpoint is a compatibility
+ * shim that routes through the same submit/queue path as POST /v1/runs.
+ */
 export async function handleSendMessage(
   req: Request,
   deps: {
     processMessage?: MessageProcessor;
     persistAndProcessMessage?: NonBlockingMessageProcessor;
+    runOrchestrator?: RunOrchestrator;
   },
 ): Promise<Response> {
   const parsed = await parseSendRequest(req);
@@ -147,8 +153,31 @@ export async function handleSendMessage(
 
   const { conversationKey, conversationId, content, attachmentIds, sourceChannel } = parsed;
 
-  log.info({ endpoint: 'POST /v1/messages', conversationKey }, 'Send attempt');
+  log.warn({ endpoint: 'POST /v1/messages', conversationKey }, 'Deprecated endpoint — use POST /v1/runs');
 
+  // When the run orchestrator is available, route through it so both
+  // endpoints share the same submit/queue path.
+  if (deps.runOrchestrator) {
+    const run = await deps.runOrchestrator.startRun(
+      conversationId,
+      content,
+      attachmentIds,
+      { sourceChannel },
+    );
+    return new Response(
+      JSON.stringify({ accepted: true, messageId: run.messageId }),
+      {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Deprecation': 'true',
+          'X-Deprecation-Notice': 'POST /v1/messages is deprecated. Use POST /v1/runs instead.',
+        },
+      },
+    );
+  }
+
+  // Fallback: use legacy processMessage path
   const processor = deps.persistAndProcessMessage ?? deps.processMessage;
   if (!processor) {
     return Response.json({ error: 'Message processing not configured' }, { status: 503 });
@@ -162,7 +191,17 @@ export async function handleSendMessage(
       undefined,
       sourceChannel,
     );
-    return Response.json({ accepted: true, messageId: result.messageId });
+    return new Response(
+      JSON.stringify({ accepted: true, messageId: result.messageId }),
+      {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Deprecation': 'true',
+          'X-Deprecation-Notice': 'POST /v1/messages is deprecated. Use POST /v1/runs instead.',
+        },
+      },
+    );
   } catch (err) {
     if (err instanceof Error && err.message === 'Session is already processing a message') {
       log.warn({ endpoint: 'POST /v1/messages', conversationKey }, 'Send rejected — session busy');

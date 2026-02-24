@@ -235,7 +235,7 @@ describe('send endpoint busy behavior — POST /v1/messages', () => {
     return `http://127.0.0.1:${port}/v1/messages`;
   }
 
-  test('returns 409 with descriptive error when session is busy', async () => {
+  test('returns 409 with descriptive error when session is busy (legacy path)', async () => {
     await startServer({ alwaysBusy: true });
 
     const res = await fetch(messagesUrl(), {
@@ -251,7 +251,7 @@ describe('send endpoint busy behavior — POST /v1/messages', () => {
     await stopServer();
   });
 
-  test('returns 200 with accepted:true when session is not busy', async () => {
+  test('returns 200 with accepted:true and deprecation header', async () => {
     await startServer();
 
     const res = await fetch(messagesUrl(), {
@@ -264,6 +264,7 @@ describe('send endpoint busy behavior — POST /v1/messages', () => {
     const body = await res.json() as { accepted: boolean; messageId: string };
     expect(body.accepted).toBe(true);
     expect(body.messageId).toBeDefined();
+    expect(res.headers.get('Deprecation')).toBe('true');
 
     await stopServer();
   });
