@@ -21,6 +21,7 @@ import { getTaskRunRules } from '../tasks/ephemeral-permissions.js';
 import { safeTimeoutMs, executeWithTimeout } from './execution-timeout.js';
 import { buildPolicyContext } from './policy-context.js';
 import { resolveExecutionTarget } from './execution-target.js';
+import { isToolBlocked } from '../security/parental-control-store.js';
 
 const log = getLogger('tool-executor');
 
@@ -76,6 +77,26 @@ export class ToolExecutor {
         errorCategory: 'tool_failure',
       });
       return { content: 'Cancelled', isError: true };
+    }
+
+    // Reject tools blocked by parental control settings before any permission check.
+    if (isToolBlocked(name)) {
+      const durationMs = Date.now() - startTime;
+      emitLifecycleEvent(context, {
+        type: 'permission_denied',
+        toolName: name,
+        executionTarget,
+        input,
+        workingDir: context.workingDir,
+        sessionId: context.sessionId,
+        conversationId: context.conversationId,
+        requestId: context.requestId,
+        riskLevel,
+        decision: 'deny',
+        reason: 'Blocked by parental control settings',
+        durationMs,
+      });
+      return { content: 'This tool is blocked by parental control settings.', isError: true };
     }
 
     // Gate tools not active for the current turn

@@ -49,6 +49,11 @@ struct SettingsView: View {
                     } label: {
                         Label("Reminders", systemImage: "bell")
                     }
+                    NavigationLink {
+                        IOSParentalControlSection()
+                    } label: {
+                        Label("Parental Controls", systemImage: "lock.shield")
+                    }
                 }
 
                 Section("Appearance") {

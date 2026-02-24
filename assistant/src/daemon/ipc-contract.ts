@@ -24,6 +24,7 @@ export * from './ipc-contract/memory.js';
 export * from './ipc-contract/workspace.js';
 export * from './ipc-contract/schedules.js';
 export * from './ipc-contract/diagnostics.js';
+export * from './ipc-contract/parental-control.js';
 
 // Import types needed for aggregate unions and SubagentEvent
 import type { AuthMessage, PingMessage, CancelRequest, DeleteQueuedMessage, ModelGetRequest, ModelSetRequest, ImageGenModelSetRequest, HistoryRequest, UndoRequest, RegenerateRequest, UsageRequest, SandboxSetRequest, SessionListRequest, SessionCreateRequest, SessionSwitchRequest, SessionsClearRequest } from './ipc-contract/sessions.js';
@@ -58,6 +59,7 @@ import type { WorkspaceFilesListResponse, WorkspaceFileReadResponse, IdentityGet
 import type { SchedulesListResponse, RemindersListResponse, ReminderFired, ScheduleComplete, WatcherNotification, WatcherEscalation, AgentHeartbeatAlert } from './ipc-contract/schedules.js';
 import type { DiagnosticsExportResponse, EnvVarsResponse, IpcBlobProbeResult, DictationResponse } from './ipc-contract/diagnostics.js';
 import type { SchedulesList, ScheduleToggle, ScheduleRemove, ScheduleRunNow, RemindersList, ReminderCancel } from './ipc-contract/schedules.js';
+import type { ParentalControlGetRequest, ParentalControlVerifyPinRequest, ParentalControlSetPinRequest, ParentalControlUpdateRequest, ParentalControlGetResponse, ParentalControlVerifyPinResponse, ParentalControlSetPinResponse, ParentalControlUpdateResponse } from './ipc-contract/parental-control.js';
 
 // === SubagentEvent — defined here because it references ServerMessage ===
 
@@ -189,7 +191,11 @@ export type ClientMessage =
   | IdentityGetRequest
   | ToolPermissionSimulateRequest
   | ToolNamesListRequest
-  | DictationRequest;
+  | DictationRequest
+  | ParentalControlGetRequest
+  | ParentalControlVerifyPinRequest
+  | ParentalControlSetPinRequest
+  | ParentalControlUpdateRequest;
 
 // === Server → Client aggregate union ===
 
@@ -326,7 +332,11 @@ export type ServerMessage =
   | IdentityGetResponse
   | ToolPermissionSimulateResponse
   | ToolNamesListResponse
-  | DictationResponse;
+  | DictationResponse
+  | ParentalControlGetResponse
+  | ParentalControlVerifyPinResponse
+  | ParentalControlSetPinResponse
+  | ParentalControlUpdateResponse;
 
 // === Contract schema ===
 

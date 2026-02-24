@@ -2357,6 +2357,120 @@ public struct IPCOpenUrl: Codable, Sendable {
     }
 }
 
+/// Retrieve the current parental control settings and PIN status.
+public struct IPCParentalControlGetRequest: Codable, Sendable {
+    public let type: String
+
+    public init(type: String) {
+        self.type = type
+    }
+}
+
+public struct IPCParentalControlGetResponse: Codable, Sendable {
+    public let type: String
+    public let enabled: Bool
+    public let has_pin: Bool
+    public let content_restrictions: [String]
+    public let blocked_tool_categories: [String]
+
+    public init(type: String, enabled: Bool, has_pin: Bool, content_restrictions: [String], blocked_tool_categories: [String]) {
+        self.type = type
+        self.enabled = enabled
+        self.has_pin = has_pin
+        self.content_restrictions = content_restrictions
+        self.blocked_tool_categories = blocked_tool_categories
+    }
+}
+
+/// Set, change, or clear the parental control PIN. To set for the first time provide only new_pin. To change provide current_pin and new_pin. To clear provide current_pin and set clear:true.
+public struct IPCParentalControlSetPinRequest: Codable, Sendable {
+    public let type: String
+    public let current_pin: String?
+    public let new_pin: String?
+    public let clear: Bool?
+
+    public init(type: String, current_pin: String? = nil, new_pin: String? = nil, clear: Bool? = nil) {
+        self.type = type
+        self.current_pin = current_pin
+        self.new_pin = new_pin
+        self.clear = clear
+    }
+}
+
+public struct IPCParentalControlSetPinResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let error: String?
+
+    public init(type: String, success: Bool, error: String? = nil) {
+        self.type = type
+        self.success = success
+        self.error = error
+    }
+}
+
+/// Update parental control settings. Requires the PIN when parental mode is already enabled.
+public struct IPCParentalControlUpdateRequest: Codable, Sendable {
+    public let type: String
+    /// Current PIN — required when parental mode is already enabled.
+    public let pin: String?
+    /// Enable or disable parental control mode.
+    public let enabled: Bool?
+    /// Full replacement list of blocked content topics.
+    public let content_restrictions: [String]?
+    /// Full replacement list of blocked tool categories.
+    public let blocked_tool_categories: [String]?
+
+    public init(type: String, pin: String? = nil, enabled: Bool? = nil, content_restrictions: [String]? = nil, blocked_tool_categories: [String]? = nil) {
+        self.type = type
+        self.pin = pin
+        self.enabled = enabled
+        self.content_restrictions = content_restrictions
+        self.blocked_tool_categories = blocked_tool_categories
+    }
+}
+
+public struct IPCParentalControlUpdateResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let error: String?
+    public let enabled: Bool
+    public let has_pin: Bool
+    public let content_restrictions: [String]
+    public let blocked_tool_categories: [String]
+
+    public init(type: String, success: Bool, error: String? = nil, enabled: Bool, has_pin: Bool, content_restrictions: [String], blocked_tool_categories: [String]) {
+        self.type = type
+        self.success = success
+        self.error = error
+        self.enabled = enabled
+        self.has_pin = has_pin
+        self.content_restrictions = content_restrictions
+        self.blocked_tool_categories = blocked_tool_categories
+    }
+}
+
+/// Verify a PIN attempt without changing any state. Useful to gate an unlock-settings flow before showing the full panel.
+public struct IPCParentalControlVerifyPinRequest: Codable, Sendable {
+    public let type: String
+    public let pin: String
+
+    public init(type: String, pin: String) {
+        self.type = type
+        self.pin = pin
+    }
+}
+
+public struct IPCParentalControlVerifyPinResponse: Codable, Sendable {
+    public let type: String
+    public let verified: Bool
+
+    public init(type: String, verified: Bool) {
+        self.type = type
+        self.verified = verified
+    }
+}
+
 public struct IPCPingMessage: Codable, Sendable {
     public let type: String
 
