@@ -1037,6 +1037,12 @@ struct MainWindowView: View {
                         ForEach(displayedScheduleThreads) { thread in
                             threadItem(thread)
                                 .padding(.bottom, VSpacing.xxs)
+                                .dropDestination(for: String.self) { items, _ in
+                                    guard let droppedId = items.first,
+                                          let sourceUUID = UUID(uuidString: droppedId),
+                                          sourceUUID != thread.id else { return false }
+                                    return threadManager.moveThread(sourceId: sourceUUID, beforeId: thread.id)
+                                } isTargeted: { _ in }
                         }
 
                         if scheduleThreads.count > 3 {
