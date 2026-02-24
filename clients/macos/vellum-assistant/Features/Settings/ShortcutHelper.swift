@@ -28,6 +28,8 @@ enum ShortcutHelper {
                 modifiers.insert(.option)
             case "ctrl", "control":
                 modifiers.insert(.control)
+            case "fn":
+                modifiers.insert(.function)
             default:
                 key = keyString(for: part)
             }
@@ -40,6 +42,7 @@ enum ShortcutHelper {
     /// as captured from an NSEvent during recording.
     static func shortcutString(from modifiers: NSEvent.ModifierFlags, key: String, keyCode: UInt16) -> String {
         var parts: [String] = []
+        if modifiers.contains(.function) { parts.append("fn") }
         if modifiers.contains(.control) { parts.append("ctrl") }
         if modifiers.contains(.option) { parts.append("opt") }
         if modifiers.contains(.shift) { parts.append("shift") }
@@ -58,6 +61,7 @@ enum ShortcutHelper {
         case "shift": return "\u{21E7}"
         case "opt", "alt", "option": return "\u{2325}"
         case "ctrl", "control": return "\u{2303}"
+        case "fn": return "Fn"
         case "space": return "Space"
         case "return", "enter": return "\u{21A9}"
         case "tab": return "\u{21E5}"
