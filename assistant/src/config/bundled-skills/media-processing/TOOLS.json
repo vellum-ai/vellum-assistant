@@ -97,7 +97,7 @@
     },
     {
       "name": "analyze_keyframes",
-      "description": "Analyze extracted keyframes using Claude VLM (vision language model). Groups frames into overlapping chunks and analyzes each chunk in a single multi-image API call, providing temporal context for better event detection. Supports resumability — skips already-analyzed frames.",
+      "description": "Map video segments through Gemini's structured output API for vision-based analysis. Reads frames from the preprocess manifest, sends each segment to Gemini with assistant-provided extraction instructions and a JSON Schema for guaranteed structured output. Supports concurrency pooling, cost tracking, resumability (skips segments with existing results), and automatic retries with exponential backoff.",
       "category": "media",
       "risk": "medium",
       "input_schema": {
@@ -105,28 +105,36 @@
         "properties": {
           "asset_id": {
             "type": "string",
-            "description": "ID of the media asset whose keyframes to analyze"
+            "description": "ID of the media asset whose segments to analyze"
           },
-          "analysis_type": {
+          "system_prompt": {
             "type": "string",
-            "description": "Type of analysis to perform. Default: 'scene_description'"
+            "description": "Assistant-provided extraction instructions for Gemini (e.g., what to look for in the frames)"
           },
-          "batch_size": {
-            "type": "number",
-            "description": "Number of keyframes to process per batch. Default: 10"
+          "output_schema": {
+            "type": "object",
+            "description": "JSON Schema for structured output — Gemini will enforce this schema on the response"
           },
-          "chunk_size": {
+          "context": {
+            "type": "object",
+            "description": "Additional context to include in the prompt (e.g., subject registry, domain-specific info)"
+          },
+          "model": {
+            "type": "string",
+            "description": "Gemini model to use. Default: 'gemini-2.5-flash'"
+          },
+          "concurrency": {
             "type": "number",
             "minimum": 1,
-            "description": "Number of frames per analysis chunk. Default: 10"
+            "description": "Maximum concurrent Gemini API requests. Default: 10"
           },
-          "overlap": {
+          "max_retries": {
             "type": "number",
             "minimum": 0,
-            "description": "Number of overlapping frames between adjacent chunks to avoid missing boundary events. Default: 2"
+            "description": "Maximum retry attempts per segment on failure. Default: 3"
           }
         },
-        "required": ["asset_id"]
+        "required": ["asset_id", "system_prompt", "output_schema"]
       },
       "executor": "tools/analyze-keyframes.ts",
       "execution_target": "host"
