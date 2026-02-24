@@ -89,6 +89,15 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
     },
   };
 
+  // Derive forceStrictSideEffects from guardian context to match channel
+  // ingress behavior: non-guardian and unverified actors always get strict
+  // side effects so all side-effect tools trigger the confirmation flow.
+  const actorRole = opts.guardianContext?.actorRole;
+  const forceStrictSideEffects =
+    actorRole === 'non-guardian' || actorRole === 'unverified_channel'
+      ? true
+      : undefined;
+
   const { run, abort } = await orchestrator.startRun(
     opts.conversationId,
     opts.content,
@@ -97,6 +106,11 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
       sourceChannel: 'voice',
       assistantId: opts.assistantId,
       guardianContext: opts.guardianContext,
+      ...(forceStrictSideEffects ? { forceStrictSideEffects } : {}),
+      turnChannelContext: {
+        userMessageChannel: 'voice',
+        assistantMessageChannel: 'voice',
+      },
       eventSink,
     },
   );

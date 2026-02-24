@@ -229,6 +229,200 @@ describe('voice-session-bridge', () => {
     expect(abortCalled).toBe(true);
   });
 
+  test('startVoiceTurn passes turnChannelContext with voice channel', async () => {
+    const conversation = createConversation('voice bridge channel context test');
+    const events: ServerMessage[] = [
+      { type: 'message_complete', sessionId: conversation.id },
+    ];
+
+    let capturedTurnChannelContext: unknown = null;
+    const session = {
+      ...makeStreamingSession(events),
+      setTurnChannelContext: (ctx: unknown) => { capturedTurnChannelContext = ctx; },
+    } as unknown as Session;
+
+    const orchestrator = new RunOrchestrator({
+      getOrCreateSession: async () => session,
+      resolveAttachments: () => [],
+      deriveDefaultStrictSideEffects: () => false,
+    });
+    setVoiceBridgeOrchestrator(orchestrator);
+
+    await startVoiceTurn({
+      conversationId: conversation.id,
+      content: 'Hello',
+      onTextDelta: () => {},
+      onComplete: () => {},
+      onError: () => {},
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(capturedTurnChannelContext).toEqual({
+      userMessageChannel: 'voice',
+      assistantMessageChannel: 'voice',
+    });
+  });
+
+  test('startVoiceTurn forces strict side effects for non-guardian actors', async () => {
+    const conversation = createConversation('voice bridge strict non-guardian test');
+    const events: ServerMessage[] = [
+      { type: 'message_complete', sessionId: conversation.id },
+    ];
+
+    let capturedStrictSideEffects: boolean | undefined;
+    const session = {
+      ...makeStreamingSession(events),
+      get memoryPolicy() { return { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false }; },
+      set memoryPolicy(val: Record<string, unknown>) { capturedStrictSideEffects = val.strictSideEffects as boolean; },
+    } as unknown as Session;
+
+    const orchestrator = new RunOrchestrator({
+      getOrCreateSession: async () => session,
+      resolveAttachments: () => [],
+      deriveDefaultStrictSideEffects: () => false,
+    });
+    setVoiceBridgeOrchestrator(orchestrator);
+
+    await startVoiceTurn({
+      conversationId: conversation.id,
+      content: 'Hello',
+      guardianContext: {
+        sourceChannel: 'voice',
+        actorRole: 'non-guardian',
+        guardianExternalUserId: '+15550009999',
+        guardianChatId: '+15550009999',
+        requesterExternalUserId: '+15550002222',
+      },
+      onTextDelta: () => {},
+      onComplete: () => {},
+      onError: () => {},
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(capturedStrictSideEffects).toBe(true);
+  });
+
+  test('startVoiceTurn forces strict side effects for unverified_channel actors', async () => {
+    const conversation = createConversation('voice bridge strict unverified test');
+    const events: ServerMessage[] = [
+      { type: 'message_complete', sessionId: conversation.id },
+    ];
+
+    let capturedStrictSideEffects: boolean | undefined;
+    const session = {
+      ...makeStreamingSession(events),
+      get memoryPolicy() { return { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false }; },
+      set memoryPolicy(val: Record<string, unknown>) { capturedStrictSideEffects = val.strictSideEffects as boolean; },
+    } as unknown as Session;
+
+    const orchestrator = new RunOrchestrator({
+      getOrCreateSession: async () => session,
+      resolveAttachments: () => [],
+      deriveDefaultStrictSideEffects: () => false,
+    });
+    setVoiceBridgeOrchestrator(orchestrator);
+
+    await startVoiceTurn({
+      conversationId: conversation.id,
+      content: 'Hello',
+      guardianContext: {
+        sourceChannel: 'voice',
+        actorRole: 'unverified_channel',
+        denialReason: 'no_binding',
+      },
+      onTextDelta: () => {},
+      onComplete: () => {},
+      onError: () => {},
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(capturedStrictSideEffects).toBe(true);
+  });
+
+  test('startVoiceTurn does not force strict side effects for guardian actors', async () => {
+    const conversation = createConversation('voice bridge strict guardian test');
+    const events: ServerMessage[] = [
+      { type: 'message_complete', sessionId: conversation.id },
+    ];
+
+    let capturedStrictSideEffects: boolean | undefined;
+    const session = {
+      ...makeStreamingSession(events),
+      get memoryPolicy() { return { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false }; },
+      set memoryPolicy(val: Record<string, unknown>) { capturedStrictSideEffects = val.strictSideEffects as boolean; },
+    } as unknown as Session;
+
+    const orchestrator = new RunOrchestrator({
+      getOrCreateSession: async () => session,
+      resolveAttachments: () => [],
+      deriveDefaultStrictSideEffects: () => false,
+    });
+    setVoiceBridgeOrchestrator(orchestrator);
+
+    await startVoiceTurn({
+      conversationId: conversation.id,
+      content: 'Hello',
+      guardianContext: {
+        sourceChannel: 'voice',
+        actorRole: 'guardian',
+        guardianExternalUserId: '+15550001111',
+        guardianChatId: '+15550001111',
+      },
+      onTextDelta: () => {},
+      onComplete: () => {},
+      onError: () => {},
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Guardian actors use the derived default (false), not forced true
+    expect(capturedStrictSideEffects).toBe(false);
+  });
+
+  test('startVoiceTurn passes guardian context to the session', async () => {
+    const conversation = createConversation('voice bridge guardian context test');
+    const events: ServerMessage[] = [
+      { type: 'message_complete', sessionId: conversation.id },
+    ];
+
+    let capturedGuardianContext: unknown = null;
+    const session = {
+      ...makeStreamingSession(events),
+      setGuardianContext: (ctx: unknown) => { capturedGuardianContext = ctx; },
+    } as unknown as Session;
+
+    const orchestrator = new RunOrchestrator({
+      getOrCreateSession: async () => session,
+      resolveAttachments: () => [],
+      deriveDefaultStrictSideEffects: () => false,
+    });
+    setVoiceBridgeOrchestrator(orchestrator);
+
+    const guardianCtx = {
+      sourceChannel: 'voice' as const,
+      actorRole: 'guardian' as const,
+      guardianExternalUserId: '+15550001111',
+      guardianChatId: '+15550001111',
+    };
+
+    await startVoiceTurn({
+      conversationId: conversation.id,
+      content: 'Hello',
+      assistantId: 'test-assistant',
+      guardianContext: guardianCtx,
+      onTextDelta: () => {},
+      onComplete: () => {},
+      onError: () => {},
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(capturedGuardianContext).toEqual(guardianCtx);
+  });
+
   test('pre-aborted signal triggers immediate abort', async () => {
     const conversation = createConversation('voice bridge pre-abort test');
     let abortCalled = false;
