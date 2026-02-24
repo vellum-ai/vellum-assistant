@@ -578,6 +578,10 @@ public struct ToolCallData: Identifiable, Equatable {
     public let inputSummary: String
     /// Full (untruncated) input text for display in expanded views.
     public let inputFull: String
+    /// Untruncated raw value of the primary input key (e.g. file path).
+    /// Unlike inputSummary (truncated to 80 chars) this preserves the full value
+    /// for use in file existence checks and opening files.
+    public let inputRawValue: String
     public var result: String?
     public var isError: Bool
     public var isComplete: Bool
@@ -610,16 +614,18 @@ public struct ToolCallData: Identifiable, Equatable {
             && lhs.isComplete == rhs.isComplete
             && lhs.arrivedBeforeText == rhs.arrivedBeforeText
             && lhs.inputFull == rhs.inputFull
+            && lhs.inputRawValue == rhs.inputRawValue
             && lhs.imageData == rhs.imageData
             && lhs.buildingStatus == rhs.buildingStatus
             && lhs.claudeCodeSteps == rhs.claudeCodeSteps
     }
 
-    public init(id: UUID = UUID(), toolName: String, inputSummary: String, inputFull: String? = nil, result: String? = nil, isError: Bool = false, isComplete: Bool = false, arrivedBeforeText: Bool = true, imageData: String? = nil, startedAt: Date? = nil, completedAt: Date? = nil) {
+    public init(id: UUID = UUID(), toolName: String, inputSummary: String, inputFull: String? = nil, inputRawValue: String? = nil, result: String? = nil, isError: Bool = false, isComplete: Bool = false, arrivedBeforeText: Bool = true, imageData: String? = nil, startedAt: Date? = nil, completedAt: Date? = nil) {
         self.id = id
         self.toolName = toolName
         self.inputSummary = inputSummary
         self.inputFull = inputFull ?? inputSummary
+        self.inputRawValue = inputRawValue ?? inputSummary
         self.result = result
         self.isError = isError
         self.isComplete = isComplete
