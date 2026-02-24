@@ -6,6 +6,7 @@
  * responseMimeType, responseSchema, and usageMetadata for cost tracking.
  */
 
+import { createHash } from 'node:crypto';
 import { readFile, writeFile, mkdir, access } from 'node:fs/promises';
 import { join } from 'node:path';
 import { GoogleGenAI, ApiError } from '@google/genai';
@@ -82,6 +83,16 @@ async function fileExists(path: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/** Hash the mapping configuration so cache keys change when the prompt, schema, or model changes. */
+function computeConfigHash(options: GeminiMapOptions): string {
+  const payload = JSON.stringify({
+    systemPrompt: options.systemPrompt,
+    outputSchema: options.outputSchema,
+    model: options.model ?? 'gemini-2.5-flash',
+  });
+  return createHash('sha256').update(payload).digest('hex').slice(0, 8);
 }
 
 // ---------------------------------------------------------------------------
@@ -175,6 +186,13 @@ async function processSegmentWithRetry(
           return { segmentId: segment.id, status: 'skipped', error: 'Safety filter block' };
         }
 
+        // Non-retryable client errors (400, 401, 403, etc.) — fail immediately
+        if (err.status !== undefined && err.status < 500 && err.status !== 429) {
+          const errMsg = err.message ?? String(err);
+          onProgress?.(`  Segment ${segment.id}: non-retryable error (${err.status}), skipping retries: ${errMsg}\n`);
+          return { segmentId: segment.id, status: 'failed' as const, error: errMsg };
+        }
+
         // 429 rate limits — retryable with backoff
         if (err.status === 429 && attempt < maxRetries) {
           const delay = computeRetryDelay(attempt);
@@ -231,6 +249,8 @@ export async function mapSegments(
   const mapResultsDir = join(pipelineDir, 'map-results');
   await mkdir(mapResultsDir, { recursive: true });
 
+  const configHash = computeConfigHash(options);
+
   const results: SegmentMapResult[] = [];
   let successCount = 0;
   let failedCount = 0;
@@ -240,8 +260,8 @@ export async function mapSegments(
 
   // Process all segments with concurrency limiting
   const promises = segments.map(async (segment) => {
-    // Resumability: check for existing result file
-    const resultPath = join(mapResultsDir, `${segment.id}.json`);
+    // Resumability: check for existing result file (keyed by segment + config hash)
+    const resultPath = join(mapResultsDir, `${segment.id}-${configHash}.json`);
     if (await fileExists(resultPath)) {
       try {
         const existingData = await readFile(resultPath, 'utf-8');
