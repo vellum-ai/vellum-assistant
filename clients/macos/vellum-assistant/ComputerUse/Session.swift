@@ -695,8 +695,16 @@ final class ComputerUseSession: ObservableObject {
             // Skip this check when targeting an external app — showing the
             // NSAlert would activate Vellum and steal focus from the app
             // under test.
-            let isExternalTarget = targetAppBundleId != nil
-                && targetAppBundleId != Bundle.main.bundleIdentifier
+            let isExternalTarget: Bool
+            if let bundleId = targetAppBundleId, !bundleId.isEmpty {
+                let selfBundleId = Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant"
+                isExternalTarget = bundleId != selfBundleId
+            } else if let name = targetAppName, !name.isEmpty {
+                let lower = name.lowercased()
+                isExternalTarget = lower != "vellum" && lower != "vellum assistant"
+            } else {
+                isExternalTarget = false
+            }
             if !didChromeAccessibilityCheck,
                !isExternalTarget,
                let frontApp = NSWorkspace.shared.frontmostApplication,
