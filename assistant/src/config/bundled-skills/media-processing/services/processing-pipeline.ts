@@ -2,7 +2,7 @@
  * Processing pipeline service.
  *
  * Orchestrates the full media processing pipeline with reliability features:
- * - Sequential stage execution: keyframe_extraction -> vision_analysis -> timeline_generation -> event_detection
+ * - Sequential stage execution: preprocess -> map -> reduce
  * - Stage-level retries with exponential backoff
  * - Resumability: checks processing_stages to find last completed stage
  * - Cancellation support: cooperative cancellation via asset status = 'cancelled'
@@ -27,10 +27,9 @@ import { computeRetryDelay, sleep } from '../../../../util/retry.js';
 // ---------------------------------------------------------------------------
 
 export type PipelineStageName =
-  | 'keyframe_extraction'
-  | 'vision_analysis'
-  | 'timeline_generation'
-  | 'event_detection';
+  | 'preprocess'
+  | 'map'
+  | 'reduce';
 
 export interface StageHandler {
   /** Execute the stage. Throw on failure. */
@@ -60,10 +59,9 @@ export interface PipelineResult {
 // ---------------------------------------------------------------------------
 
 const STAGE_ORDER: PipelineStageName[] = [
-  'keyframe_extraction',
-  'vision_analysis',
-  'timeline_generation',
-  'event_detection',
+  'preprocess',
+  'map',
+  'reduce',
 ];
 
 // ---------------------------------------------------------------------------
