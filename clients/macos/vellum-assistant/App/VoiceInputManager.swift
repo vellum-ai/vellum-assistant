@@ -43,7 +43,8 @@ final class VoiceInputManager {
     /// Used by `stopRecording()` to decide whether the overlay should stay visible.
     private var awaitingDaemonResponse = false
 
-    private var isRecording = false
+    /// Whether the microphone is currently recording for PTT/dictation.
+    private(set) var isRecording = false
     private var globalMonitor: Any?
     private var localMonitor: Any?
     private var globalKeyDownMonitor: Any?
