@@ -1,7 +1,7 @@
 /**
  * NotificationSignal -- the flexible input from producers.
- * Replaces the old rigid NotificationType enum with free-form event names
- * and structured attention hints that let the decision engine route contextually.
+ * Uses free-form event names and structured attention hints that let the
+ * decision engine route contextually.
  */
 
 export interface AttentionHints {
