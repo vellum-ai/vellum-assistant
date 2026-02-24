@@ -84,7 +84,19 @@ extension AppDelegate {
             options: []
         )
 
-        center.setNotificationCategories([activityCategory, toolConfirmationCategory, rideShotgunCategory, voiceResponseCategory, quickChatCategory])
+        let viewGuardianAction = UNNotificationAction(
+            identifier: "VIEW_GUARDIAN",
+            title: "View",
+            options: [.foreground]
+        )
+        let guardianRequestCategory = UNNotificationCategory(
+            identifier: "GUARDIAN_REQUEST",
+            actions: [viewGuardianAction],
+            intentIdentifiers: [],
+            options: []
+        )
+
+        center.setNotificationCategories([activityCategory, toolConfirmationCategory, rideShotgunCategory, voiceResponseCategory, quickChatCategory, guardianRequestCategory])
     }
 
     func registerBundledFonts() {
@@ -165,7 +177,17 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
             let conversationId = response.notification.request.content.userInfo["conversationId"] as? String
             await MainActor.run {
                 guard !self.isAwaitingFirstLaunchReady else { return }
-                self.openQuickChatThread(conversationId: conversationId)
+                self.openConversationThread(conversationId: conversationId)
+            }
+            return
+        }
+
+        // Handle guardian request notifications — open the guardian thread in the main window
+        if categoryId == "GUARDIAN_REQUEST" {
+            let conversationId = response.notification.request.content.userInfo["conversationId"] as? String
+            await MainActor.run {
+                guard !self.isAwaitingFirstLaunchReady else { return }
+                self.openConversationThread(conversationId: conversationId)
             }
             return
         }

@@ -146,6 +146,7 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
             requestId: request.id,
             callSessionId,
             title: guardianCopy.threadTitle,
+            questionText: request.questionText,
           } as ServerMessage);
         }
         updateDeliveryStatus(delivery.id, 'sent');
