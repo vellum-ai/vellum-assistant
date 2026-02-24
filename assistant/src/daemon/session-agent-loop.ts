@@ -870,6 +870,9 @@ export async function runAgentLoopImpl(
     ctx.currentActiveSurfaceId = undefined;
     ctx.allowedToolNames = undefined;
     ctx.preactivatedSkillIds = undefined;
+    // Channel command intents (e.g. Telegram /start) are single-turn metadata.
+    // Clear at turn end so they never leak into subsequent unrelated messages.
+    ctx.commandIntent = undefined;
 
     if (userMessageId) {
       consolidateAssistantMessages(ctx.conversationId, userMessageId);
