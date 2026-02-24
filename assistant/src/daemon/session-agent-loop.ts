@@ -9,7 +9,7 @@
 
 import { v4 as uuid } from 'uuid';
 import type { Message, ContentBlock } from '../providers/types.js';
-import type { TurnChannelContext } from '../channels/types.js';
+import type { ChannelId, TurnChannelContext } from '../channels/types.js';
 import type { ServerMessage, UsageStats, SurfaceType, SurfaceData, DynamicPageSurfaceData } from './ipc-protocol.js';
 import type { AgentLoop, CheckpointDecision, AgentEvent } from '../agent/loop.js';
 import type { Provider } from '../providers/types.js';
@@ -148,6 +148,18 @@ export async function runAgentLoopImpl(
   const rlog = log.child({ conversationId: ctx.conversationId, requestId: reqId });
   let yieldedForHandoff = false;
 
+  // Capture the turn channel context *before* any awaits so a second
+  // message from a different channel can't overwrite it mid-flight.
+  // When context is unavailable (e.g. regenerate after daemon restart),
+  // fall back to the conversation's persisted origin channel.
+  const capturedTurnChannelContext: TurnChannelContext = (() => {
+    const live = ctx.getTurnChannelContext();
+    if (live) return live;
+    const origin = getConversationOriginChannel(ctx.conversationId);
+    if (origin) return { userMessageChannel: origin, assistantMessageChannel: origin };
+    return { userMessageChannel: 'macos' as ChannelId, assistantMessageChannel: 'macos' as ChannelId };
+  })();
+
   ctx.lastAssistantAttachments = [];
   ctx.lastAttachmentWarnings = [];
 
@@ -229,10 +241,10 @@ export async function runAgentLoopImpl(
     );
 
     if (memoryResult.conflictClarification) {
-      const loopTurnCtx = ctx.getTurnChannelContext();
-      const loopChannelMeta = loopTurnCtx
-        ? { userMessageChannel: loopTurnCtx.userMessageChannel, assistantMessageChannel: loopTurnCtx.assistantMessageChannel }
-        : undefined;
+      const loopChannelMeta = {
+        userMessageChannel: capturedTurnChannelContext.userMessageChannel,
+        assistantMessageChannel: capturedTurnChannelContext.assistantMessageChannel,
+      };
       const assistantMessage = createAssistantMessage(memoryResult.conflictClarification);
       conversationStore.addMessage(
         ctx.conversationId,
@@ -291,12 +303,13 @@ export async function runAgentLoopImpl(
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     });
 
-    // Build channel turn context so the model knows which channels are
-    // active for this turn and the conversation's origin channel.
-    const turnChannelCtx = ctx.getTurnChannelContext();
-    const channelTurnContext: ChannelTurnContextParams | null = turnChannelCtx
-      ? { turnContext: turnChannelCtx, conversationOriginChannel: getConversationOriginChannel(ctx.conversationId) }
-      : null;
+    // Use the channel context captured at the top of this function so it
+    // reflects the channel that originally sent *this* turn's message,
+    // even if a newer message from a different channel arrived since.
+    const channelTurnContext: ChannelTurnContextParams = {
+      turnContext: capturedTurnChannelContext,
+      conversationOriginChannel: getConversationOriginChannel(ctx.conversationId),
+    };
 
     runMessages = applyRuntimeInjections(runMessages, {
       softConflictInstruction,
@@ -517,10 +530,10 @@ export async function runAgentLoopImpl(
 
     const hasAssistantResponse = newMessages.some((msg) => msg.role === 'assistant');
     if (!hasAssistantResponse && state.providerErrorUserMessage && !abortController.signal.aborted && !yieldedForHandoff) {
-      const errTurnCtx = ctx.getTurnChannelContext();
-      const errChannelMeta = errTurnCtx
-        ? { userMessageChannel: errTurnCtx.userMessageChannel, assistantMessageChannel: errTurnCtx.assistantMessageChannel }
-        : undefined;
+      const errChannelMeta = {
+        userMessageChannel: capturedTurnChannelContext.userMessageChannel,
+        assistantMessageChannel: capturedTurnChannelContext.assistantMessageChannel,
+      };
       const errorAssistantMessage = createAssistantMessage(state.providerErrorUserMessage);
       conversationStore.addMessage(
         ctx.conversationId,
