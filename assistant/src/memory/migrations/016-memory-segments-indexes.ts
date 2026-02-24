@@ -8,4 +8,5 @@ import type { DrizzleDb } from '../db-connection.js';
  */
 export function migrateMemorySegmentsIndexes(database: DrizzleDb): void {
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_segments_scope_id ON memory_segments(scope_id)`);
+  database.run(/*sql*/ `DROP INDEX IF EXISTS idx_memory_segments_conversation_id`);
 }
