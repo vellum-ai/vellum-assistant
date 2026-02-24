@@ -23,6 +23,9 @@ const log = getLogger('ride-shotgun-handler');
 /** Active network recorders keyed by watchId. */
 const activeRecorders = new Map<string, NetworkRecorder>();
 
+/** Active progress interval timers keyed by watchId, cleared on session completion. */
+const activeProgressIntervals = new Map<string, NodeJS.Timeout>();
+
 /** Return domain-specific URL patterns that indicate a successful login. */
 function getLoginSignals(targetDomain?: string): string[] {
   if (targetDomain === 'x.com' || targetDomain === 'twitter.com') {
@@ -50,6 +53,13 @@ async function completeSession(session: WatchSession): Promise<void> {
   if (session.timeoutHandle) {
     clearTimeout(session.timeoutHandle);
     session.timeoutHandle = undefined;
+  }
+
+  // Clear progress interval timer if one was registered for this session
+  const progressTimer = activeProgressIntervals.get(session.watchId);
+  if (progressTimer) {
+    clearInterval(progressTimer);
+    activeProgressIntervals.delete(session.watchId);
   }
 
   const { watchId, sessionId } = session;
@@ -140,7 +150,7 @@ export async function handleRideShotgunStart(
           let lastActivityTimestamp = Date.now();
           let idleHintSent = false;
 
-          const progressInterval = setInterval(() => {
+          const progressInterval: NodeJS.Timeout = setInterval(() => {
             if (session.status !== 'active') {
               clearInterval(progressInterval);
               return;
@@ -185,6 +195,7 @@ export async function handleRideShotgunStart(
               ...(idleHint !== undefined ? { idleHint } : {}),
             });
           }, 5000);
+          activeProgressIntervals.set(watchId, progressInterval);
 
           // For x.com, auto-navigate Chrome through key pages to capture the full API surface.
           // Skip login detection — auto-navigation will complete the session when done.
