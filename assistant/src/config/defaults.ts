@@ -257,7 +257,7 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     cleanupIntervalMs: 6 * 60 * 60 * 1000, // 6 hours
     captureScope: 'display' as const,
     includeAudio: false,
-    enforceStartBeforeActions: false,
+    enforceStartBeforeActions: true,
   },
   sms: {
     enabled: false,

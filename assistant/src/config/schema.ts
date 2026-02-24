@@ -1079,7 +1079,7 @@ export const QaRecordingConfigSchema = z.object({
     .default(false),
   enforceStartBeforeActions: z
     .boolean({ error: 'qaRecording.enforceStartBeforeActions must be a boolean' })
-    .default(false),
+    .default(true),
 });
 
 export const SmsConfigSchema = z.object({
@@ -1400,7 +1400,7 @@ export const AssistantConfigSchema = z.object({
     cleanupIntervalMs: 6 * 60 * 60 * 1000,
     captureScope: 'display' as const,
     includeAudio: false,
-    enforceStartBeforeActions: false,
+    enforceStartBeforeActions: true,
   }),
   sms: SmsConfigSchema.default({
     enabled: false,
