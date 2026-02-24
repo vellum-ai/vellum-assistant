@@ -18,6 +18,7 @@ import {
   migrateDropActiveSearchIndex,
   migrateMemorySegmentsIndexes,
   migrateMemoryItemsIndexes,
+  migrateRemainingTableIndexes,
   validateMigrationState,
 } from './schema-migration.js';
 
@@ -1272,6 +1273,8 @@ export function initializeDb(): void {
   migrateMemorySegmentsIndexes(database);
 
   migrateMemoryItemsIndexes(database);
+
+  migrateRemainingTableIndexes(database);
 
   validateMigrationState(database);
 }
