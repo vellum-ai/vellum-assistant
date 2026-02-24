@@ -1,5 +1,5 @@
 import * as net from 'node:net';
-import { createVerificationChallenge, getGuardianBinding, revokeBinding as revokeGuardianBinding } from '../../runtime/channel-guardian-service.js';
+import { createVerificationChallenge, getGuardianBinding, getPendingChallenge, revokeBinding as revokeGuardianBinding, revokePendingChallenges } from '../../runtime/channel-guardian-service.js';
 import { createReadinessService, type ChannelReadinessService } from '../../runtime/channel-readiness-service.js';
 import * as externalConversationStore from '../../memory/external-conversation-store.js';
 import type {
@@ -67,6 +67,7 @@ export function handleGuardianVerification(
           guardianDisplayName = ext.displayName;
         }
       }
+      const hasPendingChallenge = getPendingChallenge(assistantId, channel) != null;
       ctx.send(socket, {
         type: 'guardian_verification_response',
         success: true,
@@ -77,9 +78,11 @@ export function handleGuardianVerification(
         channel,
         assistantId,
         guardianDeliveryChatId: binding?.guardianDeliveryChatId,
+        hasPendingChallenge,
       });
     } else if (msg.action === 'revoke') {
       revokeGuardianBinding(assistantId, channel);
+      revokePendingChallenges(assistantId, channel);
       ctx.send(socket, {
         type: 'guardian_verification_response',
         success: true,

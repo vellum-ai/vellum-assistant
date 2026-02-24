@@ -12,6 +12,7 @@ import {
   createBinding,
   getActiveBinding,
   revokeBinding as storeRevokeBinding,
+  revokePendingChallenges as storeRevokePendingChallenges,
   createChallenge,
   findPendingChallengeByHash,
   findPendingChallengeForChannel,
@@ -251,6 +252,18 @@ export function revokeBinding(
   channel: string,
 ): boolean {
   return storeRevokeBinding(assistantId, channel);
+}
+
+/**
+ * Revoke all pending challenges for a given assistant and channel.
+ * Called when the user cancels verification so that stale challenges
+ * don't gate inbound calls.
+ */
+export function revokePendingChallenges(
+  assistantId: string,
+  channel: string,
+): void {
+  storeRevokePendingChallenges(assistantId, channel);
 }
 
 /**
