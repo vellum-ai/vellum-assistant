@@ -19,6 +19,7 @@ import type {
 } from '../ipc-protocol.js';
 import { log, wireEscalationHandler, renderHistoryContent, defineHandlers, type HandlerContext } from './shared.js';
 import { handleCuSessionCreate } from './computer-use.js';
+import { detectRecordingIntent } from '../recording-intent.js';
 
 // ─── Task submit handler ────────────────────────────────────────────────────
 
@@ -68,9 +69,15 @@ export async function handleTaskSubmit(
     const interactionType = slashCandidate.kind === 'candidate'
       ? 'text_qa' as const
       : await classifyInteraction(msg.task, msg.source);
-    rlog.info({ interactionType, slashBypass: slashCandidate.kind === 'candidate', taskLength: msg.task.length }, 'Task classified');
+    const isRecordingRequested = detectRecordingIntent(msg.task);
+    rlog.info({ interactionType, isRecordingRequested, slashBypass: slashCandidate.kind === 'candidate', taskLength: msg.task.length }, 'Task classified');
 
-    if (interactionType === 'computer_use') {
+    // Recording always requires computer_use — override text_qa when recording is requested
+    const effectiveType = (interactionType === 'text_qa' && isRecordingRequested)
+      ? 'computer_use' as const
+      : interactionType;
+
+    if (effectiveType === 'computer_use') {
       // Create CU session (reuse handleCuSessionCreate logic)
       const sessionId = uuid();
       const cuMsg: CuSessionCreate = {
@@ -81,6 +88,7 @@ export async function handleTaskSubmit(
         screenHeight: msg.screenHeight,
         attachments: msg.attachments,
         interactionType: 'computer_use',
+        requiresRecording: isRecordingRequested || undefined,
       };
       handleCuSessionCreate(cuMsg, socket, ctx);
 

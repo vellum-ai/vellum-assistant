@@ -12,6 +12,8 @@ export interface CuSessionCreate {
   screenHeight: number;
   attachments?: UserMessageAttachment[];
   interactionType?: 'computer_use' | 'text_qa';
+  /** When true, the client should start screen recording for this session. */
+  requiresRecording?: boolean;
 }
 
 export interface CuSessionAbort {
