@@ -16,8 +16,6 @@ import {
   getEventsForAsset,
   type ProcessingStage,
 } from '../../../../memory/media-store.js';
-import { aggregateFeedback } from '../services/feedback-aggregation.js';
-
 // ---------------------------------------------------------------------------
 // Cost estimation constants
 // ---------------------------------------------------------------------------
@@ -122,9 +120,6 @@ export async function run(
   const keyframeCount = keyframes.length;
   const estimatedTotalCost = keyframeCount * ESTIMATED_COST_PER_FRAME_USD;
 
-  // Feedback summary
-  const feedbackResult = aggregateFeedback(assetId);
-
   const report: DiagnosticReport = {
     assetId: asset.id,
     assetTitle: asset.title,
@@ -145,17 +140,8 @@ export async function run(
       currency: 'USD',
     },
     feedbackSummary: {
-      totalFeedbackEntries: feedbackResult.totalFeedbackEntries,
-      statsByEventType: feedbackResult.statsByEventType.map((s) => ({
-        eventType: s.eventType,
-        totalEvents: s.totalEvents,
-        correct: s.correct,
-        incorrect: s.incorrect,
-        boundaryEdit: s.boundaryEdit,
-        missed: s.missed,
-        precision: s.precision,
-        recall: s.recall,
-      })),
+      totalFeedbackEntries: 0,
+      statsByEventType: [],
     },
   };
 

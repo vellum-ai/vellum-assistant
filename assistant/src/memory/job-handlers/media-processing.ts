@@ -7,26 +7,11 @@ import {
   type PipelineStageName,
   type StageHandler,
 } from '../../config/bundled-skills/media-processing/services/processing-pipeline.js';
-import { extractKeyframesForAsset } from '../../config/bundled-skills/media-processing/tools/extract-keyframes.js';
-import { analyzeKeyframesForAsset } from '../../config/bundled-skills/media-processing/tools/analyze-keyframes.js';
-import { generateTimeline } from '../../config/bundled-skills/media-processing/services/timeline-service.js';
-import {
-  detectEvents,
-  type DetectionConfig,
-} from '../../config/bundled-skills/media-processing/services/event-detection-service.js';
+import { preprocessForAsset } from '../../config/bundled-skills/media-processing/tools/extract-keyframes.js';
+import { mapSegmentsForAsset } from '../../config/bundled-skills/media-processing/tools/analyze-keyframes.js';
+import { reduceForAsset } from '../../config/bundled-skills/media-processing/tools/query-media-events.js';
 
 const log = getLogger('media-processing-job');
-
-const defaultDetectionConfig: DetectionConfig = {
-  eventType: 'scene_change',
-  rules: [
-    {
-      ruleType: 'segment_transition',
-      params: { field: 'segmentType' },
-      weight: 1.0,
-    },
-  ],
-};
 
 export async function mediaProcessingJob(job: MemoryJob): Promise<void> {
   const mediaAssetId = asString(job.payload.mediaAssetId);
@@ -50,31 +35,15 @@ export async function mediaProcessingJob(job: MemoryJob): Promise<void> {
     return;
   }
 
-  // Build detection config, allowing optional eventType override from payload
-  const eventType = asString(job.payload.eventType);
-  const detectionConfig: DetectionConfig = eventType
-    ? { ...defaultDetectionConfig, eventType }
-    : defaultDetectionConfig;
-
   const handlers: Record<PipelineStageName, StageHandler> = {
-    keyframe_extraction: {
-      execute: (assetId, onProgress) =>
-        extractKeyframesForAsset(assetId, 1, onProgress),
-    },
-    vision_analysis: {
-      execute: (assetId, onProgress) =>
-        analyzeKeyframesForAsset(assetId, undefined, undefined, onProgress),
-    },
-    timeline_generation: {
-      execute: async (assetId, onProgress) => {
-        generateTimeline(assetId, { onProgress });
-      },
-    },
-    event_detection: {
-      execute: async (assetId, onProgress) => {
-        detectEvents(assetId, detectionConfig, { onProgress });
-      },
-    },
+    preprocess: { execute: (assetId, onProgress) => preprocessForAsset(assetId, {}, onProgress) },
+    map: { execute: (assetId, onProgress) => mapSegmentsForAsset(assetId, {
+      systemPrompt: 'Describe what you see in these video frames. For each frame, note: subjects present, actions occurring, scene context, and any text visible.',
+      outputSchema: { type: 'object', properties: { frames: { type: 'array', items: { type: 'object', properties: { timestamp: { type: 'number' }, subjects: { type: 'array', items: { type: 'string' } }, actions: { type: 'array', items: { type: 'string' } }, scene: { type: 'string' }, text: { type: 'string' } } } } } }
+    }, onProgress) },
+    reduce: { execute: (assetId, onProgress) => reduceForAsset(assetId, {
+      systemPrompt: 'Summarize the video content based on the structured observations.',
+    }, onProgress) },
   };
 
   const result = await runPipeline(mediaAssetId, handlers, {

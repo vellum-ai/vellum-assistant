@@ -86,13 +86,9 @@ import * as ingestMedia from './bundled-skills/media-processing/tools/ingest-med
 import * as mediaStatus from './bundled-skills/media-processing/tools/media-status.js';
 import * as extractKeyframes from './bundled-skills/media-processing/tools/extract-keyframes.js';
 import * as analyzeKeyframes from './bundled-skills/media-processing/tools/analyze-keyframes.js';
-import * as detectEvents from './bundled-skills/media-processing/tools/detect-events.js';
 import * as queryMediaEvents from './bundled-skills/media-processing/tools/query-media-events.js';
-import * as selectTrackingProfile from './bundled-skills/media-processing/tools/select-tracking-profile.js';
 import * as generateClip from './bundled-skills/media-processing/tools/generate-clip.js';
-import * as submitFeedback from './bundled-skills/media-processing/tools/submit-feedback.js';
 import * as mediaDiagnostics from './bundled-skills/media-processing/tools/media-diagnostics.js';
-import * as recalibrate from './bundled-skills/media-processing/tools/recalibrate.js';
 
 // ── messaging ────────────────────────────────────────────────────────────────
 import * as messagingAuthTest from './bundled-skills/messaging/tools/messaging-auth-test.js';
@@ -239,13 +235,9 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ['media-processing:tools/media-status.ts', mediaStatus],
   ['media-processing:tools/extract-keyframes.ts', extractKeyframes],
   ['media-processing:tools/analyze-keyframes.ts', analyzeKeyframes],
-  ['media-processing:tools/detect-events.ts', detectEvents],
   ['media-processing:tools/query-media-events.ts', queryMediaEvents],
-  ['media-processing:tools/select-tracking-profile.ts', selectTrackingProfile],
   ['media-processing:tools/generate-clip.ts', generateClip],
-  ['media-processing:tools/submit-feedback.ts', submitFeedback],
   ['media-processing:tools/media-diagnostics.ts', mediaDiagnostics],
-  ['media-processing:tools/recalibrate.ts', recalibrate],
 
   // messaging
   ['messaging:tools/messaging-auth-test.ts', messagingAuthTest],
