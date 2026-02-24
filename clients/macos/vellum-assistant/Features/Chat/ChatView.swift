@@ -452,6 +452,9 @@ struct ChatView: View {
                                 return conf
                             }()
 
+                            // Hide the avatar when the previous visible message is also from the assistant
+                            let previousIsAssistant = index > 0 && displayMessages[index - 1].role == .assistant
+
                             ChatBubble(
                                 message: message,
                                 hideToolCalls: nextIsPendingConfirmation,
@@ -464,6 +467,7 @@ struct ChatView: View {
                                 onReportMessage: onReportMessage,
                                 mediaEmbedSettings: mediaEmbedSettings,
                                 daemonHttpPort: daemonHttpPort,
+                                showAvatar: !previousIsAssistant,
                                 isLatestAssistantMessage: message.role == .assistant && displayMessages.last(where: { $0.role == .assistant })?.id == message.id
                             )
                                 .id(message.id)
