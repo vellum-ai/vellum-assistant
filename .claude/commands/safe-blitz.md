@@ -119,13 +119,6 @@ For "Address the feedback on <PR URL>" tasks:
   1. Comment on the original PR: `gh pr comment <original-PR-number> --body "Addressed in <new-PR-URL>"`
   2. Resolve all bot review threads: `.claude/gh-review resolve-threads <original-PR-number> "Addressed in <new-PR-URL>"`
 
-For "Fix CI failures from merged PR <PR URL> (run: <run URL>)" tasks:
-- Open the failed run URL and read the logs to understand what failed.
-- Read the referenced PR's diff (`gh pr diff <number>`) to understand what changes were introduced.
-- Diagnose the root cause of the CI failure.
-- Implement the fix in your worktree (on a new branch — this will become a new PR).
-- Follow the same PR creation workflow above. Do NOT use --merge.
-- In the new PR body, reference the original PR and the failed run.
 ```
 
 ### For each milestone (in order):
@@ -166,7 +159,7 @@ For "Fix CI failures from merged PR <PR URL> (run: <run URL>)" tasks:
 
 #### 4c. Per-milestone recursive sweep
 
-Run the recursive sweep (`.claude/phases/sweep.md`) with `--namespace <namespace>` and `--branch <milestone-pr-branch>` (the milestone PR's head branch, not the feature branch — this is where CI runs during the milestone's review cycle). **Skip the entry pause** — treat as `--auto` for per-milestone sweeps. The user-facing pause only applies to the final sweep in Phase 5.
+Run the recursive sweep (`.claude/phases/sweep.md`) with `--namespace <namespace>`. **Skip the entry pause** — treat as `--auto` for per-milestone sweeps. The user-facing pause only applies to the final sweep in Phase 5.
 
 When the sweep says "back to the Swarm phase," run the swarm workflow (`.claude/commands/swarm.md`) with these modifications:
 - Pass `--namespace <namespace>` so only namespaced feedback items are processed.
@@ -212,11 +205,10 @@ Proceed to step 4d.
 
 After all milestones are merged and their individual reviews are clean, run one final recursive sweep on the entire feature branch.
 
-Read and follow `.claude/phases/sweep.md` with `--namespace <namespace>` and `--branch <feature-branch-name>`. Unless `--auto` was passed, this is where the user-facing pause happens: **"All milestones complete. Run final sweep for review feedback?"**
+Read and follow `.claude/phases/sweep.md` with `--namespace <namespace>`. Unless `--auto` was passed, this is where the user-facing pause happens: **"All milestones complete. Run final sweep for review feedback?"**
 
 This final sweep catches:
 - Any cross-milestone issues that individual per-milestone sweeps missed
-- CI failures that only manifest when multiple milestones are combined
 - Any remaining unreviewed PRs from any milestone
 
 When the sweep says "back to the Swarm phase," run the swarm workflow (`.claude/commands/swarm.md`) with these modifications (note: these differ from Phase 4c because the final sweep operates on the feature branch, not a milestone branch):

@@ -10,9 +10,9 @@ Parse positional arguments and flags (these are passed through to both `/check-r
 
 ## Phase 1: Check reviews
 
-Run the `/check-reviews` skill, passing `--namespace` if one was provided. Wait for it to complete and note how many "Address the feedback" items and "Fix CI failures" items were added to `.private/TODO.md`.
+Run the `/check-reviews` skill, passing `--namespace` if one was provided. Wait for it to complete and note how many "Address the feedback" items were added to `.private/TODO.md`.
 
-If no items were added (all PRs were approved or still pending, and no CI failures on main), report the results and stop — there's nothing to swarm on.
+If no items were added (all PRs were approved or still pending), report the results and stop — there's nothing to swarm on.
 
 ## Phase 2: Swarm on feedback
 
@@ -24,5 +24,5 @@ After both phases complete, print a combined summary:
 
 | Phase         | Result                                      |
 | ------------- | ------------------------------------------- |
-| Check Reviews | _e.g., "3 PRs reviewed, 2 had feedback, 1 CI failure on main"_ |
+| Check Reviews | _e.g., "3 PRs reviewed, 2 had feedback"_ |
 | Swarm         | _e.g., "3 items addressed, 0 failed"_                          |
