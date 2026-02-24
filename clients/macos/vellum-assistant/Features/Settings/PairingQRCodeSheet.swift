@@ -35,9 +35,16 @@ struct PairingQRCodeSheet: View {
         case idle, registering, registered, failed
     }
 
+    /// The effective gateway URL for iOS to connect to. Prefers the configured
+    /// cloud gateway URL, falls back to the local LAN gateway address.
+    private var effectiveGatewayUrl: String {
+        if !gatewayUrl.isEmpty { return gatewayUrl }
+        return localLanUrl ?? ""
+    }
+
     /// Whether the configuration is sufficient for pairing.
     private var canGenerateQR: Bool {
-        !gatewayUrl.isEmpty && registrationState == .registered
+        !effectiveGatewayUrl.isEmpty && registrationState == .registered
     }
 
     var body: some View {
@@ -173,15 +180,20 @@ struct PairingQRCodeSheet: View {
 
     // MARK: - Registration
 
+    /// Resolve the daemon HTTP port. Prefers the IPC-reported value, falls back
+    /// to `RUNTIME_HTTP_PORT` env var, then the default `7821`.
+    private var resolvedHttpPort: Int {
+        if let port = daemonClient?.httpPort { return port }
+        let envPort = ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"]
+            ?? getenv("RUNTIME_HTTP_PORT").flatMap({ String(cString: $0) })
+        return envPort.flatMap(Int.init) ?? 7821
+    }
+
     private func registerWithDaemon() {
         registrationState = .registering
         registrationError = nil
 
-        guard let port = daemonClient?.httpPort else {
-            registrationState = .failed
-            registrationError = "Daemon HTTP server not running."
-            return
-        }
+        let port = resolvedHttpPort
 
         let reqId = pairingRequestId
         let secret = pairingSecret
@@ -202,7 +214,7 @@ struct PairingQRCodeSheet: View {
     /// Only swaps pairingRequestId, pairingSecret, and registrationState atomically
     /// once the HTTP 200 response comes back. On failure the old QR stays visible.
     private func refreshRegistration(newRequestId: String, newSecret: String) async {
-        guard let port = daemonClient?.httpPort else { return }
+        let port = resolvedHttpPort
 
         let result = await performRegistrationRequest(port: port, requestId: newRequestId, secret: newSecret)
         switch result {
@@ -240,7 +252,7 @@ struct PairingQRCodeSheet: View {
         var body: [String: Any] = [
             "pairingRequestId": requestId,
             "pairingSecret": secret,
-            "gatewayUrl": gatewayUrl,
+            "gatewayUrl": effectiveGatewayUrl,
         ]
         if let lan = localLanUrl {
             body["localLanUrl"] = lan
@@ -293,7 +305,7 @@ struct PairingQRCodeSheet: View {
             "type": "vellum-daemon",
             "v": 4,
             "id": hostId,
-            "g": gatewayUrl,
+            "g": effectiveGatewayUrl,
             "pairingRequestId": pairingRequestId,
             "pairingSecret": pairingSecret,
         ]

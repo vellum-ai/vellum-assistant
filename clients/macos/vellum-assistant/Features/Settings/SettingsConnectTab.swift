@@ -1205,7 +1205,8 @@ struct SettingsConnectTab: View {
 
             // Status line — use resolvedIosGatewayUrl for gateway (no I/O) and
             // cached bearerToken + override for token (avoids synchronous disk read).
-            let hasGateway = !store.resolvedIosGatewayUrl.isEmpty
+            // LAN pairing works without a cloud gateway URL.
+            let hasGateway = !store.resolvedIosGatewayUrl.isEmpty || LANIPHelper.currentLANAddress() != nil
             let trimmedOverrideToken = iosPairingTokenOverride.trimmingCharacters(in: .whitespacesAndNewlines)
             // Has a usable token — either the daemon file token or a non-empty override.
             let hasToken = !bearerToken.isEmpty || !trimmedOverrideToken.isEmpty
