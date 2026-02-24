@@ -20,5 +20,9 @@ enum UserDefaultsKeys {
     static func daemonHostId(host: String, port: UInt16) -> String {
         "daemon_host_id:\(host):\(port)"
     }
+
+    // Media embed settings
+    static let mediaEmbedsEnabled = "media_embeds_enabled"
+    static let mediaEmbedVideoAllowlistDomains = "media_embed_video_allowlist_domains"
 }
 #endif

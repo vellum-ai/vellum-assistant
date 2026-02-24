@@ -58,6 +58,11 @@ struct SettingsView: View {
                     } label: {
                         Label("Private Threads", systemImage: "lock.shield.fill")
                     }
+                    NavigationLink {
+                        MediaEmbedSettingsSection()
+                    } label: {
+                        Label("Media Embeds", systemImage: "play.rectangle")
+                    }
                 }
 
                 NavigationLink {
