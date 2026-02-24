@@ -60,17 +60,39 @@ struct ContentView: View {
 
     // MARK: - Initial Connection
 
+    /// How many consecutive connection failures have occurred (used for exponential backoff on retry).
+    @State private var retryCount: Int = 0
+
     private func attemptInitialConnection() async {
         guard hasSavedSettings, !clientProvider.isConnected else {
             connectPhase = .ready
             return
         }
         connectPhase = .connecting
+
+        // Apply exponential backoff when retrying: 0s, 2s, 4s, 8s … capped at 30s.
+        if retryCount > 0 {
+            let delaySeconds = min(pow(2.0, Double(retryCount - 1)) * 2.0, 30.0)
+            try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
+        }
+
+        // Race the connect call against a 10-second timeout so a hung gateway
+        // never leaves the UI stuck on the spinner indefinitely.
+        let connectTask = Task { try await clientProvider.client.connect() }
+        let timeoutTask = Task {
+            try await Task.sleep(nanoseconds: 10_000_000_000)
+            connectTask.cancel()
+        }
+
         do {
-            try await clientProvider.client.connect()
+            try await connectTask.value
+            timeoutTask.cancel()
+            retryCount = 0
             clientProvider.isConnected = true
             connectPhase = .ready
         } catch {
+            timeoutTask.cancel()
+            retryCount += 1
             connectPhase = .failed
         }
     }
@@ -105,6 +127,13 @@ struct ContentView: View {
                 .foregroundColor(VColor.textSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, VSpacing.xl)
+
+            if retryCount > 1 {
+                let delaySeconds = Int(min(pow(2.0, Double(retryCount - 1)) * 2.0, 30.0))
+                Text("Retrying in \(delaySeconds)s…")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+            }
 
             VStack(spacing: VSpacing.md) {
                 Button {
