@@ -96,13 +96,20 @@ final class AlwaysOnAudioMonitor: ObservableObject {
             throw AudioMonitorError.noInputChannels
         }
 
-        // Install a tap using the hardware format for low-latency capture.
-        // The buffer is available for the WakeWordEngine to consume via its
-        // own internal processing (the engine's start() primes it for detection).
+        // Porcupine requires 16kHz mono Int16 PCM. Request 16kHz mono Float32 from
+        // AVAudioEngine (which handles resampling internally); the tap callback
+        // converts Float32 → Int16 before feeding the wake word engine.
+        let targetFormat = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: 16000,
+            channels: 1,
+            interleaved: false
+        )!
+
         inputNode.installTap(
             onBus: 0,
             bufferSize: Self.bufferSize,
-            format: hwFormat
+            format: targetFormat
         ) { [weak self] buffer, _ in
             guard let self else { return }
             guard let floatData = buffer.floatChannelData else { return }
