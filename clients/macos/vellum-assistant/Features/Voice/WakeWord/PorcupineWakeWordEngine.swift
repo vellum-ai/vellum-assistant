@@ -23,7 +23,7 @@ final class PorcupineWakeWordEngine: WakeWordEngine {
 
     private var binding: PorcupineBinding?
     private var frameBuffer: [Int16] = []
-    private let frameLength: Int = 512
+    private var frameLength: Int = 512
 
     /// Guards `binding` and `frameBuffer` for thread safety between
     /// the main thread (`start`/`stop`) and the audio thread (`processAudioFrame`).
@@ -107,10 +107,14 @@ final class PorcupineWakeWordEngine: WakeWordEngine {
             return
         }
 
-        // 7. Commit state
+        // 7. Query actual frame length from binding
+        let actualFrameLength = Int(newBinding.frameLength)
+
+        // 8. Commit state
         withLock {
             self.binding = newBinding
             self.frameBuffer = []
+            self.frameLength = actualFrameLength
             self.hasLoggedProcessError = false
         }
         isRunning = true
@@ -131,6 +135,7 @@ final class PorcupineWakeWordEngine: WakeWordEngine {
     // MARK: - Audio processing (audio thread)
 
     func processAudioFrame(_ frame: [Int16]) {
+        var shouldNotify = false
         withLock {
             guard binding != nil else { return }
             frameBuffer.append(contentsOf: frame)
@@ -142,7 +147,7 @@ final class PorcupineWakeWordEngine: WakeWordEngine {
                 do {
                     let keywordIndex = try binding!.process(pcm: chunk)
                     if keywordIndex >= 0 {
-                        onWakeWordDetected?(1.0)
+                        shouldNotify = true
                     }
                 } catch {
                     if !hasLoggedProcessError {
@@ -153,6 +158,9 @@ final class PorcupineWakeWordEngine: WakeWordEngine {
                     return
                 }
             }
+        }
+        if shouldNotify {
+            onWakeWordDetected?(1.0)
         }
     }
 
