@@ -1,9 +1,8 @@
 /**
  * Core domain types for the unified notification system.
  *
- * The old rigid NotificationType enum and delivery-class map have been removed
- * in favor of the signal-based model (see signal.ts). What remains here are
- * the channel-adapter interfaces that the broadcaster and adapters depend on.
+ * Defines the channel-adapter interfaces that the broadcaster and adapters
+ * depend on, plus the decision engine output contract.
  */
 
 export type NotificationChannel = 'macos' | 'telegram';

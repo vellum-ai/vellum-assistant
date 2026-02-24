@@ -2,9 +2,8 @@
  * Single entry point for all notification producers.
  *
  * emitNotificationSignal() creates a NotificationSignal, persists the event,
- * runs it through the decision engine + deterministic checks + dispatch
- * pipeline. Producers call this instead of directly broadcasting IPC
- * messages or dispatching through the old patterns.
+ * and runs it through the decision engine + deterministic checks + dispatch
+ * pipeline.
  *
  * Designed for fire-and-forget usage: errors are logged but never propagated
  * to the caller. The returned promise resolves even on failure.
