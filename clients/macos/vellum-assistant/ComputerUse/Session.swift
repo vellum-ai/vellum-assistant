@@ -107,6 +107,11 @@ final class ComputerUseSession: ObservableObject {
     private let verifier: ActionVerifier
     private let logger: SessionLogger
     private let initialDelayMs: UInt64
+    private let focusManager = FocusManager()
+    private lazy var axActionExecutor: AXActionExecutor? = {
+        guard let registry = enumerator.elementRegistry else { return nil }
+        return AXActionExecutor(elementRegistry: registry)
+    }()
     private var didChromeAccessibilityCheck = false
     private var previousAXTreeText: String?
     private var previousElements: [AXElement]?
@@ -636,20 +641,104 @@ final class ComputerUseSession: ObservableObject {
         }
         consecutiveFrontmostBlocks = 0
 
-        // EXECUTE
+        // EXECUTE — try AX-first for element-targeted actions, fall back to CGEvent
         var executionResult: String? = nil
         var executionError: String? = nil
-        do {
-            executionResult = try await executor.execute(agentAction)
-        } catch {
-            let errorMessage = error.localizedDescription
 
-            // AppleScript errors are non-fatal — let the daemon adapt
-            if agentAction.type == .runAppleScript {
-                log.warning("[\(action.stepNumber)] AppleScript error (non-fatal): \(errorMessage)")
-                executionError = errorMessage
-            } else {
-                executionError = errorMessage
+        var usedAXPath = false
+        if let axExecutor = axActionExecutor, let elementId = agentAction.resolvedFromElementId {
+            let axResult: AXActionResult
+            switch agentAction.type {
+            case .click, .doubleClick, .rightClick:
+                axResult = axExecutor.click(elementId: elementId)
+            case .type:
+                if let text = agentAction.text {
+                    axResult = axExecutor.type(elementId: elementId, text: text)
+                } else {
+                    axResult = .fallback(reason: "No text provided")
+                }
+            default:
+                axResult = .fallback(reason: "Action type \(agentAction.type.rawValue) not supported via AX")
+            }
+
+            switch axResult {
+            case .success(let result):
+                executionResult = result
+                usedAXPath = true
+                log.info("[\(action.stepNumber)] AX-first action succeeded for [\(elementId)]")
+            case .fallback(let reason):
+                log.info("[\(action.stepNumber)] AX-first fallback: \(reason, privacy: .public)")
+                // Fall through to CGEvent execution below
+            }
+        }
+
+        if !usedAXPath {
+            do {
+                executionResult = try await executor.execute(agentAction)
+            } catch {
+                let errorMessage = error.localizedDescription
+
+                // AppleScript errors are non-fatal — let the daemon adapt
+                if agentAction.type == .runAppleScript {
+                    log.warning("[\(action.stepNumber)] AppleScript error (non-fatal): \(errorMessage)")
+                    executionError = errorMessage
+                } else {
+                    executionError = errorMessage
+                }
+            }
+        }
+
+        // POST-OPEN_APP FOCUS VERIFICATION — in strict mode, use FocusManager to
+        // confirm the opened app is actually frontmost after openApp execution.
+        if strictVisualQa && agentAction.type == .openApp && executionError == nil {
+            let openedAppBundleId = agentAction.appBundleId
+            let openedAppName = agentAction.appName
+            if openedAppBundleId != nil || openedAppName != nil {
+                let openAppFocus = await focusManager.acquireVerifiedFocus(
+                    bundleId: openedAppBundleId,
+                    appName: openedAppName,
+                    maxRetries: 2
+                )
+                if case .failed(let reason) = openAppFocus {
+                    log.error("[\(action.stepNumber)] Strict QA: open_app focus verification failed: \(reason, privacy: .public)")
+                    isCancelled = true
+                    state = .failed(reason: "FOCUS_ACQUIRE_FAILED: open_app '\(openedAppName ?? openedAppBundleId ?? "unknown")' — \(reason)")
+                    logger.finishSession(result: "failed: open_app focus verification — \(reason)")
+                    if qaMode {
+                        await finalizeQARecording()
+                    }
+                    do {
+                        try daemonClient.send(CuSessionAbortMessage(sessionId: id))
+                    } catch {
+                        log.error("Failed to send session abort after open_app focus failure: \(error)")
+                    }
+                    return
+                }
+            }
+        }
+
+        // POST-EXECUTION FOCUS VERIFICATION — in strict mode, verify target app
+        // is still frontmost after the action. In strict mode, drift is terminal.
+        if strictVisualQa && (targetAppBundleId != nil || targetAppName != nil) {
+            let postActionFocus = await focusManager.acquireVerifiedFocus(
+                bundleId: targetAppBundleId,
+                appName: targetAppName,
+                maxRetries: 1
+            )
+            if case .failed(let reason) = postActionFocus {
+                log.error("[\(action.stepNumber)] Strict QA: post-action focus drift detected: \(reason, privacy: .public)")
+                isCancelled = true
+                state = .failed(reason: "FOCUS_ACQUIRE_FAILED: post-action drift — \(reason)")
+                logger.finishSession(result: "failed: post-action focus drift — \(reason)")
+                if qaMode {
+                    await finalizeQARecording()
+                }
+                do {
+                    try daemonClient.send(CuSessionAbortMessage(sessionId: id))
+                } catch {
+                    log.error("Failed to send session abort after post-action focus drift: \(error)")
+                }
+                return
             }
         }
 
@@ -689,52 +778,24 @@ final class ComputerUseSession: ObservableObject {
         let destructiveTypes: Set<ActionType> = [.click, .doubleClick, .rightClick, .type, .key, .scroll, .drag]
         guard destructiveTypes.contains(action.type) else { return nil }
 
-        // When we have a bundle ID, match on that (most reliable)
-        if let targetBundleId = targetAppBundleId {
-            if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == targetBundleId {
-                return nil
-            }
+        // No target constraint — always pass
+        guard targetAppBundleId != nil || targetAppName != nil else { return nil }
 
-            let frontmostName = NSWorkspace.shared.frontmostApplication?.localizedName ?? "unknown"
-            let frontmostBundleId = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        let maxRetries = strictVisualQa ? 2 : 1
+        let result = await focusManager.acquireVerifiedFocus(
+            bundleId: targetAppBundleId,
+            appName: targetAppName,
+            maxRetries: maxRetries
+        )
 
-            log.warning("Frontmost guard: frontmost=\(frontmostName) (\(frontmostBundleId ?? "nil")), target=\(self.targetAppName ?? "nil") (\(targetBundleId)). Attempting activation retry.")
-
-            // Retry activation up to 2 times with 300ms settle delay each
-            let maxRetries = strictVisualQa ? 2 : 1
-            for attempt in 1...maxRetries {
-                // For Vellum target: unhide first since activate() won't work on hidden apps
-                let selfBundleId = Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant"
-                if targetBundleId == selfBundleId {
-                    NSApp.unhide(nil)
-                }
-
-                if let targetRunning = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == targetBundleId }) {
-                    targetRunning.activate(options: [.activateIgnoringOtherApps, .activateAllWindows])
-                    try? await Task.sleep(nanoseconds: 300_000_000) // 300ms for focus to settle
-                    if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == targetBundleId {
-                        log.info("Frontmost guard: activation retry \(attempt) succeeded for \(self.targetAppName ?? targetBundleId)")
-                        return nil
-                    }
-                } else {
-                    break // Target app not running — no point retrying
-                }
-                log.warning("Frontmost guard: activation retry \(attempt)/\(maxRetries) failed")
-            }
-
-            return "Action blocked: frontmost app is '\(frontmostName)' but target is '\(self.targetAppName ?? targetBundleId)'. Please switch to the target app first."
+        switch result {
+        case .success:
+            return nil
+        case .targetNotRunning:
+            return "FOCUS_ACQUIRE_FAILED: Target app '\(targetAppName ?? targetAppBundleId ?? "unknown")' is not running."
+        case .failed(let reason):
+            return "FOCUS_ACQUIRE_FAILED: \(reason)"
         }
-
-        // Fall back to name-based matching when no bundle ID is available
-        if let targetName = targetAppName {
-            let frontmostName = NSWorkspace.shared.frontmostApplication?.localizedName ?? "unknown"
-            guard frontmostName != targetName else { return nil }
-
-            log.warning("Frontmost guard (name): frontmost=\(frontmostName), target=\(targetName). No bundle ID for activation retry.")
-            return "Action blocked: frontmost app is '\(frontmostName)' but target is '\(targetName)'. Please switch to the target app first."
-        }
-
-        return nil
     }
 
     // MARK: - Observation Builder

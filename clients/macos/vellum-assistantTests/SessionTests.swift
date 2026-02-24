@@ -55,6 +55,7 @@ final class MockDaemonClient: DaemonClientProtocol {
 final class MockAccessibilityTreeEnumerator: AccessibilityTreeProviding {
     var result: (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)?
     var secondaryWindowCallCount = 0
+    let elementRegistry: AXElementRegistry? = nil
 
     init(result: (elements: [AXElement], windowTitle: String, appName: String)? = nil) {
         if let r = result {

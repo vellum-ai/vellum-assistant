@@ -28,6 +28,8 @@ struct WindowInfo {
 protocol AccessibilityTreeProviding {
     func enumerateCurrentWindow() -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)?
     func enumerateSecondaryWindows(excludingPID: pid_t?, maxWindows: Int) -> [WindowInfo]
+    /// Optional element registry — populated during enumeration for AX-first action targeting.
+    var elementRegistry: AXElementRegistry? { get }
 }
 
 final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
@@ -35,6 +37,9 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
     /// PID of the last successfully enumerated target app, used to resolve the
     /// correct app when our own window is frontmost.
     private var lastTargetPid: pid_t?
+
+    /// Element registry for AX-first action targeting — maps elementId -> AXUIElement.
+    let elementRegistry: AXElementRegistry? = AXElementRegistry()
 
     /// Track total elements enumerated in current call to prevent infinite loops
     private var totalElementsEnumerated = 0
@@ -147,11 +152,12 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
 
         nextId = 1
         totalElementsEnumerated = 0
+        elementRegistry?.clear()
         let elements = enumerateElementSafely(element: windowElement, depth: 0, maxDepth: 25)
 
         let flat = AccessibilityTreeEnumerator.flattenElements(elements)
         let interactive = flat.filter { Self.interactiveRoles.contains($0.role) }
-        log.info("Enumerated \(appName, privacy: .public): \(flat.count) total, \(interactive.count) interactive, maxId=\(self.nextId - 1)")
+        log.info("Enumerated \(appName, privacy: .public): \(flat.count) total, \(interactive.count) interactive, maxId=\(self.nextId - 1), registry=\(self.elementRegistry?.count ?? 0)")
 
         lastTargetPid = pid
         return (elements: elements, windowTitle: windowTitle, appName: appName, pid: pid)
@@ -216,6 +222,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
 
         nextId = 1
         totalElementsEnumerated = 0
+        elementRegistry?.clear()
         let elements = enumerateElementSafely(element: windowElement, depth: 0, maxDepth: 25)
 
         guard !elements.isEmpty else { return nil }
@@ -335,6 +342,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
         if isInteractive {
             let id = nextId
             nextId += 1
+            elementRegistry?.register(elementId: id, element: element)
             return [AXElement(
                 id: id,
                 role: role,
@@ -354,6 +362,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
         if isStaticText && hasTextContent {
             let id = nextId
             nextId += 1
+            elementRegistry?.register(elementId: id, element: element)
             return [AXElement(
                 id: id,
                 role: role,
@@ -373,6 +382,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
         if isContainer && !childElements.isEmpty {
             let id = nextId
             nextId += 1
+            elementRegistry?.register(elementId: id, element: element)
             return [AXElement(
                 id: id,
                 role: role,

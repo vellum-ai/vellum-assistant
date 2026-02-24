@@ -21,6 +21,7 @@ enum ExecutorError: LocalizedError {
     case appleScriptMissingScript
     case appleScriptTimeout
     case clipboardMismatch
+    case focusAcquireFailed(String)
 
     var errorDescription: String? {
         switch self {
@@ -36,6 +37,7 @@ enum ExecutorError: LocalizedError {
         case .appleScriptMissingScript: return "run_applescript requires a script"
         case .appleScriptTimeout: return "AppleScript timed out after 5 seconds"
         case .clipboardMismatch: return "Clipboard contents changed before paste injection; aborting to prevent wrong text from being typed"
+        case .focusAcquireFailed(let reason): return "FOCUS_ACQUIRE_FAILED: \(reason)"
         }
     }
 }
@@ -43,8 +45,6 @@ enum ExecutorError: LocalizedError {
 protocol ActionExecuting {
     func execute(_ action: AgentAction) async throws -> String?
 }
-
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ActionExecutor")
 
 final class ActionExecutor: ActionExecuting {
     private let eventSource: CGEventSource?
@@ -387,8 +387,8 @@ final class ActionExecutor: ActionExecuting {
         "system preferences": "System Settings",
         "system settings": "System Settings",
         // Vellum
-        "vellum": "Vellum Assistant",
-        "velly": "Vellum Assistant",
+        "vellum": "Vellum",
+        "velly": "Vellum",
     ]
 
     /// Strips non-alphanumeric characters and lowercases for fuzzy comparison.
@@ -457,13 +457,17 @@ final class ActionExecutor: ActionExecuting {
         }
     }
 
-    /// After activation, verify the expected app became frontmost and log a warning if not.
-    private func verifyFrontmost(expectedName: String) async {
+    /// After activation, verify the expected app became frontmost.
+    /// Returns true if the expected app is frontmost, false otherwise.
+    @discardableResult
+    private func verifyFrontmost(expectedName: String) async -> Bool {
         try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s
         if let frontmost = NSWorkspace.shared.frontmostApplication,
            frontmost.localizedName?.lowercased() != expectedName.lowercased() {
             log.warning("openApp: app may not have focused — expected \(expectedName, privacy: .public) but frontmost is \(frontmost.localizedName ?? "unknown", privacy: .public)")
+            return false
         }
+        return true
     }
 
     func openApp(name: String, bundleId: String? = nil, requireExactMatch: Bool = false) async throws {
@@ -489,7 +493,11 @@ final class ActionExecutor: ActionExecuting {
                     runningApp.unhide()
                 }
                 runningApp.activate(options: [.activateIgnoringOtherApps, .activateAllWindows])
-                await verifyFrontmost(expectedName: runningApp.localizedName ?? name)
+                let focused = await verifyFrontmost(expectedName: runningApp.localizedName ?? name)
+                if requireExactMatch && !focused {
+                    let frontmost = NSWorkspace.shared.frontmostApplication?.localizedName ?? "unknown"
+                    throw ExecutorError.focusAcquireFailed("Expected '\(runningApp.localizedName ?? name)' but frontmost is '\(frontmost)'")
+                }
                 return
             }
             if let appURL = workspace.urlForApplication(withBundleIdentifier: bundleId) {
@@ -497,7 +505,11 @@ final class ActionExecutor: ActionExecuting {
                 let config = NSWorkspace.OpenConfiguration()
                 config.activates = true
                 try await workspace.openApplication(at: appURL, configuration: config)
-                await verifyFrontmost(expectedName: name)
+                let focused = await verifyFrontmost(expectedName: name)
+                if requireExactMatch && !focused {
+                    let frontmost = NSWorkspace.shared.frontmostApplication?.localizedName ?? "unknown"
+                    throw ExecutorError.focusAcquireFailed("Expected '\(name)' but frontmost is '\(frontmost)'")
+                }
                 return
             }
             if requireExactMatch {
@@ -514,7 +526,11 @@ final class ActionExecutor: ActionExecuting {
             }) {
                 log.info("openApp resolved via exact name match (running): \(name, privacy: .public)")
                 runningApp.activate(options: [.activateIgnoringOtherApps, .activateAllWindows])
-                await verifyFrontmost(expectedName: name)
+                let focused = await verifyFrontmost(expectedName: name)
+                if requireExactMatch && !focused {
+                    let frontmost = NSWorkspace.shared.frontmostApplication?.localizedName ?? "unknown"
+                    throw ExecutorError.focusAcquireFailed("Expected '\(name)' but frontmost is '\(frontmost)'")
+                }
                 return
             }
             // Fall through to filesystem/mdfind — those are exact by nature
@@ -555,7 +571,11 @@ final class ActionExecutor: ActionExecuting {
                 return Self.normalizeAppName(localizedName) == normalizedResolved
             }) {
                 runningApp.activate(options: [.activateIgnoringOtherApps, .activateAllWindows])
-                await verifyFrontmost(expectedName: resolvedName)
+                let focused = await verifyFrontmost(expectedName: resolvedName)
+                if requireExactMatch && !focused {
+                    let frontmost = NSWorkspace.shared.frontmostApplication?.localizedName ?? "unknown"
+                    throw ExecutorError.focusAcquireFailed("Expected '\(resolvedName)' but frontmost is '\(frontmost)'")
+                }
                 return
             }
         }
@@ -577,7 +597,11 @@ final class ActionExecutor: ActionExecuting {
                 let config = NSWorkspace.OpenConfiguration()
                 config.activates = true
                 try await workspace.openApplication(at: appURL, configuration: config)
-                await verifyFrontmost(expectedName: resolvedName)
+                let focused = await verifyFrontmost(expectedName: resolvedName)
+                if requireExactMatch && !focused {
+                    let frontmost = NSWorkspace.shared.frontmostApplication?.localizedName ?? "unknown"
+                    throw ExecutorError.focusAcquireFailed("Expected '\(resolvedName)' but frontmost is '\(frontmost)'")
+                }
                 return
             }
         }
@@ -593,7 +617,11 @@ final class ActionExecutor: ActionExecuting {
                 let config = NSWorkspace.OpenConfiguration()
                 config.activates = true
                 try await workspace.openApplication(at: appURL, configuration: config)
-                await verifyFrontmost(expectedName: resolvedName)
+                let focused = await verifyFrontmost(expectedName: resolvedName)
+                if requireExactMatch && !focused {
+                    let frontmost = NSWorkspace.shared.frontmostApplication?.localizedName ?? "unknown"
+                    throw ExecutorError.focusAcquireFailed("Expected '\(resolvedName)' but frontmost is '\(frontmost)'")
+                }
                 return
             }
         }
@@ -605,7 +633,11 @@ final class ActionExecutor: ActionExecuting {
             let config = NSWorkspace.OpenConfiguration()
             config.activates = true
             try await workspace.openApplication(at: appURL, configuration: config)
-            await verifyFrontmost(expectedName: resolvedName)
+            let focused = await verifyFrontmost(expectedName: resolvedName)
+            if requireExactMatch && !focused {
+                let frontmost = NSWorkspace.shared.frontmostApplication?.localizedName ?? "unknown"
+                throw ExecutorError.focusAcquireFailed("Expected '\(resolvedName)' but frontmost is '\(frontmost)'")
+            }
             return
         }
 
