@@ -48,7 +48,7 @@ struct AppDirectoryView: View {
                         Spacer()
                     }
 
-                    // Centered search bar
+                    // Centered search bar with leading padding to avoid overlapping title
                     if !displayItems.isEmpty || !searchText.isEmpty {
                         HStack(spacing: VSpacing.xs) {
                             Image(systemName: "magnifyingglass")
@@ -78,6 +78,7 @@ struct AppDirectoryView: View {
                                 .stroke(VColor.surfaceBorder, lineWidth: 1)
                         )
                         .frame(maxWidth: 280)
+                        .padding(.leading, 100)
                     }
                 }
                 .padding(.top, VSpacing.xxl)
