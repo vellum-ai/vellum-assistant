@@ -175,7 +175,7 @@ export async function handleRideShotgunStart(
 
           // For x.com, auto-navigate Chrome through key pages to capture the full API surface.
           // Skip login detection — auto-navigation will complete the session when done.
-          if (targetDomain === 'x.com' || targetDomain === 'twitter.com') {
+          if ((targetDomain === 'x.com' || targetDomain === 'twitter.com') && msg.autoNavigate !== false) {
             // Don't set onLoginDetected — it would kill the session after the first
             // GraphQL call (5s grace), before auto-navigation finishes.
             const abortSignal = { aborted: false };
@@ -230,15 +230,15 @@ export async function handleRideShotgunStart(
                 completeSession(session);
               }
             });
-          } else if (!targetDomain) {
-            // No targetDomain: use login detection as before
+          } else if (msg.autoNavigate === false && targetDomain) {
+            // Manual mode: just record network traffic until timeout or early stop — no login detection shortcut.
+          } else {
+            // No targetDomain or targetDomain without explicit autoNavigate=false: use login detection
             recorder.onLoginDetected = () => {
               log.info({ watchId }, 'Login detected — auto-stopping learn session');
               completeSession(session);
             };
           }
-          // When autoNavigate is false but targetDomain is set (manual mode),
-          // just record network traffic until timeout or early stop — no login detection shortcut.
 
           return;
         } catch (err) {
