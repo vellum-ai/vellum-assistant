@@ -44,7 +44,7 @@ final class PorcupineWakeWordEngine: WakeWordEngine {
         guard !isRunning else { return }
 
         // 1. Access key
-        guard let accessKey = APIKeyManager.shared.getAPIKey(provider: "picovoice") else {
+        guard let accessKey = APIKeyManager.getKey(for: "picovoice") else {
             log.warning("Picovoice access key not found in keychain — wake word detection disabled")
             return
         }

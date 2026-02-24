@@ -1360,7 +1360,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let sensitivity = UserDefaults.standard.float(forKey: "wakeWordSensitivity")
-        let engine = PorcupineWakeWordEngine(sensitivity: sensitivity > 0 ? sensitivity : 0.5)
+        let keyword = UserDefaults.standard.string(forKey: "wakeWordKeyword") ?? "computer"
+        let engine = PorcupineWakeWordEngine(sensitivity: sensitivity > 0 ? sensitivity : 0.5, keyword: keyword)
         let audioMonitor = AlwaysOnAudioMonitor(engine: engine)
 
         let coordinator = WakeWordCoordinator(
