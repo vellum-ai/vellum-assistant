@@ -97,7 +97,7 @@ struct SettingsConnectTab: View {
 
     private var gatewaySection: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            DisclosureGroup("Gateway", isExpanded: $gatewayExpanded) {
+            DisclosureGroup(isExpanded: $gatewayExpanded) {
                 VStack(alignment: .leading, spacing: VSpacing.md) {
                     // Gateway URL field
                     HStack(spacing: VSpacing.xs) {
@@ -165,9 +165,20 @@ struct SettingsConnectTab: View {
                         .foregroundColor(VColor.textSecondary)
                 }
                 .padding(.top, VSpacing.sm)
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Gateway")
+                        .font(VFont.sectionTitle)
+                        .foregroundColor(VColor.textPrimary)
+                    if !gatewayExpanded && !store.ingressPublicBaseUrl.isEmpty {
+                        Text(store.ingressPublicBaseUrl)
+                            .font(VFont.mono)
+                            .foregroundColor(VColor.textMuted)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                }
             }
-            .font(VFont.sectionTitle)
-            .foregroundColor(VColor.textPrimary)
         }
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
@@ -257,9 +268,14 @@ struct SettingsConnectTab: View {
 
     private var channelsSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Channels")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Channels")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+                Text("Telegram and SMS integrations")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+            }
 
             telegramCard
             twilioCard
@@ -270,7 +286,7 @@ struct SettingsConnectTab: View {
 
     private var advancedSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            DisclosureGroup("Advanced", isExpanded: $advancedExpanded) {
+            DisclosureGroup(isExpanded: $advancedExpanded) {
                 VStack(alignment: .leading, spacing: VSpacing.md) {
                     bearerTokenContent
 
@@ -279,9 +295,16 @@ struct SettingsConnectTab: View {
                     developerLocalPairingContent
                 }
                 .padding(.top, VSpacing.sm)
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Advanced")
+                        .font(VFont.sectionTitle)
+                        .foregroundColor(VColor.textPrimary)
+                    Text("Bearer token, developer options")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
             }
-            .font(VFont.sectionTitle)
-            .foregroundColor(VColor.textPrimary)
         }
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
@@ -883,7 +906,7 @@ struct SettingsConnectTab: View {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundColor(VColor.warning)
                         .font(.system(size: 14))
-                    Text("Gateway URL required")
+                    Text("Configure a gateway URL below to enable pairing")
                         .font(VFont.body)
                         .foregroundColor(VColor.warning)
                 }
@@ -892,7 +915,7 @@ struct SettingsConnectTab: View {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundColor(VColor.warning)
                         .font(.system(size: 14))
-                    Text("Bearer token required")
+                    Text("Bearer token required \u{2014} check Advanced settings")
                         .font(VFont.body)
                         .foregroundColor(VColor.warning)
                 }
