@@ -9,6 +9,18 @@ final class RecordingSourcePickerWindow {
     private let viewModel: RecordingSourcePickerViewModel
     private let onStart: () -> Void
     private let onCancel: () -> Void
+    private let panelDelegate = PanelDelegate()
+
+    /// Intercepts the native close button (X) so we can resume the
+    /// continuation that would otherwise be stuck forever.
+    private class PanelDelegate: NSObject, NSWindowDelegate {
+        var onClose: (() -> Void)?
+
+        func windowWillClose(_ notification: Notification) {
+            onClose?()
+            onClose = nil
+        }
+    }
 
     init(viewModel: RecordingSourcePickerViewModel, onStart: @escaping () -> Void, onCancel: @escaping () -> Void) {
         self.viewModel = viewModel
@@ -20,10 +32,13 @@ final class RecordingSourcePickerWindow {
         let pickerView = RecordingSourcePickerView(
             viewModel: viewModel,
             onStart: { [weak self] in
+                // Disarm the delegate before closing to prevent double-fire
+                self?.panelDelegate.onClose = nil
                 self?.close()
                 self?.onStart()
             },
             onCancel: { [weak self] in
+                self?.panelDelegate.onClose = nil
                 self?.close()
                 self?.onCancel()
             }
@@ -48,6 +63,12 @@ final class RecordingSourcePickerWindow {
         panel.isOpaque = false
         panel.isReleasedWhenClosed = false
 
+        // Wire up the delegate so native X-button close triggers onCancel
+        panelDelegate.onClose = { [weak self] in
+            self?.onCancel()
+        }
+        panel.delegate = panelDelegate
+
         // Center on screen
         if let screen = NSScreen.main {
             let screenFrame = screen.visibleFrame
@@ -62,6 +83,8 @@ final class RecordingSourcePickerWindow {
     }
 
     func close() {
+        // Disarm delegate before closing to prevent double-fire
+        panelDelegate.onClose = nil
         panel?.close()
         panel = nil
     }
