@@ -28,7 +28,7 @@ public final class AuthService {
     private init() {}
 
     public func getConfig() async throws -> AllauthResponse<ConfigData> {
-        try await request(path: "config", includeSessionToken: true)
+        try await request(path: "config", includeSessionToken: false)
     }
 
     public func getSession() async throws -> AllauthResponse<SessionData> {
