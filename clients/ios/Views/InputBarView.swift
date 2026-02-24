@@ -192,6 +192,9 @@ struct InputBarView: View {
         AVAudioApplication.requestRecordPermission { granted in
             guard granted else {
                 log.warning("Microphone access denied")
+                DispatchQueue.main.async {
+                    viewModel.errorText = "Microphone access denied — enable it in Settings > Privacy > Microphone."
+                }
                 return
             }
             // Request speech recognition access
@@ -199,6 +202,7 @@ struct InputBarView: View {
                 DispatchQueue.main.async {
                     guard status == .authorized else {
                         log.warning("Speech recognition not authorized: \(String(describing: status))")
+                        viewModel.errorText = "Speech recognition not authorized — enable it in Settings > Privacy > Speech Recognition."
                         return
                     }
                     beginRecording()
@@ -210,6 +214,7 @@ struct InputBarView: View {
     private func beginRecording() {
         guard let recognizer = SFSpeechRecognizer(), recognizer.isAvailable else {
             log.error("Speech recognizer not available")
+            viewModel.errorText = "Voice input is not available on this device."
             return
         }
 
@@ -219,6 +224,7 @@ struct InputBarView: View {
             try session.setActive(true, options: .notifyOthersOnDeactivation)
         } catch {
             log.error("Failed to configure AVAudioSession: \(error.localizedDescription)")
+            viewModel.errorText = "Could not start voice input: \(error.localizedDescription)"
             return
         }
 
@@ -231,6 +237,7 @@ struct InputBarView: View {
 
         guard recordingFormat.channelCount > 0 else {
             log.error("No audio input channels available")
+            viewModel.errorText = "No microphone input available."
             return
         }
 
@@ -267,6 +274,7 @@ struct InputBarView: View {
             log.info("Voice recording started")
         } catch {
             log.error("Audio engine failed to start: \(error.localizedDescription)")
+            viewModel.errorText = "Voice input failed: \(error.localizedDescription)"
             // Remove the tap installed above before cleanupRecognition — otherwise the
             // next recording attempt fails trying to install a second tap on bus 0.
             audioEngine.inputNode.removeTap(onBus: 0)
