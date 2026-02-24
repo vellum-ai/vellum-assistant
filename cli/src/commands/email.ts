@@ -7,6 +7,7 @@
  */
 
 import { VellumEmailClient } from "../email/vellum.js";
+import { loadLatestAssistant } from "../lib/assistant-config.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -33,6 +34,7 @@ Subcommands:
   create <username>     Create a new email inbox for the given username
 
 Options:
+  --assistant <id>      Assistant ID (defaults to the most recently hatched)
   --help, -h            Show this help message
 `);
 }
@@ -49,18 +51,36 @@ export async function email(): Promise<void> {
     return;
   }
 
+  // Resolve assistant ID from --assistant flag or latest assistant
+  const assistantFlagIdx = args.indexOf("--assistant");
+  let assistantId: string | undefined;
+  if (assistantFlagIdx !== -1) {
+    const value = args[assistantFlagIdx + 1];
+    if (!value || value.startsWith("-")) {
+      exitError("--assistant requires a value.");
+      return;
+    }
+    assistantId = value;
+    args.splice(assistantFlagIdx, 2);
+  }
+  if (!assistantId) {
+    assistantId = loadLatestAssistant()?.assistantId;
+  }
+  if (!assistantId) {
+    exitError(
+      "No assistant ID available. Pass --assistant <id> or hatch an assistant first.",
+    );
+    return;
+  }
+
   const subcommand = args[0];
 
   switch (subcommand) {
     case "status": {
       try {
-        const client = new VellumEmailClient();
-        const status = await client.status();
-        output({
-          ok: true,
-          provider: status.provider,
-          inboxes: status.inboxes,
-        });
+        const client = new VellumEmailClient(assistantId);
+        const addresses = await client.status();
+        output({ ok: true, addresses });
       } catch (err) {
         exitError(err instanceof Error ? err.message : String(err));
       }
@@ -73,7 +93,7 @@ export async function email(): Promise<void> {
         return;
       }
       try {
-        const client = new VellumEmailClient();
+        const client = new VellumEmailClient(assistantId);
         const inbox = await client.createInbox(username);
         output({ ok: true, inbox });
       } catch (err) {
