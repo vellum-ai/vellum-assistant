@@ -76,7 +76,7 @@ struct IdentityPanel: View {
                 }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(VColor.background)
+            .background(adaptiveColor(light: Color(hex: 0xF5F3EB), dark: Moss._900))
         }
         .overlay {
             if let path = viewingFilePath {
