@@ -23,7 +23,7 @@ export interface OAuth2Config {
   tokenUrl: string;
   scopes: string[];
   clientId: string;
-  /** Client secret for providers that require it (e.g. Slack). If omitted, PKCE is used. */
+  /** Client secret for providers that require it (e.g. Slack). PKCE is always used regardless. */
   clientSecret?: string;
   extraParams?: Record<string, string>;
   /** URL to fetch user identity info after OAuth. If omitted, account info is not fetched. */
@@ -80,17 +80,13 @@ async function exchangeCodeForTokens(
   redirectUri: string,
   codeVerifier: string,
 ): Promise<OAuth2FlowResult> {
-  const usePKCE = !config.clientSecret;
-
   const tokenBody: Record<string, string> = {
     grant_type: 'authorization_code',
     code,
     redirect_uri: redirectUri,
     client_id: config.clientId,
+    code_verifier: codeVerifier,
   };
-  if (usePKCE) {
-    tokenBody.code_verifier = codeVerifier;
-  }
   if (config.clientSecret) {
     tokenBody.client_secret = config.clientSecret;
   }
@@ -160,7 +156,6 @@ async function runGatewayFlow(
     registerPendingCallback(state, resolve, reject);
   });
 
-  const usePKCE = !config.clientSecret;
   const authParams = new URLSearchParams({
     ...config.extraParams,
     client_id: config.clientId,
@@ -168,7 +163,8 @@ async function runGatewayFlow(
     response_type: 'code',
     scope: config.scopes.join(' '),
     state,
-    ...(usePKCE ? { code_challenge: codeChallenge, code_challenge_method: 'S256' } : {}),
+    code_challenge: codeChallenge,
+    code_challenge_method: 'S256',
   });
 
   const authUrl = `${config.authUrl}?${authParams}`;

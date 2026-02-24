@@ -60,6 +60,9 @@ mock.module('../inbound/public-ingress-urls.js', () => ({
   },
 }));
 
+// Track token exchange request body
+let lastTokenRequestBody: URLSearchParams | null = null;
+
 // Mock fetch for token exchange
 let mockTokenResponse: { ok: boolean; status: number; body: Record<string, unknown> } = {
   ok: true,
@@ -77,6 +80,10 @@ const originalFetch = globalThis.fetch;
 globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
   if (url.includes('token')) {
+    // Capture request body for assertions
+    if (init?.body) {
+      lastTokenRequestBody = new URLSearchParams(init.body as string);
+    }
     if (!mockTokenResponse.ok) {
       return new Response(JSON.stringify({ error: 'invalid_grant' }), {
         status: mockTokenResponse.status,
@@ -108,6 +115,7 @@ beforeEach(() => {
   mockPublicBaseUrl = '';
   mockOAuthCallbackUrl = 'https://gw.example.com/webhooks/oauth/callback';
   pendingCallbacks.clear();
+  lastTokenRequestBody = null;
   mockTokenResponse = {
     ok: true,
     status: 200,
@@ -280,6 +288,40 @@ describe('OAuth2 gateway transport', () => {
       entries[0][1].resolve('code-that-fails-exchange');
 
       await expect(flowPromise).rejects.toThrow('OAuth2 token exchange failed');
+    });
+  });
+
+  describe('PKCE with client secret', () => {
+    test('includes PKCE params in auth URL even when clientSecret is provided', async () => {
+      mockPublicBaseUrl = 'https://gw.example.com';
+
+      const configWithSecret: OAuth2Config = {
+        ...BASE_OAUTH_CONFIG,
+        clientSecret: 'test-client-secret',
+      };
+
+      let capturedAuthUrl = '';
+      const flowPromise = startOAuth2Flow(configWithSecret, {
+        openUrl: (url) => { capturedAuthUrl = url; },
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      // Auth URL must include PKCE challenge params despite having a client secret
+      expect(capturedAuthUrl).toContain('code_challenge=');
+      expect(capturedAuthUrl).toContain('code_challenge_method=S256');
+
+      const entries = Array.from(pendingCallbacks.entries());
+      expect(entries.length).toBe(1);
+      entries[0][1].resolve('pkce-with-secret-code');
+
+      const result = await flowPromise;
+      expect(result.tokens.accessToken).toBe('test-access-token');
+
+      // Token exchange must include code_verifier alongside client_secret
+      expect(lastTokenRequestBody).not.toBeNull();
+      expect(lastTokenRequestBody!.get('code_verifier')).toBeTruthy();
+      expect(lastTokenRequestBody!.get('client_secret')).toBe('test-client-secret');
     });
   });
 });
