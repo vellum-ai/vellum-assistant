@@ -712,6 +712,7 @@ async function generateTitle(
   onEvent: (msg: ServerMessage) => void,
   sessionSignal?: AbortSignal,
 ): Promise<void> {
+  const config = getConfig();
   const prompt = `Generate a very short title for this conversation. Rules: at most 5 words, at most 40 characters, no quotes.\n\nUser: ${truncate(userMessage, 200, '')}\nAssistant: ${truncate(assistantResponse, 200, '')}`;
   const signal = sessionSignal
     ? AbortSignal.any([sessionSignal, AbortSignal.timeout(10_000)])
@@ -720,7 +721,7 @@ async function generateTitle(
     [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
     [],
     undefined,
-    { config: { max_tokens: 30 }, signal },
+    { config: { max_tokens: config.daemon.titleGenerationMaxTokens }, signal },
   );
 
   const textBlock = response.content.find((b) => b.type === 'text');

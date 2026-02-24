@@ -267,6 +267,12 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     enabled: undefined,
     publicBaseUrl: '',
   },
+  daemon: {
+    startupSocketWaitMs: 5000,
+    stopTimeoutMs: 5000,
+    sigkillGracePeriodMs: 2000,
+    titleGenerationMaxTokens: 30,
+  },
   assistantInbox: {
     enabled: false,
     invitesEnabled: false,
