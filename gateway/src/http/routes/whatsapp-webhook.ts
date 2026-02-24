@@ -116,13 +116,16 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
       return Response.json({ error: "Payload too large" }, { status: 413 });
     }
 
-    // Verify HMAC-SHA256 signature when app secret is configured.
-    // Fail-closed: reject if the secret is set but verification fails.
-    if (config.whatsappAppSecret) {
-      if (!verifyWhatsAppWebhookSignature(req.headers, rawBody, config.whatsappAppSecret)) {
-        tlog.warn("WhatsApp webhook signature verification failed");
-        return Response.json({ error: "Forbidden" }, { status: 403 });
-      }
+    // Signature validation is required — reject requests when the app secret is not configured
+    // rather than silently accepting unauthenticated payloads (fail-closed).
+    if (!config.whatsappAppSecret) {
+      tlog.warn("WhatsApp app secret is not configured — rejecting request");
+      return Response.json({ error: "Webhook signature validation not configured" }, { status: 500 });
+    }
+
+    if (!verifyWhatsAppWebhookSignature(req.headers, rawBody, config.whatsappAppSecret)) {
+      tlog.warn("WhatsApp webhook signature verification failed");
+      return Response.json({ error: "Forbidden" }, { status: 403 });
     }
 
     let payload: Record<string, unknown>;
@@ -132,100 +135,78 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
       return Response.json({ error: "Invalid JSON" }, { status: 400 });
     }
 
-    const normalized = normalizeWhatsAppWebhook(payload);
-    if (!normalized) {
-      // Deliver receipts, status updates, non-text messages, etc. — acknowledge silently
+    const normalizedMessages = normalizeWhatsAppWebhook(payload);
+    if (normalizedMessages.length === 0) {
+      // Delivery receipts, status updates, non-text messages, etc. — acknowledge silently
       return Response.json({ ok: true });
     }
 
-    const { event, whatsappMessageId } = normalized;
-    const from = event.message.externalChatId;
+    for (const normalized of normalizedMessages) {
+      const { event, whatsappMessageId } = normalized;
+      const from = event.message.externalChatId;
 
-    // Dedup by WhatsApp message ID — atomically reserve so concurrent retries
-    // are blocked while the first request is still processing.
-    if (!dedupCache.reserve(whatsappMessageId)) {
-      tlog.info({ whatsappMessageId }, "Duplicate WhatsApp message ID, ignoring");
-      return Response.json({ ok: true });
-    }
-
-    tlog.info(
-      {
-        source: "whatsapp",
-        messageId: whatsappMessageId,
-        from,
-      },
-      "WhatsApp webhook received",
-    );
-
-    // Mark message as read (best-effort, do not await)
-    markWhatsAppMessageRead(config, whatsappMessageId).catch((err) => {
-      tlog.debug({ err, messageId: whatsappMessageId }, "Failed to mark WhatsApp message as read");
-    });
-
-    // Resolve routing once so we can gate further operations on it
-    const routing = resolveAssistant(config, from, from);
-
-    // Handle /new command — reset conversation before it reaches the runtime
-    if (event.message.content.trim().toLowerCase() === "/new") {
-      if (isRejection(routing)) {
-        tlog.warn({ from, reason: routing.reason }, "Routing rejected /new command");
-        sendWhatsAppReply(
-          config,
-          from,
-          "This message could not be routed to an assistant. Please check your gateway routing configuration.",
-        ).catch((err) => {
-          tlog.error({ err, to: from }, "Failed to send /new routing rejection notice");
-        });
-      } else {
-        try {
-          await resetConversation(
-            config,
-            routing.assistantId,
-            event.sourceChannel,
-            event.message.externalChatId,
-          );
-          sendWhatsAppReply(config, from, "Starting a new conversation!").catch((err) => {
-            tlog.error({ err }, "Failed to send /new confirmation");
-          });
-        } catch (err) {
-          tlog.error({ err }, "Failed to reset conversation");
-          sendWhatsAppReply(config, from, "Failed to reset conversation. Please try again.").catch(
-            (replyErr) => {
-              tlog.error({ err: replyErr }, "Failed to send /new error reply");
-            },
-          );
-        }
+      // Dedup by WhatsApp message ID — atomically reserve so concurrent retries
+      // are blocked while the first request is still processing.
+      if (!dedupCache.reserve(whatsappMessageId)) {
+        tlog.info({ whatsappMessageId }, "Duplicate WhatsApp message ID, ignoring");
+        continue;
       }
 
-      dedupCache.mark(whatsappMessageId);
-      return Response.json({ ok: true });
-    }
-
-    if (isRejection(routing)) {
-      tlog.warn({ from, reason: routing.reason }, "Routing rejected inbound WhatsApp message");
-      if (shouldSendRejectionNotice(from)) {
-        sendWhatsAppReply(
-          config,
+      tlog.info(
+        {
+          source: "whatsapp",
+          messageId: whatsappMessageId,
           from,
-          "This message could not be routed to an assistant. Please check your gateway routing configuration.",
-        ).catch((err) => {
-          tlog.error({ err, to: from }, "Failed to send routing rejection notice");
-        });
-      }
-      dedupCache.mark(whatsappMessageId);
-      return Response.json({ ok: true });
-    }
+        },
+        "WhatsApp webhook received",
+      );
 
-    try {
-      const result = await handleInbound(config, event, {
-        transportMetadata: buildWhatsAppTransportMetadata(),
-        replyCallbackUrl: `${config.gatewayInternalBaseUrl}/deliver/whatsapp`,
-        traceId,
-        routingOverride: routing,
+      // Mark message as read (best-effort, do not await)
+      markWhatsAppMessageRead(config, whatsappMessageId).catch((err) => {
+        tlog.debug({ err, messageId: whatsappMessageId }, "Failed to mark WhatsApp message as read");
       });
 
-      if (result.rejected) {
-        tlog.warn({ from, reason: result.rejectionReason }, "Routing rejected inbound WhatsApp message");
+      // Resolve routing once so we can gate further operations on it
+      const routing = resolveAssistant(config, from, from);
+
+      // Handle /new command — reset conversation before it reaches the runtime
+      if (event.message.content.trim().toLowerCase() === "/new") {
+        if (isRejection(routing)) {
+          tlog.warn({ from, reason: routing.reason }, "Routing rejected /new command");
+          sendWhatsAppReply(
+            config,
+            from,
+            "This message could not be routed to an assistant. Please check your gateway routing configuration.",
+          ).catch((err) => {
+            tlog.error({ err, to: from }, "Failed to send /new routing rejection notice");
+          });
+        } else {
+          try {
+            await resetConversation(
+              config,
+              routing.assistantId,
+              event.sourceChannel,
+              event.message.externalChatId,
+            );
+            sendWhatsAppReply(config, from, "Starting a new conversation!").catch((err) => {
+              tlog.error({ err }, "Failed to send /new confirmation");
+            });
+          } catch (err) {
+            tlog.error({ err }, "Failed to reset conversation");
+            sendWhatsAppReply(config, from, "Failed to reset conversation. Please try again.").catch(
+              (replyErr) => {
+                tlog.error({ err: replyErr }, "Failed to send /new error reply");
+              },
+            );
+          }
+        }
+
+        dedupCache.mark(whatsappMessageId);
+        continue;
+      }
+
+      if (isRejection(routing)) {
+        tlog.warn({ from, reason: routing.reason }, "Routing rejected inbound WhatsApp message");
         if (shouldSendRejectionNotice(from)) {
           sendWhatsAppReply(
             config,
@@ -236,21 +217,46 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
           });
         }
         dedupCache.mark(whatsappMessageId);
-        return Response.json({ ok: true });
+        continue;
       }
 
-      if (!result.forwarded) {
-        tlog.error({ whatsappMessageId }, "Failed to forward WhatsApp message to runtime");
+      try {
+        const result = await handleInbound(config, event, {
+          transportMetadata: buildWhatsAppTransportMetadata(),
+          replyCallbackUrl: `${config.gatewayInternalBaseUrl}/deliver/whatsapp`,
+          traceId,
+          routingOverride: routing,
+        });
+
+        if (result.rejected) {
+          tlog.warn({ from, reason: result.rejectionReason }, "Routing rejected inbound WhatsApp message");
+          if (shouldSendRejectionNotice(from)) {
+            sendWhatsAppReply(
+              config,
+              from,
+              "This message could not be routed to an assistant. Please check your gateway routing configuration.",
+            ).catch((err) => {
+              tlog.error({ err, to: from }, "Failed to send routing rejection notice");
+            });
+          }
+          dedupCache.mark(whatsappMessageId);
+          continue;
+        }
+
+        if (!result.forwarded) {
+          tlog.error({ whatsappMessageId }, "Failed to forward WhatsApp message to runtime");
+          dedupCache.unreserve(whatsappMessageId);
+          // Continue processing remaining messages even if one fails to forward
+          continue;
+        }
+
+        dedupCache.mark(whatsappMessageId);
+        tlog.info({ status: "forwarded", whatsappMessageId }, "WhatsApp message forwarded to runtime");
+      } catch (err) {
+        tlog.error({ err, whatsappMessageId }, "Failed to process inbound WhatsApp message");
         dedupCache.unreserve(whatsappMessageId);
-        return Response.json({ error: "Internal error" }, { status: 500 });
+        // Continue processing remaining messages even if one throws
       }
-
-      dedupCache.mark(whatsappMessageId);
-      tlog.info({ status: "forwarded", whatsappMessageId }, "WhatsApp message forwarded to runtime");
-    } catch (err) {
-      tlog.error({ err, whatsappMessageId }, "Failed to process inbound WhatsApp message");
-      dedupCache.unreserve(whatsappMessageId);
-      return Response.json({ error: "Internal error" }, { status: 500 });
     }
 
     return Response.json({ ok: true });
