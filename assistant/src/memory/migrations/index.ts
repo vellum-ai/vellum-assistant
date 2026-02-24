@@ -20,3 +20,4 @@ export { migrateGuardianActionTables } from './013-guardian-action-tables.js';
 export { migrateBackfillInboxThreadStateFromBindings } from './014-backfill-inbox-thread-state.js';
 export { migrateDropActiveSearchIndex } from './015-drop-active-search-index.js';
 export { migrateMemorySegmentsIndexes } from './016-memory-segments-indexes.js';
+export { migrateMemoryItemsIndexes } from './017-memory-items-indexes.js';

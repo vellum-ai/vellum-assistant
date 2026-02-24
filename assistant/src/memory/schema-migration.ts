@@ -20,4 +20,5 @@ export {
   migrateBackfillInboxThreadStateFromBindings,
   migrateDropActiveSearchIndex,
   migrateMemorySegmentsIndexes,
+  migrateMemoryItemsIndexes,
 } from './migrations/index.js';

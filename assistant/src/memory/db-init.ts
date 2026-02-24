@@ -17,6 +17,7 @@ import {
   migrateBackfillInboxThreadStateFromBindings,
   migrateDropActiveSearchIndex,
   migrateMemorySegmentsIndexes,
+  migrateMemoryItemsIndexes,
   validateMigrationState,
 } from './schema-migration.js';
 
@@ -1269,6 +1270,8 @@ export function initializeDb(): void {
   migrateMemoryFtsBackfill(database);
 
   migrateMemorySegmentsIndexes(database);
+
+  migrateMemoryItemsIndexes(database);
 
   validateMigrationState(database);
 }
