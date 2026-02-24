@@ -22,6 +22,7 @@ import type {
 } from '../http-types.js';
 import type { ServerMessage } from '../../daemon/ipc-protocol.js';
 import { buildAssistantEvent } from '../assistant-event.js';
+import * as pendingInteractions from '../pending-interactions.js';
 import { getLogger } from '../../util/logger.js';
 
 const log = getLogger('conversation-routes');
@@ -143,13 +144,42 @@ export function handleListMessages(
 /**
  * Build an `onEvent` callback that publishes every outbound event to the
  * assistant event hub, maintaining ordered delivery through a serial chain.
+ *
+ * Also registers pending interactions when confirmation_request or
+ * secret_request events flow through, so standalone approval endpoints
+ * can look up the session by requestId.
  */
 function makeHubPublisher(
   deps: SendMessageDeps,
   conversationId: string,
+  session: import('../../daemon/session.js').Session,
 ): (msg: ServerMessage) => void {
   let hubChain: Promise<void> = Promise.resolve();
   return (msg: ServerMessage) => {
+    // Register pending interactions for approval events
+    if (msg.type === 'confirmation_request') {
+      pendingInteractions.register(msg.requestId, {
+        session,
+        conversationId,
+        kind: 'confirmation',
+        confirmationDetails: {
+          toolName: msg.toolName,
+          input: msg.input,
+          riskLevel: msg.riskLevel,
+          executionTarget: msg.executionTarget,
+          allowlistOptions: msg.allowlistOptions,
+          scopeOptions: msg.scopeOptions,
+          persistentDecisionsAllowed: msg.persistentDecisionsAllowed,
+        },
+      });
+    } else if (msg.type === 'secret_request') {
+      pendingInteractions.register(msg.requestId, {
+        session,
+        conversationId,
+        kind: 'secret',
+      });
+    }
+
     const msgRecord = msg as unknown as Record<string, unknown>;
     const msgSessionId =
       'sessionId' in msg && typeof msgRecord.sessionId === 'string'
@@ -243,7 +273,7 @@ export async function handleSendMessage(
   if (deps.sendMessageDeps) {
     const smDeps = deps.sendMessageDeps;
     const session = await smDeps.getOrCreateSession(mapping.conversationId);
-    const onEvent = makeHubPublisher(smDeps, mapping.conversationId);
+    const onEvent = makeHubPublisher(smDeps, mapping.conversationId, session);
 
     const attachments = hasAttachments
       ? smDeps.resolveAttachments(attachmentIds)

@@ -1,0 +1,73 @@
+/**
+ * In-memory tracker that maps requestId to session info for pending
+ * confirmation and secret interactions.
+ *
+ * When the agent loop emits a confirmation_request or secret_request,
+ * the onEvent callback registers the interaction here. Standalone HTTP
+ * endpoints (/v1/confirm, /v1/secret, /v1/trust-rules) look up the
+ * session from this tracker to resolve the interaction.
+ */
+
+import type { Session } from '../daemon/session.js';
+
+export interface ConfirmationDetails {
+  toolName: string;
+  input: Record<string, unknown>;
+  riskLevel: string;
+  executionTarget?: 'sandbox' | 'host';
+  allowlistOptions: Array<{ label: string; description: string; pattern: string }>;
+  scopeOptions: Array<{ label: string; scope: string }>;
+  persistentDecisionsAllowed?: boolean;
+}
+
+export interface PendingInteraction {
+  session: Session;
+  conversationId: string;
+  kind: 'confirmation' | 'secret';
+  confirmationDetails?: ConfirmationDetails;
+}
+
+const pending = new Map<string, PendingInteraction>();
+
+export function register(requestId: string, interaction: PendingInteraction): void {
+  pending.set(requestId, interaction);
+}
+
+/**
+ * Remove and return the pending interaction for the given requestId.
+ * Returns undefined if no interaction is registered.
+ */
+export function resolve(requestId: string): PendingInteraction | undefined {
+  const interaction = pending.get(requestId);
+  if (interaction) {
+    pending.delete(requestId);
+  }
+  return interaction;
+}
+
+/**
+ * Return the pending interaction without removing it.
+ * Used by trust-rule endpoint which doesn't resolve the confirmation itself.
+ */
+export function get(requestId: string): PendingInteraction | undefined {
+  return pending.get(requestId);
+}
+
+/**
+ * Return all pending interactions for a given conversation.
+ * Needed by channel approval migration (PR 3).
+ */
+export function getByConversation(conversationId: string): Array<{ requestId: string } & PendingInteraction> {
+  const results: Array<{ requestId: string } & PendingInteraction> = [];
+  for (const [requestId, interaction] of pending) {
+    if (interaction.conversationId === conversationId) {
+      results.push({ requestId, ...interaction });
+    }
+  }
+  return results;
+}
+
+/** Clear all pending interactions. Useful for testing. */
+export function clear(): void {
+  pending.clear();
+}
