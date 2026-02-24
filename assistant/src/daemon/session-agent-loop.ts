@@ -34,7 +34,7 @@ import {
   stripInjectedContext,
 } from './session-runtime-assembly.js';
 import { buildTemporalContext } from './date-context.js';
-import type { ActiveSurfaceContext, ChannelCapabilities, ChannelCommandContext, GuardianRuntimeContext } from './session-runtime-assembly.js';
+import type { ActiveSurfaceContext, ChannelCapabilities, GuardianRuntimeContext } from './session-runtime-assembly.js';
 import {
   cleanAssistantContent,
   drainDirectiveDisplayBuffer,
