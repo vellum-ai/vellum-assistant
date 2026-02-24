@@ -16,7 +16,7 @@ export const DEFAULT_CONFIG: AssistantConfig = {
   },
   contextWindow: {
     enabled: true,
-    maxInputTokens: 180000,
+    maxInputTokens: 200000,
     targetInputTokens: 110000,
     compactThreshold: 0.8,
     preserveRecentUserTurns: 8,
@@ -266,6 +266,18 @@ export const DEFAULT_CONFIG: AssistantConfig = {
   ingress: {
     enabled: undefined,
     publicBaseUrl: '',
+    webhook: {
+      secret: '',
+      timeoutMs: 30_000,
+      maxRetries: 2,
+      initialBackoffMs: 500,
+      maxPayloadBytes: 1_048_576,
+    },
+    rateLimit: {
+      maxRequestsPerMinute: 0,
+      maxRequestsPerHour: 0,
+    },
+    shutdownDrainMs: 5_000,
   },
   daemon: {
     startupSocketWaitMs: 5000,

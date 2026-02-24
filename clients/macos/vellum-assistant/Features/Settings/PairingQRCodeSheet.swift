@@ -222,11 +222,9 @@ struct PairingQRCodeSheet: View {
         }
     }
 
-    /// Shared HTTP request logic for pairing registration.
-    private struct RegistrationError: Error {
-        let message: String
-    }
+    private struct RegistrationError: Error { let message: String }
 
+    /// Shared HTTP request logic for pairing registration.
     private func performRegistrationRequest(port: Int, requestId: String, secret: String) async -> Result<Void, RegistrationError> {
         let tokenPath = resolveHttpTokenPath()
         let bearerToken: String? = {
