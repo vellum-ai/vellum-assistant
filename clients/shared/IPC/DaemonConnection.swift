@@ -42,8 +42,8 @@ extension DaemonClient {
         if case .socket(let path) = config.transport {
             log.info("Connecting to daemon socket at \(path, privacy: .public)")
             endpoint = NWEndpoint.unix(path: path)
-            // Unix domain sockets use their own transport; do NOT layer TCP on top.
             parameters = NWParameters()
+            parameters.defaultProtocolStack.transportProtocol = NWProtocolTCP.Options()
         } else if case .tcp(let h, let p, let tls, _) = config.transport {
             log.info("Connecting to daemon at \(h, privacy: .private):\(p, privacy: .public) (tls=\(tls, privacy: .public))")
             endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(h), port: NWEndpoint.Port(integerLiteral: p))
