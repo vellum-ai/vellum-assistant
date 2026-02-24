@@ -46,7 +46,7 @@
  */
 
 import { extensionRelayServer } from '../browser-extension-relay/server.js';
-import type { ExtensionResponse } from '../browser-extension-relay/protocol.js';
+import type { ExtensionCommand, ExtensionResponse } from '../browser-extension-relay/protocol.js';
 import { readHttpToken } from '../util/platform.js';
 
 // ---------------------------------------------------------------------------
@@ -122,7 +122,7 @@ export interface InfluencerSearchResult {
 async function sendRelayCommand(command: Record<string, unknown>): Promise<ExtensionResponse> {
   const status = extensionRelayServer.getStatus();
   if (status.connected) {
-    return extensionRelayServer.sendCommand(command as any);
+    return extensionRelayServer.sendCommand(command as Omit<ExtensionCommand, 'id'>);
   }
 
   // Fall back to HTTP relay endpoint on the daemon
@@ -915,10 +915,10 @@ function matchesCriteria(
   profile: InfluencerProfile,
   criteria: InfluencerSearchCriteria,
 ): boolean {
-  if (criteria.minFollowers && profile.followers !== null) {
+  if (criteria.minFollowers && profile.followers != null) {
     if (profile.followers < criteria.minFollowers) return false;
   }
-  if (criteria.maxFollowers && profile.followers !== null) {
+  if (criteria.maxFollowers && profile.followers != null) {
     if (profile.followers > criteria.maxFollowers) return false;
   }
   if (criteria.verifiedOnly && !profile.isVerified) {
@@ -934,7 +934,7 @@ function scoreProfile(
   let score = 0;
 
   // Follower count scoring
-  if (profile.followers !== null) {
+  if (profile.followers != null) {
     if (profile.followers >= 1_000) score += 10;
     if (profile.followers >= 10_000) score += 20;
     if (profile.followers >= 100_000) score += 30;
