@@ -104,6 +104,13 @@ function makeToolContext(workingDir: string, signal?: AbortSignal) {
   };
 }
 
+// Restore all module mocks before each test so that this suite is not
+// order-dependent. Without this, stubs installed by one test file can bleed
+// into subsequent files and produce false passes or failures.
+beforeEach(() => {
+  mock.restore();
+});
+
 afterEach(() => {
   for (const dir of testDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
@@ -477,11 +484,10 @@ describe('bash (sandboxed) shell tool — process cleanup on AbortSignal', () =>
     // Import shell.ts (registered as 'bash') after mocks are in place.
     const { getTool } = await import('../tools/registry.js');
     await import('../tools/terminal/shell.js');
-    const bashTool = getTool('bash');
 
-    // The bash tool may not be available if its registry key conflicts with
-    // previously registered tools. Skip gracefully if unavailable.
-    if (!bashTool) return;
+    // Assert registration — a missing tool signals a real regression, not a skip.
+    expect(getTool('bash')).toBeDefined();
+    const bashTool = getTool('bash')!;
 
     const dir = makeTempDir();
     const ac = new AbortController();
@@ -501,9 +507,9 @@ describe('bash (sandboxed) shell tool — process cleanup on AbortSignal', () =>
   test('kills child process immediately when signal is pre-aborted', async () => {
     const { getTool } = await import('../tools/registry.js');
     await import('../tools/terminal/shell.js');
-    const bashTool = getTool('bash');
 
-    if (!bashTool) return;
+    expect(getTool('bash')).toBeDefined();
+    const bashTool = getTool('bash')!;
 
     const dir = makeTempDir();
     const ac = new AbortController();
@@ -520,9 +526,9 @@ describe('bash (sandboxed) shell tool — process cleanup on AbortSignal', () =>
   test('short command completes normally with a non-aborted signal attached', async () => {
     const { getTool } = await import('../tools/registry.js');
     await import('../tools/terminal/shell.js');
-    const bashTool = getTool('bash');
 
-    if (!bashTool) return;
+    expect(getTool('bash')).toBeDefined();
+    const bashTool = getTool('bash')!;
 
     const dir = makeTempDir();
     const ac = new AbortController();
