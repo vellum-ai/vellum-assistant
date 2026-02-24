@@ -632,8 +632,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.showTasksWindow()
         }
 
-        // Task run threads are no longer created automatically. Users can
-        // opt in via the "Open in Chat" button in the task output view.
+        // Automatically surface threads created by scheduled task runs so
+        // the user sees them in the sidebar without restarting the app.
+        daemonClient.onTaskRunThreadCreated = { [weak self] msg in
+            guard let self, !self.isAwaitingFirstLaunchReady else { return }
+            self.mainWindow?.threadManager.createTaskRunThread(
+                conversationId: msg.conversationId,
+                workItemId: msg.workItemId,
+                title: msg.title
+            )
+        }
 
         // Guardian request threads — created when a voice call's ASK_GUARDIAN dispatches
         // a question to the mac channel so the user can see and respond in chat.
