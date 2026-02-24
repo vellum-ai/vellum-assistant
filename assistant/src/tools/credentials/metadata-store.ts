@@ -74,7 +74,7 @@ function isUnknownVersion(r: LoadResult): r is UnknownVersionResult {
  * Filters out corrupted or incomplete entries during migration.
  */
 function isValidCredentialRecord(record: unknown): record is Record<string, unknown> {
-  if (typeof record !== 'object' || record === null) return false;
+  if (typeof record !== 'object' || record === undefined) return false;
   const r = record as Record<string, unknown>;
   return (
     typeof r.credentialId === 'string' &&
@@ -114,12 +114,12 @@ function migrateRecordV1toV2(record: Record<string, unknown>): CredentialMetadat
 
 function loadFile(): LoadResult {
   const raw = readTextFileSync(getMetadataPath());
-  if (raw === null) {
+  if (raw === undefined) {
     return { version: CURRENT_VERSION, credentials: [] };
   }
   try {
     const data = JSON.parse(raw);
-    if (typeof data !== 'object' || data === null) {
+    if (typeof data !== 'object' || data === undefined) {
       return { version: CURRENT_VERSION, credentials: [] };
     }
     const fileVersion = typeof data.version === 'number' ? data.version : 1;
@@ -210,7 +210,7 @@ export function upsertCredentialMetadata(
     if (policy?.allowedDomains !== undefined) existing.allowedDomains = policy.allowedDomains;
     if (policy?.usageDescription !== undefined) existing.usageDescription = policy.usageDescription;
     if (policy?.expiresAt !== undefined) {
-      if (policy.expiresAt === null) {
+      if (policy.expiresAt === undefined) {
         delete existing.expiresAt;
       } else {
         existing.expiresAt = policy.expiresAt;
@@ -218,7 +218,7 @@ export function upsertCredentialMetadata(
     }
     if (policy?.grantedScopes !== undefined) existing.grantedScopes = policy.grantedScopes;
     if (policy?.accountInfo !== undefined) {
-      if (policy.accountInfo === null) {
+      if (policy.accountInfo === undefined) {
         delete existing.accountInfo;
       } else {
         existing.accountInfo = policy.accountInfo;
@@ -227,7 +227,7 @@ export function upsertCredentialMetadata(
     if (policy?.oauth2TokenUrl !== undefined) existing.oauth2TokenUrl = policy.oauth2TokenUrl;
     if (policy?.oauth2ClientId !== undefined) existing.oauth2ClientId = policy.oauth2ClientId;
     if (policy?.oauth2ClientSecret !== undefined) {
-      if (policy.oauth2ClientSecret === null) {
+      if (policy.oauth2ClientSecret === undefined) {
         delete existing.oauth2ClientSecret;
       } else {
         existing.oauth2ClientSecret = policy.oauth2ClientSecret;
@@ -235,14 +235,14 @@ export function upsertCredentialMetadata(
     }
     if (policy?.oauth2TokenEndpointAuthMethod !== undefined) existing.oauth2TokenEndpointAuthMethod = policy.oauth2TokenEndpointAuthMethod;
     if (policy?.alias !== undefined) {
-      if (policy.alias === null) {
+      if (policy.alias === undefined) {
         delete existing.alias;
       } else {
         existing.alias = policy.alias;
       }
     }
     if (policy?.injectionTemplates !== undefined) {
-      if (policy.injectionTemplates === null) {
+      if (policy.injectionTemplates === undefined) {
         delete existing.injectionTemplates;
       } else {
         existing.injectionTemplates = policy.injectionTemplates;

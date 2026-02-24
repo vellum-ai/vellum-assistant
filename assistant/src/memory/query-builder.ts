@@ -23,7 +23,7 @@ export function buildMemoryQuery(
   const requestText = clampSection(userRequest.trim(), maxUserRequestChars);
   const sessionSummary = messages
     .map((message) => getSummaryFromContextMessage(message))
-    .find((summary): summary is string => summary !== null);
+    .find((summary): summary is string => summary !== undefined);
 
   const content = requestText.length > 0 ? requestText : '(empty)';
 

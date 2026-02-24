@@ -67,7 +67,7 @@ export function getMemoryConflictAndCleanupStats(): MemoryConflictAndCleanupStat
   `);
   const pending = conflictStats?.pending_count ?? 0;
   const oldestPendingCreatedAt = conflictStats?.oldest_pending_created_at ?? null;
-  const oldestPendingAgeMs = oldestPendingCreatedAt === null
+  const oldestPendingAgeMs = oldestPendingCreatedAt === undefined
     ? null
     : Math.max(0, Date.now() - oldestPendingCreatedAt);
   const throughputWindowStartMs = Date.now() - (24 * 60 * 60 * 1000);
@@ -124,7 +124,7 @@ export function getMemorySystemStatus(): MemorySystemStatus {
   `);
   const pending = conflictStats?.pending_count ?? 0;
   const oldestPendingCreatedAt = conflictStats?.oldest_pending_created_at ?? null;
-  const oldestPendingAgeMs = oldestPendingCreatedAt === null
+  const oldestPendingAgeMs = oldestPendingCreatedAt === undefined
     ? null
     : Math.max(0, Date.now() - oldestPendingCreatedAt);
   const throughputWindowStartMs = Date.now() - (24 * 60 * 60 * 1000);

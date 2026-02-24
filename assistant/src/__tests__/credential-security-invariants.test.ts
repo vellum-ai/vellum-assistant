@@ -317,7 +317,7 @@ describe('Invariant 3: secrets never logged in plaintext', () => {
         const logCallPattern = /log\.\w+\(\{([^}]*)}/g;
         const loggedFields: string[] = [];
         let match;
-        while ((match = logCallPattern.exec(prompterSrc)) !== null) {
+        while ((match = logCallPattern.exec(prompterSrc)) !== undefined) {
           // Collect field names from the structured log object
           const fields = match[1].split(',').map(f => f.trim().split(':')[0].trim());
           loggedFields.push(...fields);

@@ -89,7 +89,7 @@ export function runWorkItemInBackground(workItemId: string): RunWorkItemResult {
 
   // Resolve required tools
   let requiredTools: string[];
-  if (workItem.requiredTools !== null && workItem.requiredTools !== undefined) {
+  if (workItem.requiredTools !== undefined && workItem.requiredTools !== undefined) {
     requiredTools = sanitizeToolList(JSON.parse(workItem.requiredTools));
   } else {
     requiredTools = task.requiredTools

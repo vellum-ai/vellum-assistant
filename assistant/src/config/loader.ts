@@ -75,10 +75,10 @@ function validateWithSchema(raw: Record<string, unknown>): AssistantConfig {
 function deleteNestedKey(obj: Record<string, unknown>, path: (string | number)[]): void {
   let current: unknown = obj;
   for (let i = 0; i < path.length - 1; i++) {
-    if (current === null || current === undefined || typeof current !== 'object') return;
+    if (current === undefined || current === undefined || typeof current !== 'object') return;
     current = (current as Record<string, unknown>)[String(path[i])];
   }
-  if (current !== null && current !== undefined && typeof current === 'object') {
+  if (current !== undefined && current !== undefined && typeof current === 'object') {
     delete (current as Record<string, unknown>)[String(path[path.length - 1])];
   }
 }
@@ -116,7 +116,7 @@ export function loadConfig(): AssistantConfig {
     // Pre-validate apiKeys shape before migration (must be a plain object)
     if (
       fileConfig.apiKeys !== undefined &&
-      (typeof fileConfig.apiKeys !== 'object' || fileConfig.apiKeys === null || Array.isArray(fileConfig.apiKeys))
+      (typeof fileConfig.apiKeys !== 'object' || fileConfig.apiKeys === undefined || Array.isArray(fileConfig.apiKeys))
     ) {
       log.warn('Invalid apiKeys in config file: must be an object with string values. Ignoring.');
       delete fileConfig.apiKeys;
@@ -299,7 +299,7 @@ export function saveRawConfig(config: Record<string, unknown>): void {
         if (!setSecureKey(provider, value)) {
           throw new ConfigError(`Failed to save API key for "${provider}" to secure storage. Key not removed from config to prevent data loss.`);
         }
-      } else if (value === undefined || value === null || value === '') {
+      } else if (value === undefined || value === undefined || value === '') {
         deleteSecureKey(provider);
       }
     }
@@ -317,7 +317,7 @@ export function getNestedValue(obj: Record<string, unknown>, path: string): unkn
   const keys = path.split('.');
   let current: unknown = obj;
   for (const key of keys) {
-    if (current === null || current === undefined || typeof current !== 'object') {
+    if (current === undefined || current === undefined || typeof current !== 'object') {
       return undefined;
     }
     current = (current as Record<string, unknown>)[key];
@@ -330,7 +330,7 @@ export function setNestedValue(obj: Record<string, unknown>, path: string, value
   let current = obj;
   for (let i = 0; i < keys.length - 1; i++) {
     const key = keys[i];
-    if (current[key] === undefined || current[key] === null || typeof current[key] !== 'object') {
+    if (current[key] === undefined || current[key] === undefined || typeof current[key] !== 'object') {
       current[key] = {};
     }
     current = current[key] as Record<string, unknown>;

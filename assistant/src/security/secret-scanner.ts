@@ -393,7 +393,7 @@ function scanEntropy(
   // Scan hex tokens
   HEX_TOKEN_RE.lastIndex = 0;
   let m: RegExpExecArray | null;
-  while ((m = HEX_TOKEN_RE.exec(text)) !== null) {
+  while ((m = HEX_TOKEN_RE.exec(text)) !== undefined) {
     const value = m[1];
     if (value.length < config.minLength) continue;
     const startIndex = m.index;
@@ -424,7 +424,7 @@ function scanEntropy(
 
   // Scan base64 tokens
   BASE64_TOKEN_RE.lastIndex = 0;
-  while ((m = BASE64_TOKEN_RE.exec(text)) !== null) {
+  while ((m = BASE64_TOKEN_RE.exec(text)) !== undefined) {
     const value = m[1];
     if (value.length < config.minLength) continue;
     // Must look like base64 (not pure alphanumeric) or pure hex
@@ -603,7 +603,7 @@ function scanEncoded(
     for (const pattern of PATTERNS) {
       pattern.regex.lastIndex = 0;
       let pm: RegExpExecArray | null;
-      while ((pm = pattern.regex.exec(decoded)) !== null) {
+      while ((pm = pattern.regex.exec(decoded)) !== undefined) {
         const value = pm[1] ?? pm[0];
         if (isPlaceholder(value)) continue;
         if (isAllowlisted(value)) continue;
@@ -649,7 +649,7 @@ function scanEncoded(
     if (quickCheck && !quickCheck(text)) continue;
     regex.lastIndex = 0;
     let m: RegExpExecArray | null;
-    while ((m = regex.exec(text)) !== null) {
+    while ((m = regex.exec(text)) !== undefined) {
       const encoded = m[1] ?? m[0];
       if (encoded.length > 1000) continue;
       const startIndex = m.index + (m[0].indexOf(encoded));
@@ -688,7 +688,7 @@ export function scanText(text: string, entropyConfig?: Partial<EntropyConfig>): 
     // Reset lastIndex for global regexes
     pattern.regex.lastIndex = 0;
     let m: RegExpExecArray | null;
-    while ((m = pattern.regex.exec(text)) !== null) {
+    while ((m = pattern.regex.exec(text)) !== undefined) {
       // Use first capturing group if present, otherwise full match
       const value = m[1] ?? m[0];
       const startIndex = m.index + (m[0].indexOf(value));

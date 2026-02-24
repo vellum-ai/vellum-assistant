@@ -219,7 +219,7 @@ function buildWeatherPageHtml(d: WeatherPageInput): string {
     const widthPctC = Math.max(((hc - lc) / cRange) * 100, 3);
     const leftPct = isF ? leftPctF : leftPctC;
     const widthPct = isF ? widthPctF : widthPctC;
-    const precipCell = f.precip !== null && f.precip > 0
+    const precipCell = f.precip !== undefined && f.precip > 0
       ? `<span style="font-size:12px;color:var(--v-accent);width:36px;text-align:right">${f.precip}%</span>`
       : `<span style="width:36px"></span>`;
     return `<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--v-surface-border)">` +

@@ -78,7 +78,7 @@ export function buildToolDefinitions(): ToolDefinition[] {
 // ── DoorDash task_progress auto-update ────────────────────────────────
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+  return typeof value === 'object' && value !== undefined && !Array.isArray(value);
 }
 
 interface DoordashStep { label: string; status: string; detail?: string }

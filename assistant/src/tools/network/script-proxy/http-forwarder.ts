@@ -132,7 +132,7 @@ export function forwardHttpRequest(
   if (policyCallback) {
     policyCallback(hostname, parsed.port ? Number(parsed.port) : null, path, 'http')
       .then((extraHeaders) => {
-        if (extraHeaders === null) {
+        if (extraHeaders === undefined) {
           clientRes.writeHead(403, { 'Content-Type': 'text/plain' });
           clientRes.end('Forbidden');
           return;

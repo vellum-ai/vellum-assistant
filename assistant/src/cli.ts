@@ -785,7 +785,7 @@ export async function startCli(): Promise<void> {
 
     if (content === '/copy-code') {
       const code = extractLastCodeBlock(lastResponse);
-      if (code === null) {
+      if (code === undefined) {
         process.stdout.write('No code block found.\n');
       } else {
         try {

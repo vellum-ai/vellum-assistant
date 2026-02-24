@@ -22,7 +22,7 @@ const HTML_ESCAPE_MAP: Record<string, string> = {
 let designSystemCssCache: string | null = null;
 
 function loadDesignSystemCss(): string {
-  if (designSystemCssCache !== null) return designSystemCssCache;
+  if (designSystemCssCache !== undefined) return designSystemCssCache;
   try {
     const cssPath = join(
       import.meta.dirname ?? __dirname,

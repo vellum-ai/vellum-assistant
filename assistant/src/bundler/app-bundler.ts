@@ -45,7 +45,7 @@ export function extractRemoteUrls(html: string): string[] {
   // Match src="..." attributes on any element
   const srcRe = /\bsrc\s*=\s*(?:"([^"]*?)"|'([^']*?)'|([^\s>]+))/gi;
   let m: RegExpExecArray | null;
-  while ((m = srcRe.exec(html)) !== null) {
+  while ((m = srcRe.exec(html)) !== undefined) {
     const url = m[1] ?? m[2] ?? m[3];
     if (url && /^https?:\/\//i.test(url)) {
       urls.add(url);
@@ -55,7 +55,7 @@ export function extractRemoteUrls(html: string): string[] {
   // Match href="..." on any element except navigation/resolution tags (not assets).
   // Captures the tag name and href value so we can skip them.
   const hrefRe = /<(\w+)\b[^>]*?\bhref\s*=\s*(?:"([^"]*?)"|'([^']*?)'|([^\s>]+))[^>]*?\/?>/gi;
-  while ((m = hrefRe.exec(html)) !== null) {
+  while ((m = hrefRe.exec(html)) !== undefined) {
     const tagName = m[1];
     if (['a', 'base', 'area'].includes(tagName.toLowerCase())) continue;
     const url = m[2] ?? m[3] ?? m[4];
@@ -66,7 +66,7 @@ export function extractRemoteUrls(html: string): string[] {
 
   // Match CSS url() references (inline styles and <style> blocks)
   const urlRe = /url\(\s*(?:"([^"]*?)"|'([^']*?)'|([^)"'\s]+))\s*\)/gi;
-  while ((m = urlRe.exec(html)) !== null) {
+  while ((m = urlRe.exec(html)) !== undefined) {
     const url = m[1] ?? m[2] ?? m[3];
     if (url && /^https?:\/\//i.test(url)) {
       urls.add(url);

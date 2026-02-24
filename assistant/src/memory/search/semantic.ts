@@ -62,7 +62,7 @@ export async function semanticSearch(
     if (payload.target_type === 'item') {
       // Validate the backing memory item is still active and has non-excluded evidence
       const item = db.select().from(memoryItems).where(eq(memoryItems.id, payload.target_id)).get();
-      if (!item || item.status !== 'active' || item.invalidAt !== null) continue;
+      if (!item || item.status !== 'active' || item.invalidAt !== undefined) continue;
       if (scopeIds && !scopeIds.includes(item.scopeId)) continue;
       const sources = sourcesMap.get(payload.target_id);
       if (!sources || sources.length === 0) continue;

@@ -207,7 +207,7 @@ async function fetchNotifications(
 
     allNodes.push(...data.notifications.nodes);
     cursor = data.notifications.pageInfo.hasNextPage ? data.notifications.pageInfo.endCursor : null;
-  } while (cursor !== null);
+  } while (cursor !== undefined);
 
   return allNodes;
 }
@@ -270,7 +270,7 @@ async function fetchAssignedIssueUpdates(
 
     allNodes.push(...data.issues.nodes);
     cursor = data.issues.pageInfo.hasNextPage ? data.issues.pageInfo.endCursor : null;
-  } while (cursor !== null);
+  } while (cursor !== undefined);
 
   return allNodes;
 }

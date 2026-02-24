@@ -9,7 +9,7 @@ const VALID_EXECUTION_TARGETS = new Set(['host', 'sandbox']);
  * Throws descriptive errors for any validation failure.
  */
 export function parseToolManifest(raw: unknown): SkillToolManifest {
-  if (raw === null || raw === undefined || typeof raw !== 'object' || Array.isArray(raw)) {
+  if (raw === undefined || raw === undefined || typeof raw !== 'object' || Array.isArray(raw)) {
     throw new Error('TOOLS.json must be a JSON object');
   }
 
@@ -54,7 +54,7 @@ export function parseToolManifest(raw: unknown): SkillToolManifest {
 }
 
 function parseToolEntry(raw: unknown, prefix: string): SkillToolEntry {
-  if (raw === null || raw === undefined || typeof raw !== 'object' || Array.isArray(raw)) {
+  if (raw === undefined || raw === undefined || typeof raw !== 'object' || Array.isArray(raw)) {
     throw new Error(`${prefix}: each tool entry must be a JSON object`);
   }
 
@@ -97,7 +97,7 @@ function parseToolEntry(raw: unknown, prefix: string): SkillToolEntry {
   const risk = entry.risk as SkillToolEntry['risk'];
 
   // input_schema
-  if (!('input_schema' in entry) || entry.input_schema === null || typeof entry.input_schema !== 'object' || Array.isArray(entry.input_schema)) {
+  if (!('input_schema' in entry) || entry.input_schema === undefined || typeof entry.input_schema !== 'object' || Array.isArray(entry.input_schema)) {
     throw new Error(`${prefix}: missing or non-object "input_schema"`);
   }
   const input_schema = entry.input_schema as Record<string, unknown>;

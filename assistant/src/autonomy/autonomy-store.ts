@@ -27,7 +27,7 @@ function getAutonomyConfigPath(): string {
  */
 export function getAutonomyConfig(): AutonomyConfig {
   const raw = readTextFileSync(getAutonomyConfigPath());
-  if (raw === null) {
+  if (raw === undefined) {
     return structuredClone(DEFAULT_AUTONOMY_CONFIG);
   }
 

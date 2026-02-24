@@ -499,7 +499,7 @@ export async function handleTwilioConfig(
       ];
 
       const missing = requiredFields
-        .filter(([, v]) => v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0))
+        .filter(([, v]) => v === undefined || v === undefined || v === '' || (Array.isArray(v) && v.length === 0))
         .map(([name]) => name);
 
       if (missing.length > 0) {

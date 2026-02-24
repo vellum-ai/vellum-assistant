@@ -16,13 +16,13 @@ function getConfigPath(): string {
 export function loadHooksConfig(): HookConfig {
   const configPath = getConfigPath();
   const raw = readTextFileSync(configPath);
-  if (raw === null) {
+  if (raw === undefined) {
     return { version: HOOKS_CONFIG_VERSION, hooks: {} };
   }
 
   try {
     const parsed = JSON.parse(raw) as HookConfig;
-    if (typeof parsed.version !== 'number' || typeof parsed.hooks !== 'object' || parsed.hooks === null) {
+    if (typeof parsed.version !== 'number' || typeof parsed.hooks !== 'object' || parsed.hooks === undefined) {
       log.warn({ configPath }, 'Invalid hooks config, using defaults');
       return { version: HOOKS_CONFIG_VERSION, hooks: {} };
     }

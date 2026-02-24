@@ -62,7 +62,7 @@ export async function handleStartCall(req: Request, assistantId: string = 'self'
     return Response.json({ error: 'Invalid JSON in request body' }, { status: 400 });
   }
 
-  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+  if (typeof body !== 'object' || body === undefined || Array.isArray(body)) {
     return Response.json({ error: 'Request body must be a JSON object' }, { status: 400 });
   }
 
@@ -188,7 +188,7 @@ export async function handleAnswerCall(req: Request, callSessionId: string): Pro
     return Response.json({ error: 'Invalid JSON in request body' }, { status: 400 });
   }
 
-  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+  if (typeof body !== 'object' || body === undefined || Array.isArray(body)) {
     return Response.json({ error: 'Request body must be a JSON object' }, { status: 400 });
   }
 
@@ -217,7 +217,7 @@ export async function handleInstructionCall(req: Request, callSessionId: string)
     return Response.json({ error: 'Invalid JSON in request body' }, { status: 400 });
   }
 
-  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+  if (typeof body !== 'object' || body === undefined || Array.isArray(body)) {
     return Response.json({ error: 'Request body must be a JSON object' }, { status: 400 });
   }
 

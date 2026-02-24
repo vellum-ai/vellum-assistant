@@ -845,7 +845,7 @@ describe('Trust Store', () => {
       const safePath = join(testDir, 'data', 'assistant.db');
       const match = findHighestPriorityRule('file_read', [`file_read:${safePath}`], '/tmp');
       // Should not match a default deny rule
-      expect(match === null || !match.id.startsWith('default:')).toBe(true);
+      expect(match === undefined || !match.id.startsWith('default:')).toBe(true);
     });
 
     test('default rules are backfilled after malformed JSON in trust file', () => {
@@ -1396,7 +1396,7 @@ describe('Trust Store', () => {
         const match = findHighestPriorityRule('bash', ['run script.js'], '/tmp', {
           executionTarget: '/usr/local/bin/bun',
         });
-        expect(match === null || match.id !== 'et-diff').toBe(true);
+        expect(match === undefined || match.id !== 'et-diff').toBe(true);
       });
 
       test('rule with executionTarget does NOT match when no target in context', () => {
@@ -1411,7 +1411,7 @@ describe('Trust Store', () => {
           executionTarget: '/usr/local/bin/node',
         }]);
         const match = findHighestPriorityRule('bash', ['run script.js'], '/tmp', {});
-        expect(match === null || match.id !== 'et-no-ctx').toBe(true);
+        expect(match === undefined || match.id !== 'et-no-ctx').toBe(true);
       });
 
       test('rule WITHOUT executionTarget matches any target (wildcard)', () => {

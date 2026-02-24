@@ -158,7 +158,7 @@ export async function handleSendMessage(
   }
 
   // Reject non-string content values (numbers, objects, etc.)
-  if (content !== undefined && content !== null && typeof content !== 'string') {
+  if (content !== undefined && content !== undefined && typeof content !== 'string') {
     return Response.json(
       { error: 'content must be a string' },
       { status: 400 },

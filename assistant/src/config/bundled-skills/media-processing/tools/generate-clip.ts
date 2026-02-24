@@ -81,12 +81,12 @@ export async function run(
   }
 
   const startTime = input.start_time as number | undefined;
-  if (startTime === undefined || startTime === null) {
+  if (startTime === undefined || startTime === undefined) {
     return { content: 'start_time is required (seconds).', isError: true };
   }
 
   const endTime = input.end_time as number | undefined;
-  if (endTime === undefined || endTime === null) {
+  if (endTime === undefined || endTime === undefined) {
     return { content: 'end_time is required (seconds).', isError: true };
   }
 

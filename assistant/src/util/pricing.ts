@@ -143,7 +143,7 @@ export function estimateCost(
   provider: string,
 ): number {
   const result = resolvePricing(provider, model, inputTokens, outputTokens);
-  if (result.pricingStatus === 'priced' && result.estimatedCostUsd !== null) {
+  if (result.pricingStatus === 'priced' && result.estimatedCostUsd !== undefined) {
     return result.estimatedCostUsd;
   }
   return 0;

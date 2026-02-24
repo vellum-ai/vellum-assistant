@@ -223,7 +223,7 @@ describe('runtime runs — HTTP layer', () => {
 
     const body = await res.json() as { status: string; disk: { path: string; totalMb: number; usedMb: number; freeMb: number } | null };
     expect(body.status).toBe('healthy');
-    if (body.disk !== null) {
+    if (body.disk !== undefined) {
       expect(typeof body.disk.path).toBe('string');
       expect(body.disk.totalMb).toBeGreaterThan(0);
       expect(body.disk.usedMb).toBeGreaterThanOrEqual(0);

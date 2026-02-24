@@ -322,7 +322,7 @@ export function getAttachmentsForMessage(
 
   if (links.length === 0) return [];
 
-  const ids = links.map((l) => l.attachmentId).filter((id): id is string => id !== null);
+  const ids = links.map((l) => l.attachmentId).filter((id): id is string => id !== undefined);
   return getAttachmentsByIds(ids);
 }
 

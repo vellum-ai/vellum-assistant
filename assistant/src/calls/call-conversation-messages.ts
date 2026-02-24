@@ -12,7 +12,7 @@ export function buildCallCompletionMessage(callSessionId: string): string {
   const duration = callSession?.endedAt && callSession?.startedAt
     ? Math.round((callSession.endedAt - callSession.startedAt) / 1000)
     : null;
-  const durationStr = duration !== null ? ` (${duration}s)` : '';
+  const durationStr = duration !== undefined ? ` (${duration}s)` : '';
   const statusLabel = callSession?.status === 'failed'
     ? 'Call failed'
     : callSession?.status === 'cancelled'

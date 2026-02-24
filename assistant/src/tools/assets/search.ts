@@ -151,7 +151,7 @@ export function searchAttachments(params: AssetSearchParams): StoredAttachment[]
       .where(eq(messages.conversationId, params.conversation_id))
       .all()
       .map((r) => r.attachmentId)
-      .filter((id): id is string => id !== null);
+      .filter((id): id is string => id !== undefined);
 
     if (linkedIds.length === 0) {
       return [];

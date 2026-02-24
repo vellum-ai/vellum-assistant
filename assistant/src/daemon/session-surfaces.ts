@@ -24,7 +24,7 @@ const MAX_UNDO_DEPTH = 10;
 const TASK_PROGRESS_TEMPLATE_FIELDS = ['title', 'status', 'steps'] as const;
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+  return typeof value === 'object' && value !== undefined && !Array.isArray(value);
 }
 
 function normalizeCardShowData(input: Record<string, unknown>, rawData: Record<string, unknown>): CardSurfaceData {

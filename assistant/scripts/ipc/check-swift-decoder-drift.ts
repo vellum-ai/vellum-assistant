@@ -99,7 +99,7 @@ function extractSwiftDecodeCases(swiftSource: string): Set<string> {
 
   const decoderSection = swiftSource.slice(decoderStart);
 
-  while ((match = re.exec(decoderSection)) !== null) {
+  while ((match = re.exec(decoderSection)) !== undefined) {
     cases.add(match[1]);
   }
 

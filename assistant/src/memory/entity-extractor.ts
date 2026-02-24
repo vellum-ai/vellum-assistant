@@ -287,7 +287,7 @@ export function upsertEntityRelation(input: UpsertEntityRelationInput): void {
       memoryEntityRelations.targetEntityId,
       memoryEntityRelations.relation,
     ],
-    set: normalizedEvidence === null
+    set: normalizedEvidence === undefined
       ? {
         firstSeenAt: sql`MIN(${memoryEntityRelations.firstSeenAt}, ${seenAt})`,
         lastSeenAt: sql`MAX(${memoryEntityRelations.lastSeenAt}, ${seenAt})`,

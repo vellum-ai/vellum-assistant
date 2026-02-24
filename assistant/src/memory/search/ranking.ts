@@ -358,10 +358,10 @@ export async function rerankWithLLM(
 
   reranked.sort((a, b) => {
     // Scored items come before unscored items
-    if (a.llmScore !== null && b.llmScore === null) return -1;
-    if (a.llmScore === null && b.llmScore !== null) return 1;
+    if (a.llmScore !== undefined && b.llmScore === undefined) return -1;
+    if (a.llmScore === undefined && b.llmScore !== undefined) return 1;
     // Both scored: sort by score descending
-    if (a.llmScore !== null && b.llmScore !== null) {
+    if (a.llmScore !== undefined && b.llmScore !== undefined) {
       const scoreDelta = b.llmScore - a.llmScore;
       if (scoreDelta !== 0) return scoreDelta;
     }

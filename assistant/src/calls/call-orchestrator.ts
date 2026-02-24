@@ -331,7 +331,7 @@ export class CallOrchestrator {
     if (!speaker) return transcript;
     const safeId = speaker.speakerId.replaceAll('"', '\'');
     const safeLabel = speaker.speakerLabel.replaceAll('"', '\'');
-    const confidencePart = speaker.speakerConfidence !== null ? ` confidence="${speaker.speakerConfidence.toFixed(2)}"` : '';
+    const confidencePart = speaker.speakerConfidence !== undefined ? ` confidence="${speaker.speakerConfidence.toFixed(2)}"` : '';
     return `[SPEAKER id="${safeId}" label="${safeLabel}" source="${speaker.source}"${confidencePart}] ${transcript}`;
   }
 

@@ -25,7 +25,7 @@ describe('fuzzy-match property-based tests', () => {
         fc.string({ minLength: 1, maxLength: 200 }),
         (content, target) => {
           const result = findMatch(content, target);
-          if (result !== null) {
+          if (result !== undefined) {
             expect(result.similarity).toBeGreaterThanOrEqual(0);
             expect(result.similarity).toBeLessThanOrEqual(1);
           }
@@ -135,7 +135,7 @@ describe('fuzzy-match property-based tests', () => {
         fc.string({ minLength: 1, maxLength: 50 }),
         (content, target) => {
           const result = findMatch(content, target);
-          if (result !== null && result.method === 'exact') {
+          if (result !== undefined && result.method === 'exact') {
             expect(content.includes(result.matched)).toBe(true);
             expect(content.slice(result.start, result.end)).toBe(result.matched);
           }
@@ -154,7 +154,7 @@ describe('fuzzy-match property-based tests', () => {
           const single = findMatch(content, target);
           const all = findAllMatches(content, target);
 
-          if (single === null) {
+          if (single === undefined) {
             expect(all.length).toBe(0);
           } else {
             expect(all.length).toBeGreaterThanOrEqual(1);
@@ -172,7 +172,7 @@ describe('fuzzy-match property-based tests', () => {
         fc.string({ minLength: 1, maxLength: 100 }),
         (content, target) => {
           const result = findMatch(content, target);
-          if (result !== null && result.similarity === 1) {
+          if (result !== undefined && result.similarity === 1) {
             expect(['exact', 'whitespace']).toContain(result.method);
           }
         }
@@ -188,7 +188,7 @@ describe('fuzzy-match property-based tests', () => {
         fc.string({ minLength: 1, maxLength: 100 }),
         (content, target) => {
           const result = findMatch(content, target);
-          if (result !== null) {
+          if (result !== undefined) {
             expect(result.start).toBeLessThanOrEqual(result.end);
           }
         }
