@@ -46,10 +46,10 @@ describe('renderTemplate', () => {
     expect(result).toBe('Hello Alice, welcome to Wonderland!');
   });
 
-  test('leaves unmatched placeholders as-is', () => {
+  test('replaces missing placeholders with <MISSING: key>', () => {
     const template = 'Hello {{name}}, your id is {{id}}';
     const result = renderTemplate(template, { name: 'Bob' });
-    expect(result).toBe('Hello Bob, your id is {{id}}');
+    expect(result).toBe('Hello Bob, your id is <MISSING: id>');
   });
 
   test('handles template with no placeholders', () => {
@@ -58,10 +58,20 @@ describe('renderTemplate', () => {
     expect(result).toBe('No placeholders here.');
   });
 
-  test('handles empty inputs', () => {
+  test('replaces all missing placeholders with <MISSING: key>', () => {
     const template = '{{greeting}} world';
     const result = renderTemplate(template, {});
-    expect(result).toBe('{{greeting}} world');
+    expect(result).toBe('<MISSING: greeting> world');
+  });
+
+  test('input values containing {{key}} patterns are not double-interpolated', () => {
+    // JavaScript String.replace with a regex callback is single-pass: it scans
+    // the ORIGINAL template left-to-right, so substituted values are never
+    // re-scanned for further matches. This test documents that guarantee.
+    const template = 'Message: {{body}}';
+    const result = renderTemplate(template, { body: 'hello {{secret}}', secret: 'PRIVATE' });
+    // The {{secret}} inside the value is not expanded — it remains literal.
+    expect(result).toBe('Message: hello {{secret}}');
   });
 });
 
