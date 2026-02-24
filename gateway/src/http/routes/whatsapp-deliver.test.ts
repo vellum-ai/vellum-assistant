@@ -1,0 +1,314 @@
+import { describe, it, expect, mock, beforeEach } from "bun:test";
+import type { GatewayConfig } from "../../config.js";
+
+// ---- Mocks ----
+
+let sendWhatsAppReplyCalls: Array<unknown[]> = [];
+
+mock.module("../../whatsapp/send.js", () => ({
+  sendWhatsAppReply: async (...args: unknown[]) => {
+    sendWhatsAppReplyCalls.push(args);
+  },
+}));
+
+const { createWhatsAppDeliverHandler } = await import("./whatsapp-deliver.js");
+
+// ---- Helpers ----
+
+const TOKEN = "test-deliver-token";
+
+function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
+  const merged: GatewayConfig = {
+    assistantRuntimeBaseUrl: "http://localhost:7821",
+    defaultAssistantId: undefined,
+    gatewayInternalBaseUrl: "http://127.0.0.1:7830",
+    logFile: { dir: undefined, retentionDays: 30 },
+    maxAttachmentBytes: 20 * 1024 * 1024,
+    maxAttachmentConcurrency: 3,
+    maxWebhookPayloadBytes: 1024 * 1024,
+    port: 7830,
+    routingEntries: [],
+    runtimeBearerToken: undefined,
+    runtimeGatewayOriginSecret: undefined,
+    runtimeInitialBackoffMs: 500,
+    runtimeMaxRetries: 2,
+    runtimeProxyBearerToken: undefined,
+    runtimeProxyEnabled: false,
+    runtimeProxyRequireAuth: true,
+    runtimeTimeoutMs: 30000,
+    shutdownDrainMs: 5000,
+    telegramApiBaseUrl: "https://api.telegram.org",
+    telegramBotToken: undefined,
+    telegramDeliverAuthBypass: false,
+    telegramInitialBackoffMs: 1000,
+    telegramMaxRetries: 3,
+    telegramTimeoutMs: 15000,
+    telegramWebhookSecret: undefined,
+    twilioAuthToken: undefined,
+    twilioAccountSid: undefined,
+    twilioPhoneNumber: undefined,
+    smsDeliverAuthBypass: false,
+    ingressPublicBaseUrl: undefined,
+    unmappedPolicy: "reject",
+    whatsappPhoneNumberId: "123456789012345",
+    whatsappAccessToken: "test-whatsapp-token",
+    whatsappAppSecret: undefined,
+    whatsappWebhookVerifyToken: undefined,
+    whatsappDeliverAuthBypass: true,
+    whatsappTimeoutMs: 15000,
+    whatsappMaxRetries: 3,
+    whatsappInitialBackoffMs: 1000,
+    ...overrides,
+  };
+  if (merged.runtimeGatewayOriginSecret === undefined) {
+    merged.runtimeGatewayOriginSecret = merged.runtimeBearerToken;
+  }
+  return merged;
+}
+
+function makeRequest(body: unknown, headers?: Record<string, string>): Request {
+  return new Request("http://localhost:7830/deliver/whatsapp", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...headers,
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+// ---- Tests ----
+
+describe("/deliver/whatsapp", () => {
+  beforeEach(() => {
+    sendWhatsAppReplyCalls = [];
+  });
+
+  it("rejects GET requests with 405", async () => {
+    const handler = createWhatsAppDeliverHandler(makeConfig());
+    const req = new Request("http://localhost:7830/deliver/whatsapp", {
+      method: "GET",
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(405);
+    const body = await res.json();
+    expect(body.error).toBe("Method not allowed");
+  });
+
+  it("rejects when no bearer token and bypass not set with 503", async () => {
+    const handler = createWhatsAppDeliverHandler(
+      makeConfig({
+        runtimeProxyBearerToken: undefined,
+        whatsappDeliverAuthBypass: false,
+      }),
+    );
+    const req = makeRequest({ to: "+15559876543", text: "hello" });
+    const res = await handler(req);
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.error).toBe("Service not configured: bearer token required");
+  });
+
+  it("rejects request without Authorization header with 401", async () => {
+    const handler = createWhatsAppDeliverHandler(
+      makeConfig({ runtimeProxyBearerToken: TOKEN }),
+    );
+    const req = makeRequest({ to: "+15559876543", text: "hello" });
+    const res = await handler(req);
+    expect(res.status).toBe(401);
+    const body = await res.json();
+    expect(body.error).toBe("Unauthorized");
+  });
+
+  it("rejects request with wrong bearer token with 401", async () => {
+    const handler = createWhatsAppDeliverHandler(
+      makeConfig({ runtimeProxyBearerToken: TOKEN }),
+    );
+    const req = makeRequest({ to: "+15559876543", text: "hello" }, {
+      authorization: "Bearer wrong-token",
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(401);
+    const body = await res.json();
+    expect(body.error).toBe("Unauthorized");
+  });
+
+  it("accepts request with correct bearer token", async () => {
+    const handler = createWhatsAppDeliverHandler(
+      makeConfig({ runtimeProxyBearerToken: TOKEN }),
+    );
+    const req = makeRequest({ to: "+15559876543", text: "hello" }, {
+      authorization: `Bearer ${TOKEN}`,
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+  });
+
+  it("allows unauthenticated access when bypass flag is set and no token configured", async () => {
+    const handler = createWhatsAppDeliverHandler(
+      makeConfig({
+        runtimeProxyBearerToken: undefined,
+        whatsappDeliverAuthBypass: true,
+      }),
+    );
+    const req = makeRequest({ to: "+15559876543", text: "hello" });
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+  });
+
+  it("returns 503 when WhatsApp credentials are not configured", async () => {
+    const handler = createWhatsAppDeliverHandler(
+      makeConfig({ whatsappPhoneNumberId: undefined }),
+    );
+    const req = makeRequest({ to: "+15559876543", text: "hello" });
+    const res = await handler(req);
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.error).toBe("WhatsApp integration not configured");
+  });
+
+  it("returns 503 when WhatsApp access token is missing", async () => {
+    const handler = createWhatsAppDeliverHandler(
+      makeConfig({ whatsappAccessToken: undefined }),
+    );
+    const req = makeRequest({ to: "+15559876543", text: "hello" });
+    const res = await handler(req);
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.error).toBe("WhatsApp integration not configured");
+  });
+
+  it("returns 400 when 'to' is missing", async () => {
+    const handler = createWhatsAppDeliverHandler(makeConfig());
+    const req = makeRequest({ text: "hello" });
+    const res = await handler(req);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe("to is required");
+  });
+
+  it("returns 400 when 'text' is missing and no attachments", async () => {
+    const handler = createWhatsAppDeliverHandler(makeConfig());
+    const req = makeRequest({ to: "+15559876543" });
+    const res = await handler(req);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe("text is required");
+  });
+
+  it("returns 400 when JSON is invalid", async () => {
+    const handler = createWhatsAppDeliverHandler(makeConfig());
+    const req = new Request("http://localhost:7830/deliver/whatsapp", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "not-json",
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe("Invalid JSON");
+  });
+
+  it("accepts chatId as alias for to", async () => {
+    const handler = createWhatsAppDeliverHandler(makeConfig());
+    const req = makeRequest({ chatId: "+15559876543", text: "hello via chatId" });
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+
+    expect(sendWhatsAppReplyCalls).toHaveLength(1);
+    expect(sendWhatsAppReplyCalls[0][1]).toBe("+15559876543");
+    expect(sendWhatsAppReplyCalls[0][2]).toBe("hello via chatId");
+  });
+
+  it("prefers 'to' over 'chatId' when both are provided", async () => {
+    const handler = createWhatsAppDeliverHandler(makeConfig());
+    const req = makeRequest({
+      to: "+15551111111",
+      chatId: "+15552222222",
+      text: "both fields",
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+
+    expect(sendWhatsAppReplyCalls).toHaveLength(1);
+    expect(sendWhatsAppReplyCalls[0][1]).toBe("+15551111111");
+  });
+
+  it("uses fallback text when attachments are present but text is missing", async () => {
+    const handler = createWhatsAppDeliverHandler(makeConfig());
+    const req = makeRequest({
+      to: "+15559876543",
+      attachments: [{ url: "https://example.com/image.png" }],
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+
+    expect(sendWhatsAppReplyCalls).toHaveLength(1);
+    expect(sendWhatsAppReplyCalls[0][2]).toBe(
+      "I have a media attachment to share, but WhatsApp media delivery is not yet supported.",
+    );
+  });
+
+  it("uses fallback text when text is empty string and attachments present", async () => {
+    const handler = createWhatsAppDeliverHandler(makeConfig());
+    const req = makeRequest({
+      to: "+15559876543",
+      text: "   ",
+      attachments: [{ url: "https://example.com/image.png" }],
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+
+    expect(sendWhatsAppReplyCalls).toHaveLength(1);
+    expect(sendWhatsAppReplyCalls[0][2]).toBe(
+      "I have a media attachment to share, but WhatsApp media delivery is not yet supported.",
+    );
+  });
+
+  it("returns 502 when sendWhatsAppReply throws", async () => {
+    // Override the mock to throw
+    const throwingMock = mock.module("../../whatsapp/send.js", () => ({
+      sendWhatsAppReply: async () => {
+        throw new Error("WhatsApp API failure");
+      },
+    }));
+
+    // Re-import to get the handler with the throwing mock
+    const { createWhatsAppDeliverHandler: createHandler } = await import(
+      "./whatsapp-deliver.js"
+    );
+    const handler = createHandler(makeConfig());
+    const req = makeRequest({ to: "+15559876543", text: "hello" });
+    const res = await handler(req);
+    expect(res.status).toBe(502);
+    const body = await res.json();
+    expect(body.error).toBe("Delivery failed");
+
+    // Restore non-throwing mock
+    mock.module("../../whatsapp/send.js", () => ({
+      sendWhatsAppReply: async (...args: unknown[]) => {
+        sendWhatsAppReplyCalls.push(args);
+      },
+    }));
+  });
+
+  it("sends text to the correct recipient", async () => {
+    const handler = createWhatsAppDeliverHandler(makeConfig());
+    const req = makeRequest({ to: "+15559876543", text: "Test message" });
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+
+    expect(sendWhatsAppReplyCalls).toHaveLength(1);
+    const [config, to, text] = sendWhatsAppReplyCalls[0] as [GatewayConfig, string, string];
+    expect(to).toBe("+15559876543");
+    expect(text).toBe("Test message");
+  });
+});
