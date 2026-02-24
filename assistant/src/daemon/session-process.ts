@@ -24,6 +24,8 @@ import {
 import { answerCall } from '../calls/call-domain.js';
 import { resolveSlash, type SlashContext } from './session-slash.js';
 import { getConfig } from '../config/loader.js';
+import { extractPreferences } from '../notifications/preference-extractor.js';
+import { createPreference } from '../notifications/preferences-store.js';
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('session-process');
@@ -68,6 +70,8 @@ export interface ProcessSessionContext {
   readonly usageStats: UsageStats;
   /** Request-scoped skill IDs preactivated via slash resolution. */
   preactivatedSkillIds?: string[];
+  /** Assistant identity — used for scoping notification preferences. */
+  readonly assistantId?: string;
   persistUserMessage(content: string, attachments: UserMessageAttachment[], requestId?: string, metadata?: Record<string, unknown>): string;
   runAgentLoop(
     content: string,
@@ -373,6 +377,30 @@ export async function processMessage(
     // runAgentLoop never ran, so its finally block won't clear this
     session.preactivatedSkillIds = undefined;
     return '';
+  }
+
+  // Fire-and-forget: detect notification preferences in the user message
+  // and persist any that are found. Runs in the background so it doesn't
+  // block the main conversation flow.
+  if (session.assistantId) {
+    const aid = session.assistantId;
+    extractPreferences(resolvedContent)
+      .then((result) => {
+        if (!result.detected) return;
+        for (const pref of result.preferences) {
+          createPreference({
+            assistantId: aid,
+            preferenceText: pref.preferenceText,
+            appliesWhen: pref.appliesWhen,
+            priority: pref.priority,
+          });
+        }
+        log.info({ count: result.preferences.length, conversationId: session.conversationId }, 'Persisted extracted notification preferences');
+      })
+      .catch((err) => {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        log.warn({ err: errMsg, conversationId: session.conversationId }, 'Background preference extraction failed');
+      });
   }
 
   await session.runAgentLoop(resolvedContent, userMessageId, onEvent);

@@ -263,7 +263,17 @@ export async function evaluateSignal(
 
   // When no explicit preference context is provided, load the user's
   // stored notification preferences from the memory-backed store.
-  const resolvedPreferenceContext = preferenceContext ?? getPreferenceSummary(signal.assistantId) ?? undefined;
+  // Wrapped in try/catch so a DB failure doesn't break the decision path.
+  let resolvedPreferenceContext = preferenceContext;
+  if (resolvedPreferenceContext === undefined) {
+    try {
+      resolvedPreferenceContext = getPreferenceSummary(signal.assistantId) ?? undefined;
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      log.warn({ err: errMsg, assistantId: signal.assistantId }, 'Failed to load preference summary, proceeding without preferences');
+      resolvedPreferenceContext = undefined;
+    }
+  }
 
   const provider = getConfiguredProvider();
   if (!provider) {
