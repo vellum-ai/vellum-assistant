@@ -7,7 +7,7 @@
  */
 
 import { getConfig } from '../config/loader.js';
-import { getDefaultModel, getFailoverProvider, listProviders } from '../providers/registry.js';
+import { getFailoverProvider, listProviders } from '../providers/registry.js';
 import type { ProviderEvent } from '../providers/types.js';
 import { resolveUserReference } from '../config/user-reference.js';
 import { getLogger } from '../util/logger.js';
@@ -356,7 +356,12 @@ export class CallOrchestrator {
     try {
       this.state = 'speaking';
 
-      const callModel = config.calls.model?.trim() || getDefaultModel(providerName);
+      // Only override the model when the user has explicitly configured one.
+      // When unset, each provider in the failover chain uses its own default
+      // model (set at initialization). Forwarding the primary provider's
+      // default to fallback providers would cause cross-provider 4xx errors
+      // (e.g., sending "gpt-5.2" to Anthropic).
+      const callModel = config.calls.model?.trim() || undefined;
 
       // Buffer incoming tokens so we can strip control markers ([ASK_GUARDIAN:...], [END_CALL])
       // before they reach TTS. We hold text whenever an unmatched '[' appears, since it
@@ -431,7 +436,7 @@ export class CallOrchestrator {
         this.buildSystemPrompt(),
         {
           config: {
-            model: callModel,
+            ...(callModel ? { model: callModel } : {}),
             max_tokens: 512,
           },
           onEvent: (event: ProviderEvent) => {
