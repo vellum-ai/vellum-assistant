@@ -98,7 +98,7 @@ extension ChatViewModel {
     }
 
     /// Format all tool input arguments for display in expanded details.
-    /// The primary value comes first, then remaining keys as `key: value` lines.
+    /// Primary key is listed first, then remaining keys alphabetically. All as `key: value`.
     /// Sensitive keys (passwords, tokens, etc.) are redacted to prevent credential exposure.
     func formatAllToolInput(_ input: [String: AnyCodable]) -> String {
         guard !input.isEmpty else { return "" }
@@ -107,22 +107,16 @@ extension ChatViewModel {
         let primaryKey = Self.toolInputPriorityKeys.first(where: { input[$0] != nil })
             ?? input.keys.sorted().first
 
-        var lines: [String] = []
-
-        // Primary value first (undecorated)
-        if let key = primaryKey, let value = input[key] {
-            if Self.isSensitiveKey(key) {
-                lines.append("[redacted]")
-            } else {
-                lines.append(redactingStringifyValue(value))
-            }
+        // All keys as "key: value", primary key first then rest alphabetically
+        let orderedKeys: [String]
+        if let pk = primaryKey {
+            orderedKeys = [pk] + input.keys.filter { $0 != pk }.sorted()
+        } else {
+            orderedKeys = input.keys.sorted()
         }
 
-        // Remaining keys sorted alphabetically, redacting sensitive values
-        let otherKeys = input.keys
-            .filter { $0 != primaryKey }
-            .sorted()
-        for key in otherKeys {
+        var lines: [String] = []
+        for key in orderedKeys {
             guard let value = input[key] else { continue }
             if Self.isSensitiveKey(key) {
                 lines.append("\(key): [redacted]")
