@@ -90,7 +90,7 @@ final class PorcupineWakeWordEngine: WakeWordEngine {
             // Treat keyword as an absolute path to a custom .ppn file
             keywordPath = keyword
         } else {
-            log.error("Keyword file not found: tried \(builtinPath) and absolute path \(keyword)")
+            log.error("Keyword file not found: tried \(builtinPath) and absolute path \(self.keyword)")
             return
         }
 
