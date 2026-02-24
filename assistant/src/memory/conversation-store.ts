@@ -531,7 +531,10 @@ export function searchConversations(
   const db = getDb();
   const limit = opts?.limit ?? 20;
   const maxMsgsPerConv = opts?.maxMessagesPerConversation ?? 3;
-  const pattern = `%${query.replace(/%/g, '\\%').replace(/_/g, '\\_')}%`;
+  // Escape backslashes first so they don't interfere with subsequent % and _ escaping.
+  // With ESCAPE '\\', SQLite treats \\ as a literal backslash, \% as a literal percent,
+  // and \_ as a literal underscore — so all three characters must be escaped in that order.
+  const pattern = `%${query.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')}%`;
 
   // Find conversations whose title or at least one message content matches the query.
   // leftJoin ensures title-only matches are included even for empty conversations
