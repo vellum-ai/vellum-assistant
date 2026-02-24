@@ -398,6 +398,11 @@ public final class ChatViewModel: ObservableObject {
                 self?.pendingMessageIds.removeAll()
                 self?.requestIdToMessageId.removeAll()
                 self?.pendingLocalDeletions.removeAll()
+                // Clear stale degradation state so users don't see a warning banner
+                // from a previous session if the new session is healthy. The daemon
+                // will re-emit memory_status if degradation persists after reconnect.
+                self?.isMemoryDegraded = false
+                self?.memoryDegradedReason = nil
                 #if os(iOS)
                 self?.flushOfflineQueue()
                 #endif
