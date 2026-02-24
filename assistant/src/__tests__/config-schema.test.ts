@@ -707,6 +707,11 @@ describe('AssistantConfigSchema', () => {
       callerIdentity: {
         allowPerCallOverride: true,
       },
+      verification: {
+        enabled: false,
+        maxAttempts: 3,
+        codeLength: 6,
+      },
     });
   });
 
