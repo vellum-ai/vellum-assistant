@@ -1,5 +1,4 @@
 import { eq, sql } from 'drizzle-orm';
-import { getConfig } from '../config/loader.js';
 import type { MemoryEntityConfig } from '../config/types.js';
 import { getLogger } from '../util/logger.js';
 import { truncate } from '../util/truncate.js';

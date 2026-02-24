@@ -11,7 +11,6 @@ import { getAnthropicProvider, createTimeout, extractToolUse, userMessage } from
 import { truncate } from '../util/truncate.js';
 import { v4 as uuid } from 'uuid';
 import { and, eq, isNull, desc } from 'drizzle-orm';
-import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
 import { getDb } from '../memory/db.js';
 import { memoryItems, triageResults } from '../memory/schema.js';

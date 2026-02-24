@@ -4,7 +4,7 @@
  * and response extraction helpers.
  */
 
-import type { Provider, ProviderResponse, Message, ToolDefinition, ContentBlock, ToolUseContent } from './types.js';
+import type { Provider, ProviderResponse, Message, ContentBlock, ToolUseContent } from './types.js';
 import { getProvider, listProviders, initializeProviders } from './registry.js';
 import { getConfig } from '../config/loader.js';
 

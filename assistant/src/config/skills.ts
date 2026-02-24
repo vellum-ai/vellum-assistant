@@ -1,6 +1,5 @@
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
-import { getConfig } from './loader.js';
 import { getWorkspaceSkillsDir } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
 import { stripCommentLines } from './system-prompt.js';
