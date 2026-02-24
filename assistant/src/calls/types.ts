@@ -1,5 +1,5 @@
 export type CallStatus = 'initiated' | 'ringing' | 'in_progress' | 'waiting_on_user' | 'completed' | 'failed' | 'cancelled';
-export type CallEventType = 'call_started' | 'call_connected' | 'caller_spoke' | 'assistant_spoke' | 'user_question_asked' | 'user_answered' | 'user_instruction_relayed' | 'call_ended' | 'call_failed';
+export type CallEventType = 'call_started' | 'call_connected' | 'caller_spoke' | 'assistant_spoke' | 'user_question_asked' | 'user_answered' | 'user_instruction_relayed' | 'call_ended' | 'call_failed' | 'callee_verification_started' | 'callee_verification_succeeded' | 'callee_verification_failed';
 export type PendingQuestionStatus = 'pending' | 'answered' | 'expired' | 'cancelled';
 
 export interface CallSession {

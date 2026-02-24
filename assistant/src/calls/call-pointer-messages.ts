@@ -12,12 +12,14 @@ export function addPointerMessage(
   conversationId: string,
   event: PointerEvent,
   phoneNumber: string,
-  extra?: { duration?: string; reason?: string },
+  extra?: { duration?: string; reason?: string; verificationCode?: string },
 ): void {
   let text: string;
   switch (event) {
     case 'started':
-      text = `\u{1F4DE} Call to ${phoneNumber} started. See voice thread for details.`;
+      text = extra?.verificationCode
+        ? `\u{1F4DE} Call to ${phoneNumber} started. Verification code: ${extra.verificationCode}`
+        : `\u{1F4DE} Call to ${phoneNumber} started. See voice thread for details.`;
       break;
     case 'completed':
       text = extra?.duration
