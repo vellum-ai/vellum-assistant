@@ -80,6 +80,8 @@ final class ComputerUseSession: ObservableObject {
     let captureScope: String
     /// Whether to include audio in QA recording (from daemon config, default false).
     let includeAudio: Bool
+    /// When true, recording MUST start before any action; failure aborts the session.
+    let requiresRecording: Bool
 
     /// Target app name for frontmost-app guard — nil means no constraint.
     let targetAppName: String?
@@ -136,6 +138,7 @@ final class ComputerUseSession: ObservableObject {
         retentionDays: Int = 7,
         captureScope: String = "display",
         includeAudio: Bool = false,
+        requiresRecording: Bool = false,
         targetAppName: String? = nil,
         targetAppBundleId: String? = nil
     ) {
@@ -158,6 +161,7 @@ final class ComputerUseSession: ObservableObject {
         self.retentionDays = retentionDays
         self.captureScope = captureScope
         self.includeAudio = includeAudio
+        self.requiresRecording = requiresRecording
         self.targetAppName = targetAppName
         self.targetAppBundleId = targetAppBundleId
         self.verifier = ActionVerifier(maxSteps: maxSteps)
@@ -223,10 +227,24 @@ final class ComputerUseSession: ObservableObject {
                 }
                 try await recorder.startRecording(windowID: windowID, displayID: displayID, includeAudio: self.includeAudio)
                 log.info("QA mode: screen recording started for session \(self.id) (scope: \(self.captureScope))")
+                // Notify daemon that recording started successfully
+                try? daemonClient.send(CuRecordingStatusMessage(sessionId: id, status: "started"))
             } catch {
                 log.error("QA mode: failed to start screen recording: \(error.localizedDescription)")
+                // Notify daemon of recording failure
+                try? daemonClient.send(CuRecordingStatusMessage(sessionId: id, status: "failed", reason: error.localizedDescription))
+                if requiresRecording {
+                    // Fail-closed: recording is mandatory — abort the session
+                    state = .failed(reason: "Recording required but failed to start: \(error.localizedDescription)")
+                    qaRecordingWarningMessage = "Recording required but failed: \(error.localizedDescription)"
+                    logger.finishSession(result: "failed: required recording could not start")
+                    cancelSafetyNetTask?.cancel()
+                    cancelSafetyNetTask = nil
+                    await finalizeQARecording()
+                    return
+                }
+                // Non-fatal for best-effort recording — continue the session without recording
                 qaRecordingWarningMessage = "Unable to start recording. \(error.localizedDescription)"
-                // Non-fatal — continue the session without recording
             }
         }
 
@@ -258,7 +276,8 @@ final class ComputerUseSession: ObservableObject {
                     reportToSessionId: reportToSessionId,
                     qaMode: qaMode ? true : nil,
                     targetAppName: targetAppName,
-                    targetAppBundleId: targetAppBundleId
+                    targetAppBundleId: targetAppBundleId,
+                    requiresRecording: requiresRecording ? true : nil
                 ))
             } catch {
                 log.error("Failed to send session create message: \(error)")
@@ -1198,8 +1217,11 @@ final class ComputerUseSession: ObservableObject {
                     expiresAt: expiresAtEpoch
                 )
                 log.info("QA recording finalized: \(result.fileURL.lastPathComponent) (\(result.sizeBytes) bytes, \(result.durationMs)ms)")
+                // Notify daemon that recording stopped successfully
+                try? daemonClient.send(CuRecordingStatusMessage(sessionId: id, status: "stopped"))
             } catch {
                 log.error("QA mode: failed to stop screen recording: \(error.localizedDescription)")
+                try? daemonClient.send(CuRecordingStatusMessage(sessionId: id, status: "failed", reason: error.localizedDescription))
                 if qaRecordingWarningMessage == nil {
                     qaRecordingWarningMessage = "Unable to finalize recording. \(error.localizedDescription)"
                 }
@@ -1224,6 +1246,27 @@ final class ComputerUseSession: ObservableObject {
                     )
                 }
             }
+        }
+
+        // If recording was required but no artifact was produced, mark as failure
+        if requiresRecording && recordingData == nil && status != "failed" {
+            log.error("QA mode: recording was required but no recording artifact exists")
+            // Override status to failed — the session cannot be considered successful without a recording
+            let failedStatus = "failed"
+            let failedSummary = "Recording required but no recording artifact produced"
+            do {
+                try daemonClient.send(CuSessionFinalizedMessage(
+                    sessionId: id,
+                    status: failedStatus,
+                    summary: failedSummary,
+                    stepCount: stepCount,
+                    recording: nil
+                ))
+                log.info("QA mode: sent cu_session_finalized for session \(self.id) (status: \(failedStatus))")
+            } catch {
+                log.error("QA mode: failed to send cu_session_finalized: \(error.localizedDescription)")
+            }
+            return
         }
 
         // Send cu_session_finalized to the daemon

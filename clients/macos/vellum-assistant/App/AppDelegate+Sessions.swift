@@ -115,6 +115,7 @@ extension AppDelegate {
                 retentionDays: routed.retentionDays.flatMap { Int($0) } ?? 7,
                 captureScope: routed.captureScope ?? "display",
                 includeAudio: routed.includeAudio ?? false,
+                requiresRecording: routed.requiresRecording ?? false,
                 targetAppName: routed.targetAppName,
                 targetAppBundleId: routed.targetAppBundleId
             )
@@ -266,6 +267,7 @@ extension AppDelegate {
                     retentionDays: routed.retentionDays.flatMap { Int($0) } ?? 7,
                     captureScope: routed.captureScope ?? "display",
                     includeAudio: routed.includeAudio ?? false,
+                    requiresRecording: routed.requiresRecording ?? false,
                     targetAppName: routed.targetAppName,
                     targetAppBundleId: routed.targetAppBundleId
                 )
