@@ -16,6 +16,7 @@ import { checkIngressForSecrets } from '../../security/secret-ingress.js';
 import { IngressBlockedError } from '../../util/errors.js';
 import { getConfig } from '../../config/loader.js';
 import { getLogger } from '../../util/logger.js';
+import { findMember, updateLastSeen } from '../../memory/ingress-member-store.js';
 import {
   getGuardianBinding,
   isGuardian,
@@ -415,12 +416,34 @@ export async function handleChannelInbound(
     return Response.json({ error: 'content or attachmentIds is required' }, { status: 400 });
   }
 
-  // ── Assistant Inbox config access ──
-  // Load inbox config so downstream guards can check feature flags.
-  // Currently a no-op — ingress ACL enforcement will be added here by A-07/A-08
-  // when assistantInbox.memberAclEnabled is true.
-  const _inboxConfig = getConfig().assistantInbox;
-  void _inboxConfig;
+  // ── Ingress ACL enforcement ──
+  const inboxConfig = getConfig().assistantInbox;
+
+  if (inboxConfig.enabled && inboxConfig.memberAclEnabled && body.senderExternalUserId) {
+    const member = findMember({
+      sourceChannel,
+      externalUserId: body.senderExternalUserId,
+      externalChatId,
+    });
+
+    if (!member) {
+      log.info({ sourceChannel, externalUserId: body.senderExternalUserId }, 'Ingress ACL: no member record, denying');
+      return Response.json({ accepted: true, denied: true, reason: 'not_a_member' });
+    }
+
+    if (member.status !== 'active') {
+      log.info({ sourceChannel, memberId: member.id, status: member.status }, 'Ingress ACL: member not active, denying');
+      return Response.json({ accepted: true, denied: true, reason: `member_${member.status}` });
+    }
+
+    if (member.policy === 'deny') {
+      log.info({ sourceChannel, memberId: member.id }, 'Ingress ACL: member policy deny');
+      return Response.json({ accepted: true, denied: true, reason: 'policy_deny' });
+    }
+
+    // 'allow' or 'escalate' — update last seen and continue
+    updateLastSeen(member.id);
+  }
 
   if (hasAttachments) {
     const resolved = attachmentsStore.getAttachmentsByIds(attachmentIds);
