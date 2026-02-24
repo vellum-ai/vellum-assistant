@@ -792,7 +792,7 @@ struct SettingsPanel: View {
 
             // PRIVACY & SECURITY section
             VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("PRIVACY & SECURITY")
+                Text("Privacy & Security")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
 
