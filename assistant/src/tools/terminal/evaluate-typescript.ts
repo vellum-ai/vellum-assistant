@@ -127,7 +127,7 @@ export class EvaluateTypescriptTool implements Tool {
     if (Buffer.byteLength(mockInputJson) > MAX_MOCK_INPUT_BYTES) {
       return { content: `Error: mock_input_json exceeds maximum size of ${MAX_MOCK_INPUT_BYTES} bytes`, isError: true };
     }
-    if (parseJsonSafe(mockInputJson) === null) {
+    if (parseJsonSafe(mockInputJson) === null && mockInputJson.trim() !== 'null') {
       return { content: 'Error: mock_input_json must be valid JSON', isError: true };
     }
 
