@@ -1,5 +1,5 @@
 import * as net from 'node:net';
-import type { IngressInviteRequest, IngressMemberRequest, AssistantInboxEscalationRequest } from '../ipc-protocol.js';
+import type { IngressInviteRequest, IngressMemberRequest, AssistantInboxEscalationRequest, AssistantInboxReplyRequest } from '../ipc-protocol.js';
 import { log, defineHandlers, type HandlerContext } from './shared.js';
 import {
   createInvite,
@@ -21,6 +21,9 @@ import {
   type ApprovalRequestStatus,
 } from '../../memory/channel-guardian-store.js';
 import { refreshThreadEscalation } from '../../memory/inbox-escalation-projection.js';
+import { addMessage } from '../../memory/conversation-store.js';
+import { getBindingByConversation } from '../../memory/external-conversation-store.js';
+import { updateThreadActivity } from '../../memory/inbox-thread-store.js';
 
 export function handleIngressInvite(
   msg: IngressInviteRequest,
@@ -337,8 +340,47 @@ export function handleInboxEscalation(
   }
 }
 
+export function handleAssistantInboxReply(
+  msg: AssistantInboxReplyRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  try {
+    const { conversationId, content } = msg;
+
+    if (!conversationId || !content) {
+      ctx.send(socket, { type: 'assistant_inbox_reply_response', success: false, error: 'conversationId and content are required' });
+      return;
+    }
+
+    // Verify the conversation has an external binding
+    const binding = getBindingByConversation(conversationId);
+    if (!binding) {
+      ctx.send(socket, { type: 'assistant_inbox_reply_response', success: false, error: 'No external binding found for conversation' });
+      return;
+    }
+
+    // Store the reply as an assistant message
+    const message = addMessage(conversationId, 'assistant', content);
+
+    // Update thread activity timestamps (resets unread count, updates last_outbound_at)
+    updateThreadActivity(conversationId, 'outbound');
+
+    ctx.send(socket, {
+      type: 'assistant_inbox_reply_response',
+      success: true,
+      messageId: message.id,
+    });
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'assistant_inbox_reply handler error');
+    ctx.send(socket, { type: 'assistant_inbox_reply_response', success: false, error: errorMessage });
+  }
+}
+
 export const inboxInviteHandlers = defineHandlers({
   ingress_invite: handleIngressInvite,
   ingress_member: handleIngressMember,
   assistant_inbox_escalation: handleInboxEscalation,
+  assistant_inbox_reply: handleAssistantInboxReply,
 });

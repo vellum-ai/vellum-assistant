@@ -76,6 +76,8 @@ final class InboxViewModel: ObservableObject {
     @Published var messages: [InboxMessage] = []
     @Published var isLoadingMessages: Bool = false
     @Published var messagesError: String?
+    @Published var isSendingReply: Bool = false
+    @Published var sendReplyError: String?
 
     private let daemonClient: DaemonClient
 
@@ -177,5 +179,55 @@ final class InboxViewModel: ObservableObject {
         }
 
         self.messages = (response.messages ?? []).map { InboxMessage(from: $0) }
+    }
+
+    /// Send a reply to a conversation and reload messages on success.
+    func sendReply(conversationId: String, content: String) async -> Bool {
+        isSendingReply = true
+        sendReplyError = nil
+
+        let stream = daemonClient.subscribe()
+
+        do {
+            try daemonClient.sendAssistantInboxReply(conversationId: conversationId, content: content)
+        } catch {
+            self.sendReplyError = error.localizedDescription
+            self.isSendingReply = false
+            return false
+        }
+
+        let response: IPCAssistantInboxReplyResponse? = await withTaskGroup(of: IPCAssistantInboxReplyResponse?.self) { group in
+            group.addTask {
+                for await message in stream {
+                    if case .assistantInboxReplyResponse(let msg) = message {
+                        return msg
+                    }
+                }
+                return nil
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 10_000_000_000)
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+
+        isSendingReply = false
+
+        guard let response else {
+            self.sendReplyError = "Request timed out"
+            return false
+        }
+
+        if !response.success {
+            self.sendReplyError = response.error ?? "Unknown error"
+            return false
+        }
+
+        // Reload messages to show the new reply
+        await loadMessages(conversationId: conversationId)
+        return true
     }
 }

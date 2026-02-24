@@ -2203,6 +2203,7 @@ public enum ServerMessage: Decodable, Sendable {
     case parentalControlUpdateResponse(ParentalControlUpdateResponseMessage)
     case conversationSearchResponse(ConversationSearchResponseMessage)
     case assistantInboxResponse(IPCAssistantInboxResponse)
+    case assistantInboxReplyResponse(IPCAssistantInboxReplyResponse)
     case pong
     case unknown(String)
 
@@ -2593,6 +2594,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "assistant_inbox_response":
             let message = try IPCAssistantInboxResponse(from: decoder)
             self = .assistantInboxResponse(message)
+        case "assistant_inbox_reply_response":
+            let message = try IPCAssistantInboxReplyResponse(from: decoder)
+            self = .assistantInboxReplyResponse(message)
         case "pong":
             self = .pong
         default:
