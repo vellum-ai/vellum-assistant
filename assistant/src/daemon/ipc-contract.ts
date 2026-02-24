@@ -36,7 +36,7 @@ import type { SkillsListRequest, SkillDetailRequest, SkillsEnableRequest, Skills
 import type { AddTrustRule, TrustRulesList, RemoveTrustRule, UpdateTrustRule, AcceptStarterBundle } from './ipc-contract/trust.js';
 import type { AppDataRequest, AppsListRequest, HomeBaseGetRequest, AppOpenRequest, SharedAppsListRequest, SharedAppDeleteRequest, ForkSharedAppRequest, BundleAppRequest, OpenBundleRequest, SignBundlePayloadResponse, GetSigningIdentityResponse, GalleryListRequest, GalleryInstallRequest, AppHistoryRequest, AppDiffRequest, AppFileAtVersionRequest, AppRestoreRequest, ShareAppCloudRequest, ShareToSlackRequest, AppUpdatePreviewRequest, AppPreviewRequest, PublishPageRequest, UnpublishPageRequest } from './ipc-contract/apps.js';
 import type { SlackWebhookConfigRequest, IngressConfigRequest, VercelApiConfigRequest, TwitterIntegrationConfigRequest, TelegramConfigRequest, TwilioConfigRequest, ChannelReadinessRequest, GuardianVerificationRequest, TwitterAuthStartRequest, TwitterAuthStatusRequest, IntegrationListRequest, IntegrationConnectRequest, IntegrationDisconnectRequest, LinkOpenRequest } from './ipc-contract/integrations.js';
-import type { CuSessionCreate, CuSessionAbort, CuObservation, TaskSubmit, RideShotgunStart, RideShotgunStop, WatchObservation } from './ipc-contract/computer-use.js';
+import type { CuSessionCreate, CuSessionAbort, CuObservation, TaskSubmit, RideShotgunStart, RideShotgunStop, WatchObservation, RecordingStatus } from './ipc-contract/computer-use.js';
 import type { WorkItemsListRequest, WorkItemGetRequest, WorkItemUpdateRequest, WorkItemCompleteRequest, WorkItemDeleteRequest, WorkItemRunTaskRequest, WorkItemOutputRequest, WorkItemPreflightRequest, WorkItemApprovePermissionsRequest, WorkItemCancelRequest } from './ipc-contract/work-items.js';
 import type { BrowserCDPResponse, BrowserUserClick, BrowserUserScroll, BrowserUserKeypress, BrowserInteractiveMode } from './ipc-contract/browser.js';
 import type { SubagentAbortRequest, SubagentStatusRequest, SubagentMessageRequest, SubagentDetailRequest, SubagentSpawned, SubagentStatusChanged, SubagentDetailResponse } from './ipc-contract/subagents.js';
@@ -99,6 +99,7 @@ export type ClientMessage =
   | CuSessionCreate
   | CuSessionAbort
   | CuObservation
+  | RecordingStatus
   | RideShotgunStart
   | RideShotgunStop
   | WatchObservation

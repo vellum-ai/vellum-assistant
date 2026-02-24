@@ -102,6 +102,19 @@ export interface WatchObservation {
   totalExpected: number;
 }
 
+/** Client → Server: reports recording lifecycle state changes. */
+export interface RecordingStatus {
+  type: 'recording_status';
+  sessionId: string;
+  status: 'started' | 'stopped' | 'failed';
+  /** Absolute path to the recording file (populated on stop). */
+  filePath?: string;
+  /** Recording duration in milliseconds (populated on stop). */
+  durationMs?: number;
+  /** Error description (populated on failure). */
+  error?: string;
+}
+
 // === Server → Client ===
 
 export interface CuAction {

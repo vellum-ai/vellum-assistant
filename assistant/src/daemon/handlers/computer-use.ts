@@ -8,6 +8,7 @@ import type {
   CuSessionCreate,
   CuSessionAbort,
   CuObservation,
+  RecordingStatus,
   ServerMessage,
 } from '../ipc-protocol.js';
 import { log, defineHandlers, type HandlerContext } from './shared.js';
@@ -180,8 +181,29 @@ export async function handleCuObservation(
   });
 }
 
+export function handleRecordingStatus(
+  msg: RecordingStatus,
+  _socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const session = ctx.cuSessions.get(msg.sessionId);
+  if (!session) {
+    log.debug({ sessionId: msg.sessionId, status: msg.status }, 'Recording status for unknown session (already finished?)');
+    return;
+  }
+
+  log.info({
+    sessionId: msg.sessionId,
+    status: msg.status,
+    filePath: msg.filePath,
+    durationMs: msg.durationMs,
+    error: msg.error,
+  }, 'Recording status update');
+}
+
 export const computerUseHandlers = defineHandlers({
   cu_session_create: handleCuSessionCreate,
   cu_session_abort: handleCuSessionAbort,
   cu_observation: handleCuObservation,
+  recording_status: handleRecordingStatus,
 });

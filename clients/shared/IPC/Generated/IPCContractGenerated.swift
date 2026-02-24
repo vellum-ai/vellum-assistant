@@ -3046,6 +3046,28 @@ public struct IPCRecordingOptions: Codable, Sendable {
     }
 }
 
+/// Client → Server: reports recording lifecycle state changes.
+public struct IPCRecordingStatus: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let status: String
+    /// Absolute path to the recording file (populated on stop).
+    public let filePath: String?
+    /// Recording duration in milliseconds (populated on stop).
+    public let durationMs: Double?
+    /// Error description (populated on failure).
+    public let error: String?
+
+    public init(type: String, sessionId: String, status: String, filePath: String? = nil, durationMs: Double? = nil, error: String? = nil) {
+        self.type = type
+        self.sessionId = sessionId
+        self.status = status
+        self.filePath = filePath
+        self.durationMs = durationMs
+        self.error = error
+    }
+}
+
 public struct IPCRegenerateRequest: Codable, Sendable {
     public let type: String
     public let sessionId: String
