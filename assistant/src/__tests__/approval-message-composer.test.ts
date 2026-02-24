@@ -172,4 +172,66 @@ describe('approval-message-composer', () => {
       expect(composeApprovalMessage(ctx)).toBe(getFallbackMessage(ctx));
     });
   });
+
+  // -----------------------------------------------------------------------
+  // Verification scenario resilience — composed messages contain key facts
+  // -----------------------------------------------------------------------
+
+  describe('verification scenario resilience', () => {
+    test('guardian_verify_challenge_setup includes verify command and TTL', () => {
+      const msg = composeApprovalMessage({
+        scenario: 'guardian_verify_challenge_setup',
+        verifyCommand: '/guardian_verify abc123def456',
+        ttlSeconds: 600,
+      });
+      expect(typeof msg).toBe('string');
+      expect(msg.length).toBeGreaterThan(0);
+      expect(msg).toContain('/guardian_verify abc123def456');
+      expect(msg).toContain('600');
+    });
+
+    test('guardian_verify_failed includes failure reason', () => {
+      const msg = composeApprovalMessage({
+        scenario: 'guardian_verify_failed',
+        failureReason: 'Too many attempts. Please try again later.',
+      });
+      expect(typeof msg).toBe('string');
+      expect(msg.length).toBeGreaterThan(0);
+      expect(msg).toContain('Too many attempts');
+    });
+
+    test('guardian_verify_failed with invalid-or-expired reason includes that reason', () => {
+      const msg = composeApprovalMessage({
+        scenario: 'guardian_verify_failed',
+        failureReason: 'The verification code is invalid or has expired.',
+      });
+      expect(typeof msg).toBe('string');
+      expect(msg.length).toBeGreaterThan(0);
+      expect(msg).toContain('invalid or has expired');
+    });
+
+    test('guardian_verify_success produces a non-empty success message', () => {
+      const msg = composeApprovalMessage({
+        scenario: 'guardian_verify_success',
+      });
+      expect(typeof msg).toBe('string');
+      expect(msg.length).toBeGreaterThan(0);
+    });
+
+    test('guardian_verify_status_bound produces a non-empty message', () => {
+      const msg = composeApprovalMessage({
+        scenario: 'guardian_verify_status_bound',
+      });
+      expect(typeof msg).toBe('string');
+      expect(msg.length).toBeGreaterThan(0);
+    });
+
+    test('guardian_verify_status_unbound produces a non-empty message', () => {
+      const msg = composeApprovalMessage({
+        scenario: 'guardian_verify_status_unbound',
+      });
+      expect(typeof msg).toBe('string');
+      expect(msg.length).toBeGreaterThan(0);
+    });
+  });
 });

@@ -1584,7 +1584,7 @@ export function sweepExpiredGuardianApprovals(
     // Notify the requester that the approval expired
     deliverChannelReply(deliverUrl, {
       chatId: approval.requesterChatId,
-      text: `Your guardian approval request for "${approval.toolName}" has expired and the action has been denied. Please try again.`,
+      text: composeApprovalMessage({ scenario: 'guardian_expired_requester', toolName: approval.toolName }),
       assistantId: approval.assistantId,
     }, bearerToken).catch((err) => {
       log.error({ err, runId: approval.runId }, 'Failed to notify requester of guardian approval expiry');
@@ -1593,7 +1593,7 @@ export function sweepExpiredGuardianApprovals(
     // Notify the guardian that the approval expired
     deliverChannelReply(deliverUrl, {
       chatId: approval.guardianChatId,
-      text: `The approval request for "${approval.toolName}" from user ${approval.requesterExternalUserId} has expired and was automatically denied.`,
+      text: composeApprovalMessage({ scenario: 'guardian_expired_guardian', toolName: approval.toolName, requesterIdentifier: approval.requesterExternalUserId }),
       assistantId: approval.assistantId,
     }, bearerToken).catch((err) => {
       log.error({ err, runId: approval.runId }, 'Failed to notify guardian of approval expiry');

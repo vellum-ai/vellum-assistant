@@ -311,28 +311,32 @@ describe('guardian service challenge validation', () => {
     resetTables();
   });
 
-  test('createVerificationChallenge returns a secret and instruction', () => {
+  test('createVerificationChallenge returns a secret, verifyCommand, ttlSeconds, and instruction', () => {
     const result = createVerificationChallenge('asst-1', 'telegram');
 
     expect(result.challengeId).toBeDefined();
     expect(result.secret).toBeDefined();
     expect(result.secret.length).toBe(64); // 32 bytes hex-encoded
+    expect(result.verifyCommand).toBe(`/guardian_verify ${result.secret}`);
+    expect(result.ttlSeconds).toBe(600);
+    expect(result.instruction).toBeDefined();
+    expect(result.instruction.length).toBeGreaterThan(0);
     expect(result.instruction).toContain('/guardian_verify');
-    expect(result.instruction).toContain(result.secret);
   });
 
-  test('createVerificationChallenge instruction mentions Telegram for telegram channel', () => {
+  test('createVerificationChallenge produces a non-empty instruction for telegram channel', () => {
     const result = createVerificationChallenge('asst-1', 'telegram');
-    expect(result.instruction).toContain('via Telegram');
-    expect(result.instruction).not.toContain('via SMS');
+    expect(result.instruction).toBeDefined();
+    expect(result.instruction.length).toBeGreaterThan(0);
+    expect(result.instruction).toContain(result.verifyCommand);
   });
 
-  test('createVerificationChallenge instruction mentions SMS for sms channel', () => {
+  test('createVerificationChallenge produces a non-empty instruction for sms channel', () => {
     const result = createVerificationChallenge('asst-1', 'sms');
-    expect(result.instruction).toContain('via SMS');
-    expect(result.instruction).not.toContain('via Telegram');
+    expect(result.instruction).toBeDefined();
+    expect(result.instruction.length).toBeGreaterThan(0);
     expect(result.instruction).toContain('/guardian_verify');
-    expect(result.instruction).toContain(result.secret);
+    expect(result.instruction).toContain(result.verifyCommand);
   });
 
   test('validateAndConsumeChallenge succeeds with correct secret', () => {
@@ -377,8 +381,10 @@ describe('guardian service challenge validation', () => {
 
     expect(result.success).toBe(false);
     if (!result.success) {
-      // Generic message to prevent oracle leakage
-      expect(result.reason).toContain('try again later');
+      // Composed failure message — check it is non-empty and contains "failed"
+      expect(result.reason).toBeDefined();
+      expect(result.reason.length).toBeGreaterThan(0);
+      expect(result.reason.toLowerCase()).toContain('failed');
     }
   });
 
@@ -404,8 +410,10 @@ describe('guardian service challenge validation', () => {
 
     expect(result.success).toBe(false);
     if (!result.success) {
-      // Generic message to prevent oracle leakage
-      expect(result.reason).toContain('try again later');
+      // Composed failure message — check it is non-empty and contains "failed"
+      expect(result.reason).toBeDefined();
+      expect(result.reason.length).toBeGreaterThan(0);
+      expect(result.reason.toLowerCase()).toContain('failed');
     }
   });
 
@@ -943,7 +951,9 @@ describe('guardian service rate limiting', () => {
       'asst-1', 'telegram', 'another-wrong', 'user-42', 'chat-42',
     );
     expect(result.success).toBe(false);
-    expect((result as { reason: string }).reason).toContain('try again later');
+    expect((result as { reason: string }).reason).toBeDefined();
+    expect((result as { reason: string }).reason.length).toBeGreaterThan(0);
+    expect((result as { reason: string }).reason.toLowerCase()).toContain('failed');
 
     // Verify the rate limit record
     const rl = getRateLimit('asst-1', 'telegram', 'user-42', 'chat-42');

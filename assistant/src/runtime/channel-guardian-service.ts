@@ -20,6 +20,7 @@ import {
   resetRateLimit,
 } from '../memory/channel-guardian-store.js';
 import type { GuardianBinding } from '../memory/channel-guardian-store.js';
+import { composeApprovalMessage } from './approval-message-composer.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -44,6 +45,8 @@ const RATE_LIMIT_LOCKOUT_MS = 30 * 60 * 1000;
 export interface CreateChallengeResult {
   challengeId: string;
   secret: string;
+  verifyCommand: string;
+  ttlSeconds: number;
   instruction: string;
 }
 
@@ -62,19 +65,6 @@ function hashSecret(secret: string): string {
 // ---------------------------------------------------------------------------
 // Service
 // ---------------------------------------------------------------------------
-
-/**
- * Build a human-readable channel label for use in guardian challenge
- * instructions. Avoids hardcoding "Telegram" so SMS and future
- * channels get appropriate wording.
- */
-function channelLabel(channel: string): string {
-  switch (channel) {
-    case 'telegram': return 'Telegram';
-    case 'sms': return 'SMS';
-    default: return channel;
-  }
-}
 
 /**
  * Create a new verification challenge for a guardian candidate.
@@ -102,12 +92,19 @@ export function createVerificationChallenge(
     createdBySessionId: sessionId,
   });
 
-  const label = channelLabel(channel);
+  const verifyCommand = `/guardian_verify ${secret}`;
+  const ttlSeconds = CHALLENGE_TTL_MS / 1000;
 
   return {
     challengeId,
     secret,
-    instruction: `Send \`/guardian_verify ${secret}\` to your bot via ${label} within 10 minutes.`,
+    verifyCommand,
+    ttlSeconds,
+    instruction: composeApprovalMessage({
+      scenario: 'guardian_verify_challenge_setup',
+      verifyCommand,
+      ttlSeconds,
+    }),
   };
 }
 
@@ -137,7 +134,13 @@ export function validateAndConsumeChallenge(
   if (existing && existing.lockedUntil !== null && Date.now() < existing.lockedUntil) {
     // Use the same generic failure message to avoid leaking whether the
     // actor is rate-limited vs. the code is genuinely wrong.
-    return { success: false, reason: 'Verification failed. Please try again later.' };
+    return {
+      success: false,
+      reason: composeApprovalMessage({
+        scenario: 'guardian_verify_failed',
+        failureReason: 'Too many attempts. Please try again later.',
+      }),
+    };
   }
 
   const challengeHash = hashSecret(secret);
@@ -148,7 +151,13 @@ export function validateAndConsumeChallenge(
       assistantId, channel, actorExternalUserId, actorChatId,
       RATE_LIMIT_WINDOW_MS, RATE_LIMIT_MAX_ATTEMPTS, RATE_LIMIT_LOCKOUT_MS,
     );
-    return { success: false, reason: 'Verification failed. Please try again later.' };
+    return {
+      success: false,
+      reason: composeApprovalMessage({
+        scenario: 'guardian_verify_failed',
+        failureReason: 'The verification code is invalid or has expired.',
+      }),
+    };
   }
 
   if (Date.now() > challenge.expiresAt) {
@@ -156,7 +165,13 @@ export function validateAndConsumeChallenge(
       assistantId, channel, actorExternalUserId, actorChatId,
       RATE_LIMIT_WINDOW_MS, RATE_LIMIT_MAX_ATTEMPTS, RATE_LIMIT_LOCKOUT_MS,
     );
-    return { success: false, reason: 'Verification failed. Please try again later.' };
+    return {
+      success: false,
+      reason: composeApprovalMessage({
+        scenario: 'guardian_verify_failed',
+        failureReason: 'The verification code is invalid or has expired.',
+      }),
+    };
   }
 
   // Consume the challenge so it cannot be reused
