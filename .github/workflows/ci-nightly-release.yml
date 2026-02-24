@@ -1,0 +1,158 @@
+name: Nightly Release Build
+
+on:
+  schedule:
+    - cron: '0 8 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: ci-nightly-release
+  cancel-in-progress: true
+
+jobs:
+  release-build:
+    name: macOS Release Build
+    runs-on: macos-14
+    timeout-minutes: 30
+    env:
+      KEYCHAIN_NAME: build.keychain
+      KEYCHAIN_PASSWORD: temporary-ci-password
+      VELLUM_FLAG_FEATURE_FLAG_EDITOR_ENABLED: "true"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 16.2
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+
+      - name: Cache SPM build artifacts
+        uses: actions/cache@v4
+        with:
+          path: clients/.build
+          key: macos-spm-release-${{ hashFiles('clients/Package.resolved') }}-${{ hashFiles('clients/**/*.swift') }}
+          restore-keys: |
+            macos-spm-release-${{ hashFiles('clients/Package.resolved') }}-
+            macos-spm-release-
+
+      - name: Cache Bun dependencies (assistant)
+        uses: actions/cache@v4
+        with:
+          path: assistant/node_modules
+          key: macos-bun-assistant-${{ hashFiles('assistant/bun.lock') }}
+          restore-keys: macos-bun-assistant-
+
+      - name: Cache Bun dependencies (cli)
+        uses: actions/cache@v4
+        with:
+          path: cli/node_modules
+          key: macos-bun-cli-${{ hashFiles('cli/bun.lock') }}
+          restore-keys: macos-bun-cli-
+
+      - name: Cache Bun dependencies (gateway)
+        uses: actions/cache@v4
+        with:
+          path: gateway/node_modules
+          key: macos-bun-gateway-${{ hashFiles('gateway/bun.lock') }}
+          restore-keys: macos-bun-gateway-
+
+      - name: Import code-signing certificate
+        run: |
+          KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          echo "${{ secrets.CERTIFICATE_P12 }}" | base64 -D > /tmp/certificate.p12
+          security import /tmp/certificate.p12 \
+            -k "$KEYCHAIN_PATH" \
+            -P "${{ secrets.CERTIFICATE_PASSWORD }}" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+          rm /tmp/certificate.p12
+
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+          security default-keychain -s "$KEYCHAIN_PATH"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Build daemon binary (universal)
+        working-directory: assistant
+        run: |
+          bun install
+          bun build --compile --target=bun-darwin-arm64 src/daemon/main.ts \
+            --external electron --external "chromium-bidi/*" \
+            --outfile ../clients/macos/daemon-bin/vellum-daemon-arm64
+          bun build --compile --target=bun-darwin-x64 src/daemon/main.ts \
+            --external electron --external "chromium-bidi/*" \
+            --outfile ../clients/macos/daemon-bin/vellum-daemon-x64
+          lipo -create \
+            ../clients/macos/daemon-bin/vellum-daemon-arm64 \
+            ../clients/macos/daemon-bin/vellum-daemon-x64 \
+            -output ../clients/macos/daemon-bin/vellum-daemon
+          rm ../clients/macos/daemon-bin/vellum-daemon-arm64 ../clients/macos/daemon-bin/vellum-daemon-x64
+          chmod +x ../clients/macos/daemon-bin/vellum-daemon
+          cp node_modules/web-tree-sitter/web-tree-sitter.wasm ../clients/macos/daemon-bin/
+          cp node_modules/tree-sitter-bash/tree-sitter-bash.wasm ../clients/macos/daemon-bin/
+          cp -R src/config/bundled-skills ../clients/macos/daemon-bin/bundled-skills
+          file ../clients/macos/daemon-bin/vellum-daemon
+
+      - name: Build CLI binary (universal)
+        working-directory: cli
+        run: |
+          bun install
+          bun build --compile --target=bun-darwin-arm64 src/index.ts \
+            --external react-devtools-core \
+            --outfile ../clients/macos/cli-bin/vellum-cli-arm64
+          bun build --compile --target=bun-darwin-x64 src/index.ts \
+            --external react-devtools-core \
+            --outfile ../clients/macos/cli-bin/vellum-cli-x64
+          lipo -create \
+            ../clients/macos/cli-bin/vellum-cli-arm64 \
+            ../clients/macos/cli-bin/vellum-cli-x64 \
+            -output ../clients/macos/cli-bin/vellum-cli
+          rm ../clients/macos/cli-bin/vellum-cli-arm64 ../clients/macos/cli-bin/vellum-cli-x64
+          chmod +x ../clients/macos/cli-bin/vellum-cli
+          file ../clients/macos/cli-bin/vellum-cli
+
+      - name: Build gateway binary (universal)
+        working-directory: gateway
+        run: |
+          bun install
+          bun build --compile --target=bun-darwin-arm64 src/index.ts \
+            --outfile ../clients/macos/gateway-bin/vellum-gateway-arm64
+          bun build --compile --target=bun-darwin-x64 src/index.ts \
+            --outfile ../clients/macos/gateway-bin/vellum-gateway-x64
+          lipo -create \
+            ../clients/macos/gateway-bin/vellum-gateway-arm64 \
+            ../clients/macos/gateway-bin/vellum-gateway-x64 \
+            -output ../clients/macos/gateway-bin/vellum-gateway
+          rm ../clients/macos/gateway-bin/vellum-gateway-arm64 ../clients/macos/gateway-bin/vellum-gateway-x64
+          chmod +x ../clients/macos/gateway-bin/vellum-gateway
+          file ../clients/macos/gateway-bin/vellum-gateway
+
+      - name: Build release .app
+        working-directory: clients/macos
+        run: |
+          SIGN_IDENTITY="Developer ID Application" \
+          ./build.sh release
+
+          APP_PATH="dist/Vellum.app"
+          ls -la "$APP_PATH"
+          codesign --verify --deep --strict "$APP_PATH"
+          echo "Code signature verified"
+
+      - name: Run tests
+        working-directory: clients/macos
+        run: ./build.sh test
+
+      - name: Cleanup keychain
+        if: always()
+        run: |
+          KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
+          security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
