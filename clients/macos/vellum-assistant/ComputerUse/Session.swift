@@ -110,6 +110,7 @@ final class ComputerUseSession: ObservableObject {
     private var consecutiveUnchangedSteps = 0
     private var currentStepNumber = 0
     private var consecutiveFrontmostBlocks = 0
+    private var didFinalizeQARecording = false
     @Published private(set) var qaRecordingWarningMessage: String?
     /// Whether screen recording is currently active (for UI indicator).
     @Published private(set) var isRecordingActive: Bool = false
@@ -183,6 +184,7 @@ final class ComputerUseSession: ObservableObject {
         consecutiveUnchangedSteps = 0
         currentStepNumber = 0
         consecutiveFrontmostBlocks = 0
+        didFinalizeQARecording = false
         state = .running(step: 0, maxSteps: maxSteps, lastAction: "Starting...", reasoning: "")
 
         // QA sessions auto-approve low/medium tools from the start.
@@ -422,7 +424,8 @@ final class ComputerUseSession: ObservableObject {
         cancelSafetyNetTask = nil
 
         // Finalize QA recording and send cu_session_finalized
-        if qaMode {
+        // Guard: skip if already finalized (e.g. frontmost guard limit triggered finalization early)
+        if qaMode && !didFinalizeQARecording {
             await finalizeQARecording()
 
             // Send the abort immediately after finalization for cancelled QA sessions.
@@ -1313,6 +1316,8 @@ final class ComputerUseSession: ObservableObject {
         } catch {
             log.error("QA mode: failed to send cu_session_finalized: \(error.localizedDescription)")
         }
+
+        didFinalizeQARecording = true
     }
 
     // MARK: - Control
