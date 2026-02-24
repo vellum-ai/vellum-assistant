@@ -154,7 +154,8 @@ export function createToolExecutor(
     // Pre-execution: mark the current DoorDash step as in_progress when command starts
     if (name === 'bash' || name === 'host_bash') {
       const preCmd = input.command as string | undefined;
-      if (preCmd && (preCmd.includes('vellum doordash') || preCmd.includes('doordash '))) {
+      const preStepLabel = preCmd ? doordashCommandToStep(preCmd) : null;
+      if (preStepLabel) {
         const surfaceId = 'doordash-progress';
         const stored = ctx.surfaceState.get(surfaceId);
         if (stored && stored.surfaceType === 'card') {
@@ -162,23 +163,20 @@ export function createToolExecutor(
           if (card.template === 'task_progress' && isPlainObject(card.templateData)) {
             const steps = (card.templateData as Record<string, unknown>).steps;
             if (Array.isArray(steps)) {
-              const stepLabel = doordashCommandToStep(preCmd);
-              if (stepLabel) {
-                const stepIndex = (steps as DoordashStep[]).findIndex(s => s.label === stepLabel);
-                if (stepIndex >= 0 && (steps as DoordashStep[])[stepIndex].status !== 'in_progress') {
-                  const updatedSteps = (steps as DoordashStep[]).map((s, i) =>
-                    i === stepIndex ? { ...s, status: 'in_progress' } : s
-                  );
-                  const updatedTemplateData = { ...card.templateData as Record<string, unknown>, steps: updatedSteps };
-                  const updatedData = { ...card, templateData: updatedTemplateData };
-                  stored.data = updatedData as import('./ipc-contract.js').CardSurfaceData;
-                  ctx.sendToClient({
-                    type: 'ui_surface_update',
-                    sessionId: ctx.conversationId,
-                    surfaceId,
-                    data: updatedData,
-                  });
-                }
+              const stepIndex = (steps as DoordashStep[]).findIndex(s => s.label === preStepLabel);
+              if (stepIndex >= 0 && (steps as DoordashStep[])[stepIndex].status !== 'in_progress') {
+                const updatedSteps = (steps as DoordashStep[]).map((s, i) =>
+                  i === stepIndex ? { ...s, status: 'in_progress' } : s
+                );
+                const updatedTemplateData = { ...card.templateData as Record<string, unknown>, steps: updatedSteps };
+                const updatedData = { ...card, templateData: updatedTemplateData };
+                stored.data = updatedData as import('./ipc-contract.js').CardSurfaceData;
+                ctx.sendToClient({
+                  type: 'ui_surface_update',
+                  sessionId: ctx.conversationId,
+                  surfaceId,
+                  data: updatedData,
+                });
               }
             }
           }
@@ -315,7 +313,7 @@ export function createToolExecutor(
     // Auto-emit task_progress card on first DoorDash CLI command
     if (name === 'bash' || name === 'host_bash') {
       const cmd = input.command as string | undefined;
-      if (cmd && (cmd.includes('vellum doordash') || cmd.includes('doordash '))) {
+      if (cmd && doordashCommandToStep(cmd)) {
         const surfaceId = 'doordash-progress';
 
         if (!ctx.surfaceState.has(surfaceId)) {
