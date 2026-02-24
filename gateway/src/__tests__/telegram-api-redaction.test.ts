@@ -1,6 +1,10 @@
-import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 import type { GatewayConfig } from "../config.js";
 import { callTelegramApi } from "../telegram/api.js";
+
+// Use mock() + direct globalThis.fetch assignment instead of spyOn(globalThis, "fetch")
+// because spyOn doesn't reliably intercept fetch on Linux in Bun 1.3.9.
+const originalFetch = globalThis.fetch;
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
@@ -43,18 +47,22 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   return merged;
 }
 
-describe("callTelegramApi transport error redaction", () => {
-  let fetchSpy: ReturnType<typeof spyOn<typeof globalThis, "fetch">> | null = null;
+function mockFetch(fn: (...args: Parameters<typeof fetch>) => Promise<Response>) {
+  const m = mock(fn);
+  Object.assign(m, { preconnect: () => {} });
+  globalThis.fetch = m as unknown as typeof fetch;
+  return m;
+}
 
+describe("callTelegramApi transport error redaction", () => {
   afterEach(() => {
-    fetchSpy?.mockRestore();
-    fetchSpy = null;
+    globalThis.fetch = originalFetch;
   });
 
   test("redacts bot token from warning logs and thrown error", async () => {
     const tgToken = ["123456789", ":", "ABCDefGHIJklmnopQRSTuvwxyz012345678"].join("");
 
-    fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(async () => {
+    mockFetch(async () => {
       const err = new Error("Unable to connect. Is the computer able to access the url?") as Error & {
         path?: string;
         code?: string;
@@ -83,7 +91,7 @@ describe("callTelegramApi transport error redaction", () => {
     // "error-123456789:...") must still be redacted.
     const tgToken = ["123456789", ":", "ABCDefGHIJklmnopQRSTuvwxyz012345678"].join("");
 
-    fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(async () => {
+    mockFetch(async () => {
       const err = new Error("Connection refused") as Error & {
         path?: string;
         code?: string;
@@ -113,7 +121,7 @@ describe("callTelegramApi transport error redaction", () => {
     // would fail to match the trailing `-`, leaking part of the token.
     const tgToken = ["123456789", ":", "ABCDefGHIJklmnopQRSTuvwxyz01234567-"].join("");
 
-    fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(async () => {
+    mockFetch(async () => {
       const err = new Error("Connection refused") as Error & {
         path?: string;
         code?: string;

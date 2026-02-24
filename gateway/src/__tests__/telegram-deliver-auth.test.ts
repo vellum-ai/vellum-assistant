@@ -1,6 +1,10 @@
-import { describe, test, expect, spyOn, afterEach } from "bun:test";
+import { describe, test, expect, mock, afterEach } from "bun:test";
 import { createTelegramDeliverHandler } from "../http/routes/telegram-deliver.js";
 import type { GatewayConfig } from "../config.js";
+
+// Use mock() + direct globalThis.fetch assignment instead of spyOn(globalThis, "fetch")
+// because spyOn doesn't reliably intercept fetch on Linux in Bun 1.3.9.
+const originalFetch = globalThis.fetch;
 
 const TOKEN = "test-deliver-token";
 
@@ -45,16 +49,19 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   return merged;
 }
 
-let fetchSpy: ReturnType<typeof spyOn<typeof globalThis, "fetch">> | null = null;
+function mockFetch(fn: (...args: Parameters<typeof fetch>) => Promise<Response>) {
+  const m = mock(fn);
+  Object.assign(m, { preconnect: () => {} });
+  globalThis.fetch = m as unknown as typeof fetch;
+  return m;
+}
 
 afterEach(() => {
-  fetchSpy?.mockRestore();
-  fetchSpy = null;
+  globalThis.fetch = originalFetch;
 });
 
 function mockTelegramApi() {
-  fetchSpy?.mockRestore();
-  fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(async () => {
+  mockFetch(async () => {
     return new Response(JSON.stringify({ ok: true, result: {} }), {
       status: 200,
       headers: { "content-type": "application/json" },
@@ -65,9 +72,8 @@ function mockTelegramApi() {
 describe("/deliver/telegram attachment delivery without assistantId", () => {
   test("delivers attachments without assistantId using assistant-less download path", async () => {
     const calls: string[] = [];
-    fetchSpy?.mockRestore();
-    fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(async (url: string | URL | Request) => {
-      const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
+    mockFetch(async (input: string | URL | Request) => {
+      const urlStr = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       calls.push(urlStr);
       // Runtime attachment download (assistant-less path)
       if (urlStr.includes("/v1/attachments/att-1")) {
@@ -120,9 +126,8 @@ describe("/deliver/telegram attachment delivery without assistantId", () => {
 
   test("delivers attachments with assistantId using legacy download path", async () => {
     const calls: string[] = [];
-    fetchSpy?.mockRestore();
-    fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(async (url: string | URL | Request) => {
-      const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
+    mockFetch(async (input: string | URL | Request) => {
+      const urlStr = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       calls.push(urlStr);
       // Runtime attachment download (legacy path)
       if (urlStr.includes("/attachments/att-2")) {
@@ -173,9 +178,8 @@ describe("/deliver/telegram attachment delivery without assistantId", () => {
 describe("/deliver/telegram ID-only attachment validation", () => {
   test("accepts ID-only attachments (no filename, mimeType, sizeBytes)", async () => {
     const calls: string[] = [];
-    fetchSpy?.mockRestore();
-    fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(async (url: string | URL | Request) => {
-      const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
+    mockFetch(async (input: string | URL | Request) => {
+      const urlStr = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       calls.push(urlStr);
       if (urlStr.includes("/v1/attachments/att-id-only")) {
         return new Response(
@@ -240,9 +244,8 @@ describe("/deliver/telegram ID-only attachment validation", () => {
 
   test("full-metadata attachments still accepted (backward compatibility)", async () => {
     const calls: string[] = [];
-    fetchSpy?.mockRestore();
-    fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(async (url: string | URL | Request) => {
-      const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
+    mockFetch(async (input: string | URL | Request) => {
+      const urlStr = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       calls.push(urlStr);
       if (urlStr.includes("/v1/attachments/att-compat")) {
         return new Response(

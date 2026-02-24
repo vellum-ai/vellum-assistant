@@ -1,10 +1,10 @@
-import { describe, test, expect, beforeEach, afterEach, spyOn } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { createTelegramReconcileHandler } from "../http/routes/telegram-reconcile.js";
 import type { GatewayConfig } from "../config.js";
 
-// Instead of mock.module("../telegram/webhook-manager.js", ...) — which leaks
-// across Bun test files (process-global module mocks) — we use spyOn(globalThis, "fetch")
-// so that the real reconcileTelegramWebhook runs but API calls are intercepted.
+// Use mock() + direct globalThis.fetch assignment instead of spyOn(globalThis, "fetch")
+// because spyOn doesn't reliably intercept fetch on Linux in Bun 1.3.9.
+const originalFetch = globalThis.fetch;
 
 function makeTelegramResponse(result: unknown) {
   return new Response(JSON.stringify({ ok: true, result }), {
@@ -72,11 +72,18 @@ function makeRequest(
   });
 }
 
-let fetchSpy: ReturnType<typeof spyOn<typeof globalThis, "fetch">> | null = null;
+function mockFetch(fn: (...args: Parameters<typeof fetch>) => Promise<Response>) {
+  const m = mock(fn);
+  Object.assign(m, { preconnect: () => {} });
+  globalThis.fetch = m as unknown as typeof fetch;
+  return m;
+}
 
-/** Default fetch spy that handles Telegram API calls with success responses. */
-function installDefaultFetchSpy() {
-  fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(async (input: string | URL | Request) => {
+let fetchMock: ReturnType<typeof mock<(...args: Parameters<typeof fetch>) => Promise<Response>>> | null = null;
+
+/** Default fetch mock that handles Telegram API calls with success responses. */
+function installDefaultFetchMock() {
+  fetchMock = mockFetch(async (input: string | URL | Request) => {
     const url =
       typeof input === "string"
         ? input
@@ -99,12 +106,12 @@ function installDefaultFetchSpy() {
 
 describe("POST /internal/telegram/reconcile", () => {
   beforeEach(() => {
-    installDefaultFetchSpy();
+    installDefaultFetchMock();
   });
 
   afterEach(() => {
-    fetchSpy?.mockRestore();
-    fetchSpy = null;
+    globalThis.fetch = originalFetch;
+    fetchMock = null;
   });
 
   test("rejects non-POST methods", async () => {
@@ -149,7 +156,7 @@ describe("POST /internal/telegram/reconcile", () => {
     const body = await res.json();
     expect(body.ok).toBe(true);
     // Fetch was called (getWebhookInfo + setWebhook) proving reconcile ran.
-    expect(fetchSpy).toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalled();
   });
 
   test("updates ingressPublicBaseUrl when provided", async () => {
@@ -192,8 +199,7 @@ describe("POST /internal/telegram/reconcile", () => {
   });
 
   test("returns 502 when reconcile throws", async () => {
-    fetchSpy?.mockRestore();
-    fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(async () => {
+    fetchMock = mockFetch(async () => {
       throw new Error("Telegram API error");
     });
     const config = makeConfig();
@@ -224,8 +230,7 @@ describe("POST /internal/telegram/reconcile", () => {
 
     // Make reconcile slow enough that the first call is still in-flight
     // when the second one arrives.
-    fetchSpy?.mockRestore();
-    fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(
+    fetchMock = mockFetch(
       async (input: string | URL | Request, init?: RequestInit) => {
         const url =
           typeof input === "string"

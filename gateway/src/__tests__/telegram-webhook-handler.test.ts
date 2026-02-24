@@ -1,6 +1,10 @@
-import { describe, test, expect, spyOn, afterEach, beforeEach } from "bun:test";
+import { describe, test, expect, mock, afterEach, beforeEach } from "bun:test";
 import type { GatewayConfig } from "../config.js";
 import { createTelegramWebhookHandler } from "../http/routes/telegram-webhook.js";
+
+// Use mock() + direct globalThis.fetch assignment instead of spyOn(globalThis, "fetch")
+// because spyOn doesn't reliably intercept fetch on Linux in Bun 1.3.9.
+const originalFetch = globalThis.fetch;
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
@@ -66,16 +70,21 @@ function makeWebhookRequest(payload: unknown, secret = "test-webhook-secret"): R
   });
 }
 
-let fetchSpy: ReturnType<typeof spyOn<typeof globalThis, "fetch">> | null = null;
 let fetchCalls: { url: string; method: string; body?: unknown; headers?: Record<string, string> }[];
+
+function mockFetchFn(fn: (...args: Parameters<typeof fetch>) => Promise<Response>) {
+  const m = mock(fn);
+  Object.assign(m, { preconnect: () => {} });
+  globalThis.fetch = m as unknown as typeof fetch;
+  return m;
+}
 
 beforeEach(() => {
   fetchCalls = [];
 });
 
 afterEach(() => {
-  fetchSpy?.mockRestore();
-  fetchSpy = null;
+  globalThis.fetch = originalFetch;
 });
 
 /** Extract headers from a fetch call into a plain object. */
@@ -102,8 +111,7 @@ function extractHeaders(input: string | URL | Request, init?: RequestInit): Reco
  * Runtime forward calls get an eventId response; Telegram API calls get { ok: true }.
  */
 function installFetchMock() {
-  fetchSpy?.mockRestore();
-  fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
+  mockFetchFn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     const method = init?.method ?? (typeof input === "object" && "method" in input ? input.method : "GET");
     let body: unknown;
@@ -320,8 +328,7 @@ describe("telegram webhook handler: in-flight dedup", () => {
     // Install a fetch mock where the runtime inbound call blocks on the first
     // invocation and responds immediately on subsequent ones.
     let inboundCallCount = 0;
-    fetchSpy?.mockRestore();
-    fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
+    mockFetchFn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       const method = init?.method ?? (typeof input === "object" && "method" in input ? input.method : "GET");
       let body: unknown;
@@ -380,8 +387,7 @@ describe("telegram webhook handler: in-flight dedup", () => {
     });
 
     let callCount = 0;
-    fetchSpy?.mockRestore();
-    fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
+    mockFetchFn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       const method = init?.method ?? (typeof input === "object" && "method" in input ? input.method : "GET");
       let body: unknown;
