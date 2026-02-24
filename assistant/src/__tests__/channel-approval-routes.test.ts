@@ -4052,3 +4052,625 @@ describe('guardian conversational approval via conversation engine', () => {
     deliverSpy.mockRestore();
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Fix: deterministic fallback when engine returns keep_pending (P1)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('deterministic fallback on engine keep_pending — standard path', () => {
+  beforeEach(() => {
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'telegram-user-default',
+      guardianDeliveryChatId: 'chat-123',
+    });
+  });
+
+  test('explicit "approve" text falls through to deterministic parser when engine returns keep_pending', async () => {
+    const orchestrator = makeMockOrchestrator();
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    const initReq = makeInboundRequest({ content: 'init' });
+    await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
+
+    const db = getDb();
+    const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
+    const conversationId = events[0]?.conversation_id;
+    ensureConversation(conversationId!);
+
+    const run = createRun(conversationId!);
+    setRunConfirmation(run.id, sampleConfirmation);
+
+    deliverSpy.mockClear();
+
+    // Engine fails to classify and returns keep_pending
+    const mockConversationGenerator = mock(async (_ctx: unknown) => ({
+      disposition: 'keep_pending' as const,
+      replyText: 'I could not understand your message. Please try again.',
+    }));
+
+    const req = makeInboundRequest({ content: 'approve' });
+    const res = await handleChannelInbound(
+      req, noopProcessMessage, 'token', orchestrator, 'self', undefined, undefined,
+      mockConversationGenerator,
+    );
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    expect(body.approval).toBe('decision_applied');
+
+    // Deterministic parser should have resolved the decision
+    expect(orchestrator.submitDecision).toHaveBeenCalledWith(run.id, 'allow');
+
+    deliverSpy.mockRestore();
+  });
+
+  test('explicit "deny" text falls through to deterministic parser when engine returns keep_pending', async () => {
+    const orchestrator = makeMockOrchestrator();
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    const initReq = makeInboundRequest({ content: 'init' });
+    await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
+
+    const db = getDb();
+    const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
+    const conversationId = events[0]?.conversation_id;
+    ensureConversation(conversationId!);
+
+    const run = createRun(conversationId!);
+    setRunConfirmation(run.id, sampleConfirmation);
+
+    deliverSpy.mockClear();
+
+    const mockConversationGenerator = mock(async (_ctx: unknown) => ({
+      disposition: 'keep_pending' as const,
+      replyText: 'Sorry, I had trouble processing that.',
+    }));
+
+    const req = makeInboundRequest({ content: 'deny' });
+    const res = await handleChannelInbound(
+      req, noopProcessMessage, 'token', orchestrator, 'self', undefined, undefined,
+      mockConversationGenerator,
+    );
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    expect(body.approval).toBe('decision_applied');
+    expect(orchestrator.submitDecision).toHaveBeenCalledWith(run.id, 'deny');
+
+    deliverSpy.mockRestore();
+  });
+
+  test('non-decision text with keep_pending still returns assistant_turn', async () => {
+    const orchestrator = makeMockOrchestrator();
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    const initReq = makeInboundRequest({ content: 'init' });
+    await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
+
+    const db = getDb();
+    const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
+    const conversationId = events[0]?.conversation_id;
+    ensureConversation(conversationId!);
+
+    const run = createRun(conversationId!);
+    setRunConfirmation(run.id, sampleConfirmation);
+
+    deliverSpy.mockClear();
+
+    const mockConversationGenerator = mock(async (_ctx: unknown) => ({
+      disposition: 'keep_pending' as const,
+      replyText: 'What would you like to do?',
+    }));
+
+    const req = makeInboundRequest({ content: 'tell me more about this command' });
+    const res = await handleChannelInbound(
+      req, noopProcessMessage, 'token', orchestrator, 'self', undefined, undefined,
+      mockConversationGenerator,
+    );
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    expect(body.approval).toBe('assistant_turn');
+    expect(orchestrator.submitDecision).not.toHaveBeenCalled();
+
+    deliverSpy.mockRestore();
+  });
+});
+
+describe('deterministic fallback on engine keep_pending — guardian path', () => {
+  test('guardian explicit "yes" text falls through to deterministic parser when engine returns keep_pending', async () => {
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'guardian-user-fb',
+      guardianDeliveryChatId: 'guardian-chat-fb',
+    });
+
+    const orchestrator = makeMockOrchestrator();
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    // Create requester conversation and run
+    const initReq = makeInboundRequest({
+      content: 'init',
+      externalChatId: 'requester-chat-fb',
+      senderExternalUserId: 'requester-user-fb',
+    });
+    await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
+
+    const db = getDb();
+    const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
+    const conversationId = events[0]?.conversation_id;
+    ensureConversation(conversationId!);
+
+    const run = createRun(conversationId!);
+    setRunConfirmation(run.id, sampleConfirmation);
+
+    // Create guardian approval request
+    createApprovalRequest({
+      runId: run.id,
+      conversationId: conversationId!,
+      assistantId: 'self',
+      channel: 'telegram',
+      requesterExternalUserId: 'requester-user-fb',
+      requesterChatId: 'requester-chat-fb',
+      guardianExternalUserId: 'guardian-user-fb',
+      guardianChatId: 'guardian-chat-fb',
+      toolName: 'shell',
+      expiresAt: Date.now() + 300_000,
+    });
+
+    deliverSpy.mockClear();
+
+    // Engine returns keep_pending (simulating failure/timeout)
+    const mockConversationGenerator = mock(async (_ctx: unknown) => ({
+      disposition: 'keep_pending' as const,
+      replyText: 'I could not understand that.',
+    }));
+
+    const guardianReq = makeInboundRequest({
+      content: 'yes',
+      externalChatId: 'guardian-chat-fb',
+      senderExternalUserId: 'guardian-user-fb',
+    });
+    const res = await handleChannelInbound(
+      guardianReq, noopProcessMessage, 'token', orchestrator, 'self', undefined, undefined,
+      mockConversationGenerator,
+    );
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    expect(body.approval).toBe('guardian_decision_applied');
+    expect(orchestrator.submitDecision).toHaveBeenCalledWith(run.id, 'allow');
+
+    // Approval record should be updated
+    const approval = getPendingApprovalForRun(run.id);
+    expect(approval).toBeNull(); // No longer pending — it was resolved
+
+    deliverSpy.mockRestore();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Fix: requester cancel of guardian-gated pending request (P2)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('requester cancel of guardian-gated pending request', () => {
+  beforeEach(() => {
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'guardian-cancel',
+      guardianDeliveryChatId: 'guardian-cancel-chat',
+    });
+  });
+
+  test('requester explicit "deny" cancels their own guardian-gated request', async () => {
+    const orchestrator = makeMockOrchestrator();
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    // Create requester conversation and run
+    const initReq = makeInboundRequest({
+      content: 'init',
+      externalChatId: 'requester-cancel-chat',
+      senderExternalUserId: 'requester-cancel-user',
+    });
+    await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
+
+    const db = getDb();
+    const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
+    const conversationId = events[0]?.conversation_id;
+    ensureConversation(conversationId!);
+
+    const run = createRun(conversationId!);
+    setRunConfirmation(run.id, sampleConfirmation);
+
+    // Create guardian approval request
+    createApprovalRequest({
+      runId: run.id,
+      conversationId: conversationId!,
+      assistantId: 'self',
+      channel: 'telegram',
+      requesterExternalUserId: 'requester-cancel-user',
+      requesterChatId: 'requester-cancel-chat',
+      guardianExternalUserId: 'guardian-cancel',
+      guardianChatId: 'guardian-cancel-chat',
+      toolName: 'shell',
+      expiresAt: Date.now() + 300_000,
+    });
+
+    deliverSpy.mockClear();
+
+    // Requester sends "deny" — should cancel their own request
+    const req = makeInboundRequest({
+      content: 'deny',
+      externalChatId: 'requester-cancel-chat',
+      senderExternalUserId: 'requester-cancel-user',
+    });
+    const res = await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    expect(body.approval).toBe('decision_applied');
+    expect(orchestrator.submitDecision).toHaveBeenCalledWith(run.id, 'deny');
+
+    // Guardian approval should be resolved
+    const approval = getPendingApprovalForRun(run.id);
+    expect(approval).toBeNull();
+
+    // Requester should have been notified (cancel notice)
+    const requesterReply = deliverSpy.mock.calls.find(
+      (call) => (call[1] as { chatId?: string }).chatId === 'requester-cancel-chat',
+    );
+    expect(requesterReply).toBeDefined();
+
+    // Guardian should have been notified of the cancellation
+    const guardianNotice = deliverSpy.mock.calls.find(
+      (call) => (call[1] as { chatId?: string }).chatId === 'guardian-cancel-chat',
+    );
+    expect(guardianNotice).toBeDefined();
+
+    deliverSpy.mockRestore();
+  });
+
+  test('requester "nevermind" via conversational engine cancels guardian-gated request', async () => {
+    const orchestrator = makeMockOrchestrator();
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    const initReq = makeInboundRequest({
+      content: 'init',
+      externalChatId: 'requester-cancel-chat',
+      senderExternalUserId: 'requester-cancel-user',
+    });
+    await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
+
+    const db = getDb();
+    const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
+    const conversationId = events[0]?.conversation_id;
+    ensureConversation(conversationId!);
+
+    const run = createRun(conversationId!);
+    setRunConfirmation(run.id, sampleConfirmation);
+
+    createApprovalRequest({
+      runId: run.id,
+      conversationId: conversationId!,
+      assistantId: 'self',
+      channel: 'telegram',
+      requesterExternalUserId: 'requester-cancel-user',
+      requesterChatId: 'requester-cancel-chat',
+      guardianExternalUserId: 'guardian-cancel',
+      guardianChatId: 'guardian-cancel-chat',
+      toolName: 'shell',
+      expiresAt: Date.now() + 300_000,
+    });
+
+    deliverSpy.mockClear();
+
+    // Conversational engine recognises cancel intent and returns reject
+    const mockConversationGenerator = mock(async (_ctx: unknown) => ({
+      disposition: 'reject' as const,
+      replyText: 'OK, I have cancelled the pending request.',
+    }));
+
+    const req = makeInboundRequest({
+      content: 'actually never mind, cancel it',
+      externalChatId: 'requester-cancel-chat',
+      senderExternalUserId: 'requester-cancel-user',
+    });
+    const res = await handleChannelInbound(
+      req, noopProcessMessage, 'token', orchestrator, 'self', undefined, undefined,
+      mockConversationGenerator,
+    );
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    expect(body.approval).toBe('decision_applied');
+    expect(orchestrator.submitDecision).toHaveBeenCalledWith(run.id, 'deny');
+
+    // Engine should have been called with reject-only allowed actions
+    expect(mockConversationGenerator).toHaveBeenCalledTimes(1);
+    const engineCtx = mockConversationGenerator.mock.calls[0][0] as Record<string, unknown>;
+    expect(engineCtx.allowedActions).toEqual(['reject']);
+
+    // Engine reply should have been delivered to requester
+    const replyCall = deliverSpy.mock.calls.find(
+      (call) => (call[1] as { text?: string }).text?.includes('cancelled the pending request'),
+    );
+    expect(replyCall).toBeDefined();
+
+    deliverSpy.mockRestore();
+  });
+
+  test('requester non-cancel message still gets guardian-pending notice', async () => {
+    const orchestrator = makeMockOrchestrator();
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    const initReq = makeInboundRequest({
+      content: 'init',
+      externalChatId: 'requester-cancel-chat',
+      senderExternalUserId: 'requester-cancel-user',
+    });
+    await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
+
+    const db = getDb();
+    const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
+    const conversationId = events[0]?.conversation_id;
+    ensureConversation(conversationId!);
+
+    const run = createRun(conversationId!);
+    setRunConfirmation(run.id, sampleConfirmation);
+
+    createApprovalRequest({
+      runId: run.id,
+      conversationId: conversationId!,
+      assistantId: 'self',
+      channel: 'telegram',
+      requesterExternalUserId: 'requester-cancel-user',
+      requesterChatId: 'requester-cancel-chat',
+      guardianExternalUserId: 'guardian-cancel',
+      guardianChatId: 'guardian-cancel-chat',
+      toolName: 'shell',
+      expiresAt: Date.now() + 300_000,
+    });
+
+    deliverSpy.mockClear();
+
+    // Engine returns keep_pending (not a cancel intent)
+    const mockConversationGenerator = mock(async (_ctx: unknown) => ({
+      disposition: 'keep_pending' as const,
+      replyText: 'Still waiting.',
+    }));
+
+    const req = makeInboundRequest({
+      content: 'what is happening?',
+      externalChatId: 'requester-cancel-chat',
+      senderExternalUserId: 'requester-cancel-user',
+    });
+    const res = await handleChannelInbound(
+      req, noopProcessMessage, 'token', orchestrator, 'self', undefined, undefined,
+      mockConversationGenerator,
+    );
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    expect(body.approval).toBe('assistant_turn');
+    expect(orchestrator.submitDecision).not.toHaveBeenCalled();
+
+    // Should have received the guardian-pending notice
+    const pendingReply = deliverSpy.mock.calls.find(
+      (call) => (call[1] as { text?: string }).text?.includes('pending guardian approval'),
+    );
+    expect(pendingReply).toBeDefined();
+
+    deliverSpy.mockRestore();
+  });
+
+  test('requester "approve" is blocked — self-approval not allowed even during cancel check', async () => {
+    const orchestrator = makeMockOrchestrator();
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    const initReq = makeInboundRequest({
+      content: 'init',
+      externalChatId: 'requester-cancel-chat',
+      senderExternalUserId: 'requester-cancel-user',
+    });
+    await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
+
+    const db = getDb();
+    const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
+    const conversationId = events[0]?.conversation_id;
+    ensureConversation(conversationId!);
+
+    const run = createRun(conversationId!);
+    setRunConfirmation(run.id, sampleConfirmation);
+
+    createApprovalRequest({
+      runId: run.id,
+      conversationId: conversationId!,
+      assistantId: 'self',
+      channel: 'telegram',
+      requesterExternalUserId: 'requester-cancel-user',
+      requesterChatId: 'requester-cancel-chat',
+      guardianExternalUserId: 'guardian-cancel',
+      guardianChatId: 'guardian-cancel-chat',
+      toolName: 'shell',
+      expiresAt: Date.now() + 300_000,
+    });
+
+    deliverSpy.mockClear();
+
+    // Requester tries to self-approve — "approve" matches deterministic parser
+    // but with action 'approve_once', NOT 'reject', so it should be blocked
+    const req = makeInboundRequest({
+      content: 'approve',
+      externalChatId: 'requester-cancel-chat',
+      senderExternalUserId: 'requester-cancel-user',
+    });
+    const res = await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    // Should get the guardian-pending notice, NOT decision_applied
+    expect(body.approval).toBe('assistant_turn');
+    expect(orchestrator.submitDecision).not.toHaveBeenCalled();
+
+    deliverSpy.mockRestore();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Fix: stale_ignored when engine decision races with concurrent resolution
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('engine decision race condition — standard path', () => {
+  beforeEach(() => {
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'telegram-user-default',
+      guardianDeliveryChatId: 'chat-123',
+    });
+  });
+
+  test('returns stale_ignored when engine approves but run was already resolved', async () => {
+    const orchestrator = makeMockOrchestrator();
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    const initReq = makeInboundRequest({ content: 'init' });
+    await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
+
+    const db = getDb();
+    const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
+    const conversationId = events[0]?.conversation_id;
+    ensureConversation(conversationId!);
+
+    const run = createRun(conversationId!);
+    setRunConfirmation(run.id, sampleConfirmation);
+
+    deliverSpy.mockClear();
+
+    // Engine returns approve_once, but clears the pending confirmation
+    // before handleChannelDecision is called (simulating race condition)
+    const mockConversationGenerator = mock(async (_ctx: unknown) => {
+      db.$client.prepare('UPDATE message_runs SET pending_confirmation = NULL WHERE id = ?').run(run.id);
+      return {
+        disposition: 'approve_once' as const,
+        replyText: 'Approved! Running the command now.',
+      };
+    });
+
+    const req = makeInboundRequest({ content: 'go ahead' });
+    const res = await handleChannelInbound(
+      req, noopProcessMessage, 'token', orchestrator, 'self', undefined, undefined,
+      mockConversationGenerator,
+    );
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    expect(body.approval).toBe('stale_ignored');
+
+    // submitDecision should NOT have been called since there was no pending
+    expect(orchestrator.submitDecision).not.toHaveBeenCalled();
+
+    // The engine's optimistic "Approved!" reply should NOT have been delivered
+    const approvedReply = deliverSpy.mock.calls.find(
+      (call) => (call[1] as { text?: string }).text?.includes('Approved!'),
+    );
+    expect(approvedReply).toBeUndefined();
+
+    // A stale notice should have been delivered instead
+    const staleReply = deliverSpy.mock.calls.find(
+      (call) => (call[1] as { text?: string }).text?.includes('already been resolved'),
+    );
+    expect(staleReply).toBeDefined();
+
+    deliverSpy.mockRestore();
+  });
+});
+
+describe('engine decision race condition — guardian path', () => {
+  test('returns stale_ignored when guardian engine approves but run was already resolved', async () => {
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'guardian-race-user',
+      guardianDeliveryChatId: 'guardian-race-chat',
+    });
+
+    const orchestrator = makeMockOrchestrator();
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    const initReq = makeInboundRequest({
+      content: 'init',
+      externalChatId: 'requester-race-chat',
+      senderExternalUserId: 'requester-race-user',
+    });
+    await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
+
+    const db = getDb();
+    const events = db.$client.prepare('SELECT conversation_id FROM channel_inbound_events').all() as Array<{ conversation_id: string }>;
+    const conversationId = events[0]?.conversation_id;
+    ensureConversation(conversationId!);
+
+    const run = createRun(conversationId!);
+    setRunConfirmation(run.id, sampleConfirmation);
+
+    createApprovalRequest({
+      runId: run.id,
+      conversationId: conversationId!,
+      assistantId: 'self',
+      channel: 'telegram',
+      requesterExternalUserId: 'requester-race-user',
+      requesterChatId: 'requester-race-chat',
+      guardianExternalUserId: 'guardian-race-user',
+      guardianChatId: 'guardian-race-chat',
+      toolName: 'shell',
+      expiresAt: Date.now() + 300_000,
+    });
+
+    deliverSpy.mockClear();
+
+    // Guardian engine returns approve_once, but clears pending confirmation
+    // to simulate a concurrent resolution (expiry sweep or requester cancel)
+    const mockConversationGenerator = mock(async (_ctx: unknown) => {
+      db.$client.prepare('UPDATE message_runs SET pending_confirmation = NULL WHERE id = ?').run(run.id);
+      return {
+        disposition: 'approve_once' as const,
+        replyText: 'Approved the request.',
+      };
+    });
+
+    const guardianReq = makeInboundRequest({
+      content: 'approve it',
+      externalChatId: 'guardian-race-chat',
+      senderExternalUserId: 'guardian-race-user',
+    });
+    const res = await handleChannelInbound(
+      guardianReq, noopProcessMessage, 'token', orchestrator, 'self', undefined, undefined,
+      mockConversationGenerator,
+    );
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    expect(body.approval).toBe('stale_ignored');
+
+    // submitDecision should NOT have been called
+    expect(orchestrator.submitDecision).not.toHaveBeenCalled();
+
+    // The engine's "Approved the request." should NOT be delivered
+    const optimisticReply = deliverSpy.mock.calls.find(
+      (call) => (call[1] as { text?: string }).text?.includes('Approved the request'),
+    );
+    expect(optimisticReply).toBeUndefined();
+
+    // A stale notice should have been delivered instead
+    const staleReply = deliverSpy.mock.calls.find(
+      (call) => (call[1] as { text?: string }).text?.includes('already been resolved'),
+    );
+    expect(staleReply).toBeDefined();
+
+    deliverSpy.mockRestore();
+  });
+});
