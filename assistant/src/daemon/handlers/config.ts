@@ -387,7 +387,7 @@ export async function handleScheduleRunNow(
     return;
   }
 
-  const conversation = createConversation(`Schedule (manual): ${schedule.name}`);
+  const conversation = createConversation({ title: `Schedule (manual): ${schedule.name}`, source: 'schedule' });
   const runId = createScheduleRun(schedule.id, conversation.id);
 
   try {
