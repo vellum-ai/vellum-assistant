@@ -44,6 +44,7 @@ import {
   buildReminderPrompt,
   channelSupportsRichApprovalUI,
 } from '../channel-approvals.js';
+import { runApprovalConversationTurn } from '../approval-conversation-turn.js';
 import type {
   ApprovalAction,
   ApprovalDecisionResult,
@@ -56,6 +57,7 @@ import type {
   RuntimeAttachmentMetadata,
   ApprovalCopyGenerator,
   ApprovalConversationGenerator,
+  ApprovalConversationContext,
 } from '../http-types.js';
 import type { GuardianRuntimeContext } from '../../daemon/session-runtime-assembly.js';
 import { composeApprovalMessageGenerative } from '../approval-message-composer.js';
@@ -343,7 +345,7 @@ export async function handleChannelInbound(
   assistantId: string = 'self',
   gatewayOriginSecret?: string,
   approvalCopyGenerator?: ApprovalCopyGenerator,
-  _approvalConversationGenerator?: ApprovalConversationGenerator,
+  approvalConversationGenerator?: ApprovalConversationGenerator,
 ): Promise<Response> {
   // Reject requests that lack valid gateway-origin proof. This ensures
   // channel inbound messages can only arrive via the gateway (which
@@ -783,6 +785,7 @@ export async function handleChannelInbound(
       guardianCtx,
       assistantId,
       approvalCopyGenerator,
+      approvalConversationGenerator,
     });
 
     if (approvalResult.handled) {
@@ -1342,11 +1345,12 @@ interface ApprovalInterceptionParams {
   guardianCtx: GuardianContext;
   assistantId: string;
   approvalCopyGenerator?: ApprovalCopyGenerator;
+  approvalConversationGenerator?: ApprovalConversationGenerator;
 }
 
 interface ApprovalInterceptionResult {
   handled: boolean;
-  type?: 'decision_applied' | 'reminder_sent' | 'guardian_decision_applied' | 'stale_ignored';
+  type?: 'decision_applied' | 'assistant_turn' | 'guardian_decision_applied' | 'stale_ignored';
 }
 
 /**
@@ -1375,6 +1379,7 @@ async function handleApprovalInterception(
     guardianCtx,
     assistantId,
     approvalCopyGenerator,
+    approvalConversationGenerator,
   } = params;
 
   // ── Guardian approval decision path ──
@@ -1560,7 +1565,7 @@ async function handleApprovalInterception(
         }
       }
 
-      return { handled: true, type: 'reminder_sent' };
+      return { handled: true, type: 'assistant_turn' };
     }
   }
 
@@ -1619,7 +1624,7 @@ async function handleApprovalInterception(
         } catch (err) {
           log.error({ err, conversationId }, 'Failed to deliver guardian-pending notice to requester');
         }
-        return { handled: true, type: 'reminder_sent' };
+        return { handled: true, type: 'assistant_turn' };
       }
 
       // Check for an expired-but-unresolved guardian approval. If the approval
@@ -1656,40 +1661,89 @@ async function handleApprovalInterception(
     }
   }
 
-  // Try to extract a decision from callback data (button press) first,
-  // then fall back to plain-text parsing.
-  let decision: ApprovalDecisionResult | null = null;
-
+  // Try to extract a decision from callback data (button press) first.
+  // Callback/button path remains deterministic and takes priority.
   if (callbackData) {
-    decision = parseCallbackData(callbackData);
-  }
-
-  if (!decision && content) {
-    decision = parseApprovalDecision(content);
-  }
-
-  if (decision) {
-    // When the decision came from a callback button, validate that the embedded
-    // run ID matches the currently pending run. A stale button (from a previous
-    // approval prompt) must not apply to a different pending run.
-    if (decision.runId) {
-      const pending = getPendingConfirmationsByConversation(conversationId);
-      if (pending.length === 0 || pending[0].runId !== decision.runId) {
-        log.warn(
-          { conversationId, callbackRunId: decision.runId, pendingRunId: pending[0]?.runId },
-          'Callback run ID does not match pending run, ignoring stale button press',
-        );
-        return { handled: true, type: 'stale_ignored' };
+    const cbDecision = parseCallbackData(callbackData);
+    if (cbDecision) {
+      // When the decision came from a callback button, validate that the embedded
+      // run ID matches the currently pending run. A stale button (from a previous
+      // approval prompt) must not apply to a different pending run.
+      if (cbDecision.runId) {
+        const pending = getPendingConfirmationsByConversation(conversationId);
+        if (pending.length === 0 || pending[0].runId !== cbDecision.runId) {
+          log.warn(
+            { conversationId, callbackRunId: cbDecision.runId, pendingRunId: pending[0]?.runId },
+            'Callback run ID does not match pending run, ignoring stale button press',
+          );
+          return { handled: true, type: 'stale_ignored' };
+        }
       }
+
+      const result = handleChannelDecision(conversationId, cbDecision, orchestrator);
+
+      // Schedule a background poll for run terminal state and deliver the reply.
+      // This handles the case where the original poll in
+      // processChannelMessageWithApprovals has already exited due to timeout.
+      // The claimRunDelivery guard ensures at-most-once delivery when both
+      // pollers race to terminal state.
+      if (result.applied && result.runId) {
+        schedulePostDecisionDelivery(
+          orchestrator,
+          result.runId,
+          conversationId,
+          externalChatId,
+          replyCallbackUrl,
+          bearerToken,
+          assistantId,
+        );
+      }
+
+      return { handled: true, type: 'decision_applied' };
+    }
+  }
+
+  // ── Conversational approval engine for plain-text messages ──
+  // Instead of deterministic keyword matching and reminder prompts, delegate
+  // to the conversational approval engine which can classify natural language
+  // and respond conversationally.
+  const pending = getPendingConfirmationsByConversation(conversationId);
+  if (pending.length > 0 && approvalConversationGenerator && content) {
+    const allowedActions = pendingPrompt.actions.map((a) => a.id);
+    const engineContext: ApprovalConversationContext = {
+      toolName: pending[0].toolName,
+      allowedActions,
+      role: 'requester',
+      pendingApprovals: pending.map((p) => ({ runId: p.runId, toolName: p.toolName })),
+      userMessage: content,
+    };
+
+    const engineResult = await runApprovalConversationTurn(engineContext, approvalConversationGenerator);
+
+    if (engineResult.disposition === 'keep_pending') {
+      // Non-decision follow-up — deliver the engine's reply and keep the run pending
+      try {
+        await deliverChannelReply(replyCallbackUrl, {
+          chatId: externalChatId,
+          text: engineResult.replyText,
+          assistantId,
+        }, bearerToken);
+      } catch (err) {
+        log.error({ err, conversationId }, 'Failed to deliver approval conversation reply');
+      }
+      return { handled: true, type: 'assistant_turn' };
     }
 
-    const result = handleChannelDecision(conversationId, decision, orchestrator);
+    // Decision-bearing disposition — map to ApprovalDecisionResult and apply
+    const decisionAction = engineResult.disposition as 'approve_once' | 'approve_always' | 'reject';
+    const engineDecision: ApprovalDecisionResult = {
+      action: decisionAction,
+      source: 'plain_text',
+      ...(engineResult.targetRunId ? { runId: engineResult.targetRunId } : {}),
+    };
 
-    // Schedule a background poll for run terminal state and deliver the reply.
-    // This handles the case where the original poll in
-    // processChannelMessageWithApprovals has already exited due to timeout.
-    // The claimRunDelivery guard ensures at-most-once delivery when both
-    // pollers race to terminal state.
+    const result = handleChannelDecision(conversationId, engineDecision, orchestrator);
+
     if (result.applied && result.runId) {
       schedulePostDecisionDelivery(
         orchestrator,
@@ -1702,39 +1756,65 @@ async function handleApprovalInterception(
       );
     }
 
+    // Deliver the engine's reply text to the user
+    try {
+      await deliverChannelReply(replyCallbackUrl, {
+        chatId: externalChatId,
+        text: engineResult.replyText,
+        assistantId,
+      }, bearerToken);
+    } catch (err) {
+      log.error({ err, conversationId }, 'Failed to deliver approval decision reply');
+    }
+
     return { handled: true, type: 'decision_applied' };
   }
 
-  // The message is not a decision — send a reminder with the approval buttons.
-  const reminder = buildReminderPrompt(pendingPrompt);
-  const pending = getPendingConfirmationsByConversation(conversationId);
-  if (pending.length > 0) {
-    const uiMetadata = buildApprovalUIMetadata(reminder, pending[0]);
-    try {
-      const delivered = await deliverGeneratedApprovalPrompt({
-        replyCallbackUrl,
-        chatId: externalChatId,
-        sourceChannel,
-        assistantId,
-        bearerToken,
-        prompt: reminder,
-        uiMetadata,
-        messageContext: {
-          scenario: 'reminder_prompt',
-          channel: sourceChannel,
-          toolName: pending[0].toolName,
-        },
-        approvalCopyGenerator,
-      });
-      if (!delivered) {
-        log.error({ conversationId, externalChatId }, 'Failed to deliver approval reminder');
+  // Fallback: no conversational generator available or no content — use
+  // the legacy deterministic path as a safety net. This preserves backward
+  // compatibility when the generator is not injected.
+  if (content) {
+    const legacyDecision = parseApprovalDecision(content);
+    if (legacyDecision) {
+      if (legacyDecision.runId) {
+        if (pending.length === 0 || pending[0].runId !== legacyDecision.runId) {
+          return { handled: true, type: 'stale_ignored' };
+        }
       }
-    } catch (err) {
-      log.error({ err, conversationId }, 'Failed to deliver approval reminder');
+      const result = handleChannelDecision(conversationId, legacyDecision, orchestrator);
+      if (result.applied && result.runId) {
+        schedulePostDecisionDelivery(
+          orchestrator,
+          result.runId,
+          conversationId,
+          externalChatId,
+          replyCallbackUrl,
+          bearerToken,
+          assistantId,
+        );
+      }
+      return { handled: true, type: 'decision_applied' };
     }
   }
 
-  return { handled: true, type: 'reminder_sent' };
+  // No decision could be extracted and no conversational engine is available —
+  // deliver a simple status reply rather than a reminder prompt.
+  try {
+    const statusText = await composeApprovalMessageGenerative({
+      scenario: 'reminder_prompt',
+      channel: sourceChannel,
+      toolName: pending.length > 0 ? pending[0].toolName : undefined,
+    }, {}, approvalCopyGenerator);
+    await deliverChannelReply(replyCallbackUrl, {
+      chatId: externalChatId,
+      text: statusText,
+      assistantId,
+    }, bearerToken);
+  } catch (err) {
+    log.error({ err, conversationId }, 'Failed to deliver approval status reply');
+  }
+
+  return { handled: true, type: 'assistant_turn' };
 }
 
 /**
