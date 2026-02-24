@@ -2606,3 +2606,13 @@ exports[`IPC message snapshots ServerMessage types dictation_response serializes
   "type": "dictation_response",
 }
 `;
+
+exports[`IPC message snapshots ServerMessage types guardian_request_thread_created serializes to expected JSON 1`] = `
+{
+  "callSessionId": "call-guardian-001",
+  "conversationId": "conv-guardian-req-001",
+  "requestId": "req-guardian-001",
+  "title": "Guardian action request",
+  "type": "guardian_request_thread_created",
+}
+`;
