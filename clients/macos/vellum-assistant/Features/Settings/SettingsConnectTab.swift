@@ -106,9 +106,9 @@ struct SettingsConnectTab: View {
             return "arrow.trianglehead.2.counterclockwise"
         }
         switch store.vellumPlatformReachable {
-        case true: return "checkmark.circle.fill"
-        case false: return "xmark.circle.fill"
-        case nil: return "questionmark.circle"
+        case .some(true): return "checkmark.circle.fill"
+        case .some(false): return "xmark.circle.fill"
+        case .none: return "questionmark.circle"
         }
     }
 
@@ -117,9 +117,9 @@ struct SettingsConnectTab: View {
             return VColor.textMuted
         }
         switch store.vellumPlatformReachable {
-        case true: return VColor.success
-        case false: return VColor.error
-        case nil: return VColor.textMuted
+        case .some(true): return VColor.success
+        case .some(false): return VColor.error
+        case .none: return VColor.textMuted
         }
     }
 
