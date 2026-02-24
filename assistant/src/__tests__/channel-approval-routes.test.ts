@@ -1772,18 +1772,18 @@ describe('non-decision status reply for different channels', () => {
     });
     createBinding({
       assistantId: 'self',
-      channel: 'http-api',
+      channel: 'sms',
       guardianExternalUserId: 'telegram-user-default',
       guardianDeliveryChatId: 'chat-123',
     });
   });
 
-  test('non-decision message on non-rich channel (http-api) sends status reply', async () => {
+  test('non-decision message on non-rich channel (sms) sends status reply', async () => {
     const orchestrator = makeMockOrchestrator();
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
 
-    // Establish the conversation using http-api (non-rich channel)
-    const initReq = makeInboundRequest({ content: 'init', sourceChannel: 'http-api' });
+    // Establish the conversation using sms (non-rich channel)
+    const initReq = makeInboundRequest({ content: 'init', sourceChannel: 'sms' });
     await handleChannelInbound(initReq, noopProcessMessage, 'token', orchestrator);
 
     const db = getDb();
@@ -1795,7 +1795,7 @@ describe('non-decision status reply for different channels', () => {
     setRunConfirmation(run.id, sampleConfirmation);
 
     // Send a non-decision message
-    const req = makeInboundRequest({ content: 'what is happening?', sourceChannel: 'http-api' });
+    const req = makeInboundRequest({ content: 'what is happening?', sourceChannel: 'sms' });
     const res = await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
     const body = await res.json() as Record<string, unknown>;
 
@@ -2481,7 +2481,7 @@ describe('ambiguous plain-text decision with multiple pending requests', () => {
     const orchestrator = makeMockOrchestrator();
 
     // Conversational engine that returns keep_pending for disambiguation
-    const mockConversationGenerator = mock(async () => ({
+    const mockConversationGenerator = mock(async (_ctx: unknown) => ({
       disposition: 'keep_pending' as const,
       replyText: 'You have 2 pending requests. Which one?',
     }));
@@ -3599,7 +3599,7 @@ describe('conversational approval engine — standard path', () => {
     deliverSpy.mockClear();
 
     // Mock conversational engine that returns keep_pending
-    const mockConversationGenerator = mock(async () => ({
+    const mockConversationGenerator = mock(async (_ctx: unknown) => ({
       disposition: 'keep_pending' as const,
       replyText: 'There is a pending shell command. Would you like to approve or deny it?',
     }));
@@ -3645,7 +3645,7 @@ describe('conversational approval engine — standard path', () => {
     deliverSpy.mockClear();
 
     // Mock conversational engine that returns approve_once
-    const mockConversationGenerator = mock(async () => ({
+    const mockConversationGenerator = mock(async (_ctx: unknown) => ({
       disposition: 'approve_once' as const,
       replyText: 'Got it, approving the shell command.',
     }));
@@ -3690,7 +3690,7 @@ describe('conversational approval engine — standard path', () => {
     deliverSpy.mockClear();
 
     // Mock conversational engine that returns reject
-    const mockConversationGenerator = mock(async () => ({
+    const mockConversationGenerator = mock(async (_ctx: unknown) => ({
       disposition: 'reject' as const,
       replyText: 'No problem, I\'ve cancelled the shell command.',
     }));
@@ -3733,7 +3733,7 @@ describe('conversational approval engine — standard path', () => {
     setRunConfirmation(run.id, sampleConfirmation);
 
     // Mock conversational engine — should NOT be called for callback buttons
-    const mockConversationGenerator = mock(async () => ({
+    const mockConversationGenerator = mock(async (_ctx: unknown) => ({
       disposition: 'keep_pending' as const,
       replyText: 'This should not be called',
     }));
@@ -3798,7 +3798,7 @@ describe('guardian conversational approval via conversation engine', () => {
     const orchestrator = makeMockOrchestrator();
 
     // Engine returns keep_pending for a clarification question
-    const mockConversationGenerator = mock(async () => ({
+    const mockConversationGenerator = mock(async (_ctx: unknown) => ({
       disposition: 'keep_pending' as const,
       replyText: 'Could you clarify which action you want me to approve?',
     }));
@@ -3871,7 +3871,7 @@ describe('guardian conversational approval via conversation engine', () => {
     const orchestrator = makeMockOrchestrator();
 
     // Engine returns approve_once decision
-    const mockConversationGenerator = mock(async () => ({
+    const mockConversationGenerator = mock(async (_ctx: unknown) => ({
       disposition: 'approve_once' as const,
       replyText: 'Approved! The shell command will proceed.',
     }));
@@ -4008,7 +4008,7 @@ describe('guardian conversational approval via conversation engine', () => {
     const orchestrator = makeMockOrchestrator();
 
     // Engine returns keep_pending for disambiguation
-    const mockConversationGenerator = mock(async () => ({
+    const mockConversationGenerator = mock(async (_ctx: unknown) => ({
       disposition: 'keep_pending' as const,
       replyText: 'You have 2 pending requests: shell and file_edit. Which one?',
     }));
