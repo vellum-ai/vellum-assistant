@@ -52,6 +52,7 @@ function makeSessionWithConfirmation(message: ServerMessage): Session {
     setAssistantId: () => {},
     setGuardianContext: () => {},
     setCommandIntent: () => {},
+    setTurnChannelContext: () => {},
     updateClient: (handler: (msg: ServerMessage) => void) => {
       clientHandler = handler;
     },
@@ -76,6 +77,7 @@ function makeSessionWithEvent(message: ServerMessage): Session {
     setAssistantId: () => {},
     setGuardianContext: () => {},
     setCommandIntent: () => {},
+    setTurnChannelContext: () => {},
     updateClient: () => {},
     runAgentLoop: async (_content: string, _messageId: string, onEvent: (msg: ServerMessage) => void) => {
       onEvent(message);
@@ -243,6 +245,7 @@ describe('startRun channel capability resolution', () => {
       setAssistantId: () => {},
       setGuardianContext: () => {},
     setCommandIntent: () => {},
+    setTurnChannelContext: () => {},
       updateClient: () => {},
       runAgentLoop: async () => {},
       handleConfirmationResponse: () => {},
@@ -266,7 +269,7 @@ describe('startRun channel capability resolution', () => {
     expect(capturedCapabilities!.dashboardCapable).toBe(false);
   });
 
-  test('defaults to http-api when no sourceChannel is provided', async () => {
+  test('defaults to macos (from http-api fallback) when no sourceChannel is provided', async () => {
     const conversation = createConversation('http-api default test');
     let capturedCapabilities: ChannelCapabilities | null = null;
 
@@ -280,6 +283,7 @@ describe('startRun channel capability resolution', () => {
       setAssistantId: () => {},
       setGuardianContext: () => {},
     setCommandIntent: () => {},
+    setTurnChannelContext: () => {},
       updateClient: () => {},
       runAgentLoop: async () => {},
       handleConfirmationResponse: () => {},
@@ -296,10 +300,10 @@ describe('startRun channel capability resolution', () => {
     await new Promise((r) => setTimeout(r, 50));
 
     expect(capturedCapabilities).not.toBeNull();
-    expect(capturedCapabilities!.channel).toBe('http-api');
+    expect(capturedCapabilities!.channel).toBe('macos');
   });
 
-  test('defaults to http-api when options are provided without sourceChannel', async () => {
+  test('defaults to macos (from http-api fallback) when options are provided without sourceChannel', async () => {
     const conversation = createConversation('options no channel test');
     let capturedCapabilities: ChannelCapabilities | null = null;
 
@@ -313,6 +317,7 @@ describe('startRun channel capability resolution', () => {
       setAssistantId: () => {},
       setGuardianContext: () => {},
     setCommandIntent: () => {},
+    setTurnChannelContext: () => {},
       updateClient: () => {},
       runAgentLoop: async () => {},
       handleConfirmationResponse: () => {},
@@ -331,7 +336,7 @@ describe('startRun channel capability resolution', () => {
     await new Promise((r) => setTimeout(r, 50));
 
     expect(capturedCapabilities).not.toBeNull();
-    expect(capturedCapabilities!.channel).toBe('http-api');
+    expect(capturedCapabilities!.channel).toBe('macos');
   });
 });
 
@@ -359,6 +364,7 @@ describe('strictSideEffects re-derivation across runs', () => {
       setAssistantId: () => {},
       setGuardianContext: () => {},
     setCommandIntent: () => {},
+    setTurnChannelContext: () => {},
       updateClient: () => {},
       runAgentLoop: async () => {},
       handleConfirmationResponse: () => {},
@@ -396,6 +402,7 @@ describe('strictSideEffects re-derivation across runs', () => {
       setAssistantId: () => {},
       setGuardianContext: () => {},
     setCommandIntent: () => {},
+    setTurnChannelContext: () => {},
       updateClient: () => {},
       runAgentLoop: async () => {},
       handleConfirmationResponse: () => {},
@@ -434,6 +441,7 @@ describe('strictSideEffects re-derivation across runs', () => {
       setAssistantId: () => {},
       setGuardianContext: () => {},
     setCommandIntent: () => {},
+    setTurnChannelContext: () => {},
       updateClient: () => {},
       runAgentLoop: async () => {},
       handleConfirmationResponse: () => {},

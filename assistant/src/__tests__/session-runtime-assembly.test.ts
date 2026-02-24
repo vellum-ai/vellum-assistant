@@ -2,15 +2,18 @@ import { describe, test, expect } from 'bun:test';
 import type { Message } from '../providers/types.js';
 import {
   applyRuntimeInjections,
+  buildChannelTurnContextBlock,
   injectChannelCapabilityContext,
+  injectChannelTurnContext,
   injectGuardianContext,
   injectTemporalContext,
   resolveChannelCapabilities,
   stripChannelCapabilityContext,
+  stripChannelTurnContext,
   stripGuardianContext,
   stripTemporalContext,
 } from '../daemon/session-runtime-assembly.js';
-import type { ChannelCapabilities, GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
+import type { ChannelCapabilities, ChannelTurnContextParams, GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
 import { buildChannelAwarenessSection } from '../config/system-prompt.js';
 
 // ---------------------------------------------------------------------------
@@ -18,26 +21,40 @@ import { buildChannelAwarenessSection } from '../config/system-prompt.js';
 // ---------------------------------------------------------------------------
 
 describe('resolveChannelCapabilities', () => {
-  test('defaults to dashboard when no source channel is provided', () => {
+  test('defaults to macos when no source channel is provided', () => {
     const caps = resolveChannelCapabilities();
-    expect(caps.channel).toBe('dashboard');
+    expect(caps.channel).toBe('macos');
     expect(caps.dashboardCapable).toBe(true);
     expect(caps.supportsDynamicUi).toBe(true);
     expect(caps.supportsVoiceInput).toBe(true);
   });
 
-  test('defaults to dashboard for null source channel', () => {
+  test('defaults to macos for null source channel', () => {
     const caps = resolveChannelCapabilities(null);
-    expect(caps.channel).toBe('dashboard');
+    expect(caps.channel).toBe('macos');
     expect(caps.dashboardCapable).toBe(true);
   });
 
-  test('resolves "dashboard" as dashboard-capable', () => {
+  test('normalises "dashboard" to "macos"', () => {
     const caps = resolveChannelCapabilities('dashboard');
-    expect(caps.channel).toBe('dashboard');
+    expect(caps.channel).toBe('macos');
     expect(caps.dashboardCapable).toBe(true);
     expect(caps.supportsDynamicUi).toBe(true);
     expect(caps.supportsVoiceInput).toBe(true);
+  });
+
+  test('normalises "http-api" to "macos"', () => {
+    const caps = resolveChannelCapabilities('http-api');
+    expect(caps.channel).toBe('macos');
+    expect(caps.dashboardCapable).toBe(true);
+    expect(caps.supportsDynamicUi).toBe(true);
+    expect(caps.supportsVoiceInput).toBe(true);
+  });
+
+  test('normalises "mac" to "macos"', () => {
+    const caps = resolveChannelCapabilities('mac');
+    expect(caps.channel).toBe('macos');
+    expect(caps.dashboardCapable).toBe(true);
   });
 
   test('resolves "telegram" as non-dashboard-capable', () => {
@@ -48,9 +65,41 @@ describe('resolveChannelCapabilities', () => {
     expect(caps.supportsVoiceInput).toBe(false);
   });
 
-  test('resolves "http-api" as non-dashboard-capable', () => {
-    const caps = resolveChannelCapabilities('http-api');
-    expect(caps.channel).toBe('http-api');
+  test('resolves "ios" with voice but no dashboard/dynamic-ui', () => {
+    const caps = resolveChannelCapabilities('ios');
+    expect(caps.channel).toBe('ios');
+    expect(caps.dashboardCapable).toBe(false);
+    expect(caps.supportsDynamicUi).toBe(false);
+    expect(caps.supportsVoiceInput).toBe(true);
+  });
+
+  test('resolves "whatsapp" as all-capabilities-false', () => {
+    const caps = resolveChannelCapabilities('whatsapp');
+    expect(caps.channel).toBe('whatsapp');
+    expect(caps.dashboardCapable).toBe(false);
+    expect(caps.supportsDynamicUi).toBe(false);
+    expect(caps.supportsVoiceInput).toBe(false);
+  });
+
+  test('resolves "slack" as all-capabilities-false', () => {
+    const caps = resolveChannelCapabilities('slack');
+    expect(caps.channel).toBe('slack');
+    expect(caps.dashboardCapable).toBe(false);
+    expect(caps.supportsDynamicUi).toBe(false);
+    expect(caps.supportsVoiceInput).toBe(false);
+  });
+
+  test('resolves "email" as all-capabilities-false', () => {
+    const caps = resolveChannelCapabilities('email');
+    expect(caps.channel).toBe('email');
+    expect(caps.dashboardCapable).toBe(false);
+    expect(caps.supportsDynamicUi).toBe(false);
+    expect(caps.supportsVoiceInput).toBe(false);
+  });
+
+  test('unknown channel defaults to all-capabilities-false', () => {
+    const caps = resolveChannelCapabilities('unknown-thing');
+    expect(caps.channel).toBe('unknown-thing');
     expect(caps.dashboardCapable).toBe(false);
     expect(caps.supportsDynamicUi).toBe(false);
     expect(caps.supportsVoiceInput).toBe(false);
@@ -292,8 +341,8 @@ describe('buildChannelAwarenessSection', () => {
 // ---------------------------------------------------------------------------
 
 describe('trust-gating via channel capabilities', () => {
-  test('dashboard channel does not add constraint rules', () => {
-    const caps = resolveChannelCapabilities('dashboard');
+  test('macos channel does not add constraint rules', () => {
+    const caps = resolveChannelCapabilities('macos');
     const message: Message = {
       role: 'user',
       content: [{ type: 'text', text: 'Enable my microphone' }],
@@ -556,5 +605,180 @@ describe('applyRuntimeInjections with guardianContext', () => {
     expect(result).toHaveLength(1);
     expect(result[0].content).toHaveLength(2);
     expect((result[0].content[0] as { type: 'text'; text: string }).text).toContain('<guardian_context>');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildChannelTurnContextBlock
+// ---------------------------------------------------------------------------
+
+describe('buildChannelTurnContextBlock', () => {
+  test('formats block with all three channel fields', () => {
+    const block = buildChannelTurnContextBlock({
+      turnContext: { userMessageChannel: 'telegram', assistantMessageChannel: 'telegram' },
+      conversationOriginChannel: 'telegram',
+    });
+    expect(block).toBe(
+      '<channel_turn_context>\n' +
+      'user_message_channel: telegram\n' +
+      'assistant_message_channel: telegram\n' +
+      'conversation_origin_channel: telegram\n' +
+      '</channel_turn_context>',
+    );
+  });
+
+  test('uses "unknown" when conversationOriginChannel is null', () => {
+    const block = buildChannelTurnContextBlock({
+      turnContext: { userMessageChannel: 'macos', assistantMessageChannel: 'macos' },
+      conversationOriginChannel: null,
+    });
+    expect(block).toContain('conversation_origin_channel: unknown');
+  });
+
+  test('handles mixed channels', () => {
+    const block = buildChannelTurnContextBlock({
+      turnContext: { userMessageChannel: 'telegram', assistantMessageChannel: 'macos' },
+      conversationOriginChannel: 'ios',
+    });
+    expect(block).toContain('user_message_channel: telegram');
+    expect(block).toContain('assistant_message_channel: macos');
+    expect(block).toContain('conversation_origin_channel: ios');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// injectChannelTurnContext
+// ---------------------------------------------------------------------------
+
+describe('injectChannelTurnContext', () => {
+  const baseUserMessage: Message = {
+    role: 'user',
+    content: [{ type: 'text', text: 'Hello from telegram' }],
+  };
+
+  test('prepends channel_turn_context block to user message', () => {
+    const params: ChannelTurnContextParams = {
+      turnContext: { userMessageChannel: 'telegram', assistantMessageChannel: 'telegram' },
+      conversationOriginChannel: 'telegram',
+    };
+    const result = injectChannelTurnContext(baseUserMessage, params);
+    expect(result.content.length).toBe(2);
+    const injected = result.content[0];
+    expect(injected.type).toBe('text');
+    const text = (injected as { type: 'text'; text: string }).text;
+    expect(text).toContain('<channel_turn_context>');
+    expect(text).toContain('user_message_channel: telegram');
+    expect(text).toContain('</channel_turn_context>');
+  });
+
+  test('preserves original message content', () => {
+    const params: ChannelTurnContextParams = {
+      turnContext: { userMessageChannel: 'macos', assistantMessageChannel: 'macos' },
+      conversationOriginChannel: 'macos',
+    };
+    const result = injectChannelTurnContext(baseUserMessage, params);
+    const lastBlock = result.content[result.content.length - 1];
+    expect((lastBlock as { type: 'text'; text: string }).text).toBe('Hello from telegram');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// stripChannelTurnContext
+// ---------------------------------------------------------------------------
+
+describe('stripChannelTurnContext', () => {
+  test('strips channel_turn_context blocks from user messages', () => {
+    const messages: Message[] = [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: '<channel_turn_context>\nuser_message_channel: telegram\n</channel_turn_context>' },
+          { type: 'text', text: 'Hello' },
+        ],
+      },
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'Hi there' }],
+      },
+    ];
+
+    const result = stripChannelTurnContext(messages);
+
+    expect(result.length).toBe(2);
+    expect(result[0].content.length).toBe(1);
+    expect((result[0].content[0] as { type: 'text'; text: string }).text).toBe('Hello');
+    expect(result[1].content.length).toBe(1);
+  });
+
+  test('removes user messages that only contain channel_turn_context', () => {
+    const messages: Message[] = [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: '<channel_turn_context>\nuser_message_channel: macos\n</channel_turn_context>' },
+        ],
+      },
+    ];
+
+    const result = stripChannelTurnContext(messages);
+    expect(result.length).toBe(0);
+  });
+
+  test('leaves messages without channel_turn_context untouched', () => {
+    const messages: Message[] = [
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'Normal message' }],
+      },
+    ];
+
+    const result = stripChannelTurnContext(messages);
+    expect(result.length).toBe(1);
+    expect(result[0]).toBe(messages[0]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applyRuntimeInjections with channelTurnContext
+// ---------------------------------------------------------------------------
+
+describe('applyRuntimeInjections with channelTurnContext', () => {
+  const baseMessages: Message[] = [
+    {
+      role: 'user',
+      content: [{ type: 'text', text: 'What channel am I on?' }],
+    },
+  ];
+
+  test('injects channel turn context when provided', () => {
+    const params: ChannelTurnContextParams = {
+      turnContext: { userMessageChannel: 'telegram', assistantMessageChannel: 'telegram' },
+      conversationOriginChannel: 'telegram',
+    };
+
+    const result = applyRuntimeInjections(baseMessages, {
+      channelTurnContext: params,
+    });
+
+    expect(result.length).toBe(1);
+    expect(result[0].content.length).toBe(2);
+    const injected = result[0].content[0];
+    expect((injected as { type: 'text'; text: string }).text).toContain('<channel_turn_context>');
+  });
+
+  test('does not inject when channelTurnContext is null', () => {
+    const result = applyRuntimeInjections(baseMessages, {
+      channelTurnContext: null,
+    });
+
+    expect(result.length).toBe(1);
+    expect(result[0].content.length).toBe(1);
+  });
+
+  test('does not inject when channelTurnContext is omitted', () => {
+    const result = applyRuntimeInjections(baseMessages, {});
+
+    expect(result.length).toBe(1);
+    expect(result[0].content.length).toBe(1);
   });
 });

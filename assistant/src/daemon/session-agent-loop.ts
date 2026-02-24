@@ -15,6 +15,7 @@ import type { AgentLoop, CheckpointDecision, AgentEvent } from '../agent/loop.js
 import type { Provider } from '../providers/types.js';
 import { createAssistantMessage } from '../agent/message-types.js';
 import * as conversationStore from '../memory/conversation-store.js';
+import { getConversationOriginChannel } from '../memory/conversation-store.js';
 import type { PermissionPrompter } from '../permissions/prompter.js';
 import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
@@ -35,7 +36,7 @@ import {
   stripInjectedContext,
 } from './session-runtime-assembly.js';
 import { buildTemporalContext } from './date-context.js';
-import type { ActiveSurfaceContext, ChannelCapabilities, GuardianRuntimeContext } from './session-runtime-assembly.js';
+import type { ActiveSurfaceContext, ChannelCapabilities, ChannelTurnContextParams, GuardianRuntimeContext } from './session-runtime-assembly.js';
 import {
   cleanAssistantContent,
   type AssistantAttachmentDraft,
@@ -290,12 +291,20 @@ export async function runAgentLoopImpl(
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     });
 
+    // Build channel turn context so the model knows which channels are
+    // active for this turn and the conversation's origin channel.
+    const turnChannelCtx = ctx.getTurnChannelContext();
+    const channelTurnContext: ChannelTurnContextParams | null = turnChannelCtx
+      ? { turnContext: turnChannelCtx, conversationOriginChannel: getConversationOriginChannel(ctx.conversationId) }
+      : null;
+
     runMessages = applyRuntimeInjections(runMessages, {
       softConflictInstruction,
       activeSurface,
       workspaceTopLevelContext: ctx.workspaceTopLevelContext,
       channelCapabilities: ctx.channelCapabilities ?? null,
       channelCommandContext: ctx.commandIntent ?? null,
+      channelTurnContext,
       guardianContext: ctx.guardianContext ?? null,
       temporalContext,
     });
@@ -398,6 +407,7 @@ export async function runAgentLoopImpl(
           workspaceTopLevelContext: ctx.workspaceTopLevelContext,
           channelCapabilities: ctx.channelCapabilities ?? null,
           channelCommandContext: ctx.commandIntent ?? null,
+          channelTurnContext,
           guardianContext: ctx.guardianContext ?? null,
           temporalContext,
         });
@@ -432,6 +442,7 @@ export async function runAgentLoopImpl(
             workspaceTopLevelContext: ctx.workspaceTopLevelContext,
             channelCapabilities: ctx.channelCapabilities ?? null,
             channelCommandContext: ctx.commandIntent ?? null,
+            channelTurnContext,
             guardianContext: ctx.guardianContext ?? null,
             temporalContext,
           });
