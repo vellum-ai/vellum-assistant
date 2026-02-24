@@ -22,6 +22,7 @@ import type { PollResult, WatchHatchingResult } from "../lib/gcp";
 import { startLocalDaemon, startGateway, stopLocalProcesses } from "../lib/local";
 import { isProcessAlive } from "../lib/process";
 import { generateRandomSuffix } from "../lib/random-name";
+import { validateAssistantName } from "../lib/retire-archive";
 import { exec } from "../lib/step-runner";
 
 export type { PollResult, WatchHatchingResult } from "../lib/gcp";
@@ -167,6 +168,12 @@ function parseArgs(): HatchArgs {
       const next = args[i + 1];
       if (!next || next.startsWith("-")) {
         console.error("Error: --name requires a value");
+        process.exit(1);
+      }
+      try {
+        validateAssistantName(next);
+      } catch {
+        console.error(`Error: --name contains invalid characters (path separators or traversal segments are not allowed)`);
         process.exit(1);
       }
       name = next;
