@@ -1,4 +1,5 @@
 import type { Provider, Message } from '../providers/types.js';
+import { parseJsonSafe } from '../util/json.js';
 import type { SwarmPlan, SwarmTaskNode } from './types.js';
 import type { SwarmLimits } from './limits.js';
 import { validateAndNormalizePlan } from './plan-validator.js';
@@ -71,15 +72,11 @@ export function parsePlanJSON(raw: string): { tasks: Array<{ id: string; role: s
 }
 
 function tryParsePlan(jsonStr: string): { tasks: Array<{ id: string; role: string; objective: string; dependencies: string[] }> } | null {
-  try {
-    const parsed = JSON.parse(jsonStr.trim());
-    if (parsed && Array.isArray(parsed.tasks)) {
-      return parsed;
-    }
-    return null;
-  } catch {
-    return null;
+  const parsed = parseJsonSafe<{ tasks?: unknown }>(jsonStr.trim());
+  if (parsed && Array.isArray(parsed.tasks)) {
+    return parsed as { tasks: Array<{ id: string; role: string; objective: string; dependencies: string[] }> };
   }
+  return null;
 }
 
 /**
