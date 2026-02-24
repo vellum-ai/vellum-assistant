@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, chmodSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { arch, platform } from 'node:os';
+import { createHash } from 'node:crypto';
 import type { Subprocess } from 'bun';
 import { getLogger } from '../util/logger.js';
 import { getDataDir } from '../util/platform.js';
@@ -160,15 +161,41 @@ export class QdrantManager {
     }
 
     const filename = `qdrant-${target}.tar.gz`;
-    const url = `https://github.com/qdrant/qdrant/releases/download/v${QDRANT_VERSION}/${filename}`;
+    const baseUrl = `https://github.com/qdrant/qdrant/releases/download/v${QDRANT_VERSION}`;
+    const url = `${baseUrl}/${filename}`;
+    const checksumUrl = `${baseUrl}/${filename}.sha256`;
+
     log.info({ url, binaryPath }, 'Downloading Qdrant binary');
 
-    const response = await fetch(url);
+    // Fetch the tarball and its SHA-256 checksum in parallel
+    const [response, checksumResponse] = await Promise.all([
+      fetch(url),
+      fetch(checksumUrl),
+    ]);
+
     if (!response.ok) {
       throw new Error(`Failed to download Qdrant: ${response.status} ${response.statusText} from ${url}`);
     }
 
     const tarball = await response.arrayBuffer();
+
+    // Verify SHA-256 integrity if the checksum file is available
+    if (checksumResponse.ok) {
+      const checksumText = (await checksumResponse.text()).trim();
+      // Checksum files contain "<hex>  <filename>" or just "<hex>"
+      const expectedHash = checksumText.split(/\s+/)[0].toLowerCase();
+      const actualHash = createHash('sha256').update(Buffer.from(tarball)).digest('hex');
+
+      if (actualHash !== expectedHash) {
+        throw new Error(
+          `Qdrant binary checksum mismatch! ` +
+          `expected=${expectedHash} actual=${actualHash} url=${url}`,
+        );
+      }
+      log.info({ hash: actualHash }, 'Qdrant binary checksum verified');
+    } else {
+      log.warn({ checksumUrl, status: checksumResponse.status }, 'Could not fetch Qdrant checksum — skipping integrity check');
+    }
 
     // Extract the qdrant binary from the tarball
     const binDir = dirname(binaryPath);
