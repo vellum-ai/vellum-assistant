@@ -1,4 +1,4 @@
-import { describe, test, expect, mock, afterEach } from "bun:test";
+import { describe, test, expect, spyOn, afterEach } from "bun:test";
 import { sendTelegramAttachments } from "../telegram/send.js";
 import type { RuntimeAttachmentMeta } from "../runtime/client.js";
 import type { GatewayConfig } from "../config.js";
@@ -46,18 +46,18 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
 
 const telegramOk = { ok: true, result: { message_id: 1 } };
 
+let fetchSpy: ReturnType<typeof spyOn<typeof globalThis, "fetch">> | null = null;
+
 function mockFetch(fn: (url: string, init?: RequestInit) => Promise<Response>) {
-  const m = mock(fn);
-  Object.assign(m, { preconnect: () => {} });
-  globalThis.fetch = m as unknown as typeof fetch;
-  return m;
+  fetchSpy?.mockRestore();
+  fetchSpy = spyOn(globalThis, "fetch").mockImplementation(fn as any);
+  return fetchSpy;
 }
 
 describe("sendTelegramAttachments", () => {
-  const originalFetch = globalThis.fetch;
-
   afterEach(() => {
-    globalThis.fetch = originalFetch;
+    fetchSpy?.mockRestore();
+    fetchSpy = null;
   });
 
   test("sends image attachment via sendPhoto", async () => {
@@ -293,9 +293,11 @@ describe("sendTelegramAttachments", () => {
   test("ID-only attachment uses id as filename fallback", async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
 
-    const origMockFetch = mock(async (url: string, init?: RequestInit) => {
-      calls.push({ url, init });
-      if (url.includes("/attachments/my-attachment-id")) {
+    fetchSpy?.mockRestore();
+    fetchSpy = spyOn(globalThis, "fetch").mockImplementation(async (url: string | URL | Request, init?: RequestInit) => {
+      const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
+      calls.push({ url: urlStr, init });
+      if (urlStr.includes("/attachments/my-attachment-id")) {
         return new Response(
           JSON.stringify({
             id: "my-attachment-id",
@@ -307,8 +309,6 @@ describe("sendTelegramAttachments", () => {
       }
       return new Response(JSON.stringify(telegramOk));
     });
-    Object.assign(origMockFetch, { preconnect: () => {} });
-    globalThis.fetch = origMockFetch as unknown as typeof fetch;
 
     const config = makeConfig();
     const meta: RuntimeAttachmentMeta = { id: "my-attachment-id" };

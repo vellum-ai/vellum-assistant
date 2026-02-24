@@ -1,8 +1,6 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import type { GatewayConfig } from "../config.js";
 import { callTelegramApi } from "../telegram/api.js";
-
-const originalFetch = globalThis.fetch;
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
@@ -46,18 +44,17 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
 }
 
 describe("callTelegramApi transport error redaction", () => {
-  beforeEach(() => {
-    globalThis.fetch = originalFetch;
-  });
+  let fetchSpy: ReturnType<typeof spyOn<typeof globalThis, "fetch">> | null = null;
 
   afterEach(() => {
-    globalThis.fetch = originalFetch;
+    fetchSpy?.mockRestore();
+    fetchSpy = null;
   });
 
   test("redacts bot token from warning logs and thrown error", async () => {
     const tgToken = ["123456789", ":", "ABCDefGHIJklmnopQRSTuvwxyz012345678"].join("");
 
-    globalThis.fetch = mock(async () => {
+    fetchSpy = spyOn(globalThis, "fetch").mockImplementation(async () => {
       const err = new Error("Unable to connect. Is the computer able to access the url?") as Error & {
         path?: string;
         code?: string;
@@ -65,7 +62,7 @@ describe("callTelegramApi transport error redaction", () => {
       err.path = `https://api.telegram.org/bot${tgToken}/sendMessage`;
       err.code = "ConnectionRefused";
       throw err;
-    }) as unknown as typeof fetch;
+    });
 
     const config = makeConfig({ telegramBotToken: tgToken, telegramMaxRetries: 0 });
 
@@ -86,7 +83,7 @@ describe("callTelegramApi transport error redaction", () => {
     // "error-123456789:...") must still be redacted.
     const tgToken = ["123456789", ":", "ABCDefGHIJklmnopQRSTuvwxyz012345678"].join("");
 
-    globalThis.fetch = mock(async () => {
+    fetchSpy = spyOn(globalThis, "fetch").mockImplementation(async () => {
       const err = new Error("Connection refused") as Error & {
         path?: string;
         code?: string;
@@ -95,7 +92,7 @@ describe("callTelegramApi transport error redaction", () => {
       err.path = `prefix-${tgToken}/sendMessage`;
       err.code = "ConnectionRefused";
       throw err;
-    }) as unknown as typeof fetch;
+    });
 
     const config = makeConfig({ telegramBotToken: tgToken, telegramMaxRetries: 0 });
 
@@ -116,7 +113,7 @@ describe("callTelegramApi transport error redaction", () => {
     // would fail to match the trailing `-`, leaking part of the token.
     const tgToken = ["123456789", ":", "ABCDefGHIJklmnopQRSTuvwxyz01234567-"].join("");
 
-    globalThis.fetch = mock(async () => {
+    fetchSpy = spyOn(globalThis, "fetch").mockImplementation(async () => {
       const err = new Error("Connection refused") as Error & {
         path?: string;
         code?: string;
@@ -124,7 +121,7 @@ describe("callTelegramApi transport error redaction", () => {
       err.path = `https://api.telegram.org/bot${tgToken}/sendMessage`;
       err.code = "ConnectionRefused";
       throw err;
-    }) as unknown as typeof fetch;
+    });
 
     const config = makeConfig({ telegramBotToken: tgToken, telegramMaxRetries: 0 });
 

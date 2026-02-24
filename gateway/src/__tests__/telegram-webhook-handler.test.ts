@@ -1,4 +1,4 @@
-import { describe, test, expect, mock, afterEach, beforeEach } from "bun:test";
+import { describe, test, expect, spyOn, afterEach, beforeEach } from "bun:test";
 import type { GatewayConfig } from "../config.js";
 import { createTelegramWebhookHandler } from "../http/routes/telegram-webhook.js";
 
@@ -66,7 +66,7 @@ function makeWebhookRequest(payload: unknown, secret = "test-webhook-secret"): R
   });
 }
 
-const originalFetch = globalThis.fetch;
+let fetchSpy: ReturnType<typeof spyOn<typeof globalThis, "fetch">> | null = null;
 let fetchCalls: { url: string; method: string; body?: unknown; headers?: Record<string, string> }[];
 
 beforeEach(() => {
@@ -74,7 +74,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  globalThis.fetch = originalFetch;
+  fetchSpy?.mockRestore();
+  fetchSpy = null;
 });
 
 /** Extract headers from a fetch call into a plain object. */
@@ -101,7 +102,8 @@ function extractHeaders(input: string | URL | Request, init?: RequestInit): Reco
  * Runtime forward calls get an eventId response; Telegram API calls get { ok: true }.
  */
 function installFetchMock() {
-  globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+  fetchSpy?.mockRestore();
+  fetchSpy = spyOn(globalThis, "fetch").mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     const method = init?.method ?? (typeof input === "object" && "method" in input ? input.method : "GET");
     let body: unknown;
@@ -137,7 +139,7 @@ function installFetchMock() {
     }
 
     return new Response("Not found", { status: 404 });
-  }) as any;
+  });
 }
 
 describe("telegram webhook handler: gatewayInternalBaseUrl", () => {
@@ -318,7 +320,8 @@ describe("telegram webhook handler: in-flight dedup", () => {
     // Install a fetch mock where the runtime inbound call blocks on the first
     // invocation and responds immediately on subsequent ones.
     let inboundCallCount = 0;
-    globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+    fetchSpy?.mockRestore();
+    fetchSpy = spyOn(globalThis, "fetch").mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       const method = init?.method ?? (typeof input === "object" && "method" in input ? input.method : "GET");
       let body: unknown;
@@ -345,7 +348,7 @@ describe("telegram webhook handler: in-flight dedup", () => {
         });
       }
       return new Response("Not found", { status: 404 });
-    }) as any;
+    });
 
     const handler = createTelegramWebhookHandler(config);
     const payload = makeTelegramPayload("hello", 9001);
@@ -377,7 +380,8 @@ describe("telegram webhook handler: in-flight dedup", () => {
     });
 
     let callCount = 0;
-    globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+    fetchSpy?.mockRestore();
+    fetchSpy = spyOn(globalThis, "fetch").mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       const method = init?.method ?? (typeof input === "object" && "method" in input ? input.method : "GET");
       let body: unknown;
@@ -406,7 +410,7 @@ describe("telegram webhook handler: in-flight dedup", () => {
         });
       }
       return new Response("Not found", { status: 404 });
-    }) as any;
+    });
 
     const handler = createTelegramWebhookHandler(config);
     const payload = makeTelegramPayload("hello", 9002);
