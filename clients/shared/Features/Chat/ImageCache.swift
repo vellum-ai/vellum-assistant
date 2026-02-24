@@ -32,6 +32,10 @@ public actor ImageCache {
         }
 
         let task = Task<Data, Error> {
+            // URLSession.shared is intentional here: inline chat images may come from any
+            // user-provided domain, so domain pinning would break legitimate use.
+            // ATS (App Transport Security) enforces HTTPS on iOS/macOS in production
+            // builds, providing baseline transport security without explicit cert pinning.
             let (data, response) = try await URLSession.shared.data(from: url)
             if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
                 throw URLError(.badServerResponse)
