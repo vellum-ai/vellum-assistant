@@ -32,6 +32,13 @@ export async function executeSubagentMessage(
     };
   }
 
+  if (result === 'empty') {
+    return {
+      content: 'Message content is empty or whitespace-only.',
+      isError: true,
+    };
+  }
+
   if (result !== 'sent') {
     return {
       content: `Could not send message to subagent "${subagentId}". It may not exist or be in a terminal state.`,
