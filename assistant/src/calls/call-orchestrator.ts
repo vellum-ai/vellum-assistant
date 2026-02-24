@@ -6,8 +6,9 @@
  * streams text tokens back through the RelayConnection for real-time TTS.
  */
 
-import Anthropic from '@anthropic-ai/sdk';
 import { getConfig } from '../config/loader.js';
+import { getFailoverProvider, listProviders } from '../providers/registry.js';
+import type { ProviderEvent } from '../providers/types.js';
 import { resolveUserReference } from '../config/user-reference.js';
 import { getLogger } from '../util/logger.js';
 import {
@@ -336,35 +337,23 @@ export class CallOrchestrator {
    * the response back through the relay.
    */
   private async runLlm(): Promise<void> {
-    const apiKey = getConfig().apiKeys.anthropic ?? process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
-      log.error({ callSessionId: this.callSessionId }, 'No Anthropic API key available');
+    const config = getConfig();
+    const providerName = config.provider;
+    if (!listProviders().includes(providerName)) {
+      log.error({ callSessionId: this.callSessionId }, 'No provider available');
       this.relay.sendTextToken('I\'m sorry, I\'m having a technical issue. Please try again later.', true);
       this.state = 'idle';
       return;
     }
+    const provider = getFailoverProvider(providerName, config.providerOrder);
 
-    const client = new Anthropic({ apiKey });
     const runVersion = ++this.llmRunVersion;
     const runSignal = this.abortController.signal;
 
     try {
       this.state = 'speaking';
 
-      const callModel = getConfig().calls.model?.trim() || 'claude-sonnet-4-20250514';
-
-      const stream = client.messages.stream(
-        {
-          model: callModel,
-          max_tokens: 512,
-          system: this.buildSystemPrompt(),
-          messages: this.conversationHistory.map((m) => ({
-            role: m.role,
-            content: m.content,
-          })),
-        },
-        { signal: runSignal },
-      );
+      const callModel = config.calls.model?.trim() || 'claude-sonnet-4-20250514';
 
       // Buffer incoming tokens so we can strip control markers ([ASK_GUARDIAN:...], [END_CALL])
       // before they reach TTS. We hold text whenever an unmatched '[' appears, since it
@@ -430,17 +419,29 @@ export class CallOrchestrator {
         }
       };
 
-      stream.on('text', (text) => {
-        if (!this.isCurrentRun(runVersion)) return;
-        ttsBuffer += text;
-
-        // Remove complete control markers before text reaches TTS.
-        ttsBuffer = stripInternalSpeechMarkers(ttsBuffer);
-
-        flushSafeText(false);
-      });
-
-      const finalMessage = await stream.finalMessage();
+      const response = await provider.sendMessage(
+        this.conversationHistory.map((m) => ({
+          role: m.role as 'user' | 'assistant',
+          content: [{ type: 'text' as const, text: m.content }],
+        })),
+        [],  // no tools
+        this.buildSystemPrompt(),
+        {
+          config: {
+            model: callModel,
+            max_tokens: 512,
+          },
+          onEvent: (event: ProviderEvent) => {
+            if (!this.isCurrentRun(runVersion)) return;
+            if (event.type === 'text_delta') {
+              ttsBuffer += event.text;
+              ttsBuffer = stripInternalSpeechMarkers(ttsBuffer);
+              flushSafeText(false);
+            }
+          },
+          signal: runSignal,
+        },
+      );
       if (!this.isCurrentRun(runVersion)) return;
 
       // Final sweep: strip any remaining control markers from the buffer
@@ -452,11 +453,10 @@ export class CallOrchestrator {
       // Signal end of this turn's speech
       this.relay.sendTextToken('', true);
 
-      const responseText =
-        finalMessage.content
-          .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-          .map((b) => b.text)
-          .join('') || '';
+      const responseText = response.content
+        .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
+        .map((b) => b.text)
+        .join('') || '';
 
       // Record the assistant response
       this.conversationHistory.push({ role: 'assistant', content: responseText });
