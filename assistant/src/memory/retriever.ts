@@ -787,6 +787,8 @@ function isHttpStatusError(err: unknown): boolean {
   // Fall back to message matching, but only for patterns that clearly
   // indicate an HTTP status code rather than arbitrary numbers.
   // Matches: "status 503", "HTTP 500", "status code: 502", parenthesized
-  // codes like "(503)" from Gemini/Ollama, and bare "429" (rate-limit).
-  return /\b429\b|\(429\)|(?:status|http)\s*(?:code\s*)?:?\s*5\d{2}\b|\(5\d{2}\)/i.test(err.message);
+  // codes like "failed (503)" from Gemini/Ollama (requires "failed" or
+  // "error" context to avoid false positives from dimension numbers like
+  // 512), and bare "429" (rate-limit).
+  return /\b429\b|(?:failed|error)\s*\((?:429|5\d{2})\)|(?:status|http)\s*(?:code\s*)?:?\s*5\d{2}\b/i.test(err.message);
 }
