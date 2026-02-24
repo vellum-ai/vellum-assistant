@@ -53,7 +53,7 @@ export function sweepExpiredGuardianActions(
     for (const delivery of deliveries) {
       if (delivery.status !== 'sent' && delivery.status !== 'pending') continue;
 
-      if (delivery.destinationChannel === 'macos' && delivery.destinationConversationId) {
+      if ((delivery.destinationChannel === 'macos' || delivery.destinationChannel === 'mac') && delivery.destinationConversationId) {
         // Add expiry message to mac guardian thread
         addMessage(
           delivery.destinationConversationId,

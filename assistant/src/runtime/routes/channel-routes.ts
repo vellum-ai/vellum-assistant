@@ -2,7 +2,7 @@
  * Route handlers for channel inbound messages, delivery acks, and
  * conversation deletion.
  */
-import { isChannelId } from '../../channels/types.js';
+import { isChannelId, CHANNEL_IDS } from '../../channels/types.js';
 import type { ChannelId, TurnChannelContext } from '../../channels/types.js';
 import { timingSafeEqual } from 'node:crypto';
 import { deleteConversationKey } from '../../memory/conversation-key-store.js';
@@ -389,7 +389,7 @@ export async function handleChannelInbound(
   // only sends well-known channel strings, so an unknown value is rejected.
   if (!isChannelId(body.sourceChannel)) {
     return Response.json(
-      { error: `Invalid sourceChannel: ${body.sourceChannel}. Valid values: telegram, sms, voice, macos, ios, whatsapp, slack, email` },
+      { error: `Invalid sourceChannel: ${body.sourceChannel}. Valid values: ${CHANNEL_IDS.join(', ')}` },
       { status: 400 },
     );
   }
