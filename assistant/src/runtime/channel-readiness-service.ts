@@ -4,7 +4,11 @@ import type {
   ChannelReadinessSnapshot,
   ReadinessCheckResult,
 } from './channel-readiness-types.js';
-import { hasTwilioCredentials } from '../calls/twilio-rest.js';
+import {
+  hasTwilioCredentials,
+  getTollFreeVerificationStatus,
+  getPhoneNumberSid,
+} from '../calls/twilio-rest.js';
 import { getSecureKey } from '../security/secure-keys.js';
 import { loadRawConfig } from '../config/loader.js';
 
@@ -59,9 +63,57 @@ const smsProbe: ChannelProbe = {
 
     return results;
   },
-  // Placeholder for remote checks (will be extended in PR3 with Twilio API calls)
   async runRemoteChecks(): Promise<ReadinessCheckResult[]> {
-    return [];
+    if (!hasTwilioCredentials()) return [];
+
+    const accountSid = getSecureKey('credential:twilio:account_sid');
+    const authToken = getSecureKey('credential:twilio:auth_token');
+    if (!accountSid || !authToken) return [];
+
+    // Resolve the assigned phone number
+    const raw = loadRawConfig();
+    const smsConfig = (raw?.sms ?? {}) as Record<string, unknown>;
+    const phoneNumber = (smsConfig.phoneNumber as string) ?? '';
+    if (!phoneNumber) return [];
+
+    // Only toll-free numbers need verification checks
+    const tollFreePrefixes = ['+1800', '+1833', '+1844', '+1855', '+1866', '+1877', '+1888'];
+    const isTollFree = tollFreePrefixes.some((prefix) => phoneNumber.startsWith(prefix));
+    if (!isTollFree) return [];
+
+    try {
+      const phoneSid = await getPhoneNumberSid(accountSid, authToken, phoneNumber);
+      if (!phoneSid) {
+        return [{
+          name: 'toll_free_verification',
+          passed: false,
+          message: `Phone number ${phoneNumber} not found on Twilio account`,
+        }];
+      }
+
+      const verification = await getTollFreeVerificationStatus(accountSid, authToken, phoneSid);
+      if (!verification) {
+        return [{
+          name: 'toll_free_verification',
+          passed: false,
+          message: 'No toll-free verification submitted. Verification is required for SMS sending.',
+        }];
+      }
+
+      const approved = verification.status === 'TWILIO_APPROVED';
+      return [{
+        name: 'toll_free_verification',
+        passed: approved,
+        message: `toll_free_verification: ${verification.status}`,
+      }];
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return [{
+        name: 'toll_free_verification',
+        passed: false,
+        message: `Failed to check toll-free verification: ${message}`,
+      }];
+    }
   },
 };
 

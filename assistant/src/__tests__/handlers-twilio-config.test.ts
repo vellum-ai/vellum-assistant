@@ -1437,4 +1437,363 @@ describe('Twilio config handler', () => {
     expect(responseStr).not.toContain('AC_secret_account_sid_12345');
     expect(responseStr).not.toContain('secret_auth_token_67890');
   });
+
+  // ── sms_compliance_status ───────────────────────────────────────────
+
+  test('sms_compliance_status returns structured compliance data for toll-free number', async () => {
+    secureKeyStore['credential:twilio:account_sid'] = 'AC1234567890abcdef1234567890abcdef';
+    secureKeyStore['credential:twilio:auth_token'] = 'test_auth_token';
+    rawConfigStore = { sms: { phoneNumber: '+18001234567' } };
+
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+      // Phone number SID lookup
+      if (urlStr.includes('IncomingPhoneNumbers.json') && urlStr.includes('PhoneNumber=')) {
+        return new Response(JSON.stringify({
+          incoming_phone_numbers: [{ sid: 'PN123abc', phone_number: '+18001234567' }],
+        }), { status: 200 });
+      }
+      // Toll-free verification lookup
+      if (urlStr.includes('Tollfree/Verifications')) {
+        return new Response(JSON.stringify({
+          verifications: [{
+            sid: 'TF_VER_001',
+            status: 'TWILIO_APPROVED',
+            rejection_reason: null,
+            edit_allowed: false,
+          }],
+        }), { status: 200 });
+      }
+      return originalFetch(url);
+    }) as typeof fetch;
+
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'sms_compliance_status',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; compliance?: Record<string, unknown> };
+    expect(res.success).toBe(true);
+    expect(res.compliance).toBeDefined();
+    expect(res.compliance!.numberType).toBe('toll_free');
+    expect(res.compliance!.verificationSid).toBe('TF_VER_001');
+    expect(res.compliance!.verificationStatus).toBe('TWILIO_APPROVED');
+  });
+
+  test('sms_compliance_status returns local_10dlc type for non-toll-free number without remote check', async () => {
+    secureKeyStore['credential:twilio:account_sid'] = 'AC1234567890abcdef1234567890abcdef';
+    secureKeyStore['credential:twilio:auth_token'] = 'test_auth_token';
+    rawConfigStore = { sms: { phoneNumber: '+15551234567' } };
+
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'sms_compliance_status',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; compliance?: Record<string, unknown> };
+    expect(res.success).toBe(true);
+    expect(res.compliance).toBeDefined();
+    expect(res.compliance!.numberType).toBe('local_10dlc');
+    // No verification fields for non-toll-free
+    expect(res.compliance!.verificationSid).toBeUndefined();
+  });
+
+  test('sms_compliance_status returns error when no credentials', async () => {
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'sms_compliance_status',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; error?: string };
+    expect(res.success).toBe(false);
+    expect(res.error).toContain('Twilio credentials not configured');
+  });
+
+  // ── sms_submit_tollfree_verification ────────────────────────────────
+
+  test('sms_submit_tollfree_verification validates required fields', async () => {
+    secureKeyStore['credential:twilio:account_sid'] = 'AC1234567890abcdef1234567890abcdef';
+    secureKeyStore['credential:twilio:auth_token'] = 'test_auth_token';
+
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'sms_submit_tollfree_verification',
+      verificationParams: {
+        // Missing all required fields
+        businessName: 'Test Biz',
+      },
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; error?: string };
+    expect(res.success).toBe(false);
+    expect(res.error).toContain('Missing required verification fields');
+    expect(res.error).toContain('tollfreePhoneNumberSid');
+  });
+
+  test('sms_submit_tollfree_verification defaults businessType to SOLE_PROPRIETOR', async () => {
+    secureKeyStore['credential:twilio:account_sid'] = 'AC1234567890abcdef1234567890abcdef';
+    secureKeyStore['credential:twilio:auth_token'] = 'test_auth_token';
+
+    let capturedBody = '';
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+      if (urlStr.includes('Tollfree/Verifications') && init?.method === 'POST') {
+        capturedBody = init?.body?.toString() ?? '';
+        return new Response(JSON.stringify({
+          sid: 'TF_VER_NEW',
+          status: 'PENDING_REVIEW',
+        }), { status: 201 });
+      }
+      return originalFetch(url);
+    }) as typeof fetch;
+
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'sms_submit_tollfree_verification',
+      verificationParams: {
+        tollfreePhoneNumberSid: 'PN123',
+        businessName: 'Test Biz',
+        businessWebsite: 'https://test.com',
+        notificationEmail: 'test@test.com',
+        useCaseCategories: ['CUSTOMER_CARE'],
+        useCaseSummary: 'Customer support messages',
+        productionMessageSample: 'Your order has shipped!',
+        optInImageUrls: ['https://test.com/optin.png'],
+        optInType: 'WEB_FORM',
+        messageVolume: '100',
+        // businessType NOT provided — should default to SOLE_PROPRIETOR
+      },
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; compliance?: Record<string, unknown> };
+    expect(res.success).toBe(true);
+    expect(res.compliance).toBeDefined();
+    expect(res.compliance!.verificationSid).toBe('TF_VER_NEW');
+    expect(res.compliance!.verificationStatus).toBe('PENDING_REVIEW');
+
+    // Verify the default businessType was sent to Twilio
+    expect(capturedBody).toContain('BusinessType=SOLE_PROPRIETOR');
+  });
+
+  test('sms_submit_tollfree_verification rejects invalid useCaseCategories', async () => {
+    secureKeyStore['credential:twilio:account_sid'] = 'AC1234567890abcdef1234567890abcdef';
+    secureKeyStore['credential:twilio:auth_token'] = 'test_auth_token';
+
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'sms_submit_tollfree_verification',
+      verificationParams: {
+        tollfreePhoneNumberSid: 'PN123',
+        businessName: 'Test Biz',
+        businessWebsite: 'https://test.com',
+        notificationEmail: 'test@test.com',
+        useCaseCategories: ['INVALID_CATEGORY'],
+        useCaseSummary: 'Test',
+        productionMessageSample: 'Test message',
+        optInImageUrls: ['https://test.com/optin.png'],
+        optInType: 'WEB_FORM',
+        messageVolume: '100',
+      },
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; error?: string };
+    expect(res.success).toBe(false);
+    expect(res.error).toContain('Invalid useCaseCategories');
+    expect(res.error).toContain('INVALID_CATEGORY');
+  });
+
+  test('sms_submit_tollfree_verification returns error without verificationParams', async () => {
+    secureKeyStore['credential:twilio:account_sid'] = 'AC1234567890abcdef1234567890abcdef';
+    secureKeyStore['credential:twilio:auth_token'] = 'test_auth_token';
+
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'sms_submit_tollfree_verification',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; error?: string };
+    expect(res.success).toBe(false);
+    expect(res.error).toContain('verificationParams is required');
+  });
+
+  // ── release_number ─────────────────────────────────────────────────
+
+  test('release_number clears config and secure keys', async () => {
+    secureKeyStore['credential:twilio:account_sid'] = 'AC1234567890abcdef1234567890abcdef';
+    secureKeyStore['credential:twilio:auth_token'] = 'test_auth_token';
+    secureKeyStore['credential:twilio:phone_number'] = '+15551234567';
+    rawConfigStore = {
+      sms: {
+        phoneNumber: '+15551234567',
+        assistantPhoneNumbers: { 'ast-alpha': '+15551234567' },
+      },
+    };
+
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+      // Phone number SID lookup
+      if (urlStr.includes('IncomingPhoneNumbers.json') && urlStr.includes('PhoneNumber=')) {
+        return new Response(JSON.stringify({
+          incoming_phone_numbers: [{ sid: 'PN123abc', phone_number: '+15551234567' }],
+        }), { status: 200 });
+      }
+      // Phone number deletion
+      if (urlStr.includes('IncomingPhoneNumbers/PN123abc.json') && init?.method === 'DELETE') {
+        return new Response('', { status: 204 });
+      }
+      return originalFetch(url);
+    }) as typeof fetch;
+
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'release_number',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; warning?: string };
+    expect(res.success).toBe(true);
+    expect(res.warning).toContain('Phone number released');
+
+    // Verify config was cleared
+    const sms = rawConfigStore.sms as Record<string, unknown>;
+    expect(sms.phoneNumber).toBeUndefined();
+    expect(sms.assistantPhoneNumbers).toBeUndefined();
+
+    // Verify secure key was cleared
+    expect(secureKeyStore['credential:twilio:phone_number']).toBeUndefined();
+  });
+
+  test('release_number returns error when no credentials', async () => {
+    rawConfigStore = { sms: { phoneNumber: '+15551234567' } };
+
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'release_number',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; error?: string };
+    expect(res.success).toBe(false);
+    expect(res.error).toContain('Twilio credentials not configured');
+  });
+
+  test('release_number returns error when no phone number assigned', async () => {
+    secureKeyStore['credential:twilio:account_sid'] = 'AC1234567890abcdef1234567890abcdef';
+    secureKeyStore['credential:twilio:auth_token'] = 'test_auth_token';
+    rawConfigStore = {};
+
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'release_number',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; error?: string };
+    expect(res.success).toBe(false);
+    expect(res.error).toContain('No phone number to release');
+  });
+
+  // ── sms_delete_tollfree_verification ────────────────────────────────
+
+  test('sms_delete_tollfree_verification requires verificationSid', async () => {
+    secureKeyStore['credential:twilio:account_sid'] = 'AC1234567890abcdef1234567890abcdef';
+    secureKeyStore['credential:twilio:auth_token'] = 'test_auth_token';
+
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'sms_delete_tollfree_verification',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; error?: string };
+    expect(res.success).toBe(false);
+    expect(res.error).toContain('verificationSid is required');
+  });
+
+  test('sms_delete_tollfree_verification includes queue warning', async () => {
+    secureKeyStore['credential:twilio:account_sid'] = 'AC1234567890abcdef1234567890abcdef';
+    secureKeyStore['credential:twilio:auth_token'] = 'test_auth_token';
+
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      const urlStr = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+      if (urlStr.includes('Tollfree/Verifications/TF_VER_001') && init?.method === 'DELETE') {
+        return new Response('', { status: 204 });
+      }
+      return originalFetch(url);
+    }) as typeof fetch;
+
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'sms_delete_tollfree_verification',
+      verificationSid: 'TF_VER_001',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; warning?: string };
+    expect(res.success).toBe(true);
+    expect(res.warning).toContain('review queue');
+  });
+
+  // ── sms_update_tollfree_verification ────────────────────────────────
+
+  test('sms_update_tollfree_verification requires verificationSid', async () => {
+    secureKeyStore['credential:twilio:account_sid'] = 'AC1234567890abcdef1234567890abcdef';
+    secureKeyStore['credential:twilio:auth_token'] = 'test_auth_token';
+
+    const msg: TwilioConfigRequest = {
+      type: 'twilio_config',
+      action: 'sms_update_tollfree_verification',
+    };
+
+    const { ctx, sent } = createTestContext();
+    await handleTwilioConfig(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as { type: string; success: boolean; error?: string };
+    expect(res.success).toBe(false);
+    expect(res.error).toContain('verificationSid is required');
+  });
 });

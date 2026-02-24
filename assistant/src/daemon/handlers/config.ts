@@ -43,6 +43,13 @@ import {
   searchAvailableNumbers,
   provisionPhoneNumber,
   updatePhoneNumberWebhooks,
+  getTollFreeVerificationStatus,
+  submitTollFreeVerification,
+  updateTollFreeVerification,
+  deleteTollFreeVerification,
+  getPhoneNumberSid,
+  releasePhoneNumber,
+  type TollFreeVerificationSubmitParams,
 } from '../../calls/twilio-rest.js';
 import {
   getTwilioVoiceWebhookUrl,
@@ -1480,6 +1487,361 @@ export async function handleTwilioConfig(
         success: true,
         hasCredentials: true,
         numbers,
+      });
+    } else if (msg.action === 'sms_compliance_status') {
+      if (!hasTwilioCredentials()) {
+        ctx.send(socket, {
+          type: 'twilio_config_response',
+          success: false,
+          hasCredentials: false,
+          error: 'Twilio credentials not configured. Set credentials first.',
+        });
+        return;
+      }
+
+      const raw = loadRawConfig();
+      const sms = (raw?.sms ?? {}) as Record<string, unknown>;
+      let phoneNumber: string;
+      if (msg.assistantId) {
+        const mapping = (sms.assistantPhoneNumbers as Record<string, string> | undefined) ?? {};
+        phoneNumber = mapping[msg.assistantId] ?? (sms.phoneNumber as string) ?? '';
+      } else {
+        phoneNumber = (sms.phoneNumber as string) ?? '';
+      }
+
+      if (!phoneNumber) {
+        ctx.send(socket, {
+          type: 'twilio_config_response',
+          success: false,
+          hasCredentials: true,
+          error: 'No phone number assigned. Assign a number first.',
+        });
+        return;
+      }
+
+      const accountSid = getSecureKey('credential:twilio:account_sid')!;
+      const authToken = getSecureKey('credential:twilio:auth_token')!;
+
+      // Determine number type from prefix
+      const tollFreePrefixes = ['+1800', '+1833', '+1844', '+1855', '+1866', '+1877', '+1888'];
+      const isTollFree = tollFreePrefixes.some((prefix) => phoneNumber.startsWith(prefix));
+      const numberType = isTollFree ? 'toll_free' : 'local_10dlc';
+
+      if (!isTollFree) {
+        // Non-toll-free numbers don't need toll-free verification
+        ctx.send(socket, {
+          type: 'twilio_config_response',
+          success: true,
+          hasCredentials: true,
+          phoneNumber,
+          compliance: { numberType },
+        });
+        return;
+      }
+
+      // Look up the phone number SID and check verification status
+      const phoneSid = await getPhoneNumberSid(accountSid, authToken, phoneNumber);
+      if (!phoneSid) {
+        ctx.send(socket, {
+          type: 'twilio_config_response',
+          success: false,
+          hasCredentials: true,
+          phoneNumber,
+          error: `Phone number ${phoneNumber} not found on Twilio account`,
+        });
+        return;
+      }
+
+      const verification = await getTollFreeVerificationStatus(accountSid, authToken, phoneSid);
+
+      ctx.send(socket, {
+        type: 'twilio_config_response',
+        success: true,
+        hasCredentials: true,
+        phoneNumber,
+        compliance: {
+          numberType,
+          verificationSid: verification?.sid,
+          verificationStatus: verification?.status,
+          rejectionReason: verification?.rejectionReason,
+          rejectionReasons: verification?.rejectionReasons,
+          errorCode: verification?.errorCode,
+          editAllowed: verification?.editAllowed,
+          editExpiration: verification?.editExpiration,
+        },
+      });
+    } else if (msg.action === 'sms_submit_tollfree_verification') {
+      if (!hasTwilioCredentials()) {
+        ctx.send(socket, {
+          type: 'twilio_config_response',
+          success: false,
+          hasCredentials: false,
+          error: 'Twilio credentials not configured. Set credentials first.',
+        });
+        return;
+      }
+
+      const vp = msg.verificationParams;
+      if (!vp) {
+        ctx.send(socket, {
+          type: 'twilio_config_response',
+          success: false,
+          hasCredentials: true,
+          error: 'verificationParams is required for sms_submit_tollfree_verification action',
+        });
+        return;
+      }
+
+      // Validate required fields
+      const requiredFields: Array<[string, unknown]> = [
+        ['tollfreePhoneNumberSid', vp.tollfreePhoneNumberSid],
+        ['businessName', vp.businessName],
+        ['businessWebsite', vp.businessWebsite],
+        ['notificationEmail', vp.notificationEmail],
+        ['useCaseCategories', vp.useCaseCategories],
+        ['useCaseSummary', vp.useCaseSummary],
+        ['productionMessageSample', vp.productionMessageSample],
+        ['optInImageUrls', vp.optInImageUrls],
+        ['optInType', vp.optInType],
+        ['messageVolume', vp.messageVolume],
+      ];
+
+      const missing = requiredFields
+        .filter(([, v]) => v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0))
+        .map(([name]) => name);
+
+      if (missing.length > 0) {
+        ctx.send(socket, {
+          type: 'twilio_config_response',
+          success: false,
+          hasCredentials: true,
+          error: `Missing required verification fields: ${missing.join(', ')}`,
+        });
+        return;
+      }
+
+      // Validate enum values
+      const validUseCaseCategories = [
+        'TWO_FACTOR_AUTHENTICATION', 'ACCOUNT_NOTIFICATION', 'CUSTOMER_CARE',
+        'DELIVERY_NOTIFICATION', 'FRAUD_ALERT', 'HIGHER_EDUCATION', 'MARKETING',
+        'POLLING_AND_VOTING', 'PUBLIC_SERVICE_ANNOUNCEMENT', 'SECURITY_ALERT',
+      ];
+      const invalidCategories = (vp.useCaseCategories ?? []).filter((c) => !validUseCaseCategories.includes(c));
+      if (invalidCategories.length > 0) {
+        ctx.send(socket, {
+          type: 'twilio_config_response',
+          success: false,
+          hasCredentials: true,
+          error: `Invalid useCaseCategories: ${invalidCategories.join(', ')}. Valid values: ${validUseCaseCategories.join(', ')}`,
+        });
+        return;
+      }
+
+      const validOptInTypes = ['VERBAL', 'WEB_FORM', 'PAPER_FORM', 'VIA_TEXT', 'MOBILE_QR_CODE'];
+      if (!validOptInTypes.includes(vp.optInType!)) {
+        ctx.send(socket, {
+          type: 'twilio_config_response',
+          success: false,
+          hasCredentials: true,
+          error: `Invalid optInType: ${vp.optInType}. Valid values: ${validOptInTypes.join(', ')}`,
+        });
+        return;
+      }
+
+      const validMessageVolumes = [
+        '10', '100', '1,000', '10,000', '100,000', '250,000',
+        '500,000', '750,000', '1,000,000', '5,000,000', '10,000,000+',
+      ];
+      if (!validMessageVolumes.includes(vp.messageVolume!)) {
+        ctx.send(socket, {
+          type: 'twilio_config_response',
+          success: false,
+          hasCredentials: true,
+          error: `Invalid messageVolume: ${vp.messageVolume}. Valid values: ${validMessageVolumes.join(', ')}`,
+        });
+        return;
+      }
+
+      const accountSid = getSecureKey('credential:twilio:account_sid')!;
+      const authToken = getSecureKey('credential:twilio:auth_token')!;
+
+      const submitParams: TollFreeVerificationSubmitParams = {
+        tollfreePhoneNumberSid: vp.tollfreePhoneNumberSid!,
+        businessName: vp.businessName!,
+        businessWebsite: vp.businessWebsite!,
+        notificationEmail: vp.notificationEmail!,
+        useCaseCategories: vp.useCaseCategories!,
+        useCaseSummary: vp.useCaseSummary!,
+        productionMessageSample: vp.productionMessageSample!,
+        optInImageUrls: vp.optInImageUrls!,
+        optInType: vp.optInType!,
+        messageVolume: vp.messageVolume!,
+        businessType: vp.businessType ?? 'SOLE_PROPRIETOR',
+        customerProfileSid: vp.customerProfileSid,
+      };
+
+      const verification = await submitTollFreeVerification(accountSid, authToken, submitParams);
+
+      ctx.send(socket, {
+        type: 'twilio_config_response',
+        success: true,
+        hasCredentials: true,
+        compliance: {
+          numberType: 'toll_free',
+          verificationSid: verification.sid,
+          verificationStatus: verification.status,
+        },
+      });
+    } else if (msg.action === 'sms_update_tollfree_verification') {
+      if (!hasTwilioCredentials()) {
+        ctx.send(socket, {
+          type: 'twilio_config_response',
+          success: false,
+          hasCredentials: false,
+          error: 'Twilio credentials not configured. Set credentials first.',
+        });
+        return;
+      }
+
+      if (!msg.verificationSid) {
+        ctx.send(socket, {
+          type: 'twilio_config_response',
+          success: false,
+          hasCredentials: true,
+          error: 'verificationSid is required for sms_update_tollfree_verification action',
+        });
+        return;
+      }
+
+      const accountSid = getSecureKey('credential:twilio:account_sid')!;
+      const authToken = getSecureKey('credential:twilio:auth_token')!;
+
+      const verification = await updateTollFreeVerification(
+        accountSid,
+        authToken,
+        msg.verificationSid,
+        msg.verificationParams ?? {},
+      );
+
+      ctx.send(socket, {
+        type: 'twilio_config_response',
+        success: true,
+        hasCredentials: true,
+        compliance: {
+          numberType: 'toll_free',
+          verificationSid: verification.sid,
+          verificationStatus: verification.status,
+          editAllowed: verification.editAllowed,
+          editExpiration: verification.editExpiration,
+        },
+      });
+    } else if (msg.action === 'sms_delete_tollfree_verification') {
+      if (!hasTwilioCredentials()) {
+        ctx.send(socket, {
+          type: 'twilio_config_response',
+          success: false,
+          hasCredentials: false,
+          error: 'Twilio credentials not configured. Set credentials first.',
+        });
+        return;
+      }
+
+      if (!msg.verificationSid) {
+        ctx.send(socket, {
+          type: 'twilio_config_response',
+          success: false,
+          hasCredentials: true,
+          error: 'verificationSid is required for sms_delete_tollfree_verification action',
+        });
+        return;
+      }
+
+      const accountSid = getSecureKey('credential:twilio:account_sid')!;
+      const authToken = getSecureKey('credential:twilio:auth_token')!;
+
+      await deleteTollFreeVerification(accountSid, authToken, msg.verificationSid);
+
+      ctx.send(socket, {
+        type: 'twilio_config_response',
+        success: true,
+        hasCredentials: true,
+        warning: 'Toll-free verification deleted. Re-submitting may reset your position in the review queue.',
+      });
+    } else if (msg.action === 'release_number') {
+      if (!hasTwilioCredentials()) {
+        ctx.send(socket, {
+          type: 'twilio_config_response',
+          success: false,
+          hasCredentials: false,
+          error: 'Twilio credentials not configured. Set credentials first.',
+        });
+        return;
+      }
+
+      const raw = loadRawConfig();
+      const sms = (raw?.sms ?? {}) as Record<string, unknown>;
+      let phoneNumber: string;
+      if (msg.phoneNumber) {
+        phoneNumber = msg.phoneNumber;
+      } else if (msg.assistantId) {
+        const mapping = (sms.assistantPhoneNumbers as Record<string, string> | undefined) ?? {};
+        phoneNumber = mapping[msg.assistantId] ?? (sms.phoneNumber as string) ?? '';
+      } else {
+        phoneNumber = (sms.phoneNumber as string) ?? '';
+      }
+
+      if (!phoneNumber) {
+        ctx.send(socket, {
+          type: 'twilio_config_response',
+          success: false,
+          hasCredentials: true,
+          error: 'No phone number to release. Specify phoneNumber or ensure one is assigned.',
+        });
+        return;
+      }
+
+      const accountSid = getSecureKey('credential:twilio:account_sid')!;
+      const authToken = getSecureKey('credential:twilio:auth_token')!;
+
+      await releasePhoneNumber(accountSid, authToken, phoneNumber);
+
+      // Clear the number from config and secure key store
+      if (sms.phoneNumber === phoneNumber) {
+        delete sms.phoneNumber;
+      }
+      const assistantPhoneNumbers = sms.assistantPhoneNumbers as Record<string, string> | undefined;
+      if (assistantPhoneNumbers) {
+        for (const [id, num] of Object.entries(assistantPhoneNumbers)) {
+          if (num === phoneNumber) {
+            delete assistantPhoneNumbers[id];
+          }
+        }
+        if (Object.keys(assistantPhoneNumbers).length === 0) {
+          delete sms.assistantPhoneNumbers;
+        }
+      }
+
+      const wasSuppressed = ctx.suppressConfigReload;
+      ctx.setSuppressConfigReload(true);
+      try {
+        saveRawConfig({ ...raw, sms });
+      } catch (err) {
+        ctx.setSuppressConfigReload(wasSuppressed);
+        throw err;
+      }
+      ctx.debounceTimers.schedule('__suppress_reset__', () => { ctx.setSuppressConfigReload(false); }, CONFIG_RELOAD_DEBOUNCE_MS);
+
+      // Clear the phone number from secure key store if it matches
+      const storedPhone = getSecureKey('credential:twilio:phone_number');
+      if (storedPhone === phoneNumber) {
+        deleteSecureKey('credential:twilio:phone_number');
+      }
+
+      ctx.send(socket, {
+        type: 'twilio_config_response',
+        success: true,
+        hasCredentials: true,
+        warning: 'Phone number released from Twilio. Any associated toll-free verification context is lost.',
       });
     } else {
       ctx.send(socket, {

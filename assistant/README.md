@@ -208,8 +208,13 @@ The daemon handles `twilio_config` messages with the following actions:
 | `provision_number` | Purchases a new phone number via the Twilio API. Accepts optional `areaCode` and `country` (ISO 3166-1 alpha-2, default `US`). Auto-assigns the number to the assistant (persists to config and secure storage) and configures Twilio webhooks (voice, status callback, SMS) when a public ingress URL is available. |
 | `assign_number` | Assigns an existing Twilio phone number (E.164 format) to the assistant and auto-configures webhooks when ingress is available |
 | `list_numbers` | Lists all incoming phone numbers on the Twilio account with their capabilities (voice, SMS) |
+| `sms_compliance_status` | Returns the SMS compliance posture for the assigned phone number. Determines number type (toll-free vs local 10DLC) and retrieves toll-free verification status from Twilio. |
+| `sms_submit_tollfree_verification` | Submits a new toll-free verification request to Twilio. Validates required fields and enum values. Defaults `businessType` to `SOLE_PROPRIETOR`. |
+| `sms_update_tollfree_verification` | Updates an existing toll-free verification by SID. Requires `verificationSid`. |
+| `sms_delete_tollfree_verification` | Deletes a toll-free verification by SID. Includes warning about queue priority reset. |
+| `release_number` | Releases (deletes) a phone number from the Twilio account. Clears the number from config and secure storage. Includes warning about toll-free verification context loss. |
 
-Response type: `twilio_config_response` with `success`, `hasCredentials`, optional `phoneNumber`, optional `numbers` array, optional `error`, and optional `warning` (for non-fatal webhook sync failures).
+Response type: `twilio_config_response` with `success`, `hasCredentials`, optional `phoneNumber`, optional `numbers` array, optional `error`, optional `warning` (for non-fatal webhook sync failures), and optional `compliance` object (for compliance status actions, containing `numberType`, `verificationSid`, `verificationStatus`, `rejectionReason`, `rejectionReasons`, `errorCode`, `editAllowed`, `editExpiration`).
 
 ### Ingress Webhook Reconciliation
 

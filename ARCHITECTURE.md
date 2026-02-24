@@ -451,7 +451,9 @@ All three paths are best-effort: webhook sync failures do not prevent the primar
 
 **Limitations (v1)**: Text-only — MMS payloads are explicitly rejected with a user-facing notice rather than silently dropped.
 
-**Channel Readiness**: The `channel_readiness` IPC contract (`ChannelReadinessService` in `src/runtime/channel-readiness-service.ts`) provides a unified readiness subsystem for all channels. Each channel registers a `ChannelProbe` that runs synchronous local checks (credential presence, phone number, ingress config) and optional async remote checks (API reachability) with a 5-minute TTL cache. Built-in probes: SMS (Twilio credentials, phone number, ingress) and Telegram (bot token, webhook secret, ingress). The `get` action returns cached snapshots; `refresh` invalidates the cache first. Unknown channels return `unsupported_channel`.
+**Channel Readiness**: The `channel_readiness` IPC contract (`ChannelReadinessService` in `src/runtime/channel-readiness-service.ts`) provides a unified readiness subsystem for all channels. Each channel registers a `ChannelProbe` that runs synchronous local checks (credential presence, phone number, ingress config) and optional async remote checks with a 5-minute TTL cache. Built-in probes: SMS (Twilio credentials, phone number, ingress; remote checks query Twilio toll-free verification status for toll-free numbers) and Telegram (bot token, webhook secret, ingress). The `get` action returns cached snapshots; `refresh` invalidates the cache first. Unknown channels return `unsupported_channel`.
+
+**SMS Compliance & Admin**: The `twilio_config` IPC contract extends beyond credential and number management with compliance and admin actions: `sms_compliance_status` detects toll-free vs local number type and fetches verification status; `sms_submit_tollfree_verification`, `sms_update_tollfree_verification`, and `sms_delete_tollfree_verification` manage the Twilio toll-free verification lifecycle; `release_number` removes a phone number from the Twilio account and clears all local references. All compliance actions validate required fields and Twilio enum values before calling the API.
 
 ---
 

@@ -563,13 +563,30 @@ export interface TelegramConfigResponse {
 
 export interface TwilioConfigRequest {
   type: 'twilio_config';
-  action: 'get' | 'set_credentials' | 'clear_credentials' | 'provision_number' | 'assign_number' | 'list_numbers';
+  action: 'get' | 'set_credentials' | 'clear_credentials' | 'provision_number' | 'assign_number' | 'list_numbers'
+    | 'sms_compliance_status' | 'sms_submit_tollfree_verification' | 'sms_update_tollfree_verification'
+    | 'sms_delete_tollfree_verification' | 'release_number';
   accountSid?: string;        // Only for action: 'set_credentials'
   authToken?: string;         // Only for action: 'set_credentials'
   phoneNumber?: string;       // Only for action: 'assign_number'
   areaCode?: string;          // Only for action: 'provision_number'
   country?: string;           // Only for action: 'provision_number' (ISO 3166-1 alpha-2, default 'US')
   assistantId?: string;       // Scope number assignment/lookup to a specific assistant
+  verificationSid?: string;   // Only for update/delete verification actions
+  verificationParams?: {
+    tollfreePhoneNumberSid?: string;
+    businessName?: string;
+    businessWebsite?: string;
+    notificationEmail?: string;
+    useCaseCategories?: string[];
+    useCaseSummary?: string;
+    productionMessageSample?: string;
+    optInImageUrls?: string[];
+    optInType?: string;
+    messageVolume?: string;
+    businessType?: string;
+    customerProfileSid?: string;
+  };
 }
 
 export interface TwilioConfigResponse {
@@ -581,6 +598,16 @@ export interface TwilioConfigResponse {
   error?: string;
   /** Non-fatal warning message (e.g. webhook sync failure that did not prevent the primary operation). */
   warning?: string;
+  compliance?: {
+    numberType?: string;
+    verificationSid?: string;
+    verificationStatus?: string;
+    rejectionReason?: string;
+    rejectionReasons?: string[];
+    errorCode?: string;
+    editAllowed?: boolean;
+    editExpiration?: string;
+  };
 }
 
 export interface ChannelReadinessRequest {

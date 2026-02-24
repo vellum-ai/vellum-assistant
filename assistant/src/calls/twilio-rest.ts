@@ -224,3 +224,247 @@ export async function updatePhoneNumberWebhooks(
     throw new Error(`Twilio API error ${updateRes.status} updating webhooks: ${text}`);
   }
 }
+
+// ── Toll-Free Verification ──────────────────────────────────────────────
+
+/** Twilio Messaging API base URL for toll-free verification endpoints. */
+const TOLLFREE_VERIFICATION_BASE = 'https://messaging.twilio.com/v1/Tollfree/Verifications';
+
+export interface TollFreeVerification {
+  sid: string;
+  status: string;
+  rejectionReason?: string;
+  rejectionReasons?: string[];
+  errorCode?: string;
+  editAllowed?: boolean;
+  editExpiration?: string;
+  regulationType?: string;
+}
+
+function parseTollFreeVerification(raw: Record<string, unknown>): TollFreeVerification {
+  return {
+    sid: raw.sid as string,
+    status: raw.status as string,
+    rejectionReason: (raw.rejection_reason as string) ?? undefined,
+    rejectionReasons: (raw.rejection_reasons as string[]) ?? undefined,
+    errorCode: (raw.error_code != null ? String(raw.error_code) : undefined),
+    editAllowed: (raw.edit_allowed as boolean) ?? undefined,
+    editExpiration: (raw.edit_expiration as string) ?? undefined,
+    regulationType: (raw.regulation_type as string) ?? undefined,
+  };
+}
+
+/**
+ * Get toll-free verification status for a phone number.
+ * If `phoneNumberSid` is provided, filters by that SID; otherwise returns the
+ * first verification found.
+ */
+export async function getTollFreeVerificationStatus(
+  accountSid: string,
+  authToken: string,
+  phoneNumberSid?: string,
+): Promise<TollFreeVerification | null> {
+  const params = new URLSearchParams();
+  if (phoneNumberSid) params.set('TollfreePhoneNumberSid', phoneNumberSid);
+
+  const url = params.toString()
+    ? `${TOLLFREE_VERIFICATION_BASE}?${params.toString()}`
+    : TOLLFREE_VERIFICATION_BASE;
+
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: { Authorization: twilioAuthHeader(accountSid, authToken) },
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Twilio Toll-Free Verification API error ${res.status}: ${text}`);
+  }
+
+  const data = (await res.json()) as { verifications?: Array<Record<string, unknown>> };
+  const verifications = data.verifications ?? [];
+  if (verifications.length === 0) return null;
+
+  return parseTollFreeVerification(verifications[0]);
+}
+
+export interface TollFreeVerificationSubmitParams {
+  tollfreePhoneNumberSid: string;
+  businessName: string;
+  businessWebsite: string;
+  notificationEmail: string;
+  useCaseCategories: string[];
+  useCaseSummary: string;
+  productionMessageSample: string;
+  optInImageUrls: string[];
+  optInType: string;
+  messageVolume: string;
+  businessType?: string;
+  customerProfileSid?: string;
+}
+
+/** Submit a new toll-free verification request. */
+export async function submitTollFreeVerification(
+  accountSid: string,
+  authToken: string,
+  params: TollFreeVerificationSubmitParams,
+): Promise<TollFreeVerification> {
+  const body = new URLSearchParams();
+  body.set('TollfreePhoneNumberSid', params.tollfreePhoneNumberSid);
+  body.set('BusinessName', params.businessName);
+  body.set('BusinessWebsite', params.businessWebsite);
+  body.set('NotificationEmail', params.notificationEmail);
+  body.set('UseCaseSummary', params.useCaseSummary);
+  body.set('ProductionMessageSample', params.productionMessageSample);
+  body.set('OptInType', params.optInType);
+  body.set('MessageVolume', params.messageVolume);
+  body.set('BusinessType', params.businessType ?? 'SOLE_PROPRIETOR');
+
+  for (const cat of params.useCaseCategories) {
+    body.append('UseCaseCategories', cat);
+  }
+  for (const url of params.optInImageUrls) {
+    body.append('OptInImageUrls', url);
+  }
+  if (params.customerProfileSid) {
+    body.set('CustomerProfileSid', params.customerProfileSid);
+  }
+
+  const res = await fetch(TOLLFREE_VERIFICATION_BASE, {
+    method: 'POST',
+    headers: {
+      Authorization: twilioAuthHeader(accountSid, authToken),
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: body.toString(),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Twilio Toll-Free Verification submit error ${res.status}: ${text}`);
+  }
+
+  const data = (await res.json()) as Record<string, unknown>;
+  return parseTollFreeVerification(data);
+}
+
+/** Update an existing toll-free verification. */
+export async function updateTollFreeVerification(
+  accountSid: string,
+  authToken: string,
+  verificationSid: string,
+  params: Partial<TollFreeVerificationSubmitParams>,
+): Promise<TollFreeVerification> {
+  const body = new URLSearchParams();
+  if (params.businessName) body.set('BusinessName', params.businessName);
+  if (params.businessWebsite) body.set('BusinessWebsite', params.businessWebsite);
+  if (params.notificationEmail) body.set('NotificationEmail', params.notificationEmail);
+  if (params.useCaseSummary) body.set('UseCaseSummary', params.useCaseSummary);
+  if (params.productionMessageSample) body.set('ProductionMessageSample', params.productionMessageSample);
+  if (params.optInType) body.set('OptInType', params.optInType);
+  if (params.messageVolume) body.set('MessageVolume', params.messageVolume);
+  if (params.businessType) body.set('BusinessType', params.businessType);
+  if (params.useCaseCategories) {
+    for (const cat of params.useCaseCategories) {
+      body.append('UseCaseCategories', cat);
+    }
+  }
+  if (params.optInImageUrls) {
+    for (const url of params.optInImageUrls) {
+      body.append('OptInImageUrls', url);
+    }
+  }
+  if (params.customerProfileSid) body.set('CustomerProfileSid', params.customerProfileSid);
+
+  const res = await fetch(`${TOLLFREE_VERIFICATION_BASE}/${encodeURIComponent(verificationSid)}`, {
+    method: 'POST',
+    headers: {
+      Authorization: twilioAuthHeader(accountSid, authToken),
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: body.toString(),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Twilio Toll-Free Verification update error ${res.status}: ${text}`);
+  }
+
+  const data = (await res.json()) as Record<string, unknown>;
+  return parseTollFreeVerification(data);
+}
+
+/** Delete a toll-free verification. */
+export async function deleteTollFreeVerification(
+  accountSid: string,
+  authToken: string,
+  verificationSid: string,
+): Promise<void> {
+  const res = await fetch(`${TOLLFREE_VERIFICATION_BASE}/${encodeURIComponent(verificationSid)}`, {
+    method: 'DELETE',
+    headers: { Authorization: twilioAuthHeader(accountSid, authToken) },
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Twilio Toll-Free Verification delete error ${res.status}: ${text}`);
+  }
+}
+
+/**
+ * Get the SID for an incoming phone number.
+ * Looks up the number via `IncomingPhoneNumbers.json?PhoneNumber=...`.
+ */
+export async function getPhoneNumberSid(
+  accountSid: string,
+  authToken: string,
+  phoneNumber: string,
+): Promise<string | null> {
+  const res = await fetch(
+    `${twilioBaseUrl(accountSid)}/IncomingPhoneNumbers.json?PhoneNumber=${encodeURIComponent(phoneNumber)}`,
+    {
+      method: 'GET',
+      headers: { Authorization: twilioAuthHeader(accountSid, authToken) },
+    },
+  );
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Twilio API error ${res.status} looking up phone number SID: ${text}`);
+  }
+
+  const data = (await res.json()) as {
+    incoming_phone_numbers: Array<{ sid: string; phone_number: string }>;
+  };
+
+  const match = data.incoming_phone_numbers.find((n) => n.phone_number === phoneNumber);
+  return match?.sid ?? null;
+}
+
+/**
+ * Release (delete) an incoming phone number from the Twilio account.
+ * Looks up the SID by phone number then sends a DELETE request.
+ */
+export async function releasePhoneNumber(
+  accountSid: string,
+  authToken: string,
+  phoneNumber: string,
+): Promise<void> {
+  const sid = await getPhoneNumberSid(accountSid, authToken, phoneNumber);
+  if (!sid) {
+    throw new Error(`Phone number ${phoneNumber} not found on Twilio account ${accountSid}`);
+  }
+
+  const res = await fetch(
+    `${twilioBaseUrl(accountSid)}/IncomingPhoneNumbers/${sid}.json`,
+    {
+      method: 'DELETE',
+      headers: { Authorization: twilioAuthHeader(accountSid, authToken) },
+    },
+  );
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Twilio API error ${res.status} releasing phone number: ${text}`);
+  }
+}
