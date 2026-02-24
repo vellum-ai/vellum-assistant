@@ -118,7 +118,7 @@ final class AlwaysOnAudioMonitor: ObservableObject {
 
             // Resample hardware audio to 16kHz mono
             let frameCapacity = AVAudioFrameCount(
-                Double(buffer.frameLength) * targetFormat.sampleRate / hwFormat.sampleRate
+                ceil(Double(buffer.frameLength) * targetFormat.sampleRate / hwFormat.sampleRate)
             )
             guard let convertedBuffer = AVAudioPCMBuffer(
                 pcmFormat: targetFormat,
@@ -126,7 +126,13 @@ final class AlwaysOnAudioMonitor: ObservableObject {
             ) else { return }
 
             var error: NSError?
+            var inputConsumed = false
             let status = converter.convert(to: convertedBuffer, error: &error) { _, outStatus in
+                if inputConsumed {
+                    outStatus.pointee = .noDataNow
+                    return nil
+                }
+                inputConsumed = true
                 outStatus.pointee = .haveData
                 return buffer
             }
