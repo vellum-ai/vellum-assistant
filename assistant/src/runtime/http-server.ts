@@ -28,6 +28,7 @@ import {
   handleListMessages,
   handleSendMessage,
   handleGetSuggestion,
+  handleSearchConversations,
 } from './routes/conversation-routes.js';
 import {
   handleUploadAttachment,
@@ -719,6 +720,10 @@ export class RuntimeHttpServer {
 
       if (endpoint === 'messages' && req.method === 'GET') {
         return handleListMessages(url, this.interfacesDir);
+      }
+
+      if (endpoint === 'search' && req.method === 'GET') {
+        return handleSearchConversations(url);
       }
 
       if (endpoint === 'messages' && req.method === 'POST') {

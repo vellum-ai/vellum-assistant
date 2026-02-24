@@ -1350,6 +1350,7 @@ graph LR
         C10["ipc_blob_probe<br/>probeId, nonceSha256"]
         C11["work_items_list / work_item_get<br/>work_item_create / work_item_update<br/>work_item_complete / work_item_run_task<br/>(planned)"]
         C12["tool_permission_simulate<br/>toolName, input, workingDir?,<br/>isInteractive?, forcePromptSideEffects?,<br/>executionTarget?"]
+        C13["conversation_search<br/>query, limit?,<br/>maxMessagesPerConversation?"]
     end
 
     SOCKET["Unix Socket<br/>~/.vellum/vellum.sock<br/>───────────────<br/>Newline-delimited JSON<br/>Max 96MB per message<br/>Ping/pong every 30s<br/>Auto-reconnect<br/>1s → 30s backoff"]
@@ -1378,6 +1379,7 @@ graph LR
         S19["session_list_response<br/>sessions[]: id, title,<br/>updatedAt, threadType?"]
         S20["work_item_status_changed<br/>workItemId, newStatus<br/>(planned push)"]
         S21["tool_permission_simulate_response<br/>decision, riskLevel, reason?,<br/>promptPayload?, matchedRuleId?"]
+        S22["conversation_search_response<br/>query, results[]: conversationId,<br/>title, updatedAt, matchingMessages[]"]
     end
 
     C0 --> SOCKET
@@ -1393,6 +1395,7 @@ graph LR
     C10 --> SOCKET
     C11 --> SOCKET
     C12 --> SOCKET
+    C13 --> SOCKET
 
     SOCKET --> S0
     SOCKET --> S1
@@ -1416,6 +1419,7 @@ graph LR
     SOCKET --> S19
     SOCKET --> S20
     SOCKET --> S21
+    SOCKET --> S22
 ```
 
 ---
