@@ -1,6 +1,7 @@
 import CoreGraphics
 import AppKit
 import ApplicationServices
+import os
 
 enum ExecutorError: LocalizedError {
     case eventCreationFailed
@@ -35,6 +36,8 @@ enum ExecutorError: LocalizedError {
 protocol ActionExecuting {
     func execute(_ action: AgentAction) async throws -> String?
 }
+
+private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ActionExecutor")
 
 final class ActionExecutor: ActionExecuting {
     private let eventSource: CGEventSource?
@@ -123,12 +126,11 @@ final class ActionExecutor: ActionExecuting {
         // typing unintended text.
         let verifiedContents = pasteboard.string(forType: .string)
         guard verifiedContents == text else {
-            // Restore whatever was on the clipboard before we cleared it so the
-            // user's data is not lost, then surface a clear error.
-            pasteboard.clearContents()
-            if let saved = previousContents {
-                pasteboard.setString(saved, forType: .string)
-            }
+            // Another process updated the clipboard between our setString and
+            // this read-back. We don't know what the current state should be, so
+            // restoring previousContents would overwrite that other process's
+            // data. Leave the clipboard as-is and surface a clear error.
+            log.warning("Clipboard read-back mismatch — another process may have modified the pasteboard; skipping injection")
             throw ExecutorError.clipboardMismatch
         }
 
