@@ -22,7 +22,7 @@ Gmail, Slack, and Telegram setup all require a publicly reachable URL for OAuth 
    - Then call `skill_load` with `skill: "google-oauth-setup"`.
    - Tell the user Gmail isn't connected yet and briefly explain what the setup involves, then use `ui_show` with `surface_type: "confirmation"` to ask for permission to start:
      - **message:** "Ready to set up Gmail?"
-     - **detail:** "I'll automate the entire setup in the browser — creating a Google Cloud project, enabling APIs, and configuring OAuth. It takes a few minutes and you can watch via screencast."
+     - **detail:** "I'll open a browser where you sign in to Google, then automate everything else — creating a project, enabling APIs, and connecting your account. Takes 2-3 minutes and you can watch in the browser preview panel."
      - **confirmLabel:** "Get Started"
      - **cancelLabel:** "Not Now"
    - If the user confirms, briefly acknowledge (e.g., "Setting up Gmail now...") and proceed with the setup guide. If they decline, acknowledge and let them know they can set it up later.
