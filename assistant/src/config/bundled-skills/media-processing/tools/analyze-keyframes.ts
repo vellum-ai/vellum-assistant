@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import { getAnthropicProvider, extractText, userMessageWithImage, userMessageWithImages } from '../../../../providers/anthropic-send-message.js';
+import { getAnthropicProvider, extractText, userMessageWithImages } from '../../../../providers/anthropic-send-message.js';
 import { initializeProviders } from '../../../../providers/registry.js';
 import { loadConfig, invalidateConfigCache } from '../../../../config/loader.js';
 import {
@@ -349,60 +349,4 @@ export async function run(
     }
     return { content: `Vision analysis failed: ${(err as Error).message}`, isError: true };
   }
-}
-
-async function analyzeKeyframe(
-  provider: import('../../../../providers/types.js').Provider,
-  keyframe: MediaKeyframe,
-): Promise<{ output: Record<string, unknown>; confidence: number }> {
-  // Read the image file and encode as base64
-  const imageData = await readFile(keyframe.filePath);
-  const base64 = imageData.toString('base64');
-
-  // Determine media type from file extension
-  const ext = keyframe.filePath.split('.').pop()?.toLowerCase() ?? 'jpg';
-  const mediaTypeMap: Record<string, string> = {
-    jpg: 'image/jpeg',
-    jpeg: 'image/jpeg',
-    png: 'image/png',
-    gif: 'image/gif',
-    webp: 'image/webp',
-  };
-  const mediaType = mediaTypeMap[ext] ?? 'image/jpeg';
-
-  const response = await provider.sendMessage(
-    [userMessageWithImage(base64, mediaType, VLM_PROMPT)],
-    undefined,
-    undefined,
-    {
-      config: {
-        model: 'claude-sonnet-4-6',
-        max_tokens: 1024,
-      },
-    },
-  );
-
-  // Extract text from response
-  const responseText = extractText(response);
-
-  // Parse JSON from response
-  let output: Record<string, unknown>;
-  try {
-    // Try to extract JSON from the response (handle markdown code fences)
-    const jsonMatch = responseText.match(/```(?:json)?\s*([\s\S]*?)```/) ?? [null, responseText];
-    output = JSON.parse(jsonMatch[1]!.trim()) as Record<string, unknown>;
-  } catch {
-    // If JSON parsing fails, wrap raw text as output
-    output = {
-      sceneDescription: responseText,
-      subjects: [],
-      actions: [],
-      context: '',
-    };
-  }
-
-  // Add timestamp context to the output
-  output.timestamp = keyframe.timestamp;
-
-  return { output, confidence: 0.8 };
 }
