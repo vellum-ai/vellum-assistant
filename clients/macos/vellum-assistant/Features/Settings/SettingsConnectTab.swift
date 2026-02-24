@@ -79,7 +79,8 @@ struct SettingsConnectTab: View {
             PairingQRCodeSheet(
                 ingressEnabled: store.ingressEnabled,
                 gatewayUrl: store.resolvedIosGatewayUrl,
-                resolvedBearerToken: store.resolvedIosBearerToken
+                resolvedBearerToken: store.resolvedIosBearerToken,
+                isLocalOverride: UserDefaults.standard.bool(forKey: "iosPairingUseOverride")
             )
         }
     }
