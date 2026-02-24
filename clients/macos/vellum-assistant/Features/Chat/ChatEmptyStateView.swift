@@ -112,7 +112,6 @@ struct ChatEmptyStateView: View {
                     onPaste: onPaste,
                     onMicrophoneToggle: onMicrophoneToggle,
                     placeholderText: placeholder,
-                    composerCompactHeight: 68,
                     editorContentHeight: $editorContentHeight,
                     isComposerExpanded: $isComposerExpanded
                 )
@@ -127,7 +126,6 @@ struct ChatEmptyStateView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
-            isComposerExpanded = true
             withAnimation(.easeOut(duration: 0.5)) {
                 visible = true
             }
