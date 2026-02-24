@@ -134,7 +134,7 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
         const r = results.get(depId);
         return r ? { taskId: depId, summary: r.summary } : null;
       })
-      .filter((d): d is { taskId: string; summary: string } => d !== undefined);
+      .filter((d): d is { taskId: string; summary: string } => d != null);
 
     let result = await runWorkerTask({
       task,
@@ -286,35 +286,45 @@ function detectCycle(tasks: SwarmTaskNode[]): string[] | null {
 
   const parent = new Map<string, string>();
 
-  function dfs(node: string): string[] | null {
-    color.set(node, GRAY);
-    for (const neighbor of adj.get(node) ?? []) {
+  // Iterative DFS to avoid stack overflow on deep acyclic chains
+  for (const t of tasks) {
+    if (color.get(t.id) !== WHITE) continue;
+
+    const stack: Array<{ node: string; neighborIdx: number }> = [
+      { node: t.id, neighborIdx: 0 },
+    ];
+    color.set(t.id, GRAY);
+
+    while (stack.length > 0) {
+      const frame = stack[stack.length - 1];
+      const neighbors = adj.get(frame.node) ?? [];
+
+      if (frame.neighborIdx >= neighbors.length) {
+        // All neighbors visited — mark node as fully processed
+        color.set(frame.node, BLACK);
+        stack.pop();
+        continue;
+      }
+
+      const neighbor = neighbors[frame.neighborIdx];
+      frame.neighborIdx++;
+
       if (color.get(neighbor) === GRAY) {
-        // Reconstruct cycle path
-        const cycle = [neighbor, node];
-        let cur = node;
-        while (cur !== neighbor) {
-          cur = parent.get(cur)!;
-          if (cur === undefined) break;
-          cycle.push(cur);
+        // Back edge found — reconstruct cycle path
+        const cycle = [neighbor];
+        for (let i = stack.length - 1; i >= 0; i--) {
+          cycle.push(stack[i].node);
+          if (stack[i].node === neighbor) break;
         }
         cycle.reverse();
         return cycle;
       }
-      if (color.get(neighbor) === WHITE) {
-        parent.set(neighbor, node);
-        const result = dfs(neighbor);
-        if (result) return result;
-      }
-    }
-    color.set(node, BLACK);
-    return null;
-  }
 
-  for (const t of tasks) {
-    if (color.get(t.id) === WHITE) {
-      const result = dfs(t.id);
-      if (result) return result;
+      if (color.get(neighbor) === WHITE) {
+        parent.set(neighbor, frame.node);
+        color.set(neighbor, GRAY);
+        stack.push({ node: neighbor, neighborIdx: 0 });
+      }
     }
   }
   return null;
