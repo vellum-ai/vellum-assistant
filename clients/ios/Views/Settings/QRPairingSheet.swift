@@ -279,19 +279,22 @@ struct QRPairingSheet: View {
         }
 
         // Validate HTTP scheme — require HTTPS for non-local, or devLocalPairingEnabled for local HTTP
-        if let url = URL(string: gatewayURL), url.scheme == "http" {
-            if let host = url.host {
-                let isLocal = DaemonConnectionSection.isLocalHost(host)
-                if !isLocal {
-                    errorMessage = "HTTPS is required for non-local connections."
-                    phase = .error
-                    return
-                }
-                if !devLocalPairingEnabled {
-                    errorMessage = "Enable Developer Local Pairing in connection settings to use local HTTP gateways."
-                    phase = .error
-                    return
-                }
+        if let url = URL(string: gatewayURL), url.scheme?.lowercased() == "http" {
+            guard let host = url.host, !host.isEmpty else {
+                errorMessage = "Invalid HTTP URL — no host found."
+                phase = .error
+                return
+            }
+            let isLocal = DaemonConnectionSection.isLocalHost(host)
+            if !isLocal {
+                errorMessage = "HTTPS is required for non-local connections."
+                phase = .error
+                return
+            }
+            if !devLocalPairingEnabled {
+                errorMessage = "Enable Developer Local Pairing in connection settings to use local HTTP gateways."
+                phase = .error
+                return
             }
         }
 
