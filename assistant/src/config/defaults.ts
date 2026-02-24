@@ -285,4 +285,9 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     sigkillGracePeriodMs: 2000,
     titleGenerationMaxTokens: 30,
   },
+  notifications: {
+    enabled: false,
+    shadowMode: true,
+    decisionModel: 'claude-haiku-4-5-20251001',
+  },
 };

@@ -72,9 +72,11 @@ struct ChatBubble: View {
 
     private func bubbleChrome<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         let isPlainAssistant = !isUser && !message.isError
+        let overflowOffset: CGFloat = message.isError ? -(24 + VSpacing.sm) : (24 + VSpacing.sm)
         return content()
             .padding(.horizontal, isPlainAssistant ? 0 : VSpacing.lg)
             .padding(.vertical, isPlainAssistant ? 0 : VSpacing.md)
+            .frame(maxWidth: message.isError ? .infinity : nil, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.lg)
                     .fill(bubbleFill)
@@ -87,7 +89,7 @@ struct ChatBubble: View {
                     overflowMenuButton
                         .opacity(showOverflowMenu ? 1 : 0)
                         .animation(VAnimation.fast, value: showOverflowMenu)
-                        .offset(x: isUser ? -(24 + VSpacing.sm) : (24 + VSpacing.sm))
+                        .offset(x: isUser ? -(24 + VSpacing.sm) : overflowOffset)
                 }
             }
             .frame(maxWidth: message.isError ? .infinity : 520, alignment: isUser ? .trailing : .leading)

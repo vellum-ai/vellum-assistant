@@ -19,7 +19,7 @@ import {
   expirePendingQuestions,
 } from './call-store.js';
 import { isTerminalState } from './call-state-machine.js';
-import { getCallOrchestrator, unregisterCallOrchestrator } from './call-state.js';
+import { getCallController, unregisterCallController } from './call-state.js';
 import { activeRelayConnections } from './relay-server.js';
 import { TwilioConversationRelayProvider } from './twilio-provider.js';
 import { getTwilioConfig } from './twilio-config.js';
@@ -402,7 +402,7 @@ export function getCallStatus(
 }
 
 /**
- * Cancel an active call. Cleans up relay connections and orchestrators.
+ * Cancel an active call. Cleans up relay connections and controllers.
  */
 export async function cancelCall(input: CancelCallInput): Promise<{ ok: true; session: CallSession } | CallError> {
   const { callSessionId, reason } = input;
@@ -436,11 +436,11 @@ export async function cancelCall(input: CancelCallInput): Promise<{ ok: true; se
     activeRelayConnections.delete(callSessionId);
   }
 
-  // Clean up orchestrator
-  const orchestrator = getCallOrchestrator(callSessionId);
-  if (orchestrator) {
-    orchestrator.destroy();
-    unregisterCallOrchestrator(callSessionId);
+  // Clean up controller
+  const controller = getCallController(callSessionId);
+  if (controller) {
+    controller.destroy();
+    unregisterCallController(callSessionId);
   }
 
   // Update session status
@@ -480,19 +480,19 @@ export async function answerCall(input: AnswerCallInput): Promise<{ ok: true; qu
     return { ok: false, error: 'No pending question found', status: 404 };
   }
 
-  const orchestrator = getCallOrchestrator(callSessionId);
-  if (!orchestrator) {
-    log.warn({ callSessionId }, 'answerCall: no active orchestrator for call session');
-    return { ok: false, error: 'No active orchestrator for this call', status: 409 };
+  const controller = getCallController(callSessionId);
+  if (!controller) {
+    log.warn({ callSessionId }, 'answerCall: no active controller for call session');
+    return { ok: false, error: 'No active controller for this call', status: 409 };
   }
 
-  const accepted = await orchestrator.handleUserAnswer(answer);
+  const accepted = await controller.handleUserAnswer(answer);
   if (!accepted) {
     log.warn(
       { callSessionId },
-      'answerCall: orchestrator rejected the answer (not in waiting_on_user state)',
+      'answerCall: controller rejected the answer (not in waiting_on_user state)',
     );
-    return { ok: false, error: 'Orchestrator is not waiting for an answer', status: 409 };
+    return { ok: false, error: 'Controller is not waiting for an answer', status: 409 };
   }
 
   answerPendingQuestion(question.id, answer);
@@ -501,9 +501,9 @@ export async function answerCall(input: AnswerCallInput): Promise<{ ok: true; qu
 }
 
 /**
- * Relay a user instruction to an active call's orchestrator.
+ * Relay a user instruction to an active call's controller.
  * Validates that the call is active and the instruction is non-empty
- * before injecting it into the orchestrator's conversation history.
+ * before injecting it into the controller's conversation.
  */
 export async function relayInstruction(input: RelayInstructionInput): Promise<{ ok: true } | CallError> {
   const { callSessionId, instructionText } = input;
@@ -521,14 +521,14 @@ export async function relayInstruction(input: RelayInstructionInput): Promise<{ 
     return { ok: false, error: `Call session ${callSessionId} is not active (status: ${session.status})`, status: 409 };
   }
 
-  const orchestrator = getCallOrchestrator(callSessionId);
-  if (!orchestrator) {
-    return { ok: false, error: 'No active orchestrator for this call', status: 409 };
+  const controller = getCallController(callSessionId);
+  if (!controller) {
+    return { ok: false, error: 'No active controller for this call', status: 409 };
   }
 
-  await orchestrator.handleUserInstruction(instructionText);
+  await controller.handleUserInstruction(instructionText);
 
-  log.info({ callSessionId }, 'User instruction relayed to orchestrator');
+  log.info({ callSessionId }, 'User instruction relayed to controller');
 
   return { ok: true };
 }

@@ -73,9 +73,9 @@ export function buildWelcomeGreeting(task: string | null, configuredGreeting?: s
   void task;
   const override = configuredGreeting?.trim();
   if (override) return override;
-  // The contextual first opener now comes from the call orchestrator's
-  // initial LLM turn. Keep Twilio's relay-level greeting empty by default
-  // so we don't speak a deterministic static line first.
+  // The contextual first opener now comes from the call controller's
+  // initial LLM turn via the session pipeline. Keep Twilio's relay-level
+  // greeting empty by default so we don't speak a deterministic static line first.
   return '';
 }
 

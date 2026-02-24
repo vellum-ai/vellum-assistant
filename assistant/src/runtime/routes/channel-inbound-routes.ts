@@ -35,6 +35,8 @@ import type {
 } from '../http-types.js';
 import { composeApprovalMessageGenerative } from '../approval-message-composer.js';
 import { refreshThreadEscalation } from '../../memory/inbox-escalation-projection.js';
+import { getConfig } from '../../config/loader.js';
+import { emitNotificationSignal } from '../../notifications/emit-signal.js';
 import {
   type GuardianContext,
   verifyGatewayOrigin,
@@ -345,9 +347,37 @@ export async function handleChannelInbound(
     // Update inbox thread escalation state so the desktop UI badge is accurate
     refreshThreadEscalation(result.conversationId, assistantId);
 
-    // Notify the guardian about the pending escalation via channel delivery
+    // Emit notification signal through the unified pipeline (fire-and-forget).
+    // This lets the decision engine route escalation alerts to all configured
+    // channels, supplementing the direct guardian notification below.
+    void emitNotificationSignal({
+      sourceEventName: 'ingress.escalation',
+      sourceChannel: sourceChannel,
+      sourceSessionId: result.conversationId,
+      assistantId,
+      attentionHints: {
+        requiresAction: true,
+        urgency: 'high',
+        isAsyncBackground: false,
+        visibleInSourceNow: false,
+      },
+      contextPayload: {
+        conversationId: result.conversationId,
+        sourceChannel,
+        externalChatId,
+        senderIdentifier: body.senderName || body.senderUsername || body.senderExternalUserId || 'Unknown sender',
+        eventId: result.eventId,
+      },
+      dedupeKey: `escalation:${result.eventId}`,
+    });
+
+    // Notify the guardian about the pending escalation via channel delivery.
+    // When the notification system is fully active it handles channel delivery,
+    // so skip the legacy path to avoid duplicate alerts.
+    const notifCfg = getConfig().notifications;
+    const notificationsActive = notifCfg.enabled && !notifCfg.shadowMode;
     const senderIdentifier = body.senderName || body.senderUsername || body.senderExternalUserId || 'Unknown sender';
-    if (body.replyCallbackUrl) {
+    if (!notificationsActive && body.replyCallbackUrl) {
       try {
         const notificationText = await composeApprovalMessageGenerative(
           {
@@ -373,8 +403,13 @@ export async function handleChannelInbound(
         // the pending escalation even if channel notification failed.
         log.error({ err, conversationId: result.conversationId, guardianChatId: binding.guardianDeliveryChatId }, 'Failed to notify guardian of ingress escalation');
       }
-    } else {
+    } else if (!notificationsActive) {
       log.warn({ conversationId: result.conversationId }, 'Ingress escalation created but no replyCallbackUrl to notify guardian');
+    } else {
+      log.info(
+        { conversationId: result.conversationId },
+        'Skipping legacy guardian escalation callback delivery — notification pipeline active',
+      );
     }
 
     return Response.json({ accepted: true, escalated: true, reason: 'policy_escalate' });
@@ -774,4 +809,5 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
     }
   })();
 }
+
 

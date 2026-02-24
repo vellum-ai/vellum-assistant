@@ -66,7 +66,7 @@ export async function handleCreateRun(
   const mapping = getOrCreateConversation(conversationKey);
 
   try {
-    const run = await runOrchestrator.startRun(
+    const { run } = await runOrchestrator.startRun(
       mapping.conversationId,
       content ?? '',
       hasAttachments ? attachmentIds : undefined,

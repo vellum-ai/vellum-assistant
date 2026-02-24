@@ -26,6 +26,7 @@ import { ensurePromptFiles } from '../config/system-prompt.js';
 import { loadPrebuiltHtml } from '../home-base/prebuilt/seed.js';
 import { DaemonServer } from './server.js';
 import { setRelayBroadcast } from '../calls/relay-server.js';
+import { setVoiceBridgeOrchestrator } from '../calls/voice-session-bridge.js';
 import { listWorkItems, updateWorkItem } from '../work-items/work-item-store.js';
 import { getLogger, initLogger } from '../util/logger.js';
 import { initSentry } from '../instrument.js';
@@ -44,6 +45,7 @@ import { HeartbeatService } from '../workspace/heartbeat-service.js';
 import { AgentHeartbeatService } from '../agent-heartbeat/agent-heartbeat-service.js';
 import { reconcileCallsOnStartup } from '../calls/call-recovery.js';
 import { TwilioConversationRelayProvider } from '../calls/twilio-provider.js';
+import { emitNotificationSignal, registerBroadcastFn } from '../notifications/emit-signal.js';
 import { createApprovalCopyGenerator, createApprovalConversationGenerator } from './approval-generators.js';
 import { initializeProvidersAndTools, registerWatcherProviders, registerMessagingProviders } from './providers-setup.js';
 import { installShutdownHandlers } from './shutdown-handlers.js';
@@ -187,37 +189,111 @@ export async function runDaemon(): Promise<void> {
   registerWatcherProviders();
   registerMessagingProviders();
 
+  // Register the IPC broadcast function for the notification signal pipeline's
+  // macOS adapter so it can deliver notification_intent messages to desktop clients.
+  registerBroadcastFn((msg) => server.broadcast(msg));
+
   const scheduler = startScheduler(
     async (conversationId, message) => {
       await server.processMessage(conversationId, message);
     },
     (reminder) => {
+      // Legacy IPC broadcast for backward compatibility with desktop client UI
       server.broadcast({
         type: 'reminder_fired',
         reminderId: reminder.id,
         label: reminder.label,
         message: reminder.message,
       });
+      // Signal pipeline: fire-and-forget
+      void emitNotificationSignal({
+        sourceEventName: 'reminder.fired',
+        sourceChannel: 'scheduler',
+        sourceSessionId: reminder.id,
+        attentionHints: {
+          requiresAction: true,
+          urgency: 'high',
+          isAsyncBackground: false,
+          visibleInSourceNow: false,
+        },
+        contextPayload: {
+          reminderId: reminder.id,
+          label: reminder.label,
+          message: reminder.message,
+        },
+        dedupeKey: `reminder:${reminder.id}`,
+      });
     },
     (schedule) => {
+      // Legacy IPC broadcast for backward compatibility with desktop client UI
       server.broadcast({
         type: 'schedule_complete',
         scheduleId: schedule.id,
         name: schedule.name,
       });
+      // Signal pipeline: fire-and-forget
+      void emitNotificationSignal({
+        sourceEventName: 'schedule.complete',
+        sourceChannel: 'scheduler',
+        sourceSessionId: schedule.id,
+        attentionHints: {
+          requiresAction: false,
+          urgency: 'medium',
+          isAsyncBackground: true,
+          visibleInSourceNow: false,
+        },
+        contextPayload: {
+          scheduleId: schedule.id,
+          name: schedule.name,
+        },
+      });
     },
     (notification) => {
+      // Legacy IPC broadcast for backward compatibility with desktop client UI
       server.broadcast({
         type: 'watcher_notification',
         title: notification.title,
         body: notification.body,
       });
+      // Signal pipeline: fire-and-forget
+      void emitNotificationSignal({
+        sourceEventName: 'watcher.notification',
+        sourceChannel: 'watcher',
+        sourceSessionId: `watcher-${Date.now()}`,
+        attentionHints: {
+          requiresAction: false,
+          urgency: 'low',
+          isAsyncBackground: true,
+          visibleInSourceNow: false,
+        },
+        contextPayload: {
+          title: notification.title,
+          body: notification.body,
+        },
+      });
     },
     (params) => {
+      // Legacy IPC broadcast for backward compatibility with desktop client UI
       server.broadcast({
         type: 'watcher_escalation',
         title: params.title,
         body: params.body,
+      });
+      // Signal pipeline: fire-and-forget
+      void emitNotificationSignal({
+        sourceEventName: 'watcher.escalation',
+        sourceChannel: 'watcher',
+        sourceSessionId: `watcher-escalation-${Date.now()}`,
+        attentionHints: {
+          requiresAction: true,
+          urgency: 'high',
+          isAsyncBackground: false,
+          visibleInSourceNow: false,
+        },
+        contextPayload: {
+          title: params.title,
+          body: params.body,
+        },
       });
     },
   );
@@ -250,6 +326,8 @@ export async function runDaemon(): Promise<void> {
 
   const hostname = getRuntimeHttpHost();
 
+  const runOrchestrator = server.createRunOrchestrator();
+
   runtimeHttp = new RuntimeHttpServer({
     port: httpPort,
     hostname,
@@ -258,7 +336,7 @@ export async function runDaemon(): Promise<void> {
       server.processMessage(conversationId, content, attachmentIds, options, sourceChannel),
     persistAndProcessMessage: (conversationId, content, attachmentIds, options, sourceChannel) =>
       server.persistAndProcessMessage(conversationId, content, attachmentIds, options, sourceChannel),
-    runOrchestrator: server.createRunOrchestrator(),
+    runOrchestrator,
     interfacesDir: getInterfacesDir(),
     approvalCopyGenerator: createApprovalCopyGenerator(),
     approvalConversationGenerator: createApprovalConversationGenerator(),
@@ -275,6 +353,11 @@ export async function runDaemon(): Promise<void> {
         })),
     },
   });
+
+  // Inject the voice bridge orchestrator BEFORE attempting to start the HTTP
+  // server. The bridge only needs the RunOrchestrator instance (already created
+  // above) and must be available even when the HTTP server fails to bind.
+  setVoiceBridgeOrchestrator(runOrchestrator);
   try {
     await runtimeHttp.start();
     setRelayBroadcast((msg) => server.broadcast(msg));
