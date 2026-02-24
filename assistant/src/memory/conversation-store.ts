@@ -1,4 +1,4 @@
-import { eq, desc, asc, and, count, sql, inArray, like, or } from 'drizzle-orm';
+import { eq, desc, asc, and, count, sql, inArray, or } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb, rawGet, rawExec } from './db.js';
 import { conversations, messages, toolInvocations, messageRuns, channelInboundEvents, memoryItemSources, memoryItems, memoryEmbeddings, memoryItemEntities, memorySegments, messageAttachments, llmRequestLogs } from './schema.js';
@@ -533,8 +533,11 @@ export function searchConversations(
   const maxMsgsPerConv = opts?.maxMessagesPerConversation ?? 3;
   const pattern = `%${query.replace(/%/g, '\\%').replace(/_/g, '\\_')}%`;
 
-  // Find conversations that have at least one matching message.
-  // We also search conversation titles for completeness.
+  // Find conversations whose title or at least one message content matches the query.
+  // leftJoin ensures title-only matches are included even for empty conversations
+  // (innerJoin would silently drop them).
+  // ESCAPE '\\' is required for SQLite to treat the backslashes in the pattern as
+  // escape characters rather than literals; SQLite has no default escape character.
   const matchingConversations = db
     .select({
       id: conversations.id,
@@ -542,13 +545,13 @@ export function searchConversations(
       updatedAt: conversations.updatedAt,
     })
     .from(conversations)
-    .innerJoin(messages, eq(messages.conversationId, conversations.id))
+    .leftJoin(messages, eq(messages.conversationId, conversations.id))
     .where(
       and(
         sql`${conversations.threadType} != 'background'`,
         or(
-          like(messages.content, pattern),
-          like(conversations.title, pattern),
+          sql`${messages.content} LIKE ${pattern} ESCAPE '\\'`,
+          sql`${conversations.title} LIKE ${pattern} ESCAPE '\\'`,
         ),
       ),
     )
@@ -574,7 +577,8 @@ export function searchConversations(
       .where(
         and(
           eq(messages.conversationId, conv.id),
-          like(messages.content, pattern),
+          // ESCAPE '\\' required so backslashes in the pattern act as escape characters.
+          sql`${messages.content} LIKE ${pattern} ESCAPE '\\'`,
         ),
       )
       .orderBy(asc(messages.createdAt))
