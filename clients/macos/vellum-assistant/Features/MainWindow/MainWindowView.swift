@@ -815,6 +815,7 @@ struct MainWindowView: View {
                     .foregroundColor(VColor.textPrimary)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    .help(thread.title)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, VSpacing.md)
