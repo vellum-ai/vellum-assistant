@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { getDb } from '../db.js';
 import { getQdrantClient } from '../qdrant-client.js';
 import {
@@ -32,6 +32,27 @@ export async function semanticSearch(
   );
 
   const db = getDb();
+
+  // Batch-fetch sources for all item-type results to avoid N+1 queries
+  const itemTargetIds = results
+    .filter((r) => r.payload.target_type === 'item')
+    .map((r) => r.payload.target_id);
+  const sourcesMap = new Map<string, string[]>();
+  if (itemTargetIds.length > 0) {
+    const allSources = db.select({
+      memoryItemId: memoryItemSources.memoryItemId,
+      messageId: memoryItemSources.messageId,
+    }).from(memoryItemSources)
+      .where(inArray(memoryItemSources.memoryItemId, itemTargetIds))
+      .all();
+    for (const s of allSources) {
+      const existing = sourcesMap.get(s.memoryItemId);
+      if (existing) existing.push(s.messageId);
+      else sourcesMap.set(s.memoryItemId, [s.messageId]);
+    }
+  }
+  const excludedSet = excludedMessageIds.length > 0 ? new Set(excludedMessageIds) : null;
+
   const candidates: Candidate[] = [];
   for (const result of results) {
     const { payload, score } = result;
@@ -43,12 +64,11 @@ export async function semanticSearch(
       const item = db.select().from(memoryItems).where(eq(memoryItems.id, payload.target_id)).get();
       if (!item || item.status !== 'active' || item.invalidAt !== null) continue;
       if (scopeIds && !scopeIds.includes(item.scopeId)) continue;
-      const sources = db.select().from(memoryItemSources)
-        .where(eq(memoryItemSources.memoryItemId, payload.target_id)).all();
-      if (sources.length === 0) continue;
-      if (excludedMessageIds.length > 0) {
-        const nonExcluded = sources.filter((s) => !excludedMessageIds.includes(s.messageId));
-        if (nonExcluded.length === 0) continue;
+      const sources = sourcesMap.get(payload.target_id);
+      if (!sources || sources.length === 0) continue;
+      if (excludedSet) {
+        const hasNonExcluded = sources.some((msgId) => !excludedSet.has(msgId));
+        if (!hasNonExcluded) continue;
       }
       candidates.push({
         key: `item:${payload.target_id}`,
