@@ -77,6 +77,7 @@ struct AgentPanelContent: View {
         }
         .onAppear {
             skillsManager.fetchSkills()
+            skillsManager.searchSkills()
         }
         .onDisappear {
             installTimeoutTask?.cancel()
