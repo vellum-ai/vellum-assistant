@@ -3,6 +3,7 @@ import type { AssistantConfig } from '../config/types.js';
 import { estimateTextTokens } from '../context/token-estimator.js';
 import { getLogger } from '../util/logger.js';
 import { embedWithBackend, getMemoryBackendStatus, logMemoryEmbeddingWarning } from './embedding-backend.js';
+import { computeRetryDelay, isRetryableNetworkError, sleep } from '../util/retry.js';
 import { getDb } from './db.js';
 import { memoryItemSources } from './schema.js';
 import type {
@@ -35,6 +36,36 @@ export {
 } from './search/formatting.js';
 
 const log = getLogger('memory-retriever');
+
+const EMBED_MAX_RETRIES = 3;
+const EMBED_BASE_DELAY_MS = 500;
+
+/**
+ * Wrap embedWithBackend with retry + exponential backoff for transient failures
+ * (network errors, 429s, 5xx). Aborts immediately if the caller's signal fires.
+ */
+async function embedWithRetry(
+  config: AssistantConfig,
+  texts: string[],
+  opts?: { signal?: AbortSignal },
+): ReturnType<typeof embedWithBackend> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= EMBED_MAX_RETRIES; attempt++) {
+    try {
+      return await embedWithBackend(config, texts, opts);
+    } catch (err) {
+      lastError = err;
+      if (opts?.signal?.aborted || isAbortError(err)) throw err;
+      const isTransient = isRetryableNetworkError(err)
+        || (err instanceof Error && /\b(429|5\d{2})\b/.test(err.message));
+      if (!isTransient || attempt === EMBED_MAX_RETRIES) throw err;
+      const delay = computeRetryDelay(attempt, EMBED_BASE_DELAY_MS);
+      log.warn({ err, attempt: attempt + 1, delayMs: Math.round(delay) }, 'Transient embedding failure, retrying');
+      await sleep(delay);
+    }
+  }
+  throw lastError;
+}
 
 /**
  * Build the list of scope IDs to include in queries.
@@ -293,7 +324,7 @@ export async function buildMemoryRecall(
 
   if (backendStatus.provider) {
     try {
-      const embedded = await embedWithBackend(config, [query], { signal });
+      const embedded = await embedWithRetry(config, [query], { signal });
       queryVector = embedded.vectors[0] ?? null;
       provider = embedded.provider;
       model = embedded.model;
@@ -645,7 +676,7 @@ export async function searchMemoryItems(
   const backendStatus = getMemoryBackendStatus(config);
   if (backendStatus.provider) {
     try {
-      const embedded = await embedWithBackend(config, [trimmed]);
+      const embedded = await embedWithRetry(config, [trimmed]);
       queryVector = embedded.vectors[0] ?? null;
       provider = embedded.provider;
       model = embedded.model;
