@@ -25,6 +25,7 @@ import { identityHandlers } from './identity.js';
 import { dictationHandlers } from './dictation.js';
 import { inboxInviteHandlers } from './config-inbox.js';
 import { pairingHandlers } from './pairing.js';
+import { notificationSettingsHandlers } from './notification-settings.js';
 
 // Re-export types and utilities for backwards compatibility
 export type {
@@ -118,6 +119,7 @@ const handlers = {
   ...dictationHandlers,
   ...inboxInviteHandlers,
   ...pairingHandlers,
+  ...notificationSettingsHandlers,
   ...inlineHandlers,
 } satisfies DispatchMap;
 

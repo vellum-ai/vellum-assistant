@@ -2735,6 +2735,114 @@ public struct IPCModelSetRequest: Codable, Sendable {
     }
 }
 
+public struct IPCNotificationSettingsGet: Codable, Sendable {
+    public let type: String
+
+    public init(type: String) {
+        self.type = type
+    }
+}
+
+public struct IPCNotificationSettingsListTypes: Codable, Sendable {
+    public let type: String
+
+    public init(type: String) {
+        self.type = type
+    }
+}
+
+public struct IPCNotificationSettingsResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let error: String?
+    /// All supported notification types with their delivery class.
+    public let supportedTypes: [IPCNotificationSettingsResponseSupportedType]?
+    /// All supported channels.
+    public let channels: [String]?
+    /// Current preference matrix: which (type, channel) pairs are enabled.
+    public let preferences: [IPCNotificationSettingsResponsePreference]?
+    /// Per-channel readiness status (whether the channel is configured and operational).
+    public let channelReadiness: [IPCNotificationSettingsResponseChannelReadiness]?
+
+    public init(type: String, success: Bool, error: String? = nil, supportedTypes: [IPCNotificationSettingsResponseSupportedType]? = nil, channels: [String]? = nil, preferences: [IPCNotificationSettingsResponsePreference]? = nil, channelReadiness: [IPCNotificationSettingsResponseChannelReadiness]? = nil) {
+        self.type = type
+        self.success = success
+        self.error = error
+        self.supportedTypes = supportedTypes
+        self.channels = channels
+        self.preferences = preferences
+        self.channelReadiness = channelReadiness
+    }
+}
+
+public struct IPCNotificationSettingsResponseChannelReadiness: Codable, Sendable {
+    public let channel: String
+    public let ready: Bool
+
+    public init(channel: String, ready: Bool) {
+        self.channel = channel
+        self.ready = ready
+    }
+}
+
+public struct IPCNotificationSettingsResponsePreference: Codable, Sendable {
+    public let notificationType: String
+    public let channel: String
+    public let enabled: Bool
+
+    public init(notificationType: String, channel: String, enabled: Bool) {
+        self.notificationType = notificationType
+        self.channel = channel
+        self.enabled = enabled
+    }
+}
+
+public struct IPCNotificationSettingsResponseSupportedType: Codable, Sendable {
+    public let type: String
+    public let deliveryClass: String
+
+    public init(type: String, deliveryClass: String) {
+        self.type = type
+        self.deliveryClass = deliveryClass
+    }
+}
+
+public struct IPCNotificationSettingsSet: Codable, Sendable {
+    public let type: String
+    public let notificationType: String
+    public let channel: String
+    public let enabled: Bool
+
+    public init(type: String, notificationType: String, channel: String, enabled: Bool) {
+        self.type = type
+        self.notificationType = notificationType
+        self.channel = channel
+        self.enabled = enabled
+    }
+}
+
+public struct IPCNotificationSettingsSetBulk: Codable, Sendable {
+    public let type: String
+    public let preferences: [IPCNotificationSettingsSetBulkPreference]
+
+    public init(type: String, preferences: [IPCNotificationSettingsSetBulkPreference]) {
+        self.type = type
+        self.preferences = preferences
+    }
+}
+
+public struct IPCNotificationSettingsSetBulkPreference: Codable, Sendable {
+    public let notificationType: String
+    public let channel: String
+    public let enabled: Bool
+
+    public init(notificationType: String, channel: String, enabled: Bool) {
+        self.notificationType = notificationType
+        self.channel = channel
+        self.enabled = enabled
+    }
+}
+
 public struct IPCOpenBundleRequest: Codable, Sendable {
     public let type: String
     public let filePath: String

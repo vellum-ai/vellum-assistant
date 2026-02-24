@@ -27,6 +27,7 @@ export * from './ipc-contract/diagnostics.js';
 export * from './ipc-contract/parental-control.js';
 export * from './ipc-contract/inbox.js';
 export * from './ipc-contract/pairing.js';
+export * from './ipc-contract/notifications.js';
 
 // Import types needed for aggregate unions and SubagentEvent
 import type { AuthMessage, PingMessage, CancelRequest, DeleteQueuedMessage, ModelGetRequest, ModelSetRequest, ImageGenModelSetRequest, HistoryRequest, UndoRequest, RegenerateRequest, UsageRequest, SandboxSetRequest, SessionListRequest, SessionCreateRequest, SessionSwitchRequest, SessionsClearRequest, ConversationSearchRequest } from './ipc-contract/sessions.js';
@@ -64,6 +65,7 @@ import type { SchedulesList, ScheduleToggle, ScheduleRemove, ScheduleRunNow, Rem
 import type { ParentalControlGetRequest, ParentalControlVerifyPinRequest, ParentalControlSetPinRequest, ParentalControlUpdateRequest, ParentalControlGetResponse, ParentalControlVerifyPinResponse, ParentalControlSetPinResponse, ParentalControlUpdateResponse } from './ipc-contract/parental-control.js';
 import type { IngressInviteRequest, IngressMemberRequest, AssistantInboxRequest, AssistantInboxEscalationRequest, AssistantInboxReplyRequest, IngressInviteResponse, IngressMemberResponse, AssistantInboxResponse, AssistantInboxEscalationResponse, AssistantInboxReplyResponse } from './ipc-contract/inbox.js';
 import type { PairingApprovalResponse, ApprovedDevicesList, ApprovedDeviceRemove, ApprovedDevicesClear, PairingApprovalRequest, ApprovedDevicesListResponse, ApprovedDeviceRemoveResponse } from './ipc-contract/pairing.js';
+import type { NotificationSettingsGet, NotificationSettingsSet, NotificationSettingsSetBulk, NotificationSettingsListTypes, NotificationSettingsResponse } from './ipc-contract/notifications.js';
 
 // === SubagentEvent — defined here because it references ServerMessage ===
 
@@ -209,7 +211,11 @@ export type ClientMessage =
   | PairingApprovalResponse
   | ApprovedDevicesList
   | ApprovedDeviceRemove
-  | ApprovedDevicesClear;
+  | ApprovedDevicesClear
+  | NotificationSettingsGet
+  | NotificationSettingsSet
+  | NotificationSettingsSetBulk
+  | NotificationSettingsListTypes;
 
 // === Server → Client aggregate union ===
 
@@ -360,7 +366,8 @@ export type ServerMessage =
   | AssistantInboxReplyResponse
   | PairingApprovalRequest
   | ApprovedDevicesListResponse
-  | ApprovedDeviceRemoveResponse;
+  | ApprovedDeviceRemoveResponse
+  | NotificationSettingsResponse;
 
 // === Contract schema ===
 
