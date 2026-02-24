@@ -238,6 +238,27 @@ export function getHttpTokenPath(): string {
 }
 
 /**
+ * Returns the path to the platform API token file (~/.vellum/platform-token).
+ * This token is the X-Session-Token used to authenticate with the Vellum
+ * Platform API (e.g. assistant.vellum.ai).
+ */
+export function getPlatformTokenPath(): string {
+  return join(getRootDir(), 'platform-token');
+}
+
+/**
+ * Read the platform API token from disk. Returns null if the file
+ * doesn't exist or can't be read.
+ */
+export function readPlatformToken(): string | null {
+  try {
+    return readFileSync(getPlatformTokenPath(), 'utf-8').trim();
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Read the daemon session token from disk. Returns null if the file
  * doesn't exist or can't be read (daemon not running).
  */
