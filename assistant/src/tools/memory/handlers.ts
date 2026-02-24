@@ -9,6 +9,7 @@ import { memoryItems } from '../../memory/schema.js';
 import { enqueueMemoryJob } from '../../memory/jobs-store.js';
 import { searchMemoryItems, formatRelativeTime } from '../../memory/retriever.js';
 import type { ScopePolicyOverride } from '../../memory/search/types.js';
+import { clampUnitInterval } from '../../memory/validation.js';
 import type { ToolExecutionResult } from '../types.js';
 
 const log = getLogger('memory-tools');

@@ -9,6 +9,7 @@ import { createOrUpdatePendingConflict } from './conflict-store.js';
 import { getDb, getSqlite, rawAll } from './db.js';
 import { enqueueMemoryJob } from './jobs-store.js';
 import { memoryItems } from './schema.js';
+import { clampUnitInterval } from './validation.js';
 
 const log = getLogger('memory-contradiction-checker');
 
@@ -335,7 +336,7 @@ function handleRelationship(
           .set({
             statement: newItem.statement,
             lastSeenAt: Math.max(freshExisting.lastSeenAt, freshNew!.lastSeenAt),
-            confidence: Math.max(freshExisting.confidence, freshNew!.confidence),
+            confidence: clampUnitInterval(Math.max(freshExisting.confidence, freshNew!.confidence)),
           })
           .where(eq(memoryItems.id, existingItem.id))
           .run();
