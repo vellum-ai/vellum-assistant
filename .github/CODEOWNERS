@@ -14,3 +14,6 @@ assistant/src/config/bundled-skills/ @siddseethepalli
 
 # Memory system
 assistant/src/memory/ @siddseethepalli
+
+# CI/CD workflows
+.github/workflows/ @dvargas92495

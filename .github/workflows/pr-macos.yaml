@@ -1,24 +1,21 @@
-name: PR macOS DMG Build
+name: PR macOS Build Check
 
 on:
   pull_request:
-    types: [labeled, synchronize, closed]
+    types: [labeled, synchronize, opened, reopened]
     paths:
       - 'clients/macos/**'
       - 'clients/shared/**'
-      - 'cli/**'
-      - '.github/workflows/ci-macos-dmg.yml'
+      - '.github/workflows/pr-macos.yaml'
 
 concurrency:
-  group: ci-macos-dmg-${{ github.event.pull_request.number || github.run_id }}
+  group: pr-macos-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
-  build-dmg:
-    name: macOS DMG
-    if: >-
-      (github.event.action == 'labeled' && github.event.label.name == 'build-dmg') ||
-      (github.event.action == 'synchronize' && contains(github.event.pull_request.labels.*.name, 'build-dmg'))
+  build-check:
+    if: contains(github.event.pull_request.labels.*.name, 'preview')
+    name: macOS Build
     runs-on: macos-14
     timeout-minutes: 45
     env:
@@ -137,6 +134,10 @@ jobs:
 
           codesign --verify --deep --strict "dist/$APP_DISPLAY_NAME.app"
           echo "Code signature verified"
+
+      - name: Run tests
+        working-directory: clients/macos
+        run: ./build.sh test
 
       - name: Free disk space
         working-directory: clients/macos
