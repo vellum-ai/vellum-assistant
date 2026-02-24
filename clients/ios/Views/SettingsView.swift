@@ -6,7 +6,9 @@ struct SettingsView: View {
     @EnvironmentObject var clientProvider: ClientProvider
     @Bindable var authManager: AuthManager
     @AppStorage(UserDefaultsKeys.appearanceMode) private var appearanceMode: String = "system"
+    @AppStorage(UserDefaultsKeys.developerModeEnabled) private var developerModeEnabled: Bool = false
     @Binding var navigateToConnect: Bool
+    @State private var versionTapCount: Int = 0
 
     var body: some View {
         NavigationStack {
@@ -71,7 +73,29 @@ struct SettingsView: View {
                 }
 
                 Section("About") {
+                    // Tapping the version label 7 times unlocks the developer toggle.
+                    // This keeps the feature invisible to regular users while remaining
+                    // accessible to developers without a build-time flag.
                     LabeledContent("Version", value: Bundle.main.appVersion)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            versionTapCount += 1
+                            if versionTapCount >= 7 {
+                                developerModeEnabled.toggle()
+                                versionTapCount = 0
+                            }
+                        }
+                }
+
+                if developerModeEnabled {
+                    Section("Developer") {
+                        Toggle("Developer Mode", isOn: $developerModeEnabled)
+                        NavigationLink {
+                            DeveloperSettingsSection()
+                        } label: {
+                            Label("Debug Panel", systemImage: "ladybug")
+                        }
+                    }
                 }
             }
             .navigationTitle("Settings")

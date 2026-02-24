@@ -223,21 +223,41 @@ struct ThreadChatView: View {
     @ObservedObject var viewModel: ChatViewModel
     var threadTitle: String?
 
+    @EnvironmentObject var clientProvider: ClientProvider
+    @AppStorage(UserDefaultsKeys.developerModeEnabled) private var developerModeEnabled: Bool = false
     @State private var showCopiedConfirmation = false
     @State private var showShareSheet = false
     @State private var shareMarkdown: String = ""
+    @State private var showDebugPanel = false
 
     var body: some View {
         ChatContentView(viewModel: viewModel)
             .navigationTitle("Chat")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                if developerModeEnabled {
+                    ToolbarItem(placement: .navigationBarLeading) {
+                        Button {
+                            showDebugPanel = true
+                        } label: {
+                            Image(systemName: "ladybug")
+                                .foregroundColor(VColor.textMuted)
+                        }
+                    }
+                }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     exportMenu
                 }
             }
             .sheet(isPresented: $showShareSheet) {
                 ActivityViewController(activityItems: [shareMarkdown])
+            }
+            .sheet(isPresented: $showDebugPanel) {
+                DebugPanelView(
+                    traceStore: clientProvider.traceStore,
+                    sessionId: viewModel.sessionId,
+                    onClose: { showDebugPanel = false }
+                )
             }
     }
 
