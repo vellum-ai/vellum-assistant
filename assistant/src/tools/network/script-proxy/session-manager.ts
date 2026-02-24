@@ -530,6 +530,6 @@ export function getSessionsForConversation(conversationId: string): ProxySession
  */
 export async function stopAllSessions(): Promise<void> {
   const ids = [...sessions.keys()];
-  await Promise.all(ids.map((id) => silentlyWithLog(stopSession(id), 'session shutdown')));
+  await Promise.all(ids.map((id) => stopSession(id).catch((err: unknown) => log.debug({ err, id }, 'session shutdown error'))));
   sessions.clear();
 }
