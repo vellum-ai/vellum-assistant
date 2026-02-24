@@ -63,6 +63,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     var statusItem: NSStatusItem!
     private var hotKeyMonitor: Any?
+    private var lastRegisteredGlobalHotkey: String?
+    private var globalHotkeyObserver: AnyCancellable?
     private var escapeMonitor: Any?
     private var quickChatPanel: QuickChatPanel?
     private var quickChatMonitor: Any?
@@ -361,6 +363,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 NSEvent.removeMonitor(hotKeyMonitor)
                 self.hotKeyMonitor = nil
             }
+            lastRegisteredGlobalHotkey = nil
+            globalHotkeyObserver?.cancel()
+            globalHotkeyObserver = nil
             if let escapeMonitor {
                 NSEvent.removeMonitor(escapeMonitor)
                 self.escapeMonitor = nil
@@ -478,6 +483,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             NSEvent.removeMonitor(hotKeyMonitor)
             self.hotKeyMonitor = nil
         }
+        lastRegisteredGlobalHotkey = nil
+        globalHotkeyObserver?.cancel()
+        globalHotkeyObserver = nil
         if let escapeMonitor {
             NSEvent.removeMonitor(escapeMonitor)
             self.escapeMonitor = nil
@@ -1117,20 +1125,45 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Hotkey
 
     private func setupHotKey() {
+        registerGlobalHotkeyMonitor()
+
+        globalHotkeyObserver = NotificationCenter.default
+            .publisher(for: UserDefaults.didChangeNotification)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.registerGlobalHotkeyMonitor()
+            }
+    }
+
+    /// Tears down and re-registers the global "Open Vellum" hotkey based on
+    /// the current `globalHotkeyShortcut` UserDefaults value. Skips
+    /// re-registration if the shortcut hasn't changed.
+    private func registerGlobalHotkeyMonitor() {
+        let shortcut = UserDefaults.standard.string(forKey: "globalHotkeyShortcut") ?? "cmd+shift+g"
+
+        if shortcut == lastRegisteredGlobalHotkey { return }
+
+        if let existing = hotKeyMonitor {
+            NSEvent.removeMonitor(existing)
+            hotKeyMonitor = nil
+        }
+
+        let (targetModifiers, targetKey) = ShortcutHelper.parseShortcut(shortcut)
+
         // Use NSEvent global monitor instead of Carbon RegisterEventHotKey (HotKey package).
         // Carbon hotkeys consume the event globally, preventing other apps from seeing the
-        // keystroke. NSEvent.addGlobalMonitorForEvents observes without consuming, so Cmd+Shift+G
-        // still reaches the frontmost app.
+        // keystroke. NSEvent.addGlobalMonitorForEvents observes without consuming.
         hotKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard event.modifierFlags.intersection(.deviceIndependentFlagsMask) == [.command, .shift],
-                  event.charactersIgnoringModifiers?.lowercased() == "g" else { return }
+            let eventMods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.numericPad)
+            guard eventMods == targetModifiers,
+                  event.charactersIgnoringModifiers?.lowercased() == targetKey.lowercased() else { return }
             Task { @MainActor in
-                // Don't create the main window while the first-launch
-                // readiness gate is in progress.
                 guard self?.isAwaitingFirstLaunchReady != true else { return }
                 self?.showMainWindow()
             }
         }
+
+        lastRegisteredGlobalHotkey = shortcut
     }
 
     private func setupQuickChatHotKey() {
@@ -1573,6 +1606,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         if let monitor = hotKeyMonitor {
             NSEvent.removeMonitor(monitor)
         }
+        globalHotkeyObserver?.cancel()
         if let monitor = escapeMonitor {
             NSEvent.removeMonitor(monitor)
         }

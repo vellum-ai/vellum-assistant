@@ -60,6 +60,7 @@ public final class SettingsStore: ObservableObject {
     @Published var maxSteps: Double
     @Published var activityNotificationsEnabled: Bool
     @Published var quickChatShortcut: String
+    @Published var globalHotkeyShortcut: String
 
     // MARK: - Media Embed Settings
 
@@ -249,6 +250,7 @@ public final class SettingsStore: ObservableObject {
         self.activityNotificationsEnabled = UserDefaults.standard.object(forKey: "activityNotificationsEnabled") as? Bool ?? true
 
         self.quickChatShortcut = UserDefaults.standard.string(forKey: "quickChatShortcut") ?? "cmd+shift+space"
+        self.globalHotkeyShortcut = UserDefaults.standard.string(forKey: "globalHotkeyShortcut") ?? "cmd+shift+g"
 
         #if DEBUG
         self.isDevMode = UserDefaults.standard.object(forKey: "devModeEnabled") as? Bool ?? true
@@ -297,6 +299,11 @@ public final class SettingsStore: ObservableObject {
         $quickChatShortcut
             .dropFirst()
             .sink { value in UserDefaults.standard.set(value, forKey: "quickChatShortcut") }
+            .store(in: &cancellables)
+
+        $globalHotkeyShortcut
+            .dropFirst()
+            .sink { value in UserDefaults.standard.set(value, forKey: "globalHotkeyShortcut") }
             .store(in: &cancellables)
 
         $isDevMode
