@@ -129,6 +129,10 @@ final class InboxViewModel: ObservableObject {
     @Published var isLoadingEscalations: Bool = false
     @Published var escalationsError: String?
 
+    /// The ID of the escalation currently being decided (approve/deny in progress).
+    @Published var decidingEscalationId: String?
+    @Published var decideError: String?
+
     private let daemonClient: DaemonClient
 
     init(daemonClient: DaemonClient) {
@@ -326,5 +330,58 @@ final class InboxViewModel: ObservableObject {
         }
 
         self.escalations = (response.escalations ?? []).map { InboxEscalation(from: $0) }
+    }
+
+    /// Approve or deny a pending escalation and refresh the list on success.
+    func decideEscalation(approvalRequestId: String, decision: String, reason: String? = nil) async {
+        decidingEscalationId = approvalRequestId
+        decideError = nil
+
+        let stream = daemonClient.subscribe()
+
+        do {
+            try daemonClient.sendAssistantInboxEscalationDecide(
+                approvalRequestId: approvalRequestId,
+                decision: decision,
+                reason: reason
+            )
+        } catch {
+            self.decideError = error.localizedDescription
+            self.decidingEscalationId = nil
+            return
+        }
+
+        let response: IPCAssistantInboxEscalationResponse? = await withTaskGroup(of: IPCAssistantInboxEscalationResponse?.self) { group in
+            group.addTask {
+                for await message in stream {
+                    if case .assistantInboxEscalationResponse(let msg) = message {
+                        return msg
+                    }
+                }
+                return nil
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 10_000_000_000)
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+
+        decidingEscalationId = nil
+
+        guard let response else {
+            self.decideError = "Request timed out"
+            return
+        }
+
+        if !response.success {
+            self.decideError = response.error ?? "Unknown error"
+            return
+        }
+
+        // Refresh the escalation list to reflect the decision
+        await loadEscalations()
     }
 }

@@ -1102,6 +1102,17 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         ))
     }
 
+    /// Approve or deny a pending escalation request.
+    public func sendAssistantInboxEscalationDecide(approvalRequestId: String, decision: String, reason: String? = nil) throws {
+        try send(IPCAssistantInboxEscalationRequest(
+            type: "assistant_inbox_escalation",
+            action: "decide",
+            approvalRequestId: approvalRequestId,
+            decision: decision,
+            reason: reason
+        ))
+    }
+
     // MARK: - Model Config
 
     /// Request the current model/provider configuration from the daemon.

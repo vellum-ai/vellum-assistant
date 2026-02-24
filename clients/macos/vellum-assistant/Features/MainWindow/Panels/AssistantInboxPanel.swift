@@ -120,9 +120,52 @@ struct AssistantInboxPanel: View {
 
     private var escalationListView: some View {
         VStack(spacing: 0) {
+            if let error = viewModel.decideError {
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(VColor.error)
+                    Text(error)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.error)
+                        .lineLimit(2)
+                    Spacer()
+                    Button(action: { viewModel.decideError = nil }) {
+                        Image(systemName: "xmark")
+                            .font(VFont.small)
+                            .foregroundColor(VColor.textMuted)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, VSpacing.md)
+                .padding(.vertical, VSpacing.sm)
+                .background(VColor.error.opacity(0.1))
+
+                Divider()
+                    .background(VColor.surfaceBorder)
+            }
+
             ForEach(viewModel.escalations) { escalation in
                 VListRow {
-                    InboxEscalationRow(escalation: escalation)
+                    InboxEscalationRow(
+                        escalation: escalation,
+                        isDeciding: viewModel.decidingEscalationId == escalation.id,
+                        onApprove: {
+                            Task {
+                                await viewModel.decideEscalation(
+                                    approvalRequestId: escalation.id,
+                                    decision: "approve"
+                                )
+                            }
+                        },
+                        onDeny: {
+                            Task {
+                                await viewModel.decideEscalation(
+                                    approvalRequestId: escalation.id,
+                                    decision: "deny"
+                                )
+                            }
+                        }
+                    )
                 }
                 if escalation.id != viewModel.escalations.last?.id {
                     Divider()
@@ -211,6 +254,9 @@ private struct InboxThreadRow: View {
 
 private struct InboxEscalationRow: View {
     let escalation: InboxEscalation
+    var isDeciding: Bool = false
+    var onApprove: (() -> Void)?
+    var onDeny: (() -> Void)?
 
     var body: some View {
         HStack(spacing: VSpacing.md) {
@@ -250,10 +296,44 @@ private struct InboxEscalationRow: View {
 
                     Spacer()
 
-                    VBadge(
-                        style: .label(escalation.status.capitalized),
-                        color: badgeColor(for: escalation.status)
-                    )
+                    if escalation.status.lowercased() == "pending" {
+                        if isDeciding {
+                            ProgressView()
+                                .controlSize(.small)
+                                .padding(.trailing, VSpacing.xs)
+                        } else {
+                            HStack(spacing: VSpacing.xs) {
+                                Button(action: { onApprove?() }) {
+                                    Text("Approve")
+                                        .font(VFont.caption)
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, VSpacing.sm)
+                                        .padding(.vertical, VSpacing.xxs)
+                                        .background(VColor.success)
+                                        .cornerRadius(VRadius.sm)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Approve escalation from \(escalation.resolvedRequester)")
+
+                                Button(action: { onDeny?() }) {
+                                    Text("Deny")
+                                        .font(VFont.caption)
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, VSpacing.sm)
+                                        .padding(.vertical, VSpacing.xxs)
+                                        .background(VColor.error)
+                                        .cornerRadius(VRadius.sm)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Deny escalation from \(escalation.resolvedRequester)")
+                            }
+                        }
+                    } else {
+                        VBadge(
+                            style: .label(escalation.status.capitalized),
+                            color: badgeColor(for: escalation.status)
+                        )
+                    }
                 }
             }
         }
