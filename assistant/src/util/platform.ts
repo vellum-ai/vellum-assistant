@@ -72,6 +72,34 @@ export function readLockfile(): Record<string, unknown> | null {
 }
 
 /**
+ * Normalize an assistant ID to its canonical form for DB operations.
+ *
+ * The system uses "self" as the canonical single-tenant identifier
+ * (see migration 007-assistant-id-to-self). However, the desktop UI
+ * sends the real assistant ID (e.g., "vellum-true-eel") while the
+ * inbound call path resolves phone numbers to config keys (typically
+ * "self"). This function maps any known lockfile assistant ID to "self"
+ * so both sides use a consistent DB key.
+ */
+export function normalizeAssistantId(assistantId: string): string {
+  if (assistantId === 'self') return 'self';
+
+  try {
+    const lockData = readLockfile();
+    const assistants = lockData?.assistants as Array<Record<string, unknown>> | undefined;
+    if (assistants) {
+      for (const entry of assistants) {
+        if (entry.assistantId === assistantId) return 'self';
+      }
+    }
+  } catch {
+    // lockfile unreadable — return as-is
+  }
+
+  return assistantId;
+}
+
+/**
  * Write data to the primary lockfile (~/.vellum.lock.json).
  * Respects BASE_DATA_DIR for non-standard home directories.
  */

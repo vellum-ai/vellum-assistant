@@ -6,6 +6,7 @@ import type {
   GuardianVerificationRequest,
   ChannelReadinessRequest,
 } from '../ipc-protocol.js';
+import { normalizeAssistantId } from '../../util/platform.js';
 import { log, defineHandlers, type HandlerContext } from './shared.js';
 
 // Lazy singleton — created on first use so module-load stays lightweight.
@@ -22,9 +23,9 @@ export function handleGuardianVerification(
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
-  // Use the assistant ID from the request when available; fall back to
-  // 'self' for backward compatibility with single-assistant mode.
-  const assistantId = msg.assistantId ?? 'self';
+  // Normalize the assistant ID so challenges are always stored under the
+  // same key the inbound-call path will use for lookups (typically "self").
+  const assistantId = normalizeAssistantId(msg.assistantId ?? 'self');
   const channel = msg.channel ?? 'telegram';
 
   try {

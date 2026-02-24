@@ -32,6 +32,7 @@ import {
   getPendingChallenge,
   validateAndConsumeChallenge,
 } from '../runtime/channel-guardian-service.js';
+import { normalizeAssistantId } from '../util/platform.js';
 
 const log = getLogger('relay-server');
 
@@ -390,7 +391,7 @@ export class RelayConnection {
     } else if (isInbound) {
       // For inbound calls, check if there's a pending voice guardian
       // challenge that the caller needs to complete before proceeding.
-      const assistantId = session?.assistantId ?? 'self';
+      const assistantId = normalizeAssistantId(session?.assistantId ?? 'self');
       const pendingChallenge = getPendingChallenge(assistantId, 'voice');
 
       if (pendingChallenge) {
