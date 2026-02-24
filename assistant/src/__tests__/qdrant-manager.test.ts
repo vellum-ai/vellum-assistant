@@ -16,6 +16,13 @@ mock.module('../util/logger.js', () => ({
 
 import { QdrantManager } from '../memory/qdrant-manager.js';
 
+/** Short timeouts so tests don't wait 30s+ for readyz / shutdown grace. */
+const FAST_TIMEOUTS = {
+  readyzPollIntervalMs: 50,
+  readyzTimeoutMs: 1_500,
+  shutdownGraceMs: 500,
+} as const;
+
 function placeFakeBinary(script: string): string {
   const binaryPath = join(testDataDir, 'qdrant', 'bin', 'qdrant');
   writeFileSync(binaryPath, script);
@@ -78,11 +85,11 @@ describe('QdrantManager', () => {
     test('enters external mode when QDRANT_URL is set', async () => {
       process.env.QDRANT_URL = 'http://external:6333';
       const port = getTestPort();
-      const mgr = new QdrantManager({ url: `http://127.0.0.1:${port}` });
+      const mgr = new QdrantManager({ url: `http://127.0.0.1:${port}`, ...FAST_TIMEOUTS });
 
       // External mode goes straight to waitForReady, which will timeout
       await expect(mgr.start()).rejects.toThrow('did not become ready');
-    }, 35_000);
+    }, 10_000);
 
     test('does not enter external mode when QDRANT_URL is empty', () => {
       process.env.QDRANT_URL = '   ';
@@ -126,12 +133,12 @@ describe('QdrantManager', () => {
       placeFakeBinary('#!/bin/sh\nexit 1');
 
       const port = getTestPort();
-      const mgr = new QdrantManager({ url: `http://127.0.0.1:${port}` });
+      const mgr = new QdrantManager({ url: `http://127.0.0.1:${port}`, ...FAST_TIMEOUTS });
 
       try { await mgr.start(); } catch { /* readyz timeout */ }
 
       expect(existsSync(pidPath)).toBe(false);
-    }, 40_000);
+    }, 10_000);
 
     test('handles invalid PID file contents', async () => {
       const pidPath = join(testDataDir, 'qdrant', 'qdrant.pid');
@@ -140,12 +147,12 @@ describe('QdrantManager', () => {
       placeFakeBinary('#!/bin/sh\nexit 1');
 
       const port = getTestPort();
-      const mgr = new QdrantManager({ url: `http://127.0.0.1:${port}` });
+      const mgr = new QdrantManager({ url: `http://127.0.0.1:${port}`, ...FAST_TIMEOUTS });
 
       try { await mgr.start(); } catch { /* expected */ }
 
       expect(existsSync(pidPath)).toBe(false);
-    }, 40_000);
+    }, 10_000);
 
     test('handles empty PID file', async () => {
       const pidPath = join(testDataDir, 'qdrant', 'qdrant.pid');
@@ -154,12 +161,12 @@ describe('QdrantManager', () => {
       placeFakeBinary('#!/bin/sh\nexit 1');
 
       const port = getTestPort();
-      const mgr = new QdrantManager({ url: `http://127.0.0.1:${port}` });
+      const mgr = new QdrantManager({ url: `http://127.0.0.1:${port}`, ...FAST_TIMEOUTS });
 
       try { await mgr.start(); } catch { /* expected */ }
 
       expect(existsSync(pidPath)).toBe(false);
-    }, 40_000);
+    }, 10_000);
   });
 
   // ── Process Lifecycle ────────────────────────────────────────
@@ -172,7 +179,7 @@ describe('QdrantManager', () => {
       placeFakeBinary('#!/bin/sh\nexec sleep 300');
 
       const port = getTestPort();
-      const mgr = new QdrantManager({ url: `http://127.0.0.1:${port}` });
+      const mgr = new QdrantManager({ url: `http://127.0.0.1:${port}`, ...FAST_TIMEOUTS });
 
       // Start polls readyz forever; we race it with our assertions + stop
       const startPromise = mgr.start();
@@ -192,7 +199,7 @@ describe('QdrantManager', () => {
 
       // start() should now reject because process was killed
       await expect(startPromise).rejects.toThrow('did not become ready');
-    }, 40_000);
+    }, 10_000);
 
     test('stop() escalates to SIGKILL after grace period', async () => {
       const pidPath = join(testDataDir, 'qdrant', 'qdrant.pid');
@@ -201,7 +208,7 @@ describe('QdrantManager', () => {
       placeFakeBinary('#!/bin/sh\ntrap "" TERM\nexec sleep 300');
 
       const port = getTestPort();
-      const mgr = new QdrantManager({ url: `http://127.0.0.1:${port}` });
+      const mgr = new QdrantManager({ url: `http://127.0.0.1:${port}`, ...FAST_TIMEOUTS });
 
       const startPromise = mgr.start();
       await Bun.sleep(500);
@@ -212,12 +219,12 @@ describe('QdrantManager', () => {
       await mgr.stop();
       const stopElapsed = Date.now() - stopStart;
 
-      // Grace period is 5s — should wait at least that long
-      expect(stopElapsed).toBeGreaterThanOrEqual(4500);
+      // Grace period is 500ms with FAST_TIMEOUTS — should wait at least that long
+      expect(stopElapsed).toBeGreaterThanOrEqual(400);
       expect(existsSync(pidPath)).toBe(false);
 
       await expect(startPromise).rejects.toThrow('did not become ready');
-    }, 45_000);
+    }, 10_000);
   });
 
   // ── Start Failure Cleanup ────────────────────────────────────
@@ -230,11 +237,11 @@ describe('QdrantManager', () => {
       placeFakeBinary('#!/bin/sh\nexec sleep 300');
 
       const port = getTestPort();
-      const mgr = new QdrantManager({ url: `http://127.0.0.1:${port}` });
+      const mgr = new QdrantManager({ url: `http://127.0.0.1:${port}`, ...FAST_TIMEOUTS });
 
       await expect(mgr.start()).rejects.toThrow('did not become ready');
       expect(existsSync(pidPath)).toBe(false);
-    }, 40_000);
+    }, 10_000);
 
     test('cleans up when process exits immediately', async () => {
       const pidPath = join(testDataDir, 'qdrant', 'qdrant.pid');
@@ -242,11 +249,11 @@ describe('QdrantManager', () => {
       placeFakeBinary('#!/bin/sh\nexit 1');
 
       const port = getTestPort();
-      const mgr = new QdrantManager({ url: `http://127.0.0.1:${port}` });
+      const mgr = new QdrantManager({ url: `http://127.0.0.1:${port}`, ...FAST_TIMEOUTS });
 
       await expect(mgr.start()).rejects.toThrow('did not become ready');
       expect(existsSync(pidPath)).toBe(false);
-    }, 40_000);
+    }, 10_000);
   });
 
   // ── Binary Detection ─────────────────────────────────────────
@@ -256,12 +263,12 @@ describe('QdrantManager', () => {
       placeFakeBinary('#!/bin/sh\nexit 1');
 
       const port = getTestPort();
-      const mgr = new QdrantManager({ url: `http://127.0.0.1:${port}` });
+      const mgr = new QdrantManager({ url: `http://127.0.0.1:${port}`, ...FAST_TIMEOUTS });
 
       try { await mgr.start(); } catch { /* readyz timeout */ }
 
       const binaryPath = join(testDataDir, 'qdrant', 'bin', 'qdrant');
       expect(existsSync(binaryPath)).toBe(true);
-    }, 40_000);
+    }, 10_000);
   });
 });
