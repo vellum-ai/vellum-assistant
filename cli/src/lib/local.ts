@@ -193,6 +193,7 @@ export async function startLocalDaemon(): Promise<void> {
       for (const key of [
         "ANTHROPIC_API_KEY",
         "BASE_DATA_DIR",
+        "RUNTIME_HTTP_PORT",
         "VELLUM_DAEMON_TCP_PORT",
         "VELLUM_DAEMON_TCP_HOST",
         "VELLUM_DAEMON_SOCKET",

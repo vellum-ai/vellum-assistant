@@ -557,12 +557,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let assistant = loadAssistantFromLockfile()
 
-        // Ensure the daemon starts its runtime HTTP server so the app
-        // can communicate over HTTP instead of IPC.
-        if FeatureFlagManager.shared.isEnabled(.localHttpEnabled) {
-            if ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] == nil {
-                setenv("RUNTIME_HTTP_PORT", "7821", 0)
-            }
+        // Ensure the daemon starts its runtime HTTP server so the
+        // gateway can proxy iOS traffic to it.
+        if ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] == nil {
+            setenv("RUNTIME_HTTP_PORT", "7821", 0)
         }
 
         configureDaemonTransport(for: assistant)
