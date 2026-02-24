@@ -114,9 +114,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var quickChatShortcutObserver: AnyCancellable?
     private weak var recordingViewModel: ChatViewModel?
     private var statusIconCancellable: AnyCancellable?
-    private var connectionStatusCancellable: AnyCancellable?
-    private var pulseTimer: Timer?
-    private var pulsePhase: CGFloat = 1.0
+    var connectionStatusCancellable: AnyCancellable?
+    var pulseTimer: Timer?
+    var pulsePhase: CGFloat = 1.0
     var cachedSkills: [SkillInfo] = []
     var refreshSkillsTask: Task<Void, Never>?
     var cachedApps: [AppItem] = []
