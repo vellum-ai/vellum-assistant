@@ -32,7 +32,7 @@ final class ComputerUseSession: ObservableObject {
     @Published var autoApproveTools = false {
         didSet {
             guard autoApproveTools != oldValue else { return }
-            log.info("Auto-approve tools toggled: \(autoApproveTools)")
+            log.info("Auto-approve tools toggled: \(self.autoApproveTools)")
 
             // Notify daemon so it can skip prompt creation proactively
             do {
@@ -109,6 +109,8 @@ final class ComputerUseSession: ObservableObject {
     private var previousFlatElements: [AXElement]?
     private var consecutiveUnchangedSteps = 0
     private var currentStepNumber = 0
+    private var consecutiveFrontmostBlocks = 0
+    private(set) var qaRecordingWarningMessage: String?
 
     /// Adaptive delay configuration
     private let adaptiveDelayEnabled: Bool
@@ -171,12 +173,20 @@ final class ComputerUseSession: ObservableObject {
         isCancelled = false
         isPaused = false
         pendingToolPermissionPrompt = nil
+        qaRecordingWarningMessage = nil
         previousAXTreeText = nil
         previousElements = nil
         previousFlatElements = nil
         consecutiveUnchangedSteps = 0
         currentStepNumber = 0
+        consecutiveFrontmostBlocks = 0
         state = .running(step: 0, maxSteps: maxSteps, lastAction: "Starting...", reasoning: "")
+
+        // QA sessions auto-approve low/medium tools from the start.
+        // Set here (not in init) so the didSet fires and notifies the daemon.
+        if qaMode && !autoApproveTools {
+            autoApproveTools = true
+        }
 
         log.info("Session starting — task: \(self.task, privacy: .public)")
 
@@ -226,6 +236,7 @@ final class ComputerUseSession: ObservableObject {
                 if requiresRecording {
                     // Fail-closed: recording is mandatory — abort the session
                     state = .failed(reason: "Recording required but failed to start: \(error.localizedDescription)")
+                    qaRecordingWarningMessage = "Recording required but failed: \(error.localizedDescription)"
                     logger.finishSession(result: "failed: required recording could not start")
                     cancelSafetyNetTask?.cancel()
                     cancelSafetyNetTask = nil
@@ -233,6 +244,7 @@ final class ComputerUseSession: ObservableObject {
                     return
                 }
                 // Non-fatal for best-effort recording — continue the session without recording
+                qaRecordingWarningMessage = "Unable to start recording. \(error.localizedDescription)"
             }
         }
 
@@ -263,6 +275,8 @@ final class ComputerUseSession: ObservableObject {
                     interactionType: interactionTypeString,
                     reportToSessionId: reportToSessionId,
                     qaMode: qaMode ? true : nil,
+                    targetAppName: targetAppName,
+                    targetAppBundleId: targetAppBundleId,
                     requiresRecording: requiresRecording ? true : nil
                 ))
             } catch {
@@ -522,7 +536,14 @@ final class ComputerUseSession: ObservableObject {
         // Non-destructive actions (screenshot, open_app, wait, runAppleScript) are allowed
         // regardless of which app is focused.
         if let guardError = await checkFrontmostAppGuard(for: agentAction) {
-            log.error("Frontmost guard BLOCKED action \(agentAction.type.rawValue): \(guardError)")
+            consecutiveFrontmostBlocks += 1
+            log.error("Frontmost guard BLOCKED action \(agentAction.type.rawValue) (\(self.consecutiveFrontmostBlocks) consecutive): \(guardError)")
+            if consecutiveFrontmostBlocks >= 3 {
+                isCancelled = true
+                state = .failed(reason: "Target app could not be activated after repeated attempts.")
+                logger.finishSession(result: "failed: frontmost guard — too many blocks")
+                return
+            }
             let obs = await buildObservation(executionResult: nil, executionError: guardError)
             if let obs {
                 do {
@@ -534,6 +555,7 @@ final class ComputerUseSession: ObservableObject {
             state = .thinking(step: action.stepNumber + 1, maxSteps: maxSteps)
             return
         }
+        consecutiveFrontmostBlocks = 0
 
         // EXECUTE
         var executionResult: String? = nil
@@ -1200,6 +1222,29 @@ final class ComputerUseSession: ObservableObject {
             } catch {
                 log.error("QA mode: failed to stop screen recording: \(error.localizedDescription)")
                 try? daemonClient.send(CuRecordingStatusMessage(sessionId: id, status: "failed", reason: error.localizedDescription))
+                if qaRecordingWarningMessage == nil {
+                    qaRecordingWarningMessage = "Unable to finalize recording. \(error.localizedDescription)"
+                }
+                // Salvage: if the partial file exists on disk, track it for cleanup
+                if let salvageURL = (recorder as? ScreenRecorder)?.lastRecordingFileURL,
+                   FileManager.default.fileExists(atPath: salvageURL.path) {
+                    let attrs = try? FileManager.default.attributesOfItem(atPath: salvageURL.path)
+                    let sizeBytes = (attrs?[.size] as? Int) ?? 0
+                    let expiresAtEpoch = Int(Date().addingTimeInterval(Double(retentionDays) * 24 * 3600).timeIntervalSince1970 * 1000)
+                    log.info("QA mode: salvaging partial recording at \(salvageURL.lastPathComponent) (\(sizeBytes) bytes)")
+                    recordingData = IPCCuSessionFinalizedRecording(
+                        localPath: salvageURL.path,
+                        mimeType: "video/mp4",
+                        sizeBytes: sizeBytes,
+                        durationMs: 0,
+                        width: 0,
+                        height: 0,
+                        captureScope: captureScope,
+                        includeAudio: includeAudio,
+                        targetBundleId: nil,
+                        expiresAt: expiresAtEpoch
+                    )
+                }
             }
         }
 

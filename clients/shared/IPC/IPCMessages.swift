@@ -148,12 +148,12 @@ extension IPCUserMessageAttachment {
 public typealias CuSessionCreateMessage = IPCCuSessionCreate
 
 extension IPCCuSessionCreate {
-    public init(sessionId: String, task: String, screenWidth: Int, screenHeight: Int, attachments: [IPCAttachment]?, interactionType: String?, reportToSessionId: String? = nil, qaMode: Bool? = nil, requiresRecording: Bool? = nil) {
-        self.init(type: "cu_session_create", sessionId: sessionId, task: task, screenWidth: screenWidth, screenHeight: screenHeight, attachments: attachments, interactionType: interactionType, reportToSessionId: reportToSessionId, qaMode: qaMode, targetAppName: nil, targetAppBundleId: nil, requiresRecording: requiresRecording)
+    public init(sessionId: String, task: String, screenWidth: Int, screenHeight: Int, attachments: [IPCAttachment]?, interactionType: String?, reportToSessionId: String? = nil, qaMode: Bool? = nil, targetAppName: String? = nil, targetAppBundleId: String? = nil, requiresRecording: Bool? = nil) {
+        self.init(type: "cu_session_create", sessionId: sessionId, task: task, screenWidth: screenWidth, screenHeight: screenHeight, attachments: attachments, interactionType: interactionType, reportToSessionId: reportToSessionId, qaMode: qaMode, targetAppName: targetAppName, targetAppBundleId: targetAppBundleId, requiresRecording: requiresRecording)
     }
 }
 
-/// Sent to notify the daemon of recording status changes (started, failed, stopped).
+/// Sent by the client to report recording lifecycle events.
 /// Backed by generated `IPCCuRecordingStatus`.
 public typealias CuRecordingStatusMessage = IPCCuRecordingStatus
 
@@ -173,11 +173,7 @@ extension IPCCuSessionFinalized {
     }
 }
 
-extension IPCCuSessionFinalizedRecording {
-    public init(localPath: String, mimeType: String, sizeBytes: Int, durationMs: Int, width: Int, height: Int, captureScope: String, includeAudio: Bool, targetBundleId: String?, expiresAt: Int) {
-        self.init(localPath: localPath, mimeType: mimeType, sizeBytes: sizeBytes, durationMs: durationMs, width: width, height: height, captureScope: captureScope, includeAudio: includeAudio, targetBundleId: targetBundleId, expiresAt: expiresAt)
-    }
-}
+// IPCCuSessionFinalizedRecording uses the generated memberwise init directly.
 
 /// Sent after each perceive step with AX tree, screenshot, and execution results.
 /// Backed by generated `IPCCuObservation`.

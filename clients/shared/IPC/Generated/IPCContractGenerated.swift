@@ -915,6 +915,20 @@ public struct IPCCuObservation: Codable, Sendable {
     }
 }
 
+public struct IPCCuRecordingStatus: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let status: String
+    public let reason: String?
+
+    public init(type: String, sessionId: String, status: String, reason: String?) {
+        self.type = type
+        self.sessionId = sessionId
+        self.status = status
+        self.reason = reason
+    }
+}
+
 public struct IPCCuSessionAbort: Codable, Sendable {
     public let type: String
     public let sessionId: String
@@ -941,7 +955,7 @@ public struct IPCCuSessionCreate: Codable, Sendable {
     public let targetAppName: String?
     /// Optional target app bundle identifier for disambiguation.
     public let targetAppBundleId: String?
-    /// When true, recording MUST succeed before the session can proceed (fail-closed).
+    /// When true, recording MUST start before any destructive action.
     public let requiresRecording: Bool?
 
     public init(type: String, sessionId: String, task: String, screenWidth: Int, screenHeight: Int, attachments: [IPCUserMessageAttachment]?, interactionType: String?, reportToSessionId: String?, qaMode: Bool?, targetAppName: String?, targetAppBundleId: String?, requiresRecording: Bool?) {
@@ -957,23 +971,6 @@ public struct IPCCuSessionCreate: Codable, Sendable {
         self.targetAppName = targetAppName
         self.targetAppBundleId = targetAppBundleId
         self.requiresRecording = requiresRecording
-    }
-}
-
-/// Client → daemon recording status notification.
-public struct IPCCuRecordingStatus: Codable, Sendable {
-    public let type: String
-    public let sessionId: String
-    /// Recording status: "started", "failed", or "stopped".
-    public let status: String
-    /// Reason for failure (only set when status is "failed").
-    public let reason: String?
-
-    public init(type: String, sessionId: String, status: String, reason: String?) {
-        self.type = type
-        self.sessionId = sessionId
-        self.status = status
-        self.reason = reason
     }
 }
 
@@ -3532,7 +3529,7 @@ public struct IPCTaskRouted: Codable, Sendable {
     public let targetAppName: String?
     /// Target app bundle ID for frontmost-app guard (from target-app-hints).
     public let targetAppBundleId: String?
-    /// When true, recording MUST succeed before the session can proceed (fail-closed).
+    /// When true, recording MUST start before any destructive action.
     public let requiresRecording: Bool?
 
     public init(type: String, sessionId: String, interactionType: String, task: String?, escalatedFrom: String?, qaMode: Bool?, reportToSessionId: String?, retentionDays: Double?, captureScope: String?, includeAudio: Bool?, targetAppName: String?, targetAppBundleId: String?, requiresRecording: Bool?) {

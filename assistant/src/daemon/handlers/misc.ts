@@ -18,9 +18,9 @@ import type {
   IpcBlobProbe,
   CuSessionCreate,
 } from '../ipc-protocol.js';
-import { log, wireEscalationHandler, renderHistoryContent, defineHandlers, type HandlerContext } from './shared.js';
+import { log, wireEscalationHandler, renderHistoryContent, defineHandlers, setQaLatch, clearQaLatch, isQaLatchActive, type HandlerContext } from './shared.js';
 import { handleCuSessionCreate } from './computer-use.js';
-import { detectQaIntent, shouldRouteQaToComputerUse } from '../qa-intent.js';
+import { detectQaIntent, detectQaOptOut, shouldRouteQaToComputerUse } from '../qa-intent.js';
 import { resolveComputerUseTargetAppHint } from '../target-app-hints.js';
 
 // ─── Task submit handler ────────────────────────────────────────────────────
@@ -69,25 +69,42 @@ export async function handleTaskSubmit(
     // Slash candidates always route to text_qa — bypass classifier
     const slashCandidate = parseSlashCandidate(msg.task);
     const isQa = detectQaIntent(msg.task);
+    const isOptOut = detectQaOptOut(msg.task);
+    const qaLatchActive = isQaLatchActive(msg.conversationId);
     const forceQaComputerUse = shouldRouteQaToComputerUse(msg.task);
     const interactionType = slashCandidate.kind === 'candidate'
       ? 'text_qa' as const
       : forceQaComputerUse
         ? 'computer_use' as const
         : await classifyInteraction(msg.task, msg.source);
+
+    // Update QA latch: set on QA intent, clear on explicit opt-out
+    if (isQa && msg.conversationId) {
+      setQaLatch(msg.conversationId);
+    }
+    if (isOptOut && msg.conversationId) {
+      clearQaLatch(msg.conversationId);
+    }
+
+    const config = getConfig();
+    // Determine whether recording is required: (QA intent or active latch) + config flag
+    const requiresRecording = (isQa || (qaLatchActive && !isOptOut)) && config.qaRecording.enforceStartBeforeActions;
+
     rlog.info({
       interactionType,
       slashBypass: slashCandidate.kind === 'candidate',
       taskLength: msg.task.length,
       isQa,
       forceQaComputerUse,
+      qaLatchActive,
+      requiresRecording,
     }, 'Task classified');
 
     if (interactionType === 'computer_use') {
       // Create CU session (reuse handleCuSessionCreate logic)
       const sessionId = uuid();
       const targetApp = resolveComputerUseTargetAppHint(msg.task);
-      const config = getConfig();
+      const effectiveQa = isQa || (qaLatchActive && !isOptOut);
       const cuMsg: CuSessionCreate = {
         type: 'cu_session_create',
         sessionId,
@@ -97,7 +114,8 @@ export async function handleTaskSubmit(
         attachments: msg.attachments,
         interactionType: 'computer_use',
         ...(targetApp ? { targetAppName: targetApp.appName, targetAppBundleId: targetApp.bundleId } : {}),
-        ...(isQa ? { qaMode: true, reportToSessionId: msg.conversationId } : {}),
+        ...(effectiveQa ? { qaMode: true, reportToSessionId: msg.conversationId } : {}),
+        ...(requiresRecording ? { requiresRecording: true } : {}),
       };
       handleCuSessionCreate(cuMsg, socket, ctx);
 
@@ -106,13 +124,14 @@ export async function handleTaskSubmit(
         sessionId,
         interactionType: 'computer_use',
         ...(targetApp ? { targetAppName: targetApp.appName, targetAppBundleId: targetApp.bundleId } : {}),
-        ...(isQa ? {
+        ...(effectiveQa ? {
           qaMode: true,
           reportToSessionId: msg.conversationId,
           retentionDays: config.qaRecording.defaultRetentionDays,
           captureScope: config.qaRecording.captureScope,
           includeAudio: config.qaRecording.includeAudio,
         } : {}),
+        ...(requiresRecording ? { requiresRecording: true } : {}),
       });
     } else {
       // Create text QA session and immediately start processing

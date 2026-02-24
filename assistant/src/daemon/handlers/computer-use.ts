@@ -8,6 +8,7 @@ import type {
   CuSessionCreate,
   CuSessionAbort,
   CuAutoApproveUpdate,
+  CuRecordingStatus,
   CuSessionFinalized,
   CuObservation,
   ServerMessage,
@@ -97,6 +98,7 @@ export function handleCuSessionCreate(
     undefined,
     msg.targetAppName,
     msg.targetAppBundleId,
+    msg.requiresRecording,
   );
   sessionRef.current = session;
 
@@ -381,10 +383,27 @@ export function handleCuAutoApproveUpdate(
   );
 }
 
+function handleCuRecordingStatus(msg: CuRecordingStatus, _socket: net.Socket, ctx: HandlerContext) {
+  const session = ctx.cuSessions.get(msg.sessionId);
+  if (!session) {
+    log.warn({ sessionId: msg.sessionId }, 'CU recording status for unknown session');
+    return;
+  }
+  log.info(
+    { sessionId: msg.sessionId, status: msg.status, reason: msg.reason },
+    'CU recording status update',
+  );
+  session.recordingGateStatus = msg.status;
+  if (msg.status === 'failed' && msg.reason) {
+    session.recordingFailureReason = msg.reason;
+  }
+}
+
 export const computerUseHandlers = defineHandlers({
   cu_session_create: handleCuSessionCreate,
   cu_session_abort: handleCuSessionAbort,
   cu_auto_approve_update: handleCuAutoApproveUpdate,
+  cu_recording_status: handleCuRecordingStatus,
   cu_session_finalized: handleCuSessionFinalized,
   cu_observation: handleCuObservation,
 });
