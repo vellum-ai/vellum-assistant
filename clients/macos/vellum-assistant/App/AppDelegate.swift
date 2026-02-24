@@ -12,12 +12,14 @@ enum AssistantStatus {
     case idle
     case thinking
     case error(String)
+    case disconnected
 
     var menuTitle: String {
         switch self {
         case .idle: return "Assistant is idle"
         case .thinking: return "Assistant is thinking..."
         case .error(let msg): return "Error: \(msg)"
+        case .disconnected: return "Disconnected from daemon"
         }
     }
 
@@ -26,6 +28,7 @@ enum AssistantStatus {
         case .idle: return .systemGray
         case .thinking: return .systemGreen
         case .error: return .systemRed
+        case .disconnected: return .systemOrange
         }
     }
 
@@ -37,6 +40,12 @@ enum AssistantStatus {
         NSBezierPath(ovalIn: NSRect(x: 0, y: 0, width: size, height: size)).fill()
         image.unlockFocus()
         return image
+    }
+
+    /// Whether the dot should pulse (animate opacity)
+    var shouldPulse: Bool {
+        if case .thinking = self { return true }
+        return false
     }
 }
 
@@ -103,6 +112,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var quickChatShortcutObserver: AnyCancellable?
     private weak var recordingViewModel: ChatViewModel?
     private var statusIconCancellable: AnyCancellable?
+    private var connectionStatusCancellable: AnyCancellable?
+    private var pulseTimer: Timer?
+    private var pulsePhase: CGFloat = 1.0
     var cachedSkills: [SkillInfo] = []
     var refreshSkillsTask: Task<Void, Never>?
     var cachedApps: [AppItem] = []
@@ -377,6 +389,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             statusIconCancellable?.cancel()
             statusIconCancellable = nil
+            connectionStatusCancellable?.cancel()
+            connectionStatusCancellable = nil
+            pulseTimer?.invalidate()
+            pulseTimer = nil
 
             if let item = statusItem {
                 NSStatusBar.system.removeStatusItem(item)
@@ -490,6 +506,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         statusIconCancellable?.cancel()
         statusIconCancellable = nil
+        connectionStatusCancellable?.cancel()
+        connectionStatusCancellable = nil
+        pulseTimer?.invalidate()
+        pulseTimer = nil
 
         if let item = statusItem {
             NSStatusBar.system.removeStatusItem(item)
@@ -1564,6 +1584,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             NotificationCenter.default.removeObserver(observer)
         }
         statusIconCancellable?.cancel()
+        connectionStatusCancellable?.cancel()
+        pulseTimer?.invalidate()
+        pulseTimer = nil
         voiceInput?.stop()
         ambientAgent.teardown()
         surfaceManager.dismissAll()
