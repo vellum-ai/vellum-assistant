@@ -65,6 +65,14 @@ describe('approval-message-composer', () => {
       expect(msg).toContain('write_file');
     });
 
+    test('guardian_request_forwarded includes toolName', () => {
+      const msg = getFallbackMessage({
+        scenario: 'guardian_request_forwarded',
+        toolName: 'execute_shell',
+      });
+      expect(msg).toContain('execute_shell');
+    });
+
     test('guardian_disambiguation includes pendingCount', () => {
       const msg = getFallbackMessage({
         scenario: 'guardian_disambiguation',
