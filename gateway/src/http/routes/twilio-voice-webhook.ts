@@ -17,7 +17,7 @@ export function createTwilioVoiceWebhookHandler(config: GatewayConfig) {
     // For inbound calls (no callSessionId in the URL), resolve the assistant
     // by the "To" phone number so the runtime knows which assistant to use.
     const url = new URL(req.url);
-    const hasCallSessionId = url.searchParams.has("callSessionId");
+    const hasCallSessionId = !!url.searchParams.get("callSessionId");
     let assistantId: string | undefined;
 
     if (!hasCallSessionId && params.To) {
