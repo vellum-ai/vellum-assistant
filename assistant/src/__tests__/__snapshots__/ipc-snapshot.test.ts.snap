@@ -154,6 +154,14 @@ exports[`IPC message snapshots ClientMessage types cu_auto_approve_update serial
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types cu_recording_status serializes to expected JSON 1`] = `
+{
+  "sessionId": "cu-sess-001",
+  "status": "started",
+  "type": "cu_recording_status",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types cu_session_finalized serializes to expected JSON 1`] = `
 {
   "sessionId": "cu-sess-001",
@@ -926,6 +934,20 @@ exports[`IPC message snapshots ClientMessage types tool_names_list serializes to
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types dictation_request serializes to expected JSON 1`] = `
+{
+  "context": {
+    "appName": "Example App",
+    "bundleIdentifier": "com.example.app",
+    "cursorInTextField": true,
+    "selectedText": "some selected text",
+    "windowTitle": "Main Window",
+  },
+  "transcription": "Hello world",
+  "type": "dictation_request",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types auth_result serializes to expected JSON 1`] = `
 {
   "success": true,
@@ -1338,6 +1360,14 @@ exports[`IPC message snapshots ServerMessage types task_routed serializes to exp
   "interactionType": "computer_use",
   "sessionId": "sess-routed-001",
   "type": "task_routed",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types ride_shotgun_progress serializes to expected JSON 1`] = `
+{
+  "message": "Analyzing screen content...",
+  "type": "ride_shotgun_progress",
+  "watchId": "watch-shotgun-001",
 }
 `;
 
@@ -2515,5 +2545,13 @@ exports[`IPC message snapshots ServerMessage types tool_names_list_response seri
     "file_write",
   ],
   "type": "tool_names_list_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types dictation_response serializes to expected JSON 1`] = `
+{
+  "mode": "dictation",
+  "text": "Hello world",
+  "type": "dictation_response",
 }
 `;

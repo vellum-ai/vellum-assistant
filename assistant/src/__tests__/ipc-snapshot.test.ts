@@ -109,6 +109,11 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     sessionId: 'cu-sess-001',
     enabled: true,
   },
+  cu_recording_status: {
+    type: 'cu_recording_status',
+    sessionId: 'cu-sess-001',
+    status: 'started',
+  },
   cu_session_finalized: {
     type: 'cu_session_finalized',
     sessionId: 'cu-sess-001',
@@ -846,6 +851,11 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     type: 'task_routed',
     sessionId: 'sess-routed-001',
     interactionType: 'computer_use',
+  },
+  ride_shotgun_progress: {
+    type: 'ride_shotgun_progress',
+    watchId: 'watch-shotgun-001',
+    message: 'Analyzing screen content...',
   },
   ride_shotgun_result: {
     type: 'ride_shotgun_result',

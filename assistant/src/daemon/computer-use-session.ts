@@ -87,6 +87,9 @@ export class ComputerUseSession {
   /** When true, low/medium-risk tool prompts are auto-approved without client round-trip. */
   autoApproveEnabled = false;
 
+  /** Tracks client-side recording lifecycle. Set by cu_recording_status handler. */
+  recordingGateStatus: 'pending' | 'started' | 'failed' | 'stopped' = 'pending';
+
   // Tracks the agent loop promise so callers can await session completion
   private loopPromise: Promise<void> | null = null;
 
