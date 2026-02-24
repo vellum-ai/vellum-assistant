@@ -553,7 +553,7 @@ export async function handleChannelInbound(
       senderName: body.senderName,
       senderExternalUserId: body.senderExternalUserId,
       senderUsername: body.senderUsername,
-      guardianCtx,
+      guardianCtx: toGuardianRuntimeContext(sourceChannel, guardianCtx),
       replyCallbackUrl,
       assistantId,
     });
