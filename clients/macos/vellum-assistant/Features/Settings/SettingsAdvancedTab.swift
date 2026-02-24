@@ -19,11 +19,12 @@ struct SettingsAdvancedTab: View {
     @State private var remoteIdentity: RemoteIdentityInfo?
     @State private var flagStates: [(flag: FeatureFlag, enabled: Bool)] = []
 
-    #if DEBUG
+    @State private var devModeTapCount: Int = 0
+    @State private var devModeMessage: String?
+
     @State private var showingEnvVars = false
     @State private var appEnvVars: [(String, String)] = []
     @State private var daemonEnvVars: [(String, String)] = []
-    #endif
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
@@ -35,9 +36,9 @@ struct SettingsAdvancedTab: View {
             hatchNewAssistantSection
             featureFlagSection
 
-            #if DEBUG
-            developerSection
-            #endif
+            if store.isDevMode {
+                developerSection
+            }
         }
         .onAppear {
             lockfileAssistants = LockfileAssistant.loadAll()
@@ -87,14 +88,12 @@ struct SettingsAdvancedTab: View {
             .frame(minWidth: 260)
             .interactiveDismissDisabled()
         }
-        #if DEBUG
         .sheet(isPresented: $showingEnvVars) {
             SettingsPanelEnvVarsSheet(appEnvVars: appEnvVars, daemonEnvVars: daemonEnvVars)
         }
         .onDisappear {
             daemonClient?.onEnvVarsResponse = nil
         }
-        #endif
     }
 
     // MARK: - Assistant Info
@@ -107,9 +106,30 @@ struct SettingsAdvancedTab: View {
 
             if let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }) {
                 infoRow(label: "Assistant ID", value: assistant.assistantId, mono: true)
+                    .onTapGesture {
+                        devModeTapCount += 1
+                        if devModeTapCount >= 7 {
+                            store.toggleDevMode()
+                            devModeTapCount = 0
+                            devModeMessage = store.isDevMode
+                                ? "Dev mode enabled"
+                                : "Dev mode disabled"
+                            Task {
+                                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                                devModeMessage = nil
+                            }
+                        }
+                    }
 
                 let home = assistant.home
                 homeRow(home: home)
+            }
+
+            if let message = devModeMessage {
+                Text(message)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.accent)
+                    .transition(.opacity)
             }
 
             // Process status (child view observes @Published changes)
@@ -347,7 +367,7 @@ struct SettingsAdvancedTab: View {
 
     @ViewBuilder
     private var featureFlagSection: some View {
-        if FeatureFlagManager.shared.isEnabled(.featureFlagEditorEnabled) {
+        if store.isDevMode {
             VStack(alignment: .leading, spacing: VSpacing.md) {
                 Text("Feature Flags")
                     .font(VFont.sectionTitle)
@@ -371,9 +391,8 @@ struct SettingsAdvancedTab: View {
         }
     }
 
-    // MARK: - Developer (Debug Only)
+    // MARK: - Developer
 
-    #if DEBUG
     @ViewBuilder
     private var developerSection: some View {
         if daemonClient != nil {
@@ -413,7 +432,6 @@ struct SettingsAdvancedTab: View {
             .vCard(background: VColor.surfaceSubtle)
         }
     }
-    #endif
 }
 
 // MARK: - Daemon Status Rows

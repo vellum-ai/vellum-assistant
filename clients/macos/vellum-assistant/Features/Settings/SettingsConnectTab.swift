@@ -147,15 +147,17 @@ struct SettingsConnectTab: View {
                     .foregroundColor(VColor.error)
             }
 
-            Divider().background(VColor.surfaceBorder)
+            if store.isDevMode {
+                Divider().background(VColor.surfaceBorder)
 
-            channelStatusRow(
-                label: "Platform URL",
-                icon: "link",
-                iconColor: VColor.textMuted,
-                value: AuthService.shared.baseURL,
-                valueFont: VFont.mono
-            )
+                channelStatusRow(
+                    label: "Platform URL",
+                    icon: "link",
+                    iconColor: VColor.textMuted,
+                    value: AuthService.shared.baseURL,
+                    valueFont: VFont.mono
+                )
+            }
         }
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)

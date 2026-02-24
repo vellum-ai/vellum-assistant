@@ -144,6 +144,10 @@ public final class SettingsStore: ObservableObject {
     @Published var gatewayLastChecked: Date?
     @Published var isCheckingGateway: Bool = false
 
+    // MARK: - Dev Mode
+
+    @Published var isDevMode: Bool
+
     // MARK: - Trust Rules Coordination
 
     /// Whether any settings surface currently has a trust rules sheet open.
@@ -246,6 +250,8 @@ public final class SettingsStore: ObservableObject {
 
         self.quickChatShortcut = UserDefaults.standard.string(forKey: "quickChatShortcut") ?? "cmd+shift+space"
 
+        self.isDevMode = UserDefaults.standard.bool(forKey: "devModeEnabled")
+
         // Load media embed settings from workspace config
         let mediaSettings = Self.loadMediaEmbedSettings(from: configPath)
         self.mediaEmbedsEnabled = mediaSettings.enabled
@@ -287,6 +293,11 @@ public final class SettingsStore: ObservableObject {
         $quickChatShortcut
             .dropFirst()
             .sink { value in UserDefaults.standard.set(value, forKey: "quickChatShortcut") }
+            .store(in: &cancellables)
+
+        $isDevMode
+            .dropFirst()
+            .sink { value in UserDefaults.standard.set(value, forKey: "devModeEnabled") }
             .store(in: &cancellables)
 
         // Mirror DaemonClient's trust-rules-open flag so views can disable their buttons
@@ -1273,6 +1284,12 @@ public final class SettingsStore: ObservableObject {
     var lanPairingUrl: String? {
         guard let ip = LANIPHelper.currentLANAddress() else { return nil }
         return "http://\(ip):7830"
+    }
+
+    // MARK: - Dev Mode Actions
+
+    func toggleDevMode() {
+        isDevMode.toggle()
     }
 
     // MARK: - Model Actions
