@@ -34,7 +34,7 @@ const LOW_RISK_PROGRAMS = new Set([
   'env', 'printenv', 'set',
   'diff', 'sort', 'uniq', 'cut', 'tr', 'tee', 'xargs',
   'jq', 'yq',
-  'curl', 'wget', 'http', 'dig', 'nslookup', 'ping',
+  'http', 'dig', 'nslookup', 'ping',
   'tree', 'du', 'df',
 ]);
 
@@ -309,6 +309,12 @@ export async function classifyRisk(toolName: string, input: Record<string, unkno
 
       if (prog === 'chmod' || prog === 'chown' || prog === 'chgrp'
         || prog === 'sed' || prog === 'awk') {
+        maxRisk = RiskLevel.Medium;
+        continue;
+      }
+
+      // curl/wget can download and execute arbitrary code from the internet
+      if (prog === 'curl' || prog === 'wget') {
         maxRisk = RiskLevel.Medium;
         continue;
       }
