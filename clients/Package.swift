@@ -26,6 +26,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.0.0"),
+        .package(url: "https://github.com/Picovoice/porcupine", from: "3.0.0"),
     ],
     targets: [
         .target(
@@ -45,7 +46,11 @@ let package = Package(
         // iOS apps should depend only on VellumAssistantShared, not this target.
         .target(
             name: "VellumAssistantLib",
-            dependencies: ["VellumAssistantShared", "Sparkle"],
+            dependencies: [
+                "VellumAssistantShared",
+                "Sparkle",
+                .product(name: "Porcupine", package: "porcupine"),
+            ],
             path: "macos/vellum-assistant",
             exclude: ["Resources/Info.plist", "Resources/bg.png"],
             resources: [
