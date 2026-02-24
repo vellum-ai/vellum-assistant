@@ -893,11 +893,29 @@ private final class ComposerNativeTextView: NSTextView {
 private final class CenteringClipView: NSClipView {
     override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect {
         var rect = super.constrainBoundsRect(proposedBounds)
-        if let textView = documentView as? NSTextView,
+        if let textView = documentView as? ComposerNativeTextView,
            let layoutManager = textView.layoutManager,
            let textContainer = textView.textContainer {
             layoutManager.ensureLayout(for: textContainer)
-            let usedHeight = layoutManager.usedRect(for: textContainer).height
+            var usedHeight = layoutManager.usedRect(for: textContainer).height
+
+            // When placeholder text is visible, use its rendered height instead
+            // of the (empty) layout manager height so the cursor stays aligned
+            // with the first line of placeholder text that may wrap.
+            if textView.string.isEmpty,
+               let placeholder = textView.placeholderText,
+               !placeholder.isEmpty {
+                let font = textView.font ?? NSFont.systemFont(ofSize: 13)
+                let linePadding = textContainer.lineFragmentPadding
+                let availableWidth = max(0, textView.bounds.width - textView.textContainerInset.width * 2 - linePadding * 2)
+                let placeholderSize = (placeholder as NSString).boundingRect(
+                    with: NSSize(width: availableWidth, height: .greatestFiniteMagnitude),
+                    options: [.usesLineFragmentOrigin],
+                    attributes: [.font: font]
+                )
+                usedHeight = max(usedHeight, placeholderSize.height)
+            }
+
             // Include the textContainerInset in the total content height so
             // centering accounts for the top/bottom padding the text view adds.
             let insetHeight = textView.textContainerInset.height * 2
