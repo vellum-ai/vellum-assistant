@@ -1075,7 +1075,7 @@ public final class SettingsStore: ObservableObject {
 
     // MARK: - Connection Health Check
 
-    /// Tests reachability of both the local gateway process and the public ingress tunnel.
+    /// Tests reachability of both the local gateway process and the public tunnel.
     /// Updates `gatewayReachable`, `ingressReachable`, and `gatewayLastChecked` with results.
     func testGatewayConnection() async {
         isCheckingGateway = true
@@ -1090,7 +1090,7 @@ public final class SettingsStore: ObservableObject {
             timeoutSeconds: 3
         )
 
-        // Test public ingress (only if URL is non-empty)
+        // Test public tunnel (only if URL is non-empty)
         let trimmedUrl = ingressPublicBaseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmedUrl.isEmpty {
             ingressReachable = nil
@@ -1131,7 +1131,7 @@ public final class SettingsStore: ObservableObject {
         PairingConfiguration.resolvedBearerToken(fallback: readHttpToken() ?? "")
     }
 
-    /// Resolved gateway URL for public ingress — uses per-integration override if enabled, else global.
+    /// Resolved gateway URL — uses per-integration override if enabled, else global.
     var resolvedIngressGatewayUrl: String {
         UserDefaults.standard.bool(forKey: "ingressUseOverride")
             ? (nonEmpty(UserDefaults.standard.string(forKey: "ingressGatewayOverride")) ?? ingressPublicBaseUrl)

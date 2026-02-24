@@ -188,7 +188,7 @@ struct DaemonConnectionSection: View {
                                 Image(systemName: "exclamationmark.triangle.fill")
                                     .foregroundColor(VColor.warning)
                                     .font(.system(size: 12))
-                                Text("Local HTTP connections are unencrypted. Only use on trusted networks.")
+                                Text("Debug only. Uses unencrypted HTTP over your local network. Do not use in production.")
                                     .font(VFont.caption)
                                     .foregroundColor(VColor.warning)
                             }

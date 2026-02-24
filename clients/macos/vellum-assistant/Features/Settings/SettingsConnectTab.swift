@@ -946,7 +946,7 @@ struct SettingsConnectTab: View {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundColor(VColor.warning)
                         .font(.system(size: 14))
-                    Text("Gateway URL is set but ingress is disabled. Enable ingress in Advanced settings to allow pairing.")
+                    Text("Gateway URL is set but the gateway is not active. Check your tunnel or gateway configuration.")
                         .font(VFont.body)
                         .foregroundColor(VColor.textSecondary)
                 }

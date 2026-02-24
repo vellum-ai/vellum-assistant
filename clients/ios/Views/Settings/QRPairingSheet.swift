@@ -89,7 +89,7 @@ struct QRPairingSheet: View {
             .cornerRadius(VRadius.md)
             .padding(.horizontal, VSpacing.lg)
 
-            Text("Open Vellum on your Mac, go to Settings \u{2192} Connect, and tap Show QR Code. Ingress must be enabled on the Mac for pairing.")
+            Text("Open Vellum on your Mac, go to Settings \u{2192} Connect, and tap Show QR Code. The gateway must be configured on the Mac for pairing.")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textMuted)
                 .multilineTextAlignment(.center)
