@@ -9,8 +9,61 @@ import type { ChannelId } from '../channels/types.js';
 import { isChannelId } from '../channels/types.js';
 import { getLogger } from '../util/logger.js';
 import { deleteOrphanAttachments } from './attachments-store.js';
+import { createRowMapper } from '../util/row-mapper.js';
 
 const log = getLogger('conversation-store');
+
+export interface ConversationRow {
+  id: string;
+  title: string | null;
+  createdAt: number;
+  updatedAt: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalEstimatedCost: number;
+  contextSummary: string | null;
+  contextCompactedMessageCount: number;
+  contextCompactedAt: number | null;
+  threadType: string;
+  source: string;
+  memoryScopeId: string;
+  originChannel: string | null;
+}
+
+const parseConversation = createRowMapper<typeof conversations.$inferSelect, ConversationRow>({
+  id: 'id',
+  title: 'title',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt',
+  totalInputTokens: 'totalInputTokens',
+  totalOutputTokens: 'totalOutputTokens',
+  totalEstimatedCost: 'totalEstimatedCost',
+  contextSummary: 'contextSummary',
+  contextCompactedMessageCount: 'contextCompactedMessageCount',
+  contextCompactedAt: 'contextCompactedAt',
+  threadType: 'threadType',
+  source: 'source',
+  memoryScopeId: 'memoryScopeId',
+  originChannel: 'originChannel',
+});
+
+export interface MessageRow {
+  id: string;
+  conversationId: string;
+  role: string;
+  content: string;
+  createdAt: number;
+  metadata: string | null;
+}
+
+const parseMessage = createRowMapper<typeof messages.$inferSelect, MessageRow>({
+  id: 'id',
+  conversationId: 'conversationId',
+  role: 'role',
+  content: 'content',
+  createdAt: 'createdAt',
+  metadata: 'metadata',
+});
 
 /**
  * Monotonic timestamp source for message ordering. Two messages saved within
@@ -53,14 +106,14 @@ export function createConversation(titleOrOpts?: string | { title?: string; thre
   return conversation;
 }
 
-export function getConversation(id: string) {
+export function getConversation(id: string): ConversationRow | null {
   const db = getDb();
-  const result = db
+  const row = db
     .select()
     .from(conversations)
     .where(eq(conversations.id, id))
     .get();
-  return result ?? null;
+  return row ? parseConversation(row) : null;
 }
 
 export function getConversationThreadType(conversationId: string): 'standard' | 'private' {
@@ -89,7 +142,7 @@ export function deleteConversation(id: string): void {
   });
 }
 
-export function listConversations(limit?: number, includeBackground = false, offset = 0) {
+export function listConversations(limit?: number, includeBackground = false, offset = 0): ConversationRow[] {
   const db = getDb();
   const where = includeBackground ? undefined : sql`${conversations.threadType} != 'background'`;
   const query = db
@@ -99,7 +152,7 @@ export function listConversations(limit?: number, includeBackground = false, off
     .orderBy(desc(conversations.updatedAt))
     .limit(limit ?? 100)
     .offset(offset);
-  return query.all();
+  return query.all().map(parseConversation);
 }
 
 export function countConversations(includeBackground = false): number {
@@ -113,16 +166,16 @@ export function countConversations(includeBackground = false): number {
   return total;
 }
 
-export function getLatestConversation() {
+export function getLatestConversation(): ConversationRow | null {
   const db = getDb();
-  const result = db
+  const row = db
     .select()
     .from(conversations)
     .where(sql`${conversations.threadType} != 'background'`)
     .orderBy(desc(conversations.updatedAt))
     .limit(1)
     .get();
-  return result ?? null;
+  return row ? parseConversation(row) : null;
 }
 
 export function addMessage(conversationId: string, role: string, content: string, metadata?: Record<string, unknown>) {
@@ -192,14 +245,15 @@ export function addMessage(conversationId: string, role: string, content: string
   return message;
 }
 
-export function getMessages(conversationId: string) {
+export function getMessages(conversationId: string): MessageRow[] {
   const db = getDb();
   return db
     .select()
     .from(messages)
     .where(eq(messages.conversationId, conversationId))
     .orderBy(asc(messages.createdAt))
-    .all();
+    .all()
+    .map(parseMessage);
 }
 
 export function updateConversationTitle(id: string, title: string): void {
