@@ -19,6 +19,7 @@ struct QRPairingSheet: View {
     @State private var scannedPayload: DaemonQRPayloadV4?
     @State private var errorMessage: String?
     @State private var pollTimer: Timer?
+    @State private var pairingTask: Task<Void, Never>?
 
     enum PairingPhase {
         case scanning
@@ -52,6 +53,8 @@ struct QRPairingSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
+                        pairingTask?.cancel()
+                        pairingTask = nil
                         stopPolling()
                         dismiss()
                     }
@@ -59,6 +62,8 @@ struct QRPairingSheet: View {
             }
         }
         .onDisappear {
+            pairingTask?.cancel()
+            pairingTask = nil
             stopPolling()
         }
     }
@@ -282,7 +287,7 @@ struct QRPairingSheet: View {
             return
         }
 
-        Task {
+        pairingTask = Task {
             // Try LAN first if available
             if let lanUrl = payload.localLanUrl,
                isAllowedLocalHttp(urlString: lanUrl, payload: payload) {
@@ -292,7 +297,7 @@ struct QRPairingSheet: View {
                     timeoutSeconds: 3
                 )
                 if let result = result {
-                    handlePairingResponse(result, payload: payload)
+                    handlePairingResponse(result, payload: payload, effectiveBaseURL: lanUrl)
                     return
                 }
                 // LAN failed, fall through to cloud gateway
@@ -305,7 +310,7 @@ struct QRPairingSheet: View {
                 timeoutSeconds: 15
             )
             if let result = result {
-                handlePairingResponse(result, payload: payload)
+                handlePairingResponse(result, payload: payload, effectiveBaseURL: payload.gatewayURL)
             } else {
                 await MainActor.run {
                     errorMessage = "Could not reach your Mac. Make sure the Vellum daemon is running."
@@ -337,7 +342,7 @@ struct QRPairingSheet: View {
         }
     }
 
-    private func handlePairingResponse(_ response: [String: Any], payload: DaemonQRPayloadV4) {
+    private func handlePairingResponse(_ response: [String: Any], payload: DaemonQRPayloadV4, effectiveBaseURL: String) {
         guard let status = response["status"] as? String else {
             errorMessage = "Unexpected response from Mac."
             phase = .error
@@ -363,7 +368,7 @@ struct QRPairingSheet: View {
 
         case "pending":
             phase = .waitingForApproval
-            startPolling(payload: payload)
+            startPolling(payload: payload, effectiveBaseURL: effectiveBaseURL)
 
         case "denied":
             errorMessage = "Pairing was denied on your Mac."
@@ -381,20 +386,12 @@ struct QRPairingSheet: View {
 
     // MARK: - Polling
 
-    private func startPolling(payload: DaemonQRPayloadV4) {
+    private func startPolling(payload: DaemonQRPayloadV4, effectiveBaseURL: String) {
         stopPolling()
-
-        // Determine which URL to poll
-        let baseURL: String
-        if let lanUrl = payload.localLanUrl, isAllowedLocalHttp(urlString: lanUrl, payload: payload) {
-            baseURL = lanUrl
-        } else {
-            baseURL = payload.gatewayURL
-        }
 
         pollTimer = Timer.scheduledTimer(withTimeInterval: 2.5, repeats: true) { _ in
             Task {
-                await pollPairingStatus(baseURL: baseURL, payload: payload)
+                await pollPairingStatus(baseURL: effectiveBaseURL, payload: payload)
             }
         }
     }
