@@ -42,8 +42,6 @@ struct SettingsPanel: View {
     @State private var modelDropdownFrame: CGRect = .zero
     @State private var selectedTab: SettingsTab = .connect
     @State private var testerModel: ToolPermissionTesterModel?
-    @AppStorage("ingressUseOverride") private var ingressUseOverride: Bool = false
-    @AppStorage("ingressGatewayOverride") private var ingressGatewayOverride: String = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -304,40 +302,6 @@ struct SettingsPanel: View {
             }
             .animation(VAnimation.fast, value: showModelDropdown)
             .zIndex(showModelDropdown ? 1 : 0)
-
-            // PUBLIC INGRESS section
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                HStack {
-                    Text("Public Ingress")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.textPrimary)
-                    Spacer()
-                    Toggle("", isOn: Binding(
-                        get: { store.ingressEnabled },
-                        set: { store.setIngressEnabled($0) }
-                    ))
-                    .toggleStyle(.switch)
-                    .labelsHidden()
-                    .disabled(store.ingressPublicBaseUrl.isEmpty && !store.ingressEnabled)
-                }
-
-                HStack(alignment: .top, spacing: VSpacing.sm) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(VColor.warning)
-                        .font(.system(size: 12))
-                    Text("Setting a public base URL may expose this computer to the public internet. Use with caution.")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                }
-
-                // Global Gateway & Token readout
-                ingressGlobalConfigCard
-
-                // Override section
-                ingressOverrideSection
-            }
-            .padding(VSpacing.lg)
-            .vCard(background: VColor.surfaceSubtle)
 
             // PERPLEXITY SEARCH section
             VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -1032,74 +996,6 @@ struct SettingsPanel: View {
 
         // Close the settings panel so the user sees the chat
         onClose()
-    }
-
-    // MARK: - Ingress Global Config Card
-
-    /// Card showing the resolved gateway URL, referencing global Connect config.
-    private var ingressGlobalConfigCard: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text("Using Global Gateway & Token")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
-                .textCase(.uppercase)
-
-            HStack(alignment: .top) {
-                Text("Gateway URL")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-                    .frame(width: 90, alignment: .leading)
-                Text(store.resolvedIngressGatewayUrl.isEmpty ? "Not configured" : store.resolvedIngressGatewayUrl)
-                    .font(VFont.mono)
-                    .foregroundColor(store.resolvedIngressGatewayUrl.isEmpty ? VColor.textMuted : VColor.textPrimary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer()
-            }
-
-            Button("Manage in Connect tab") {
-                selectedTab = .connect
-            }
-            .font(VFont.caption)
-            .foregroundColor(VColor.accent)
-        }
-        .padding(VSpacing.md)
-        .background(VColor.surface.opacity(0.5))
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.md)
-                .stroke(VColor.surfaceBorder.opacity(0.3), lineWidth: 1)
-        )
-    }
-
-    /// Collapsed override section for per-integration gateway URL customization.
-    @State private var ingressOverrideExpanded: Bool = false
-
-    private var ingressOverrideSection: some View {
-        VDisclosureSection(
-            title: "Override",
-            icon: "arrow.triangle.swap",
-            isExpanded: $ingressOverrideExpanded
-        ) {
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
-                Toggle("Use custom gateway URL", isOn: $ingressUseOverride)
-                    .toggleStyle(.switch)
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
-
-                if ingressUseOverride {
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        Text("Gateway URL Override")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
-                        TextField("https://custom-gateway.example.com", text: $ingressGatewayOverride)
-                            .vInputStyle()
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
-                    }
-                }
-            }
-        }
     }
 
     // MARK: - Permission Row

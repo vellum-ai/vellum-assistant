@@ -1155,19 +1155,6 @@ public final class SettingsStore: ObservableObject {
         PairingConfiguration.resolvedBearerToken(fallback: readHttpToken() ?? "")
     }
 
-    /// Resolved gateway URL — uses per-integration override if enabled, else global.
-    var resolvedIngressGatewayUrl: String {
-        UserDefaults.standard.bool(forKey: "ingressUseOverride")
-            ? (nonEmpty(UserDefaults.standard.string(forKey: "ingressGatewayOverride")) ?? ingressPublicBaseUrl)
-            : ingressPublicBaseUrl
-    }
-
-    /// Returns the string if it is non-nil and non-empty after trimming, otherwise nil.
-    private func nonEmpty(_ value: String?) -> String? {
-        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
-        return value
-    }
-
     // MARK: - Model Actions
 
     func setModel(_ model: String) {
