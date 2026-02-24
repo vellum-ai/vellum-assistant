@@ -164,7 +164,7 @@ public struct ToolConfirmationData: Equatable {
         case "reminder_list":
             return "List reminders"
         case "reminder_cancel":
-            let id = (input["id"]?.value as? String) ?? ""
+            let id = (input["reminder_id"]?.value as? String) ?? ""
             return id.isEmpty ? "Cancel reminder" : "Cancel reminder \(id)"
         case "credential_store":
             return Self.credentialPreview(input: input)
