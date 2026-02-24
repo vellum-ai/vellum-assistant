@@ -226,7 +226,30 @@ When the sweep says "back to the Swarm phase," run the swarm workflow (`.claude/
 - Create worktrees from the feature branch: `.claude/worktree create swarm/<namespace>/task-<counter> origin/<feature-branch-name>`.
 - Agents must NOT use `--merge` in `.claude/ship`. All PRs are created without auto-merging. The lead merges approved PRs after review.
 
-When the sweep says "final phase," proceed to Phase 6.
+When the sweep says "final phase," proceed to Phase 5.5.
+
+## Phase 5.5: Merge Approved Final-Sweep PRs
+
+This step runs ONLY after the final sweep completes cleanly (all reviews addressed, no pending feedback). It is the Phase 5 equivalent of Phase 4c.5 — without it, approved feedback PRs from the final sweep would remain unmerged, and their fixes would be missing from the final feature-branch PR.
+
+1. Collect all feedback PRs that were created during the final sweep. These are PRs whose head branch starts with `swarm/<namespace>/` and whose base branch is the feature branch.
+
+2. For each such PR, check if it is approved and unmerged:
+   ```bash
+   gh pr view <pr-number> --json state,mergedAt --jq '{state: .state, mergedAt: .mergedAt}'
+   ```
+
+3. Merge any approved but unmerged feedback PRs into the feature branch (squash merge, in order of PR number):
+   ```bash
+   gh pr merge <feedback-pr-number> --squash
+   ```
+
+4. If any PRs were merged, fetch the updated feature branch:
+   ```bash
+   git fetch origin <feature-branch-name>
+   ```
+
+Proceed to Phase 6.
 
 ## Phase 6: Create Final PR (Feature Branch -> Main)
 
