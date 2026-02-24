@@ -7,6 +7,9 @@
 
 import type { ServerMessage, UserMessageAttachment } from './ipc-protocol.js';
 import type { TurnChannelContext } from '../channels/types.js';
+import { getLogger } from '../util/logger.js';
+
+const log = getLogger('session-queue');
 
 export interface QueuedMessage {
   content: string;
@@ -17,9 +20,14 @@ export interface QueuedMessage {
   currentPage?: string;
   metadata?: Record<string, unknown>;
   turnChannelContext?: TurnChannelContext;
+  /** Timestamp (ms) when the message was enqueued. */
+  queuedAt: number;
 }
 
 export const MAX_QUEUE_DEPTH = 10;
+/** Messages older than this (ms) are auto-expired from the queue. */
+export const DEFAULT_MAX_WAIT_MS = 60_000;
+const CAPACITY_WARNING_THRESHOLD = 0.8;
 
 /**
  * Describes why a queued message was promoted from the queue.
@@ -37,27 +45,77 @@ export interface QueuePolicy {
   checkpointHandoffEnabled: boolean;
 }
 
+export interface QueueMetrics {
+  currentDepth: number;
+  totalDropped: number;
+  totalExpired: number;
+  /** Average wait time (ms) of dequeued messages. 0 when no messages have been dequeued. */
+  averageWaitMs: number;
+}
+
 /**
  * Typed wrapper around the queued-message array.
  *
- * Session owns one instance; the wrapper handles capacity checks and
- * iteration so the rest of Session doesn't touch the raw array.
+ * Session owns one instance; the wrapper handles capacity checks,
+ * expiry, metrics, and iteration so the rest of Session doesn't
+ * touch the raw array.
  */
 export class MessageQueue {
   private items: QueuedMessage[] = [];
+  private maxWaitMs: number;
+  private droppedCount = 0;
+  private expiredCount = 0;
+  private totalWaitMs = 0;
+  private dequeuedCount = 0;
+  private capacityWarned = false;
+
+  constructor(maxWaitMs: number = DEFAULT_MAX_WAIT_MS) {
+    this.maxWaitMs = maxWaitMs;
+  }
 
   push(item: QueuedMessage): boolean {
-    if (this.items.length >= MAX_QUEUE_DEPTH) return false;
+    this.expireStale();
+
+    if (this.items.length >= MAX_QUEUE_DEPTH) {
+      this.droppedCount++;
+      item.onEvent({
+        type: 'error',
+        message: 'Message queue is full. Please wait for current messages to be processed.',
+        category: 'queue_full',
+      });
+      return false;
+    }
+
+    item.queuedAt = Date.now();
     this.items.push(item);
+
+    const ratio = this.items.length / MAX_QUEUE_DEPTH;
+    if (ratio >= CAPACITY_WARNING_THRESHOLD && !this.capacityWarned) {
+      this.capacityWarned = true;
+      log.warn({ depth: this.items.length, max: MAX_QUEUE_DEPTH }, 'Queue nearing capacity');
+    } else if (ratio < CAPACITY_WARNING_THRESHOLD) {
+      this.capacityWarned = false;
+    }
+
     return true;
   }
 
   shift(): QueuedMessage | undefined {
-    return this.items.shift();
+    this.expireStale();
+    const item = this.items.shift();
+    if (item) {
+      this.dequeuedCount++;
+      this.totalWaitMs += Date.now() - item.queuedAt;
+    }
+    if (this.items.length / MAX_QUEUE_DEPTH < CAPACITY_WARNING_THRESHOLD) {
+      this.capacityWarned = false;
+    }
+    return item;
   }
 
   clear(): void {
     this.items = [];
+    this.capacityWarned = false;
   }
 
   get length(): number {
@@ -76,6 +134,38 @@ export class MessageQueue {
     const idx = this.items.findIndex((m) => m.requestId === requestId);
     if (idx === -1) return undefined;
     return this.items.splice(idx, 1)[0];
+  }
+
+  getMetrics(): QueueMetrics {
+    return {
+      currentDepth: this.items.length,
+      totalDropped: this.droppedCount,
+      totalExpired: this.expiredCount,
+      averageWaitMs: this.dequeuedCount > 0 ? this.totalWaitMs / this.dequeuedCount : 0,
+    };
+  }
+
+  /** Remove messages that have been waiting longer than maxWaitMs. */
+  private expireStale(): void {
+    const now = Date.now();
+    const cutoff = now - this.maxWaitMs;
+    const before = this.items.length;
+    this.items = this.items.filter((item) => {
+      if (item.queuedAt < cutoff) {
+        this.expiredCount++;
+        log.warn({ requestId: item.requestId, waitMs: now - item.queuedAt }, 'Expiring stale queued message');
+        item.onEvent({
+          type: 'error',
+          message: 'Your queued message was dropped because it waited too long in the queue.',
+          category: 'queue_expired',
+        });
+        return false;
+      }
+      return true;
+    });
+    if (this.items.length < before && this.items.length / MAX_QUEUE_DEPTH < CAPACITY_WARNING_THRESHOLD) {
+      this.capacityWarned = false;
+    }
   }
 
   [Symbol.iterator](): Iterator<QueuedMessage> {

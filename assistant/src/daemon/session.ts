@@ -38,7 +38,7 @@ import { ContextWindowManager } from '../context/window-manager.js';
 import { getHookManager } from '../hooks/manager.js';
 import { ConflictGate } from './session-conflict-gate.js';
 import { MessageQueue } from './session-queue-manager.js';
-import type { QueueDrainReason } from './session-queue-manager.js';
+import type { QueueDrainReason, QueueMetrics } from './session-queue-manager.js';
 import type { ChannelCapabilities, GuardianRuntimeContext } from './session-runtime-assembly.js';
 import type { AssistantAttachmentDraft } from './assistant-attachments.js';
 import {
@@ -286,6 +286,10 @@ export class Session {
 
   getQueueDepth(): number {
     return this.queue.length;
+  }
+
+  getQueueMetrics(): QueueMetrics {
+    return this.queue.getMetrics();
   }
 
   hasQueuedMessages(): boolean {
