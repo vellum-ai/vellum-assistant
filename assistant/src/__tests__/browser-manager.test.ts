@@ -34,6 +34,7 @@ function createMockPage(closed = false) {
     keyboard: { press: async () => {} },
     mouse: { click: async () => {}, move: async () => {}, wheel: async () => {} },
     bringToFront: async () => {},
+    on: () => {},
   };
 }
 
