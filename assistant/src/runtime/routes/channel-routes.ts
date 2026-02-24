@@ -1564,8 +1564,10 @@ async function handleApprovalInterception(
       if (allPending.length === 1) {
         guardianApproval = allPending[0];
       } else if (allPending.length > 1) {
-        // Multiple pending — delegate to the conversation engine for disambiguation
-        guardianApproval = allPending[0]; // Use first as primary context; engine sees all via pendingApprovals
+        // Multiple pending — pick the first approval matching this sender as
+        // primary context. The conversation engine sees all matching approvals
+        // via pendingApprovals and can disambiguate.
+        guardianApproval = allPending.find(a => a.guardianExternalUserId === senderExternalUserId) ?? allPending[0];
       }
     }
 
@@ -1661,13 +1663,18 @@ async function handleApprovalInterception(
       // Gather all pending guardian approvals for this chat so the engine
       // can handle disambiguation when multiple are pending.
       const allGuardianPending = getAllPendingApprovalsByGuardianChat(sourceChannel, externalChatId, assistantId);
-      if (allGuardianPending.length > 0 && approvalConversationGenerator && content) {
+      // Only present approvals that belong to this sender so the engine
+      // does not offer disambiguation for requests assigned to a rotated
+      // guardian the sender cannot act on.
+      const senderPending = allGuardianPending.filter(a => a.guardianExternalUserId === senderExternalUserId);
+      const effectivePending = senderPending.length > 0 ? senderPending : allGuardianPending;
+      if (effectivePending.length > 0 && approvalConversationGenerator && content) {
         const guardianAllowedActions = ['approve_once', 'reject'];
         const engineContext: ApprovalConversationContext = {
           toolName: guardianApproval.toolName,
           allowedActions: guardianAllowedActions,
           role: 'guardian',
-          pendingApprovals: allGuardianPending.map((a) => ({ runId: a.runId, toolName: a.toolName })),
+          pendingApprovals: effectivePending.map((a) => ({ runId: a.runId, toolName: a.toolName })),
           userMessage: content,
         };
 
