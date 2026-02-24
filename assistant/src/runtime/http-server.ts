@@ -36,6 +36,11 @@ import {
   handleAddTrustRule,
 } from './routes/run-routes.js';
 import {
+  handleConfirm,
+  handleSecret,
+  handleTrustRule,
+} from './routes/approval-routes.js';
+import {
   handleDeleteConversation,
   handleChannelInbound,
   handleChannelDeliveryAck,
@@ -565,6 +570,11 @@ export class RuntimeHttpServer {
           sendMessageDeps: this.sendMessageDeps,
         });
       }
+
+      // Standalone approval endpoints — keyed by requestId, orthogonal to message sending
+      if (endpoint === 'confirm' && req.method === 'POST') return await handleConfirm(req);
+      if (endpoint === 'secret' && req.method === 'POST') return await handleSecret(req);
+      if (endpoint === 'trust-rules' && req.method === 'POST') return await handleTrustRule(req);
 
       if (endpoint === 'attachments' && req.method === 'POST') return await handleUploadAttachment(req);
       if (endpoint === 'attachments' && req.method === 'DELETE') return await handleDeleteAttachment(req);
