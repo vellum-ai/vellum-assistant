@@ -102,24 +102,6 @@ struct AgentPanelContent: View {
 
     // MARK: - Available Skills Tab
 
-    /// Bundled starter skills shown as featured in the Available Skills tab.
-    private struct BundledSkill: Identifiable {
-        var id: String { slug }
-        let slug: String
-        let name: String
-        let description: String
-        let emoji: String
-
-        static let all: [BundledSkill] = [startTheDay]
-
-        static let startTheDay = BundledSkill(
-            slug: "start-the-day",
-            name: "Start the Day",
-            description: "Get a personalized daily briefing with weather, news, and actionable insights",
-            emoji: "\u{1F305}"
-        )
-    }
-
     /// ClaWHub skills filtered to exclude already-installed ones, with local search and sort.
     private var availableClawhubSkills: [ClawhubSkillItem] {
         let installedNames = Set(skillsManager.skills.map(\.name))
@@ -176,11 +158,6 @@ struct AgentPanelContent: View {
     @ViewBuilder
     private var availableSkillsList: some View {
         VStack(spacing: VSpacing.lg) {
-            // Bundled skills — always shown as featured
-            ForEach(BundledSkill.all) { starter in
-                bundledSkillCard(starter)
-            }
-
             // Search bar — filters locally, no API call
             HStack(spacing: VSpacing.sm) {
                 Image(systemName: "magnifyingglass")
@@ -285,32 +262,6 @@ struct AgentPanelContent: View {
         case installs = "Installs"
         case stars = "Stars"
         case newest = "Newest"
-    }
-
-    private func bundledSkillCard(_ starter: BundledSkill) -> some View {
-        HStack(spacing: VSpacing.md) {
-            Text(starter.emoji)
-                .font(.system(size: 20))
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(starter.name)
-                    .font(VFont.bodyBold)
-                    .foregroundColor(VColor.textPrimary)
-
-                Text(starter.description)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-                    .lineLimit(2)
-            }
-
-            Spacer()
-
-            Text("Included")
-                .font(VFont.caption)
-                .foregroundColor(VColor.success)
-        }
-        .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceSubtle)
     }
 
     /// How long ago a skill was published, as a human-readable string.
@@ -738,14 +689,9 @@ struct AgentPanelContent: View {
 
     // MARK: - Skills Tab
 
-    /// Names of bundled starter skills featured in Available Skills (hidden from Skills tab).
-    private static let featuredBundledNames: Set<String> = Set(
-        BundledSkill.all.map(\.name)
-    )
-
-    /// Skills to show in the Skills tab (excludes bundled starters featured in Available Skills).
+    /// Skills to show in the Skills tab.
     private var userSkills: [SkillInfo] {
-        skillsManager.skills.filter { !Self.featuredBundledNames.contains($0.name) }
+        skillsManager.skills
     }
 
     @ViewBuilder
