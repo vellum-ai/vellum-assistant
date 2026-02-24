@@ -197,6 +197,7 @@ fi
 # Always refresh bundled skills from source (skill assets like SKILL.md aren't
 # tracked by the daemon binary staleness check, so copy unconditionally)
 if [ -d "$ASSISTANT_SRC_DIR/src/config/bundled-skills" ]; then
+    mkdir -p "$SCRIPT_DIR/daemon-bin"
     rm -rf "$SCRIPT_DIR/daemon-bin/bundled-skills"
     cp -R "$ASSISTANT_SRC_DIR/src/config/bundled-skills" "$SCRIPT_DIR/daemon-bin/bundled-skills"
 fi
