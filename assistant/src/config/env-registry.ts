@@ -31,16 +31,6 @@ function flagTriState(name: string): boolean | undefined {
   return undefined;
 }
 
-function int(name: string, fallback: number): number;
-function int(name: string): number | undefined;
-function int(name: string, fallback?: number): number | undefined {
-  const raw = str(name);
-  if (!raw) return fallback;
-  const n = parseInt(raw, 10);
-  if (isNaN(n)) return fallback;
-  return n;
-}
-
 // ── Registry ─────────────────────────────────────────────────────────────────
 // Each entry documents the env var name, type, default, and purpose.
 

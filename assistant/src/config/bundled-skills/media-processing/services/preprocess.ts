@@ -424,7 +424,7 @@ export async function preprocessForAsset(
     for (const seg of rawSegments) {
       const segDuration = seg.endSeconds - seg.startSeconds;
       const effectiveInterval = computeEffectiveInterval(segDuration, config.intervalSeconds);
-      const frameTimestamps = generateFrameTimestamps(seg.startSeconds, seg.endSeconds, config.intervalSeconds);
+      const _frameTimestamps = generateFrameTimestamps(seg.startSeconds, seg.endSeconds, config.intervalSeconds);
 
       const segTempDir = join(tempDir, seg.id);
       await mkdir(segTempDir, { recursive: true });

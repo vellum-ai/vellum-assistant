@@ -76,7 +76,7 @@ describe('AssistantConfigSchema', () => {
     expect(result.model).toBe('claude-opus-4-6');
     expect(result.maxTokens).toBe(16000);
     expect(result.apiKeys).toEqual({});
-    expect(result.thinking).toEqual({ enabled: false, budgetTokens: 10000 });
+    expect(result.thinking).toEqual({ enabled: false, budgetTokens: 10000, streamThinking: false });
     expect(result.contextWindow).toEqual({
       enabled: true,
       maxInputTokens: 180000,
@@ -1194,7 +1194,7 @@ describe('loadConfig with schema validation', () => {
     expect(config.provider).toBe('anthropic');
     expect(config.model).toBe('claude-opus-4-6');
     expect(config.maxTokens).toBe(16000);
-    expect(config.thinking).toEqual({ enabled: false, budgetTokens: 10000 });
+    expect(config.thinking).toEqual({ enabled: false, budgetTokens: 10000, streamThinking: false });
     expect(config.contextWindow).toEqual({
       enabled: true,
       maxInputTokens: 180000,

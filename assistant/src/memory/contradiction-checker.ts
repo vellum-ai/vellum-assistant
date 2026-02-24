@@ -364,6 +364,8 @@ function handleRelationship(
         });
         return true;
       }
+      default:
+        return false;
     }
   }).immediate();
 }

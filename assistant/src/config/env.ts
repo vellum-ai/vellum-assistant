@@ -40,12 +40,6 @@ function int(name: string, fallback?: number): number | undefined {
   return n;
 }
 
-/** Read an env var as a boolean flag ('true'/'1' → true, everything else → false). */
-function flag(name: string): boolean {
-  const raw = str(name);
-  return raw === 'true' || raw === '1';
-}
-
 // ── Gateway ──────────────────────────────────────────────────────────────────
 
 const DEFAULT_GATEWAY_PORT = 7830;
