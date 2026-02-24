@@ -5,7 +5,7 @@ enum SettingsTab: String, CaseIterable {
     case connect = "Connect"
     case integrations = "Integrations"
     case trust = "Trust"
-    case reminders = "Reminders"
+    case reminders = "Schedules"
     case appearance = "Appearance"
     case advanced = "Advanced"
 }
