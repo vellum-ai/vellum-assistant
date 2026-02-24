@@ -194,9 +194,9 @@ mock.module('../calls/call-state.js', () => ({
   registerCallCompletionNotifier: () => {},
   unregisterCallCompletionNotifier: () => {},
   fireCallCompletionNotifier: () => {},
-  registerCallOrchestrator: () => {},
-  unregisterCallOrchestrator: () => {},
-  getCallOrchestrator: () => undefined,
+  registerCallController: () => {},
+  unregisterCallController: () => {},
+  getCallController: () => undefined,
 }));
 
 mock.module('../calls/call-store.js', () => ({

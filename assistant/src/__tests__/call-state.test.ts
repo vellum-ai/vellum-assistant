@@ -16,11 +16,11 @@ import {
   registerCallCompletionNotifier,
   unregisterCallCompletionNotifier,
   fireCallCompletionNotifier,
-  registerCallOrchestrator,
-  unregisterCallOrchestrator,
-  getCallOrchestrator,
+  registerCallController,
+  unregisterCallController,
+  getCallController,
 } from '../calls/call-state.js';
-import type { CallOrchestrator } from '../calls/call-orchestrator.js';
+import type { CallController } from '../calls/call-controller.js';
 
 describe('call-state', () => {
   // Clean up notifiers between tests
@@ -28,7 +28,7 @@ describe('call-state', () => {
     unregisterCallQuestionNotifier('test-conv');
     unregisterCallTranscriptNotifier('test-conv');
     unregisterCallCompletionNotifier('test-conv');
-    unregisterCallOrchestrator('test-session');
+    unregisterCallController('test-session');
   });
 
   // ── Question notifiers ────────────────────────────────────────────
@@ -135,40 +135,40 @@ describe('call-state', () => {
     fireCallCompletionNotifier('unregistered-conv', 'session-1');
   });
 
-  // ── Orchestrator registry ─────────────────────────────────────────
+  // ── Controller registry ─────────────────────────────────────────
 
-  test('registerCallOrchestrator + getCallOrchestrator: retrieves orchestrator', () => {
-    const fakeOrchestrator = { id: 'fake-orch' } as unknown as CallOrchestrator;
+  test('registerCallController + getCallController: retrieves controller', () => {
+    const fakeController = { id: 'fake-ctrl' } as unknown as CallController;
 
-    registerCallOrchestrator('test-session', fakeOrchestrator);
+    registerCallController('test-session', fakeController);
 
-    const retrieved = getCallOrchestrator('test-session');
-    expect(retrieved).toBe(fakeOrchestrator);
+    const retrieved = getCallController('test-session');
+    expect(retrieved).toBe(fakeController);
   });
 
-  test('unregisterCallOrchestrator: getCallOrchestrator returns undefined after unregister', () => {
-    const fakeOrchestrator = { id: 'fake-orch-2' } as unknown as CallOrchestrator;
+  test('unregisterCallController: getCallController returns undefined after unregister', () => {
+    const fakeController = { id: 'fake-ctrl-2' } as unknown as CallController;
 
-    registerCallOrchestrator('test-session', fakeOrchestrator);
-    unregisterCallOrchestrator('test-session');
+    registerCallController('test-session', fakeController);
+    unregisterCallController('test-session');
 
-    const retrieved = getCallOrchestrator('test-session');
+    const retrieved = getCallController('test-session');
     expect(retrieved).toBeUndefined();
   });
 
-  test('getCallOrchestrator returns undefined for unregistered session', () => {
-    const retrieved = getCallOrchestrator('nonexistent-session');
+  test('getCallController returns undefined for unregistered session', () => {
+    const retrieved = getCallController('nonexistent-session');
     expect(retrieved).toBeUndefined();
   });
 
-  test('registering a new orchestrator for same session overwrites the previous one', () => {
-    const first = { id: 'first' } as unknown as CallOrchestrator;
-    const second = { id: 'second' } as unknown as CallOrchestrator;
+  test('registering a new controller for same session overwrites the previous one', () => {
+    const first = { id: 'first' } as unknown as CallController;
+    const second = { id: 'second' } as unknown as CallController;
 
-    registerCallOrchestrator('test-session', first);
-    registerCallOrchestrator('test-session', second);
+    registerCallController('test-session', first);
+    registerCallController('test-session', second);
 
-    const retrieved = getCallOrchestrator('test-session');
+    const retrieved = getCallController('test-session');
     expect(retrieved).toBe(second);
   });
 });
