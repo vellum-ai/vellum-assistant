@@ -1313,8 +1313,12 @@ public struct IPCCuSessionCreate: Codable, Sendable {
     public let screenHeight: Int
     public let attachments: [IPCUserMessageAttachment]?
     public let interactionType: String?
+    /// When true, the client should start screen recording for this session.
+    public let requiresRecording: Bool?
+    /// Recording source/options selected by the client or requested by the daemon.
+    public let recordingOptions: IPCRecordingOptions?
 
-    public init(type: String, sessionId: String, task: String, screenWidth: Int, screenHeight: Int, attachments: [IPCUserMessageAttachment]? = nil, interactionType: String? = nil) {
+    public init(type: String, sessionId: String, task: String, screenWidth: Int, screenHeight: Int, attachments: [IPCUserMessageAttachment]? = nil, interactionType: String? = nil, requiresRecording: Bool? = nil, recordingOptions: IPCRecordingOptions? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.task = task
@@ -1322,6 +1326,8 @@ public struct IPCCuSessionCreate: Codable, Sendable {
         self.screenHeight = screenHeight
         self.attachments = attachments
         self.interactionType = interactionType
+        self.requiresRecording = requiresRecording
+        self.recordingOptions = recordingOptions
     }
 }
 
@@ -3018,6 +3024,28 @@ public struct IPCPublishPageResponse: Codable, Sendable {
     }
 }
 
+/// Options describing what the client should record and how.
+public struct IPCRecordingOptions: Codable, Sendable {
+    /// Whether to capture the full display or a single window.
+    public let captureScope: String?
+    /// CGDirectDisplayID identifying which display to record.
+    public let displayId: String?
+    /// CGWindowID identifying which window to record.
+    public let windowId: Double?
+    /// Whether to include system audio in the recording.
+    public let includeAudio: Bool?
+    /// When true, prompt the user to choose a source before recording starts.
+    public let promptForSource: Bool?
+
+    public init(captureScope: String? = nil, displayId: String? = nil, windowId: Double? = nil, includeAudio: Bool? = nil, promptForSource: Bool? = nil) {
+        self.captureScope = captureScope
+        self.displayId = displayId
+        self.windowId = windowId
+        self.includeAudio = includeAudio
+        self.promptForSource = promptForSource
+    }
+}
+
 public struct IPCRegenerateRequest: Codable, Sendable {
     public let type: String
     public let sessionId: String
@@ -4198,14 +4226,17 @@ public struct IPCTaskRouted: Codable, Sendable {
     public let escalatedFrom: String?
     /// When true, the client should start screen recording for this session.
     public let requiresRecording: Bool?
+    /// Recording source/options the client should use for this session.
+    public let recordingOptions: IPCRecordingOptions?
 
-    public init(type: String, sessionId: String, interactionType: String, task: String? = nil, escalatedFrom: String? = nil, requiresRecording: Bool? = nil) {
+    public init(type: String, sessionId: String, interactionType: String, task: String? = nil, escalatedFrom: String? = nil, requiresRecording: Bool? = nil, recordingOptions: IPCRecordingOptions? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.interactionType = interactionType
         self.task = task
         self.escalatedFrom = escalatedFrom
         self.requiresRecording = requiresRecording
+        self.recordingOptions = recordingOptions
     }
 }
 

@@ -131,6 +131,12 @@ exports[`IPC message snapshots ClientMessage types sandbox_set serializes to exp
 
 exports[`IPC message snapshots ClientMessage types cu_session_create serializes to expected JSON 1`] = `
 {
+  "recordingOptions": {
+    "captureScope": "display",
+    "displayId": "69734112",
+    "includeAudio": false,
+    "promptForSource": true,
+  },
   "screenHeight": 1080,
   "screenWidth": 1920,
   "sessionId": "cu-sess-001",
@@ -1036,6 +1042,33 @@ exports[`IPC message snapshots ClientMessage types assistant_inbox_reply seriali
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types pairing_approval_response serializes to expected JSON 1`] = `
+{
+  "decision": "approve_once",
+  "pairingRequestId": "pair-001",
+  "type": "pairing_approval_response",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types approved_devices_list serializes to expected JSON 1`] = `
+{
+  "type": "approved_devices_list",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types approved_device_remove serializes to expected JSON 1`] = `
+{
+  "hashedDeviceId": "hashed-device-001",
+  "type": "approved_device_remove",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types approved_devices_clear serializes to expected JSON 1`] = `
+{
+  "type": "approved_devices_clear",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types auth_result serializes to expected JSON 1`] = `
 {
   "success": true,
@@ -1476,6 +1509,11 @@ exports[`IPC message snapshots ServerMessage types cu_error serializes to expect
 exports[`IPC message snapshots ServerMessage types task_routed serializes to expected JSON 1`] = `
 {
   "interactionType": "computer_use",
+  "recordingOptions": {
+    "captureScope": "window",
+    "includeAudio": true,
+    "windowId": 12345,
+  },
   "sessionId": "sess-routed-001",
   "type": "task_routed",
 }
@@ -2878,33 +2916,6 @@ exports[`IPC message snapshots ServerMessage types assistant_inbox_reply_respons
   "messageId": "msg-reply-001",
   "success": true,
   "type": "assistant_inbox_reply_response",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types pairing_approval_response serializes to expected JSON 1`] = `
-{
-  "decision": "approve_once",
-  "pairingRequestId": "pair-001",
-  "type": "pairing_approval_response",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types approved_devices_list serializes to expected JSON 1`] = `
-{
-  "type": "approved_devices_list",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types approved_device_remove serializes to expected JSON 1`] = `
-{
-  "hashedDeviceId": "hashed-device-001",
-  "type": "approved_device_remove",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types approved_devices_clear serializes to expected JSON 1`] = `
-{
-  "type": "approved_devices_clear",
 }
 `;
 
