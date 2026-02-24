@@ -14,6 +14,14 @@ import type { RunOrchestrator, VoiceRunEventSink } from '../runtime/run-orchestr
 import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
 import { getLogger } from '../util/logger.js';
 
+/**
+ * Matches the exact `[CALL_OPENING]` marker that call-controller sends for
+ * the initial greeting turn. We replace it with a benign content string before
+ * persisting so the marker never appears in session history where it could
+ * retrigger opener behavior after a barge-in interruption.
+ */
+const CALL_OPENING_MARKER = '[CALL_OPENING]';
+
 const log = getLogger('voice-session-bridge');
 
 // ---------------------------------------------------------------------------
@@ -98,9 +106,17 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
       ? true
       : undefined;
 
+  // Replace the [CALL_OPENING] marker with a neutral instruction before
+  // persisting. The marker must not appear as a user message in session
+  // history — after a barge-in interruption the next turn would replay
+  // the stale marker and potentially retrigger opener behavior.
+  const persistedContent = opts.content === CALL_OPENING_MARKER
+    ? '(call connected — deliver opening greeting)'
+    : opts.content;
+
   const { run, abort } = await orchestrator.startRun(
     opts.conversationId,
-    opts.content,
+    persistedContent,
     undefined, // no attachments for voice
     {
       sourceChannel: 'voice',
