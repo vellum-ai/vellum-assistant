@@ -17,11 +17,18 @@ final class PairingApprovalWindow {
     }
 
     /// Show the pairing approval prompt for a specific device.
-    /// If a window is already showing, it is closed first (one prompt at a time).
-    /// Closing the previous window sends a deny for the superseded request.
+    /// If a window is already showing for a different request, it is closed first
+    /// (one prompt at a time) and a deny is sent for the superseded request.
+    /// If the same pairingRequestId is delivered again (daemon retry/rebroadcast),
+    /// the existing prompt is kept as-is — no deny is sent.
     func show(pairingRequestId: String, deviceName: String) {
+        // Same request ID redelivered (retry/rebroadcast) — keep current prompt.
+        if pairingRequestId == currentPairingRequestId, window != nil {
+            return
+        }
+
         // Close any existing prompt before showing a new one.
-        // This will send a deny for the previous request if unanswered.
+        // This will send a deny for the previous (different) request if unanswered.
         close()
 
         let view = PairingApprovalView(deviceName: deviceName) { [weak self] decision in
