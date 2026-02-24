@@ -28,6 +28,7 @@ import { registerDoordashCommand } from './cli/doordash.js';
 import { registerAmazonCommand } from './cli/amazon.js';
 import { registerTwitterCommand } from './cli/twitter.js';
 import { registerMapCommand } from './cli/map.js';
+import { registerInfluencerCommand } from './cli/influencer.js';
 
 const program = new Command();
 
@@ -55,5 +56,6 @@ registerCompletionsCommand(program);
 
 registerTwitterCommand(program);
 registerMapCommand(program);
+registerInfluencerCommand(program);
 
 program.parse();

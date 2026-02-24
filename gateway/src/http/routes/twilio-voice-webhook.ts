@@ -1,6 +1,6 @@
 import type { GatewayConfig } from "../../config.js";
 import { getLogger } from "../../logger.js";
-import { forwardTwilioVoiceWebhook } from "../../runtime/client.js";
+import { CircuitBreakerOpenError, forwardTwilioVoiceWebhook } from "../../runtime/client.js";
 import { resolveAssistant, resolveAssistantByPhoneNumber, isRejection } from "../../routing/resolve-assistant.js";
 import { validateTwilioWebhookRequest } from "../../twilio/validate-webhook.js";
 
@@ -69,6 +69,12 @@ export function createTwilioVoiceWebhookHandler(config: GatewayConfig) {
         headers: runtimeResponse.headers,
       });
     } catch (err) {
+      if (err instanceof CircuitBreakerOpenError) {
+        return Response.json(
+          { error: "Service temporarily unavailable" },
+          { status: 503, headers: { "Retry-After": String(err.retryAfterSecs) } },
+        );
+      }
       log.error({ err }, "Failed to forward Twilio voice webhook to runtime");
       return Response.json({ error: "Internal server error" }, { status: 502 });
     }

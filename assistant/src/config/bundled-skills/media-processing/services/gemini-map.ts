@@ -13,7 +13,7 @@ import { GoogleGenAI, ApiError } from '@google/genai';
 import { ConcurrencyPool } from './concurrency-pool.js';
 import { CostTracker, type CostSummary } from './cost-tracker.js';
 import { computeRetryDelay, sleep } from '../../../../util/retry.js';
-import type { Segment, SubjectRegistry } from './preprocess.js';
+import type { Segment } from './preprocess.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -91,6 +91,7 @@ function computeConfigHash(options: GeminiMapOptions): string {
     systemPrompt: options.systemPrompt,
     outputSchema: options.outputSchema,
     model: options.model ?? 'gemini-2.5-flash',
+    context: options.context,
   });
   return createHash('sha256').update(payload).digest('hex').slice(0, 8);
 }

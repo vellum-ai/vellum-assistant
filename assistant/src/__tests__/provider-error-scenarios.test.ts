@@ -10,8 +10,8 @@ mock.module('../util/logger.js', () => ({
 }));
 
 // Only mock sleep so retries complete instantly; keep real retry logic
-mock.module('../util/retry.js', () => {
-  const real = require(retryModulePath);
+mock.module('../util/retry.js', async () => {
+  const real = await import(retryModulePath);
   return {
     ...real,
     sleep: () => Promise.resolve(),
@@ -231,7 +231,7 @@ describe('RetryProvider — network error retries', () => {
     const inner = makeFlaky(1, err);
     const provider = new RetryProvider(inner);
 
-    const result = await provider.sendMessage(MESSAGES);
+    const _result = await provider.sendMessage(MESSAGES);
     expect(inner.calls).toBe(2);
   });
 
@@ -386,7 +386,7 @@ describe('FailoverProvider — model unavailability fallback', () => {
     const secondary = makeProvider('secondary');
     const provider = new FailoverProvider([primary, secondary]);
 
-    const result = await provider.sendMessage(MESSAGES);
+    const _result = await provider.sendMessage(MESSAGES);
     expect(primary.calls).toBe(1);
     expect(secondary.calls).toBe(1);
   });

@@ -72,19 +72,19 @@ extension AppDelegate {
             options: []
         )
 
-        let viewQuickChatAction = UNNotificationAction(
-            identifier: "VIEW_QUICK_CHAT",
-            title: "View in Chat",
-            options: .foreground
+        let viewGuardianAction = UNNotificationAction(
+            identifier: "VIEW_GUARDIAN",
+            title: "View",
+            options: [.foreground]
         )
-        let quickChatCategory = UNNotificationCategory(
-            identifier: "QUICK_CHAT_RESPONSE",
-            actions: [viewQuickChatAction],
+        let guardianRequestCategory = UNNotificationCategory(
+            identifier: "GUARDIAN_REQUEST",
+            actions: [viewGuardianAction],
             intentIdentifiers: [],
             options: []
         )
 
-        center.setNotificationCategories([activityCategory, toolConfirmationCategory, rideShotgunCategory, voiceResponseCategory, quickChatCategory])
+        center.setNotificationCategories([activityCategory, toolConfirmationCategory, rideShotgunCategory, voiceResponseCategory, guardianRequestCategory])
     }
 
     func registerBundledFonts() {
@@ -160,12 +160,12 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
             return
         }
 
-        // Handle quick chat response notifications — open the thread in the main window
-        if categoryId == "QUICK_CHAT_RESPONSE" {
+        // Handle guardian request notifications — open the guardian thread in the main window
+        if categoryId == "GUARDIAN_REQUEST" {
             let conversationId = response.notification.request.content.userInfo["conversationId"] as? String
             await MainActor.run {
                 guard !self.isAwaitingFirstLaunchReady else { return }
-                self.openQuickChatThread(conversationId: conversationId)
+                self.openConversationThread(conversationId: conversationId)
             }
             return
         }

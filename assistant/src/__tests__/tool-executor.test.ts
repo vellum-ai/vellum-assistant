@@ -1,8 +1,7 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, test, expect, beforeEach, afterEach, afterAll, mock, spyOn } from 'bun:test';
-import type { ToolExecutionResult, Tool } from '../tools/types.js';
+import type { ToolExecutionResult, Tool, ToolLifecycleEvent, ToolPermissionPromptEvent } from '../tools/types.js';
 import { RiskLevel } from '../permissions/types.js';
-import type { PolicyContext } from '../permissions/types.js';
+import type { AllowlistOption, ScopeOption, PolicyContext, TrustRule } from '../permissions/types.js';
 
 const mockConfig = {
   provider: 'anthropic',
@@ -322,8 +321,8 @@ describe('ToolExecutor contextual rule creation', () => {
 
   function setupAddRuleSpy() {
     addRuleSpy = spyOn(trustStore, 'addRule').mockImplementation(
-      (tool: string, pattern: string, scope: string, decision = 'allow', priority = 100, options?: any) => {
-        return { id: 'spy-rule-id', tool, pattern, scope, decision, priority, createdAt: Date.now(), ...options } as any;
+      (tool: string, pattern: string, scope: string, decision = 'allow', priority = 100, options?: { allowHighRisk?: boolean; executionTarget?: string }) => {
+        return { id: 'spy-rule-id', tool, pattern, scope, decision, priority, createdAt: Date.now(), ...options } as TrustRule;
       },
     );
     return addRuleSpy;
@@ -508,8 +507,8 @@ describe('ToolExecutor strict mode + high-risk integration (PR 25)', () => {
 
   function setupAddRuleSpy() {
     addRuleSpy = spyOn(trustStore, 'addRule').mockImplementation(
-      (tool: string, pattern: string, scope: string, decision = 'allow', priority = 100, options?: any) => {
-        return { id: 'spy-rule-id', tool, pattern, scope, decision, priority, createdAt: Date.now(), ...options } as any;
+      (tool: string, pattern: string, scope: string, decision = 'allow', priority = 100, options?: { allowHighRisk?: boolean; executionTarget?: string }) => {
+        return { id: 'spy-rule-id', tool, pattern, scope, decision, priority, createdAt: Date.now(), ...options } as TrustRule;
       },
     );
     return addRuleSpy;
@@ -1481,8 +1480,8 @@ describe('ToolExecutor persistentDecisionsAllowed contract', () => {
 
   function setupAddRuleSpy() {
     addRuleSpy = spyOn(trustStore, 'addRule').mockImplementation(
-      (tool: string, pattern: string, scope: string, decision = 'allow', priority = 100, options?: any) => {
-        return { id: 'spy-rule-id', tool, pattern, scope, decision, priority, createdAt: Date.now(), ...options } as any;
+      (tool: string, pattern: string, scope: string, decision = 'allow', priority = 100, options?: { allowHighRisk?: boolean; executionTarget?: string }) => {
+        return { id: 'spy-rule-id', tool, pattern, scope, decision, priority, createdAt: Date.now(), ...options } as TrustRule;
       },
     );
     return addRuleSpy;
@@ -1534,14 +1533,14 @@ describe('ToolExecutor persistentDecisionsAllowed contract', () => {
   });
 
   test('persistentDecisionsAllowed: false is emitted in lifecycle event for proxied bash', async () => {
-    let capturedEvent: any;
+    let capturedEvent: ToolPermissionPromptEvent | undefined;
     const prompter = makePrompterWithDecision('allow');
     const executor = new ToolExecutor(prompter);
     const result = await executor.execute(
       'bash',
       { command: 'curl https://example.com', network_mode: 'proxied' },
       makeContext({
-        onToolLifecycleEvent: (event: any) => {
+        onToolLifecycleEvent: (event: ToolLifecycleEvent) => {
           if (event.type === 'permission_prompt') {
             capturedEvent = event;
           }
@@ -1551,18 +1550,18 @@ describe('ToolExecutor persistentDecisionsAllowed contract', () => {
 
     expect(result.isError).toBe(false);
     expect(capturedEvent).toBeDefined();
-    expect(capturedEvent.persistentDecisionsAllowed).toBe(false);
+    expect(capturedEvent!.persistentDecisionsAllowed).toBe(false);
   });
 
   test('persistentDecisionsAllowed: true is emitted in lifecycle event for non-proxied bash', async () => {
-    let capturedEvent: any;
+    let capturedEvent: ToolPermissionPromptEvent | undefined;
     const prompter = makePrompterWithDecision('allow');
     const executor = new ToolExecutor(prompter);
     const result = await executor.execute(
       'bash',
       { command: 'echo hello' },
       makeContext({
-        onToolLifecycleEvent: (event: any) => {
+        onToolLifecycleEvent: (event: ToolLifecycleEvent) => {
           if (event.type === 'permission_prompt') {
             capturedEvent = event;
           }
@@ -1572,7 +1571,7 @@ describe('ToolExecutor persistentDecisionsAllowed contract', () => {
 
     expect(result.isError).toBe(false);
     expect(capturedEvent).toBeDefined();
-    expect(capturedEvent.persistentDecisionsAllowed).toBe(true);
+    expect(capturedEvent!.persistentDecisionsAllowed).toBe(true);
   });
 
   test('persistentDecisionsAllowed is passed to prompter confirmation_request for proxied bash', async () => {
@@ -1580,8 +1579,8 @@ describe('ToolExecutor persistentDecisionsAllowed contract', () => {
     const prompter = {
       prompt: async (
         _toolName: string, _input: Record<string, unknown>, _riskLevel: string,
-        _allowlistOptions: any[], _scopeOptions: any[], _diff: any, _sandboxed: any,
-        _sessionId: any, _executionTarget: any, persistentDecisionsAllowed: any,
+        _allowlistOptions: AllowlistOption[], _scopeOptions: ScopeOption[], _diff: unknown, _sandboxed: unknown,
+        _sessionId: unknown, _executionTarget: unknown, persistentDecisionsAllowed: boolean | undefined,
       ) => {
         capturedPersistent = persistentDecisionsAllowed;
         return { decision: 'allow' as const };
@@ -1643,8 +1642,8 @@ describe('E2E: proxied bash activation vs proxy approval persistence', () => {
 
   function setupAddRuleSpy() {
     addRuleSpy = spyOn(trustStore, 'addRule').mockImplementation(
-      (tool: string, pattern: string, scope: string, decision = 'allow', priority = 100, options?: any) => {
-        return { id: 'spy-rule-id', tool, pattern, scope, decision, priority, createdAt: Date.now(), ...options } as any;
+      (tool: string, pattern: string, scope: string, decision = 'allow', priority = 100, options?: { allowHighRisk?: boolean; executionTarget?: string }) => {
+        return { id: 'spy-rule-id', tool, pattern, scope, decision, priority, createdAt: Date.now(), ...options } as TrustRule;
       },
     );
     return addRuleSpy;
@@ -1871,8 +1870,8 @@ describe('ToolExecutor persistent-allow lifecycle', () => {
 
   function setupAddRuleSpy() {
     addRuleSpy = spyOn(trustStore, 'addRule').mockImplementation(
-      (tool: string, pattern: string, scope: string, decision = 'allow', priority = 100, options?: any) => {
-        return { id: 'spy-rule-id', tool, pattern, scope, decision, priority, createdAt: Date.now(), ...options } as any;
+      (tool: string, pattern: string, scope: string, decision = 'allow', priority = 100, options?: { allowHighRisk?: boolean; executionTarget?: string }) => {
+        return { id: 'spy-rule-id', tool, pattern, scope, decision, priority, createdAt: Date.now(), ...options } as TrustRule;
       },
     );
     return addRuleSpy;
@@ -1954,12 +1953,12 @@ describe('integration regressions — prompt payload (PR 11)', () => {
   test('shell command prompt payload includes allowlist and scope options', async () => {
     checkResultOverride = { decision: 'prompt', reason: 'Medium risk: requires approval' };
 
-    let capturedAllowlist: any[] | undefined;
-    let capturedScopes: any[] | undefined;
+    let capturedAllowlist: AllowlistOption[] | undefined;
+    let capturedScopes: ScopeOption[] | undefined;
     const prompter = {
       prompt: async (
         _toolName: string, _input: Record<string, unknown>, _riskLevel: string,
-        allowlistOptions: any[], scopeOptions: any[],
+        allowlistOptions: AllowlistOption[], scopeOptions: ScopeOption[],
       ) => {
         capturedAllowlist = allowlistOptions;
         capturedScopes = scopeOptions;

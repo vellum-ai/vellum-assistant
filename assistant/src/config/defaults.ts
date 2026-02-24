@@ -8,14 +8,15 @@ export const DEFAULT_CONFIG: AssistantConfig = {
   apiKeys: {},
   webSearchProvider: 'perplexity',
   providerOrder: [],
-  maxTokens: 64000,
+  maxTokens: 16000,
   thinking: {
     enabled: false,
     budgetTokens: 10000,
+    streamThinking: false,
   },
   contextWindow: {
     enabled: true,
-    maxInputTokens: 180000,
+    maxInputTokens: 200000,
     targetInputTokens: 110000,
     compactThreshold: 0.8,
     preserveRecentUserTurns: 8,
@@ -46,7 +47,7 @@ export const DEFAULT_CONFIG: AssistantConfig = {
       injectionFormat: 'markdown' as const,
       injectionStrategy: 'prepend_user_block' as const,
       reranking: {
-        enabled: true,
+        enabled: false,
         model: 'claude-haiku-4-5-20251001',
         topK: 20,
       },
@@ -265,11 +266,23 @@ export const DEFAULT_CONFIG: AssistantConfig = {
   ingress: {
     enabled: undefined,
     publicBaseUrl: '',
+    webhook: {
+      secret: '',
+      timeoutMs: 30_000,
+      maxRetries: 2,
+      initialBackoffMs: 500,
+      maxPayloadBytes: 1_048_576,
+    },
+    rateLimit: {
+      maxRequestsPerMinute: 0,
+      maxRequestsPerHour: 0,
+    },
+    shutdownDrainMs: 5_000,
   },
-  assistantInbox: {
-    enabled: false,
-    invitesEnabled: false,
-    memberAclEnabled: false,
-    policyEnabled: false,
+  daemon: {
+    startupSocketWaitMs: 5000,
+    stopTimeoutMs: 5000,
+    sigkillGracePeriodMs: 2000,
+    titleGenerationMaxTokens: 30,
   },
 };

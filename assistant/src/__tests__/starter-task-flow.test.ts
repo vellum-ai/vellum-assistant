@@ -30,6 +30,7 @@ mock.module('../home-base/prebuilt/seed.js', () => ({
 import {
   handleSurfaceAction,
   surfaceProxyResolver,
+  createSurfaceMutex,
   type SurfaceSessionContext,
 } from '../daemon/session-surfaces.js';
 
@@ -49,6 +50,7 @@ function makeContext(): SurfaceSessionContext {
     enqueueMessage: () => ({ queued: false, requestId: 'req-1' }),
     getQueueDepth: () => 0,
     processMessage: async () => 'ok',
+    withSurface: createSurfaceMutex(),
   };
 }
 

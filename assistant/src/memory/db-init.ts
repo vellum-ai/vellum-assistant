@@ -16,6 +16,9 @@ import {
   migrateGuardianActionTables,
   migrateBackfillInboxThreadStateFromBindings,
   migrateDropActiveSearchIndex,
+  migrateMemorySegmentsIndexes,
+  migrateMemoryItemsIndexes,
+  migrateRemainingTableIndexes,
   validateMigrationState,
 } from './schema-migration.js';
 
@@ -1266,6 +1269,12 @@ export function initializeDb(): void {
   migrateGuardianActionTables(database);
 
   migrateMemoryFtsBackfill(database);
+
+  migrateMemorySegmentsIndexes(database);
+
+  migrateMemoryItemsIndexes(database);
+
+  migrateRemainingTableIndexes(database);
 
   validateMigrationState(database);
 }

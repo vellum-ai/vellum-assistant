@@ -21,6 +21,21 @@ interface TrustFile {
 let cachedRules: TrustRule[] | null = null;
 let cachedStarterBundleAccepted: boolean | null = null;
 
+// Callbacks invoked when trust rules change (add/update/remove/clear).
+// Used by the permission checker to invalidate dependent caches.
+const rulesChangedListeners: Array<() => void> = [];
+
+/** Register a callback to be invoked whenever trust rules change. */
+export function onRulesChanged(listener: () => void): void {
+  rulesChangedListeners.push(listener);
+}
+
+function notifyRulesChanged(): void {
+  for (const listener of rulesChangedListeners) {
+    listener();
+  }
+}
+
 /**
  * Cache of pre-compiled Minimatch objects keyed by pattern string.
  * Rebuilt whenever cachedRules changes. Avoids re-parsing glob patterns
@@ -368,6 +383,7 @@ export function addRule(
   cachedRules = rules;
   rebuildPatternCache(rules);
   saveToDisk(rules);
+  notifyRulesChanged();
   log.info({ rule }, 'Added trust rule');
   return rule;
 }
@@ -395,6 +411,7 @@ export function updateRule(
   cachedRules = rules;
   rebuildPatternCache(rules);
   saveToDisk(rules);
+  notifyRulesChanged();
   log.info({ rule }, 'Updated trust rule');
   return rule;
 }
@@ -412,6 +429,7 @@ export function removeRule(id: string): boolean {
   cachedRules = rules;
   rebuildPatternCache(rules);
   saveToDisk(rules);
+  notifyRulesChanged();
   log.info({ id }, 'Removed trust rule');
   return true;
 }
@@ -508,6 +526,7 @@ export function clearAllRules(): void {
   cachedRules = rules;
   rebuildPatternCache(rules);
   saveToDisk(rules);
+  notifyRulesChanged();
   log.info('Cleared all user trust rules (default rules preserved)');
 }
 
@@ -608,6 +627,7 @@ export function acceptStarterBundle(): AcceptStarterBundleResult {
   cachedRules = rules;
   rebuildPatternCache(rules);
   saveToDisk(rules);
+  notifyRulesChanged();
   log.info({ rulesAdded: added }, 'Starter approval bundle accepted');
 
   return { accepted: true, rulesAdded: added, alreadyAccepted: false };

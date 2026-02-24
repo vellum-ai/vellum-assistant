@@ -3,6 +3,36 @@ import type { AllowlistOption } from './types.js';
 
 export type { ParsedCommand };
 
+// ── Shell parse result cache ─────────────────────────────────────────────────
+// Shell parsing via web-tree-sitter WASM is deterministic — the same command
+// string always produces the same ParsedCommand. Cache results to avoid
+// redundant WASM invocations on repeated permission checks.
+const PARSE_CACHE_MAX = 256;
+const parseCache = new Map<string, ParsedCommand>();
+
+export async function cachedParse(command: string): Promise<ParsedCommand> {
+  const cached = parseCache.get(command);
+  if (cached !== undefined) {
+    // LRU refresh: move to end of insertion order
+    parseCache.delete(command);
+    parseCache.set(command, cached);
+    return cached;
+  }
+  const result = await parse(command);
+  // Evict oldest entry if at capacity
+  if (parseCache.size >= PARSE_CACHE_MAX) {
+    const oldest = parseCache.keys().next().value;
+    if (oldest !== undefined) parseCache.delete(oldest);
+  }
+  parseCache.set(command, result);
+  return result;
+}
+
+/** Clear the shell parse cache. Exposed for testing. */
+export function clearShellParseCache(): void {
+  parseCache.clear();
+}
+
 export interface ShellActionKey {
   /** e.g. "action:gh", "action:gh pr", "action:gh pr view" */
   key: string;
@@ -40,7 +70,7 @@ const MAX_ACTION_KEY_DEPTH = 3;
  * identity information for permission decisions.
  */
 export async function analyzeShellCommand(command: string, preParsed?: ParsedCommand): Promise<ShellIdentityAnalysis> {
-  const parsed = preParsed ?? await parse(command);
+  const parsed = preParsed ?? await cachedParse(command);
 
   const operators: string[] = [];
   for (const seg of parsed.segments) {

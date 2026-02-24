@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import VellumAssistantShared
 import os
 
 private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "WakeWordCoordinator")
@@ -77,7 +78,7 @@ final class WakeWordCoordinator: ObservableObject {
 
         // Ignore if voice mode is already active
         guard voiceModeManager.state == .off else {
-            log.info("Wake word ignored — voice mode already active (state: \(String(describing: voiceModeManager.state)))")
+            log.info("Wake word ignored — voice mode already active (state: \(String(describing: self.voiceModeManager.state)))")
             return
         }
 
@@ -88,7 +89,6 @@ final class WakeWordCoordinator: ObservableObject {
         }
 
         log.info("Wake word detected — activating voice mode")
-        activatedViaWakeWord = true
 
         // 1. Play activation chime and show visual indicator
         WakeWordFeedback.playActivationChime()
@@ -107,6 +107,7 @@ final class WakeWordCoordinator: ObservableObject {
             audioMonitor.startMonitoring()
             return
         }
+        activatedViaWakeWord = true
         voiceModeManager.startListening()
     }
 
@@ -137,10 +138,10 @@ final class WakeWordCoordinator: ObservableObject {
                         if self.activatedViaWakeWord {
                             WakeWordFeedback.playDeactivationChime()
                             self.activationWindow.show(state: .listening)
-                            self.activatedViaWakeWord = false
                         }
                         self.audioMonitor.startMonitoring()
                     }
+                    self.activatedViaWakeWord = false  // always reset, regardless of setting
                 }
             }
     }

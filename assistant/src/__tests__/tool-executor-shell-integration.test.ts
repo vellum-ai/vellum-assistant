@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 /**
  * Integration tests: ToolExecutor → real checker.js → real shell-identity → real tree-sitter parser.
  *
@@ -10,6 +9,7 @@
  */
 import { describe, test, expect, beforeAll, mock } from 'bun:test';
 import type { ToolContext } from '../tools/types.js';
+import type { AllowlistOption, ScopeOption } from '../permissions/types.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
 
 // ── Config mock ──────────────────────────────────────────────────────
@@ -133,16 +133,16 @@ function makeContext(overrides?: Partial<ToolContext>): ToolContext {
  * passed to the prompter by the executor, then allows the tool.
  */
 function makeCapturingPrompter() {
-  let capturedAllowlist: any[] | undefined;
-  let capturedScopes: any[] | undefined;
+  let capturedAllowlist: AllowlistOption[] | undefined;
+  let capturedScopes: ScopeOption[] | undefined;
 
   const prompter = {
     prompt: async (
       _toolName: string,
       _input: Record<string, unknown>,
       _riskLevel: string,
-      allowlistOptions: any[],
-      scopeOptions: any[],
+      allowlistOptions: AllowlistOption[],
+      scopeOptions: ScopeOption[],
     ) => {
       capturedAllowlist = allowlistOptions;
       capturedScopes = scopeOptions;
@@ -177,7 +177,7 @@ describe('ToolExecutor → real shell allowlist integration', () => {
     expect(allowlist).toBeDefined();
     expect(allowlist!.length).toBeGreaterThan(1);
 
-    const patterns = allowlist!.map((o: any) => o.pattern);
+    const patterns = allowlist!.map((o: AllowlistOption) => o.pattern);
 
     // Should contain the exact command
     expect(patterns).toContain('npm install express');
@@ -197,8 +197,8 @@ describe('ToolExecutor → real shell allowlist integration', () => {
     const scopes = getScopes();
     expect(scopes).toBeDefined();
     expect(scopes!.length).toBeGreaterThanOrEqual(2);
-    expect(scopes!.some((s: any) => s.scope === '/tmp/project')).toBe(true);
-    expect(scopes!.some((s: any) => s.scope === 'everywhere')).toBe(true);
+    expect(scopes!.some((s: ScopeOption) => s.scope === '/tmp/project')).toBe(true);
+    expect(scopes!.some((s: ScopeOption) => s.scope === 'everywhere')).toBe(true);
   });
 
   test('compound command produces only exact compound option (no action keys)', async () => {
@@ -226,7 +226,7 @@ describe('ToolExecutor → real shell allowlist integration', () => {
     expect(allowlist).toBeDefined();
     expect(allowlist!.length).toBeGreaterThan(1);
 
-    const patterns = allowlist!.map((o: any) => o.pattern);
+    const patterns = allowlist!.map((o: AllowlistOption) => o.pattern);
 
     // Should contain the full original command as the exact option
     expect(patterns).toContain('cd /repo && gh pr view 123');
@@ -250,7 +250,7 @@ describe('ToolExecutor → real shell allowlist integration', () => {
     expect(scopes).toBeDefined();
     expect(scopes!.length).toBeGreaterThanOrEqual(2);
 
-    const scopeValues = scopes!.map((s: any) => s.scope);
+    const scopeValues = scopes!.map((s: ScopeOption) => s.scope);
 
     // Project-scoped option
     expect(scopeValues).toContain('/Users/test/my-project');
@@ -276,7 +276,7 @@ describe('ToolExecutor → real shell allowlist integration', () => {
     expect(allowlist).toBeDefined();
     expect(allowlist!.length).toBeGreaterThan(1);
 
-    const patterns = allowlist!.map((o: any) => o.pattern);
+    const patterns = allowlist!.map((o: AllowlistOption) => o.pattern);
 
     // Should contain exact command and action keys
     expect(patterns).toContain('git status');

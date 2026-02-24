@@ -1,6 +1,6 @@
+import { createHash } from 'node:crypto';
 import { RiskLevel, type PermissionCheckResult, type AllowlistOption, type ScopeOption, type PolicyContext } from './types.js';
-import { findHighestPriorityRule } from './trust-store.js';
-import { parse } from '../tools/terminal/parser.js';
+import { findHighestPriorityRule, onRulesChanged } from './trust-store.js';
 import { resolveSkillSelector } from '../config/skills.js';
 import { computeSkillVersionHash } from '../skills/version-hash.js';
 import { getTool } from '../tools/registry.js';
@@ -11,8 +11,32 @@ import { homedir } from 'node:os';
 import { looksLikeHostPortShorthand, looksLikePathOnlyInput } from '../tools/network/url-safety.js';
 import { normalizeFilePath, isSkillSourcePath } from '../skills/path-classifier.js';
 import { isWorkspaceScopedInvocation } from './workspace-policy.js';
-import { buildShellCommandCandidates, buildShellAllowlistOptions, type ParsedCommand } from './shell-identity.js';
+import { buildShellCommandCandidates, buildShellAllowlistOptions, cachedParse, type ParsedCommand } from './shell-identity.js';
 import type { ManifestOverride } from '../tools/execution-target.js';
+
+// ── Risk classification cache ────────────────────────────────────────────────
+// classifyRisk() is called on every permission check and can invoke WASM
+// parsing for shell commands. Cache results keyed on (toolName, inputHash).
+// Invalidated when trust rules change since risk classification for file tools
+// depends on skill source path checks which reference config, but the core
+// risk logic is input-deterministic.
+const RISK_CACHE_MAX = 256;
+const riskCache = new Map<string, RiskLevel>();
+
+function riskCacheKey(toolName: string, input: Record<string, unknown>): string {
+  const inputJson = JSON.stringify(input);
+  const hash = createHash('sha256').update(inputJson).digest('hex');
+  return `${toolName}\0${hash}`;
+}
+
+/** Clear the risk classification cache. Called when trust rules change. */
+export function clearRiskCache(): void {
+  riskCache.clear();
+}
+
+// Invalidate risk cache whenever trust rules change so that risk decisions
+// referencing config-dependent checks (e.g. skill source paths) stay fresh.
+onRulesChanged(clearRiskCache);
 
 // Ensures the legacy mode deprecation warning fires at most once per process.
 let _legacyDeprecationWarned = false;
@@ -280,7 +304,36 @@ async function buildCommandCandidates(toolName: string, input: Record<string, un
   return [...new Set(candidates)];
 }
 
-export async function classifyRisk(toolName: string, input: Record<string, unknown>, workingDir?: string, preParsed?: ParsedCommand, manifestOverride?: ManifestOverride): Promise<RiskLevel> {
+export async function classifyRisk(toolName: string, input: Record<string, unknown>, workingDir?: string, preParsed?: ParsedCommand, manifestOverride?: ManifestOverride, signal?: AbortSignal): Promise<RiskLevel> {
+  if (signal?.aborted) throw new Error('Cancelled');
+
+  // Check cache first (skip when preParsed is provided since caller already
+  // parsed and we'd just be duplicating the key computation cost).
+  const cacheKey = preParsed ? null : riskCacheKey(toolName, input);
+  if (cacheKey) {
+    const cached = riskCache.get(cacheKey);
+    if (cached !== undefined) {
+      // LRU refresh
+      riskCache.delete(cacheKey);
+      riskCache.set(cacheKey, cached);
+      return cached;
+    }
+  }
+
+  const result = await classifyRiskUncached(toolName, input, workingDir, preParsed, manifestOverride);
+
+  if (cacheKey) {
+    if (riskCache.size >= RISK_CACHE_MAX) {
+      const oldest = riskCache.keys().next().value;
+      if (oldest !== undefined) riskCache.delete(oldest);
+    }
+    riskCache.set(cacheKey, result);
+  }
+
+  return result;
+}
+
+async function classifyRiskUncached(toolName: string, input: Record<string, unknown>, workingDir?: string, preParsed?: ParsedCommand, manifestOverride?: ManifestOverride): Promise<RiskLevel> {
   if (toolName === 'file_read') return RiskLevel.Low;
   if (toolName === 'file_write' || toolName === 'file_edit') {
     const filePath = getStringField(input, 'path', 'file_path');
@@ -320,7 +373,7 @@ export async function classifyRisk(toolName: string, input: Record<string, unkno
     const command = (input.command as string) ?? '';
     if (!command.trim()) return RiskLevel.Low;
 
-    const parsed = preParsed ?? await parse(command);
+    const parsed = preParsed ?? await cachedParse(command);
 
     // Dangerous patterns → High
     if (parsed.dangerousPatterns.length > 0) return RiskLevel.High;
@@ -411,17 +464,20 @@ export async function check(
   workingDir: string,
   policyContext?: PolicyContext,
   manifestOverride?: ManifestOverride,
+  signal?: AbortSignal,
 ): Promise<PermissionCheckResult> {
+  if (signal?.aborted) throw new Error('Cancelled');
+
   // For shell tools, parse once and share the result to avoid duplicate tree-sitter work.
   let shellParsed: ParsedCommand | undefined;
   if (toolName === 'bash' || toolName === 'host_bash') {
     const command = ((input.command as string) ?? '').trim();
     if (command) {
-      shellParsed = await parse(command);
+      shellParsed = await cachedParse(command);
     }
   }
 
-  const risk = await classifyRisk(toolName, input, workingDir, shellParsed, manifestOverride);
+  const risk = await classifyRisk(toolName, input, workingDir, shellParsed, manifestOverride, signal);
 
   // Build command string candidates for rule matching
   const commandCandidates = await buildCommandCandidates(toolName, input, workingDir, shellParsed);
@@ -551,7 +607,8 @@ function friendlyHostname(url: URL): string {
   return url.hostname.replace(/^www\./, '');
 }
 
-export async function generateAllowlistOptions(toolName: string, input: Record<string, unknown>): Promise<AllowlistOption[]> {
+export async function generateAllowlistOptions(toolName: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<AllowlistOption[]> {
+  if (signal?.aborted) throw new Error('Cancelled');
   if (toolName === 'bash' || toolName === 'host_bash') {
     const command = ((input.command as string) ?? '').trim();
     return buildShellAllowlistOptions(command);

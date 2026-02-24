@@ -3,6 +3,7 @@ import { v4 as uuid } from 'uuid';
 import { getDb, getSqlite, rawAll } from './db.js';
 import { enqueueMemoryJob } from './jobs-store.js';
 import { memoryItemConflicts, memoryItems } from './schema.js';
+import { clampUnitInterval } from './validation.js';
 
 export type MemoryConflictRelationship =
   | 'contradiction'
@@ -319,7 +320,7 @@ export function applyConflictResolution(input: ApplyConflictResolutionInput): bo
           status: 'active',
           invalidAt: null,
           lastSeenAt: Math.max(existingItem.lastSeenAt, candidateItem.lastSeenAt, now),
-          confidence: Math.max(existingItem.confidence, candidateItem.confidence),
+          confidence: clampUnitInterval(Math.max(existingItem.confidence, candidateItem.confidence)),
         })
         .where(eq(memoryItems.id, existingItem.id))
         .run();

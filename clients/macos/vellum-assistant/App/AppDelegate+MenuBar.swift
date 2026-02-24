@@ -16,6 +16,14 @@ extension AppDelegate {
             button.action = #selector(statusBarButtonClicked(_:))
             button.target = self
         }
+
+        // Start observing daemon connection state immediately so the icon
+        // reflects disconnected/connected before the main window opens.
+        connectionStatusCancellable = daemonClient.$isConnected
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.updateMenuBarIcon()
+            }
     }
 
     func setupFileMenu() {
@@ -80,6 +88,7 @@ extension AppDelegate {
 
         let status = currentAssistantStatus
         let dotColor = status.statusColor
+        let dotAlpha = status.shouldPulse ? pulsePhase : 1.0
 
         let composited = NSImage(size: NSSize(width: iconSize, height: iconSize))
         composited.lockFocus()
@@ -94,14 +103,38 @@ extension AppDelegate {
         let dotRect = NSRect(x: dotX, y: dotY, width: dotSize, height: dotSize)
         NSColor.black.withAlphaComponent(0.5).setFill()
         NSBezierPath(ovalIn: dotRect.insetBy(dx: -0.5, dy: -0.5)).fill()
-        dotColor.setFill()
+        dotColor.withAlphaComponent(dotAlpha).setFill()
         NSBezierPath(ovalIn: dotRect).fill()
         composited.unlockFocus()
         composited.isTemplate = false
         button.image = composited
+
+        managePulseTimer(for: status)
+    }
+
+    /// Starts or stops the pulse timer based on the current status.
+    private func managePulseTimer(for status: AssistantStatus) {
+        if status.shouldPulse {
+            guard pulseTimer == nil else { return }
+            pulsePhase = 1.0
+            pulseTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+                Task { @MainActor in
+                    guard let self, self.statusItem != nil, let button = self.statusItem.button else { return }
+                    // Triangle wave between 0.3 and 1.0 over ~1.4s (28 frames at 50ms)
+                    self.pulsePhase -= 0.05
+                    if self.pulsePhase <= 0.3 { self.pulsePhase = 1.0 }
+                    self.configureMenuBarIcon(button)
+                }
+            }
+        } else {
+            pulseTimer?.invalidate()
+            pulseTimer = nil
+            pulsePhase = 1.0
+        }
     }
 
     var currentAssistantStatus: AssistantStatus {
+        if !daemonClient.isConnected { return .disconnected }
         guard let viewModel = mainWindow?.threadManager.activeViewModel else { return .idle }
         if let error = viewModel.errorText { return .error(error) }
         if viewModel.isThinking { return .thinking }

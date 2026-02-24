@@ -141,19 +141,23 @@ struct AgentPanelContent: View {
     // MARK: - Available Skills Tab
 
     /// ClaWHub skills filtered to exclude already-installed ones, with local search and sort.
+    /// When filtering to Vellum-only, installed Vellum skills are kept so the catalog is always visible.
     private var availableClawhubSkills: [ClawhubSkillItem] {
         let installedNames = Set(skillsManager.skills.map(\.name))
-        var filtered = skillsManager.searchResults
-            .filter { !installedNames.contains($0.name) }
 
-        // Source filter
+        // Source filter — applied before installed-name exclusion so we can
+        // relax the exclusion for Vellum-only view.
+        var filtered: [ClawhubSkillItem]
         switch skillSourceFilter {
         case .all:
-            break
+            filtered = skillsManager.searchResults
+                .filter { !installedNames.contains($0.name) }
         case .vellum:
-            filtered = filtered.filter { $0.isVellum }
+            // Show all Vellum catalog skills even if already installed
+            filtered = skillsManager.searchResults.filter { $0.isVellum }
         case .community:
-            filtered = filtered.filter { !$0.isVellum }
+            filtered = skillsManager.searchResults
+                .filter { !$0.isVellum && !installedNames.contains($0.name) }
         }
 
         // Local fuzzy filter by name/description
@@ -269,7 +273,7 @@ struct AgentPanelContent: View {
                         title: hasActiveSearch ? "No matches in Available" : "No results",
                         subtitle: hasActiveSearch
                             ? "No available skills matched \"\(globalSkillSearchQuery)\""
-                            : "No \(skillSourceFilter.rawValue.lowercased()) skills found",
+                            : "No \(skillSourceFilter.rawValue) skills found",
                         icon: "magnifyingglass"
                     )
 
@@ -287,24 +291,26 @@ struct AgentPanelContent: View {
                 .frame(minHeight: 100)
             }
 
-            // Community disclaimer
-            VStack(spacing: VSpacing.sm) {
-                HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "exclamationmark.shield.fill")
-                        .font(.system(size: 10))
-                        .foregroundColor(Amber._500)
-                    Text("Community skills are not verified by Vellum. Review before installing.")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-                }
+            // Community disclaimer — hidden when filtering to Vellum-only
+            if skillSourceFilter != .vellum {
+                VStack(spacing: VSpacing.sm) {
+                    HStack(spacing: VSpacing.sm) {
+                        Image(systemName: "exclamationmark.shield.fill")
+                            .font(.system(size: 10))
+                            .foregroundColor(Amber._500)
+                        Text("Community skills are not verified by Vellum. Review before installing.")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                    }
 
-                HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 10))
-                        .foregroundColor(VColor.accent)
-                    Text("Browse more on ClawhHub")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                    HStack(spacing: VSpacing.sm) {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 10))
+                            .foregroundColor(VColor.accent)
+                        Text("Browse more on ClawhHub")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                    }
                 }
             }
         }
@@ -352,6 +358,8 @@ struct AgentPanelContent: View {
     }
 
     private func clawhubSkillCard(_ skill: ClawhubSkillItem) -> some View {
+        let installedNames = Set(skillsManager.skills.map(\.name))
+        let isAlreadyInstalled = installedNames.contains(skill.name)
         let isInstalling = installingSlug == skill.slug
         let isNew = !skill.isVellum && skill.createdAt > 0 && Date().timeIntervalSince(
             Date(timeIntervalSince1970: Double(skill.createdAt) / 1000)
@@ -392,24 +400,30 @@ struct AgentPanelContent: View {
 
                 Spacer()
 
-                VButton(
-                    label: isInstalling ? "Installing..." : "Install",
-                    icon: isInstalling ? nil : "arrow.down.circle.fill",
-                    style: .primary,
-                    isDisabled: installingSlug != nil
-                ) {
-                    guard installingSlug == nil else { return }
-                    let attemptId = UUID()
-                    installingSlug = skill.slug
-                    installAttemptId = attemptId
-                    skillsManager.installSkill(slug: skill.slug)
-                    installTimeoutTask?.cancel()
-                    installTimeoutTask = Task {
-                        try? await Task.sleep(nanoseconds: 10_000_000_000)
-                        guard !Task.isCancelled else { return }
-                        if installingSlug == skill.slug && installAttemptId == attemptId {
-                            installingSlug = nil
-                            installAttemptId = nil
+                if isAlreadyInstalled {
+                    Text("Installed")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.success)
+                } else {
+                    VButton(
+                        label: isInstalling ? "Installing..." : "Install",
+                        icon: isInstalling ? nil : "arrow.down.circle.fill",
+                        style: .primary,
+                        isDisabled: installingSlug != nil
+                    ) {
+                        guard installingSlug == nil else { return }
+                        let attemptId = UUID()
+                        installingSlug = skill.slug
+                        installAttemptId = attemptId
+                        skillsManager.installSkill(slug: skill.slug)
+                        installTimeoutTask?.cancel()
+                        installTimeoutTask = Task {
+                            try? await Task.sleep(nanoseconds: 10_000_000_000)
+                            guard !Task.isCancelled else { return }
+                            if installingSlug == skill.slug && installAttemptId == attemptId {
+                                installingSlug = nil
+                                installAttemptId = nil
+                            }
                         }
                     }
                 }
@@ -823,11 +837,25 @@ struct AgentPanelContent: View {
                 }
                 .frame(minHeight: 100)
             } else {
-                Text("No skills installed")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                VStack(spacing: VSpacing.md) {
+                    Text("No skills installed")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Button(action: { skillsManager.fetchSkills() }) {
+                        HStack(spacing: VSpacing.xs) {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 11))
+                            Text("Refresh")
+                                .font(VFont.caption)
+                        }
+                        .foregroundColor(VColor.accent)
+                    }
+                    .buttonStyle(.plain)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, VSpacing.sm)
+                }
+                .padding(.vertical, VSpacing.sm)
             }
         } else {
             VStack(spacing: VSpacing.md) {

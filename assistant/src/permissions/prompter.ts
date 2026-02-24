@@ -43,12 +43,15 @@ export class PermissionPrompter {
     sessionId?: string,
     executionTarget?: ExecutionTarget,
     persistentDecisionsAllowed?: boolean,
+    signal?: AbortSignal,
   ): Promise<{
     decision: UserDecision;
     selectedPattern?: string;
     selectedScope?: string;
     decisionContext?: string;
   }> {
+    if (signal?.aborted) return { decision: 'deny' };
+
     const requestId = uuid();
 
     return new Promise((resolve, reject) => {
@@ -60,6 +63,17 @@ export class PermissionPrompter {
       }, timeoutMs);
 
       this.pending.set(requestId, { resolve, reject, timer });
+
+      if (signal) {
+        const onAbort = () => {
+          if (this.pending.has(requestId)) {
+            clearTimeout(timer);
+            this.pending.delete(requestId);
+            resolve({ decision: 'deny' });
+          }
+        };
+        signal.addEventListener('abort', onAbort, { once: true });
+      }
 
       this.sendToClient({
         type: 'confirmation_request',

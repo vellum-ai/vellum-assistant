@@ -424,7 +424,7 @@ export async function preprocessForAsset(
     for (const seg of rawSegments) {
       const segDuration = seg.endSeconds - seg.startSeconds;
       const effectiveInterval = computeEffectiveInterval(segDuration, config.intervalSeconds);
-      const frameTimestamps = generateFrameTimestamps(seg.startSeconds, seg.endSeconds, config.intervalSeconds);
+      const _frameTimestamps = generateFrameTimestamps(seg.startSeconds, seg.endSeconds, config.intervalSeconds);
 
       const segTempDir = join(tempDir, seg.id);
       await mkdir(segTempDir, { recursive: true });
@@ -468,11 +468,6 @@ export async function preprocessForAsset(
       });
     }
 
-    // Atomically swap temp dir to durable path
-    await rm(framesDir, { recursive: true, force: true });
-    await mkdir(dirname(framesDir), { recursive: true });
-    await rename(tempDir, framesDir);
-
     const totalFrames = segments.reduce((sum, s) => sum + s.framePaths.length, 0);
     if (rawSegments.length > 0 && totalFrames === 0) {
       throw new Error(
@@ -480,6 +475,11 @@ export async function preprocessForAsset(
       );
     }
     onProgress?.(`Extracted ${totalFrames} total frames across ${segments.length} segments.\n`);
+
+    // Atomically swap temp dir to durable path
+    await rm(framesDir, { recursive: true, force: true });
+    await mkdir(dirname(framesDir), { recursive: true });
+    await rename(tempDir, framesDir);
 
     // Step 4: Subject registry
     onProgress?.('Building subject registry...\n');
