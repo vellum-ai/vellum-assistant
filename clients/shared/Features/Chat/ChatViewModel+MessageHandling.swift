@@ -1289,6 +1289,12 @@ extension ChatViewModel {
                 configuredProviders = Set(providers)
             }
 
+        case .memoryStatus(let status):
+            // Update degradation state so the UI can surface a subtle warning banner.
+            let degraded = status.enabled && status.degraded
+            isMemoryDegraded = degraded
+            memoryDegradedReason = degraded ? status.reason : nil
+
         default:
             break
         }

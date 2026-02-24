@@ -52,6 +52,14 @@ public final class ChatViewModel: ObservableObject {
     /// Set of provider keys with configured API keys, updated via `model_info` IPC messages.
     @Published public var configuredProviders: Set<String> = ["anthropic"]
 
+    /// Whether the memory backend is currently degraded (e.g. embedding failures).
+    /// Updated from `memory_status` IPC messages. When `true`, semantic recall is
+    /// unavailable and the assistant falls back to lexical-only search.
+    @Published public var isMemoryDegraded: Bool = false
+    /// Human-readable reason for degradation (e.g. "memory.embedding_failure: API 401").
+    /// Nil when memory is healthy or memory is disabled.
+    @Published public var memoryDegradedReason: String? = nil
+
     /// Maximum file size per attachment (20 MB).
     static let maxFileSize = 20 * 1024 * 1024
     /// Maximum image size before compression (4 MB - leaves headroom for base64 encoding).

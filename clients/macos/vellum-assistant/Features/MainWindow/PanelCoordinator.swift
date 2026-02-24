@@ -659,7 +659,9 @@ struct ActiveChatViewWrapper: View {
             daemonHttpPort: daemonClient.httpPort,
             isHistoryLoaded: viewModel.isHistoryLoaded,
             dismissedDocumentSurfaceIds: viewModel.dismissedDocumentSurfaceIds,
-            onDismissDocumentWidget: { viewModel.dismissDocumentSurface(id: $0) }
+            onDismissDocumentWidget: { viewModel.dismissDocumentSurface(id: $0) },
+            isMemoryDegraded: viewModel.isMemoryDegraded,
+            memoryDegradedReason: viewModel.memoryDegradedReason
         )
     }
 }

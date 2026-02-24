@@ -54,6 +54,8 @@ struct ChatView: View {
     var isHistoryLoaded: Bool = true
     var dismissedDocumentSurfaceIds: Set<String> = []
     var onDismissDocumentWidget: ((String) -> Void)?
+    var isMemoryDegraded: Bool = false
+    var memoryDegradedReason: String? = nil
 
     /// Triggers auto-scroll when the last message's text length changes (e.g. during streaming).
     /// Sums utf8.count over each segment (O(1) per contiguous segment) instead of joining first,
@@ -87,6 +89,7 @@ struct ChatView: View {
         ZStack {
             VStack(spacing: 0) {
                 apiKeyBanner
+                memoryDegradedBanner
                 if messages.isEmpty && !isHistoryLoaded {
                     Spacer()
                     HStack {
@@ -671,6 +674,39 @@ struct ChatView: View {
     }
 
     @ViewBuilder
+    @ViewBuilder
+    private var memoryDegradedBanner: some View {
+        if isMemoryDegraded {
+            HStack(spacing: VSpacing.sm) {
+                Image(systemName: "memorychip")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.warning)
+                VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                    Text("Memory search limited")
+                        .font(VFont.captionMedium)
+                        .foregroundColor(VColor.textPrimary)
+                    if let reason = memoryDegradedReason {
+                        Text(reason)
+                            .font(VFont.small)
+                            .foregroundColor(VColor.textSecondary)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer()
+            }
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.sm)
+            .background(VColor.warning.opacity(0.1))
+            .overlay(
+                Rectangle()
+                    .fill(VColor.warning)
+                    .frame(width: 3),
+                alignment: .leading
+            )
+            .transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
+
     private var apiKeyBanner: some View {
         if !hasAPIKey {
             HStack(spacing: VSpacing.sm) {
