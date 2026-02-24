@@ -30,7 +30,7 @@ function buildAppMetadataBlock(msg: DictationRequest): string {
 
 type DictationMode = 'dictation' | 'command' | 'action';
 
-function detectMode(msg: DictationRequest): DictationMode {
+export function detectDictationMode(msg: DictationRequest): DictationMode {
   // Command mode: selected text present — treat transcription as a transformation instruction
   if (msg.context.selectedText && msg.context.selectedText.trim().length > 0) {
     return 'command';
@@ -47,8 +47,10 @@ function detectMode(msg: DictationRequest): DictationMode {
     return 'dictation';
   }
 
-  // Default to action when not in a text field and no selection
-  return 'action';
+  // AX focus-role detection in browser editors (for example Gmail compose)
+  // is occasionally incomplete. If we default to action here, normal dictation
+  // gets misrouted into a new chat task. Treat ambiguous context as dictation.
+  return 'dictation';
 }
 
 function buildDictationPrompt(msg: DictationRequest): string {
@@ -121,7 +123,7 @@ export async function handleDictationRequest(
   socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
-  const mode = detectMode(msg);
+  const mode = detectDictationMode(msg);
   log.info({ mode, transcriptionLength: msg.transcription.length }, 'Dictation request received');
 
   // Action mode: return immediately — the client will route to a full agent session
