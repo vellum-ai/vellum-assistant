@@ -257,6 +257,20 @@ export function createChallenge(params: {
   return rowToChallenge(row);
 }
 
+export function revokePendingChallenges(assistantId: string, channel: string): void {
+  const db = getDb();
+  db.update(channelGuardianVerificationChallenges)
+    .set({ status: 'revoked', updatedAt: Date.now() })
+    .where(
+      and(
+        eq(channelGuardianVerificationChallenges.assistantId, assistantId),
+        eq(channelGuardianVerificationChallenges.channel, channel),
+        eq(channelGuardianVerificationChallenges.status, 'pending'),
+      ),
+    )
+    .run();
+}
+
 export function findPendingChallengeByHash(
   assistantId: string,
   channel: string,
@@ -273,6 +287,33 @@ export function findPendingChallengeByHash(
         eq(channelGuardianVerificationChallenges.assistantId, assistantId),
         eq(channelGuardianVerificationChallenges.channel, channel),
         eq(channelGuardianVerificationChallenges.challengeHash, challengeHash),
+        eq(channelGuardianVerificationChallenges.status, 'pending'),
+        gt(channelGuardianVerificationChallenges.expiresAt, now),
+      ),
+    )
+    .get();
+
+  return row ? rowToChallenge(row) : null;
+}
+
+/**
+ * Find any pending (non-expired) challenge for a given (assistantId, channel).
+ * Used by relay setup to detect whether a voice verification session is active.
+ */
+export function findPendingChallengeForChannel(
+  assistantId: string,
+  channel: string,
+): VerificationChallenge | null {
+  const db = getDb();
+  const now = Date.now();
+
+  const row = db
+    .select()
+    .from(channelGuardianVerificationChallenges)
+    .where(
+      and(
+        eq(channelGuardianVerificationChallenges.assistantId, assistantId),
+        eq(channelGuardianVerificationChallenges.channel, channel),
         eq(channelGuardianVerificationChallenges.status, 'pending'),
         gt(channelGuardianVerificationChallenges.expiresAt, now),
       ),

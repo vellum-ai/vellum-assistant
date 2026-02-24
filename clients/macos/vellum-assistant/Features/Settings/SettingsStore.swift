@@ -115,6 +115,16 @@ public final class SettingsStore: ObservableObject {
     @Published var smsGuardianInstruction: String?
     @Published var smsGuardianError: String?
 
+    // MARK: - Channel Guardian State (Voice)
+
+    @Published var voiceGuardianIdentity: String?
+    @Published var voiceGuardianUsername: String?
+    @Published var voiceGuardianDisplayName: String?
+    @Published var voiceGuardianVerified: Bool = false
+    @Published var voiceGuardianVerificationInProgress: Bool = false
+    @Published var voiceGuardianInstruction: String?
+    @Published var voiceGuardianError: String?
+
     // MARK: - Email Integration State
 
     @Published var assistantEmail: String?
@@ -435,6 +445,23 @@ public final class SettingsStore: ObservableObject {
                 } else {
                     self.smsGuardianError = response.error
                 }
+            case "voice":
+                self.voiceGuardianVerificationInProgress = false
+                if response.success {
+                    self.voiceGuardianIdentity = response.guardianExternalUserId
+                    self.voiceGuardianUsername = Self.reflectedString(response, key: "guardianUsername")
+                    self.voiceGuardianDisplayName = Self.reflectedString(response, key: "guardianDisplayName")
+                    let isVerified = response.bound ?? false
+                    self.voiceGuardianVerified = isVerified
+                    if isVerified {
+                        self.voiceGuardianInstruction = nil
+                    } else if let instruction = response.instruction {
+                        self.voiceGuardianInstruction = instruction
+                    }
+                    self.voiceGuardianError = nil
+                } else {
+                    self.voiceGuardianError = response.error
+                }
             default:
                 break
             }
@@ -472,6 +499,7 @@ public final class SettingsStore: ObservableObject {
         // Refresh channel guardian status on init
         refreshChannelGuardianStatus(channel: "telegram")
         refreshChannelGuardianStatus(channel: "sms")
+        refreshChannelGuardianStatus(channel: "voice")
 
         // Ingress config is refreshed by onAppear in SettingsPanel,
         // not here, to avoid duplicate get requests whose
@@ -891,6 +919,10 @@ public final class SettingsStore: ObservableObject {
             smsGuardianVerificationInProgress = true
             smsGuardianError = nil
             smsGuardianInstruction = nil
+        case "voice":
+            voiceGuardianVerificationInProgress = true
+            voiceGuardianError = nil
+            voiceGuardianInstruction = nil
         default:
             return
         }
@@ -904,6 +936,9 @@ public final class SettingsStore: ObservableObject {
                 case "sms":
                     smsGuardianVerificationInProgress = false
                     smsGuardianError = "Daemon is not connected. Reconnect and try again."
+                case "voice":
+                    voiceGuardianVerificationInProgress = false
+                    voiceGuardianError = "Daemon is not connected. Reconnect and try again."
                 default:
                     break
                 }
@@ -922,6 +957,9 @@ public final class SettingsStore: ObservableObject {
             case "sms":
                 smsGuardianVerificationInProgress = false
                 smsGuardianError = "Failed to start verification. Try again."
+            case "voice":
+                voiceGuardianVerificationInProgress = false
+                voiceGuardianError = "Failed to start verification. Try again."
             default:
                 break
             }
@@ -938,6 +976,9 @@ public final class SettingsStore: ObservableObject {
         case "sms":
             smsGuardianVerificationInProgress = false
             smsGuardianInstruction = nil
+        case "voice":
+            voiceGuardianVerificationInProgress = false
+            voiceGuardianInstruction = nil
         default:
             break
         }
@@ -959,6 +1000,8 @@ public final class SettingsStore: ObservableObject {
             telegramGuardianInstruction = nil
         case "sms":
             smsGuardianInstruction = nil
+        case "voice":
+            voiceGuardianInstruction = nil
         default:
             break
         }
@@ -976,8 +1019,14 @@ public final class SettingsStore: ObservableObject {
         if let pendingGuardianChallengeChannel {
             return pendingGuardianChallengeChannel
         }
-        if telegramGuardianVerificationInProgress != smsGuardianVerificationInProgress {
-            return telegramGuardianVerificationInProgress ? "telegram" : "sms"
+        // Disambiguate when exactly one channel has verification in progress
+        let inProgressChannels = [
+            ("telegram", telegramGuardianVerificationInProgress),
+            ("sms", smsGuardianVerificationInProgress),
+            ("voice", voiceGuardianVerificationInProgress),
+        ].filter(\.1)
+        if inProgressChannels.count == 1 {
+            return inProgressChannels.first?.0
         }
         return nil
     }
@@ -995,6 +1044,8 @@ public final class SettingsStore: ObservableObject {
             telegramGuardianInstruction = nil
         case "sms":
             smsGuardianInstruction = nil
+        case "voice":
+            voiceGuardianInstruction = nil
         default:
             break
         }
@@ -1019,6 +1070,12 @@ public final class SettingsStore: ObservableObject {
                 if self.smsGuardianError == nil {
                     self.smsGuardianError = "Timed out waiting for verification instructions. Try again."
                 }
+            case "voice":
+                self.voiceGuardianVerificationInProgress = false
+                self.voiceGuardianInstruction = nil
+                if self.voiceGuardianError == nil {
+                    self.voiceGuardianError = "Timed out waiting for verification instructions. Try again."
+                }
             default:
                 break
             }
@@ -1028,7 +1085,7 @@ public final class SettingsStore: ObservableObject {
     }
 
     private func startGuardianStatusPolling(for channel: String) {
-        guard channel == "telegram" || channel == "sms" else { return }
+        guard channel == "telegram" || channel == "sms" || channel == "voice" else { return }
         stopGuardianStatusPolling(for: channel)
         guardianStatusPollingDeadlines[channel] = Date().addingTimeInterval(guardianStatusPollWindow)
         scheduleGuardianStatusPoll(for: channel, delay: guardianStatusPollInterval)
