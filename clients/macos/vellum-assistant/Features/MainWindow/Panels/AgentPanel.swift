@@ -123,6 +123,16 @@ struct AgentPanelContent: View {
         var filtered = skillsManager.searchResults
             .filter { !installedNames.contains($0.name) }
 
+        // Source filter
+        switch skillSourceFilter {
+        case .all:
+            break
+        case .vellum:
+            filtered = filtered.filter { $0.isVellum }
+        case .community:
+            filtered = filtered.filter { !$0.isVellum }
+        }
+
         // Local fuzzy filter by name/description
         if !skillSearchQuery.isEmpty {
             let query = skillSearchQuery.lowercased()
@@ -173,9 +183,11 @@ struct AgentPanelContent: View {
     @ViewBuilder
     private var availableSkillsList: some View {
         VStack(spacing: VSpacing.lg) {
-            // Bundled skills — always shown as featured
-            ForEach(BundledSkill.all) { starter in
-                bundledSkillCard(starter)
+            // Bundled skills — shown as featured unless filtering to community only
+            if skillSourceFilter != .community {
+                ForEach(BundledSkill.all) { starter in
+                    bundledSkillCard(starter)
+                }
             }
 
             // Search bar — filters locally, no API call
@@ -201,6 +213,28 @@ struct AgentPanelContent: View {
             .padding(VSpacing.md)
             .background(VColor.backgroundSubtle)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+
+            // Source filter
+            HStack(spacing: VSpacing.sm) {
+                Text("Source:")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+
+                ForEach(SkillSourceFilter.allCases, id: \.self) { filter in
+                    Button(action: { skillSourceFilter = filter }) {
+                        Text(filter.rawValue)
+                            .font(VFont.caption)
+                            .foregroundColor(skillSourceFilter == filter ? VColor.accent : VColor.textMuted)
+                            .padding(.horizontal, VSpacing.sm)
+                            .padding(.vertical, VSpacing.xs)
+                            .background(skillSourceFilter == filter ? VColor.accent.opacity(0.15) : Color.clear)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Spacer()
+            }
 
             // Sort picker
             HStack(spacing: VSpacing.sm) {
@@ -237,10 +271,12 @@ struct AgentPanelContent: View {
                 ForEach(availableClawhubSkills) { skill in
                     clawhubSkillCard(skill)
                 }
-            } else if !skillSearchQuery.isEmpty {
+            } else if !skillSearchQuery.isEmpty || skillSourceFilter != .all {
                 VEmptyState(
                     title: "No results",
-                    subtitle: "No skills matched \"\(skillSearchQuery)\"",
+                    subtitle: skillSearchQuery.isEmpty
+                        ? "No \(skillSourceFilter.rawValue.lowercased()) skills found"
+                        : "No skills matched \"\(skillSearchQuery)\"",
                     icon: "magnifyingglass"
                 )
                 .frame(height: 100)
@@ -276,11 +312,18 @@ struct AgentPanelContent: View {
     @State private var installAttemptId: UUID?
     @State private var skillSearchQuery = ""
     @State private var skillSortOrder: SkillSortOrder = .installs
+    @State private var skillSourceFilter: SkillSourceFilter = .all
 
     private enum SkillSortOrder: String, CaseIterable {
         case installs = "Installs"
         case stars = "Stars"
         case newest = "Newest"
+    }
+
+    private enum SkillSourceFilter: String, CaseIterable {
+        case all = "All"
+        case vellum = "Vellum"
+        case community = "Community"
     }
 
     private func bundledSkillCard(_ starter: BundledSkill) -> some View {
