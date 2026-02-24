@@ -14,7 +14,7 @@ import { validatePolicyInput, toPolicyFromInput } from './policy-validate.js';
 import type { CredentialPolicyInput, CredentialInjectionTemplate } from './policy-types.js';
 import { credentialBroker } from './broker.js';
 import { startOAuth2Flow, type TokenEndpointAuthMethod } from '../../security/oauth2.js';
-import { authTest, conversationsOpen, postMessage } from '../../messaging/providers/slack/client.js';
+import { runPostConnectHook } from './post-connect-hooks.js';
 import { getConfig } from '../../config/loader.js';
 import { getLogger } from '../../util/logger.js';
 
@@ -661,24 +661,8 @@ class CredentialStoreTool implements Tool {
             }
           }
 
-          // Send a welcome DM for Slack connections
-          if (service === 'integration:slack') {
-            try {
-              const botToken = rawTokenResponse.access_token as string | undefined;
-              const authedUser = rawTokenResponse.authed_user as Record<string, unknown> | undefined;
-              const installingUserId = authedUser?.id as string | undefined;
-              if (botToken && installingUserId) {
-                const identity = await authTest(botToken);
-                const dmChannel = await conversationsOpen(botToken, installingUserId);
-                const welcomeMsg =
-                  `You have installed ${identity.user}, an AI Assistant, on ${identity.team}. ` +
-                  `You can manage the assistant experience for this workspace by chatting with the assistant or from the Settings page.`;
-                await postMessage(botToken, dmChannel.channel.id, welcomeMsg);
-              }
-            } catch (err) {
-              log.warn({ err }, 'Failed to send Slack welcome DM (non-fatal)');
-            }
-          }
+          // Run any provider-specific post-connect actions (e.g. Slack welcome DM)
+          await runPostConnectHook({ service, rawTokenResponse });
 
           return {
             content: `Successfully connected "${service}"${accountInfo ? ` as ${accountInfo}` : ''}. The service is now ready to use.`,
