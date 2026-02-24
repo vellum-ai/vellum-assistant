@@ -897,6 +897,64 @@ public struct IPCContextCompacted: Codable, Sendable {
     }
 }
 
+public struct IPCConversationSearchMatchingMessage: Codable, Sendable {
+    public let messageId: String
+    public let role: String
+    /// Plain-text excerpt around the match, truncated to ~200 chars.
+    public let excerpt: String
+    public let createdAt: Int
+
+    public init(messageId: String, role: String, excerpt: String, createdAt: Int) {
+        self.messageId = messageId
+        self.role = role
+        self.excerpt = excerpt
+        self.createdAt = createdAt
+    }
+}
+
+public struct IPCConversationSearchRequest: Codable, Sendable {
+    public let type: String
+    /// The search query string.
+    public let query: String
+    /// Maximum number of conversations to return. Defaults to 20.
+    public let limit: Double?
+    /// Maximum number of matching messages to return per conversation. Defaults to 3.
+    public let maxMessagesPerConversation: Double?
+
+    public init(type: String, query: String, limit: Double? = nil, maxMessagesPerConversation: Double? = nil) {
+        self.type = type
+        self.query = query
+        self.limit = limit
+        self.maxMessagesPerConversation = maxMessagesPerConversation
+    }
+}
+
+public struct IPCConversationSearchResponse: Codable, Sendable {
+    public let type: String
+    public let query: String
+    public let results: [IPCConversationSearchResultItem]
+
+    public init(type: String, query: String, results: [IPCConversationSearchResultItem]) {
+        self.type = type
+        self.query = query
+        self.results = results
+    }
+}
+
+public struct IPCConversationSearchResultItem: Codable, Sendable {
+    public let conversationId: String
+    public let conversationTitle: String?
+    public let conversationUpdatedAt: Int
+    public let matchingMessages: [IPCConversationSearchMatchingMessage]
+
+    public init(conversationId: String, conversationTitle: String?, conversationUpdatedAt: Int, matchingMessages: [IPCConversationSearchMatchingMessage]) {
+        self.conversationId = conversationId
+        self.conversationTitle = conversationTitle
+        self.conversationUpdatedAt = conversationUpdatedAt
+        self.matchingMessages = matchingMessages
+    }
+}
+
 public struct IPCCuAction: Codable, Sendable {
     public let type: String
     public let sessionId: String

@@ -999,6 +999,12 @@ public typealias SkillsListResponseMessage = IPCSkillsListResponse
 /// Backed by generated `IPCSkillDetailResponse`.
 public typealias SkillDetailResponseMessage = IPCSkillDetailResponse
 
+// MARK: - Conversation Search
+
+/// Response containing conversation search results.
+/// Backed by generated `IPCConversationSearchResponse`.
+public typealias ConversationSearchResponseMessage = IPCConversationSearchResponse
+
 // MARK: - Workspace Files
 
 /// Request to list workspace files.
@@ -2175,6 +2181,7 @@ public enum ServerMessage: Decodable, Sendable {
     case parentalControlVerifyPinResponse(ParentalControlVerifyPinResponseMessage)
     case parentalControlSetPinResponse(ParentalControlSetPinResponseMessage)
     case parentalControlUpdateResponse(ParentalControlUpdateResponseMessage)
+    case conversationSearchResponse(ConversationSearchResponseMessage)
     case pong
     case unknown(String)
 
@@ -2556,6 +2563,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "parental_control_update_response":
             let message = try ParentalControlUpdateResponseMessage(from: decoder)
             self = .parentalControlUpdateResponse(message)
+        case "conversation_search_response":
+            let message = try ConversationSearchResponseMessage(from: decoder)
+            self = .conversationSearchResponse(message)
         case "pong":
             self = .pong
         default:
