@@ -3797,6 +3797,9 @@ The `channelGuardianApprovalRequests` table tracks per-run approval state. Each 
 | `assistant/src/memory/channel-guardian-store.ts` | CRUD for guardian bindings, verification challenges, and approval requests (all scoped by `assistantId`) |
 | `assistant/src/runtime/channel-guardian-service.ts` | Challenge creation/validation, guardian identity checks (`isGuardian()`, `getGuardianBinding()`) -- all accept `assistantId` |
 | `assistant/src/runtime/routes/channel-routes.ts` | Guardian verification intercept (`/guardian_verify` command), actor role resolution, approval routing to guardian, proactive expiry sweep (`sweepExpiredGuardianApprovals`, `startGuardianExpirySweep`) |
+| `assistant/src/calls/guardian-dispatch.ts` | Cross-channel ASK_GUARDIAN dispatch: creates guardian_action_requests, fans out to mac/telegram/sms, manages deliveries |
+| `assistant/src/calls/guardian-action-sweep.ts` | Periodic 60s sweep for expired guardian action requests; sends expiry notices to delivery channels |
+| `assistant/src/memory/guardian-action-store.ts` | CRUD for guardian_action_requests and guardian_action_deliveries tables; first-writer-wins resolution via atomic status check |
 
 ### Telegram Credential Flow
 
@@ -3856,14 +3859,13 @@ In multi-assistant mode, the operator must configure `GATEWAY_ASSISTANT_ROUTING_
 
 ## Outgoing AI Phone Calls — Twilio ConversationRelay
 
-The Calls subsystem enables the assistant to place outgoing phone calls on behalf of the user via Twilio's ConversationRelay protocol. The assistant uses an LLM-driven conversation loop to speak with the callee in real time. During a live call, user messages in the chat thread are automatically routed to the call: if the AI agent has a pending question, the message is treated as an answer; otherwise, it is treated as a mid-call steering instruction that guides the AI agent's behavior in real time.
+The Calls subsystem enables the assistant to place outgoing phone calls on behalf of the user via Twilio's ConversationRelay protocol. The assistant uses an LLM-driven conversation loop to speak with the callee in real time. Voice is a first-class channel with its own per-call conversation (key pattern: `asst:${assistantId}:voice:call:${callSessionId}`). When the AI needs guardian input during a call, it dispatches ASK_GUARDIAN requests cross-channel to mac/telegram/sms via the guardian dispatch engine. Answer resolution uses first-writer-wins semantics -- the first channel to respond provides the answer, and remaining channels receive a "already answered" notice.
 
 ### Call Flow
 
 ```mermaid
 sequenceDiagram
     participant User as User (Chat UI)
-    participant Bridge as CallBridge
     participant Session as Session / Tool Executor
     participant CallStore as CallStore (SQLite)
     participant TwilioProvider as TwilioProvider
@@ -3874,6 +3876,10 @@ sequenceDiagram
     participant Orch as CallOrchestrator
     participant LLM as Anthropic Claude
     participant State as CallState (Notifiers)
+    participant GuardianDispatch as GuardianDispatch
+    participant Mac as Mac Desktop
+    participant TG/SMS as Telegram / SMS
+    participant CallDomain as CallDomain
 
     User->>Session: call_start tool
     Session->>CallStore: createCallSession()
@@ -3905,14 +3911,15 @@ sequenceDiagram
         Orch->>CallStore: recordCallEvent()
     end
 
-    alt ASK_USER pattern detected
+    alt ASK_GUARDIAN pattern detected
         Orch->>CallStore: createPendingQuestion()
-        Orch->>State: fireCallQuestionNotifier()
-        State->>Session: question callback
-        Session->>User: display question in chat thread
-        User->>Bridge: next message in thread
-        Bridge->>Orch: handleUserAnswer()
-        Bridge->>CallStore: answerPendingQuestion()
+        Orch->>GuardianDispatch: dispatchGuardianQuestion()
+        GuardianDispatch->>Mac: guardian_request_thread_created IPC
+        GuardianDispatch->>TG/SMS: POST /deliver/{channel}
+        Note over Mac,TG/SMS: First channel to respond wins
+        Mac/TG/SMS->>Routes: guardian answer
+        Routes->>CallDomain: answerCall()
+        CallDomain->>Orch: handleUserAnswer()
         Orch->>LLM: continue with [USER_ANSWERED: ...]
     end
 
@@ -3934,14 +3941,16 @@ sequenceDiagram
 |------|------|
 | `assistant/src/calls/call-store.ts` | CRUD operations for call sessions, call events, and pending questions in SQLite via Drizzle ORM |
 | `assistant/src/calls/call-domain.ts` | Shared domain functions (`startCall`, `getCallStatus`, `cancelCall`, `answerCall`, `relayInstruction`) used by both tools and HTTP routes |
-| `assistant/src/calls/call-bridge.ts` | Answer-or-instruction bridge: intercepts user chat messages before the agent loop and routes them as answers (when a pending question exists) or as mid-call steering instructions (when no question is pending) |
+| `assistant/src/calls/guardian-dispatch.ts` | Cross-channel dispatch engine: fans out ASK_GUARDIAN questions to mac/telegram/sms, creates server-side guardian conversations, manages deliveries |
+| `assistant/src/memory/guardian-action-store.ts` | CRUD for guardian action requests and deliveries; first-writer-wins resolution via atomic status check |
+| `assistant/src/calls/guardian-action-sweep.ts` | Periodic 60s sweep for expired guardian action requests; sends expiry notices to all delivery channels |
 | `assistant/src/calls/call-state-machine.ts` | Deterministic state transition validator with allowed-transition table and terminal-state enforcement |
 | `assistant/src/calls/call-recovery.ts` | Startup reconciliation of non-terminal calls: fetches provider status and transitions stale sessions |
 | `assistant/src/calls/twilio-provider.ts` | Twilio Voice REST API integration (initiateCall, endCall, getCallStatus) using direct fetch — no Twilio SDK dependency |
 | `assistant/src/calls/twilio-routes.ts` | HTTP webhook handlers: voice webhook (returns TwiML with WS-A/WS-B guardrails), status callback, connect action |
 | `assistant/src/calls/relay-server.ts` | WebSocket handler for the Twilio ConversationRelay protocol; manages RelayConnection instances per call |
 | `assistant/src/calls/speaker-identification.ts` | Reusable speaker recognition primitive for voice prompts: extracts provider speaker metadata (top-level and nested fields), resolves stable per-call speaker identities, and emits speaker context for personalization |
-| `assistant/src/calls/call-orchestrator.ts` | LLM-driven conversation manager: receives caller utterances, streams responses via Anthropic Claude, detects ASK_USER and END_CALL control markers |
+| `assistant/src/calls/call-orchestrator.ts` | LLM-driven conversation manager: receives caller utterances, streams responses via Anthropic Claude, detects ASK_GUARDIAN and END_CALL control markers |
 | `assistant/src/calls/call-state.ts` | Notifier pattern (Maps with register/unregister/fire helpers) for cross-component communication: question notifiers, completion notifiers, and orchestrator registry |
 | `assistant/src/calls/call-constants.ts` | Config-backed constants: max call duration, user consultation timeout, silence timeout, denied emergency numbers |
 | `assistant/src/calls/voice-provider.ts` | Abstract VoiceProvider interface for provider-agnostic call initiation |
@@ -3977,56 +3986,39 @@ initiated ──> ringing ──> in_progress ──> waiting_on_user ──> in
 
 The `validateTransition(current, next)` function is called by `updateCallSession()` in the call store. Same-state transitions (no-ops) are always valid. Invalid transitions are rejected with an explanatory reason string.
 
-### Call Bridge — Answer-or-Instruction Routing
+### Cross-Channel Guardian Consultation
 
-The call bridge (`call-bridge.ts`) intercepts user chat messages during a live call and routes them to the call orchestrator — either as answers to pending questions or as mid-call steering instructions. This enables users to both respond to questions from the callee and proactively steer the conversation without leaving the chat thread.
+When the LLM emits `[ASK_GUARDIAN: question]` during a voice call, the orchestrator creates a pending question and calls `dispatchGuardianQuestion()` on the guardian dispatch engine. The dispatch engine handles the full cross-channel fan-out:
 
-The bridge function `tryRouteCallMessage()` applies the following decision logic:
+1. **Request creation**: A `guardian_action_request` row is created with a unique 6-character hex request code, the question text, a `pending` status, and an expiry timestamp.
 
-1. **Find active call**: Look up a non-terminal call session for the conversation. If none exists, return `{ handled: false, reason: 'no_active_call' }`.
-2. **Pending question → answer path** (priority): If the active call has a pending question, the message is routed as an answer via `handleUserAnswer()` on the orchestrator, which injects `[USER_ANSWERED: answer]` into the LLM context and resumes the conversation with the callee.
-3. **No pending question → instruction path**: If no question is pending, the message is routed as a steering instruction via `relayInstruction()` in `call-domain.ts`, which calls `handleUserInstruction()` on the orchestrator. The orchestrator injects `[USER_INSTRUCTION: text]` into its conversation history as high-priority steering input.
+2. **Delivery fan-out**: Deliveries are created for each configured channel:
+   - **Mac (always)**: A server-side conversation is created with key `asst:${assistantId}:guardian:request:${request.id}`. The dispatch engine emits a `guardian_request_thread_created` IPC event so the desktop UI can display the question thread.
+   - **Telegram/SMS (if guardian binding exists)**: A `POST /deliver/{channel}` request is sent to the gateway with the question text and request code.
 
-#### Answer path detail
+3. **Answer resolution**: The first channel to respond wins. Answer resolution uses an atomic `WHERE status = 'pending'` check on the `guardian_action_requests` table -- only the first writer succeeds in transitioning the request to `answered` status. The winning answer text and responding channel are recorded on the request row.
 
-1. **Question emission**: When the LLM emits `[ASK_USER: question]`, the orchestrator creates a pending question in SQLite, fires the question notifier, and transitions to `waiting_on_user` state.
-2. **In-thread display**: The Session's registered question notifier callback persists an assistant message in the conversation thread (via `conversationStore.addMessage()`) and emits `assistant_text_delta` + `message_complete` events to connected clients.
-3. **Auto-consumption**: `tryRouteCallMessage()` is checked before the agent loop in two entrypoints:
-   - **HTTP path**: `DaemonServer.processMessage()` / `persistAndProcessMessage()` in the daemon server.
-   - **IPC/session path**: `processMessage()` (direct) and `routeOrProcess()` (queued) in `session-process.ts`.
-   In both paths, if the bridge consumes the message the agent loop is skipped. Any `userFacingText` returned by the bridge is emitted as `assistant_text_delta` + `message_complete` so the chat UI shows a live acknowledgement or failure notice.
-4. **Orchestrator resume**: The orchestrator receives the answer via `handleUserAnswer()`, injects `[USER_ANSWERED: answer]` into the LLM context, and resumes the conversation with the callee.
+4. **Stale responses**: Channels that lose the race (respond after another channel has already answered) receive a "already answered" notice informing them that the question was resolved by another channel.
 
-#### Instruction path detail
+5. **Request-code disambiguation**: When a guardian has multiple pending requests across concurrent calls, they prefix their answer with the 6-character hex request code to indicate which question they are answering. This allows unambiguous routing even when questions arrive on the same channel in quick succession.
 
-When no pending question exists but a call is active, the user's message is treated as a steering instruction:
+6. **Expiry sweep**: The `guardian-action-sweep.ts` module runs a periodic 60-second interval sweep. It finds requests that have passed their expiry timestamp and transitions them to `expired` status. Expiry notices are sent to all delivery channels associated with the expired request.
 
-1. The bridge calls `relayInstruction()` which validates the call is active and delegates to `handleUserInstruction()` on the orchestrator.
-2. The orchestrator appends `[USER_INSTRUCTION: text]` to its conversation history. The system prompt tells the model to treat this marker as high-priority steering input.
-3. A confirmation message ("Instruction relayed to active call.") is persisted in the conversation thread.
-4. **Failure handling**: If `relayInstruction()` fails (no active orchestrator, terminal session, etc.), a failure notice ("Failed to relay instruction to the active call.") is persisted and the message is still consumed (`handled: true`) so the caller does not fall through to the normal agent loop. The bridge returns `reason: 'instruction_relay_failed'` so callers can distinguish success from failure.
-
-The instruction path is also available via HTTP at `POST /v1/calls/:callSessionId/instruction` for programmatic access (see Runtime HTTP Endpoints).
-
-#### Bridge result reasons
-
-The bridge returns a `{ handled: boolean; reason?: string; userFacingText?: string }` result so callers can determine whether the message was consumed:
-- `no_active_call` — no non-terminal call session exists for this conversation
-- `no_pending_question` — call is active but no question is pending (only returned in legacy answer-only path; current bridge falls through to instruction)
-- `orchestrator_not_found` — the orchestrator was destroyed (call ended between question and answer)
-- `orchestrator_not_waiting` — the orchestrator is not in `waiting_on_user` state
-- `orchestrator_rejected` — the orchestrator's `handleUserAnswer()` returned false
-- `instruction_relay_failed` — the instruction could not be relayed to the orchestrator; message is still consumed (`handled: true`) with a failure notice persisted in-thread
+7. **Separation from channel guardian approvals**: Guardian action requests are SEPARATE from `channelGuardianApprovalRequests` (the existing channel tool-approval system). The channel guardian approval system handles tool-use permission grants (approve/deny a specific tool invocation). Guardian action requests handle free-form questions from voice calls that require human input to continue the conversation.
 
 ### SQLite Tables
 
-All three tables live in `~/.vellum/workspace/data/db/assistant.db` alongside existing tables:
+All five tables live in `~/.vellum/workspace/data/db/assistant.db` alongside existing tables:
 
 - **`call_sessions`** — One row per outgoing call. Tracks conversation association, provider info (Twilio CallSid), phone numbers, task description, status lifecycle (`initiated` -> `ringing` -> `in_progress` -> `waiting_on_user` -> `completed`/`failed`), and timestamps. Foreign key to `conversations(id)` with cascade delete.
 
 - **`call_events`** — Append-only event log for each call session. Event types include `call_started`, `call_connected`, `caller_spoke`, `assistant_spoke`, `user_question_asked`, `user_answered`, `call_ended`, `call_failed`. For voice prompts, `caller_spoke` payloads include speaker context (`speakerId`, `speakerLabel`, `speakerConfidence`, `speakerSource`) when available. Foreign key to `call_sessions(id)` with cascade delete. Includes a unique index on `(call_session_id, dedupe_key)` for callback idempotency.
 
-- **`call_pending_questions`** — Tracks questions the AI asks the user during a call (via the `[ASK_USER: ...]` pattern). Status lifecycle: `pending` -> `answered`/`expired`/`cancelled`. Foreign key to `call_sessions(id)` with cascade delete.
+- **`call_pending_questions`** — Tracks questions the AI asks the user during a call (via the `[ASK_GUARDIAN: ...]` pattern). Status lifecycle: `pending` -> `answered`/`expired`/`cancelled`. Foreign key to `call_sessions(id)` with cascade delete.
+
+- **`guardian_action_requests`** — Cross-channel guardian consultation requests. One row per ASK_GUARDIAN question from a voice call. Tracks question text, request code (6-char hex), status lifecycle (`pending` -> `answered`/`expired`/`cancelled`), answer text, which channel answered, and expiry timestamp.
+
+- **`guardian_action_deliveries`** — Per-channel delivery tracking for guardian action requests. One row per (request, channel) pair. Tracks delivery status (`pending` -> `sent` -> `answered`/`expired`/`cancelled`), destination conversation/chat IDs, and response timestamps.
 
 ### Gateway Twilio Webhook Ingress
 
@@ -4086,7 +4078,7 @@ Both tools and HTTP routes delegate to the same domain functions in `call-domain
 
 The CallOrchestrator detects two special markers in the LLM's response text:
 
-- **`[ASK_USER: question]`** — The AI needs to consult the user. The orchestrator creates a pending question, notifies the session via `fireCallQuestionNotifier`, puts the caller on hold, and waits for a user answer (timeout configured via `calls.userConsultTimeoutSeconds`).
+- **`[ASK_GUARDIAN: question]`** — The AI needs to consult the guardian. The orchestrator creates a pending question, notifies the session via `fireCallQuestionNotifier`, puts the caller on hold, and waits for a guardian answer (timeout configured via `calls.userConsultTimeoutSeconds`).
 - **`[END_CALL]`** — The AI has determined the call's purpose is fulfilled. The orchestrator sends a goodbye, closes the ConversationRelay session, and marks the call as completed.
 
 Both markers are stripped from the TTS output so the callee never hears the raw control text.

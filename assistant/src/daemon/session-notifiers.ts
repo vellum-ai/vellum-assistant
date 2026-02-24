@@ -30,7 +30,8 @@ import {
   registerCallCompletionNotifier,
   unregisterCallCompletionNotifier,
 } from '../calls/call-state.js';
-import { getCallSession, getCallEvents } from '../calls/call-store.js';
+import { getCallSession } from '../calls/call-store.js';
+import { buildCallCompletionMessage } from '../calls/call-conversation-messages.js';
 
 /**
  * Subset of Session state that notifier callbacks need to read at
@@ -95,7 +96,7 @@ export function registerSessionNotifiers(
   registerCallQuestionNotifier(conversationId, (callSessionId: string, question: string) => {
     const callSession = getCallSession(callSessionId);
     const callee = callSession?.toNumber ?? 'the caller';
-    const questionText = `**Live call question** (to ${callee}):\n\n${question}\n\n_Reply in this thread to answer. Your next message will be treated as the answer to this question. Once answered, you can send messages to steer the conversation._`;
+    const questionText = `**Live call question** (to ${callee}):\n\n${question}\n\n_Use the call answer API to respond._`;
 
     conversationStore.addMessage(
       conversationId,
@@ -122,14 +123,6 @@ export function registerSessionNotifiers(
       const speakerLabel = speaker === 'caller' ? 'Caller' : 'Assistant';
       const transcriptText = `**Live call transcript**\n${speakerLabel}: ${text}`;
 
-      conversationStore.addMessage(
-        conversationId,
-        'assistant',
-        JSON.stringify([{ type: 'text', text: transcriptText }]),
-      );
-
-      ctx.messages.push(createAssistantMessage(transcriptText));
-
       ctx.sendToClient({
         type: 'assistant_text_delta',
         text: transcriptText,
@@ -143,21 +136,7 @@ export function registerSessionNotifiers(
   );
 
   registerCallCompletionNotifier(conversationId, (callSessionId: string) => {
-    const callSession = getCallSession(callSessionId);
-    const events = getCallEvents(callSessionId);
-    const duration = callSession?.endedAt && callSession?.startedAt
-      ? Math.round((callSession.endedAt - callSession.startedAt) / 1000)
-      : null;
-    const durationStr = duration !== null ? ` (${duration}s)` : '';
-    const summaryText = `**Call completed**${durationStr}. ${events.length} event(s) recorded.`;
-
-    conversationStore.addMessage(
-      conversationId,
-      'assistant',
-      JSON.stringify([{ type: 'text', text: summaryText }]),
-    );
-
-    ctx.messages.push(createAssistantMessage(summaryText));
+    const summaryText = buildCallCompletionMessage(callSessionId);
 
     ctx.sendToClient({
       type: 'assistant_text_delta',

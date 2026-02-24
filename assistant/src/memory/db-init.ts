@@ -12,7 +12,9 @@ import {
   migrateLlmUsageEventsDropAssistantId,
   migrateExtConvBindingsChannelChatUnique,
   migrateCallSessionsProviderSidDedup,
+  migrateCallSessionsAddInitiatedFrom,
   migrateMemoryFtsBackfill,
+  migrateGuardianActionTables,
 } from './schema-migration.js';
 
 const log = getLogger('memory-db');
@@ -787,6 +789,9 @@ export function initializeDb(): void {
   // Persist assistantId so the webhook path can resolve assistant-scoped Twilio numbers
   try { database.run(/*sql*/ `ALTER TABLE call_sessions ADD COLUMN assistant_id TEXT`); } catch { /* already exists */ }
 
+  // Track which conversation initiated the call (the chat where call_start was invoked)
+  migrateCallSessionsAddInitiatedFrom(database);
+
   // Unique constraint: at most one non-null provider_call_sid per (provider, provider_call_sid).
   // On upgraded databases that pre-date this constraint, duplicate rows may exist; deduplicate
   // them first to avoid a UNIQUE constraint failure that would prevent startup.
@@ -1163,6 +1168,8 @@ export function initializeDb(): void {
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_event_feedback_asset_id ON media_event_feedback(asset_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_event_feedback_event_id ON media_event_feedback(event_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_media_event_feedback_type ON media_event_feedback(asset_id, feedback_type)`);
+
+  migrateGuardianActionTables(database);
 
   migrateMemoryFtsBackfill(database);
 }

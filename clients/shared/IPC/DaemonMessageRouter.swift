@@ -228,6 +228,8 @@ extension DaemonClient {
             onWorkItemCancelResponse?(msg)
         case .taskRunThreadCreated(let msg):
             onTaskRunThreadCreated?(msg)
+        case .guardianRequestThreadCreated(let msg):
+            onGuardianRequestThreadCreated?(msg)
         case .openTasksWindow:
             onOpenTasksWindow?()
         case .subagentSpawned(let msg):

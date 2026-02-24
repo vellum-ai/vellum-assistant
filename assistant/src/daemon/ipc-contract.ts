@@ -2388,6 +2388,15 @@ export interface TaskRunThreadCreated {
   title: string;
 }
 
+/** Server push — broadcast when a guardian action request creates a thread for the mac channel. */
+export interface GuardianRequestThreadCreated {
+  type: 'guardian_request_thread_created';
+  conversationId: string;
+  requestId: string;
+  callSessionId: string;
+  title: string;
+}
+
 // === Workspace File Responses ────────────────────────────────────────────────
 
 export interface WorkspaceFilesListResponse {
@@ -2594,6 +2603,7 @@ export type ServerMessage =
   | WorkItemCancelResponse
   | WorkItemStatusChanged
   | TaskRunThreadCreated
+  | GuardianRequestThreadCreated
   | TasksChanged
   | OpenTasksWindow
   | SubagentSpawned

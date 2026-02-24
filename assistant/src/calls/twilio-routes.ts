@@ -25,6 +25,7 @@ import { getTwilioConfig } from './twilio-config.js';
 import { loadConfig } from '../config/loader.js';
 import { getTwilioRelayUrl } from '../inbound/public-ingress-urls.js';
 import { fireCallCompletionNotifier } from './call-state.js';
+import { persistCallCompletionMessage } from './call-conversation-messages.js';
 import { resolveVoiceQualityProfile, isVoiceProfileValid } from './voice-quality.js';
 
 const log = getLogger('twilio-routes');
@@ -283,6 +284,7 @@ export async function handleStatusCallback(req: Request): Promise<Response> {
       expirePendingQuestions(session.id);
 
       if (!wasTerminal) {
+        persistCallCompletionMessage(session.conversationId, session.id);
         fireCallCompletionNotifier(session.conversationId, session.id);
       }
     }

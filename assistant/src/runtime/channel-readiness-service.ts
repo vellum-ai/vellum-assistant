@@ -165,6 +165,73 @@ const smsProbe: ChannelProbe = {
   },
 };
 
+// ── Voice Probe ─────────────────────────────────────────────────────────────
+
+/**
+ * Resolve voice from-number with the same precedence as SMS:
+ * assistant mapping -> env override -> config sms.phoneNumber -> secure key fallback.
+ *
+ * Voice and SMS share the same Twilio phone number infrastructure, so the
+ * resolution logic is identical to resolveSmsPhoneNumber.
+ */
+function resolveVoicePhoneNumber(assistantId?: string): string {
+  try {
+    const raw = loadRawConfig();
+    const smsConfig = (raw?.sms ?? {}) as Record<string, unknown>;
+    const mapped = getAssistantMappedPhoneNumber(smsConfig, assistantId);
+    return mapped
+      || process.env.TWILIO_PHONE_NUMBER
+      || (smsConfig.phoneNumber as string)
+      || getSecureKey('credential:twilio:phone_number')
+      || '';
+  } catch {
+    return process.env.TWILIO_PHONE_NUMBER
+      || getSecureKey('credential:twilio:phone_number')
+      || '';
+  }
+}
+
+const voiceProbe: ChannelProbe = {
+  channel: 'voice',
+  runLocalChecks(context?: ChannelProbeContext): ReadinessCheckResult[] {
+    const results: ReadinessCheckResult[] = [];
+
+    const hasCreds = hasTwilioCredentials();
+    results.push({
+      name: 'twilio_credentials',
+      passed: hasCreds,
+      message: hasCreds
+        ? 'Twilio credentials are configured'
+        : 'Twilio Account SID and Auth Token are not configured',
+    });
+
+    const resolvedNumber = resolveVoicePhoneNumber(context?.assistantId);
+    const hasPhone = !!resolvedNumber || (!context?.assistantId && hasAnyAssistantMappedPhoneNumberSafe());
+    results.push({
+      name: 'phone_number',
+      passed: hasPhone,
+      message: hasPhone
+        ? (context?.assistantId && !resolvedNumber
+          ? `Assistant ${context.assistantId} has no direct mapping, but phone numbers are assigned`
+          : 'Phone number is assigned for voice calls')
+        : (context?.assistantId
+          ? `No phone number assigned for assistant ${context.assistantId}`
+          : 'No phone number assigned for voice calls'),
+    });
+
+    const hasIngress = hasIngressConfigured();
+    results.push({
+      name: 'ingress',
+      passed: hasIngress,
+      message: hasIngress
+        ? 'Public ingress URL is configured'
+        : 'Public ingress URL is not configured or disabled',
+    });
+
+    return results;
+  },
+};
+
 // ── Telegram Probe ──────────────────────────────────────────────────────────
 
 const telegramProbe: ChannelProbe = {
@@ -340,10 +407,11 @@ export class ChannelReadinessService {
 
 // ── Factory ─────────────────────────────────────────────────────────────────
 
-/** Create a service instance with built-in SMS and Telegram probes registered. */
+/** Create a service instance with built-in SMS, Voice, and Telegram probes registered. */
 export function createReadinessService(): ChannelReadinessService {
   const service = new ChannelReadinessService();
   service.registerProbe(smsProbe);
+  service.registerProbe(voiceProbe);
   service.registerProbe(telegramProbe);
   return service;
 }

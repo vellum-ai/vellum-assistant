@@ -553,6 +553,7 @@ export const callSessions = sqliteTable('call_sessions', {
   callerIdentityMode: text('caller_identity_mode'),
   callerIdentitySource: text('caller_identity_source'),
   assistantId: text('assistant_id'),
+  initiatedFromConversationId: text('initiated_from_conversation_id'),
   startedAt: integer('started_at'),
   endedAt: integer('ended_at'),
   lastError: text('last_error'),
@@ -779,4 +780,49 @@ export const mediaEventFeedback = sqliteTable('media_event_feedback', {
   correctedEndTime: real('corrected_end_time'),
   notes: text('notes'),
   createdAt: integer('created_at').notNull(),
+});
+
+// ── Guardian Action Requests (cross-channel voice guardian) ──────────
+
+export const guardianActionRequests = sqliteTable('guardian_action_requests', {
+  id: text('id').primaryKey(),
+  assistantId: text('assistant_id').notNull().default('self'),
+  kind: text('kind').notNull(),                                  // 'ask_guardian'
+  sourceChannel: text('source_channel').notNull(),               // 'voice'
+  sourceConversationId: text('source_conversation_id').notNull(),
+  callSessionId: text('call_session_id')
+    .notNull()
+    .references(() => callSessions.id, { onDelete: 'cascade' }),
+  pendingQuestionId: text('pending_question_id')
+    .notNull()
+    .references(() => callPendingQuestions.id, { onDelete: 'cascade' }),
+  questionText: text('question_text').notNull(),
+  requestCode: text('request_code').notNull(),                   // short human-readable code for routing replies
+  status: text('status').notNull().default('pending'),           // pending | answered | expired | cancelled
+  answerText: text('answer_text'),
+  answeredByChannel: text('answered_by_channel'),
+  answeredByExternalUserId: text('answered_by_external_user_id'),
+  answeredAt: integer('answered_at'),
+  expiresAt: integer('expires_at').notNull(),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+// ── Guardian Action Deliveries (per-channel delivery tracking) ───────
+
+export const guardianActionDeliveries = sqliteTable('guardian_action_deliveries', {
+  id: text('id').primaryKey(),
+  requestId: text('request_id')
+    .notNull()
+    .references(() => guardianActionRequests.id, { onDelete: 'cascade' }),
+  destinationChannel: text('destination_channel').notNull(),       // 'telegram' | 'sms' | 'mac'
+  destinationConversationId: text('destination_conversation_id'),
+  destinationChatId: text('destination_chat_id'),
+  destinationExternalUserId: text('destination_external_user_id'),
+  status: text('status').notNull().default('pending'),             // pending | sent | failed | answered | expired | cancelled
+  sentAt: integer('sent_at'),
+  respondedAt: integer('responded_at'),
+  lastError: text('last_error'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
 });

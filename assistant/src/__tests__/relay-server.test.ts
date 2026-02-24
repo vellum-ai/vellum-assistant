@@ -44,18 +44,25 @@ mock.module('../util/logger.js', () => ({
 
 // ── Config mock ─────────────────────────────────────────────────────
 
-mock.module('../config/loader.js', () => ({
-  getConfig: () => ({
-    apiKeys: { anthropic: 'test-key' },
-    calls: {
-      enabled: true,
-      provider: 'twilio',
-      maxDurationSeconds: 3600,
-      userConsultTimeoutSeconds: 120,
-      disclosure: { enabled: false, text: '' },
-      safety: { denyCategories: [] },
+const mockConfig = {
+  apiKeys: { anthropic: 'test-key' },
+  calls: {
+    enabled: true,
+    provider: 'twilio',
+    maxDurationSeconds: 3600,
+    userConsultTimeoutSeconds: 120,
+    disclosure: { enabled: false, text: '' },
+    safety: { denyCategories: [] },
+    verification: {
+      enabled: false,
+      maxAttempts: 3,
+      codeLength: 6,
     },
-  }),
+  },
+};
+
+mock.module('../config/loader.js', () => ({
+  getConfig: () => mockConfig,
 }));
 
 // ── Anthropic SDK mock ──────────────────────────────────────────────
@@ -104,6 +111,7 @@ import {
   getCallSession,
   getCallEvents,
 } from '../calls/call-store.js';
+import { getMessages } from '../memory/conversation-store.js';
 import { registerCallCompletionNotifier, unregisterCallCompletionNotifier } from '../calls/call-state.js';
 import { RelayConnection, activeRelayConnections } from '../calls/relay-server.js';
 import type { RelayWebSocketData } from '../calls/relay-server.js';
@@ -166,11 +174,34 @@ function resetTables() {
   ensuredConvIds = new Set();
 }
 
+function getLatestAssistantText(conversationId: string): string | null {
+  const messages = getMessages(conversationId).filter((m) => m.role === 'assistant');
+  if (messages.length === 0) return null;
+  const latest = messages[messages.length - 1];
+  try {
+    const parsed = JSON.parse(latest.content) as unknown;
+    if (Array.isArray(parsed)) {
+      return parsed
+        .filter((block): block is { type: string; text?: string } => typeof block === 'object' && block !== null)
+        .filter((block) => block.type === 'text')
+        .map((block) => block.text ?? '')
+        .join('');
+    }
+    if (typeof parsed === 'string') return parsed;
+  } catch {
+    // Ignore parse failures and fall back to raw content.
+  }
+  return latest.content;
+}
+
 describe('relay-server', () => {
   beforeEach(() => {
     resetTables();
     activeRelayConnections.clear();
     mockStreamFn.mockImplementation(() => createMockStream(['Hello']));
+    mockConfig.calls.verification.enabled = false;
+    mockConfig.calls.verification.maxAttempts = 3;
+    mockConfig.calls.verification.codeLength = 6;
   });
 
   // ── Setup message handling ──────────────────────────────────────
@@ -270,6 +301,7 @@ describe('relay-server', () => {
     const endedEvents = getCallEvents(session.id).filter((e) => e.eventType === 'call_ended');
     expect(endedEvents.length).toBe(1);
     expect(completionCount).toBe(1);
+    expect(getLatestAssistantText('conv-relay-close-normal')).toContain('**Call completed**');
 
     unregisterCallCompletionNotifier('conv-relay-close-normal');
     relay.destroy();
@@ -294,6 +326,7 @@ describe('relay-server', () => {
     expect(updated!.lastError).toContain('abnormal closure');
     const failEvents = getCallEvents(session.id).filter((e) => e.eventType === 'call_failed');
     expect(failEvents.length).toBe(1);
+    expect(getLatestAssistantText('conv-relay-close-abnormal')).toContain('**Call failed**');
 
     relay.destroy();
   });
@@ -502,6 +535,56 @@ describe('relay-server', () => {
     expect(dtmfEvents.length).toBe(1);
     const payload = JSON.parse(dtmfEvents[0].payloadJson);
     expect(payload.dtmfDigit).toBe('5');
+
+    relay.destroy();
+  });
+
+  test('verification failure remains failed if transport closes during goodbye delay', async () => {
+    ensureConversation('conv-relay-verify-race');
+    const session = createCallSession({
+      conversationId: 'conv-relay-verify-race',
+      provider: 'twilio',
+      fromNumber: '+15551111111',
+      toNumber: '+15552222222',
+    });
+
+    mockConfig.calls.verification.enabled = true;
+    mockConfig.calls.verification.maxAttempts = 1;
+    mockConfig.calls.verification.codeLength = 1;
+
+    const { relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_verify_race_123',
+      from: '+15551111111',
+      to: '+15552222222',
+    }));
+
+    const verificationCode = relay.getVerificationCode();
+    expect(verificationCode).not.toBeNull();
+    const wrongDigit = verificationCode === '0' ? '1' : '0';
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'dtmf',
+      digit: wrongDigit,
+    }));
+
+    // Simulate the callee hanging up before the delayed endSession executes.
+    relay.handleTransportClosed(1000, 'callee hung up');
+
+    const updated = getCallSession(session.id);
+    expect(updated).not.toBeNull();
+    expect(updated!.status).toBe('failed');
+    expect(updated!.lastError).toContain('max attempts exceeded');
+    expect(getLatestAssistantText('conv-relay-verify-race')).toContain('**Call failed**');
+
+    // Let the delayed endSession callback flush to avoid timer bleed across tests.
+    await new Promise((resolve) => setTimeout(resolve, 2100));
+
+    const finalState = getCallSession(session.id);
+    expect(finalState).not.toBeNull();
+    expect(finalState!.status).toBe('failed');
 
     relay.destroy();
   });

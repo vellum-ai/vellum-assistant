@@ -19,6 +19,12 @@ import {
   validateAndConsumeChallenge,
 } from '../channel-guardian-service.js';
 import {
+  getPendingDeliveriesByDestination,
+  getGuardianActionRequest,
+  resolveGuardianActionRequest,
+} from '../../memory/guardian-action-store.js';
+import { answerCall } from '../../calls/call-domain.js';
+import {
   createApprovalRequest,
   getPendingApprovalByGuardianChat,
   getPendingApprovalByRunAndGuardianChat,
@@ -562,6 +568,131 @@ export async function handleChannelInbound(
         eventId: result.eventId,
         guardianVerification: verifyResult.success ? 'verified' : 'failed',
       });
+    }
+  }
+
+  // ── Guardian action answer interception ──
+  // Check if this inbound message is a reply to a cross-channel guardian
+  // action request (from a voice call). Must run before approval interception
+  // so guardian answers are not mistakenly routed into the approval flow.
+  if (
+    !result.duplicate &&
+    trimmedContent.length > 0 &&
+    body.senderExternalUserId &&
+    replyCallbackUrl
+  ) {
+    const pendingDeliveries = getPendingDeliveriesByDestination(assistantId, sourceChannel, externalChatId);
+    if (pendingDeliveries.length > 0) {
+      // Identity check: only the designated guardian can answer
+      const validDeliveries = pendingDeliveries.filter(
+        (d) => d.destinationExternalUserId === body.senderExternalUserId,
+      );
+
+      if (validDeliveries.length > 0) {
+        let matchedDelivery = validDeliveries.length === 1 ? validDeliveries[0] : null;
+        let answerText = trimmedContent;
+
+        // Multiple pending deliveries: require request code prefix for disambiguation
+        if (validDeliveries.length > 1) {
+          for (const d of validDeliveries) {
+            const req = getGuardianActionRequest(d.requestId);
+            if (req && trimmedContent.toUpperCase().startsWith(req.requestCode)) {
+              matchedDelivery = d;
+              answerText = trimmedContent.slice(req.requestCode.length).trim();
+              break;
+            }
+          }
+
+          if (!matchedDelivery) {
+            // Send disambiguation message listing the request codes
+            const codes = validDeliveries
+              .map((d) => {
+                const req = getGuardianActionRequest(d.requestId);
+                return req ? req.requestCode : null;
+              })
+              .filter(Boolean);
+            try {
+              await deliverChannelReply(replyCallbackUrl, {
+                chatId: externalChatId,
+                text: `You have multiple pending guardian questions. Please prefix your reply with the reference code (${codes.join(', ')}) to indicate which question you are answering.`,
+                assistantId,
+              }, bearerToken);
+            } catch (err) {
+              log.error({ err, externalChatId }, 'Failed to deliver guardian action disambiguation message');
+            }
+            return Response.json({
+              accepted: true,
+              duplicate: false,
+              eventId: result.eventId,
+              guardianAnswer: 'disambiguation_sent',
+            });
+          }
+        }
+
+        if (matchedDelivery) {
+          const request = getGuardianActionRequest(matchedDelivery.requestId);
+          if (request) {
+            // Attempt to deliver the answer to the call first. Only resolve
+            // the guardian action request if answerCall succeeds, so that a
+            // failed delivery (e.g. pending question timed out) leaves the
+            // request pending for retry from another channel.
+            const answerResult = await answerCall({ callSessionId: request.callSessionId, answer: answerText });
+
+            if (!('ok' in answerResult) || !answerResult.ok) {
+              const errorMsg = 'error' in answerResult ? answerResult.error : 'Unknown error';
+              log.warn({ callSessionId: request.callSessionId, error: errorMsg }, 'answerCall failed for guardian answer');
+              try {
+                await deliverChannelReply(replyCallbackUrl, {
+                  chatId: externalChatId,
+                  text: 'Failed to deliver your answer to the call. Please try again.',
+                  assistantId,
+                }, bearerToken);
+              } catch (deliverErr) {
+                log.error({ err: deliverErr, externalChatId }, 'Failed to deliver guardian answer failure notice');
+              }
+              return Response.json({
+                accepted: true,
+                duplicate: false,
+                eventId: result.eventId,
+                guardianAnswer: 'answer_failed',
+              });
+            }
+
+            const resolved = resolveGuardianActionRequest(
+              request.id,
+              answerText,
+              sourceChannel,
+              body.senderExternalUserId,
+            );
+
+            if (resolved) {
+              return Response.json({
+                accepted: true,
+                duplicate: false,
+                eventId: result.eventId,
+                guardianAnswer: 'resolved',
+              });
+            } else {
+              // Already answered from another channel
+              try {
+                await deliverChannelReply(replyCallbackUrl, {
+                  chatId: externalChatId,
+                  text: 'This question has already been answered from another channel.',
+                  assistantId,
+                }, bearerToken);
+              } catch (err) {
+                log.error({ err, externalChatId }, 'Failed to deliver guardian action stale notice');
+              }
+              return Response.json({
+                accepted: true,
+                duplicate: false,
+                eventId: result.eventId,
+                guardianAnswer: 'stale',
+              });
+            }
+          }
+        }
+      }
     }
   }
 

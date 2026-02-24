@@ -21,13 +21,18 @@ import { getMaxCallDurationMs, getUserConsultationTimeoutMs, SILENCE_TIMEOUT_MS 
 import type { RelayConnection } from './relay-server.js';
 import { registerCallOrchestrator, unregisterCallOrchestrator, fireCallQuestionNotifier, fireCallCompletionNotifier, fireCallTranscriptNotifier } from './call-state.js';
 import type { PromptSpeakerContext } from './speaker-identification.js';
+import { addPointerMessage, formatDuration } from './call-pointer-messages.js';
+import { persistCallCompletionMessage } from './call-conversation-messages.js';
+import * as conversationStore from '../memory/conversation-store.js';
+import { dispatchGuardianQuestion } from './guardian-dispatch.js';
+import type { ServerMessage } from '../daemon/ipc-contract.js';
 
 const log = getLogger('call-orchestrator');
 
 type OrchestratorState = 'idle' | 'processing' | 'waiting_on_user' | 'speaking';
 
-const ASK_USER_CAPTURE_REGEX = /\[ASK_USER:\s*(.+?)\]/;
-const ASK_USER_MARKER_REGEX = /\[ASK_USER:\s*.+?\]/g;
+const ASK_GUARDIAN_CAPTURE_REGEX = /\[ASK_GUARDIAN:\s*(.+?)\]/;
+const ASK_GUARDIAN_MARKER_REGEX = /\[ASK_GUARDIAN:\s*.+?\]/g;
 const USER_ANSWERED_MARKER_REGEX = /\[USER_ANSWERED:\s*.+?\]/g;
 const USER_INSTRUCTION_MARKER_REGEX = /\[USER_INSTRUCTION:\s*.+?\]/g;
 const CALL_OPENING_MARKER_REGEX = /\[CALL_OPENING\]/g;
@@ -39,7 +44,7 @@ const END_CALL_MARKER = '[END_CALL]';
 
 function stripInternalSpeechMarkers(text: string): string {
   return text
-    .replace(ASK_USER_MARKER_REGEX, '')
+    .replace(ASK_GUARDIAN_MARKER_REGEX, '')
     .replace(USER_ANSWERED_MARKER_REGEX, '')
     .replace(USER_INSTRUCTION_MARKER_REGEX, '')
     .replace(CALL_OPENING_MARKER_REGEX, '')
@@ -68,11 +73,17 @@ export class CallOrchestrator {
   private awaitingOpeningAck = false;
   /** Monotonic run id used to suppress stale turn side effects after interruption. */
   private llmRunVersion = 0;
+  /** Optional broadcast function for emitting IPC events to connected clients. */
+  private broadcast?: (msg: ServerMessage) => void;
+  /** Assistant identity for scoping guardian bindings. */
+  private assistantId: string;
 
-  constructor(callSessionId: string, relay: RelayConnection, task: string | null) {
+  constructor(callSessionId: string, relay: RelayConnection, task: string | null, opts?: { broadcast?: (msg: ServerMessage) => void; assistantId?: string }) {
     this.callSessionId = callSessionId;
     this.relay = relay;
     this.task = task;
+    this.broadcast = opts?.broadcast;
+    this.assistantId = opts?.assistantId ?? 'self';
     this.startDurationTimer();
     this.resetSilenceTimer();
     registerCallOrchestrator(callSessionId, this);
@@ -118,9 +129,17 @@ export class CallOrchestrator {
       // the caller's transcript to the synthetic "[CALL_OPENING]" message,
       // causing the model to re-run opener behavior instead of responding
       // directly to the caller.
-      for (const entry of this.conversationHistory) {
-        if (entry.content.includes(CALL_OPENING_MARKER)) {
-          entry.content = entry.content.replace(CALL_OPENING_MARKER_REGEX, '').trim();
+      // If the marker-only seed message becomes empty, remove it entirely:
+      // Anthropic rejects any user turn with empty content.
+      for (let i = 0; i < this.conversationHistory.length; i++) {
+        const entry = this.conversationHistory[i];
+        if (!entry.content.includes(CALL_OPENING_MARKER)) continue;
+        const stripped = entry.content.replace(CALL_OPENING_MARKER_REGEX, '').trim();
+        if (stripped.length === 0) {
+          this.conversationHistory.splice(i, 1);
+          i--;
+        } else {
+          entry.content = stripped;
         }
       }
     }
@@ -144,7 +163,10 @@ export class CallOrchestrator {
     // this utterance into that same user turn.
     const lastMessage = this.conversationHistory[this.conversationHistory.length - 1];
     if (lastMessage?.role === 'user') {
-      lastMessage.content = `${lastMessage.content}\n${callerTurnContent}`;
+      const existingContent = lastMessage.content.trim();
+      lastMessage.content = existingContent.length > 0
+        ? `${lastMessage.content}\n${callerTurnContent}`
+        : callerTurnContent;
     } else {
       this.conversationHistory.push({
         role: 'user',
@@ -286,7 +308,7 @@ export class CallOrchestrator {
       '0. When introducing yourself, refer to yourself as an assistant. Avoid the phrase "AI assistant" unless directly asked.',
       disclosureRule,
       '2. Be concise — phone conversations should be brief and natural.',
-      '3. If the callee asks something you don\'t know, include [ASK_USER: your question here] in your response along with a hold message like "Let me check on that for you."',
+      '3. If the callee asks something you don\'t know, include [ASK_GUARDIAN: your question here] in your response along with a hold message like "Let me check on that for you."',
       '4. If the callee provides information preceded by [USER_ANSWERED: ...], use that answer naturally in the conversation.',
       '5. If you see [USER_INSTRUCTION: ...], treat it as a high-priority steering directive from your user. Follow the instruction immediately, adjusting your approach or response accordingly.',
       '6. When the call\'s purpose is fulfilled, include [END_CALL] in your response along with a polite goodbye.',
@@ -344,7 +366,7 @@ export class CallOrchestrator {
         { signal: runSignal },
       );
 
-      // Buffer incoming tokens so we can strip control markers ([ASK_USER:...], [END_CALL])
+      // Buffer incoming tokens so we can strip control markers ([ASK_GUARDIAN:...], [END_CALL])
       // before they reach TTS. We hold text whenever an unmatched '[' appears, since it
       // could be the start of a control marker.
       let ttsBuffer = '';
@@ -371,18 +393,18 @@ export class CallOrchestrator {
           // The check must be bidirectional:
           //  - When the buffer is shorter than the prefix (e.g. "[ASK"), the
           //    buffer is a prefix of the control tag → hold it.
-          //  - When the buffer is longer than the prefix (e.g. "[ASK_USER: what"),
+          //  - When the buffer is longer than the prefix (e.g. "[ASK_GUARDIAN: what"),
           //    the buffer starts with the control tag prefix → hold it (the
           //    variable-length payload hasn't been closed yet).
           const afterBracket = ttsBuffer;
           const couldBeControl =
-            '[ASK_USER:'.startsWith(afterBracket) ||
+            '[ASK_GUARDIAN:'.startsWith(afterBracket) ||
             '[USER_ANSWERED:'.startsWith(afterBracket) ||
             '[USER_INSTRUCTION:'.startsWith(afterBracket) ||
             '[CALL_OPENING]'.startsWith(afterBracket) ||
             '[CALL_OPENING_ACK]'.startsWith(afterBracket) ||
             '[END_CALL]'.startsWith(afterBracket) ||
-            afterBracket.startsWith('[ASK_USER:') ||
+            afterBracket.startsWith('[ASK_GUARDIAN:') ||
             afterBracket.startsWith('[USER_ANSWERED:') ||
             afterBracket.startsWith('[USER_INSTRUCTION:') ||
             afterBracket === '[CALL_OPENING' ||
@@ -443,15 +465,22 @@ export class CallOrchestrator {
       if (spokenText.length > 0) {
         const session = getCallSession(this.callSessionId);
         if (session) {
+          // Persist assistant transcript to the voice conversation so it
+          // survives even when no live daemon Session is listening.
+          conversationStore.addMessage(
+            session.conversationId,
+            'assistant',
+            JSON.stringify([{ type: 'text', text: spokenText }]),
+          );
           fireCallTranscriptNotifier(session.conversationId, this.callSessionId, 'assistant', spokenText);
         }
       }
 
-      // Check for ASK_USER pattern
-      const askMatch = responseText.match(ASK_USER_CAPTURE_REGEX);
+      // Check for ASK_GUARDIAN pattern
+      const askMatch = responseText.match(ASK_GUARDIAN_CAPTURE_REGEX);
       if (askMatch) {
         const questionText = askMatch[1];
-        createPendingQuestion(this.callSessionId, questionText);
+        const pendingQuestion = createPendingQuestion(this.callSessionId, questionText);
         this.state = 'waiting_on_user';
         updateCallSession(this.callSessionId, { status: 'waiting_on_user' });
         recordCallEvent(this.callSessionId, 'user_question_asked', { question: questionText });
@@ -460,6 +489,15 @@ export class CallOrchestrator {
         const session = getCallSession(this.callSessionId);
         if (session) {
           fireCallQuestionNotifier(session.conversationId, this.callSessionId, questionText);
+
+          // Dispatch guardian action request to all configured channels
+          void dispatchGuardianQuestion({
+            callSessionId: this.callSessionId,
+            conversationId: session.conversationId,
+            assistantId: this.assistantId,
+            pendingQuestion,
+            broadcast: this.broadcast,
+          });
         }
 
         // Set a consultation timeout
@@ -490,10 +528,18 @@ export class CallOrchestrator {
         updateCallSession(this.callSessionId, { status: 'completed', endedAt: Date.now() });
         recordCallEvent(this.callSessionId, 'call_ended', { reason: 'completed' });
 
-        // Notify the conversation when this is the first transition
-        // into a terminal call state.
+        // Notify the voice conversation
         if (shouldNotifyCompletion && currentSession) {
+          persistCallCompletionMessage(currentSession.conversationId, this.callSessionId);
           fireCallCompletionNotifier(currentSession.conversationId, this.callSessionId);
+        }
+
+        // Post a pointer message in the initiating conversation
+        if (currentSession?.initiatedFromConversationId) {
+          const durationMs = currentSession.startedAt ? Date.now() - currentSession.startedAt : 0;
+          addPointerMessage(currentSession.initiatedFromConversationId, 'completed', currentSession.toNumber, {
+            duration: durationMs > 0 ? formatDuration(durationMs) : undefined,
+          });
         }
         this.state = 'idle';
         return;
@@ -602,7 +648,16 @@ export class CallOrchestrator {
         updateCallSession(this.callSessionId, { status: 'completed', endedAt: Date.now() });
         recordCallEvent(this.callSessionId, 'call_ended', { reason: 'max_duration' });
         if (shouldNotifyCompletion && currentSession) {
+          persistCallCompletionMessage(currentSession.conversationId, this.callSessionId);
           fireCallCompletionNotifier(currentSession.conversationId, this.callSessionId);
+        }
+
+        // Post a pointer message in the initiating conversation
+        if (currentSession?.initiatedFromConversationId) {
+          const durationMs = currentSession.startedAt ? Date.now() - currentSession.startedAt : 0;
+          addPointerMessage(currentSession.initiatedFromConversationId, 'completed', currentSession.toNumber, {
+            duration: durationMs > 0 ? formatDuration(durationMs) : undefined,
+          });
         }
       }, 3000);
     }, maxDurationMs);
