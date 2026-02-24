@@ -1,25 +1,19 @@
-import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync, unlinkSync, existsSync, openSync, closeSync, chmodSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, existsSync, chmodSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
 import { config as dotenvConfig } from 'dotenv';
-import * as Sentry from '@sentry/node';
 import {
   getInterfacesDir,
   getSocketPath,
-  getPidPath,
   getHttpTokenPath,
   getRootDir,
   ensureDataDir,
   migrateToDataLayout,
   migrateToWorkspaceLayout,
-  removeSocketFile,
 } from '../util/platform.js';
-import { initializeDb, getSqlite, resetDb } from '../memory/db.js';
+import { initializeDb } from '../memory/db.js';
 import { rotateToolInvocations } from '../memory/tool-usage-store.js';
-import { initializeProviders, getFailoverProvider, listProviders } from '../providers/registry.js';
-import { initializeTools } from '../tools/registry.js';
 import { loadConfig } from '../config/loader.js';
 import {
   getQdrantUrlEnv,
@@ -34,426 +28,39 @@ import { DaemonServer } from './server.js';
 import { setRelayBroadcast } from '../calls/relay-server.js';
 import { listWorkItems, updateWorkItem } from '../work-items/work-item-store.js';
 import { getLogger, initLogger } from '../util/logger.js';
-import { DaemonError } from '../util/errors.js';
 import { initSentry } from '../instrument.js';
 import { initLogfire } from '../logfire.js';
 import { startMemoryJobsWorker } from '../memory/jobs-worker.js';
 import { QdrantManager } from '../memory/qdrant-manager.js';
 import { initQdrantClient } from '../memory/qdrant-client.js';
 import { startScheduler } from '../schedule/scheduler.js';
-import { initWatcherEngine } from '../watcher/engine.js';
-import { registerWatcherProvider } from '../watcher/provider-registry.js';
-import { gmailProvider } from '../watcher/providers/gmail.js';
-import { googleCalendarProvider } from '../watcher/providers/google-calendar.js';
-import { slackProvider as slackWatcherProvider } from '../watcher/providers/slack.js';
-import { githubProvider } from '../watcher/providers/github.js';
-import { linearProvider } from '../watcher/providers/linear.js';
-import { registerMessagingProvider } from '../messaging/registry.js';
-import { slackProvider as slackMessagingProvider } from '../messaging/providers/slack/adapter.js';
-import { gmailMessagingProvider } from '../messaging/providers/gmail/adapter.js';
-import { telegramBotMessagingProvider } from '../messaging/providers/telegram-bot/adapter.js';
-import { smsMessagingProvider } from '../messaging/providers/sms/adapter.js';
-import { whatsappMessagingProvider } from '../messaging/providers/whatsapp/adapter.js';
-import { browserManager } from '../tools/browser/browser-manager.js';
 import { RuntimeHttpServer } from '../runtime/http-server.js';
-import type { ApprovalCopyGenerator, ApprovalConversationGenerator, ApprovalConversationResult, ApprovalConversationDisposition } from '../runtime/http-types.js';
-import {
-  buildGenerationPrompt,
-  includesRequiredKeywords,
-  getFallbackMessage,
-  APPROVAL_COPY_TIMEOUT_MS,
-  APPROVAL_COPY_MAX_TOKENS,
-  APPROVAL_COPY_SYSTEM_PROMPT,
-} from '../runtime/approval-message-composer.js';
 import { getHookManager } from '../hooks/manager.js';
 import { installTemplates } from '../hooks/templates.js';
 import { installCliLaunchers } from './install-cli-launchers.js';
 import { HeartbeatService } from '../workspace/heartbeat-service.js';
 import { AgentHeartbeatService } from '../agent-heartbeat/agent-heartbeat-service.js';
-import { getEnrichmentService } from '../workspace/commit-message-enrichment-service.js';
 import { reconcileCallsOnStartup } from '../calls/call-recovery.js';
 import { TwilioConversationRelayProvider } from '../calls/twilio-provider.js';
+import { createApprovalCopyGenerator, createApprovalConversationGenerator } from './approval-generators.js';
+import { initializeProvidersAndTools, registerWatcherProviders, registerMessagingProviders } from './providers-setup.js';
+import { installShutdownHandlers } from './shutdown-handlers.js';
+import { writePid, cleanupPidFile } from './daemon-control.js';
+
+// Re-export public API so existing consumers don't need to change imports
+export {
+  isDaemonRunning,
+  getDaemonStatus,
+  startDaemon,
+  stopDaemon,
+  ensureDaemonRunning,
+} from './daemon-control.js';
+export type { StopResult } from './daemon-control.js';
 
 const log = getLogger('lifecycle');
 
-function isProcessRunning(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function readPid(): number | null {
-  const pidPath = getPidPath();
-  if (!existsSync(pidPath)) return null;
-  try {
-    const pid = parseInt(readFileSync(pidPath, 'utf-8').trim(), 10);
-    return isNaN(pid) ? null : pid;
-  } catch {
-    return null;
-  }
-}
-
-function writePid(pid: number): void {
-  writeFileSync(getPidPath(), String(pid));
-}
-
-function cleanupPidFile(): void {
-  const pidPath = getPidPath();
-  if (existsSync(pidPath)) {
-    unlinkSync(pidPath);
-  }
-}
-
-export function isDaemonRunning(): boolean {
-  const pid = readPid();
-  if (pid == null) return false;
-  if (!isProcessRunning(pid)) {
-    // Stale PID file
-    cleanupPidFile();
-    return false;
-  }
-  return true;
-}
-
-export function getDaemonStatus(): { running: boolean; pid?: number } {
-  const pid = readPid();
-  if (pid == null) return { running: false };
-  if (!isProcessRunning(pid)) {
-    cleanupPidFile();
-    return { running: false };
-  }
-  return { running: true, pid };
-}
-
-export async function startDaemon(): Promise<{
-  pid: number;
-  alreadyRunning: boolean;
-}> {
-  const status = getDaemonStatus();
-  if (status.running && status.pid) {
-    return { pid: status.pid, alreadyRunning: true };
-  }
-
-  // Only create the root dir for socket/PID — the daemon process itself
-  // handles migration + full ensureDataDir() in runDaemon(). Calling
-  // ensureDataDir() here would pre-create workspace destination dirs
-  // and cause migration moves to no-op.
-  const rootDir = getRootDir();
-  if (!existsSync(rootDir)) {
-    mkdirSync(rootDir, { recursive: true });
-  }
-
-  // Clean up stale socket (only if it's actually a Unix socket)
-  const socketPath = getSocketPath();
-  removeSocketFile(socketPath);
-
-  // Spawn the daemon as a detached child process
-  const mainPath = resolve(
-    import.meta.dirname ?? __dirname,
-    'main.ts',
-  );
-
-  // Redirect the child's stderr to a file instead of piping it back to the
-  // parent. A pipe's read end is destroyed when the parent exits, leaving
-  // fd 2 broken in the child. Bun (unlike Node.js) does not ignore SIGPIPE,
-  // so any later stderr write would silently kill the daemon.
-  const stderrPath = join(rootDir, 'daemon-stderr.log');
-  const stderrFd = openSync(stderrPath, 'w');
-
-  const child = spawn('bun', ['run', mainPath], {
-    detached: true,
-    stdio: ['ignore', 'ignore', stderrFd],
-    env: { ...process.env },
-  });
-
-  // The child inherited the fd; close the parent's copy.
-  closeSync(stderrFd);
-
-  let childExited = false;
-  let childExitCode: number | null = null;
-  child.on('exit', (code) => {
-    childExited = true;
-    childExitCode = code;
-  });
-
-  child.unref();
-
-  const pid = child.pid;
-  if (!pid) {
-    throw new DaemonError('Failed to start daemon: no PID returned');
-  }
-
-  writePid(pid);
-
-  // Wait for socket to appear
-  const maxWait = 5000;
-  const interval = 100;
-  let waited = 0;
-  while (waited < maxWait) {
-    if (existsSync(socketPath)) {
-      return { pid, alreadyRunning: false };
-    }
-    if (childExited) {
-      cleanupPidFile();
-      const stderr = readFileSync(stderrPath, 'utf-8').trim();
-      const detail = stderr
-        ? `\n${stderr}`
-        : `\nCheck logs at ~/.vellum/workspace/data/logs/ for details.`;
-      throw new DaemonError(
-        `Daemon exited immediately (code ${childExitCode ?? 'unknown'}).${detail}`,
-      );
-    }
-    await new Promise((r) => setTimeout(r, interval));
-    waited += interval;
-  }
-
-  throw new DaemonError(
-    'Daemon started but socket not available after 5 seconds',
-  );
-}
-
-export type StopResult =
-  | { stopped: true }
-  | { stopped: false; reason: 'not_running' | 'stop_failed' };
-
-export async function stopDaemon(): Promise<StopResult> {
-  const pid = readPid();
-  if (pid == null || !isProcessRunning(pid)) {
-    cleanupPidFile();
-    return { stopped: false, reason: 'not_running' };
-  }
-
-  process.kill(pid, 'SIGTERM');
-
-  // Wait for process to exit
-  const maxWait = 5000;
-  const interval = 100;
-  let waited = 0;
-  while (waited < maxWait) {
-    if (!isProcessRunning(pid)) {
-      cleanupPidFile();
-      return { stopped: true };
-    }
-    await new Promise((r) => setTimeout(r, interval));
-    waited += interval;
-  }
-
-  // Force kill
-  try {
-    process.kill(pid, 'SIGKILL');
-  } catch (err) {
-    log.debug({ err, pid }, 'SIGKILL failed, process already exited');
-  }
-
-  // Wait for the process to actually die after SIGKILL. Without this,
-  // startDaemon() can race with the dying process's shutdown handler,
-  // which removes the socket file and bricks the new daemon.
-  const killMaxWait = 2000;
-  let killWaited = 0;
-  while (killWaited < killMaxWait && isProcessRunning(pid)) {
-    await new Promise((r) => setTimeout(r, 100));
-    killWaited += 100;
-  }
-
-  // Only clean up if the process has actually exited.
-  // If it's still alive after SIGKILL + timeout, preserve both socket
-  // and PID file so isDaemonRunning() still reports true and prevents
-  // a duplicate daemon from being spawned.
-  if (!isProcessRunning(pid)) {
-    removeSocketFile(getSocketPath());
-    cleanupPidFile();
-    return { stopped: true };
-  }
-
-  log.warn({ pid }, 'Daemon process still running after SIGKILL + timeout, leaving socket and PID file intact');
-  return { stopped: false, reason: 'stop_failed' };
-}
-
-export async function ensureDaemonRunning(): Promise<void> {
-  if (isDaemonRunning()) return;
-  await startDaemon();
-}
-
 function loadDotEnv(): void {
   dotenvConfig({ path: join(getRootDir(), '.env'), quiet: true });
-}
-
-/**
- * Create the daemon-owned approval copy generator that resolves providers
- * and calls `provider.sendMessage` to generate approval copy text.
- * This keeps all provider awareness in the daemon lifecycle, away from
- * the runtime composer.
- */
-function createApprovalCopyGenerator(): ApprovalCopyGenerator {
-  return async (context, options = {}) => {
-    const config = loadConfig();
-    let provider;
-    try {
-      provider = getFailoverProvider(config.provider, config.providerOrder);
-    } catch {
-      return null;
-    }
-
-    const fallbackText = options.fallbackText?.trim() || getFallbackMessage(context);
-    const requiredKeywords = options.requiredKeywords?.map((kw) => kw.trim()).filter((kw) => kw.length > 0);
-    const prompt = buildGenerationPrompt(context, fallbackText, requiredKeywords);
-
-    const response = await provider.sendMessage(
-      [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
-      [],
-      APPROVAL_COPY_SYSTEM_PROMPT,
-      {
-        config: {
-          max_tokens: options.maxTokens ?? APPROVAL_COPY_MAX_TOKENS,
-        },
-        signal: AbortSignal.timeout(options.timeoutMs ?? APPROVAL_COPY_TIMEOUT_MS),
-      },
-    );
-
-    const block = response.content.find((entry) => entry.type === 'text');
-    const text = block && 'text' in block ? block.text.trim() : '';
-    if (!text) return null;
-    const cleaned = text
-      .replace(/^["'`]+/, '')
-      .replace(/["'`]+$/, '')
-      .trim();
-    if (!cleaned) return null;
-    if (!includesRequiredKeywords(cleaned, requiredKeywords)) return null;
-    return cleaned;
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Approval conversation generator constants
-// ---------------------------------------------------------------------------
-
-const APPROVAL_CONVERSATION_TIMEOUT_MS = 8_000;
-const APPROVAL_CONVERSATION_MAX_TOKENS = 300;
-
-const APPROVAL_CONVERSATION_SYSTEM_PROMPT =
-  'You are an assistant helping a user manage a pending tool approval request. '
-  + 'Analyze the user\'s message to determine if they are making a decision '
-  + '(approve, reject, or cancel) or just asking a question / making conversation. '
-  + 'When uncertain, default to keep_pending — never approve or reject without clear intent. '
-  + 'For guardians: explain what tool is requesting approval and from whom. '
-  + 'Always provide a natural, helpful reply along with your decision.';
-
-const APPROVAL_CONVERSATION_TOOL_NAME = 'approval_decision';
-
-const APPROVAL_CONVERSATION_TOOL_SCHEMA = {
-  name: APPROVAL_CONVERSATION_TOOL_NAME,
-  description:
-    'Record the disposition of the approval conversation turn. '
-    + 'Call this tool with the determined disposition and a natural reply to the user.',
-  input_schema: {
-    type: 'object' as const,
-    properties: {
-      disposition: {
-        type: 'string',
-        enum: ['keep_pending', 'approve_once', 'approve_always', 'reject'],
-        description:
-          'The decision: keep_pending if the user is asking questions or unclear, '
-          + 'approve_once to approve this single request, approve_always to approve '
-          + 'this tool permanently, reject to deny the request.',
-      },
-      replyText: {
-        type: 'string',
-        description: 'A natural language reply to send back to the user.',
-      },
-      targetRunId: {
-        type: 'string',
-        description:
-          'The run ID of the specific pending approval being acted on. '
-          + 'Required when there are multiple pending approvals and the disposition is decision-bearing.',
-      },
-    },
-    required: ['disposition', 'replyText'],
-  },
-};
-
-const VALID_DISPOSITIONS: ReadonlySet<string> = new Set([
-  'keep_pending',
-  'approve_once',
-  'approve_always',
-  'reject',
-]);
-
-/**
- * Create the daemon-owned approval conversation generator that resolves
- * providers and uses tool_use / function calling for structured output.
- * Follows the same provider-aware pattern as createApprovalCopyGenerator().
- */
-function createApprovalConversationGenerator(): ApprovalConversationGenerator {
-  return async (context) => {
-    const config = loadConfig();
-    if (!listProviders().includes(config.provider)) {
-      throw new Error('No provider available for approval conversation');
-    }
-    const provider = getFailoverProvider(config.provider, config.providerOrder);
-
-    const pendingDescription = context.pendingApprovals
-      .map((p) => `- Run ${p.runId}: tool "${p.toolName}"`)
-      .join('\n');
-
-    const userPrompt = [
-      `Role: ${context.role}`,
-      `Tool requesting approval: "${context.toolName}"`,
-      `Allowed actions: ${context.allowedActions.join(', ')}`,
-      `Pending approvals:\n${pendingDescription}`,
-      `\nUser message: ${context.userMessage}`,
-    ].join('\n');
-
-    const response = await provider.sendMessage(
-      [{ role: 'user', content: [{ type: 'text', text: userPrompt }] }],
-      [APPROVAL_CONVERSATION_TOOL_SCHEMA],
-      APPROVAL_CONVERSATION_SYSTEM_PROMPT,
-      {
-        config: {
-          max_tokens: APPROVAL_CONVERSATION_MAX_TOKENS,
-        },
-        signal: AbortSignal.timeout(APPROVAL_CONVERSATION_TIMEOUT_MS),
-      },
-    );
-
-    // Extract the tool_use block from the response
-    const toolUseBlock = response.content.find(
-      (block) => block.type === 'tool_use' && block.name === APPROVAL_CONVERSATION_TOOL_NAME,
-    );
-
-    if (!toolUseBlock || toolUseBlock.type !== 'tool_use') {
-      throw new Error('Provider did not return a tool_use block for approval decision');
-    }
-
-    const input = toolUseBlock.input as Record<string, unknown>;
-
-    // Strict validation of the structured output
-    const disposition = input.disposition;
-    if (typeof disposition !== 'string' || !VALID_DISPOSITIONS.has(disposition)) {
-      throw new Error(`Invalid disposition: ${String(disposition)}`);
-    }
-
-    const replyText = input.replyText;
-    if (typeof replyText !== 'string' || replyText.trim().length === 0) {
-      throw new Error('Missing or empty replyText in tool_use response');
-    }
-
-    const targetRunId = input.targetRunId;
-    if (targetRunId !== undefined && typeof targetRunId !== 'string') {
-      throw new Error('Invalid targetRunId in tool_use response');
-    }
-
-    const result: ApprovalConversationResult = {
-      disposition: disposition as ApprovalConversationDisposition,
-      replyText: replyText.trim(),
-    };
-    if (typeof targetRunId === 'string' && targetRunId.length > 0) {
-      result.targetRunId = targetRunId;
-    }
-    return result;
-  };
 }
 
 // Entry point for the daemon process itself
@@ -510,7 +117,6 @@ export async function runDaemon(): Promise<void> {
   installTemplates();
   ensurePromptFiles();
 
-  // Install standalone CLI launchers (e.g. doordash, map) in ~/.vellum/bin/
   try {
     installCliLaunchers();
   } catch (err) {
@@ -530,8 +136,6 @@ export async function runDaemon(): Promise<void> {
     log.info({ count: orphanedRunning.length }, 'Recovered orphaned running work items');
   }
 
-  // Reconcile in-flight calls that were left in non-terminal states
-  // after a daemon crash or restart.
   try {
     const twilioProvider = new TwilioConversationRelayProvider();
     await reconcileCallsOnStartup(twilioProvider, log);
@@ -546,10 +150,7 @@ export async function runDaemon(): Promise<void> {
     initLogger({ dir: config.logFile.dir, retentionDays: config.logFile.retentionDays });
   }
 
-  log.info('Daemon startup: initializing providers and tools');
-  initializeProviders(config);
-  await initializeTools();
-  log.info('Daemon startup: providers and tools initialized');
+  await initializeProvidersAndTools(config);
 
   // Start the IPC socket BEFORE Qdrant so that clients can connect
   // immediately. Qdrant startup can take 30+ seconds (binary download,
@@ -562,9 +163,7 @@ export async function runDaemon(): Promise<void> {
   // Initialize Qdrant vector store — non-fatal so the daemon stays up without it
   const qdrantUrl = getQdrantUrlEnv() || config.memory.qdrant.url;
   log.info({ qdrantUrl }, 'Daemon startup: initializing Qdrant');
-  const qdrantManager = new QdrantManager({
-    url: qdrantUrl,
-  });
+  const qdrantManager = new QdrantManager({ url: qdrantUrl });
   try {
     await qdrantManager.start();
     initQdrantClient({
@@ -581,20 +180,9 @@ export async function runDaemon(): Promise<void> {
 
   log.info('Daemon startup: starting memory worker');
   const memoryWorker = startMemoryJobsWorker();
-  // Initialize watcher engine and register providers
-  registerWatcherProvider(gmailProvider);
-  registerWatcherProvider(googleCalendarProvider);
-  registerWatcherProvider(slackWatcherProvider);
-  registerWatcherProvider(githubProvider);
-  registerWatcherProvider(linearProvider);
-  initWatcherEngine();
 
-  // Register messaging providers
-  registerMessagingProvider(slackMessagingProvider);
-  registerMessagingProvider(gmailMessagingProvider);
-  registerMessagingProvider(telegramBotMessagingProvider);
-  registerMessagingProvider(smsMessagingProvider);
-  registerMessagingProvider(whatsappMessagingProvider);
+  registerWatcherProviders();
+  registerMessagingProviders();
 
   const scheduler = startScheduler(
     async (conversationId, message) => {
@@ -695,9 +283,6 @@ export async function runDaemon(): Promise<void> {
     socketPath: getSocketPath(),
   });
 
-  // Rotate old audit log entries after startup handshake is complete.
-  // This runs after the socket is listening so it won't block the 5s
-  // readiness window in startDaemon().
   if (config.auditLog.retentionDays > 0) {
     try {
       rotateToolInvocations(config.auditLog.retentionDays);
@@ -706,15 +291,9 @@ export async function runDaemon(): Promise<void> {
     }
   }
 
-  // Start workspace heartbeat service. This periodically checks all
-  // tracked workspaces for uncommitted changes and auto-commits when
-  // thresholds are exceeded (age > 5 min OR > 20 files changed).
-  // Acts as a safety net for long-running operations or background
-  // processes that modify workspace files between turn-boundary commits.
   const heartbeat = new HeartbeatService();
   heartbeat.start();
 
-  // Start model-driven heartbeat service (opt-in via config).
   const agentHeartbeat = new AgentHeartbeatService({
     processMessage: (conversationId, content) =>
       server.processMessage(conversationId, content),
@@ -722,98 +301,15 @@ export async function runDaemon(): Promise<void> {
   });
   agentHeartbeat.start();
 
-  // Graceful shutdown
-  let shuttingDown = false;
-  const shutdown = async () => {
-    if (shuttingDown) return; // Prevent re-entrant shutdown
-    shuttingDown = true;
-    log.info('Shutting down daemon...');
-
-    hookManager.stopWatching();
-
-    // Force exit if graceful shutdown takes too long.
-    // Set this BEFORE awaiting heartbeat stop and triggering daemon-stop hooks
-    // so it covers all potentially-blocking async shutdown work.
-    const forceTimer = setTimeout(() => {
-      log.warn('Graceful shutdown timed out, forcing exit');
-      cleanupPidFile();
-      process.exit(1);
-    }, 10_000);
-    forceTimer.unref();
-
-    await heartbeat.stop();
-    await agentHeartbeat.stop();
-
-    try {
-      await hookManager.trigger('daemon-stop', { pid: process.pid });
-    } catch {
-      // Don't let hook failures block shutdown
-    }
-
-    // Commit any uncommitted workspace changes before stopping the server.
-    // This ensures no workspace state is lost during graceful shutdown.
-    try {
-      log.info({ phase: 'pre_stop' }, 'Committing pending workspace changes');
-      await heartbeat.commitAllPending();
-    } catch (err) {
-      log.warn({ err, phase: 'pre_stop' }, 'Shutdown workspace commit failed');
-    }
-
-    await server.stop();
-
-    // Final commit sweep: catch any writes that occurred during server.stop()
-    // (e.g. in-flight tool executions completing during drain).
-    try {
-      log.info({ phase: 'post_stop' }, 'Final workspace commit sweep');
-      await heartbeat.commitAllPending();
-    } catch (err) {
-      log.warn({ err, phase: 'post_stop' }, 'Post-stop workspace commit failed');
-    }
-
-    // Flush in-flight enrichment jobs so shutdown commit notes are not dropped.
-    // The enrichment service's shutdown() drains active jobs and discards pending ones.
-    try {
-      await getEnrichmentService().shutdown();
-    } catch (err) {
-      log.warn({ err }, 'Enrichment service shutdown failed (non-fatal)');
-    }
-
-    if (runtimeHttp) await runtimeHttp.stop();
-    await browserManager.closeAllPages();
-    scheduler.stop();
-    memoryWorker.stop();
-    await qdrantManager.stop();
-
-    // Checkpoint WAL and close SQLite so no writes are lost on exit.
-    // Checkpoint and close are in separate try blocks so that close()
-    // always runs even if checkpointing throws (e.g. SQLITE_BUSY).
-    try {
-      getSqlite().exec('PRAGMA wal_checkpoint(TRUNCATE)');
-    } catch (err) {
-      log.warn({ err }, 'WAL checkpoint failed (non-fatal)');
-    }
-    try {
-      resetDb();
-    } catch (err) {
-      log.warn({ err }, 'Database close failed (non-fatal)');
-    }
-
-    await Sentry.flush(2000);
-    clearTimeout(forceTimer);
-    cleanupPidFile();
-    process.exit(0);
-  };
-
-  process.on('SIGTERM', shutdown);
-  process.on('SIGINT', shutdown);
-
-  process.on('unhandledRejection', (reason) => {
-    log.error({ err: reason }, 'Unhandled promise rejection');
-    Sentry.captureException(reason);
-  });
-
-  process.on('uncaughtException', (err) => {
-    log.error({ err }, 'Uncaught exception');
-    Sentry.captureException(err);
+  installShutdownHandlers({
+    server,
+    heartbeat,
+    agentHeartbeat,
+    hookManager,
+    runtimeHttp,
+    scheduler,
+    memoryWorker,
+    qdrantManager,
+    cleanupPidFile,
   });
 }
