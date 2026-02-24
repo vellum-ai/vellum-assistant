@@ -13,7 +13,12 @@ export function buildCallCompletionMessage(callSessionId: string): string {
     ? Math.round((callSession.endedAt - callSession.startedAt) / 1000)
     : null;
   const durationStr = duration !== null ? ` (${duration}s)` : '';
-  return `**Call completed**${durationStr}. ${events.length} event(s) recorded.`;
+  const statusLabel = callSession?.status === 'failed'
+    ? 'Call failed'
+    : callSession?.status === 'cancelled'
+      ? 'Call cancelled'
+      : 'Call completed';
+  return `**${statusLabel}**${durationStr}. ${events.length} event(s) recorded.`;
 }
 
 export function persistCallCompletionMessage(conversationId: string, callSessionId: string): string {

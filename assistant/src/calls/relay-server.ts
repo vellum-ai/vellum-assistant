@@ -537,21 +537,29 @@ export class RelayConnection {
 
             this.sendTextToken('Verification failed. Goodbye.', true);
 
-            // End the call with failed status after TTS plays
-            setTimeout(() => {
-              this.endSession('Verification failed');
-              updateCallSession(this.callSessionId, {
-                status: 'failed',
-                endedAt: Date.now(),
-                lastError: 'Callee verification failed — max attempts exceeded',
-              });
+            // Mark failed immediately so a relay close during the goodbye TTS
+            // window cannot race this into a terminal "completed" status.
+            updateCallSession(this.callSessionId, {
+              status: 'failed',
+              endedAt: Date.now(),
+              lastError: 'Callee verification failed — max attempts exceeded',
+            });
 
-              const session = getCallSession(this.callSessionId);
-              if (session?.initiatedFromConversationId) {
+            const session = getCallSession(this.callSessionId);
+            if (session) {
+              expirePendingQuestions(this.callSessionId);
+              persistCallCompletionMessage(session.conversationId, this.callSessionId);
+              fireCallCompletionNotifier(session.conversationId, this.callSessionId);
+              if (session.initiatedFromConversationId) {
                 addPointerMessage(session.initiatedFromConversationId, 'failed', session.toNumber, {
                   reason: 'Callee verification failed',
                 });
               }
+            }
+
+            // End the call with failed status after TTS plays
+            setTimeout(() => {
+              this.endSession('Verification failed');
             }, 2000);
           } else {
             // Allow another attempt

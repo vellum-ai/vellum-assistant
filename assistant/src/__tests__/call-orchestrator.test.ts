@@ -572,6 +572,60 @@ describe('call-orchestrator', () => {
     orchestrator.destroy();
   });
 
+  test('barge-in cleanup never sends empty user turns to Anthropic', async () => {
+    let callCount = 0;
+    mockStreamFn.mockImplementation((...args: unknown[]) => {
+      callCount++;
+
+      // Initial outbound opener
+      if (callCount === 1) {
+        return createMockStream(['Hey Noa, this is Credence calling.']);
+      }
+
+      // First caller turn enters an in-flight LLM run that gets interrupted
+      if (callCount === 2) {
+        const emitter = new EventEmitter();
+        const options = args[1] as { signal?: AbortSignal } | undefined;
+        return {
+          on: (event: string, handler: (...evtArgs: unknown[]) => void) => {
+            emitter.on(event, handler);
+            return { on: () => ({ on: () => ({}) }) };
+          },
+          finalMessage: () =>
+            new Promise((_, reject) => {
+              options?.signal?.addEventListener('abort', () => {
+                const err = new Error('aborted');
+                err.name = 'AbortError';
+                reject(err);
+              }, { once: true });
+            }),
+        };
+      }
+
+      // Second caller turn should never include an empty user message.
+      const firstArg = args[0] as { messages: Array<{ role: string; content: string }> };
+      const userMessages = firstArg.messages.filter((m) => m.role === 'user');
+      expect(userMessages.length).toBeGreaterThan(0);
+      expect(userMessages.every((m) => m.content.trim().length > 0)).toBe(true);
+      return createMockStream(['Got it, thanks for clarifying.']);
+    });
+
+    const { relay, orchestrator } = setupOrchestrator('Quick check-in');
+    await orchestrator.startInitialGreeting();
+
+    const firstTurnPromise = orchestrator.handleCallerUtterance('Hello?');
+    await new Promise((r) => setTimeout(r, 5));
+    const secondTurnPromise = orchestrator.handleCallerUtterance('What have you been up to lately?');
+
+    await Promise.all([firstTurnPromise, secondTurnPromise]);
+
+    const allTokens = relay.sentTokens.map((t) => t.token).join('');
+    expect(allTokens).toContain('Got it, thanks for clarifying.');
+    expect(allTokens).not.toContain('technical issue');
+
+    orchestrator.destroy();
+  });
+
   test('rapid caller barge-in coalesces contiguous user turns for role alternation', async () => {
     let callCount = 0;
     mockStreamFn.mockImplementation((...args: unknown[]) => {

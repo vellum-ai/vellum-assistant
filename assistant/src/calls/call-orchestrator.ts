@@ -129,9 +129,17 @@ export class CallOrchestrator {
       // the caller's transcript to the synthetic "[CALL_OPENING]" message,
       // causing the model to re-run opener behavior instead of responding
       // directly to the caller.
-      for (const entry of this.conversationHistory) {
-        if (entry.content.includes(CALL_OPENING_MARKER)) {
-          entry.content = entry.content.replace(CALL_OPENING_MARKER_REGEX, '').trim();
+      // If the marker-only seed message becomes empty, remove it entirely:
+      // Anthropic rejects any user turn with empty content.
+      for (let i = 0; i < this.conversationHistory.length; i++) {
+        const entry = this.conversationHistory[i];
+        if (!entry.content.includes(CALL_OPENING_MARKER)) continue;
+        const stripped = entry.content.replace(CALL_OPENING_MARKER_REGEX, '').trim();
+        if (stripped.length === 0) {
+          this.conversationHistory.splice(i, 1);
+          i--;
+        } else {
+          entry.content = stripped;
         }
       }
     }
@@ -155,7 +163,10 @@ export class CallOrchestrator {
     // this utterance into that same user turn.
     const lastMessage = this.conversationHistory[this.conversationHistory.length - 1];
     if (lastMessage?.role === 'user') {
-      lastMessage.content = `${lastMessage.content}\n${callerTurnContent}`;
+      const existingContent = lastMessage.content.trim();
+      lastMessage.content = existingContent.length > 0
+        ? `${lastMessage.content}\n${callerTurnContent}`
+        : callerTurnContent;
     } else {
       this.conversationHistory.push({
         role: 'user',

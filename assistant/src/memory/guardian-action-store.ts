@@ -295,7 +295,7 @@ export function cancelGuardianActionRequest(id: string): void {
     .where(
       and(
         eq(guardianActionDeliveries.requestId, id),
-        eq(guardianActionDeliveries.status, 'pending'),
+        inArray(guardianActionDeliveries.status, ['pending', 'sent']),
       ),
     )
     .run();
