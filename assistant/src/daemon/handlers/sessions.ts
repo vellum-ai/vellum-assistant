@@ -23,6 +23,7 @@ import type {
   UsageRequest,
   SandboxSetRequest,
   ServerMessage,
+  ConversationSearchRequest,
 } from '../ipc-protocol.js';
 import { getConfig } from '../../config/loader.js';
 import { getSubagentManager } from '../../subagent/index.js';
@@ -547,6 +548,22 @@ export function handleDeleteQueuedMessage(
   }
 }
 
+export function handleConversationSearch(
+  msg: ConversationSearchRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const results = conversationStore.searchConversations(msg.query, {
+    limit: msg.limit,
+    maxMessagesPerConversation: msg.maxMessagesPerConversation,
+  });
+  ctx.send(socket, {
+    type: 'conversation_search_response',
+    query: msg.query,
+    results,
+  });
+}
+
 export const sessionHandlers = defineHandlers({
   user_message: handleUserMessage,
   confirmation_response: handleConfirmationResponse,
@@ -562,4 +579,5 @@ export const sessionHandlers = defineHandlers({
   regenerate: handleRegenerate,
   usage_request: handleUsageRequest,
   sandbox_set: handleSandboxSet,
+  conversation_search: handleConversationSearch,
 });

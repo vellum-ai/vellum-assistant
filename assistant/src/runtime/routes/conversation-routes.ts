@@ -350,3 +350,33 @@ export async function handleGetSuggestion(
 
   return Response.json({ suggestion: null, messageId: null, source: 'none' as const });
 }
+
+/**
+ * GET /search?q=<query>[&limit=<n>][&maxMessagesPerConversation=<n>]
+ *
+ * Full-text search across all conversation threads (message content + titles).
+ * Returns ranked results grouped by conversation, each with matching message excerpts.
+ */
+export function handleSearchConversations(url: URL): Response {
+  const query = url.searchParams.get('q') ?? '';
+  if (!query.trim()) {
+    return Response.json(
+      { error: 'q query parameter is required' },
+      { status: 400 },
+    );
+  }
+
+  const limit = url.searchParams.has('limit')
+    ? Number(url.searchParams.get('limit'))
+    : undefined;
+  const maxMessagesPerConversation = url.searchParams.has('maxMessagesPerConversation')
+    ? Number(url.searchParams.get('maxMessagesPerConversation'))
+    : undefined;
+
+  const results = conversationStore.searchConversations(query, {
+    ...(limit !== undefined && !isNaN(limit) ? { limit } : {}),
+    ...(maxMessagesPerConversation !== undefined && !isNaN(maxMessagesPerConversation) ? { maxMessagesPerConversation } : {}),
+  });
+
+  return Response.json({ query, results });
+}
