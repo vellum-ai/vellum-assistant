@@ -1,4 +1,4 @@
-import { eq, inArray } from 'drizzle-orm';
+import { inArray } from 'drizzle-orm';
 import { getDb } from '../db.js';
 import { getQdrantClient } from '../qdrant-client.js';
 import {
@@ -33,10 +33,22 @@ export async function semanticSearch(
 
   const db = getDb();
 
-  // Batch-fetch sources for all item-type results to avoid N+1 queries
-  const itemTargetIds = results
-    .filter((r) => r.payload.target_type === 'item')
-    .map((r) => r.payload.target_id);
+  // Batch-fetch all backing records upfront to avoid N+1 queries per result
+  const itemTargetIds: string[] = [];
+  const summaryTargetIds: string[] = [];
+  const segmentTargetIds: string[] = [];
+  for (const r of results) {
+    if (r.payload.target_type === 'item') itemTargetIds.push(r.payload.target_id);
+    else if (r.payload.target_type === 'summary') summaryTargetIds.push(r.payload.target_id);
+    else segmentTargetIds.push(r.payload.target_id);
+  }
+
+  const itemsMap = new Map<string, typeof memoryItems.$inferSelect>();
+  if (itemTargetIds.length > 0) {
+    const allItems = db.select().from(memoryItems).where(inArray(memoryItems.id, itemTargetIds)).all();
+    for (const item of allItems) itemsMap.set(item.id, item);
+  }
+
   const sourcesMap = new Map<string, string[]>();
   if (itemTargetIds.length > 0) {
     const allSources = db.select({
@@ -51,6 +63,19 @@ export async function semanticSearch(
       else sourcesMap.set(s.memoryItemId, [s.messageId]);
     }
   }
+
+  const summariesMap = new Map<string, typeof memorySummaries.$inferSelect>();
+  if (scopeIds && summaryTargetIds.length > 0) {
+    const allSummaries = db.select().from(memorySummaries).where(inArray(memorySummaries.id, summaryTargetIds)).all();
+    for (const s of allSummaries) summariesMap.set(s.id, s);
+  }
+
+  const segmentsMap = new Map<string, typeof memorySegments.$inferSelect>();
+  if (scopeIds && segmentTargetIds.length > 0) {
+    const allSegments = db.select().from(memorySegments).where(inArray(memorySegments.id, segmentTargetIds)).all();
+    for (const seg of allSegments) segmentsMap.set(seg.id, seg);
+  }
+
   const excludedSet = excludedMessageIds.length > 0 ? new Set(excludedMessageIds) : null;
 
   const candidates: Candidate[] = [];
@@ -60,8 +85,7 @@ export async function semanticSearch(
     const createdAt = payload.created_at ?? Date.now();
 
     if (payload.target_type === 'item') {
-      // Validate the backing memory item is still active and has non-excluded evidence
-      const item = db.select().from(memoryItems).where(eq(memoryItems.id, payload.target_id)).get();
+      const item = itemsMap.get(payload.target_id);
       if (!item || item.status !== 'active' || item.invalidAt != null) continue;
       if (scopeIds && !scopeIds.includes(item.scopeId)) continue;
       const sources = sourcesMap.get(payload.target_id);
@@ -87,7 +111,7 @@ export async function semanticSearch(
       });
     } else if (payload.target_type === 'summary') {
       if (scopeIds) {
-        const summary = db.select().from(memorySummaries).where(eq(memorySummaries.id, payload.target_id)).get();
+        const summary = summariesMap.get(payload.target_id);
         if (!summary || !scopeIds.includes(summary.scopeId)) continue;
       }
       candidates.push({
@@ -107,7 +131,7 @@ export async function semanticSearch(
       });
     } else {
       if (scopeIds) {
-        const segment = db.select().from(memorySegments).where(eq(memorySegments.id, payload.target_id)).get();
+        const segment = segmentsMap.get(payload.target_id);
         if (!segment || !scopeIds.includes(segment.scopeId)) continue;
       }
       candidates.push({
