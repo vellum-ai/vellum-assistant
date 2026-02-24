@@ -5,7 +5,7 @@
  * before it is sent to the provider.  They are pure (no side effects).
  */
 
-import type { ChannelId } from '../channels/types.js';
+import type { ChannelId, TurnChannelContext } from '../channels/types.js';
 import type { Message } from '../providers/types.js';
 import { listAppFiles, getAppsDir } from '../memory/app-store.js';
 import { statSync } from 'node:fs';
@@ -40,14 +40,35 @@ export interface GuardianRuntimeContext {
 
 /** Derive channel capabilities from a raw source channel identifier. */
 export function resolveChannelCapabilities(sourceChannel?: string | null): ChannelCapabilities {
-  const channel = sourceChannel ?? 'dashboard';
-  const isDashboard = channel === 'dashboard';
-  return {
-    channel,
-    dashboardCapable: isDashboard,
-    supportsDynamicUi: isDashboard,
-    supportsVoiceInput: isDashboard,
-  };
+  // Normalise legacy pseudo-channel IDs to canonical ChannelId values.
+  let channel: string;
+  switch (sourceChannel) {
+    case null:
+    case undefined:
+    case 'dashboard':
+    case 'http-api':
+    case 'mac':
+      channel = 'macos';
+      break;
+    default:
+      channel = sourceChannel;
+  }
+
+  switch (channel) {
+    case 'macos':
+      return { channel, dashboardCapable: true, supportsDynamicUi: true, supportsVoiceInput: true };
+    case 'ios':
+      return { channel, dashboardCapable: false, supportsDynamicUi: false, supportsVoiceInput: true };
+    case 'telegram':
+    case 'sms':
+    case 'voice':
+    case 'whatsapp':
+    case 'slack':
+    case 'email':
+      return { channel, dashboardCapable: false, supportsDynamicUi: false, supportsVoiceInput: false };
+    default:
+      return { channel, dashboardCapable: false, supportsDynamicUi: false, supportsVoiceInput: false };
+  }
 }
 
 /** Context about the active workspace surface, passed to applyRuntimeInjections. */
@@ -309,6 +330,46 @@ export function injectChannelCommandContext(message: Message, ctx: ChannelComman
   };
 }
 
+// ---------------------------------------------------------------------------
+// Channel turn context injection
+// ---------------------------------------------------------------------------
+
+/** Parameters for building the channel turn context block. */
+export interface ChannelTurnContextParams {
+  turnContext: TurnChannelContext;
+  conversationOriginChannel: ChannelId | null;
+}
+
+/**
+ * Build the `<channel_turn_context>` text block that informs the model
+ * which channels are active for the current turn and the conversation's
+ * origin channel.
+ */
+export function buildChannelTurnContextBlock(params: ChannelTurnContextParams): string {
+  const { turnContext, conversationOriginChannel } = params;
+  const lines: string[] = ['<channel_turn_context>'];
+  lines.push(`user_message_channel: ${turnContext.userMessageChannel}`);
+  lines.push(`assistant_message_channel: ${turnContext.assistantMessageChannel}`);
+  lines.push(`conversation_origin_channel: ${conversationOriginChannel ?? 'unknown'}`);
+  lines.push('</channel_turn_context>');
+  return lines.join('\n');
+}
+
+/**
+ * Prepend channel turn context to the last user message so the model
+ * knows which channels are involved in this turn.
+ */
+export function injectChannelTurnContext(message: Message, params: ChannelTurnContextParams): Message {
+  const block = buildChannelTurnContextBlock(params);
+  return {
+    ...message,
+    content: [
+      { type: 'text', text: block },
+      ...message.content,
+    ],
+  };
+}
+
 /**
  * Prepend guardian trust/identity facts to the last user message so the
  * model can reason about guardian status from deterministic runtime facts.
@@ -436,10 +497,16 @@ export function stripChannelCommandContext(messages: Message[]): Message[] {
   return stripUserTextBlocksByPrefix(messages, ['<channel_command_context>']);
 }
 
+/** Strip `<channel_turn_context>` blocks injected by `injectChannelTurnContext`. */
+export function stripChannelTurnContext(messages: Message[]): Message[] {
+  return stripUserTextBlocksByPrefix(messages, ['<channel_turn_context>']);
+}
+
 /** Prefixes stripped by the pipeline (order doesn't matter — single pass). */
 const RUNTIME_INJECTION_PREFIXES = [
   '<channel_capabilities>',
   '<channel_command_context>',
+  '<channel_turn_context>',
   '<guardian_context>',
   '<workspace_top_level>',
   TEMPORAL_INJECTED_PREFIX,
@@ -482,6 +549,7 @@ export function applyRuntimeInjections(
     workspaceTopLevelContext?: string | null;
     channelCapabilities?: ChannelCapabilities | null;
     channelCommandContext?: ChannelCommandContext | null;
+    channelTurnContext?: ChannelTurnContextParams | null;
     guardianContext?: GuardianRuntimeContext | null;
     temporalContext?: string | null;
   },
@@ -524,6 +592,16 @@ export function applyRuntimeInjections(
       result = [
         ...result.slice(0, -1),
         injectChannelCommandContext(userTail, options.channelCommandContext),
+      ];
+    }
+  }
+
+  if (options.channelTurnContext) {
+    const userTail = result[result.length - 1];
+    if (userTail && userTail.role === 'user') {
+      result = [
+        ...result.slice(0, -1),
+        injectChannelTurnContext(userTail, options.channelTurnContext),
       ];
     }
   }
