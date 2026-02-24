@@ -23,6 +23,7 @@ import { twitterAuthHandlers } from './twitter-auth.js';
 import { workspaceFileHandlers } from './workspace-files.js';
 import { identityHandlers } from './identity.js';
 import { dictationHandlers } from './dictation.js';
+import { inboxInviteHandlers } from './config-inbox.js';
 
 // Re-export types and utilities for backwards compatibility
 export type {
@@ -89,9 +90,6 @@ const inlineHandlers = defineHandlers({
   integration_disconnect: () => { /* no-op — integration registry removed */ },
 
   // Stub handlers: inbox operations — real implementations will be added in a follow-up PR.
-  ingress_invite: (_msg, socket, ctx) => {
-    ctx.send(socket, { type: 'ingress_invite_response', success: false, error: 'Not yet implemented' });
-  },
   ingress_member: (_msg, socket, ctx) => {
     ctx.send(socket, { type: 'ingress_member_response', success: false, error: 'Not yet implemented' });
   },
@@ -126,6 +124,7 @@ const handlers = {
   ...workspaceFileHandlers,
   ...identityHandlers,
   ...dictationHandlers,
+  ...inboxInviteHandlers,
   ...inlineHandlers,
 } satisfies DispatchMap;
 
