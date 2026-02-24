@@ -520,7 +520,13 @@ struct MainWindowView: View {
                             if threadManager.activeViewModel?.messages.contains(where: {
                                 !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                             }) == true {
-                                Button {
+                                VIconButton(
+                                    label: "Copy thread",
+                                    icon: showCopyThreadConfirmation ? "checkmark" : "list.clipboard",
+                                    isActive: showCopyThreadConfirmation,
+                                    iconOnly: true,
+                                    tooltip: showCopyThreadConfirmation ? "Copied!" : "Copy thread"
+                                ) {
                                     let messages = threadManager.activeViewModel?.messages ?? []
                                     let title = threadManager.activeThread?.title
                                     let names = resolveParticipantNames()
@@ -537,16 +543,7 @@ struct MainWindowView: View {
                                     let timer = DispatchWorkItem { showCopyThreadConfirmation = false }
                                     copyThreadConfirmationTimer = timer
                                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: timer)
-                                } label: {
-                                    Image(systemName: showCopyThreadConfirmation ? "checkmark" : "list.clipboard")
-                                        .font(.system(size: 12, weight: .medium))
-                                        .foregroundColor(showCopyThreadConfirmation ? VColor.success : VColor.textMuted)
-                                        .frame(width: 28, height: 28)
-                                        .contentShape(Rectangle())
                                 }
-                                .buttonStyle(.plain)
-                                .accessibilityLabel("Copy thread")
-                                .help(showCopyThreadConfirmation ? "Copied!" : "Copy thread")
                             }
 
                             // Voice mode toggle
