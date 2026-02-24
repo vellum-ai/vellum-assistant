@@ -159,6 +159,7 @@ async function startLearnSession(
   navigateDomain: string,
   recordDomain: string,
   durationSeconds: number,
+  autoNavigate: boolean = true,
 ): Promise<LearnResult> {
   await ensureChromeWithCDP(navigateDomain);
 
@@ -195,7 +196,7 @@ async function startLearnSession(
           mode: 'learn',
           targetDomain: recordDomain,
           navigateDomain,
-          autoNavigate: true,
+          autoNavigate,
         } as unknown as import('../daemon/ipc-protocol.js').ClientMessage),
       );
     };
@@ -266,11 +267,15 @@ export function registerMapCommand(program: Command): void {
       'then analyzes captured network traffic.',
     )
     .argument('<domain>', 'Domain to map (e.g., example.com)')
-    .option('--duration <seconds>', 'Recording duration in seconds', '120')
+    .option('--duration <seconds>', 'Recording duration in seconds')
+    .option('--manual', 'Manual mode: browse the site yourself while network traffic is recorded')
     .option('--json', 'Machine-readable JSON output')
-    .action(async (domain: string, opts: { duration: string; json?: boolean }, cmd: Command) => {
+    .action(async (domain: string, opts: { duration?: string; manual?: boolean; json?: boolean }, cmd: Command) => {
       const json = getJson(cmd);
-      const duration = parseInt(opts.duration, 10);
+      const manual = opts.manual ?? false;
+      const duration = opts.duration
+        ? parseInt(opts.duration, 10)
+        : manual ? 60 : 120;
 
       try {
         // Split into navigation domain (what Chrome browses) and recording domain (network filter).
@@ -279,13 +284,16 @@ export function registerMapCommand(program: Command): void {
         const recordDomain = getBaseDomain(domain);
 
         if (!json) {
-          if (navigateDomain !== recordDomain) {
+          if (manual) {
+            console.log(`Starting manual API map session for ${domain} (${duration}s)...`);
+            console.log('Browse the site manually. Press Ctrl+C or wait for idle detection to stop recording.');
+          } else if (navigateDomain !== recordDomain) {
             console.log(`Starting API map session: navigating ${navigateDomain}, recording *.${recordDomain} (${duration}s)...`);
           } else {
             console.log(`Starting API map session for ${domain} (${duration}s)...`);
           }
         }
-        const result = await startLearnSession(navigateDomain, recordDomain, duration);
+        const result = await startLearnSession(navigateDomain, recordDomain, duration, !manual);
 
         if (!result.recordingId) {
           outputError('Recording completed but no recording ID returned');
