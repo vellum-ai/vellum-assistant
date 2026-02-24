@@ -32,8 +32,6 @@ import { ensureBlobDir, sweepStaleBlobs } from './ipc-blob-store.js';
 import { bootstrapHomeBaseAppLink } from '../home-base/bootstrap.js';
 import { SessionEvictor } from './session-evictor.js';
 import { getSubagentManager } from '../subagent/index.js';
-import { resolveSlash } from './session-slash.js';
-import { createUserMessage, createAssistantMessage } from '../agent/message-types.js';
 import { registerDaemonCallbacks } from '../work-items/work-item-runner.js';
 import { AuthManager } from './auth-manager.js';
 import { ConfigWatcher } from './config-watcher.js';
@@ -717,57 +715,10 @@ export class DaemonServer {
         }))
       : [];
 
-    const slashResult = resolveSlash(content);
-
-    if (slashResult.kind === 'unknown') {
-      const serverTurnCtx = session.getTurnChannelContext();
-      const serverChannelMeta = serverTurnCtx
-        ? { userMessageChannel: serverTurnCtx.userMessageChannel, assistantMessageChannel: serverTurnCtx.assistantMessageChannel }
-        : undefined;
-      const userMsg = createUserMessage(content, attachments);
-      const persisted = conversationStore.addMessage(
-        conversationId,
-        'user',
-        JSON.stringify(userMsg.content),
-        serverChannelMeta,
-      );
-      session.getMessages().push(userMsg);
-
-      if (serverTurnCtx) {
-        try {
-          conversationStore.setConversationOriginChannelIfUnset(conversationId, serverTurnCtx.userMessageChannel);
-        } catch (err) {
-          log.warn({ err, conversationId }, 'Failed to set origin channel (best-effort)');
-        }
-      }
-
-      const assistantMsg = createAssistantMessage(slashResult.message);
-      conversationStore.addMessage(
-        conversationId,
-        'assistant',
-        JSON.stringify(assistantMsg.content),
-        serverChannelMeta,
-      );
-      session.getMessages().push(assistantMsg);
-      return { messageId: persisted.id };
-    }
-
-    const resolvedContent = slashResult.content;
-
-    if (slashResult.kind === 'rewritten') {
-      (session as unknown as { preactivatedSkillIds?: string[] }).preactivatedSkillIds = [slashResult.skillId];
-    }
-
+    // Delegate to session.processMessage which handles slash resolution,
+    // message persistence, and the agent loop — the same path used by IPC.
     const requestId = crypto.randomUUID();
-    let messageId: string;
-    try {
-      messageId = session.persistUserMessage(resolvedContent, attachments, requestId);
-    } catch (err) {
-      (session as unknown as { preactivatedSkillIds?: string[] }).preactivatedSkillIds = undefined;
-      throw err;
-    }
-
-    await session.runAgentLoop(resolvedContent, messageId, () => {});
+    const messageId = await session.processMessage(content, attachments, () => {}, requestId);
 
     return { messageId };
   }
