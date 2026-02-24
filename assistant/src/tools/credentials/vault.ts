@@ -32,6 +32,10 @@ interface WellKnownOAuthConfig {
   scopes: string[];
   userinfoUrl?: string;
   extraParams?: Record<string, string>;
+  /** How to send client credentials at the token endpoint. Defaults to client_secret_post. */
+  tokenEndpointAuthMethod?: TokenEndpointAuthMethod;
+  /** Injection templates auto-applied to the access_token credential after a successful OAuth2 connect. */
+  injectionTemplates?: CredentialInjectionTemplate[];
 }
 
 const WELL_KNOWN_OAUTH: Record<string, WellKnownOAuthConfig> = {
@@ -65,12 +69,25 @@ const WELL_KNOWN_OAUTH: Record<string, WellKnownOAuthConfig> = {
     },
   },
   // Notion uses a simple OAuth2 flow with client_secret_basic auth at the token endpoint.
-  // The access token is long-lived (no expiry) and scopes are configured per-integration in Notion.
+  // The access token is long-lived (no expiry) and scopes are configured per-integration in Notion
+  // (the authorization URL accepts owner=user but there are no traditional scope strings to request).
   'integration:notion': {
     authUrl: 'https://api.notion.com/v1/oauth/authorize',
     tokenUrl: 'https://api.notion.com/v1/oauth/token',
     scopes: [],
     extraParams: { owner: 'user' },
+    // Notion requires HTTP Basic Auth (base64 of client_id:client_secret) at the token endpoint,
+    // not the default client_secret_post form-body approach.
+    tokenEndpointAuthMethod: 'client_secret_basic',
+    // Auto-inject the Bearer token for all Notion API calls made through the sandbox proxy.
+    injectionTemplates: [
+      {
+        hostPattern: 'api.notion.com',
+        injectionType: 'header',
+        headerName: 'Authorization',
+        valuePrefix: 'Bearer ',
+      },
+    ],
   },
 };
 
@@ -554,11 +571,15 @@ class CredentialStoreTool implements Tool {
           ?? findStoredOAuthField(service, ['client_id', 'oauth_client_id']);
         const clientSecret = (input.client_secret as string | undefined)
           ?? findStoredOAuthField(service, ['client_secret', 'oauth_client_secret']);
-        const tokenEndpointAuthMethod = input.token_endpoint_auth_method as TokenEndpointAuthMethod | undefined;
+        const tokenEndpointAuthMethod = (input.token_endpoint_auth_method as TokenEndpointAuthMethod | undefined)
+          ?? wellKnown?.tokenEndpointAuthMethod;
 
         if (!authUrl) return { content: 'Error: auth_url is required for oauth2_connect action (no well-known config for this service)', isError: true };
         if (!tokenUrl) return { content: 'Error: token_url is required for oauth2_connect action (no well-known config for this service)', isError: true };
-        if (!scopes || scopes.length === 0) return { content: 'Error: scopes is required for oauth2_connect action (no well-known config for this service)', isError: true };
+        // Scopes are optional — some providers (e.g. Notion) configure authorization at the integration
+        // level and don't use traditional scope strings. Reject only when scopes is entirely absent (not
+        // provided and no well-known config), not when it is an empty array.
+        if (!scopes) return { content: 'Error: scopes is required for oauth2_connect action (no well-known config for this service)', isError: true };
         if (!clientId) return { content: 'Error: client_id is required for oauth2_connect action. Provide it directly or store it first with credential_store.', isError: true };
 
         if (!context.isInteractive) {
@@ -617,6 +638,10 @@ class CredentialStoreTool implements Tool {
             }
           }
 
+          // Well-known configs may supply injection templates (e.g. auto-inject Bearer header for
+          // api.notion.com) so that bash/network_mode=proxied works without manual setup.
+          const wellKnownInjectionTemplates = wellKnown?.injectionTemplates;
+
           upsertCredentialMetadata(service, 'access_token', {
             allowedTools: allowedTools ?? [],
             expiresAt,
@@ -626,6 +651,7 @@ class CredentialStoreTool implements Tool {
             oauth2ClientId: clientId,
             ...(clientSecret ? { oauth2ClientSecret: clientSecret } : {}),
             ...(tokenEndpointAuthMethod ? { oauth2TokenEndpointAuthMethod: tokenEndpointAuthMethod } : {}),
+            ...(wellKnownInjectionTemplates ? { injectionTemplates: wellKnownInjectionTemplates } : {}),
           });
 
           if (tokens.refreshToken) {

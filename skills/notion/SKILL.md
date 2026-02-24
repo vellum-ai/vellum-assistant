@@ -5,26 +5,37 @@ user-invocable: false
 metadata: {"vellum": {"emoji": "📝"}}
 ---
 
-You have access to the Notion API via the stored OAuth token for `integration:notion`. Use `fetch` (or the HTTP proxy tool) with Bearer token authentication to call the Notion API directly.
+You have access to the Notion API via the stored OAuth token for `integration:notion`. Use `bash` with `network_mode: "proxied"` to call the Notion API — the proxy automatically injects the Bearer token for `api.notion.com`.
 
 ## Authentication
 
-Retrieve the stored access token:
+The Notion access token is stored securely and never exposed as plaintext. Use the credential proxy to inject the Bearer token automatically.
+
+**Step 1 — Get the credential ID:**
 ```
 credential_store action=list
 ```
-Look for `service: "integration:notion"`, `field: "access_token"`.
+Find the entry with `service: "integration:notion"` and `field: "access_token"`. Note its `credential_id`.
 
-Use it as:
+If no such entry exists, tell the user: "Notion is not connected yet. Load the **notion-oauth-setup** skill to set it up first."
+
+**Step 2 — Make authenticated API calls via the proxy:**
+
+Use `bash` with `network_mode: "proxied"` and `credential_ids: ["<credential_id>"]`. The proxy automatically injects `Authorization: Bearer <token>` and any required headers into requests to `api.notion.com`.
+
+Example:
 ```
-Authorization: Bearer <access_token>
-Notion-Version: 2022-06-28
-Content-Type: application/json
+bash:
+  network_mode: proxied
+  credential_ids: ["<credential_id from step 1>"]
+  command: |
+    curl -s -X POST https://api.notion.com/v1/search \
+      -H "Notion-Version: 2022-06-28" \
+      -H "Content-Type: application/json" \
+      -d '{}'
 ```
 
-All Notion API calls go to `https://api.notion.com/v1/`.
-
-If no token is found, tell the user: "Notion is not connected yet. Load the **notion-oauth-setup** skill to set it up first."
+All Notion API calls go to `https://api.notion.com/v1/`. Always include the `Notion-Version: 2022-06-28` header.
 
 ## Reading Pages
 
