@@ -72,8 +72,13 @@ struct PairingQRCodeSheet: View {
                             .font(VFont.body)
                             .foregroundColor(VColor.error)
                             .multilineTextAlignment(.center)
-                    } else if !ingressEnabled || gatewayUrl.isEmpty {
+                    } else if gatewayUrl.isEmpty {
                         Text("Set up a gateway URL in the Connect tab to enable pairing.")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.error)
+                            .multilineTextAlignment(.center)
+                    } else if !ingressEnabled {
+                        Text("Gateway is configured but not active. Check your tunnel or gateway configuration.")
                             .font(VFont.body)
                             .foregroundColor(VColor.error)
                             .multilineTextAlignment(.center)
