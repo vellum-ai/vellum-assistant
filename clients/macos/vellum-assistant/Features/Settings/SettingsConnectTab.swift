@@ -894,7 +894,8 @@ struct SettingsConnectTab: View {
             // Status line — use resolvedIosGatewayUrl for gateway (no I/O) and
             // cached bearerToken + override for token (avoids synchronous disk read).
             let hasGateway = !store.resolvedIosGatewayUrl.isEmpty
-            let hasToken = !bearerToken.isEmpty || (iosPairingUseOverride && !iosPairingTokenOverride.isEmpty)
+            let trimmedOverrideToken = iosPairingTokenOverride.trimmingCharacters(in: .whitespacesAndNewlines)
+            let hasToken = !bearerToken.isEmpty || (iosPairingUseOverride && !trimmedOverrideToken.isEmpty)
 
             if hasGateway && hasToken {
                 // "Ready to pair" — green checkmark + subtle regenerate
