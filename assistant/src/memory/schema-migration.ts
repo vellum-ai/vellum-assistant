@@ -6,6 +6,124 @@ const log = getLogger('memory-db');
 
 type Db = DrizzleDb;
 
+// ---------------------------------------------------------------------------
+// Migration registry
+// ---------------------------------------------------------------------------
+// Central registry of all checkpoint-based one-shot migrations.  Each entry
+// carries a monotonic version number (for documentation / ordering assertions)
+// and an optional list of prerequisite checkpoint keys that must already be
+// completed before this migration runs.
+//
+// Migrations that use pure DDL guards (CREATE TABLE IF NOT EXISTS, index
+// presence checks, ALTER TABLE ADD COLUMN try/catch) are inherently idempotent
+// and do not need entries here — they are safe to re-run on every startup.
+// ---------------------------------------------------------------------------
+
+export interface MigrationRegistryEntry {
+  /** The checkpoint key written to memory_checkpoints on completion. */
+  key: string;
+  /** Monotonic version number used for ordering assertions. */
+  version: number;
+  /** Keys of other migrations that must complete before this one runs. */
+  dependsOn?: string[];
+  /** Human-readable description for diagnostics and future authorship guidance. */
+  description: string;
+}
+
+export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
+  {
+    key: 'migration_job_deferrals',
+    version: 1,
+    description: 'Reconcile legacy deferral history from attempts column into deferrals column',
+  },
+  {
+    key: 'migration_memory_entity_relations_dedup_v1',
+    version: 2,
+    description: 'Deduplicate entity relation edges before enforcing the (source, target, relation) unique index',
+  },
+  {
+    key: 'migration_memory_items_fingerprint_scope_unique_v1',
+    version: 3,
+    description: 'Replace column-level UNIQUE on fingerprint with compound (fingerprint, scope_id) unique index',
+  },
+  {
+    key: 'migration_memory_items_scope_salted_fingerprints_v1',
+    version: 4,
+    dependsOn: ['migration_memory_items_fingerprint_scope_unique_v1'],
+    description: 'Recompute memory item fingerprints to include scope_id prefix after schema change',
+  },
+  {
+    key: 'migration_normalize_assistant_id_to_self_v1',
+    version: 5,
+    description: 'Normalize all assistant_id values in scoped tables to the implicit "self" single-tenant identity',
+  },
+  {
+    key: 'migration_remove_assistant_id_columns_v1',
+    version: 6,
+    dependsOn: ['migration_normalize_assistant_id_to_self_v1'],
+    description: 'Rebuild four tables to drop the assistant_id column after normalization',
+  },
+  {
+    key: 'migration_remove_assistant_id_lue_v1',
+    version: 7,
+    dependsOn: ['migration_normalize_assistant_id_to_self_v1'],
+    description: 'Remove assistant_id column from llm_usage_events (separate checkpoint from the four-table migration)',
+  },
+];
+
+/**
+ * Validate the applied migration state against the registry at startup.
+ *
+ * Logs warnings when a migration started but never completed (crash detected),
+ * and logs errors when a migration was applied but a declared prerequisite is
+ * missing from the checkpoints table (dependency ordering violation).
+ *
+ * Call this AFTER all DDL and migration functions have run so that the final
+ * state is inspected.
+ */
+export function validateMigrationState(database: Db): void {
+  const raw = getSqliteFrom(database);
+
+  let rows: Array<{ key: string; value: string }>;
+  try {
+    rows = raw.query(`SELECT key, value FROM memory_checkpoints`).all() as Array<{ key: string; value: string }>;
+  } catch {
+    // memory_checkpoints may not exist on a very old database; skip.
+    return;
+  }
+
+  const applied = new Map(rows.map((r) => [r.key, r.value]));
+
+  // Detect crashed migrations: a checkpoint value of 'started' means the
+  // migration wrote its start marker but never reached the completion INSERT.
+  // The migration will re-run on the next startup (its own idempotency guard
+  // will determine safety), but we surface a warning for visibility.
+  const crashed = rows.filter((r) => r.value === 'started').map((r) => r.key);
+  if (crashed.length > 0) {
+    log.warn(
+      { crashed },
+      'Crashed migrations detected — these migrations started but never completed; they will re-run on next startup',
+    );
+  }
+
+  // Validate dependency ordering.
+  for (const entry of MIGRATION_REGISTRY) {
+    if (!entry.dependsOn || entry.dependsOn.length === 0) continue;
+    // Only check entries that have been applied — unapplied migrations have
+    // not had a chance to violate their prerequisites yet.
+    if (!applied.has(entry.key)) continue;
+
+    for (const dep of entry.dependsOn) {
+      if (!applied.has(dep)) {
+        log.error(
+          { migration: entry.key, missingDependency: dep, version: entry.version },
+          'Migration dependency violation: this migration is marked complete but its declared prerequisite has no checkpoint — database schema may be inconsistent',
+        );
+      }
+    }
+  }
+}
+
 /**
  * One-shot migration: reconcile old deferral history into the new `deferrals` column.
  *

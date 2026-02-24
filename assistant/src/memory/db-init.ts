@@ -14,6 +14,7 @@ import {
   migrateCallSessionsAddInitiatedFrom,
   migrateMemoryFtsBackfill,
   migrateGuardianActionTables,
+  validateMigrationState,
 } from './schema-migration.js';
 
 const log = getLogger('memory-db');
@@ -1179,4 +1180,6 @@ export function initializeDb(): void {
   migrateGuardianActionTables(database);
 
   migrateMemoryFtsBackfill(database);
+
+  validateMigrationState(database);
 }
