@@ -39,13 +39,16 @@ public struct VToast: View {
     }
 
     public var body: some View {
-        HStack(spacing: VSpacing.md) {
+        HStack(alignment: .top, spacing: VSpacing.md) {
             Image(systemName: iconName)
                 .foregroundColor(iconColor)
             Text(message)
                 .font(VFont.body)
                 .foregroundColor(VColor.textPrimary)
-                .lineLimit(3)
+                .multilineTextAlignment(.leading)
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
+                .layoutPriority(1)
 
             Spacer(minLength: 0)
 

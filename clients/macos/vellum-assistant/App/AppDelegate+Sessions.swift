@@ -10,7 +10,9 @@ extension AppDelegate {
 
     /// Return a user-facing explanation when CU ended without a successful completion/response.
     /// This avoids the "silent disappear" feeling when the overlay auto-closes.
-    private func computerUseEndMessage(for state: SessionState) -> String? {
+    private func computerUseEndMessage(for session: ComputerUseSession) -> String? {
+        let state = session.state
+
         func completionLooksUnsuccessful(_ text: String) -> Bool {
             let lower = text.lowercased()
             let signals = [
@@ -26,32 +28,37 @@ extension AppDelegate {
             return signals.contains { lower.contains($0) }
         }
 
-        func compact(_ text: String) -> String {
-            let singleLine = text.replacingOccurrences(of: "\n", with: " ")
-            if singleLine.count <= 220 { return singleLine }
-            return String(singleLine.prefix(220)) + "..."
-        }
-
-        switch state {
+        let baseMessage: String? = switch state {
         case .completed(let summary, _):
             if completionLooksUnsuccessful(summary) {
-                return "Computer control finished with warnings: \(compact(summary))"
+                "Computer control finished with warnings: \(summary.replacingOccurrences(of: "\n", with: " "))"
+            } else {
+                nil
             }
-            return nil
         case .responded(let answer, _):
             if completionLooksUnsuccessful(answer) {
-                return "Computer control finished with warnings: \(compact(answer))"
+                "Computer control finished with warnings: \(answer.replacingOccurrences(of: "\n", with: " "))"
+            } else {
+                nil
             }
-            return nil
         case .failed(let reason):
-            return "Computer control stopped: \(reason)"
+            "Computer control stopped: \(reason)"
         case .cancelled:
-            return "Computer control was cancelled."
+            "Computer control was cancelled."
         case .awaitingConfirmation(let reason):
-            return "Computer control stopped while waiting for confirmation: \(reason)"
+            "Computer control stopped while waiting for confirmation: \(reason)"
         case .running, .thinking, .paused, .idle:
-            return "Computer control ended unexpectedly before finishing the task."
+            "Computer control ended unexpectedly before finishing the task."
         }
+
+        if let recordingWarning = session.qaRecordingWarningMessage {
+            if let baseMessage {
+                return "\(baseMessage) Recording warning: \(recordingWarning)"
+            }
+            return "Computer control finished with warnings: \(recordingWarning)"
+        }
+
+        return baseMessage
     }
 
     // MARK: - Accessibility Permission
@@ -131,7 +138,7 @@ extension AppDelegate {
             self.showMainWindow()
 
             await session.run()
-            let endMessage = self.computerUseEndMessage(for: session.state)
+            let endMessage = self.computerUseEndMessage(for: session)
             try? await Task.sleep(nanoseconds: 10_000_000_000)
             overlay.close()
             self.overlayWindow = nil
@@ -278,7 +285,7 @@ extension AppDelegate {
                     self.showMainWindow()
                 }
                 await session.run()
-                let endMessage = self.computerUseEndMessage(for: session.state)
+                let endMessage = self.computerUseEndMessage(for: session)
                 try? await Task.sleep(nanoseconds: 10_000_000_000)
                 overlay.close()
                 self.overlayWindow = nil

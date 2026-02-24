@@ -77,6 +77,8 @@ protocol ScreenRecording {
 @MainActor
 final class ScreenRecorder: NSObject, ScreenRecording {
     private(set) var isRecording = false
+    /// The file URL of the last recording attempt, available even after failure for salvage.
+    private(set) var lastRecordingFileURL: URL?
 
     private var stream: SCStream?
     private var assetWriter: AVAssetWriter?
@@ -185,6 +187,7 @@ final class ScreenRecorder: NSObject, ScreenRecording {
         let fileName = "qa-recording-\(timestamp).mp4"
         let fileURL = recordingsDir.appendingPathComponent(fileName)
         recordingFileURL = fileURL
+        lastRecordingFileURL = fileURL
 
         // Set up AVAssetWriter
         let writer: AVAssetWriter
@@ -297,8 +300,12 @@ final class ScreenRecorder: NSObject, ScreenRecording {
         await capturedWriter.finishWriting()
 
         if capturedWriter.status == .failed {
-            let errorMsg = capturedWriter.error?.localizedDescription ?? "Unknown error"
-            log.error("Asset writer failed: \(errorMsg)")
+            let writerError = capturedWriter.error
+            let nsError = writerError as? NSError
+            let errorMsg = writerError?.localizedDescription ?? "Unknown error"
+            let domain = nsError?.domain ?? "unknown"
+            let code = nsError?.code ?? -1
+            log.error("Asset writer failed: \(errorMsg) (domain=\(domain), code=\(code))")
             throw ScreenRecorderError.assetWriterFailed(errorMsg)
         }
 
