@@ -73,7 +73,8 @@ function formatConditions(appliesWhenJson: string): string {
   const parts: string[] = [];
 
   if (conditions.timeRange) {
-    const { after, before } = conditions.timeRange;
+    const after = conditions.timeRange.after ? sanitizePreferenceText(conditions.timeRange.after) : '';
+    const before = conditions.timeRange.before ? sanitizePreferenceText(conditions.timeRange.before) : '';
     if (after && before) {
       parts.push(`${after}-${before}`);
     } else if (after) {
@@ -84,15 +85,15 @@ function formatConditions(appliesWhenJson: string): string {
   }
 
   if (conditions.channels && conditions.channels.length > 0) {
-    parts.push(`channels: ${conditions.channels.join(', ')}`);
+    parts.push(`channels: ${conditions.channels.map(sanitizePreferenceText).join(', ')}`);
   }
 
   if (conditions.urgencyLevels && conditions.urgencyLevels.length > 0) {
-    parts.push(`urgency: ${conditions.urgencyLevels.join(', ')}`);
+    parts.push(`urgency: ${conditions.urgencyLevels.map(sanitizePreferenceText).join(', ')}`);
   }
 
   if (conditions.contexts && conditions.contexts.length > 0) {
-    parts.push(`context: ${conditions.contexts.join(', ')}`);
+    parts.push(`context: ${conditions.contexts.map(sanitizePreferenceText).join(', ')}`);
   }
 
   return parts.join('; ');
