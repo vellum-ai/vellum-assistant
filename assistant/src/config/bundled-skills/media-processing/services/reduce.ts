@@ -31,7 +31,7 @@ export interface ReduceOptions {
   query?: string;
   /** Optional system prompt for Claude. */
   systemPrompt?: string;
-  /** Model override. Defaults to claude-sonnet-4-6. */
+  /** Model override. When omitted, the configured provider's default is used. */
   model?: string;
 }
 
@@ -46,7 +46,6 @@ export interface ReduceResult {
 // Helpers
 // ---------------------------------------------------------------------------
 
-const DEFAULT_MODEL = 'claude-sonnet-4-6';
 const REDUCE_TIMEOUT_MS = 120_000;
 
 /**
@@ -124,8 +123,6 @@ async function sendToClaude(
     throw new Error('No LLM provider available. Please configure an API key.');
   }
 
-  const effectiveModel = model ?? DEFAULT_MODEL;
-
   const effectiveSystemPrompt = systemPrompt
     ?? 'You are an expert video analyst. You have been given structured analysis data extracted from a video. Answer the user\'s question based on this data. Be specific, reference timestamps when relevant, and provide clear, actionable insights.';
 
@@ -141,7 +138,7 @@ async function sendToClaude(
       [],
       effectiveSystemPrompt,
       {
-        config: { model: effectiveModel },
+        config: model ? { model } : {},
         signal,
       },
     );
