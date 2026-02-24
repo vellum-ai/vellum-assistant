@@ -23,6 +23,7 @@ struct ConversationsListResponse: Decodable {
         let title: String
         let updatedAt: Int
         let threadType: String?
+        let source: String?
         let channelBinding: IPCChannelBinding?
     }
     let sessions: [Session]
@@ -410,7 +411,7 @@ final class HTTPTransport {
             do {
                 let decoded = try decoder.decode(ConversationsListResponse.self, from: data)
                 let sessions = decoded.sessions.map {
-                    IPCSessionListResponseSession(id: $0.id, title: $0.title, updatedAt: $0.updatedAt, threadType: $0.threadType, channelBinding: $0.channelBinding)
+                    IPCSessionListResponseSession(id: $0.id, title: $0.title, updatedAt: $0.updatedAt, threadType: $0.threadType, source: $0.source, channelBinding: $0.channelBinding)
                 }
                 onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: sessions, hasMore: decoded.hasMore)))
             } catch {
