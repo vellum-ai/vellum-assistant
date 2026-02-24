@@ -108,6 +108,8 @@ export class ComputerUseSession {
   recordingFailureReason?: string;
   /** When true, destructive actions are blocked until recording has started. */
   private readonly requiresRecording: boolean;
+  /** Whether this session is operating in QA mode. */
+  private readonly qaMode: boolean;
   /** Timer for the recording handshake timeout. */
   private recordingHandshakeTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -127,6 +129,7 @@ export class ComputerUseSession {
     targetAppName?: string,
     targetAppBundleId?: string,
     requiresRecording?: boolean,
+    qaMode?: boolean,
   ) {
     this.sessionId = sessionId;
     this.task = task;
@@ -140,11 +143,12 @@ export class ComputerUseSession {
     this.targetAppName = targetAppName;
     this.targetAppBundleId = targetAppBundleId;
     this.requiresRecording = requiresRecording ?? false;
+    this.qaMode = qaMode ?? false;
 
     log.info(
       {
         sessionId,
-        qaMode: !!requiresRecording,
+        qaMode: this.qaMode,
         requiresRecording: this.requiresRecording,
         targetAppName,
         targetAppBundleId,
