@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { getLogger, type LogFileConfig } from "./logger.js";
-import { getRootDir, readKeychainCredential, readCredential, readTwilioCredentials } from "./credential-reader.js";
+import { getRootDir, readKeychainCredential, readCredential, readTwilioCredentials, readWhatsAppCredentials } from "./credential-reader.js";
 
 const log = getLogger("config");
 
@@ -60,6 +60,22 @@ export type GatewayConfig = {
   /** Canonical public ingress base URL, used for webhook signature reconstruction. */
   ingressPublicBaseUrl: string | undefined;
   unmappedPolicy: "reject" | "default";
+  /** WhatsApp Business phone number ID (numeric string, e.g. "123456789012345"). */
+  whatsappPhoneNumberId: string | undefined;
+  /** WhatsApp access token (System User token or temporary token from Meta developer portal). */
+  whatsappAccessToken: string | undefined;
+  /** WhatsApp app secret used to verify X-Hub-Signature-256 on incoming webhooks. */
+  whatsappAppSecret: string | undefined;
+  /** Webhook verify token used during the Meta webhook subscription handshake. */
+  whatsappWebhookVerifyToken: string | undefined;
+  /**
+   * When true, the /deliver/whatsapp endpoint allows unauthenticated access
+   * even when no bearer token is configured. Intended for local development only.
+   */
+  whatsappDeliverAuthBypass: boolean;
+  whatsappTimeoutMs: number;
+  whatsappMaxRetries: number;
+  whatsappInitialBackoffMs: number;
 };
 
 function parseRoutingJson(raw: string): RoutingEntry[] {
@@ -283,6 +299,44 @@ export function loadConfig(): GatewayConfig {
       || undefined;
   }
 
+  // WhatsApp credentials: env var > credential store (keychain / encrypted file)
+  const whatsappCreds = readWhatsAppCredentials();
+  const whatsappPhoneNumberId =
+    process.env.WHATSAPP_PHONE_NUMBER_ID || whatsappCreds?.phoneNumberId || undefined;
+  const whatsappAccessToken =
+    process.env.WHATSAPP_ACCESS_TOKEN || whatsappCreds?.accessToken || undefined;
+  const whatsappAppSecret =
+    process.env.WHATSAPP_APP_SECRET || whatsappCreds?.appSecret || undefined;
+  const whatsappWebhookVerifyToken =
+    process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || whatsappCreds?.webhookVerifyToken || undefined;
+
+  const whatsappDeliverAuthBypassRaw = process.env.GATEWAY_WHATSAPP_DELIVER_AUTH_BYPASS;
+  if (
+    whatsappDeliverAuthBypassRaw !== undefined &&
+    whatsappDeliverAuthBypassRaw !== "true" &&
+    whatsappDeliverAuthBypassRaw !== "false"
+  ) {
+    throw new Error(
+      `GATEWAY_WHATSAPP_DELIVER_AUTH_BYPASS must be "true" or "false", got "${whatsappDeliverAuthBypassRaw}"`,
+    );
+  }
+  const whatsappDeliverAuthBypass = whatsappDeliverAuthBypassRaw === "true";
+
+  const whatsappTimeoutMs = Number(process.env.GATEWAY_WHATSAPP_TIMEOUT_MS || "15000");
+  if (!Number.isFinite(whatsappTimeoutMs) || whatsappTimeoutMs <= 0) {
+    throw new Error("GATEWAY_WHATSAPP_TIMEOUT_MS must be a positive number");
+  }
+
+  const whatsappMaxRetries = Number(process.env.GATEWAY_WHATSAPP_MAX_RETRIES || "3");
+  if (!Number.isInteger(whatsappMaxRetries) || whatsappMaxRetries < 0) {
+    throw new Error("GATEWAY_WHATSAPP_MAX_RETRIES must be a non-negative integer");
+  }
+
+  const whatsappInitialBackoffMs = Number(process.env.GATEWAY_WHATSAPP_INITIAL_BACKOFF_MS || "1000");
+  if (!Number.isFinite(whatsappInitialBackoffMs) || whatsappInitialBackoffMs <= 0) {
+    throw new Error("GATEWAY_WHATSAPP_INITIAL_BACKOFF_MS must be a positive number");
+  }
+
   const smsDeliverAuthBypassRaw = process.env.GATEWAY_SMS_DELIVER_AUTH_BYPASS;
   if (
     smsDeliverAuthBypassRaw !== undefined &&
@@ -327,6 +381,11 @@ export function loadConfig(): GatewayConfig {
       assistantPhoneNumberCount: assistantPhoneNumbers ? Object.keys(assistantPhoneNumbers).length : 0,
       smsDeliverAuthBypass,
       ingressPublicBaseUrl,
+      hasWhatsAppPhoneNumberId: !!whatsappPhoneNumberId,
+      hasWhatsAppAccessToken: !!whatsappAccessToken,
+      hasWhatsAppAppSecret: !!whatsappAppSecret,
+      hasWhatsAppWebhookVerifyToken: !!whatsappWebhookVerifyToken,
+      whatsappDeliverAuthBypass,
     },
     "Configuration loaded",
   );
@@ -364,5 +423,13 @@ export function loadConfig(): GatewayConfig {
     smsDeliverAuthBypass,
     ingressPublicBaseUrl,
     unmappedPolicy,
+    whatsappPhoneNumberId,
+    whatsappAccessToken,
+    whatsappAppSecret,
+    whatsappWebhookVerifyToken,
+    whatsappDeliverAuthBypass,
+    whatsappTimeoutMs,
+    whatsappMaxRetries,
+    whatsappInitialBackoffMs,
   };
 }

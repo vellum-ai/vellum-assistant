@@ -187,6 +187,8 @@ graph TB
         GW_TWILIO_RELAY["Twilio Relay WS<br/>/webhooks/twilio/relay<br/>(bidirectional proxy)"]
         GW_SMS_WEBHOOK["Twilio SMS Webhook<br/>/webhooks/twilio/sms<br/>(HMAC-SHA1 validated)"]
         GW_SMS_DELIVER["SMS Deliver<br/>/deliver/sms<br/>(internal, from runtime)"]
+        GW_WA_WEBHOOK["WhatsApp Webhook<br/>/webhooks/whatsapp<br/>(HMAC-SHA256 validated)"]
+        GW_WA_DELIVER["WhatsApp Deliver<br/>/deliver/whatsapp<br/>(internal, from runtime)"]
         GW_OAUTH["OAuth Callback<br/>/webhooks/oauth/callback"]
         GW_PROXY["Runtime Proxy<br/>(optional, bearer auth)"]
         GW_PROBES["/healthz + /readyz<br/>k8s liveness/readiness"]
@@ -329,6 +331,11 @@ graph TB
     HTTP_SERVER -->|"POST /deliver/sms<br/>(via gatewayInternalBaseUrl)"| GW_SMS_DELIVER
     GW_SMS_DELIVER -->|"Twilio Messages API<br/>(text-only, no MMS in v1)"| GW_SMS_WEBHOOK
 
+    %% Gateway flow — WhatsApp channel (Meta Cloud API)
+    GW_WA_WEBHOOK -->|"HMAC-SHA256 verify<br/>+ normalize + dedup<br/>+ route resolver"| GW_FORWARD
+    HTTP_SERVER -->|"POST /deliver/whatsapp<br/>(via gatewayInternalBaseUrl)"| GW_WA_DELIVER
+    GW_WA_DELIVER -->|"Meta Cloud API<br/>/{phoneNumberId}/messages"| GW_WA_WEBHOOK
+
     %% Gateway flow — OAuth callback
     GW_OAUTH -->|"forward code + state"| HTTP_SERVER
 
@@ -450,6 +457,37 @@ The SMS channel provides text-only messaging via Twilio, sharing the same teleph
 All three paths are best-effort: webhook sync failures do not prevent the primary operation from succeeding.
 
 **Limitations (v1)**: Text-only — MMS payloads are explicitly rejected with a user-facing notice rather than silently dropped.
+
+### WhatsApp Channel (Meta Cloud API)
+
+The WhatsApp channel enables inbound and outbound messaging via the Meta WhatsApp Business Cloud API. It follows the same ingress/egress pattern as SMS but uses Meta's HMAC-SHA256 signature validation (`X-Hub-Signature-256`) instead of Twilio's HMAC-SHA1.
+
+**Ingress** (`GET /webhooks/whatsapp` — verification, `POST /webhooks/whatsapp` — messages):
+
+1. **Webhook verification**: Meta sends a `GET` with `hub.mode=subscribe`, `hub.verify_token`, and `hub.challenge`. The gateway compares `hub.verify_token` against `WHATSAPP_WEBHOOK_VERIFY_TOKEN` and echoes `hub.challenge` as plain text.
+2. On `POST`, the gateway verifies the `X-Hub-Signature-256` header (HMAC-SHA256 of the raw request body using `WHATSAPP_APP_SECRET`) when the app secret is configured. Fail-closed: requests are rejected when the secret is set but the signature fails.
+3. **Normalization**: Only `type=text` messages from `messages` change fields are forwarded. Delivery receipts, read receipts, and non-text message types (image, audio, video, document, sticker) are silently acknowledged with `{ ok: true }`.
+4. **`/new` command**: When the message body is `/new` (case-insensitive), the gateway resolves routing, resets the conversation, and sends a confirmation message without forwarding to the runtime.
+5. The payload is normalized into a `GatewayInboundEventV1` with `sourceChannel: "whatsapp"` and `externalChatId` set to the sender's WhatsApp phone number (E.164).
+6. WhatsApp message IDs are deduplicated via `StringDedupCache` (24-hour TTL).
+7. The gateway marks each inbound message as read (best-effort, fire-and-forget).
+8. The event is forwarded to the runtime via `POST /channels/inbound` with WhatsApp-specific transport hints and a `replyCallbackUrl` pointing to `/deliver/whatsapp`.
+
+**Egress** (`POST /deliver/whatsapp`):
+1. The runtime calls the gateway's `/deliver/whatsapp` endpoint with `{ to, text }` or `{ chatId, text }` (alias).
+2. The gateway authenticates the request via bearer token (same fail-closed model as other deliver endpoints).
+3. The gateway sends the message via the WhatsApp Cloud API `/{phoneNumberId}/messages` endpoint using the configured access token.
+4. Text is split at 4096 characters if needed.
+
+**Required credentials**:
+- `WHATSAPP_PHONE_NUMBER_ID` — the numeric WhatsApp Business phone number ID from Meta
+- `WHATSAPP_ACCESS_TOKEN` — System User or temporary access token
+- `WHATSAPP_APP_SECRET` — App secret for webhook signature verification
+- `WHATSAPP_WEBHOOK_VERIFY_TOKEN` — Token for the Meta webhook subscription handshake
+
+These can be set via environment variables or stored in the credential vault (keychain / encrypted store) under the `whatsapp` service prefix.
+
+**Limitations (v1)**: Text-only — non-text message types are acknowledged but not forwarded; rich approval UI (inline buttons) is not supported.
 
 **Channel Readiness**: The `channel_readiness` IPC contract (`ChannelReadinessService` in `src/runtime/channel-readiness-service.ts`) provides a unified readiness subsystem for all channels. Each channel registers a `ChannelProbe` that runs synchronous local checks (credential presence, phone number, ingress config) and optional async remote checks with a 5-minute TTL cache. Built-in probes: SMS (Twilio credentials, phone number, ingress; remote checks query Twilio toll-free verification status for toll-free numbers) and Telegram (bot token, webhook secret, ingress). The `get` action returns cached snapshots; `refresh` invalidates the cache first. Unknown channels return `unsupported_channel`.
 

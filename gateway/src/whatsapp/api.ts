@@ -1,0 +1,184 @@
+import type { GatewayConfig } from "../config.js";
+import { fetchImpl } from "../fetch.js";
+import { getLogger } from "../logger.js";
+
+const log = getLogger("whatsapp-api");
+
+// Meta Cloud API v20 endpoint template
+const WHATSAPP_API_BASE = "https://graph.facebook.com/v20.0";
+
+interface WhatsAppApiErrorDetail {
+  message?: string;
+  type?: string;
+  code?: number;
+  fbtrace_id?: string;
+}
+
+interface WhatsAppApiErrorResponse {
+  error?: WhatsAppApiErrorDetail;
+}
+
+function isRetryable(status: number): boolean {
+  return status === 429 || status >= 500;
+}
+
+function computeDelay(
+  attempt: number,
+  initialBackoffMs: number,
+  retryAfterHeader: string | null,
+): number {
+  if (retryAfterHeader) {
+    const seconds = Number(retryAfterHeader);
+    if (Number.isFinite(seconds) && seconds > 0) {
+      return Math.min(seconds * 1000, 2_147_483_647);
+    }
+    const targetTime = new Date(retryAfterHeader).getTime();
+    if (Number.isFinite(targetTime)) {
+      const delayMs = targetTime - Date.now();
+      if (delayMs > 0) {
+        return Math.min(delayMs, 2_147_483_647);
+      }
+    }
+  }
+
+  const exponential = initialBackoffMs * Math.pow(2, attempt - 1);
+  const jitter = Math.random() * exponential * 0.5;
+  return exponential + jitter;
+}
+
+async function retryableWhatsAppFetch<T>(
+  config: GatewayConfig,
+  operation: string,
+  doFetch: () => Promise<Response>,
+): Promise<T> {
+  let lastError: Error | null = null;
+  let lastRetryAfter: string | null = null;
+
+  for (let attempt = 0; attempt <= config.whatsappMaxRetries; attempt++) {
+    if (attempt > 0) {
+      const delay = computeDelay(
+        attempt,
+        config.whatsappInitialBackoffMs,
+        lastRetryAfter,
+      );
+      log.debug({ attempt, delay, operation }, "Retrying WhatsApp API call");
+      await new Promise((r) => setTimeout(r, delay));
+    }
+
+    lastRetryAfter = null;
+
+    let response: Response;
+    try {
+      response = await doFetch();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      lastError = new Error(`WhatsApp ${operation} request failed: ${message}`);
+      log.warn({ error: message, attempt, operation }, "WhatsApp API fetch failed");
+      continue;
+    }
+
+    if (!isRetryable(response.status) && !response.ok) {
+      const data = (await response.json().catch(() => ({}))) as WhatsAppApiErrorResponse;
+      throw new Error(
+        data.error?.message
+          ? `WhatsApp ${operation} failed: ${data.error.message}`
+          : `WhatsApp ${operation} failed with status ${response.status}`,
+      );
+    }
+
+    if (isRetryable(response.status)) {
+      lastRetryAfter = response.headers.get("retry-after");
+      const data = (await response.json().catch(() => ({}))) as WhatsAppApiErrorResponse;
+      lastError = new Error(
+        data.error?.message
+          ? `WhatsApp ${operation} failed: ${data.error.message}`
+          : `WhatsApp ${operation} failed with status ${response.status}`,
+      );
+      log.warn(
+        { status: response.status, attempt, operation, retryAfter: lastRetryAfter },
+        "WhatsApp API returned retryable error",
+      );
+      continue;
+    }
+
+    return (await response.json()) as T;
+  }
+
+  throw lastError ?? new Error(`WhatsApp ${operation} failed after retries`);
+}
+
+export interface WhatsAppSendMessageResult {
+  messaging_product: string;
+  contacts: Array<{ input: string; wa_id: string }>;
+  messages: Array<{ id: string }>;
+}
+
+/**
+ * Send a text message via the WhatsApp Business Cloud API.
+ * phoneNumberId is the WhatsApp Business phone number ID (not the phone number itself).
+ */
+export async function sendWhatsAppTextMessage(
+  config: GatewayConfig,
+  to: string,
+  text: string,
+): Promise<WhatsAppSendMessageResult> {
+  if (!config.whatsappPhoneNumberId || !config.whatsappAccessToken) {
+    throw new Error("WhatsApp credentials not configured");
+  }
+
+  return retryableWhatsAppFetch<WhatsAppSendMessageResult>(
+    config,
+    "sendMessage",
+    () =>
+      fetchImpl(
+        `${WHATSAPP_API_BASE}/${config.whatsappPhoneNumberId}/messages`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${config.whatsappAccessToken}`,
+          },
+          body: JSON.stringify({
+            messaging_product: "whatsapp",
+            recipient_type: "individual",
+            to,
+            type: "text",
+            text: { body: text, preview_url: false },
+          }),
+          signal: AbortSignal.timeout(config.whatsappTimeoutMs),
+        },
+      ),
+  );
+}
+
+/**
+ * Mark an incoming WhatsApp message as read.
+ * Best-effort — callers should not propagate errors from this.
+ */
+export async function markWhatsAppMessageRead(
+  config: GatewayConfig,
+  messageId: string,
+): Promise<void> {
+  if (!config.whatsappPhoneNumberId || !config.whatsappAccessToken) return;
+
+  try {
+    await fetchImpl(
+      `${WHATSAPP_API_BASE}/${config.whatsappPhoneNumberId}/messages`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${config.whatsappAccessToken}`,
+        },
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          status: "read",
+          message_id: messageId,
+        }),
+        signal: AbortSignal.timeout(config.whatsappTimeoutMs),
+      },
+    );
+  } catch (err) {
+    log.debug({ err, messageId }, "Failed to mark WhatsApp message as read");
+  }
+}
