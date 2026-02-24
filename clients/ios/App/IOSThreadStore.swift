@@ -164,6 +164,19 @@ class IOSThreadStore: ObservableObject {
         // publisher from setupDaemonCallbacks doesn't fire against the wrong daemon.
         cancellables.removeAll()
 
+        // Nil out callbacks on the old daemon before replacing the reference.
+        // In-flight HTTP responses (session-list, history, subagent-detail) are launched
+        // in fire-and-forget Tasks and are not cancelled by disconnect.  Without this,
+        // a response arriving after the rebind would invoke the closures registered by
+        // the previous setupDaemonCallbacks call, which capture [weak self] and would
+        // still call back into this store — potentially corrupting the thread list with
+        // stale sessions from the old connection.
+        if let oldDaemon = daemonClient as? DaemonClient {
+            oldDaemon.onSessionListResponse = nil
+            oldDaemon.onHistoryResponse = nil
+            oldDaemon.onSubagentDetailResponse = nil
+        }
+
         daemonClient = newClient
 
         // Existing ViewModels hold a reference to the old, disconnected client inside
