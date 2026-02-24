@@ -129,6 +129,18 @@ export interface RunStartOptions {
    */
   voiceAutoDenyConfirmations?: boolean;
   /**
+   * When true, confirmation_request events are auto-approved immediately.
+   * Used for verified-guardian voice turns where there is no interactive
+   * approval UI but parity with guardian chat permissions is required.
+   */
+  voiceAutoAllowConfirmations?: boolean;
+  /**
+   * When true, secret_request events are resolved immediately with a null
+   * value so voice turns do not stall waiting for a secret-entry UI that
+   * voice does not provide.
+   */
+  voiceAutoResolveSecrets?: boolean;
+  /**
    * Call-control protocol prompt injected into each voice turn so the
    * model knows to emit control markers ([ASK_GUARDIAN:], [END_CALL], etc.).
    */
@@ -248,6 +260,8 @@ export class RunOrchestrator {
     // the client can poll and submit a decision/secret via the respective endpoint.
     // Do NOT set hasNoClient — run sessions have a client (the HTTP caller).
     const autoDeny = options?.voiceAutoDenyConfirmations === true;
+    const autoAllow = !autoDeny && options?.voiceAutoAllowConfirmations === true;
+    const autoResolveSecrets = options?.voiceAutoResolveSecrets === true;
     let lastError: string | null = null;
     session.updateClient((msg: ServerMessage) => {
       if (msg.type === 'confirmation_request') {
@@ -273,6 +287,26 @@ export class RunOrchestrator {
           publishToHub(msg);
           return;
         }
+        if (autoAllow) {
+          // Verified guardian voice turn: auto-approve so voice has the same
+          // permission capabilities as guardian chat despite lacking an
+          // interactive confirmation UI.
+          log.info(
+            { runId: run.id, toolName: msg.toolName },
+            'Auto-approving confirmation request for guardian voice turn',
+          );
+          session.handleConfirmationResponse(
+            msg.requestId,
+            'allow',
+            undefined,
+            undefined,
+            `Permission approved for "${msg.toolName}": this is a verified guardian voice call.`,
+          );
+          // Publish for observability, but skip run-store pending state since
+          // the request is already resolved.
+          publishToHub(msg);
+          return;
+        }
 
         runsStore.setRunConfirmation(run.id, {
           toolName: msg.toolName,
@@ -289,6 +323,18 @@ export class RunOrchestrator {
           session,
         });
       } else if (msg.type === 'secret_request') {
+        if (autoResolveSecrets) {
+          // Voice has no secret-entry UI, so resolve immediately to avoid
+          // waiting for the full secret prompt timeout.
+          log.info(
+            { runId: run.id, service: msg.service, field: msg.field },
+            'Auto-resolving secret request for voice turn (no secret-entry UI)',
+          );
+          session.handleSecretResponse(msg.requestId, undefined, 'store');
+          publishToHub(msg);
+          return;
+        }
+
         runsStore.setRunSecret(run.id, {
           requestId: msg.requestId,
           service: msg.service,

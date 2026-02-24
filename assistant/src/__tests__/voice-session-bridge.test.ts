@@ -29,6 +29,12 @@ mock.module('../util/logger.js', () => ({
 mock.module('../config/loader.js', () => ({
   getConfig: () => ({
     secretDetection: { enabled: false },
+    calls: {
+      disclosure: {
+        enabled: false,
+        text: '',
+      },
+    },
   }),
 }));
 
@@ -53,6 +59,7 @@ function makeStreamingSession(events: ServerMessage[]): Session {
     setGuardianContext: () => {},
     setCommandIntent: () => {},
     setTurnChannelContext: () => {},
+    setVoiceCallControlPrompt: () => {},
     updateClient: () => {},
     runAgentLoop: async (_content: string, _messageId: string, onEvent: (msg: ServerMessage) => void) => {
       for (const event of events) {
@@ -101,6 +108,7 @@ describe('voice-session-bridge', () => {
     const handle = await startVoiceTurn({
       conversationId: conversation.id,
       content: 'Hello from caller',
+      isInbound: true,
       onTextDelta: (text) => receivedDeltas.push(text),
       onComplete: () => { completed = true; },
       onError: () => {},
@@ -133,6 +141,7 @@ describe('voice-session-bridge', () => {
     await startVoiceTurn({
       conversationId: conversation.id,
       content: 'Hello',
+      isInbound: true,
       onTextDelta: () => {},
       onComplete: () => {},
       onError: (msg) => receivedErrors.push(msg),
@@ -149,13 +158,18 @@ describe('voice-session-bridge', () => {
 
     const session = {
       isProcessing: () => false,
-      persistUserMessage: () => undefined as unknown as string,
+      currentRequestId: undefined as string | undefined,
+      persistUserMessage: (_content: string, _attachments: unknown[], requestId?: string) => {
+        session.currentRequestId = requestId;
+        return undefined as unknown as string;
+      },
       memoryPolicy: { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false },
       setChannelCapabilities: () => {},
       setAssistantId: () => {},
       setGuardianContext: () => {},
       setCommandIntent: () => {},
       setTurnChannelContext: () => {},
+      setVoiceCallControlPrompt: () => {},
       updateClient: () => {},
       runAgentLoop: async () => {
         await new Promise((r) => setTimeout(r, 200));
@@ -174,6 +188,7 @@ describe('voice-session-bridge', () => {
     const handle = await startVoiceTurn({
       conversationId: conversation.id,
       content: 'Hello',
+      isInbound: true,
       onTextDelta: () => {},
       onComplete: () => {},
       onError: () => {},
@@ -189,13 +204,18 @@ describe('voice-session-bridge', () => {
 
     const session = {
       isProcessing: () => false,
-      persistUserMessage: () => undefined as unknown as string,
+      currentRequestId: undefined as string | undefined,
+      persistUserMessage: (_content: string, _attachments: unknown[], requestId?: string) => {
+        session.currentRequestId = requestId;
+        return undefined as unknown as string;
+      },
       memoryPolicy: { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false },
       setChannelCapabilities: () => {},
       setAssistantId: () => {},
       setGuardianContext: () => {},
       setCommandIntent: () => {},
       setTurnChannelContext: () => {},
+      setVoiceCallControlPrompt: () => {},
       updateClient: () => {},
       runAgentLoop: async () => {
         await new Promise((r) => setTimeout(r, 200));
@@ -215,6 +235,7 @@ describe('voice-session-bridge', () => {
     await startVoiceTurn({
       conversationId: conversation.id,
       content: 'Hello',
+      isInbound: true,
       onTextDelta: () => {},
       onComplete: () => {},
       onError: () => {},
@@ -251,6 +272,7 @@ describe('voice-session-bridge', () => {
     await startVoiceTurn({
       conversationId: conversation.id,
       content: 'Hello',
+      isInbound: true,
       onTextDelta: () => {},
       onComplete: () => {},
       onError: () => {},
@@ -287,6 +309,7 @@ describe('voice-session-bridge', () => {
     await startVoiceTurn({
       conversationId: conversation.id,
       content: 'Hello',
+      isInbound: true,
       guardianContext: {
         sourceChannel: 'voice',
         actorRole: 'non-guardian',
@@ -327,6 +350,7 @@ describe('voice-session-bridge', () => {
     await startVoiceTurn({
       conversationId: conversation.id,
       content: 'Hello',
+      isInbound: true,
       guardianContext: {
         sourceChannel: 'voice',
         actorRole: 'unverified_channel',
@@ -365,6 +389,7 @@ describe('voice-session-bridge', () => {
     await startVoiceTurn({
       conversationId: conversation.id,
       content: 'Hello',
+      isInbound: true,
       guardianContext: {
         sourceChannel: 'voice',
         actorRole: 'guardian',
@@ -391,7 +416,9 @@ describe('voice-session-bridge', () => {
     let capturedGuardianContext: unknown = null;
     const session = {
       ...makeStreamingSession(events),
-      setGuardianContext: (ctx: unknown) => { capturedGuardianContext = ctx; },
+      setGuardianContext: (ctx: unknown) => {
+        if (ctx != null) capturedGuardianContext = ctx;
+      },
     } as unknown as Session;
 
     const orchestrator = new RunOrchestrator({
@@ -411,6 +438,7 @@ describe('voice-session-bridge', () => {
     await startVoiceTurn({
       conversationId: conversation.id,
       content: 'Hello',
+      isInbound: true,
       assistantId: 'test-assistant',
       guardianContext: guardianCtx,
       onTextDelta: () => {},
@@ -442,6 +470,7 @@ describe('voice-session-bridge', () => {
       setGuardianContext: () => {},
       setCommandIntent: () => {},
       setTurnChannelContext: () => {},
+      setVoiceCallControlPrompt: () => {},
       updateClient: (handler: (msg: ServerMessage) => void) => {
         clientHandler = handler;
       },
@@ -483,6 +512,7 @@ describe('voice-session-bridge', () => {
     await startVoiceTurn({
       conversationId: conversation.id,
       content: 'Delete everything',
+      isInbound: true,
       guardianContext: {
         sourceChannel: 'voice',
         actorRole: 'non-guardian',
@@ -523,6 +553,7 @@ describe('voice-session-bridge', () => {
       setGuardianContext: () => {},
       setCommandIntent: () => {},
       setTurnChannelContext: () => {},
+      setVoiceCallControlPrompt: () => {},
       updateClient: (handler: (msg: ServerMessage) => void) => {
         clientHandler = handler;
       },
@@ -556,6 +587,7 @@ describe('voice-session-bridge', () => {
     await startVoiceTurn({
       conversationId: conversation.id,
       content: 'Make a request',
+      isInbound: true,
       guardianContext: {
         sourceChannel: 'voice',
         actorRole: 'unverified_channel',
@@ -573,8 +605,8 @@ describe('voice-session-bridge', () => {
     expect(handleConfirmationCalls[0].decision).toBe('deny');
   });
 
-  test('does NOT auto-deny confirmation requests for guardian voice turns', async () => {
-    const conversation = createConversation('voice bridge no-auto-deny guardian test');
+  test('auto-denies confirmation requests when guardian context is missing', async () => {
+    const conversation = createConversation('voice bridge auto-deny unknown actor test');
 
     let clientHandler: (msg: ServerMessage) => void = () => {};
     const handleConfirmationCalls: Array<{
@@ -591,6 +623,69 @@ describe('voice-session-bridge', () => {
       setGuardianContext: () => {},
       setCommandIntent: () => {},
       setTurnChannelContext: () => {},
+      setVoiceCallControlPrompt: () => {},
+      updateClient: (handler: (msg: ServerMessage) => void) => {
+        clientHandler = handler;
+      },
+      runAgentLoop: async () => {
+        clientHandler({
+          type: 'confirmation_request',
+          requestId: 'req-voice-unknown',
+          toolName: 'host_bash',
+          input: { command: 'touch /tmp/x' },
+          riskLevel: 'medium',
+          allowlistOptions: [],
+          scopeOptions: [],
+        } as ServerMessage);
+      },
+      handleConfirmationResponse: (requestId: string, decision: string) => {
+        handleConfirmationCalls.push({ requestId, decision });
+      },
+      abort: () => {},
+    } as unknown as Session;
+
+    const orchestrator = new RunOrchestrator({
+      getOrCreateSession: async () => session,
+      resolveAttachments: () => [],
+      deriveDefaultStrictSideEffects: () => false,
+    });
+    setVoiceBridgeOrchestrator(orchestrator);
+
+    await startVoiceTurn({
+      conversationId: conversation.id,
+      content: 'run a command',
+      isInbound: true,
+      onTextDelta: () => {},
+      onComplete: () => {},
+      onError: () => {},
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(handleConfirmationCalls.length).toBe(1);
+    expect(handleConfirmationCalls[0].requestId).toBe('req-voice-unknown');
+    expect(handleConfirmationCalls[0].decision).toBe('deny');
+  });
+
+  test('auto-allows confirmation requests for guardian voice turns', async () => {
+    const conversation = createConversation('voice bridge auto-allow guardian test');
+
+    let clientHandler: (msg: ServerMessage) => void = () => {};
+    const handleConfirmationCalls: Array<{
+      requestId: string;
+      decision: string;
+    }> = [];
+
+    const session = {
+      isProcessing: () => false,
+      persistUserMessage: () => undefined as unknown as string,
+      memoryPolicy: { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false },
+      setChannelCapabilities: () => {},
+      setAssistantId: () => {},
+      setGuardianContext: () => {},
+      setCommandIntent: () => {},
+      setTurnChannelContext: () => {},
+      setVoiceCallControlPrompt: () => {},
       updateClient: (handler: (msg: ServerMessage) => void) => {
         clientHandler = handler;
       },
@@ -604,10 +699,8 @@ describe('voice-session-bridge', () => {
           allowlistOptions: [],
           scopeOptions: [],
         } as ServerMessage);
-        // For guardian actors, the confirmation enters the normal
-        // pending state — it is NOT auto-denied. The runAgentLoop
-        // would normally block waiting for resolution. We just return
-        // to keep the test simple.
+        // For verified guardian voice turns, the confirmation should be
+        // auto-approved so the run can continue without a chat approval UI.
       },
       handleConfirmationResponse: (
         requestId: string,
@@ -628,6 +721,7 @@ describe('voice-session-bridge', () => {
     await startVoiceTurn({
       conversationId: conversation.id,
       content: 'List files',
+      isInbound: true,
       guardianContext: {
         sourceChannel: 'voice',
         actorRole: 'guardian',
@@ -641,14 +735,20 @@ describe('voice-session-bridge', () => {
 
     await new Promise((r) => setTimeout(r, 50));
 
-    // Guardian actors should NOT have auto-deny — confirmation enters
-    // the normal pending flow (stored in run store, not auto-denied).
-    expect(handleConfirmationCalls.length).toBe(0);
+    expect(handleConfirmationCalls.length).toBe(1);
+    expect(handleConfirmationCalls[0].requestId).toBe('req-voice-3');
+    expect(handleConfirmationCalls[0].decision).toBe('allow');
   });
 
-  test('pre-aborted signal triggers immediate abort', async () => {
-    const conversation = createConversation('voice bridge pre-abort test');
-    let abortCalled = false;
+  test('auto-resolves secret requests for voice turns (no secret-entry UI)', async () => {
+    const conversation = createConversation('voice bridge secret auto-resolve test');
+
+    let clientHandler: (msg: ServerMessage) => void = () => {};
+    const handleSecretCalls: Array<{
+      requestId: string;
+      value?: string;
+      delivery?: 'store' | 'transient_send';
+    }> = [];
 
     const session = {
       isProcessing: () => false,
@@ -659,6 +759,78 @@ describe('voice-session-bridge', () => {
       setGuardianContext: () => {},
       setCommandIntent: () => {},
       setTurnChannelContext: () => {},
+      setVoiceCallControlPrompt: () => {},
+      updateClient: (handler: (msg: ServerMessage) => void) => {
+        clientHandler = handler;
+      },
+      runAgentLoop: async () => {
+        clientHandler({
+          type: 'secret_request',
+          requestId: 'req-secret-1',
+          service: 'github',
+          field: 'token',
+          label: 'GitHub Token',
+        } as ServerMessage);
+      },
+      handleConfirmationResponse: () => {},
+      handleSecretResponse: (
+        requestId: string,
+        value?: string,
+        delivery?: 'store' | 'transient_send',
+      ) => {
+        handleSecretCalls.push({ requestId, value, delivery });
+      },
+      abort: () => {},
+    } as unknown as Session;
+
+    const orchestrator = new RunOrchestrator({
+      getOrCreateSession: async () => session,
+      resolveAttachments: () => [],
+      deriveDefaultStrictSideEffects: () => false,
+    });
+    setVoiceBridgeOrchestrator(orchestrator);
+
+    await startVoiceTurn({
+      conversationId: conversation.id,
+      content: 'check github status',
+      isInbound: true,
+      guardianContext: {
+        sourceChannel: 'voice',
+        actorRole: 'guardian',
+        guardianExternalUserId: '+15550001111',
+        guardianChatId: '+15550001111',
+      },
+      onTextDelta: () => {},
+      onComplete: () => {},
+      onError: () => {},
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(handleSecretCalls.length).toBe(1);
+    expect(handleSecretCalls[0].requestId).toBe('req-secret-1');
+    expect(handleSecretCalls[0].value).toBeUndefined();
+    expect(handleSecretCalls[0].delivery).toBe('store');
+  });
+
+  test('pre-aborted signal triggers immediate abort', async () => {
+    const conversation = createConversation('voice bridge pre-abort test');
+    let abortCalled = false;
+
+    const session = {
+      isProcessing: () => false,
+      currentRequestId: undefined as string | undefined,
+      persistUserMessage: (_content: string, _attachments: unknown[], requestId?: string) => {
+        session.currentRequestId = requestId;
+        return undefined as unknown as string;
+      },
+      memoryPolicy: { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false },
+      setChannelCapabilities: () => {},
+      setAssistantId: () => {},
+      setGuardianContext: () => {},
+      setCommandIntent: () => {},
+      setTurnChannelContext: () => {},
+      setVoiceCallControlPrompt: () => {},
       updateClient: () => {},
       runAgentLoop: async () => {
         await new Promise((r) => setTimeout(r, 200));
@@ -680,6 +852,7 @@ describe('voice-session-bridge', () => {
     await startVoiceTurn({
       conversationId: conversation.id,
       content: 'Hello',
+      isInbound: true,
       onTextDelta: () => {},
       onComplete: () => {},
       onError: () => {},

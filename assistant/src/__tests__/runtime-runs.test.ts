@@ -53,6 +53,8 @@ function makeCompletingSession(): Session {
     setAssistantId: () => {},
     setGuardianContext: () => {},
     setCommandIntent: () => {},
+    setTurnChannelContext: () => {},
+    setVoiceCallControlPrompt: () => {},
     updateClient: () => {},
     runAgentLoop: async () => {
       processing = true;
@@ -76,6 +78,8 @@ function makeHangingSession(): Session {
     setAssistantId: () => {},
     setGuardianContext: () => {},
     setCommandIntent: () => {},
+    setTurnChannelContext: () => {},
+    setVoiceCallControlPrompt: () => {},
     updateClient: () => {},
     runAgentLoop: async () => {
       processing = true;
@@ -97,6 +101,8 @@ function makeFailingSession(errorMsg: string): Session {
     setAssistantId: () => {},
     setGuardianContext: () => {},
     setCommandIntent: () => {},
+    setTurnChannelContext: () => {},
+    setVoiceCallControlPrompt: () => {},
     updateClient: () => {},
     runAgentLoop: async (_content: string, _messageId: string, onEvent: (msg: ServerMessage) => void) => {
       onEvent({ type: 'error', message: errorMsg });
@@ -117,6 +123,8 @@ function makeConfirmationSession(toolName: string): Session {
     setAssistantId: () => {},
     setGuardianContext: () => {},
     setCommandIntent: () => {},
+    setTurnChannelContext: () => {},
+    setVoiceCallControlPrompt: () => {},
     updateClient: (handler: (msg: ServerMessage) => void) => {
       clientHandler = handler;
     },

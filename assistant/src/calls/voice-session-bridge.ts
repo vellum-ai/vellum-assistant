@@ -91,8 +91,10 @@ function buildVoiceCallControlPrompt(opts: {
   task?: string | null;
 }): string {
   const config = getConfig();
-  const disclosureRule = config.calls.disclosure.enabled
-    ? `1. ${config.calls.disclosure.text}`
+  const disclosureEnabled = config.calls?.disclosure?.enabled === true;
+  const disclosureText = config.calls?.disclosure?.text?.trim();
+  const disclosureRule = disclosureEnabled && disclosureText
+    ? `1. ${disclosureText}`
     : '1. Begin the conversation naturally.';
 
   const lines: string[] = ['<voice_call_control>'];
@@ -180,14 +182,14 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
     },
   };
 
-  // Derive forceStrictSideEffects from guardian context to match channel
-  // ingress behavior: non-guardian and unverified actors always get strict
-  // side effects so all side-effect tools trigger the confirmation flow.
+  // Voice has no interactive permission/secret UI, so apply explicit
+  // per-role policies:
+  // - guardian: permission prompts auto-allow (parity with guardian chat)
+  // - everyone else (including unknown): fail-closed strict side-effects
+  //   with auto-deny confirmations.
   const actorRole = opts.guardianContext?.actorRole;
-  const forceStrictSideEffects =
-    actorRole === 'non-guardian' || actorRole === 'unverified_channel'
-      ? true
-      : undefined;
+  const isGuardian = actorRole === 'guardian';
+  const forceStrictSideEffects = isGuardian ? undefined : true;
 
   // Replace the [CALL_OPENING] marker with a neutral instruction before
   // persisting. The marker must not appear as a user message in session
@@ -212,7 +214,10 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
       sourceChannel: 'voice',
       assistantId: opts.assistantId,
       guardianContext: opts.guardianContext,
-      ...(forceStrictSideEffects ? { forceStrictSideEffects, voiceAutoDenyConfirmations: true } : {}),
+      ...(forceStrictSideEffects ? { forceStrictSideEffects } : {}),
+      voiceAutoDenyConfirmations: !isGuardian,
+      voiceAutoAllowConfirmations: isGuardian,
+      voiceAutoResolveSecrets: true,
       turnChannelContext: {
         userMessageChannel: 'voice',
         assistantMessageChannel: 'voice',
