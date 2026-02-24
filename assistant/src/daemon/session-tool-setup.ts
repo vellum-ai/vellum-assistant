@@ -15,6 +15,7 @@ import type { SecretPrompter } from '../permissions/secret-prompter.js';
 import { addRule, findHighestPriorityRule } from '../permissions/trust-store.js';
 import { generateAllowlistOptions, generateScopeOptions, normalizeWebFetchUrl } from '../permissions/checker.js';
 import { getLogger } from '../util/logger.js';
+import { isPlainObject } from '../util/object.js';
 
 const log = getLogger('session-tool-setup');
 import { getAllToolDefinitions } from '../tools/registry.js';
@@ -76,10 +77,6 @@ export function buildToolDefinitions(): ToolDefinition[] {
 }
 
 // ── DoorDash task_progress auto-update ────────────────────────────────
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value != null && !Array.isArray(value);
-}
 
 interface DoordashStep { label: string; status: string; detail?: string }
 
