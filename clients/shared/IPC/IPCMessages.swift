@@ -2775,7 +2775,7 @@ public struct ApprovedDevicesListResponseMessage: Decodable, Sendable {
     public struct Device: Decodable, Sendable {
         public let hashedDeviceId: String
         public let deviceName: String
-        public let lastPairedAt: Double
+        public let lastPairedAt: Int
     }
     public let devices: [Device]
 }

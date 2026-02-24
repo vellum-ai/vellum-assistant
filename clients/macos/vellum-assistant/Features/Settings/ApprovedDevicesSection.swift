@@ -69,8 +69,8 @@ struct ApprovedDevicesSection: View {
         }
     }
 
-    private func formattedDate(_ timestamp: Double) -> String {
-        let date = Date(timeIntervalSince1970: timestamp / 1000.0)
+    private func formattedDate(_ timestamp: Int) -> String {
+        let date = Date(timeIntervalSince1970: Double(timestamp) / 1000.0)
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
         return formatter.localizedString(for: date, relativeTo: Date())
