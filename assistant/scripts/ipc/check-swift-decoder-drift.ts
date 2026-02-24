@@ -53,6 +53,9 @@ const SWIFT_OMIT_ALLOWLIST = new Set<string>([
   'browser_handoff_request',
   // Guardian verification — daemon-internal for Telegram channel setup
   'guardian_verification_response',
+  // Ingress invite/member management — not yet consumed by the macOS client
+  'ingress_invite_response',
+  'ingress_member_response',
   // Work item messages — not yet consumed by the macOS client
   'work_item_get_response',
   'work_item_run_task_response',
