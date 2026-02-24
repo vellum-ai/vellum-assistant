@@ -65,6 +65,8 @@ export async function handleCreateRun(
 
   const mapping = getOrCreateConversation(conversationKey);
 
+  log.info({ endpoint: 'POST /v1/runs', conversationKey }, 'Send attempt');
+
   try {
     const run = await runOrchestrator.startRun(
       mapping.conversationId,
@@ -80,6 +82,7 @@ export async function handleCreateRun(
     }, { status: 201 });
   } catch (err) {
     if (err instanceof Error && err.message === 'Session is already processing a message') {
+      log.warn({ endpoint: 'POST /v1/runs', conversationKey }, 'Send rejected — session busy');
       return Response.json(
         { error: 'Session is busy processing another message. Please retry.' },
         { status: 409 },

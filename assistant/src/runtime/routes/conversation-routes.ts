@@ -19,7 +19,9 @@ import type {
   RuntimeAttachmentMetadata,
   RuntimeMessagePayload,
 } from '../http-types.js';
+import { getLogger } from '../../util/logger.js';
 
+const log = getLogger('runtime-http');
 const SUGGESTION_CACHE_MAX = 100;
 
 function getInterfaceFilesWithMtimes(interfacesDir: string | null): Array<{ path: string; mtimeMs: number }> {
@@ -204,6 +206,8 @@ export async function handleSendMessage(
 
   const mapping = getOrCreateConversation(conversationKey);
 
+  log.info({ endpoint: 'POST /v1/messages', conversationKey }, 'Send attempt');
+
   const processor = deps.persistAndProcessMessage ?? deps.processMessage;
   if (!processor) {
     return Response.json({ error: 'Message processing not configured' }, { status: 503 });
@@ -220,6 +224,7 @@ export async function handleSendMessage(
     return Response.json({ accepted: true, messageId: result.messageId });
   } catch (err) {
     if (err instanceof Error && err.message === 'Session is already processing a message') {
+      log.warn({ endpoint: 'POST /v1/messages', conversationKey }, 'Send rejected — session busy');
       return Response.json(
         { error: 'Session is busy processing another message. Please retry.' },
         { status: 409 },
@@ -295,7 +300,6 @@ export async function handleGetSuggestion(
   }
 
   const { suggestionCache, suggestionInFlight } = deps;
-  const log = (await import('../../util/logger.js')).getLogger('runtime-http');
 
   // Walk backwards to find the last assistant message with text content
   for (let i = rawMessages.length - 1; i >= 0; i--) {
