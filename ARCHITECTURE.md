@@ -3905,7 +3905,7 @@ sequenceDiagram
         Orch->>CallStore: recordCallEvent()
     end
 
-    alt ASK_USER pattern detected
+    alt ASK_GUARDIAN pattern detected
         Orch->>CallStore: createPendingQuestion()
         Orch->>State: fireCallQuestionNotifier()
         State->>Session: question callback
@@ -3941,7 +3941,7 @@ sequenceDiagram
 | `assistant/src/calls/twilio-routes.ts` | HTTP webhook handlers: voice webhook (returns TwiML with WS-A/WS-B guardrails), status callback, connect action |
 | `assistant/src/calls/relay-server.ts` | WebSocket handler for the Twilio ConversationRelay protocol; manages RelayConnection instances per call |
 | `assistant/src/calls/speaker-identification.ts` | Reusable speaker recognition primitive for voice prompts: extracts provider speaker metadata (top-level and nested fields), resolves stable per-call speaker identities, and emits speaker context for personalization |
-| `assistant/src/calls/call-orchestrator.ts` | LLM-driven conversation manager: receives caller utterances, streams responses via Anthropic Claude, detects ASK_USER and END_CALL control markers |
+| `assistant/src/calls/call-orchestrator.ts` | LLM-driven conversation manager: receives caller utterances, streams responses via Anthropic Claude, detects ASK_GUARDIAN and END_CALL control markers |
 | `assistant/src/calls/call-state.ts` | Notifier pattern (Maps with register/unregister/fire helpers) for cross-component communication: question notifiers, completion notifiers, and orchestrator registry |
 | `assistant/src/calls/call-constants.ts` | Config-backed constants: max call duration, user consultation timeout, silence timeout, denied emergency numbers |
 | `assistant/src/calls/voice-provider.ts` | Abstract VoiceProvider interface for provider-agnostic call initiation |
@@ -3989,7 +3989,7 @@ The bridge function `tryRouteCallMessage()` applies the following decision logic
 
 #### Answer path detail
 
-1. **Question emission**: When the LLM emits `[ASK_USER: question]`, the orchestrator creates a pending question in SQLite, fires the question notifier, and transitions to `waiting_on_user` state.
+1. **Question emission**: When the LLM emits `[ASK_GUARDIAN: question]`, the orchestrator creates a pending question in SQLite, fires the question notifier, and transitions to `waiting_on_user` state.
 2. **In-thread display**: The Session's registered question notifier callback persists an assistant message in the conversation thread (via `conversationStore.addMessage()`) and emits `assistant_text_delta` + `message_complete` events to connected clients.
 3. **Auto-consumption**: `tryRouteCallMessage()` is checked before the agent loop in two entrypoints:
    - **HTTP path**: `DaemonServer.processMessage()` / `persistAndProcessMessage()` in the daemon server.
@@ -4026,7 +4026,7 @@ All three tables live in `~/.vellum/workspace/data/db/assistant.db` alongside ex
 
 - **`call_events`** — Append-only event log for each call session. Event types include `call_started`, `call_connected`, `caller_spoke`, `assistant_spoke`, `user_question_asked`, `user_answered`, `call_ended`, `call_failed`. For voice prompts, `caller_spoke` payloads include speaker context (`speakerId`, `speakerLabel`, `speakerConfidence`, `speakerSource`) when available. Foreign key to `call_sessions(id)` with cascade delete. Includes a unique index on `(call_session_id, dedupe_key)` for callback idempotency.
 
-- **`call_pending_questions`** — Tracks questions the AI asks the user during a call (via the `[ASK_USER: ...]` pattern). Status lifecycle: `pending` -> `answered`/`expired`/`cancelled`. Foreign key to `call_sessions(id)` with cascade delete.
+- **`call_pending_questions`** — Tracks questions the AI asks the user during a call (via the `[ASK_GUARDIAN: ...]` pattern). Status lifecycle: `pending` -> `answered`/`expired`/`cancelled`. Foreign key to `call_sessions(id)` with cascade delete.
 
 ### Gateway Twilio Webhook Ingress
 
@@ -4086,7 +4086,7 @@ Both tools and HTTP routes delegate to the same domain functions in `call-domain
 
 The CallOrchestrator detects two special markers in the LLM's response text:
 
-- **`[ASK_USER: question]`** — The AI needs to consult the user. The orchestrator creates a pending question, notifies the session via `fireCallQuestionNotifier`, puts the caller on hold, and waits for a user answer (timeout configured via `calls.userConsultTimeoutSeconds`).
+- **`[ASK_GUARDIAN: question]`** — The AI needs to consult the guardian. The orchestrator creates a pending question, notifies the session via `fireCallQuestionNotifier`, puts the caller on hold, and waits for a guardian answer (timeout configured via `calls.userConsultTimeoutSeconds`).
 - **`[END_CALL]`** — The AI has determined the call's purpose is fulfilled. The orchestrator sends a goodbye, closes the ConversationRelay session, and marks the call as completed.
 
 Both markers are stripped from the TTS output so the callee never hears the raw control text.
