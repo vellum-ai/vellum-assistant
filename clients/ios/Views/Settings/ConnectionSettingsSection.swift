@@ -120,15 +120,6 @@ struct DaemonConnectionSection: View {
                 Text("Open Vellum on your Mac, go to Settings \u{2192} Connect, and tap Show QR Code.")
             }
 
-            // Manual setup — NavigationLink to sub-view
-            Section {
-                NavigationLink("Manual Setup") {
-                    ManualSetupView(clientProvider: clientProvider)
-                }
-            } footer: {
-                Text("Enter the gateway URL and bearer token manually if you can't scan the QR code.")
-            }
-
         }
         .navigationTitle("Connect")
         .navigationBarTitleDisplayMode(.inline)
