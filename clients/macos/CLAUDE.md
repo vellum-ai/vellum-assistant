@@ -223,6 +223,15 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
 
 Requires Accessibility, Screen Recording, and Microphone permissions (System Settings > Privacy & Security). `PermissionManager` handles checking/prompting. API key stored in Keychain via `APIKeyManager`.
 
+## Developer Local Pairing
+
+Developer-only feature for pairing an iOS device over the local network (LAN) for debugging purposes.
+
+- **What it is:** Allows a macOS instance to expose a local HTTP gateway that an iOS device on the same network can connect to, bypassing the cloud relay.
+- **How to enable:** Settings > Connect > Developer Local Pairing toggle. This is a developer-only feature gated behind the developer settings toggle.
+- **How it works:** The macOS app generates a QR code containing the local HTTP gateway URL. The iOS app scans the QR code and connects directly over LAN if the developer local pairing toggle is enabled on the iOS side.
+- **Security:** HTTP is permitted only for local/private addresses (loopback, mDNS `.local`, link-local, RFC 1918 ranges). Bearer token authentication is still required for all requests. Address validation uses `LocalAddressValidator.isLocalAddress()` in `clients/shared/Utilities/LocalAddressValidator.swift`.
+
 ## Data Storage
 
 - Session logs: `~/Library/Application Support/vellum-assistant/logs/session-*.json`
