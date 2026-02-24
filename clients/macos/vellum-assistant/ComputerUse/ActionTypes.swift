@@ -36,6 +36,7 @@ struct AgentAction: Codable {
     var summary: String?
     var waitDuration: Int?
     var appName: String?
+    var appBundleId: String?
     var script: String?
     var reasoning: String
     var resolvedFromElementId: Int?
@@ -56,6 +57,7 @@ struct AgentAction: Codable {
         summary: String? = nil,
         waitDuration: Int? = nil,
         appName: String? = nil,
+        appBundleId: String? = nil,
         script: String? = nil,
         resolvedFromElementId: Int? = nil,
         resolvedToElementId: Int? = nil,
@@ -74,6 +76,7 @@ struct AgentAction: Codable {
         self.summary = summary
         self.waitDuration = waitDuration
         self.appName = appName
+        self.appBundleId = appBundleId
         self.script = script
         self.resolvedFromElementId = resolvedFromElementId
         self.resolvedToElementId = resolvedToElementId

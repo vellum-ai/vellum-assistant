@@ -235,7 +235,7 @@ final class ActionExecutor: ActionExecuting {
             try drag(from: CGPoint(x: fromX, y: fromY), to: CGPoint(x: endX, y: endY))
         case .openApp:
             guard let appName = action.appName else { throw ExecutorError.appNotFound("(no name)") }
-            try await openApp(name: appName)
+            try await openApp(name: appName, bundleId: action.appBundleId)
         case .runAppleScript:
             guard let source = action.script else { throw ExecutorError.appleScriptMissingScript }
             return try await runAppleScript(source)
