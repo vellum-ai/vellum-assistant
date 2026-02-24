@@ -6,6 +6,7 @@
  */
 
 import { getLogger } from '../util/logger.js';
+import { getTwilioUserPhoneNumber } from '../config/env.js';
 import { isDeniedNumber } from './call-constants.js';
 import {
   createCallSession,
@@ -137,8 +138,8 @@ export async function resolveCallerIdentity(
   if (identityConfig.userNumber) {
     userNumber = identityConfig.userNumber;
     numberSource = 'user_config';
-  } else if (process.env.TWILIO_USER_PHONE_NUMBER) {
-    userNumber = process.env.TWILIO_USER_PHONE_NUMBER;
+  } else if (getTwilioUserPhoneNumber()) {
+    userNumber = getTwilioUserPhoneNumber()!;
     numberSource = 'env_var';
   } else {
     const secureKeyValue = getSecureKey('credential:twilio:user_phone_number');

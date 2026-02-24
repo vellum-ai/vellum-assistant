@@ -21,6 +21,13 @@ import { rotateToolInvocations } from '../memory/tool-usage-store.js';
 import { initializeProviders, getFailoverProvider, listProviders } from '../providers/registry.js';
 import { initializeTools } from '../tools/registry.js';
 import { loadConfig } from '../config/loader.js';
+import {
+  getQdrantUrlEnv,
+  getRuntimeHttpPort,
+  getRuntimeProxyBearerToken,
+  getRuntimeHttpHost,
+  validateEnv,
+} from '../config/env.js';
 import { ensurePromptFiles } from '../config/system-prompt.js';
 import { loadPrebuiltHtml } from '../home-base/prebuilt/seed.js';
 import { DaemonServer } from './server.js';
@@ -316,6 +323,7 @@ function createApprovalCopyGenerator(): ApprovalCopyGenerator {
 // Entry point for the daemon process itself
 export async function runDaemon(): Promise<void> {
   loadDotEnv();
+  validateEnv();
   initSentry();
   await initLogfire();
 
@@ -409,7 +417,7 @@ export async function runDaemon(): Promise<void> {
   log.info('Daemon startup: DaemonServer started');
 
   // Initialize Qdrant vector store — non-fatal so the daemon stays up without it
-  const qdrantUrl = process.env.QDRANT_URL?.trim() || config.memory.qdrant.url;
+  const qdrantUrl = getQdrantUrlEnv() || config.memory.qdrant.url;
   log.info({ qdrantUrl }, 'Daemon startup: initializing Qdrant');
   const qdrantManager = new QdrantManager({
     url: qdrantUrl,
@@ -479,55 +487,53 @@ export async function runDaemon(): Promise<void> {
 
   // Start optional runtime HTTP server when RUNTIME_HTTP_PORT is set
   let runtimeHttp: RuntimeHttpServer | null = null;
-  const httpPortEnv = process.env.RUNTIME_HTTP_PORT;
-  log.info({ httpPortEnv }, 'Daemon startup: checking RUNTIME_HTTP_PORT');
-  if (httpPortEnv) {
-    const port = parseInt(httpPortEnv, 10);
-    if (!isNaN(port) && port > 0) {
-      // Resolve the bearer token in priority order:
-      //   1. Explicit env var (e.g. cloud deploys)
-      //   2. Existing token file on disk (preserves QR-paired iOS devices across restarts)
-      //   3. Fresh random token (first-time startup)
-      const httpTokenPath = getHttpTokenPath();
-      let bearerToken = process.env.RUNTIME_PROXY_BEARER_TOKEN;
-      if (!bearerToken) {
-        try {
-          const existing = readFileSync(httpTokenPath, 'utf-8').trim();
-          if (existing) bearerToken = existing;
-        } catch {
-          // File doesn't exist or can't be read — will generate below
-        }
-      }
-      if (!bearerToken) {
-        bearerToken = randomBytes(32).toString('hex');
-      }
-      writeFileSync(httpTokenPath, bearerToken, { mode: 0o600 });
-      chmodSync(httpTokenPath, 0o600);
-
-      const hostname = process.env.RUNTIME_HTTP_HOST?.trim() || '127.0.0.1';
-
-      runtimeHttp = new RuntimeHttpServer({
-        port,
-        hostname,
-        bearerToken,
-        processMessage: (conversationId, content, attachmentIds, options, sourceChannel) =>
-          server.processMessage(conversationId, content, attachmentIds, options, sourceChannel),
-        persistAndProcessMessage: (conversationId, content, attachmentIds, options, sourceChannel) =>
-          server.persistAndProcessMessage(conversationId, content, attachmentIds, options, sourceChannel),
-        runOrchestrator: server.createRunOrchestrator(),
-        interfacesDir: getInterfacesDir(),
-        approvalCopyGenerator: createApprovalCopyGenerator(),
-      });
+  const httpPort = getRuntimeHttpPort();
+  log.info({ httpPort }, 'Daemon startup: checking RUNTIME_HTTP_PORT');
+  if (httpPort) {
+    const port = httpPort;
+    // Resolve the bearer token in priority order:
+    //   1. Explicit env var (e.g. cloud deploys)
+    //   2. Existing token file on disk (preserves QR-paired iOS devices across restarts)
+    //   3. Fresh random token (first-time startup)
+    const httpTokenPath = getHttpTokenPath();
+    let bearerToken = getRuntimeProxyBearerToken();
+    if (!bearerToken) {
       try {
-        log.info({ port, hostname }, 'Daemon startup: starting runtime HTTP server');
-        await runtimeHttp.start();
-        setRelayBroadcast((msg) => server.broadcast(msg));
-        server.setHttpPort(port);
-        log.info({ port, hostname }, 'Daemon startup: runtime HTTP server listening');
-      } catch (err) {
-        log.warn({ err, port }, 'Failed to start runtime HTTP server, continuing without it');
-        runtimeHttp = null;
+        const existing = readFileSync(httpTokenPath, 'utf-8').trim();
+        if (existing) bearerToken = existing;
+      } catch {
+        // File doesn't exist or can't be read — will generate below
       }
+    }
+    if (!bearerToken) {
+      bearerToken = randomBytes(32).toString('hex');
+    }
+    writeFileSync(httpTokenPath, bearerToken, { mode: 0o600 });
+    chmodSync(httpTokenPath, 0o600);
+
+    const hostname = getRuntimeHttpHost();
+
+    runtimeHttp = new RuntimeHttpServer({
+      port,
+      hostname,
+      bearerToken,
+      processMessage: (conversationId, content, attachmentIds, options, sourceChannel) =>
+        server.processMessage(conversationId, content, attachmentIds, options, sourceChannel),
+      persistAndProcessMessage: (conversationId, content, attachmentIds, options, sourceChannel) =>
+        server.persistAndProcessMessage(conversationId, content, attachmentIds, options, sourceChannel),
+      runOrchestrator: server.createRunOrchestrator(),
+      interfacesDir: getInterfacesDir(),
+      approvalCopyGenerator: createApprovalCopyGenerator(),
+    });
+    try {
+      log.info({ port, hostname }, 'Daemon startup: starting runtime HTTP server');
+      await runtimeHttp.start();
+      setRelayBroadcast((msg) => server.broadcast(msg));
+      server.setHttpPort(port);
+      log.info({ port, hostname }, 'Daemon startup: runtime HTTP server listening');
+    } catch (err) {
+      log.warn({ err, port }, 'Failed to start runtime HTTP server, continuing without it');
+      runtimeHttp = null;
     }
   }
 

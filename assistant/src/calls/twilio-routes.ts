@@ -7,6 +7,7 @@
  */
 
 import { getLogger } from '../util/logger.js';
+import { getCallWelcomeGreeting } from '../config/env.js';
 import {
   getCallSession,
   getCallSessionByCallSid,
@@ -197,7 +198,7 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
     // Fallback to legacy resolution when ingress is not configured
     relayUrl = resolveRelayUrl(twilioConfig.wssBaseUrl, twilioConfig.webhookBaseUrl);
   }
-  const welcomeGreeting = buildWelcomeGreeting(session.task, process.env.CALL_WELCOME_GREETING);
+  const welcomeGreeting = buildWelcomeGreeting(session.task, getCallWelcomeGreeting());
 
   const twiml = generateTwiML(callSessionId, relayUrl, welcomeGreeting, profile);
 

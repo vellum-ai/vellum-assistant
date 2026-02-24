@@ -27,6 +27,8 @@
  * All public-facing ingress URL construction is centralized here.
  */
 
+import { getIngressPublicBaseUrl } from '../config/env.js';
+
 export interface IngressConfig {
   ingress?: { enabled?: boolean; publicBaseUrl?: string };
 }
@@ -61,7 +63,7 @@ export function getPublicBaseUrl(config: IngressConfig): string {
     if (normalized) return normalized;
   }
 
-  const ingressEnvValue = process.env.INGRESS_PUBLIC_BASE_URL;
+  const ingressEnvValue = getIngressPublicBaseUrl();
   if (ingressEnvValue) {
     const normalized = normalizeUrl(ingressEnvValue);
     if (normalized) return normalized;

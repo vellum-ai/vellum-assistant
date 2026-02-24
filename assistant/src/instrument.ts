@@ -1,5 +1,6 @@
 import * as Sentry from "@sentry/node";
 import { APP_VERSION } from "./version.js";
+import { getSentryDsn } from "./config/env.js";
 
 /** Patterns that match sensitive data in Sentry event values. */
 const PII_PATTERNS = [
@@ -30,10 +31,10 @@ function redactObject(obj: unknown): unknown {
   return obj;
 }
 
-/** Call after dotenv has loaded so process.env.SENTRY_DSN is available. */
+/** Call after dotenv has loaded so SENTRY_DSN is available. */
 export function initSentry(): void {
   Sentry.init({
-    dsn: process.env.SENTRY_DSN,
+    dsn: getSentryDsn(),
     release: `vellum-assistant@${APP_VERSION}`,
     environment: APP_VERSION === "0.0.0-dev" ? "development" : "production",
     sendDefaultPii: false,

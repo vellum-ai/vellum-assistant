@@ -14,6 +14,11 @@ import {
 } from '../../inbound/public-ingress-urls.js';
 import type { IngressConfigRequest } from '../ipc-protocol.js';
 import { log, CONFIG_RELOAD_DEBOUNCE_MS, defineHandlers, type HandlerContext } from './shared.js';
+import {
+  getGatewayInternalBaseUrl,
+  getIngressPublicBaseUrl,
+  setIngressPublicBaseUrl,
+} from '../../config/env.js';
 
 // Lazily capture the env-provided INGRESS_PUBLIC_BASE_URL on first access
 // rather than at module load time. The daemon loads ~/.vellum/.env inside
@@ -23,19 +28,14 @@ let _originalIngressEnvCaptured = false;
 let _originalIngressEnv: string | undefined;
 function getOriginalIngressEnv(): string | undefined {
   if (!_originalIngressEnvCaptured) {
-    _originalIngressEnv = process.env.INGRESS_PUBLIC_BASE_URL;
+    _originalIngressEnv = getIngressPublicBaseUrl();
     _originalIngressEnvCaptured = true;
   }
   return _originalIngressEnv;
 }
 
 export function computeGatewayTarget(): string {
-  if (process.env.GATEWAY_INTERNAL_BASE_URL) {
-    return process.env.GATEWAY_INTERNAL_BASE_URL.replace(/\/+$/, '');
-  }
-  const portRaw = process.env.GATEWAY_PORT || '7830';
-  const port = Number(portRaw) || 7830;
-  return `http://127.0.0.1:${port}`;
+  return getGatewayInternalBaseUrl();
 }
 
 /**
@@ -161,15 +161,15 @@ export async function handleIngressConfig(
       // disabled ensures the gateway stops accepting inbound webhooks.
       const isEnabled = (ingress.enabled as boolean | undefined) ?? (value ? true : false);
       if (value && isEnabled) {
-        process.env.INGRESS_PUBLIC_BASE_URL = value;
+        setIngressPublicBaseUrl(value);
       } else if (isEnabled && getOriginalIngressEnv() !== undefined) {
         // Ingress is enabled but the user cleared the URL — fall back to the
         // env var that was present when the process started.
-        process.env.INGRESS_PUBLIC_BASE_URL = getOriginalIngressEnv()!;
+        setIngressPublicBaseUrl(getOriginalIngressEnv()!);
       } else {
         // Ingress is disabled or no URL is configured and no startup env var
         // exists — remove the env var so the gateway stops accepting webhooks.
-        delete process.env.INGRESS_PUBLIC_BASE_URL;
+        setIngressPublicBaseUrl(undefined);
       }
 
       ctx.send(socket, { type: 'ingress_config_response', enabled: isEnabled, publicBaseUrl: value, localGatewayTarget, success: true });
@@ -181,7 +181,7 @@ export async function handleIngressConfig(
       // credential rotation.
       // Use the effective URL from process.env (which accounts for the
       // fallback branch above) rather than the raw `value` from the UI.
-      const effectiveUrl = isEnabled ? process.env.INGRESS_PUBLIC_BASE_URL : undefined;
+      const effectiveUrl = isEnabled ? getIngressPublicBaseUrl() : undefined;
       triggerGatewayReconcile(effectiveUrl);
 
       // Best-effort Twilio webhook reconciliation: when ingress is being
