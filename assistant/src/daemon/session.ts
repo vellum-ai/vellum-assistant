@@ -44,6 +44,7 @@ import type { AssistantAttachmentDraft } from './assistant-attachments.js';
 import {
   handleSurfaceAction as handleSurfaceActionImpl,
   handleSurfaceUndo as handleSurfaceUndoImpl,
+  createSurfaceMutex,
 } from './session-surfaces.js';
 import {
   undo as undoImpl,
@@ -135,6 +136,7 @@ export class Session {
   /** @internal */ lastSurfaceAction = new Map<string, { actionId: string; data?: Record<string, unknown> }>();
   /** @internal */ surfaceState = new Map<string, { surfaceType: SurfaceType; data: SurfaceData }>();
   /** @internal */ surfaceUndoStacks = new Map<string, string[]>();
+  /** @internal */ withSurface = createSurfaceMutex();
   /** @internal */ currentTurnSurfaces: Array<{ surfaceId: string; surfaceType: SurfaceType; title?: string; data: SurfaceData; actions?: Array<{ id: string; label: string; style?: string }>; display?: string }> = [];
   /** @internal */ onEscalateToComputerUse?: (task: string, sourceSessionId: string) => boolean;
   /** @internal */ workspaceTopLevelContext: string | null = null;
