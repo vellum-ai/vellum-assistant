@@ -149,9 +149,15 @@ export async function handleSendMessage(
   };
 
   const { conversationKey, content, attachmentIds } = body;
+  if (!body.sourceChannel || typeof body.sourceChannel !== 'string') {
+    return Response.json(
+      { error: 'sourceChannel is required' },
+      { status: 400 },
+    );
+  }
   const sourceChannel = parseChannelId(body.sourceChannel);
 
-  if (body.sourceChannel != null && !sourceChannel) {
+  if (!sourceChannel) {
     return Response.json(
       { error: `Invalid sourceChannel: ${body.sourceChannel}. Valid values: ${CHANNEL_IDS.join(', ')}` },
       { status: 400 },
@@ -209,7 +215,7 @@ export async function handleSendMessage(
       content ?? '',
       hasAttachments ? attachmentIds : undefined,
       undefined,
-      sourceChannel ?? undefined,
+      sourceChannel,
     );
     return Response.json({ accepted: true, messageId: result.messageId });
   } catch (err) {

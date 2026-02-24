@@ -129,8 +129,8 @@ export function addMessage(conversationId: string, role: string, content: string
   const db = getDb();
   const messageId = uuid();
   const metadataStr = metadata ? JSON.stringify(metadata) : undefined;
-  const userMessageChannel =
-    role === 'user' && metadata && isChannelId(metadata.userMessageChannel)
+  const originChannelCandidate =
+    metadata && isChannelId(metadata.userMessageChannel)
       ? metadata.userMessageChannel
       : null;
   // Wrap insert + updatedAt bump in a transaction so they're atomic.
@@ -151,9 +151,9 @@ export function addMessage(conversationId: string, role: string, content: string
       };
       db.transaction((tx) => {
         tx.insert(messages).values(values).run();
-        if (userMessageChannel) {
+        if (originChannelCandidate) {
           tx.update(conversations)
-            .set({ originChannel: userMessageChannel })
+            .set({ originChannel: originChannelCandidate })
             .where(and(eq(conversations.id, conversationId), isNull(conversations.originChannel)))
             .run();
         }

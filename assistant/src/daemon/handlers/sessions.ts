@@ -300,13 +300,11 @@ export async function handleSessionCreate(
     ctx.socketToSession.set(socket, conversation.id);
     const sendEvent = (event: ServerMessage) => ctx.send(socket, event);
     const requestId = uuid();
-    const transportChannel = parseChannelId(msg.transport?.channelId);
-    if (transportChannel) {
-      session.setTurnChannelContext({
-        userMessageChannel: transportChannel,
-        assistantMessageChannel: transportChannel,
-      });
-    }
+    const transportChannel = parseChannelId(msg.transport?.channelId) ?? 'macos';
+    session.setTurnChannelContext({
+      userMessageChannel: transportChannel,
+      assistantMessageChannel: transportChannel,
+    });
     session.processMessage(msg.initialMessage, [], sendEvent, requestId).catch((err) => {
       const message = err instanceof Error ? err.message : String(err);
       log.error({ err, sessionId: conversation.id }, 'Error processing initial message');
