@@ -18,7 +18,8 @@ struct SettingsConnectTab: View {
     @State private var gatewayTargetCopied: Bool = false
     @State private var showingPairingQR: Bool = false
     @State private var showingRegenerateConfirmation: Bool = false
-    @State private var devPairingExpanded: Bool = false
+    @State private var gatewayExpanded: Bool = true
+    @State private var advancedExpanded: Bool = false
     @State private var diagnosticsExpanded: Bool = false
 
     // Telegram credential entry
@@ -44,13 +45,11 @@ struct SettingsConnectTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
-            showQRSection
+            pairingSection
             gatewaySection
-            bearerTokenSection
-            telegramCard
-            twilioCard
+            channelsSection
+            advancedSection
             diagnosticsSection
-            developerLocalPairingSection
         }
         .onAppear {
             store.refreshIngressConfig()
@@ -58,6 +57,7 @@ struct SettingsConnectTab: View {
             refreshBearerToken()
             store.refreshChannelGuardianStatus(channel: "telegram")
             store.refreshChannelGuardianStatus(channel: "sms")
+            gatewayExpanded = store.ingressPublicBaseUrl.isEmpty
         }
         .onChange(of: store.ingressPublicBaseUrl) { _, newValue in
             if !isGatewayUrlFocused {
@@ -97,82 +97,85 @@ struct SettingsConnectTab: View {
 
     private var gatewaySection: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Gateway & Pairing")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
-
-            // Gateway URL field
-            HStack(spacing: VSpacing.xs) {
-                Text("Gateway URL")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
-            }
-
-            TextField("https://your-tunnel.example.com", text: $gatewayUrlText)
-                .focused($isGatewayUrlFocused)
-                .vInputStyle()
-                .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
-
-            VButton(label: "Save", style: .primary) {
-                store.saveIngressPublicBaseUrl(gatewayUrlText)
-            }
-
-            Divider()
-                .background(VColor.surfaceBorder)
-
-            // Local Gateway Target (read-only)
-            HStack(spacing: VSpacing.xs) {
-                Text("Local Gateway Target")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
-            }
-
-            HStack(spacing: VSpacing.sm) {
-                Text(store.localGatewayTarget)
-                    .font(VFont.mono)
-                    .foregroundColor(VColor.textPrimary)
-                    .textSelection(.enabled)
-                    .padding(VSpacing.md)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(VColor.surface.opacity(0.5))
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.md)
-                            .stroke(VColor.surfaceBorder.opacity(0.3), lineWidth: 1)
-                    )
-
-                Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(store.localGatewayTarget, forType: .string)
-                    gatewayTargetCopied = true
-                    Task {
-                        try? await Task.sleep(nanoseconds: 2_000_000_000)
-                        gatewayTargetCopied = false
+            DisclosureGroup("Gateway", isExpanded: $gatewayExpanded) {
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    // Gateway URL field
+                    HStack(spacing: VSpacing.xs) {
+                        Text("Gateway URL")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
                     }
-                } label: {
-                    Image(systemName: gatewayTargetCopied ? "checkmark" : "doc.on.doc")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(gatewayTargetCopied ? VColor.success : VColor.textSecondary)
-                        .frame(width: 28, height: 28)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Copy gateway address")
-                .help("Copy address")
-            }
 
-            Text("Point your tunnel (ngrok, Cloudflare, etc.) to this address.")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
+                    TextField("https://your-tunnel.example.com", text: $gatewayUrlText)
+                        .focused($isGatewayUrlFocused)
+                        .vInputStyle()
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+
+                    VButton(label: "Save", style: .primary) {
+                        store.saveIngressPublicBaseUrl(gatewayUrlText)
+                    }
+
+                    Divider()
+                        .background(VColor.surfaceBorder)
+
+                    // Local Gateway Target (read-only)
+                    HStack(spacing: VSpacing.xs) {
+                        Text("Local Gateway Target")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+                    }
+
+                    HStack(spacing: VSpacing.sm) {
+                        Text(store.localGatewayTarget)
+                            .font(VFont.mono)
+                            .foregroundColor(VColor.textPrimary)
+                            .textSelection(.enabled)
+                            .padding(VSpacing.md)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(VColor.surface.opacity(0.5))
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: VRadius.md)
+                                    .stroke(VColor.surfaceBorder.opacity(0.3), lineWidth: 1)
+                            )
+
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(store.localGatewayTarget, forType: .string)
+                            gatewayTargetCopied = true
+                            Task {
+                                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                                gatewayTargetCopied = false
+                            }
+                        } label: {
+                            Image(systemName: gatewayTargetCopied ? "checkmark" : "doc.on.doc")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(gatewayTargetCopied ? VColor.success : VColor.textSecondary)
+                                .frame(width: 28, height: 28)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Copy gateway address")
+                        .help("Copy address")
+                    }
+
+                    Text("Point your tunnel (ngrok, Cloudflare, etc.) to this address.")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                }
+                .padding(.top, VSpacing.sm)
+            }
+            .font(VFont.sectionTitle)
+            .foregroundColor(VColor.textPrimary)
         }
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
     }
 
-    // MARK: - Bearer Token Section
+    // MARK: - Bearer Token Content
 
-    private var bearerTokenSection: some View {
+    private var bearerTokenContent: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             Text("Bearer Token")
                 .font(VFont.sectionTitle)
@@ -247,6 +250,38 @@ struct SettingsConnectTab: View {
                     .foregroundColor(VColor.accent)
                 }
             }
+        }
+    }
+
+    // MARK: - Channels Section
+
+    private var channelsSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            Text("Channels")
+                .font(VFont.sectionTitle)
+                .foregroundColor(VColor.textPrimary)
+
+            telegramCard
+            twilioCard
+        }
+    }
+
+    // MARK: - Advanced Section
+
+    private var advancedSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            DisclosureGroup("Advanced", isExpanded: $advancedExpanded) {
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    bearerTokenContent
+
+                    Divider().background(VColor.surfaceBorder)
+
+                    developerLocalPairingContent
+                }
+                .padding(.top, VSpacing.sm)
+            }
+            .font(VFont.sectionTitle)
+            .foregroundColor(VColor.textPrimary)
         }
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
@@ -817,9 +852,9 @@ struct SettingsConnectTab: View {
         }
     }
 
-    // MARK: - Show QR Section (Hero)
+    // MARK: - Pairing Section (Hero)
 
-    private var showQRSection: some View {
+    private var pairingSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             Text("Pair with iOS")
                 .font(VFont.sectionTitle)
@@ -831,6 +866,36 @@ struct SettingsConnectTab: View {
 
             VButton(label: "Show QR Code", leftIcon: "qrcode", style: .primary) {
                 showingPairingQR = true
+            }
+
+            // Status line
+            if !store.ingressPublicBaseUrl.isEmpty && !bearerToken.isEmpty {
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(VColor.success)
+                        .font(.system(size: 14))
+                    Text("Ready to pair")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.success)
+                }
+            } else if store.ingressPublicBaseUrl.isEmpty {
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(VColor.warning)
+                        .font(.system(size: 14))
+                    Text("Gateway URL required")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.warning)
+                }
+            } else {
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(VColor.warning)
+                        .font(.system(size: 14))
+                    Text("Bearer token required")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.warning)
+                }
             }
         }
         .padding(VSpacing.lg)
@@ -954,26 +1019,12 @@ struct SettingsConnectTab: View {
             .foregroundColor(VColor.textMuted)
     }
 
-    // MARK: - Developer Local Pairing Section
+    // MARK: - Developer Local Pairing Content
 
     private var suggestedLanUrl: String? {
         guard let ip = LANIPHelper.currentLANAddress() else { return nil }
         let port = URL(string: store.localGatewayTarget)?.port ?? 7830
         return "http://\(ip):\(port)"
-    }
-
-    private var developerLocalPairingSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            DisclosureGroup(isExpanded: $devPairingExpanded) {
-                developerLocalPairingContent
-            } label: {
-                Text("Developer Local Pairing (LAN-only)")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-            }
-        }
-        .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceSubtle)
     }
 
     private var developerLocalPairingContent: some View {
