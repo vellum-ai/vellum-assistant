@@ -21,4 +21,5 @@ export {
   migrateDropActiveSearchIndex,
   migrateMemorySegmentsIndexes,
   migrateMemoryItemsIndexes,
+  migrateRemainingTableIndexes,
 } from './migrations/index.js';
