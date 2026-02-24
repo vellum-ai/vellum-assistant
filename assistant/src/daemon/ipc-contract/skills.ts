@@ -52,6 +52,8 @@ export interface SkillsCheckUpdatesRequest {
 export interface SkillsSearchRequest {
   type: 'skills_search';
   query: string;
+  /** Platform session token (X-Session-Token) for authenticated catalog fetch. */
+  sessionToken?: string;
 }
 
 export interface SkillsInspectRequest {

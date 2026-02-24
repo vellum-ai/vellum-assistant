@@ -6,8 +6,7 @@ import { getLogger } from '../util/logger.js';
 
 const log = getLogger('vellum-catalog-remote');
 
-const GITHUB_RAW_BASE =
-  'https://raw.githubusercontent.com/vellum-ai/vellum-assistant/main/assistant/src/config/vellum-skills';
+const PLATFORM_URL = process.env.VELLUM_ASSISTANT_PLATFORM_URL ?? 'https://assistant.vellum.ai';
 
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
@@ -43,16 +42,25 @@ function getBundledSkillContent(skillId: string): string | null {
   }
 }
 
-/** Fetch catalog entries (cached, async). Falls back to bundled copy. */
-export async function fetchCatalogEntries(): Promise<CatalogEntry[]> {
+/**
+ * Fetch catalog entries from the platform API. Falls back to bundled copy.
+ * @param sessionToken Optional X-Session-Token for authenticated platform requests.
+ */
+export async function fetchCatalogEntries(sessionToken?: string): Promise<CatalogEntry[]> {
   const now = Date.now();
   if (cachedEntries && now - cacheTimestamp < CACHE_TTL_MS) {
     return cachedEntries;
   }
 
   try {
-    const url = `${GITHUB_RAW_BASE}/catalog.json`;
+    const url = `${PLATFORM_URL}/v1/skills/`;
+    const headers: Record<string, string> = {};
+    if (sessionToken) {
+      headers['X-Session-Token'] = sessionToken;
+    }
+
     const response = await fetch(url, {
+      headers,
       signal: AbortSignal.timeout(5000),
     });
 
@@ -63,14 +71,14 @@ export async function fetchCatalogEntries(): Promise<CatalogEntry[]> {
     const manifest: CatalogManifest = await response.json();
     const skills = manifest.skills;
     if (!Array.isArray(skills) || skills.length === 0) {
-      throw new Error('Remote catalog has invalid or empty skills array');
+      throw new Error('Platform catalog has invalid or empty skills array');
     }
     cachedEntries = skills;
     cacheTimestamp = now;
-    log.info({ count: cachedEntries.length }, 'Fetched remote vellum-skills catalog');
+    log.info({ count: cachedEntries.length }, 'Fetched vellum-skills catalog from platform API');
     return cachedEntries;
   } catch (err) {
-    log.warn({ err }, 'Failed to fetch remote catalog, falling back to bundled copy');
+    log.warn({ err }, 'Failed to fetch catalog from platform API, falling back to bundled copy');
     const bundled = loadBundledCatalog();
     // Cache the bundled result too so we don't re-fetch on every call during outage
     cachedEntries = bundled;
@@ -79,28 +87,13 @@ export async function fetchCatalogEntries(): Promise<CatalogEntry[]> {
   }
 }
 
-/** Fetch a skill's SKILL.md content from GitHub. Falls back to bundled copy. */
+/** Fetch a skill's SKILL.md content. Falls back to bundled copy. */
 export async function fetchSkillContent(skillId: string): Promise<string | null> {
-  try {
-    const url = `${GITHUB_RAW_BASE}/${encodeURIComponent(skillId)}/SKILL.md`;
-    const response = await fetch(url, {
-      signal: AbortSignal.timeout(10000),
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-
-    const content = await response.text();
-    log.info({ skillId }, 'Fetched remote SKILL.md');
-    return content;
-  } catch (err) {
-    log.warn({ err, skillId }, 'Failed to fetch remote SKILL.md, falling back to bundled copy');
-    return getBundledSkillContent(skillId);
-  }
+  // SKILL.md content is bundled — no platform API for individual skill content yet
+  return getBundledSkillContent(skillId);
 }
 
-/** Check if a skill ID exists in the remote catalog. */
+/** Check if a skill ID exists in the catalog. */
 export async function checkVellumSkill(skillId: string): Promise<boolean> {
   const entries = await fetchCatalogEntries();
   return entries.some((e) => e.id === skillId);

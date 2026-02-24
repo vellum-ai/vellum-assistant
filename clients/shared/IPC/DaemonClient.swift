@@ -877,8 +877,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     }
 
     /// Search for skills on ClaWHub.
-    public func searchSkills(query: String) throws {
-        try send(SkillsSearchMessage(query: query))
+    public func searchSkills(query: String, sessionToken: String? = nil) throws {
+        try send(SkillsSearchMessage(query: query, sessionToken: sessionToken))
     }
 
     /// Inspect a ClaWHub skill for detailed metadata.

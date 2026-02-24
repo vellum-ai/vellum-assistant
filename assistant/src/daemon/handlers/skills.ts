@@ -423,8 +423,8 @@ export async function handleSkillsSearch(
   ctx: HandlerContext,
 ): Promise<void> {
   try {
-    // Search vellum-skills catalog (remote with bundled fallback)
-    const catalogEntries = await listCatalogEntries();
+    // Search vellum-skills catalog (platform API with bundled fallback)
+    const catalogEntries = await listCatalogEntries(msg.sessionToken);
     const query = (msg.query ?? '').toLowerCase();
     const matchingCatalog = catalogEntries.filter((e) => {
       if (!query) return true;

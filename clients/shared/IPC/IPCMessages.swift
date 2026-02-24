@@ -630,8 +630,8 @@ extension IPCSkillsCheckUpdatesRequest {
 public typealias SkillsSearchMessage = IPCSkillsSearchRequest
 
 extension IPCSkillsSearchRequest {
-    public init(query: String) {
-        self.init(type: "skills_search", query: query)
+    public init(query: String, sessionToken: String? = nil) {
+        self.init(type: "skills_search", query: query, sessionToken: sessionToken)
     }
 }
 
