@@ -3939,11 +3939,11 @@ The assistant inbox extends the guardian security model to support controlled cr
 
 The channel inbound handler (`channel-routes.ts`) enforces an access control layer between message receipt and agent processing:
 
-1. When `inbox_enabled` is true and the sender is not the guardian, the handler looks up the sender in `assistant_ingress_members` by `(sourceChannel, externalUserId)`.
-2. If no member record exists, the `inbox_default_policy` config determines behavior (allow, deny, or escalate).
-3. If a member exists, their individual `policy` field takes precedence.
+1. When `senderExternalUserId` is present and the sender is not the guardian, the handler looks up the sender in `assistant_ingress_members` by `(sourceChannel, externalUserId)`.
+2. If no member record exists, the message is denied (`not_a_member`).
+3. If a member exists, their individual `policy` field determines behavior (allow, deny, or escalate).
 
-Invite tokens are created via the `ingress_invite` IPC contract. Each token is SHA-256 hashed before storage — the raw token is returned exactly once at creation time. External users redeem invites by sending the token as a channel message, which creates a member record with the default policy.
+Invite tokens are created via the `ingress_invite` IPC contract. Each token is SHA-256 hashed before storage — the raw token is returned exactly once at creation time. External users redeem invites by sending the token as a channel message, which creates a member record with `allow` policy.
 
 #### Escalation Data Flow
 
