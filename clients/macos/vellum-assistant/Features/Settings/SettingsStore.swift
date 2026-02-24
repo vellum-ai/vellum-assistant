@@ -919,6 +919,12 @@ public final class SettingsStore: ObservableObject {
         default:
             break
         }
+        // Invalidate the pending challenge token on the backend so it can't be used after cancellation
+        do {
+            try daemonClient?.sendGuardianVerification(action: "revoke", channel: channel, assistantId: guardianAssistantScope)
+        } catch {
+            log.error("Failed to revoke \(channel) guardian challenge on cancel: \(error)")
+        }
     }
 
     func revokeChannelGuardian(channel: String) {
