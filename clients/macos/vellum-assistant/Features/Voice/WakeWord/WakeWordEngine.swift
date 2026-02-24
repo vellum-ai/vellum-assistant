@@ -15,4 +15,7 @@ protocol WakeWordEngine: AnyObject {
 
     /// Stop the detection engine and release resources.
     func stop()
+
+    /// Process a single frame of Int16 PCM audio samples.
+    func processAudioFrame(_ frame: [Int16])
 }
