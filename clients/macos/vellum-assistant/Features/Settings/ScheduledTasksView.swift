@@ -62,6 +62,7 @@ struct ScheduledTasksView: View {
                         ScheduleRow(
                             schedule: schedule,
                             onToggle: { enabled in toggleSchedule(id: schedule.id, enabled: enabled) },
+                            onRunNow: { runScheduleNow(id: schedule.id) },
                             onDelete: { scheduleToDelete = schedule }
                         )
                     }
@@ -112,6 +113,10 @@ struct ScheduledTasksView: View {
         try? daemonClient.sendToggleSchedule(id: id, enabled: enabled)
     }
 
+    @MainActor private func runScheduleNow(id: String) {
+        try? daemonClient.sendRunScheduleNow(id: id)
+    }
+
     @MainActor private func deleteSchedule(id: String) {
         try? daemonClient.sendRemoveSchedule(id: id)
     }
@@ -122,6 +127,7 @@ struct ScheduledTasksView: View {
 private struct ScheduleRow: View {
     let schedule: ScheduleItem
     let onToggle: (Bool) -> Void
+    let onRunNow: () -> Void
     let onDelete: () -> Void
 
     @State private var isExpanded = false
@@ -196,6 +202,15 @@ private struct ScheduleRow: View {
                 }
 
                 Spacer()
+
+                Button {
+                    onRunNow()
+                } label: {
+                    Image(systemName: "play.fill")
+                        .foregroundStyle(.blue)
+                }
+                .buttonStyle(.borderless)
+                .help("Run now")
 
                 Toggle("", isOn: Binding(
                     get: { schedule.enabled },

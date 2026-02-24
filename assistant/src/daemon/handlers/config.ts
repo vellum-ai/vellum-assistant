@@ -9,7 +9,8 @@ import { getAllTools, getTool } from '../../tools/registry.js';
 import { loadSkillCatalog } from '../../config/skills.js';
 import { parseToolManifestFile } from '../../skills/tool-manifest.js';
 import { join } from 'node:path';
-import { listSchedules, updateSchedule, deleteSchedule, describeCronExpression } from '../../schedule/schedule-store.js';
+import { listSchedules, updateSchedule, deleteSchedule, describeCronExpression, getSchedule, createScheduleRun, completeScheduleRun } from '../../schedule/schedule-store.js';
+import { createConversation } from '../../memory/conversation-store.js';
 import { listReminders, cancelReminder } from '../../tools/reminder/reminder-store.js';
 import { getSecureKey, setSecureKey, deleteSecureKey } from '../../security/secure-keys.js';
 import { upsertCredentialMetadata, deleteCredentialMetadata, getCredentialMetadata } from '../../tools/credentials/metadata-store.js';
@@ -25,6 +26,7 @@ import type {
   UpdateTrustRule,
   ScheduleToggle,
   ScheduleRemove,
+  ScheduleRunNow,
   ReminderCancel,
   ShareToSlackRequest,
   SlackWebhookConfigRequest,
@@ -370,6 +372,35 @@ export function handleScheduleRemove(
     }
   } catch (err) {
     log.error({ err }, 'Failed to remove schedule');
+  }
+  handleSchedulesList(socket, ctx);
+}
+
+export async function handleScheduleRunNow(
+  msg: ScheduleRunNow,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): Promise<void> {
+  const schedule = getSchedule(msg.id);
+  if (!schedule) {
+    log.warn({ id: msg.id }, 'Schedule not found for run-now');
+    return;
+  }
+
+  const conversation = createConversation(`Schedule (manual): ${schedule.name}`);
+  const runId = createScheduleRun(schedule.id, conversation.id);
+
+  try {
+    log.info({ jobId: schedule.id, name: schedule.name, conversationId: conversation.id }, 'Executing schedule manually (run now)');
+    const session = await ctx.getOrCreateSession(conversation.id, socket, true);
+    await session.processMessage(schedule.message, [], (event) => {
+      ctx.send(socket, event);
+    });
+    completeScheduleRun(runId, { status: 'ok' });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.warn({ err, jobId: schedule.id, name: schedule.name }, 'Manual schedule execution failed');
+    completeScheduleRun(runId, { status: 'error', error: message });
   }
   handleSchedulesList(socket, ctx);
 }
@@ -2555,6 +2586,7 @@ export const configHandlers = defineHandlers({
   schedules_list: (_msg, socket, ctx) => handleSchedulesList(socket, ctx),
   schedule_toggle: handleScheduleToggle,
   schedule_remove: handleScheduleRemove,
+  schedule_run_now: handleScheduleRunNow,
   reminders_list: (_msg, socket, ctx) => handleRemindersList(socket, ctx),
   reminder_cancel: handleReminderCancel,
   share_to_slack: handleShareToSlack,
