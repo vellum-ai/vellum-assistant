@@ -897,8 +897,11 @@ struct SettingsConnectTab: View {
             let trimmedOverrideToken = iosPairingTokenOverride.trimmingCharacters(in: .whitespacesAndNewlines)
             let hasToken = !bearerToken.isEmpty || (iosPairingUseOverride && !trimmedOverrideToken.isEmpty)
 
+            // Token is from daemon file (not from developer override)
+            let tokenFromDaemon = !bearerToken.isEmpty && !iosPairingUseOverride
+
             if hasGateway && hasToken {
-                // "Ready to pair" — green checkmark + subtle regenerate
+                // "Ready to pair" — green checkmark + subtle regenerate (daemon token only)
                 HStack(spacing: VSpacing.sm) {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundColor(VColor.success)
@@ -906,13 +909,16 @@ struct SettingsConnectTab: View {
                     Text("Ready to pair")
                         .font(VFont.body)
                         .foregroundColor(VColor.success)
-                    Spacer()
-                    Button("Regenerate Token") {
-                        showingRegenerateConfirmation = true
+                    if tokenFromDaemon {
+                        Spacer()
+                        Button("Regenerate Token") {
+                            showingRegenerateConfirmation = true
+                        }
+                        .buttonStyle(.plain)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                        .help("Replace the current token. Paired devices will need to reconnect.")
                     }
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-                    .help("Replace the current token. Paired devices will need to reconnect.")
                 }
             } else if !hasGateway {
                 // "Configure a gateway URL below" — amber warning
