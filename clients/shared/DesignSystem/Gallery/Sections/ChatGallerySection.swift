@@ -314,22 +314,99 @@ struct ChatGallerySection: View {
             // MARK: - Completion Lists
             GallerySectionHeader(
                 title: "Completion Lists",
-                description: "UsedToolsListCompact"
+                description: "UsedToolsListCompact — collapsible pill summarising completed tool steps."
             )
-            Text("Coming soon")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+
+            VCard {
+                VStack(alignment: .leading, spacing: VSpacing.lg) {
+                    Text("Completed 3 steps (mix of success and error)")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+
+                    UsedToolsListCompact(toolCalls: [
+                        ToolCallData(
+                            toolName: "file_read",
+                            inputSummary: "Sources/App/main.swift",
+                            isError: false,
+                            isComplete: true,
+                            startedAt: Date().addingTimeInterval(-3.2),
+                            completedAt: Date()
+                        ),
+                        ToolCallData(
+                            toolName: "bash",
+                            inputSummary: "swift build",
+                            isError: true,
+                            isComplete: true,
+                            startedAt: Date().addingTimeInterval(-12.5),
+                            completedAt: Date()
+                        ),
+                        ToolCallData(
+                            toolName: "file_edit",
+                            inputSummary: "Package.swift",
+                            isError: false,
+                            isComplete: true,
+                            startedAt: Date().addingTimeInterval(-1.8),
+                            completedAt: Date()
+                        ),
+                    ])
+
+                    Divider().background(VColor.surfaceBorder)
+
+                    Text("Single step (shows action description instead of count)")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+
+                    UsedToolsListCompact(toolCalls: [
+                        ToolCallData(
+                            toolName: "web_search",
+                            inputSummary: "SwiftUI adaptive layout",
+                            isError: false,
+                            isComplete: true,
+                            startedAt: Date().addingTimeInterval(-2.0),
+                            completedAt: Date()
+                        ),
+                    ])
+                }
+            }
 
             Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
 
             // MARK: - Progress Indicators
             GallerySectionHeader(
                 title: "Progress Indicators",
-                description: "LiveToolProgressView, TypingIndicatorView"
+                description: "TypingIndicatorView, LiveToolProgressView, RunningIndicator"
             )
-            Text("Coming soon")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+
+            VCard {
+                VStack(alignment: .leading, spacing: VSpacing.lg) {
+                    Text("TypingIndicatorView — animated dots while assistant is thinking")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+
+                    HStack {
+                        TypingIndicatorView()
+                        Spacer()
+                    }
+
+                    Divider().background(VColor.surfaceBorder)
+
+                    Text("LiveToolProgressView — macOS only (clients/macos/)")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                    Text("Shows live progress for running tool calls with a spinning indicator and step list. Not available in the shared gallery because it depends on macOS-only imports.")
+                        .font(VFont.small)
+                        .foregroundColor(VColor.textMuted)
+
+                    Divider().background(VColor.surfaceBorder)
+
+                    Text("RunningIndicator — macOS only (clients/macos/)")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                    Text("Spinning arc indicator used alongside tool progress views. Not available in the shared gallery because it depends on macOS-only imports.")
+                        .font(VFont.small)
+                        .foregroundColor(VColor.textMuted)
+                }
+            }
 
             Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
 
