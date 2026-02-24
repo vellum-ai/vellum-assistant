@@ -236,10 +236,18 @@ struct ChatContentView: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundColor(.white)
                 .font(VFont.caption)
-            Text(errorText)
-                .font(VFont.caption)
-                .foregroundColor(.white)
-                .lineLimit(2)
+            VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                Text(errorText)
+                    .font(VFont.caption)
+                    .foregroundColor(.white)
+                    .lineLimit(2)
+                if viewModel.isConnectionError, let hint = viewModel.connectionDiagnosticHint {
+                    Text(hint)
+                        .font(VFont.small)
+                        .foregroundColor(.white.opacity(0.8))
+                        .lineLimit(2)
+                }
+            }
             Spacer()
             if viewModel.isSecretBlockError {
                 Button(action: { viewModel.sendAnyway() }) {
