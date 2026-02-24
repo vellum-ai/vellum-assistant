@@ -138,7 +138,7 @@ export function validateAndConsumeChallenge(
       success: false,
       reason: composeApprovalMessage({
         scenario: 'guardian_verify_failed',
-        failureReason: 'Too many attempts. Please try again later.',
+        failureReason: 'The verification code is invalid or has expired.',
       }),
     };
   }
