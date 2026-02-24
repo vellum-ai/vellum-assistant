@@ -4091,7 +4091,6 @@ The Calls subsystem supports both **outbound** and **inbound** voice calls via T
 ```mermaid
 sequenceDiagram
     participant User as User (Chat UI)
-    participant Session as Session / Tool Executor
     participant CallStore as CallStore (SQLite)
     participant TwilioProvider as TwilioProvider
     participant TwilioAPI as Twilio REST API
@@ -4157,9 +4156,9 @@ sequenceDiagram
     end
 
     alt END_CALL pattern detected
-        Orch->>WS: endSession()
-        Orch->>CallStore: updateCallSession(completed)
-        Orch->>State: fireCallCompletionNotifier()
+        Ctrl->>WS: endSession()
+        Ctrl->>CallStore: updateCallSession(completed)
+        Ctrl->>State: fireCallCompletionNotifier()
     end
 
     TwilioAPI->>Gateway: POST /webhooks/twilio/status
