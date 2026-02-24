@@ -201,10 +201,14 @@ async function deliverGeneratedApprovalPrompt(params: DeliverGeneratedApprovalPr
       { fallbackText: prompt.plainTextFallback, requiredKeywords: keywords },
     );
 
+    // Embed the run reference so plain-text replies can disambiguate when
+    // multiple approvals are pending for the same guardian chat.
+    const taggedFallback = `${plainTextFallback}\n[ref:${uiMetadata.runId}]`;
+
     try {
       await deliverChannelReply(replyCallbackUrl, {
         chatId,
-        text: plainTextFallback,
+        text: taggedFallback,
         assistantId,
       }, bearerToken);
       return true;
@@ -222,10 +226,13 @@ async function deliverGeneratedApprovalPrompt(params: DeliverGeneratedApprovalPr
     { fallbackText: prompt.plainTextFallback, requiredKeywords: keywords },
   );
 
+  // Embed the run reference for disambiguation in multi-pending scenarios.
+  const taggedPlainText = `${plainText}\n[ref:${uiMetadata.runId}]`;
+
   try {
     await deliverChannelReply(replyCallbackUrl, {
       chatId,
-      text: plainText,
+      text: taggedPlainText,
       assistantId,
     }, bearerToken);
     return true;
