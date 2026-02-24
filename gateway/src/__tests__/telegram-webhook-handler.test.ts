@@ -43,6 +43,14 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     smsDeliverAuthBypass: false,
     ingressPublicBaseUrl: undefined,
     gatewayInternalBaseUrl: "http://127.0.0.1:7830",
+    whatsappPhoneNumberId: undefined,
+    whatsappAccessToken: undefined,
+    whatsappAppSecret: undefined,
+    whatsappWebhookVerifyToken: undefined,
+    whatsappDeliverAuthBypass: false,
+    whatsappTimeoutMs: 15000,
+    whatsappMaxRetries: 3,
+    whatsappInitialBackoffMs: 1000,
     ...overrides,
   };
   if (merged.runtimeGatewayOriginSecret === undefined) {

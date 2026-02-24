@@ -46,6 +46,14 @@ const baseConfig: GatewayConfig = {
   smsDeliverAuthBypass: false,
   ingressPublicBaseUrl: undefined,
   unmappedPolicy: "reject",
+  whatsappPhoneNumberId: undefined,
+  whatsappAccessToken: undefined,
+  whatsappAppSecret: undefined,
+  whatsappWebhookVerifyToken: undefined,
+  whatsappDeliverAuthBypass: false,
+  whatsappTimeoutMs: 15000,
+  whatsappMaxRetries: 3,
+  whatsappInitialBackoffMs: 1000,
 };
 
 const sampleApproval: ApprovalPayload = {
