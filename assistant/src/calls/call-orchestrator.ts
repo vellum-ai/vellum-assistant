@@ -21,6 +21,7 @@ import { getMaxCallDurationMs, getUserConsultationTimeoutMs, SILENCE_TIMEOUT_MS 
 import type { RelayConnection } from './relay-server.js';
 import { registerCallOrchestrator, unregisterCallOrchestrator, fireCallQuestionNotifier, fireCallCompletionNotifier, fireCallTranscriptNotifier } from './call-state.js';
 import type { PromptSpeakerContext } from './speaker-identification.js';
+import { addPointerMessage, formatDuration } from './call-pointer-messages.js';
 
 const log = getLogger('call-orchestrator');
 
@@ -455,10 +456,17 @@ export class CallOrchestrator {
         updateCallSession(this.callSessionId, { status: 'completed', endedAt: Date.now() });
         recordCallEvent(this.callSessionId, 'call_ended', { reason: 'completed' });
 
-        // Notify the conversation when this is the first transition
-        // into a terminal call state.
+        // Notify the voice conversation
         if (shouldNotifyCompletion && currentSession) {
           fireCallCompletionNotifier(currentSession.conversationId, this.callSessionId);
+        }
+
+        // Post a pointer message in the initiating conversation
+        if (currentSession?.initiatedFromConversationId) {
+          const durationMs = currentSession.startedAt ? Date.now() - currentSession.startedAt : 0;
+          addPointerMessage(currentSession.initiatedFromConversationId, 'completed', currentSession.toNumber, {
+            duration: durationMs > 0 ? formatDuration(durationMs) : undefined,
+          });
         }
         this.state = 'idle';
         return;
@@ -568,6 +576,14 @@ export class CallOrchestrator {
         recordCallEvent(this.callSessionId, 'call_ended', { reason: 'max_duration' });
         if (shouldNotifyCompletion && currentSession) {
           fireCallCompletionNotifier(currentSession.conversationId, this.callSessionId);
+        }
+
+        // Post a pointer message in the initiating conversation
+        if (currentSession?.initiatedFromConversationId) {
+          const durationMs = currentSession.startedAt ? Date.now() - currentSession.startedAt : 0;
+          addPointerMessage(currentSession.initiatedFromConversationId, 'completed', currentSession.toNumber, {
+            duration: durationMs > 0 ? formatDuration(durationMs) : undefined,
+          });
         }
       }, 3000);
     }, maxDurationMs);

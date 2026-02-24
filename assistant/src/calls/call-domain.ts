@@ -28,6 +28,7 @@ import { VALID_CALLER_IDENTITY_MODES } from '../config/schema.js';
 import type { AssistantConfig } from '../config/types.js';
 import { getOrCreateConversation } from '../memory/conversation-key-store.js';
 import { upsertBinding } from '../memory/external-conversation-store.js';
+import { addPointerMessage } from './call-pointer-messages.js';
 
 const log = getLogger('call-domain');
 
@@ -262,6 +263,9 @@ export async function startCall(input: StartCallInput): Promise<StartCallResult 
 
     log.info({ callSessionId: session.id, callSid }, 'Call initiated successfully');
 
+    // Post a concise pointer message in the initiating conversation
+    addPointerMessage(conversationId, 'started', phoneNumber);
+
     return {
       ok: true,
       session: { ...session, providerCallSid: callSid },
@@ -284,6 +288,9 @@ export async function startCall(input: StartCallInput): Promise<StartCallResult 
         lastError: msg,
       });
     }
+
+    // Post a failure pointer message in the initiating conversation
+    addPointerMessage(conversationId, 'failed', phoneNumber, { reason: msg });
 
     return { ok: false, error: `Error initiating call: ${msg}`, status: 500 };
   }

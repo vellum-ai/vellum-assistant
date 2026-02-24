@@ -16,6 +16,7 @@ import {
 } from './call-store.js';
 import { CallOrchestrator } from './call-orchestrator.js';
 import { fireCallTranscriptNotifier, fireCallCompletionNotifier } from './call-state.js';
+import { addPointerMessage, formatDuration } from './call-pointer-messages.js';
 import {
   extractPromptSpeakerMetadata,
   SpeakerIdentityTracker,
@@ -252,6 +253,14 @@ export class RelayConnection {
         reason: reason || 'relay_closed',
         closeCode: code,
       });
+
+      // Post a pointer message in the initiating conversation
+      if (session.initiatedFromConversationId) {
+        const durationMs = session.startedAt ? Date.now() - session.startedAt : 0;
+        addPointerMessage(session.initiatedFromConversationId, 'completed', session.toNumber, {
+          duration: durationMs > 0 ? formatDuration(durationMs) : undefined,
+        });
+      }
     } else {
       const detail = reason || (code ? `relay_closed_${code}` : 'relay_closed_abnormal');
       updateCallSession(this.callSessionId, {
@@ -263,6 +272,13 @@ export class RelayConnection {
         reason: detail,
         closeCode: code,
       });
+
+      // Post a failure pointer message in the initiating conversation
+      if (session.initiatedFromConversationId) {
+        addPointerMessage(session.initiatedFromConversationId, 'failed', session.toNumber, {
+          reason: detail,
+        });
+      }
     }
 
     expirePendingQuestions(this.callSessionId);
