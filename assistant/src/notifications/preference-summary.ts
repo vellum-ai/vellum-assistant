@@ -59,12 +59,12 @@ function sanitizePreferenceText(text: string): string {
 
 /**
  * Safely convert and sanitize a value to a string.
- * If the value is already a string, sanitizes it with sanitizePreferenceText.
- * If it's not a string, coerces it to a string without sanitization.
- * This handles legacy or manually inserted JSON that may contain non-string values.
+ * Coerces to string first (if needed) then sanitizes with sanitizePreferenceText.
+ * This ensures all values are sanitized regardless of their original type,
+ * preventing prompt injection via coerced types.
  */
 function safeString(value: unknown): string {
-  return typeof value === 'string' ? sanitizePreferenceText(value) : String(value ?? '');
+  return sanitizePreferenceText(typeof value === 'string' ? value : String(value ?? ''));
 }
 
 // ── Condition formatting ────────────────────────────────────────────────
