@@ -25,7 +25,7 @@ struct PairingQRCodeSheet: View {
     private var canGenerateQR: Bool {
         let hasRequiredFields = !gatewayUrl.isEmpty && !resolvedBearerToken.isEmpty
         if isLocalOverride {
-            // For developer local pairing, the gateway is not required
+            // For developer local pairing, the ingress-enabled flag is not required
             // but the URL must be a local/private address
             guard let url = URL(string: gatewayUrl), let host = url.host else { return false }
             return hasRequiredFields && LocalAddressValidator.isLocalAddress(host)
