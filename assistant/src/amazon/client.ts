@@ -56,6 +56,7 @@ import type { ExtractedCredential } from '../tools/browser/network-recording-typ
 import { extensionRelayServer } from '../browser-extension-relay/server.js';
 import type { ExtensionResponse } from '../browser-extension-relay/protocol.js';
 import { readHttpToken } from '../util/platform.js';
+import { getRuntimeHttpPort } from '../config/env.js';
 
 const AMAZON_BASE = 'https://www.amazon.com';
 
@@ -80,7 +81,8 @@ async function sendRelayCommand(command: Record<string, unknown>): Promise<Exten
     throw new Error('Browser extension relay is not connected and no HTTP token found. Is the daemon running?');
   }
 
-  const resp = await fetch('http://127.0.0.1:7821/v1/browser-relay/command', {
+  const port = getRuntimeHttpPort() ?? 7821;
+  const resp = await fetch(`http://127.0.0.1:${port}/v1/browser-relay/command`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

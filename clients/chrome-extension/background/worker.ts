@@ -1,14 +1,14 @@
 /**
  * Chrome MV3 service worker — browser-relay bridge.
  *
- * Connects to ws://127.0.0.1:7821/v1/browser-relay and dispatches
+ * Connects to ws://127.0.0.1:<relayPort>/v1/browser-relay and dispatches
  * ExtensionCommands from the server to browser APIs, sending back
  * ExtensionResponses.
  */
 
 import type { ExtensionCommand, ExtensionResponse, ExtensionHeartbeat } from '../../../assistant/src/browser-extension-relay/protocol.js';
 
-const RELAY_URL_BASE = 'ws://127.0.0.1:7821/v1/browser-relay';
+const DEFAULT_RELAY_PORT = 7821;
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const RECONNECT_BASE_MS = 1_000;
 const RECONNECT_MAX_MS = 30_000;
@@ -27,6 +27,17 @@ async function getBearerToken(): Promise<string | null> {
   return typeof result.bearerToken === 'string' ? result.bearerToken : null;
 }
 
+async function getRelayPort(): Promise<number> {
+  const result = await chrome.storage.local.get('relayPort');
+  const stored = result.relayPort;
+  if (typeof stored === 'number' && stored > 0 && stored <= 65535) return stored;
+  if (typeof stored === 'string') {
+    const parsed = parseInt(stored, 10);
+    if (!isNaN(parsed) && parsed > 0 && parsed <= 65535) return parsed;
+  }
+  return DEFAULT_RELAY_PORT;
+}
+
 // ── WebSocket lifecycle ─────────────────────────────────────────────
 
 async function connect(): Promise<void> {
@@ -34,8 +45,9 @@ async function connect(): Promise<void> {
     return;
   }
 
-  const token = await getBearerToken();
-  const url = token ? `${RELAY_URL_BASE}?token=${encodeURIComponent(token)}` : RELAY_URL_BASE;
+  const [token, port] = await Promise.all([getBearerToken(), getRelayPort()]);
+  const relayUrlBase = `ws://127.0.0.1:${port}/v1/browser-relay`;
+  const url = token ? `${relayUrlBase}?token=${encodeURIComponent(token)}` : relayUrlBase;
 
   ws = new WebSocket(url);
 
