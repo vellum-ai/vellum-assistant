@@ -78,6 +78,8 @@ import { handleSubscribeAssistantEvents } from './routes/events-routes.js';
 import { consumeCallback, consumeCallbackError } from '../security/oauth-callback-registry.js';
 import { PairingStore } from '../daemon/pairing-store.js';
 import type { ServerMessage } from '../daemon/ipc-contract.js';
+import { assistantEventHub } from './assistant-event-hub.js';
+import { buildAssistantEvent } from './assistant-event.js';
 
 // Middleware
 import {
@@ -183,10 +185,19 @@ export class RuntimeHttpServer {
   }
 
   private get pairingContext(): PairingHandlerContext {
+    const ipcBroadcast = this.pairingBroadcast;
     return {
       pairingStore: this.pairingStore,
       bearerToken: this.bearerToken,
-      pairingBroadcast: this.pairingBroadcast,
+      pairingBroadcast: ipcBroadcast
+        ? (msg) => {
+            // Broadcast to IPC socket clients (local Unix socket)
+            ipcBroadcast(msg);
+            // Also publish to the event hub so HTTP/SSE clients (e.g. macOS
+            // app with localHttpEnabled) receive pairing approval requests.
+            void assistantEventHub.publish(buildAssistantEvent('self', msg));
+          }
+        : undefined,
     };
   }
 
