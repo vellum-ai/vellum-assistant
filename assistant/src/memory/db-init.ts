@@ -1267,5 +1267,63 @@ export function initializeDb(): void {
 
   migrateMemoryFtsBackfill(database);
 
+  // ── Notification System ──────────────────────────────────────────────
+
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS notification_preferences (
+      assistant_id TEXT NOT NULL,
+      notification_type TEXT NOT NULL,
+      channel TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+
+  database.run(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_preferences_unique ON notification_preferences(assistant_id, notification_type, channel)`);
+
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS notification_events (
+      id TEXT PRIMARY KEY,
+      assistant_id TEXT NOT NULL,
+      notification_type TEXT NOT NULL,
+      delivery_class TEXT NOT NULL,
+      source_channel TEXT NOT NULL,
+      source_session_id TEXT NOT NULL,
+      source_event_id TEXT NOT NULL,
+      requires_action INTEGER NOT NULL DEFAULT 0,
+      payload_json TEXT NOT NULL DEFAULT '{}',
+      dedupe_key TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_notification_events_assistant_type_created ON notification_events(assistant_id, notification_type, created_at)`);
+  database.run(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_events_dedupe ON notification_events(assistant_id, dedupe_key) WHERE dedupe_key IS NOT NULL`);
+
+  database.run(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS notification_deliveries (
+      id TEXT PRIMARY KEY,
+      notification_event_id TEXT NOT NULL REFERENCES notification_events(id),
+      assistant_id TEXT NOT NULL,
+      channel TEXT NOT NULL,
+      destination TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      attempt INTEGER NOT NULL DEFAULT 1,
+      rendered_title TEXT,
+      rendered_body TEXT,
+      error_code TEXT,
+      error_message TEXT,
+      sent_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+
+  database.run(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_deliveries_unique ON notification_deliveries(notification_event_id, channel, destination, attempt)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_notification_deliveries_event_id ON notification_deliveries(notification_event_id)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_notification_deliveries_assistant_status ON notification_deliveries(assistant_id, status)`);
+
   validateMigrationState(database);
 }

@@ -887,3 +887,48 @@ export const assistantInboxThreadState = sqliteTable('assistant_inbox_thread_sta
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });
+
+// ── Notification System ──────────────────────────────────────────────
+
+export const notificationPreferences = sqliteTable('notification_preferences', {
+  assistantId: text('assistant_id').notNull(),
+  notificationType: text('notification_type').notNull(),
+  channel: text('channel').notNull(),
+  enabled: integer('enabled').notNull().default(1),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+export const notificationEvents = sqliteTable('notification_events', {
+  id: text('id').primaryKey(),
+  assistantId: text('assistant_id').notNull(),
+  notificationType: text('notification_type').notNull(),
+  deliveryClass: text('delivery_class').notNull(),
+  sourceChannel: text('source_channel').notNull(),
+  sourceSessionId: text('source_session_id').notNull(),
+  sourceEventId: text('source_event_id').notNull(),
+  requiresAction: integer('requires_action').notNull().default(0),
+  payloadJson: text('payload_json').notNull().default('{}'),
+  dedupeKey: text('dedupe_key'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+export const notificationDeliveries = sqliteTable('notification_deliveries', {
+  id: text('id').primaryKey(),
+  notificationEventId: text('notification_event_id')
+    .notNull()
+    .references(() => notificationEvents.id),
+  assistantId: text('assistant_id').notNull(),
+  channel: text('channel').notNull(),
+  destination: text('destination').notNull(),
+  status: text('status').notNull().default('pending'),
+  attempt: integer('attempt').notNull().default(1),
+  renderedTitle: text('rendered_title'),
+  renderedBody: text('rendered_body'),
+  errorCode: text('error_code'),
+  errorMessage: text('error_message'),
+  sentAt: integer('sent_at'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
