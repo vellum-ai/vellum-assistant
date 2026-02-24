@@ -216,6 +216,7 @@ export function handleSessionList(socket: net.Socket, ctx: HandlerContext, offse
         title: c.title ?? 'Untitled',
         updatedAt: c.updatedAt,
         threadType: normalizeThreadType(c.threadType),
+        source: c.source ?? 'user',
         ...(binding ? {
           channelBinding: {
             sourceChannel: binding.sourceChannel,

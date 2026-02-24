@@ -2783,14 +2783,16 @@ public struct IPCSessionListResponseSession: Codable, Sendable {
     public let title: String
     public let updatedAt: Int
     public let threadType: String?
+    public let source: String?
     /// Channel binding metadata exposed in session/conversation list APIs.
     public let channelBinding: IPCChannelBinding?
 
-    public init(id: String, title: String, updatedAt: Int, threadType: String? = nil, channelBinding: IPCChannelBinding? = nil) {
+    public init(id: String, title: String, updatedAt: Int, threadType: String? = nil, source: String? = nil, channelBinding: IPCChannelBinding? = nil) {
         self.id = id
         self.title = title
         self.updatedAt = updatedAt
         self.threadType = threadType
+        self.source = source
         self.channelBinding = channelBinding
     }
 }
