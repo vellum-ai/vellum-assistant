@@ -792,7 +792,7 @@ class BrowserManager {
     // Check if an unconsumed download already completed for this session
     const existing = this.downloads.get(sessionId);
     if (existing && existing.length > 0) {
-      const info = existing.pop()!;
+      const info = existing.shift()!;
       if (existing.length === 0) this.downloads.delete(sessionId);
       return Promise.resolve(info);
     }
