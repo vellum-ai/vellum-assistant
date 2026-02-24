@@ -503,20 +503,15 @@ final class VoiceModeManager: ObservableObject {
     }
 
     private func startConversationTimeout() {
-        // Don't start a timeout if there's no active voice session — in-flight
-        // async work (e.g. transcription) can set state to .idle after
-        // deactivate() has already cleared chatViewModel.
-        guard chatViewModel != nil else { return }
-
-        conversationTimeoutTask?.cancel()
+        cancelConversationTimeout()
+        let interval = conversationTimeoutInterval
+        let clampedInterval = max(1.0, interval.isFinite ? interval : 30.0)
         conversationTimeoutTask = Task { [weak self] in
-            let interval = self?.conversationTimeoutInterval ?? 30
-            // Clamp to a safe range before UInt64 conversion to avoid crash
-            // on negative or NaN values from misconfigured settings.
-            let clampedInterval = max(1.0, interval.isFinite ? interval : 30.0)
             try? await Task.sleep(nanoseconds: UInt64(clampedInterval * 1_000_000_000))
-            guard let self, !Task.isCancelled, self.state == .idle else { return }
-            log.info("Voice mode: conversation timeout after \(clampedInterval)s idle — auto-deactivating")
+            guard let self, !Task.isCancelled else { return }
+            // Only auto-deactivate if we're still in an active session
+            guard self.state == .idle, self.chatViewModel != nil else { return }
+            log.info("Voice mode: conversation timeout — auto-deactivating")
             self.wasAutoDeactivated = true
             self.deactivate()
         }
