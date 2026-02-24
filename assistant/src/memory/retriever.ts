@@ -161,40 +161,50 @@ async function collectAndMergeCandidates(
     && cheapCandidates.filter((c) => c.lexical >= etConfig.confidenceThreshold).length >= etConfig.minHighConfidence;
 
   // -- Phase 2: expensive searches (skipped on early termination) --
+  // Semantic search (async Qdrant network call) and entity search (sync
+  // SQLite graph traversal) are independent. Start the network call first,
+  // run the sync work while it's in flight, then await the result.
   let semantic: Candidate[] = [];
   let semanticSearchFailed = false;
-  if (queryVector && !canTerminateEarly) {
-    try {
-      semantic = await semanticSearch(queryVector, opts?.provider ?? 'unknown', opts?.model ?? 'unknown', config.memory.retrieval.semanticTopK, excludeMessageIds, scopeIds);
-    } catch (err) {
-      semanticSearchFailed = true;
-      if (isQdrantConnectionError(err)) {
-        log.warn({ err }, 'Qdrant is unavailable — semantic search disabled, memory recall will be degraded');
-      } else {
-        log.warn({ err }, 'Semantic search failed, continuing with other retrieval methods');
-      }
-    }
-  }
-
   let entity: Candidate[] = [];
   let candidateDepths: Map<string, number> | undefined;
   let relationSeedEntityCount = 0;
   let relationTraversedEdgeCount = 0;
   let relationNeighborEntityCount = 0;
   let relationExpandedItemCount = 0;
-  if (config.memory.entity.enabled && !canTerminateEarly) {
-    const entitySearchResult = entitySearch(
-      query,
-      config.memory.entity,
-      scopeIds,
-      excludeMessageIds,
-    );
-    entity = entitySearchResult.candidates;
-    candidateDepths = entitySearchResult.candidateDepths;
-    relationSeedEntityCount = entitySearchResult.relationSeedEntityCount;
-    relationTraversedEdgeCount = entitySearchResult.relationTraversedEdgeCount;
-    relationNeighborEntityCount = entitySearchResult.relationNeighborEntityCount;
-    relationExpandedItemCount = entitySearchResult.relationExpandedItemCount;
+
+  if (!canTerminateEarly) {
+    const semanticPromise = queryVector
+      ? semanticSearch(queryVector, opts?.provider ?? 'unknown', opts?.model ?? 'unknown', config.memory.retrieval.semanticTopK, excludeMessageIds, scopeIds)
+          .catch((err): Candidate[] => {
+            semanticSearchFailed = true;
+            if (isQdrantConnectionError(err)) {
+              log.warn({ err }, 'Qdrant is unavailable — semantic search disabled, memory recall will be degraded');
+            } else {
+              log.warn({ err }, 'Semantic search failed, continuing with other retrieval methods');
+            }
+            return [];
+          })
+      : null;
+
+    if (config.memory.entity.enabled) {
+      const entitySearchResult = entitySearch(
+        query,
+        config.memory.entity,
+        scopeIds,
+        excludeMessageIds,
+      );
+      entity = entitySearchResult.candidates;
+      candidateDepths = entitySearchResult.candidateDepths;
+      relationSeedEntityCount = entitySearchResult.relationSeedEntityCount;
+      relationTraversedEdgeCount = entitySearchResult.relationTraversedEdgeCount;
+      relationNeighborEntityCount = entitySearchResult.relationNeighborEntityCount;
+      relationExpandedItemCount = entitySearchResult.relationExpandedItemCount;
+    }
+
+    if (semanticPromise) {
+      semantic = await semanticPromise;
+    }
   }
 
   if (canTerminateEarly) {
