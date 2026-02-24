@@ -163,11 +163,7 @@ extension IPCCuSessionFinalized {
     }
 }
 
-extension IPCCuSessionFinalizedRecording {
-    public init(localPath: String, mimeType: String, sizeBytes: Int, durationMs: Int, width: Int, height: Int, captureScope: String, includeAudio: Bool, targetBundleId: String?, expiresAt: Int) {
-        self.init(localPath: localPath, mimeType: mimeType, sizeBytes: sizeBytes, durationMs: durationMs, width: width, height: height, captureScope: captureScope, includeAudio: includeAudio, targetBundleId: targetBundleId, expiresAt: expiresAt)
-    }
-}
+// IPCCuSessionFinalizedRecording uses the generated memberwise init directly.
 
 /// Sent after each perceive step with AX tree, screenshot, and execution results.
 /// Backed by generated `IPCCuObservation`.

@@ -32,7 +32,7 @@ final class ComputerUseSession: ObservableObject {
     @Published var autoApproveTools = false {
         didSet {
             guard autoApproveTools != oldValue else { return }
-            log.info("Auto-approve tools toggled: \(autoApproveTools)")
+            log.info("Auto-approve tools toggled: \(self.autoApproveTools)")
 
             // Notify daemon so it can skip prompt creation proactively
             do {
@@ -108,6 +108,7 @@ final class ComputerUseSession: ObservableObject {
     private var consecutiveUnchangedSteps = 0
     private var currentStepNumber = 0
     private var consecutiveFrontmostBlocks = 0
+    private(set) var qaRecordingWarningMessage: String?
 
     /// Adaptive delay configuration
     private let adaptiveDelayEnabled: Bool
@@ -168,6 +169,7 @@ final class ComputerUseSession: ObservableObject {
         isCancelled = false
         isPaused = false
         pendingToolPermissionPrompt = nil
+        qaRecordingWarningMessage = nil
         previousAXTreeText = nil
         previousElements = nil
         previousFlatElements = nil
@@ -175,6 +177,12 @@ final class ComputerUseSession: ObservableObject {
         currentStepNumber = 0
         consecutiveFrontmostBlocks = 0
         state = .running(step: 0, maxSteps: maxSteps, lastAction: "Starting...", reasoning: "")
+
+        // QA sessions auto-approve low/medium tools from the start.
+        // Set here (not in init) so the didSet fires and notifies the daemon.
+        if qaMode && !autoApproveTools {
+            autoApproveTools = true
+        }
 
         log.info("Session starting — task: \(self.task, privacy: .public)")
 
@@ -217,6 +225,7 @@ final class ComputerUseSession: ObservableObject {
                 log.info("QA mode: screen recording started for session \(self.id) (scope: \(self.captureScope))")
             } catch {
                 log.error("QA mode: failed to start screen recording: \(error.localizedDescription)")
+                qaRecordingWarningMessage = "Unable to start recording. \(error.localizedDescription)"
                 // Non-fatal — continue the session without recording
             }
         }
@@ -1191,6 +1200,29 @@ final class ComputerUseSession: ObservableObject {
                 log.info("QA recording finalized: \(result.fileURL.lastPathComponent) (\(result.sizeBytes) bytes, \(result.durationMs)ms)")
             } catch {
                 log.error("QA mode: failed to stop screen recording: \(error.localizedDescription)")
+                if qaRecordingWarningMessage == nil {
+                    qaRecordingWarningMessage = "Unable to finalize recording. \(error.localizedDescription)"
+                }
+                // Salvage: if the partial file exists on disk, track it for cleanup
+                if let salvageURL = (recorder as? ScreenRecorder)?.lastRecordingFileURL,
+                   FileManager.default.fileExists(atPath: salvageURL.path) {
+                    let attrs = try? FileManager.default.attributesOfItem(atPath: salvageURL.path)
+                    let sizeBytes = (attrs?[.size] as? Int) ?? 0
+                    let expiresAtEpoch = Int(Date().addingTimeInterval(Double(retentionDays) * 24 * 3600).timeIntervalSince1970 * 1000)
+                    log.info("QA mode: salvaging partial recording at \(salvageURL.lastPathComponent) (\(sizeBytes) bytes)")
+                    recordingData = IPCCuSessionFinalizedRecording(
+                        localPath: salvageURL.path,
+                        mimeType: "video/mp4",
+                        sizeBytes: sizeBytes,
+                        durationMs: 0,
+                        width: 0,
+                        height: 0,
+                        captureScope: captureScope,
+                        includeAudio: includeAudio,
+                        targetBundleId: nil,
+                        expiresAt: expiresAtEpoch
+                    )
+                }
             }
         }
 
