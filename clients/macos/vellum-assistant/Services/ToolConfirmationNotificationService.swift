@@ -117,10 +117,15 @@ public final class ToolConfirmationNotificationService {
 
     private func toolDisplayName(_ toolName: String) -> String {
         switch toolName {
-        case "file_write": return "Write File"
-        case "file_edit": return "Edit File"
-        case "bash": return "Run Command"
-        case "web_fetch": return "Fetch URL"
+        case "file_write":      return "Write File"
+        case "file_edit":       return "Edit File"
+        case "bash":            return "Run Command"
+        case "web_fetch":       return "Fetch URL"
+        case "schedule_create": return "Create Schedule"
+        case "schedule_update": return "Update Schedule"
+        case "schedule_delete": return "Delete Schedule"
+        case "schedule_list":   return "List Schedules"
+        case "reminder":        return "Reminder"
         default: return toolName.replacingOccurrences(of: "_", with: " ").capitalized
         }
     }
@@ -139,9 +144,43 @@ public final class ToolConfirmationNotificationService {
             return "fetch \((input["url"]?.value as? String) ?? "")"
         case "browser_navigate":
             return "navigate \((input["url"]?.value as? String) ?? "")"
+        case "schedule_create", "schedule_update":
+            let name = (input["name"]?.value as? String) ?? ""
+            let expr = (input["expression"]?.value as? String)
+                ?? (input["cron_expression"]?.value as? String) ?? ""
+            let message = (input["message"]?.value as? String) ?? ""
+            var parts: [String] = []
+            if !name.isEmpty { parts.append("\"\(name)\"") }
+            if !expr.isEmpty { parts.append(expr) }
+            if parts.isEmpty && !message.isEmpty {
+                let truncated = message.count > 60 ? String(message.prefix(57)) + "..." : message
+                parts.append("\"\(truncated)\"")
+            }
+            return parts.isEmpty ? toolName : parts.joined(separator: " — ")
+        case "schedule_delete":
+            return (input["job_id"]?.value as? String) ?? "schedule"
+        case "reminder":
+            let msg = (input["message"]?.value as? String) ?? ""
+            let at = (input["at"]?.value as? String) ?? ""
+            let delay = (input["delay"]?.value as? String) ?? ""
+            var parts: [String] = []
+            if !msg.isEmpty {
+                let truncated = msg.count > 60 ? String(msg.prefix(57)) + "..." : msg
+                parts.append("\"\(truncated)\"")
+            }
+            if !at.isEmpty { parts.append("at \(at)") }
+            else if !delay.isEmpty { parts.append("in \(delay)") }
+            return parts.isEmpty ? "reminder" : parts.joined(separator: " ")
         default:
+            // Prefer semantically meaningful keys over arbitrary dictionary order
+            let preferredKeys = ["name", "query", "message", "description", "title", "url", "path", "command", "id"]
+            for key in preferredKeys {
+                if let val = input[key]?.value as? String, !val.isEmpty {
+                    return val.count > 80 ? String(val.prefix(77)) + "..." : val
+                }
+            }
             if let firstString = input.values.compactMap({ $0.value as? String }).first {
-                return firstString
+                return firstString.count > 80 ? String(firstString.prefix(77)) + "..." : firstString
             }
             return ""
         }

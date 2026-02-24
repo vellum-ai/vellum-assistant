@@ -80,6 +80,20 @@ public struct ToolConfirmationData: Equatable {
                 return "The assistant wants to open \(host)"
             }
             return "The assistant wants to open a page"
+        case "schedule_create":
+            let name = (input["name"]?.value as? String) ?? ""
+            return name.isEmpty
+                ? "The assistant wants to create a schedule"
+                : "The assistant wants to create a schedule: \(name)"
+        case "schedule_update":
+            return "The assistant wants to update a schedule"
+        case "schedule_delete":
+            return "The assistant wants to delete a schedule"
+        case "reminder":
+            let msg = (input["message"]?.value as? String) ?? ""
+            return msg.isEmpty
+                ? "The assistant wants to set a reminder"
+                : "The assistant wants to remind you: \(msg)"
         default:
             return "The assistant wants to use \(toolName)"
         }
@@ -102,13 +116,94 @@ public struct ToolConfirmationData: Equatable {
             return "navigate \((input["url"]?.value as? String) ?? "")"
         case "request_system_permission":
             return (input["permission_type"]?.value as? String) ?? "system permission"
+        case "schedule_create":
+            return Self.schedulePreview(input: input, verb: "Create")
+        case "schedule_update":
+            return Self.schedulePreview(input: input, verb: "Update")
+        case "schedule_delete":
+            let jobId = (input["job_id"]?.value as? String) ?? ""
+            return jobId.isEmpty ? "Delete schedule" : "Delete schedule \(jobId)"
+        case "schedule_list":
+            return "List schedules"
+        case "reminder":
+            return Self.reminderPreview(input: input)
+        case "credential_store":
+            return Self.credentialPreview(input: input)
         default:
-            // Fallback: show first string value or tool name
-            if let firstString = input.values.compactMap({ $0.value as? String }).first {
-                return firstString
-            }
-            return ""
+            return Self.genericPreview(toolName: toolName, input: input)
         }
+    }
+
+    /// Build a preview string for schedule_create/schedule_update tools.
+    private static func schedulePreview(input: [String: AnyCodable], verb: String) -> String {
+        let name = (input["name"]?.value as? String) ?? ""
+        let expr = (input["expression"]?.value as? String)
+            ?? (input["cron_expression"]?.value as? String)
+            ?? ""
+        let message = (input["message"]?.value as? String) ?? ""
+
+        var parts: [String] = []
+        if !name.isEmpty { parts.append("\"\(name)\"") }
+        if !expr.isEmpty { parts.append(expr) }
+        if parts.isEmpty && !message.isEmpty {
+            parts.append("\"\(message.count > 60 ? String(message.prefix(57)) + "..." : message)\"")
+        }
+
+        if parts.isEmpty { return "\(verb) schedule" }
+        return "\(verb): \(parts.joined(separator: " — "))"
+    }
+
+    /// Build a preview string for the reminder tool.
+    private static func reminderPreview(input: [String: AnyCodable]) -> String {
+        let message = (input["message"]?.value as? String) ?? ""
+        let delay = (input["delay"]?.value as? String) ?? ""
+        let at = (input["at"]?.value as? String) ?? ""
+
+        var parts: [String] = []
+        if !message.isEmpty {
+            parts.append("\"\(message.count > 60 ? String(message.prefix(57)) + "..." : message)\"")
+        }
+        if !at.isEmpty { parts.append("at \(at)") }
+        else if !delay.isEmpty { parts.append("in \(delay)") }
+
+        if parts.isEmpty { return "Set reminder" }
+        return parts.joined(separator: " ")
+    }
+
+    /// Build a preview string for the credential_store tool.
+    private static func credentialPreview(input: [String: AnyCodable]) -> String {
+        let action = (input["action"]?.value as? String) ?? ""
+        let service = (input["service"]?.value as? String) ?? ""
+
+        switch action {
+        case "oauth2_connect":
+            return service.isEmpty ? "Connect account" : "Connect \(service) account"
+        case "store":
+            return service.isEmpty ? "Save credential" : "Save \(service) credential"
+        case "delete":
+            return service.isEmpty ? "Remove credential" : "Remove \(service) credential"
+        case "prompt":
+            return service.isEmpty ? "Request credential" : "Request \(service) credential"
+        default:
+            return service.isEmpty ? "Access secure storage" : "\(service) credential"
+        }
+    }
+
+    /// Build a generic preview from tool input, preferring known key names over
+    /// arbitrary first-string-value fallback.
+    private static func genericPreview(toolName: String, input: [String: AnyCodable]) -> String {
+        // Prefer semantically meaningful keys over random dictionary iteration order
+        let preferredKeys = ["name", "query", "message", "description", "title", "url", "path", "command", "id"]
+        for key in preferredKeys {
+            if let val = input[key]?.value as? String, !val.isEmpty {
+                return val.count > 80 ? String(val.prefix(77)) + "..." : val
+            }
+        }
+        // Fall back to first string value
+        if let firstString = input.values.compactMap({ $0.value as? String }).first {
+            return firstString.count > 80 ? String(firstString.prefix(77)) + "..." : firstString
+        }
+        return ""
     }
 
     /// User-facing tool category label (e.g. "Run Command", "Write File").
@@ -289,6 +384,22 @@ public struct ToolConfirmationData: Equatable {
             default:
                 return "Allow accessing secure storage?"
             }
+        case "schedule_create":
+            let name = (input["name"]?.value as? String) ?? ""
+            return name.isEmpty
+                ? "Allow creating a schedule?"
+                : "Allow creating schedule \"\(name)\"?"
+        case "schedule_update":
+            return "Allow updating a schedule?"
+        case "schedule_delete":
+            return "Allow deleting a schedule?"
+        case "reminder":
+            let msg = (input["message"]?.value as? String) ?? ""
+            if !msg.isEmpty {
+                let truncated = msg.count > 40 ? String(msg.prefix(37)) + "..." : msg
+                return "Allow setting a reminder: \"\(truncated)\"?"
+            }
+            return "Allow setting a reminder?"
         default:
             let tc = toolCategory.lowercased()
             if !r.isEmpty { return "Allow using \(tc) \(r)?" }
