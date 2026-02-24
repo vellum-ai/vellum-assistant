@@ -121,15 +121,6 @@ public struct SubagentThreadView: View {
                 animatedDots
             }
 
-            // Preview of latest reply
-            if let preview = lastReplyPreview {
-                Text(preview)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-
             Spacer(minLength: VSpacing.xs)
 
             // Reply count (like Slack's "3 replies")
