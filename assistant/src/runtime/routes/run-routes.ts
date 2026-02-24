@@ -1,14 +1,12 @@
 /**
  * Route handlers for run creation, status, decisions, and trust rules.
  */
-import { getOrCreateConversation } from '../../memory/conversation-key-store.js';
-import * as attachmentsStore from '../../memory/attachments-store.js';
 import * as runsStore from '../../memory/runs-store.js';
-import { CHANNEL_IDS, parseChannelId } from '../../channels/types.js';
 import { addRule } from '../../permissions/trust-store.js';
 import { getTool } from '../../tools/registry.js';
 import { getLogger } from '../../util/logger.js';
 import type { RunOrchestrator } from '../run-orchestrator.js';
+import { parseSendRequest, isValidationError } from './send-validation.js';
 
 const log = getLogger('runtime-http');
 
@@ -16,62 +14,18 @@ export async function handleCreateRun(
   req: Request,
   runOrchestrator: RunOrchestrator,
 ): Promise<Response> {
-  const body = await req.json() as {
-    conversationKey?: string;
-    content?: string;
-    attachmentIds?: string[];
-    sourceChannel?: string;
-  };
+  const parsed = await parseSendRequest(req);
+  if (isValidationError(parsed)) return parsed;
 
-  const { conversationKey, content, attachmentIds } = body;
-  if (!body.sourceChannel || typeof body.sourceChannel !== 'string') {
-    return Response.json({ error: 'sourceChannel is required' }, { status: 400 });
-  }
-  const sourceChannel = parseChannelId(body.sourceChannel);
-
-  if (!sourceChannel) {
-    return Response.json(
-      { error: `Invalid sourceChannel: ${body.sourceChannel}. Valid values: ${CHANNEL_IDS.join(', ')}` },
-      { status: 400 },
-    );
-  }
-
-  if (!conversationKey) {
-    return Response.json({ error: 'conversationKey is required' }, { status: 400 });
-  }
-
-  if (content != null && typeof content !== 'string') {
-    return Response.json({ error: 'content must be a string' }, { status: 400 });
-  }
-
-  const trimmedContent = typeof content === 'string' ? content.trim() : '';
-  const hasAttachments = Array.isArray(attachmentIds) && attachmentIds.length > 0;
-
-  if (trimmedContent.length === 0 && !hasAttachments) {
-    return Response.json({ error: 'content or attachmentIds is required' }, { status: 400 });
-  }
-
-  if (hasAttachments) {
-    const resolved = attachmentsStore.getAttachmentsByIds(attachmentIds);
-    if (resolved.length !== attachmentIds.length) {
-      const resolvedIds = new Set(resolved.map((a) => a.id));
-      const missing = attachmentIds.filter((id) => !resolvedIds.has(id));
-      return Response.json(
-        { error: `Attachment IDs not found: ${missing.join(', ')}` },
-        { status: 400 },
-      );
-    }
-  }
-
-  const mapping = getOrCreateConversation(conversationKey);
+  const { conversationKey, conversationId, content, attachmentIds, sourceChannel } = parsed;
 
   log.info({ endpoint: 'POST /v1/runs', conversationKey }, 'Send attempt');
 
   try {
     const run = await runOrchestrator.startRun(
-      mapping.conversationId,
-      content ?? '',
-      hasAttachments ? attachmentIds : undefined,
+      conversationId,
+      content,
+      attachmentIds,
       { sourceChannel },
     );
     return Response.json({

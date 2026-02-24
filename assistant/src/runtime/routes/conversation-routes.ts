@@ -1,12 +1,10 @@
 /**
  * Route handlers for conversation messages and suggestions.
  */
-import { CHANNEL_IDS, parseChannelId } from '../../channels/types.js';
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import {
   getConversationByKey,
-  getOrCreateConversation,
 } from '../../memory/conversation-key-store.js';
 import * as conversationStore from '../../memory/conversation-store.js';
 import * as attachmentsStore from '../../memory/attachments-store.js';
@@ -20,6 +18,7 @@ import type {
   RuntimeMessagePayload,
 } from '../http-types.js';
 import { getLogger } from '../../util/logger.js';
+import { parseSendRequest, isValidationError } from './send-validation.js';
 
 const log = getLogger('runtime-http');
 const SUGGESTION_CACHE_MAX = 100;
@@ -143,68 +142,10 @@ export async function handleSendMessage(
     persistAndProcessMessage?: NonBlockingMessageProcessor;
   },
 ): Promise<Response> {
-  const body = await req.json() as {
-    conversationKey?: string;
-    content?: string;
-    attachmentIds?: string[];
-    sourceChannel?: string;
-  };
+  const parsed = await parseSendRequest(req);
+  if (isValidationError(parsed)) return parsed;
 
-  const { conversationKey, content, attachmentIds } = body;
-  if (!body.sourceChannel || typeof body.sourceChannel !== 'string') {
-    return Response.json(
-      { error: 'sourceChannel is required' },
-      { status: 400 },
-    );
-  }
-  const sourceChannel = parseChannelId(body.sourceChannel);
-
-  if (!sourceChannel) {
-    return Response.json(
-      { error: `Invalid sourceChannel: ${body.sourceChannel}. Valid values: ${CHANNEL_IDS.join(', ')}` },
-      { status: 400 },
-    );
-  }
-
-  if (!conversationKey) {
-    return Response.json(
-      { error: 'conversationKey is required' },
-      { status: 400 },
-    );
-  }
-
-  // Reject non-string content values (numbers, objects, etc.)
-  if (content != null && typeof content !== 'string') {
-    return Response.json(
-      { error: 'content must be a string' },
-      { status: 400 },
-    );
-  }
-
-  const trimmedContent = typeof content === 'string' ? content.trim() : '';
-  const hasAttachments = Array.isArray(attachmentIds) && attachmentIds.length > 0;
-
-  if (trimmedContent.length === 0 && !hasAttachments) {
-    return Response.json(
-      { error: 'content or attachmentIds is required' },
-      { status: 400 },
-    );
-  }
-
-  // Validate that all attachment IDs resolve
-  if (hasAttachments) {
-    const resolved = attachmentsStore.getAttachmentsByIds(attachmentIds);
-    if (resolved.length !== attachmentIds.length) {
-      const resolvedIds = new Set(resolved.map((a) => a.id));
-      const missing = attachmentIds.filter((id) => !resolvedIds.has(id));
-      return Response.json(
-        { error: `Attachment IDs not found: ${missing.join(', ')}` },
-        { status: 400 },
-      );
-    }
-  }
-
-  const mapping = getOrCreateConversation(conversationKey);
+  const { conversationKey, conversationId, content, attachmentIds, sourceChannel } = parsed;
 
   log.info({ endpoint: 'POST /v1/messages', conversationKey }, 'Send attempt');
 
@@ -215,9 +156,9 @@ export async function handleSendMessage(
 
   try {
     const result = await processor(
-      mapping.conversationId,
-      content ?? '',
-      hasAttachments ? attachmentIds : undefined,
+      conversationId,
+      content,
+      attachmentIds,
       undefined,
       sourceChannel,
     );
