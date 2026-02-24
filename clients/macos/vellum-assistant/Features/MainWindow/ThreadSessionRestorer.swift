@@ -143,7 +143,8 @@ final class ThreadSessionRestorer {
                 createdAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
                 sessionId: session.id,
                 isArchived: delegate.isSessionArchived(session.id),
-                kind: kind
+                kind: kind,
+                source: session.source
             )
             let viewModel = delegate.makeViewModel()
             viewModel.sessionId = session.id

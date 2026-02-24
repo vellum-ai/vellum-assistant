@@ -318,7 +318,8 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                 createdAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
                 sessionId: session.id,
                 isArchived: isSessionArchived(session.id),
-                kind: session.threadType == "private" ? .private : .standard
+                kind: session.threadType == "private" ? .private : .standard,
+                source: session.source
             )
             let viewModel = makeViewModel()
             viewModel.sessionId = session.id

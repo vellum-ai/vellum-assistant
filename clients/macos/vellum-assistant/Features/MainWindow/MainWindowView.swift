@@ -926,18 +926,12 @@ struct MainWindowView: View {
         .draggable(thread.id.uuidString)
     }
 
-    private static let schedulePrefixes = ["Schedule: ", "Schedule (manual): "]
-
     private var regularThreads: [ThreadModel] {
-        threadManager.visibleThreads.filter { thread in
-            !Self.schedulePrefixes.contains(where: { thread.title.hasPrefix($0) })
-        }
+        threadManager.visibleThreads.filter { $0.source != "schedule" && $0.source != "reminder" }
     }
 
     private var scheduleThreads: [ThreadModel] {
-        threadManager.visibleThreads.filter { thread in
-            Self.schedulePrefixes.contains(where: { thread.title.hasPrefix($0) })
-        }
+        threadManager.visibleThreads.filter { $0.source == "schedule" || $0.source == "reminder" }
     }
 
     private var displayedThreads: [ThreadModel] {
