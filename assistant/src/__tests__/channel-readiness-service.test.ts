@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, mock } from 'bun:test';
+import { describe, test, expect, beforeEach } from 'bun:test';
 import { ChannelReadinessService, REMOTE_TTL_MS } from '../runtime/channel-readiness-service.js';
 import type { ChannelProbe, ReadinessCheckResult } from '../runtime/channel-readiness-types.js';
 
