@@ -262,7 +262,8 @@ final class OpenAIVoiceService: ObservableObject {
 
     /// Called when the full response is complete — sends accumulated text to ElevenLabs.
     func finishTextStream(onComplete: @escaping () -> Void) {
-        let text = ttsTextBuffer.trimmingCharacters(in: .whitespacesAndNewlines)
+        let raw = ttsTextBuffer.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = TTSRedactor.redact(raw)
         ttsTextBuffer = ""
 
         guard !text.isEmpty, elevenLabsKey != nil else {
