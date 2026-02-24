@@ -28,15 +28,15 @@ public final class AuthService {
     private init() {}
 
     public func getConfig() async throws -> AllauthResponse<ConfigData> {
-        try await request(path: "config")
+        try await request(path: "config", includeSessionToken: true)
     }
 
     public func getSession() async throws -> AllauthResponse<SessionData> {
-        try await request(path: "auth/session")
+        try await request(path: "auth/session", includeSessionToken: true)
     }
 
     public func logout() async throws -> AllauthResponse<EmptyData> {
-        try await request(path: "auth/session", method: "DELETE")
+        try await request(path: "auth/session", method: "DELETE", includeSessionToken: true)
     }
 
     public func authenticateWithProviderToken(
@@ -55,7 +55,7 @@ public final class AuthService {
             "process": process,
             "token": token,
         ]
-        return try await request(path: "auth/provider/token", method: "POST", body: body)
+        return try await request(path: "auth/provider/token", method: "POST", body: body, includeSessionToken: true)
     }
 
     public func fetchOIDCDiscovery(url: String) async throws -> OIDCDiscovery {
@@ -109,6 +109,7 @@ public final class AuthService {
         path: String,
         method: String = "GET",
         body: Any? = nil,
+        includeSessionToken: Bool = true,
         headers: [String: String] = [:]
     ) async throws -> AllauthResponse<T> {
         let urlString = "\(baseURL)/_allauth/app/v1/\(path)"
@@ -121,7 +122,7 @@ public final class AuthService {
         urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        if let token = await SessionTokenManager.getTokenAsync() {
+        if includeSessionToken, let token = await SessionTokenManager.getTokenAsync() {
             urlRequest.setValue(token, forHTTPHeaderField: "X-Session-Token")
         }
 
