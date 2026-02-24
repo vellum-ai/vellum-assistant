@@ -113,7 +113,7 @@ struct WakeWordSettingsView: View {
                     .foregroundColor(VColor.textSecondary)
             }
 
-            VSlider(value: $wakeWordSensitivity, range: 0.0...1.0)
+            VSlider(value: $wakeWordSensitivity, range: 0.0...1.0, step: 0.1)
 
             Text("Higher values make detection more responsive but may increase false activations.")
                 .font(VFont.caption)
@@ -159,7 +159,10 @@ struct WakeWordSettingsView: View {
 
     private func savePicovoiceKey() {
         let trimmed = picovoiceKeyText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        APIKeyManager.setKey(trimmed, for: "picovoice")
+        if trimmed.isEmpty {
+            APIKeyManager.deleteKey(for: "picovoice")
+        } else {
+            APIKeyManager.setKey(trimmed, for: "picovoice")
+        }
     }
 }
