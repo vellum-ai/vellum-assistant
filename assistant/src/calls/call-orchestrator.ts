@@ -7,7 +7,7 @@
  */
 
 import { getConfig } from '../config/loader.js';
-import { getFailoverProvider, listProviders } from '../providers/registry.js';
+import { getDefaultModel, getFailoverProvider, listProviders } from '../providers/registry.js';
 import type { ProviderEvent } from '../providers/types.js';
 import { resolveUserReference } from '../config/user-reference.js';
 import { getLogger } from '../util/logger.js';
@@ -356,7 +356,7 @@ export class CallOrchestrator {
     try {
       this.state = 'speaking';
 
-      const callModel = config.calls.model?.trim() || 'claude-sonnet-4-20250514';
+      const callModel = config.calls.model?.trim() || getDefaultModel(providerName);
 
       // Buffer incoming tokens so we can strip control markers ([ASK_GUARDIAN:...], [END_CALL])
       // before they reach TTS. We hold text whenever an unmatched '[' appears, since it

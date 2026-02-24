@@ -100,6 +100,17 @@ mock.module('../providers/registry.js', () => {
       name: 'anthropic',
       sendMessage: (...args: unknown[]) => mockSendMessage(...args),
     }),
+    getDefaultModel: (providerName: string) => {
+      const defaults: Record<string, string> = {
+        anthropic: 'claude-opus-4-6',
+        openai: 'gpt-5.2',
+        gemini: 'gemini-3-flash',
+        ollama: 'llama3.2',
+        fireworks: 'accounts/fireworks/models/kimi-k2p5',
+        openrouter: 'x-ai/grok-4',
+      };
+      return defaults[providerName] ?? defaults.anthropic;
+    },
   };
 });
 
@@ -868,14 +879,15 @@ describe('call-orchestrator', () => {
   test('uses default model when calls.model is not set', async () => {
     mockCallModel = undefined;
     mockSendMessage.mockImplementation(async (_messages: unknown[], _tools: unknown[], _systemPrompt: unknown, options?: { config?: { model: string }; onEvent?: (event: { type: string; text?: string }) => void }) => {
-      expect(options?.config?.model).toBe('claude-sonnet-4-20250514');
+      // Default model is derived from the active provider (anthropic → claude-opus-4-6)
+      expect(options?.config?.model).toBe('claude-opus-4-6');
       const tokens = ['Default model response.'];
       for (const token of tokens) {
         options?.onEvent?.({ type: 'text_delta', text: token });
       }
       return {
         content: [{ type: 'text', text: tokens.join('') }],
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-opus-4-6',
         usage: { inputTokens: 100, outputTokens: 50 },
         stopReason: 'end_turn',
       };
@@ -910,14 +922,15 @@ describe('call-orchestrator', () => {
   test('treats empty string calls.model as unset and falls back to default', async () => {
     mockCallModel = '';
     mockSendMessage.mockImplementation(async (_messages: unknown[], _tools: unknown[], _systemPrompt: unknown, options?: { config?: { model: string }; onEvent?: (event: { type: string; text?: string }) => void }) => {
-      expect(options?.config?.model).toBe('claude-sonnet-4-20250514');
+      // Empty string falls back to provider default (anthropic → claude-opus-4-6)
+      expect(options?.config?.model).toBe('claude-opus-4-6');
       const tokens = ['Fallback model response.'];
       for (const token of tokens) {
         options?.onEvent?.({ type: 'text_delta', text: token });
       }
       return {
         content: [{ type: 'text', text: tokens.join('') }],
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-opus-4-6',
         usage: { inputTokens: 100, outputTokens: 50 },
         stopReason: 'end_turn',
       };
@@ -931,14 +944,15 @@ describe('call-orchestrator', () => {
   test('treats whitespace-only calls.model as unset and falls back to default', async () => {
     mockCallModel = '   ';
     mockSendMessage.mockImplementation(async (_messages: unknown[], _tools: unknown[], _systemPrompt: unknown, options?: { config?: { model: string }; onEvent?: (event: { type: string; text?: string }) => void }) => {
-      expect(options?.config?.model).toBe('claude-sonnet-4-20250514');
+      // Whitespace-only falls back to provider default (anthropic → claude-opus-4-6)
+      expect(options?.config?.model).toBe('claude-opus-4-6');
       const tokens = ['Fallback model response.'];
       for (const token of tokens) {
         options?.onEvent?.({ type: 'text_delta', text: token });
       }
       return {
         content: [{ type: 'text', text: tokens.join('') }],
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-opus-4-6',
         usage: { inputTokens: 100, outputTokens: 50 },
         stopReason: 'end_turn',
       };
