@@ -263,6 +263,7 @@ export class CallController {
     if (this.durationWarningTimer) clearTimeout(this.durationWarningTimer);
     if (this.consultationTimer) clearTimeout(this.consultationTimer);
     if (this.durationEndTimer) { clearTimeout(this.durationEndTimer); this.durationEndTimer = null; }
+    this.llmRunVersion++;
     this.abortCurrentTurn();
     unregisterCallController(this.callSessionId);
     log.info({ callSessionId: this.callSessionId }, 'CallController destroyed');
