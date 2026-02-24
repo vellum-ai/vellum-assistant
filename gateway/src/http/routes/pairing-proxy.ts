@@ -12,6 +12,9 @@ import { getLogger } from "../../logger.js";
 
 const log = getLogger("pairing-proxy");
 
+/** 64 KB — pairing payloads are tiny JSON; cap well below maxWebhookPayloadBytes. */
+const MAX_PAIRING_PAYLOAD_BYTES = 64 * 1024;
+
 const HOP_BY_HOP_HEADERS = [
   "connection",
   "keep-alive",
@@ -65,8 +68,22 @@ export function createPairingProxyHandler(config: GatewayConfig) {
     }
 
     const hasBody = req.method !== "GET" && req.method !== "HEAD";
+
+    // Payload size guard — reject oversized requests before buffering.
+    if (hasBody) {
+      const contentLength = req.headers.get("content-length");
+      if (contentLength && Number(contentLength) > MAX_PAIRING_PAYLOAD_BYTES) {
+        log.warn({ contentLength }, "Pairing proxy payload too large (content-length)");
+        return Response.json({ error: "Payload too large" }, { status: 413 });
+      }
+    }
+
     const bodyBuffer = hasBody ? await req.arrayBuffer() : null;
     if (bodyBuffer !== null) {
+      if (bodyBuffer.byteLength > MAX_PAIRING_PAYLOAD_BYTES) {
+        log.warn({ bodyLength: bodyBuffer.byteLength }, "Pairing proxy payload too large");
+        return Response.json({ error: "Payload too large" }, { status: 413 });
+      }
       reqHeaders.set("content-length", String(bodyBuffer.byteLength));
     }
 
