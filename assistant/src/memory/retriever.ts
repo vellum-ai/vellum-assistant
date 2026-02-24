@@ -188,10 +188,19 @@ async function collectAndMergeCandidates(
       const estimatedFetch = exclusionRatio < 1
         ? Math.ceil((directLimit / (1 - exclusionRatio)) * 1.5)
         : MAX_FETCH;
-      const fetchSize = Math.min(Math.max(estimatedFetch, directLimit + 24), MAX_FETCH);
+      let fetchSize = Math.min(Math.max(estimatedFetch, directLimit + 24), MAX_FETCH);
 
-      const fetched = directItemSearch(query, fetchSize, scopeIds);
+      let fetched = directItemSearch(query, fetchSize, scopeIds);
       directItems = filterDirectItems(fetched).slice(0, directLimit);
+
+      // Retry loop: when the estimate under-fetched (uneven exclusion
+      // distribution), keep increasing fetchSize until quota is met or
+      // the DB is exhausted.
+      while (directItems.length < directLimit && fetched.length === fetchSize && fetchSize < MAX_FETCH) {
+        fetchSize = Math.min(fetchSize * 2, MAX_FETCH);
+        fetched = directItemSearch(query, fetchSize, scopeIds);
+        directItems = filterDirectItems(fetched).slice(0, directLimit);
+      }
     }
   } else {
     directItems = directItemSearch(query, directLimit, scopeIds);
