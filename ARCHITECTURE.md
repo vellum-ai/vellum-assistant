@@ -3688,6 +3688,7 @@ Runtime detects needs_confirmation
 
 | Module | Purpose |
 |--------|---------|
+| `assistant/src/runtime/approval-message-composer.ts` | Centralized approval message composition: layered source selection (assistant preface → deterministic fallback) for all approval/guardian/verification user-facing copy |
 | `assistant/src/runtime/channel-approvals.ts` | Orchestration: detect pending confirmations, build prompts (including guardian-aware prompts), apply decisions, build reminders, plain-text fallback selection |
 | `assistant/src/runtime/channel-approval-parser.ts` | Plain-text decision parser (phrase matching) |
 | `assistant/src/runtime/channel-approval-types.ts` | Shared types: actions, prompts, UI metadata, decisions |
@@ -3698,6 +3699,15 @@ Runtime detects needs_confirmation
 | `assistant/src/runtime/gateway-client.ts` | `deliverApprovalPrompt()` — sends approval payload to gateway |
 | `gateway/src/telegram/send.ts` | `buildInlineKeyboard()` — renders approval actions as Telegram inline buttons |
 | `gateway/src/telegram/normalize.ts` | `callback_query` normalization into `GatewayInboundEventV1` (DM-only, drops callbacks without data) |
+
+### Approval Message Composer
+
+The `approval-message-composer.ts` module provides a centralized system for generating approval lifecycle messages across channels. It uses a layered source selection:
+
+1. **Assistant preface** — reuses existing assistant text (macOS parity)
+2. **Deterministic fallback** — scenario-specific templates with required semantic content
+
+All approval/guardian/verification user-facing copy routes through this composer. Deterministic behavior (action IDs, callback payloads, plain-text parsing) remains separate and unchanged. A guard test (`approval-hardcoded-copy-guard.test.ts`) scans the route/service files for banned hard-coded copy literals to prevent regressions.
 
 ### Channel Guardian Security
 
