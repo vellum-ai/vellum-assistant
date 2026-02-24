@@ -988,10 +988,8 @@ struct MainWindowView: View {
             SidebarNavRow(icon: "sparkles", label: "Skills", isActive: windowState.activePanel == .agent) {
                 windowState.togglePanel(.agent)
             }
-            if FeatureFlagManager.shared.isEnabled(.assistantInboxEnabled) {
-                SidebarNavRow(icon: "tray.fill", label: "Inbox", isActive: windowState.activePanel == .assistantInbox) {
-                    windowState.togglePanel(.assistantInbox)
-                }
+            SidebarNavRow(icon: "tray.fill", label: "Inbox", isActive: windowState.activePanel == .assistantInbox) {
+                windowState.togglePanel(.assistantInbox)
             }
 
             // Divider between nav items and threads
@@ -1102,10 +1100,8 @@ struct MainWindowView: View {
             SidebarNavRow(icon: "sparkles", label: "Skills", isActive: windowState.activePanel == .agent, isExpanded: false) {
                 windowState.togglePanel(.agent)
             }
-            if FeatureFlagManager.shared.isEnabled(.assistantInboxEnabled) {
-                SidebarNavRow(icon: "tray.fill", label: "Inbox", isActive: windowState.activePanel == .assistantInbox, isExpanded: false) {
-                    windowState.togglePanel(.assistantInbox)
-                }
+            SidebarNavRow(icon: "tray.fill", label: "Inbox", isActive: windowState.activePanel == .assistantInbox, isExpanded: false) {
+                windowState.togglePanel(.assistantInbox)
             }
 
             VColor.divider
