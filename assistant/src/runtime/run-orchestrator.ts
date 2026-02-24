@@ -120,6 +120,14 @@ export interface RunStartOptions {
    * Used by voice relay for streaming TTS token delivery.
    */
   eventSink?: VoiceRunEventSink;
+  /**
+   * When true, any confirmation_request from the prompter is immediately
+   * auto-denied instead of being stored for client polling. Used by the
+   * voice path when forceStrictSideEffects is active: the voice transport
+   * has no interactive approval UI, so without this flag the run would
+   * stall for the full permission timeout (300s by default).
+   */
+  voiceAutoDenyConfirmations?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -233,9 +241,33 @@ export class RunOrchestrator {
     // When the prompter sends one of these, we record it in the run store so
     // the client can poll and submit a decision/secret via the respective endpoint.
     // Do NOT set hasNoClient — run sessions have a client (the HTTP caller).
+    const autoDeny = options?.voiceAutoDenyConfirmations === true;
     let lastError: string | null = null;
     session.updateClient((msg: ServerMessage) => {
       if (msg.type === 'confirmation_request') {
+        if (autoDeny) {
+          // Voice path with strict side effects: immediately deny the
+          // confirmation request so the agent loop resumes without
+          // waiting for the full permission timeout (300s). The voice
+          // transport has no interactive approval UI, so polling would
+          // just stall. Security is preserved — the tool call is denied.
+          log.info(
+            { runId: run.id, toolName: msg.toolName },
+            'Auto-denying confirmation request for voice turn (forceStrictSideEffects)',
+          );
+          session.handleConfirmationResponse(
+            msg.requestId,
+            'deny',
+            undefined,
+            undefined,
+            `Permission denied for "${msg.toolName}": this voice call does not have interactive approval capabilities. Side-effect tools are not available for non-guardian voice callers. In your next assistant reply, explain briefly that this action requires guardian-level access and cannot be performed during this call.`,
+          );
+          // Still publish to hub for observability, but skip run-store
+          // bookkeeping since the confirmation is already resolved.
+          publishToHub(msg);
+          return;
+        }
+
         runsStore.setRunConfirmation(run.id, {
           toolName: msg.toolName,
           toolUseId: msg.requestId,
