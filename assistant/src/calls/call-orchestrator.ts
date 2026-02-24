@@ -122,25 +122,29 @@ export class CallOrchestrator {
     if (interruptedInFlight) {
       this.abortController.abort();
       this.abortController = new AbortController();
+    }
 
-      // Strip the one-shot [CALL_OPENING] marker from conversation history
-      // so it doesn't leak into subsequent LLM requests after barge-in.
-      // Without this, the consecutive-user merge path below would append
-      // the caller's transcript to the synthetic "[CALL_OPENING]" message,
-      // causing the model to re-run opener behavior instead of responding
-      // directly to the caller.
-      // If the marker-only seed message becomes empty, remove it entirely:
-      // Anthropic rejects any user turn with empty content.
-      for (let i = 0; i < this.conversationHistory.length; i++) {
-        const entry = this.conversationHistory[i];
-        if (!entry.content.includes(CALL_OPENING_MARKER)) continue;
-        const stripped = entry.content.replace(CALL_OPENING_MARKER_REGEX, '').trim();
-        if (stripped.length === 0) {
-          this.conversationHistory.splice(i, 1);
-          i--;
-        } else {
-          entry.content = stripped;
-        }
+    // Strip the one-shot [CALL_OPENING] marker from conversation history
+    // so it doesn't leak into subsequent LLM requests after barge-in.
+    // This runs unconditionally because the standard Twilio barge-in path
+    // calls handleInterrupt() first (setting state to 'idle') before
+    // handleCallerUtterance — so interruptedInFlight would be false even
+    // though an interrupt just occurred.
+    // Without this, the consecutive-user merge path below would append
+    // the caller's transcript to the synthetic "[CALL_OPENING]" message,
+    // causing the model to re-run opener behavior instead of responding
+    // directly to the caller.
+    // If the marker-only seed message becomes empty, remove it entirely:
+    // Anthropic rejects any user turn with empty content.
+    for (let i = 0; i < this.conversationHistory.length; i++) {
+      const entry = this.conversationHistory[i];
+      if (!entry.content.includes(CALL_OPENING_MARKER)) continue;
+      const stripped = entry.content.replace(CALL_OPENING_MARKER_REGEX, '').trim();
+      if (stripped.length === 0) {
+        this.conversationHistory.splice(i, 1);
+        i--;
+      } else {
+        entry.content = stripped;
       }
     }
 
