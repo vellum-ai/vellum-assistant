@@ -809,14 +809,14 @@ struct DynamicWorkspaceWrapper: View {
 
             VStack(spacing: 0) {
                 HStack {
-                    // Left: Done Editing primary CTA in edit mode, Edit ghost button otherwise
+                    // Left: Done Editing primary CTA in edit mode, Edit primary button otherwise
                     if case .appEditing = windowState.selection {
                         VButton(label: "Done Editing", style: .primary) {
                             onToggleChatDock()
                         }
                         .controlSize(.small)
                     } else {
-                        VButton(label: "Edit", icon: "pencil", style: .tertiary) {
+                        VButton(label: "Edit", icon: "pencil", style: .primary) {
                             if !isChatDockOpen {
                                 windowState.workspaceComposerExpanded = false
                             }
@@ -826,18 +826,7 @@ struct DynamicWorkspaceWrapper: View {
                         .accessibilityLabel("Edit app")
                     }
 
-                    Spacer()
-
-                    // Center: App name
-                    if let title = data.preview?.title {
-                        Text(title)
-                            .font(VFont.bodyMedium)
-                            .foregroundColor(VColor.textPrimary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    }
-
-                    Spacer()
+                    Spacer(minLength: 0)
 
                     // Right: History + Share + Close tertiary buttons
                     HStack(spacing: VSpacing.sm) {
@@ -876,7 +865,7 @@ struct DynamicWorkspaceWrapper: View {
                         .accessibilityLabel("Close workspace")
                     }
                 }
-                .padding(.leading, isChatDockOpen ? VSpacing.md : trafficLightPadding)
+                .padding(.leading, VSpacing.md)
                 .padding(.trailing, VSpacing.md)
                 .padding(.vertical, VSpacing.sm)
                 .background(

@@ -686,31 +686,17 @@ struct ChatView: View {
     private var memoryDegradedBanner: some View {
         if isMemoryDegraded {
             HStack(spacing: VSpacing.sm) {
-                Image(systemName: "memorychip")
+                Image(systemName: "brain")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.warning)
-                VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                    Text("Memory search limited")
-                        .font(VFont.captionMedium)
-                        .foregroundColor(VColor.textPrimary)
-                    if let reason = memoryDegradedReason {
-                        Text(reason)
-                            .font(VFont.small)
-                            .foregroundColor(VColor.textSecondary)
-                            .lineLimit(1)
-                    }
-                }
+                    .foregroundColor(VColor.textMuted)
+                Text("Memory is temporarily unavailable")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
                 Spacer()
             }
             .padding(.horizontal, VSpacing.lg)
-            .padding(.vertical, VSpacing.sm)
-            .background(VColor.warning.opacity(0.1))
-            .overlay(
-                Rectangle()
-                    .fill(VColor.warning)
-                    .frame(width: 3),
-                alignment: .leading
-            )
+            .padding(.vertical, VSpacing.xs)
+            .background(VColor.surface)
             .transition(.move(edge: .top).combined(with: .opacity))
         }
     }
