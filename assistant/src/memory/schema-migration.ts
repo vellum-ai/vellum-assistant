@@ -244,7 +244,7 @@ export function migrateMemoryEntityRelationDedup(database: Db): void {
   // table present even after the transaction rolls back.  Clearing it here
   // makes re-entry safe without needing IF NOT EXISTS semantics on the full
   // CREATE … AS SELECT.
-  raw.exec(/*sql*/ `DROP TABLE IF EXISTS memory_entity_relation_merge`);
+  raw.exec(/*sql*/ `DROP TABLE IF EXISTS temp.memory_entity_relation_merge`);
 
   try {
     raw.exec('BEGIN');
