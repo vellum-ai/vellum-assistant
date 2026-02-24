@@ -1683,74 +1683,6 @@ async function handleApprovalInterception(
         const engineResult = await runApprovalConversationTurn(engineContext, approvalConversationGenerator);
 
         if (engineResult.disposition === 'keep_pending') {
-          // Safety net: if the guardian sent an explicit decision phrase that
-          // the deterministic parser recognises, honour it even when the engine
-          // returned keep_pending (e.g. model timeout). This prevents deadlock
-          // on non-rich channels where "approve"/"deny" must always resolve.
-          // Only apply when a single approval is pending — when multiple are
-          // pending the engine's keep_pending is for disambiguation and should
-          // be respected.
-          const guardianDeterministic = parseApprovalDecision(content);
-          if (guardianDeterministic && effectivePending.length === 1) {
-            // Guardians cannot approve_always — downgrade.
-            if (guardianDeterministic.action === 'approve_always') {
-              guardianDeterministic.action = 'approve_once';
-            }
-            const fbResult = handleChannelDecision(
-              guardianApproval.conversationId,
-              { ...guardianDeterministic, source: 'plain_text' },
-              orchestrator,
-            );
-            if (fbResult.applied) {
-              const fbStatus = guardianDeterministic.action === 'reject' ? 'denied' as const : 'approved' as const;
-              updateApprovalDecision(guardianApproval.id, {
-                status: fbStatus,
-                decidedByExternalUserId: senderExternalUserId,
-              });
-
-              // Notify the requester's chat about the outcome
-              const fbOutcomeText = await composeApprovalMessageGenerative({
-                scenario: 'guardian_decision_outcome',
-                decision: guardianDeterministic.action === 'reject' ? 'denied' : 'approved',
-                toolName: guardianApproval.toolName,
-                channel: sourceChannel,
-              }, {}, approvalCopyGenerator);
-              try {
-                await deliverChannelReply(replyCallbackUrl, {
-                  chatId: guardianApproval.requesterChatId,
-                  text: fbOutcomeText,
-                  assistantId,
-                }, bearerToken);
-              } catch (err) {
-                log.error({ err, conversationId: guardianApproval.conversationId }, 'Failed to notify requester of guardian decision (deterministic fallback)');
-              }
-
-              if (fbResult.runId) {
-                schedulePostDecisionDelivery(
-                  orchestrator, fbResult.runId, guardianApproval.conversationId,
-                  guardianApproval.requesterChatId, replyCallbackUrl, bearerToken, assistantId,
-                );
-              }
-              return { handled: true, type: 'guardian_decision_applied' };
-            }
-
-            // Race condition: run was already resolved. Deliver stale notice.
-            try {
-              const staleText = await composeApprovalMessageGenerative({
-                scenario: 'approval_already_resolved',
-                channel: sourceChannel,
-              }, {}, approvalCopyGenerator);
-              await deliverChannelReply(replyCallbackUrl, {
-                chatId: externalChatId,
-                text: staleText,
-                assistantId,
-              }, bearerToken);
-            } catch (err) {
-              log.error({ err, conversationId: guardianApproval.conversationId }, 'Failed to deliver stale guardian fallback notice');
-            }
-            return { handled: true, type: 'stale_ignored' };
-          }
-
           // Non-decision follow-up (clarification, disambiguation, etc.)
           try {
             await deliverChannelReply(replyCallbackUrl, {
@@ -2091,16 +2023,12 @@ async function handleApprovalInterception(
         if (content) {
           let requesterCancelIntent = false;
           let cancelReplyText: string | undefined;
+          let requesterFollowupReplyText: string | undefined;
 
-          // 1. Check deterministic parser for explicit reject phrase
-          const deterministicDecision = parseApprovalDecision(content);
-          if (deterministicDecision && deterministicDecision.action === 'reject') {
-            requesterCancelIntent = true;
-          }
-
-          // 2. If no deterministic match, try the conversational engine
-          //    with reject-only so the requester can say "nevermind"/"cancel it"
-          if (!requesterCancelIntent && approvalConversationGenerator) {
+          // Interpret requester follow-ups through the conversation engine so
+          // "nevermind/cancel" resolves naturally while clarifying questions
+          // remain conversational turns.
+          if (approvalConversationGenerator) {
             const cancelContext: ApprovalConversationContext = {
               toolName: pending[0].toolName,
               allowedActions: ['reject'],
@@ -2112,6 +2040,8 @@ async function handleApprovalInterception(
             if (cancelResult.disposition === 'reject') {
               requesterCancelIntent = true;
               cancelReplyText = cancelResult.replyText;
+            } else if (cancelResult.disposition === 'keep_pending') {
+              requesterFollowupReplyText = cancelResult.replyText;
             }
           }
 
@@ -2184,6 +2114,19 @@ async function handleApprovalInterception(
               log.error({ err, conversationId }, 'Failed to deliver stale requester-cancel notice');
             }
             return { handled: true, type: 'stale_ignored' };
+          }
+
+          if (requesterFollowupReplyText) {
+            try {
+              await deliverChannelReply(replyCallbackUrl, {
+                chatId: externalChatId,
+                text: requesterFollowupReplyText,
+                assistantId,
+              }, bearerToken);
+            } catch (err) {
+              log.error({ err, conversationId }, 'Failed to deliver requester follow-up reply while awaiting guardian');
+            }
+            return { handled: true, type: 'assistant_turn' };
           }
         }
 
@@ -2303,43 +2246,6 @@ async function handleApprovalInterception(
     const engineResult = await runApprovalConversationTurn(engineContext, approvalConversationGenerator);
 
     if (engineResult.disposition === 'keep_pending') {
-      // Safety net: if the user sent an explicit decision phrase that the
-      // deterministic parser recognises, honour it even when the engine
-      // returned keep_pending (e.g. model timeout). This prevents deadlock
-      // on non-rich channels where "approve"/"deny" must always resolve.
-      // Only apply when a single confirmation is pending — when multiple
-      // are pending the engine's keep_pending may be for disambiguation.
-      const deterministicFallback = parseApprovalDecision(content);
-      if (deterministicFallback && pending.length === 1) {
-        const fbResult = handleChannelDecision(conversationId, deterministicFallback, orchestrator);
-        if (fbResult.applied) {
-          if (fbResult.runId) {
-            schedulePostDecisionDelivery(
-              orchestrator, fbResult.runId, conversationId, externalChatId,
-              replyCallbackUrl, bearerToken, assistantId,
-            );
-          }
-          return { handled: true, type: 'decision_applied' };
-        }
-
-        // Race condition: pending confirmation disappeared before fallback
-        // decision could be applied.
-        try {
-          const staleText = await composeApprovalMessageGenerative({
-            scenario: 'approval_already_resolved',
-            channel: sourceChannel,
-          }, {}, approvalCopyGenerator);
-          await deliverChannelReply(replyCallbackUrl, {
-            chatId: externalChatId,
-            text: staleText,
-            assistantId,
-          }, bearerToken);
-        } catch (err) {
-          log.error({ err, conversationId }, 'Failed to deliver stale fallback decision notice');
-        }
-        return { handled: true, type: 'stale_ignored' };
-      }
-
       // Non-decision follow-up — deliver the engine's reply and keep the run pending
       try {
         await deliverChannelReply(replyCallbackUrl, {

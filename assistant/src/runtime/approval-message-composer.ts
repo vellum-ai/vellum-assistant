@@ -182,7 +182,7 @@ export function getFallbackMessage(context: ApprovalMessageContext): string {
       return `${context.requesterIdentifier ?? 'A user'} is requesting to use "${context.toolName ?? 'unknown'}". Please approve or deny this request.`;
 
     case 'reminder_prompt':
-      return "I'm still waiting for your decision on the pending approval request.";
+      return 'There is a pending approval request. Ask a follow-up question or say approve/deny when you are ready.';
 
     case 'guardian_delivery_failed':
       return context.toolName
