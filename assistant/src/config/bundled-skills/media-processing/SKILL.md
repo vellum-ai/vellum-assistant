@@ -34,11 +34,11 @@ Preprocess a video asset: detect dead time via mpdecimate, segment the video int
 
 Parameters:
 - `asset_id` (required) — ID of the media asset.
-- `interval_seconds` — Interval between keyframes (default: 3s).
-- `segment_duration` — Duration of each segment window (default: 20s).
+- `interval_seconds` — Interval between keyframes (default: 1s). Use 0.5s for sports/action content where frame density matters.
+- `segment_duration` — Duration of each segment window (default: 15s).
 - `dead_time_threshold` — Sensitivity for dead-time detection (default: 0.02).
 - `section_config` — Path to a JSON file with manual section boundaries.
-- `skip_dead_time` — Whether to detect and skip dead time (default: true).
+- `skip_dead_time` — Whether to detect and skip dead time (default: false). Dead-time detection can be too aggressive for continuous action video like sports — it may incorrectly skip live play. Enable only for content with clear idle periods (e.g., lectures, surveillance footage).
 - `short_edge` — Short edge resolution for downscaled frames in pixels (default: 480).
 
 ### analyze_keyframes
@@ -74,7 +74,7 @@ Get a diagnostic report for a media asset. Returns:
 - **Processing stats**: total keyframes extracted.
 - **Per-stage status and timing**: which stages (preprocess, map, reduce) have run, how long each took, current progress.
 - **Failure reasons**: last error from any failed stage.
-- **Cost estimation**: based on segment count and Gemini 2.5 Flash pricing, plus a note about Claude reduce costs.
+- **Cost estimation**: based on segment count and current Gemini pricing.
 
 ## Services
 
@@ -110,6 +110,82 @@ Limits concurrent API calls during the Map phase to avoid rate limiting.
 
 Tracks estimated API costs during pipeline execution.
 
+## Best Practices
+
+### Map Prompt Strategy: Go Broad, Not Targeted
+
+The single most important insight: **always use a broad, descriptive map prompt** instead of a targeted one.
+
+A targeted prompt like "find turnovers" locks you into one topic. If the user later wants to ask about defense, formations, or specific players, you'd need to reprocess the entire video. Instead, run a general-purpose descriptive prompt that captures everything visible, creating a rich, reusable dataset. Then all follow-up questions can be handled via `query_media` with no reprocessing.
+
+**One map run, many queries.**
+
+The map output will be larger (more tokens per segment), but Gemini Flash is cheap enough that this is a good tradeoff. Only use a targeted prompt if the user explicitly asks for something narrow.
+
+#### Sample General-Purpose Map Prompt
+
+Use this as a starting point for the `system_prompt` parameter in `analyze_keyframes`:
+
+```
+You are analyzing keyframes from a video. For each segment, describe everything you can observe:
+
+- People visible: count, positions, identifying features (jersey numbers, clothing, names if visible)
+- Actions and movements: what people are doing, direction of movement, interactions
+- Objects of interest: ball location, equipment, vehicles, on-screen graphics
+- Environment: setting, lighting, weather if outdoors
+- Text on screen: scores, captions, titles, signs, timestamps
+- Scene composition: camera angle, zoom level, any transitions between shots
+- Any stoppages, pauses, or changes in activity
+
+Be specific and factual. Describe what you see, not what you infer happened between frames.
+```
+
+#### Sample Output Schema
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "scene_description": { "type": "string" },
+    "people": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "description": { "type": "string" },
+          "position": { "type": "string" },
+          "action": { "type": "string" }
+        }
+      }
+    },
+    "objects_of_interest": { "type": "array", "items": { "type": "string" } },
+    "on_screen_text": { "type": "array", "items": { "type": "string" } },
+    "camera": { "type": "string" },
+    "notable_events": { "type": "array", "items": { "type": "string" } }
+  }
+}
+```
+
+### Clip Delivery
+
+The `generate_clip` tool outputs clips as temporary files. These may not deliver reliably via sandbox attachments. For reliable delivery, use `host_bash` + ffmpeg to save clips to a user-specified location as a fallback.
+
+## Known Limitations — Vision Analysis
+
+Gemini performs well at **spatial/descriptive analysis** from static keyframes:
+- Player positions, formations, and spacing
+- Jersey numbers and identifying features
+- Ball location and which team has possession
+- Score and on-screen text
+- Camera angles and scene composition
+
+Gemini **hallucinates when asked to detect fast temporal events** from static frames, regardless of frame density:
+- Turnovers, steals, fouls, and specific plays
+- Fast transitions and split-second actions
+- Causality between frames (what "happened" vs. what's visible)
+
+The model is good at describing **what is there** but bad at detecting **what happened**. Structure your map prompts and queries accordingly — ask the model to describe scenes, then use `query_media` (Claude) to reason about patterns and events across the descriptive data.
+
 ## Operator Runbook
 
 ### Monitoring Progress
@@ -137,16 +213,7 @@ After fixing the root cause, re-run the failed stage. The pipeline is resumable 
 
 ### Cost Expectations
 
-The Map phase (Gemini 2.5 Flash) is the primary cost driver. Cost scales with video duration, keyframe interval, and segment size:
-
-| Video Duration | Interval | Keyframes | Segments (~10 frames each) | Estimated Map Cost |
-|----------------|----------|-----------|----------------------------|--------------------|
-| 30 min         | 3s       | ~600      | ~60                        | ~$0.06             |
-| 60 min         | 3s       | ~1,200    | ~120                       | ~$0.12             |
-| 90 min         | 3s       | ~1,800    | ~180                       | ~$0.18             |
-| 90 min         | 5s       | ~1,080    | ~108                       | ~$0.11             |
-
-The Reduce phase (Claude) adds a small additional cost per query. The `media_diagnostics` tool provides per-asset cost estimates.
+Use `media_diagnostics` to get per-asset cost estimates. The Map phase (Gemini) is the primary cost driver — it scales with video duration and keyframe interval. The Q&A phase (Claude) is negligible per query.
 
 ### Known Limitations
 
