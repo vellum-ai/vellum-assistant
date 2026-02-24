@@ -108,6 +108,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var thinkingWindow: ThinkingIndicatorWindow?
     private var quickInputWindow: QuickInputWindow?
     private var quickInputHotKeyRef: EventHotKeyRef?
+    private var quickInputEventHandlerRef: EventHandlerRef?
     public let services = AppServices()
     private let assistantCli = AssistantCli()
     public let updateManager = UpdateManager()
@@ -1157,7 +1158,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private func registerQuickInputMonitor() {
         // Install Carbon event handler for hotkey events
         var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-        InstallEventHandler(GetApplicationEventTarget(), quickInputHotKeyHandler, 1, &eventType, nil, nil)
+        var handlerRef: EventHandlerRef?
+        InstallEventHandler(GetApplicationEventTarget(), quickInputHotKeyHandler, 1, &eventType, nil, &handlerRef)
+        quickInputEventHandlerRef = handlerRef
 
         // Register Cmd+/ (keyCode 44) as a system-wide hotkey
         let hotKeyID = EventHotKeyID(signature: OSType(0x564C_4D51), id: 1) // "VLMQ"
@@ -1178,11 +1181,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Removes the Carbon hotkey registration.
+    /// Removes the Carbon hotkey and event handler registrations.
     private func tearDownQuickInputMonitors() {
         if let ref = quickInputHotKeyRef {
             UnregisterEventHotKey(ref)
             quickInputHotKeyRef = nil
+        }
+        if let ref = quickInputEventHandlerRef {
+            RemoveEventHandler(ref)
+            quickInputEventHandlerRef = nil
         }
     }
 

@@ -34,7 +34,7 @@ final class QuickInputWindow {
         let view = QuickInputView(
             onSubmit: { [weak self] message in
                 self?.onSubmit?(message)
-                self?.dismiss()
+                self?.dismiss(restorePreviousApp: false)
             },
             onDismiss: { [weak self] in
                 self?.dismiss()
@@ -89,7 +89,7 @@ final class QuickInputWindow {
         self.panel = panel
     }
 
-    func dismiss() {
+    func dismiss(restorePreviousApp: Bool = true) {
         if let resignObserver {
             NotificationCenter.default.removeObserver(resignObserver)
         }
@@ -97,7 +97,7 @@ final class QuickInputWindow {
 
         guard let panel else { return }
 
-        let appToRestore = previousApp
+        let appToRestore = restorePreviousApp ? previousApp : nil
         previousApp = nil
 
         NSAnimationContext.runAnimationGroup({ context in
@@ -118,7 +118,12 @@ final class QuickInputWindow {
     // MARK: - Private
 
     private func centerOnScreen(_ panel: NSPanel) {
-        let screen = NSScreen.main ?? NSScreen.screens.first
+        // Use the screen containing the mouse cursor so the panel appears
+        // on the active display, even when triggered from another app.
+        let mouseLocation = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first(where: { $0.frame.contains(mouseLocation) })
+            ?? NSScreen.main
+            ?? NSScreen.screens.first
         guard let screenFrame = screen?.visibleFrame else { return }
 
         if let fittingSize = panel.contentView?.fittingSize {
