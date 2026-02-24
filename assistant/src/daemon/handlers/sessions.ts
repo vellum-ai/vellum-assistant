@@ -1,4 +1,5 @@
 import * as net from 'node:net';
+import { silentlyWithLog } from '../../util/silently.js';
 import { v4 as uuid } from 'uuid';
 import * as conversationStore from '../../memory/conversation-store.js';
 import * as externalConversationStore from '../../memory/external-conversation-store.js';
@@ -405,9 +406,12 @@ export function handleHistoryRequest(
           if (a.mimeType.startsWith('video/') && !a.thumbnailBase64) {
             const attachmentId = a.id;
             const base64 = a.dataBase64;
-            generateVideoThumbnail(base64).then((thumb) => {
-              if (thumb) setAttachmentThumbnail(attachmentId, thumb);
-            }).catch(() => {});
+            silentlyWithLog(
+              generateVideoThumbnail(base64).then((thumb) => {
+                if (thumb) setAttachmentThumbnail(attachmentId, thumb);
+              }),
+              'video thumbnail generation',
+            );
           }
 
           return {

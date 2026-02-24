@@ -21,6 +21,7 @@ import type { CredentialInjectionTemplate } from '../../credentials/policy-types
 import { getSecureKey } from '../../../security/secure-keys.js';
 import { buildDecisionTrace, stripQueryString } from './logging.js';
 import { getLogger } from '../../../util/logger.js';
+import { silentlyWithLog } from '../../../util/silently.js';
 
 const log = getLogger('proxy-session');
 
@@ -68,7 +69,7 @@ function resetIdleTimer(managed: ManagedSession): void {
   }
   managed.idleTimer = setTimeout(() => {
     if (managed.session.status === 'active') {
-      stopSession(managed.session.id).catch(() => {});
+      silentlyWithLog(stopSession(managed.session.id), 'idle session cleanup');
     }
   }, managed.config.idleTimeoutMs);
 }
@@ -529,6 +530,6 @@ export function getSessionsForConversation(conversationId: string): ProxySession
  */
 export async function stopAllSessions(): Promise<void> {
   const ids = [...sessions.keys()];
-  await Promise.all(ids.map((id) => stopSession(id).catch(() => {})));
+  await Promise.all(ids.map((id) => silentlyWithLog(stopSession(id), 'session shutdown')));
   sessions.clear();
 }
