@@ -780,14 +780,16 @@ public struct ToolCallData: Identifiable, Equatable {
         // to describe the meaningful part.
         let trivialPrefixes: Set<String> = ["cd", "pushd", "popd", "export", "source"]
         let segments = cmd.components(separatedBy: "&&").map { $0.trimmingCharacters(in: .whitespaces) }
-        let effectiveCmd: String
-        if segments.count > 1,
-           let firstWord = segments[0].components(separatedBy: .whitespaces).first(where: { !$0.isEmpty }),
-           trivialPrefixes.contains((firstWord as NSString).lastPathComponent.lowercased()) {
-            effectiveCmd = segments.dropFirst().joined(separator: " && ").trimmingCharacters(in: .whitespaces)
-        } else {
-            effectiveCmd = cmd
+        // Skip all leading trivial segments so "cd repo && export FOO=1 && bun test"
+        // resolves to "bun test" rather than stopping after the first trivial segment.
+        var remaining = segments[...]
+        while remaining.count > 1,
+              let firstWord = remaining.first?
+                  .components(separatedBy: .whitespaces).first(where: { !$0.isEmpty }),
+              trivialPrefixes.contains((firstWord as NSString).lastPathComponent.lowercased()) {
+            remaining = remaining.dropFirst()
         }
+        let effectiveCmd = remaining.joined(separator: " && ").trimmingCharacters(in: .whitespaces)
 
         let tokens = effectiveCmd.trimmingCharacters(in: .whitespaces)
             .components(separatedBy: .whitespaces)
