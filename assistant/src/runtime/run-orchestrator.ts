@@ -128,6 +128,11 @@ export interface RunStartOptions {
    * stall for the full permission timeout (300s by default).
    */
   voiceAutoDenyConfirmations?: boolean;
+  /**
+   * Call-control protocol prompt injected into each voice turn so the
+   * model knows to emit control markers ([ASK_GUARDIAN:], [END_CALL], etc.).
+   */
+  voiceCallControlPrompt?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -215,6 +220,7 @@ export class RunOrchestrator {
     // (e.g. attachment scope) match the actual transport rather than always
     // defaulting to 'macos'.
     session.setChannelCapabilities(resolveChannelCapabilities(options?.sourceChannel ?? 'macos'));
+    session.setVoiceCallControlPrompt(options?.voiceCallControlPrompt ?? null);
 
     // Serialized publish chain so hub subscribers observe events in order.
     let hubChain: Promise<void> = Promise.resolve();
@@ -312,6 +318,7 @@ export class RunOrchestrator {
       session.setGuardianContext(null);
       session.setCommandIntent(null);
       session.setAssistantId('self');
+      session.setVoiceCallControlPrompt(null);
       // Reset the session's client callback to a no-op so the stale
       // closure doesn't intercept events from future runs on the same session.
       // Set hasNoClient=true here since the run is done and no HTTP caller
