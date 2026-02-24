@@ -118,6 +118,7 @@ export type {
   RuntimeAttachmentMetadata,
   ApprovalCopyGenerator,
   ApprovalConversationGenerator,
+  SendMessageDeps,
 } from './http-types.js';
 
 import type {
@@ -126,6 +127,7 @@ import type {
   RuntimeHttpServerOptions,
   ApprovalCopyGenerator,
   ApprovalConversationGenerator,
+  SendMessageDeps,
 } from './http-types.js';
 
 const log = getLogger('runtime-http');
@@ -153,6 +155,7 @@ export class RuntimeHttpServer {
   private sweepInProgress = false;
   private pairingStore = new PairingStore();
   private pairingBroadcast?: (msg: { type: string; [key: string]: unknown }) => void;
+  private sendMessageDeps?: SendMessageDeps;
 
   constructor(options: RuntimeHttpServerOptions = {}) {
     this.port = options.port ?? DEFAULT_PORT;
@@ -164,6 +167,7 @@ export class RuntimeHttpServer {
     this.approvalCopyGenerator = options.approvalCopyGenerator;
     this.approvalConversationGenerator = options.approvalConversationGenerator;
     this.interfacesDir = options.interfacesDir ?? null;
+    this.sendMessageDeps = options.sendMessageDeps;
   }
 
   /** The port the server is actually listening on (resolved after start). */
@@ -546,6 +550,7 @@ export class RuntimeHttpServer {
         return await handleSendMessage(req, {
           processMessage: this.processMessage,
           persistAndProcessMessage: this.persistAndProcessMessage,
+          sendMessageDeps: this.sendMessageDeps,
         });
       }
 
