@@ -16,6 +16,8 @@ import {
 } from './schema.js';
 import { getLogger } from '../util/logger.js';
 
+const log = getLogger('guardian-action-store');
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -372,7 +374,7 @@ export function getPendingDeliveriesByDestination(
     return rows.map((r) => rowToDelivery(r.delivery));
   } catch (err) {
     if (err instanceof Error && err.message.includes('no such table')) {
-      getLogger().warn({ err }, 'guardian tables not yet created');
+      log.warn({ err }, 'guardian tables not yet created');
       return [];
     }
     throw err;
@@ -403,7 +405,7 @@ export function getPendingDeliveryByConversation(conversationId: string): Guardi
     return rows.length > 0 ? rowToDelivery(rows[0].delivery) : null;
   } catch (err) {
     if (err instanceof Error && err.message.includes('no such table')) {
-      getLogger().warn({ err }, 'guardian tables not yet created');
+      log.warn({ err }, 'guardian tables not yet created');
       return null;
     }
     throw err;
