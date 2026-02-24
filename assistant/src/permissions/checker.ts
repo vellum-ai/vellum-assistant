@@ -33,7 +33,7 @@ const LOW_RISK_PROGRAMS = new Set([
   'man', 'help', 'info',
   'env', 'printenv', 'set',
   'diff', 'sort', 'uniq', 'cut', 'tr', 'tee', 'xargs',
-  'jq', 'yq', 'sed', 'awk',
+  'jq', 'yq',
   'curl', 'wget', 'http', 'dig', 'nslookup', 'ping',
   'tree', 'du', 'df',
 ]);
@@ -307,7 +307,8 @@ export async function classifyRisk(toolName: string, input: Record<string, unkno
         continue;
       }
 
-      if (prog === 'chmod' || prog === 'chown' || prog === 'chgrp') {
+      if (prog === 'chmod' || prog === 'chown' || prog === 'chgrp'
+        || prog === 'sed' || prog === 'awk') {
         maxRisk = RiskLevel.Medium;
         continue;
       }
