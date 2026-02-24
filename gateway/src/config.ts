@@ -255,17 +255,26 @@ export function loadConfig(): GatewayConfig {
 
   // Phone number: env var > config file sms.phoneNumber > credential store
   let twilioPhoneNumber: string | undefined = process.env.TWILIO_PHONE_NUMBER || undefined;
-  if (!twilioPhoneNumber) {
-    try {
-      const cfgPath = join(getRootDir(), "workspace", "config.json");
-      const raw = readFileSync(cfgPath, "utf-8");
-      const data = JSON.parse(raw);
-      if (data?.sms?.phoneNumber && typeof data.sms.phoneNumber === "string") {
-        twilioPhoneNumber = data.sms.phoneNumber;
-      }
-    } catch {
-      // config file may not exist yet
+  let assistantPhoneNumbers: Record<string, string> | undefined;
+  try {
+    const cfgPath = join(getRootDir(), "workspace", "config.json");
+    const raw = readFileSync(cfgPath, "utf-8");
+    const data = JSON.parse(raw);
+    if (!twilioPhoneNumber && data?.sms?.phoneNumber && typeof data.sms.phoneNumber === "string") {
+      twilioPhoneNumber = data.sms.phoneNumber;
     }
+    const rawMapping = data?.sms?.assistantPhoneNumbers;
+    if (rawMapping && typeof rawMapping === "object" && !Array.isArray(rawMapping)) {
+      const normalized: Record<string, string> = {};
+      for (const [assistantId, phoneNumber] of Object.entries(rawMapping as Record<string, unknown>)) {
+        if (typeof phoneNumber === "string" && phoneNumber.trim().length > 0) {
+          normalized[assistantId] = phoneNumber;
+        }
+      }
+      assistantPhoneNumbers = normalized;
+    }
+  } catch {
+    // config file may not exist yet
   }
   if (!twilioPhoneNumber) {
     twilioPhoneNumber =
@@ -315,6 +324,7 @@ export function loadConfig(): GatewayConfig {
       hasTwilioAuthToken: !!twilioAuthToken,
       hasTwilioAccountSid: !!twilioAccountSid,
       hasTwilioPhoneNumber: !!twilioPhoneNumber,
+      assistantPhoneNumberCount: assistantPhoneNumbers ? Object.keys(assistantPhoneNumbers).length : 0,
       smsDeliverAuthBypass,
       ingressPublicBaseUrl,
     },
@@ -350,6 +360,7 @@ export function loadConfig(): GatewayConfig {
     twilioAuthToken,
     twilioAccountSid,
     twilioPhoneNumber,
+    assistantPhoneNumbers,
     smsDeliverAuthBypass,
     ingressPublicBaseUrl,
     unmappedPolicy,

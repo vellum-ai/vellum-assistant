@@ -1,5 +1,7 @@
-import { writeFileSync, unlinkSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, unlinkSync } from "node:fs";
 import { describe, test, expect } from "bun:test";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { loadConfig } from "../config.js";
 
 const BASE_ENV = {
@@ -31,6 +33,7 @@ function withEnv(overrides: Record<string, string | undefined>, fn: () => void) 
     "GATEWAY_MAX_ATTACHMENT_CONCURRENCY",
     "GATEWAY_TELEGRAM_DELIVER_AUTH_BYPASS",
     "VELLUM_HTTP_TOKEN_PATH",
+    "BASE_DATA_DIR",
   ];
 
   for (const key of allKeys) {
@@ -257,5 +260,37 @@ describe("config: runtime bearer token", () => {
         unlinkSync("/tmp/test-runtime-http-token-priority");
       },
     );
+  });
+});
+
+describe("config: twilio assistant phone number mapping", () => {
+  test("loads assistantPhoneNumbers from workspace config on startup", () => {
+    const testBaseDir = mkdtempSync(join(tmpdir(), "gateway-config-test-"));
+    try {
+      const workspaceDir = join(testBaseDir, ".vellum", "workspace");
+      mkdirSync(workspaceDir, { recursive: true });
+      writeFileSync(
+        join(workspaceDir, "config.json"),
+        JSON.stringify({
+          sms: {
+            phoneNumber: "+15550001111",
+            assistantPhoneNumbers: {
+              "asst-alpha": "+15550002222",
+              "asst-beta": "+15550003333",
+            },
+          },
+        }),
+      );
+
+      withEnv({ BASE_DATA_DIR: testBaseDir }, () => {
+        const config = loadConfig();
+        expect(config.assistantPhoneNumbers).toEqual({
+          "asst-alpha": "+15550002222",
+          "asst-beta": "+15550003333",
+        });
+      });
+    } finally {
+      rmSync(testBaseDir, { recursive: true, force: true });
+    }
   });
 });
