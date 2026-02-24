@@ -21,6 +21,9 @@ struct SessionOverlayView: View {
             candidates.append(prompt.toolName)
             candidates.append(prompt.summary)
         }
+        if let warning = session.qaRecordingWarningMessage {
+            candidates.append(warning)
+        }
         switch session.state {
         case .running(_, _, let lastAction, let reasoning):
             candidates.append(lastAction)
@@ -57,6 +60,9 @@ struct SessionOverlayView: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             Divider()
+
+            // Recording status indicator (QA mode only)
+            recordingStatusView
 
             if let prompt = session.pendingToolPermissionPrompt {
                 toolPermissionPromptView(prompt)
@@ -222,19 +228,82 @@ struct SessionOverlayView: View {
             }
 
         case .failed(let reason):
-            HStack(spacing: 6) {
+            HStack(alignment: .top, spacing: 6) {
                 Image(systemName: "xmark.circle.fill")
                     .foregroundStyle(.red)
-                Text(reason)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 1)
+                ScrollView {
+                    Text(reason)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                }
+                .frame(maxHeight: 120)
             }
 
         case .cancelled:
             Text("Cancelled")
                 .font(.caption.bold())
                 .foregroundStyle(.orange)
+        }
+    }
+
+    @ViewBuilder
+    private var recordingStatusView: some View {
+        if session.qaMode {
+            if let warning = session.qaRecordingWarningMessage {
+                HStack(alignment: .top, spacing: VSpacing.sm) {
+                    Circle()
+                        .fill(VColor.error)
+                        .frame(width: 8, height: 8)
+                        .padding(.top, 3)
+                    ScrollView {
+                        Text(warning)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.error)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxHeight: 60)
+                }
+                .padding(.horizontal, VSpacing.xs)
+            } else if session.isRecordingActive {
+                HStack(spacing: VSpacing.sm) {
+                    Circle()
+                        .fill(VColor.success)
+                        .frame(width: 8, height: 8)
+                    Text("Recording")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.success)
+                }
+                .padding(.horizontal, VSpacing.xs)
+            } else if session.requiresRecording {
+                HStack(spacing: VSpacing.sm) {
+                    Circle()
+                        .fill(VColor.warning)
+                        .frame(width: 8, height: 8)
+                    Text("Recording required \u{2014} waiting...")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.warning)
+                }
+                .padding(.horizontal, VSpacing.xs)
+            } else {
+                switch session.state {
+                case .idle, .running(step: 0, _, _, _):
+                    HStack(spacing: VSpacing.sm) {
+                        ProgressView()
+                            .controlSize(.mini)
+                        Text("Recording starting...")
+                            .font(VFont.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, VSpacing.xs)
+                default:
+                    EmptyView()
+                }
+            }
         }
     }
 
