@@ -55,9 +55,12 @@ export interface WatcherProvider {
 
   /**
    * Release any in-process state held for a watcher instance.
-   * Called when a watcher is deleted or permanently disabled so that
-   * providers with per-watcher caches (e.g. the Linear issue-state map)
-   * can evict the stale entry and prevent unbounded memory growth.
+   * Called only when a watcher is truly deleted so that providers with
+   * per-watcher caches (e.g. the Linear issue-state map) can evict the
+   * stale entry and prevent unbounded memory growth.
+   *
+   * Must NOT be called on circuit-breaker auto-disable — that path is
+   * reversible, and clearing state would cause missed events on re-enable.
    *
    * Optional — providers with no per-watcher state need not implement this.
    */
