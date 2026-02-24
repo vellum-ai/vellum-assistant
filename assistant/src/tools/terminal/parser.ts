@@ -44,6 +44,16 @@ const SCRIPT_INTERPRETERS = new Set([
 // Flags that make an interpreter execute code from an inline argument or stdin
 // rather than from a file (e.g. `python -c 'code'`, `node -e 'code'`).
 const STDIN_EXEC_FLAGS = new Set(['-c', '-e', '-']);
+// Interpreter flags that consume the next argument as a value (not a filename).
+// e.g. `python -W ignore script.py` — `ignore` is -W's value, not a script path.
+// Note: `-m` is intentionally excluded — it means "run module", so the next arg
+// is a module name and the interpreter is NOT in stdin-exec mode.
+const INTERPRETER_VALUE_FLAGS = new Set([
+  '-W', '-X', '-Q',          // python
+  '-r', '--require',         // node / ruby
+  '-I',                      // ruby
+  '--import', '--conditions', // node
+]);
 const OPAQUE_PROGRAMS = new Set(['eval', 'source', 'alias']);
 const DANGEROUS_ENV_VARS = new Set([
   'LD_PRELOAD', 'LD_LIBRARY_PATH',
@@ -256,10 +266,13 @@ function extractSegments(node: TSNode): CommandSegment[] {
  *   - Otherwise the first positional arg is a filename → NOT stdin-exec
  */
 function isStdinExecMode(args: string[]): boolean {
-  for (const arg of args) {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
     if (STDIN_EXEC_FLAGS.has(arg)) return true;
     // First non-flag argument is a filename/module → file mode
     if (!arg.startsWith('-')) return false;
+    // Flags like -W, -X consume the next token as their value — skip it
+    if (INTERPRETER_VALUE_FLAGS.has(arg)) i++;
   }
   // No positional arguments at all → interpreter reads from stdin
   return true;
