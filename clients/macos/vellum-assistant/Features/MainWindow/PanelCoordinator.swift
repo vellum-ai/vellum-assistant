@@ -112,7 +112,7 @@ extension MainWindowView {
                 }
             )
         case .assistantInbox:
-            AssistantInboxPanel(onClose: { windowState.selection = nil })
+            AssistantInboxPanel(onClose: { windowState.selection = nil }, daemonClient: daemonClient)
         }
     }
 
@@ -471,7 +471,7 @@ extension MainWindowView {
             EmptyView()
                 .onAppear { windowState.dismissOverlay() }
         case .assistantInbox:
-            AssistantInboxPanel(onClose: { windowState.dismissOverlay() })
+            AssistantInboxPanel(onClose: { windowState.dismissOverlay() }, daemonClient: daemonClient)
                 .overlay(alignment: .topTrailing) { panelDismissButton }
                 .background(adaptiveColor(light: Moss._50, dark: Moss._950))
         default:

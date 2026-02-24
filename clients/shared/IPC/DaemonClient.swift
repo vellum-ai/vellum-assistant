@@ -402,6 +402,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `work_item_cancel_response` message.
     public var onWorkItemCancelResponse: ((IPCWorkItemCancelResponse) -> Void)?
 
+    /// Called when the daemon sends an `assistant_inbox_response` message.
+    public var onAssistantInboxResponse: ((IPCAssistantInboxResponse) -> Void)?
+
     /// Called when the daemon sends a generic `error` message (e.g. when a handler fails).
     public var onError: ((ErrorMessage) -> Void)?
 
@@ -1048,6 +1051,19 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Unpublish a page and delete its Vercel deployment.
     public func sendUnpublishPage(deploymentId: String) throws {
         try send(UnpublishPageRequestMessage(deploymentId: deploymentId))
+    }
+
+    // MARK: - Assistant Inbox
+
+    /// Request the list of inbox threads from the daemon.
+    public func sendAssistantInboxListThreads(assistantId: String? = nil, limit: Int? = nil, offset: Int? = nil) throws {
+        try send(IPCAssistantInboxRequest(
+            type: "assistant_inbox",
+            action: "list_threads",
+            assistantId: assistantId,
+            limit: limit.map { Double($0) },
+            offset: offset.map { Double($0) }
+        ))
     }
 
     // MARK: - Model Config

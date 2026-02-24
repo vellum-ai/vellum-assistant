@@ -248,6 +248,8 @@ extension DaemonClient {
             onParentalControlSetPinResponse?(msg)
         case .parentalControlUpdateResponse(let msg):
             onParentalControlUpdateResponse?(msg)
+        case .assistantInboxResponse(let msg):
+            onAssistantInboxResponse?(msg)
         default:
             break
         }
