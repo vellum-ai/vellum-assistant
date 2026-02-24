@@ -454,6 +454,13 @@ export class RelayConnection {
 
     const session = getCallSession(this.callSessionId);
     if (session) {
+      // Persist caller transcript to the voice conversation so it survives
+      // even when no live daemon Session is listening.
+      conversationStore.addMessage(
+        session.conversationId,
+        'user',
+        JSON.stringify([{ type: 'text', text: msg.voicePrompt }]),
+      );
       fireCallTranscriptNotifier(session.conversationId, this.callSessionId, 'caller', msg.voicePrompt);
     }
 
