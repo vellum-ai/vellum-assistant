@@ -57,7 +57,17 @@ struct PairingQRCodeSheet: View {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.system(size: 32))
                         .foregroundColor(VColor.error)
-                    if isLocalOverride {
+                    if isLocalOverride && gatewayUrl.isEmpty {
+                        Text("Set an override URL in Developer Local Pairing settings.")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.error)
+                            .multilineTextAlignment(.center)
+                    } else if isLocalOverride && resolvedBearerToken.isEmpty {
+                        Text("Bearer token not found. Restart the daemon to generate it.")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.error)
+                            .multilineTextAlignment(.center)
+                    } else if isLocalOverride {
                         Text("The override URL must be a local/private network address for developer pairing.")
                             .font(VFont.body)
                             .foregroundColor(VColor.error)
