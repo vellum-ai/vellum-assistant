@@ -32,6 +32,10 @@ import {
   getPendingChallenge,
   validateAndConsumeChallenge,
 } from '../runtime/channel-guardian-service.js';
+import {
+  resolveGuardianContext,
+  toGuardianRuntimeContext,
+} from '../runtime/guardian-context-resolver.js';
 import { normalizeAssistantId } from '../util/platform.js';
 
 const log = getLogger('relay-server');
@@ -368,13 +372,6 @@ export class RelayConnection {
       customParameters: msg.customParameters,
     });
 
-    // Create and attach the LLM-driven orchestrator
-    const orchestrator = new CallOrchestrator(this.callSessionId, this, session?.task ?? null, {
-      broadcast: globalBroadcast,
-      assistantId: session?.assistantId ?? 'self',
-    });
-    this.setOrchestrator(orchestrator);
-
     // Inbound calls skip callee verification — verification is an
     // outbound-call concern where we need to confirm the callee's identity.
     // We use initiatedFromConversationId rather than task == null because
@@ -382,7 +379,30 @@ export class RelayConnection {
     // calls (created via createInboundVoiceSession) never do. Relying on
     // task == null is unreliable: task-less outbound sessions would
     // incorrectly bypass outbound verification.
+    const assistantId = normalizeAssistantId(session?.assistantId ?? 'self');
     const isInbound = session?.initiatedFromConversationId == null;
+
+    // Create and attach the LLM-driven orchestrator. For inbound voice,
+    // seed guardian actor context from caller identity + active binding so
+    // first-turn behavior matches channel ingress semantics.
+    const initialGuardianContext = isInbound
+      ? toGuardianRuntimeContext(
+        'voice',
+        resolveGuardianContext({
+          assistantId,
+          sourceChannel: 'voice',
+          externalChatId: msg.from,
+          senderExternalUserId: msg.from || undefined,
+        }),
+      )
+      : undefined;
+
+    const orchestrator = new CallOrchestrator(this.callSessionId, this, session?.task ?? null, {
+      broadcast: globalBroadcast,
+      assistantId,
+      guardianContext: initialGuardianContext,
+    });
+    this.setOrchestrator(orchestrator);
 
     const config = getConfig();
     const verificationConfig = config.calls.verification;
@@ -391,7 +411,6 @@ export class RelayConnection {
     } else if (isInbound) {
       // For inbound calls, check if there's a pending voice guardian
       // challenge that the caller needs to complete before proceeding.
-      const assistantId = normalizeAssistantId(session?.assistantId ?? 'self');
       const pendingChallenge = getPendingChallenge(assistantId, 'voice');
 
       if (pendingChallenge) {
@@ -564,6 +583,17 @@ export class RelayConnection {
       // Proceed to normal call flow (use startNormalCallFlow to respect
       // the CALL_WELCOME_GREETING static greeting guard)
       if (this.orchestrator) {
+        this.orchestrator.setGuardianContext(
+          toGuardianRuntimeContext(
+            'voice',
+            resolveGuardianContext({
+              assistantId: this.guardianChallengeAssistantId,
+              sourceChannel: 'voice',
+              externalChatId: this.guardianVerificationFromNumber,
+              senderExternalUserId: this.guardianVerificationFromNumber,
+            }),
+          ),
+        );
         this.startNormalCallFlow(this.orchestrator, true);
       }
     } else {

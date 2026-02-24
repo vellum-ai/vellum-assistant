@@ -17,9 +17,9 @@ import { getLogger } from '../../util/logger.js';
 import { findMember, updateLastSeen } from '../../memory/ingress-member-store.js';
 import {
   getGuardianBinding,
-  isGuardian,
   validateAndConsumeChallenge,
 } from '../channel-guardian-service.js';
+import { resolveGuardianContext } from '../guardian-context-resolver.js';
 import {
   getPendingDeliveriesByDestination,
   getGuardianActionRequest,
@@ -595,62 +595,15 @@ export async function handleChannelInbound(
   }
 
   // ── Actor role resolution ──
-  // Determine whether the sender is the guardian for this channel.
-  // When a guardian binding exists, non-guardian actors get stricter
-  // side-effect controls and their approvals route to the guardian's chat.
-  //
-  // Guardian actor-role resolution always runs.
-  let guardianCtx: GuardianContext;
-  if (body.senderExternalUserId) {
-    const requesterLabel = body.senderUsername
-      ? `@${body.senderUsername}`
-      : body.senderExternalUserId;
-    const senderIsGuardian = isGuardian(assistantId, sourceChannel, body.senderExternalUserId);
-    if (senderIsGuardian) {
-      const binding = getGuardianBinding(assistantId, sourceChannel);
-      guardianCtx = {
-        actorRole: 'guardian',
-        guardianChatId: binding?.guardianDeliveryChatId ?? externalChatId,
-        guardianExternalUserId: binding?.guardianExternalUserId ?? body.senderExternalUserId,
-        requesterIdentifier: requesterLabel,
-        requesterExternalUserId: body.senderExternalUserId,
-        requesterChatId: externalChatId,
-      };
-    } else {
-      const binding = getGuardianBinding(assistantId, sourceChannel);
-      if (binding) {
-        guardianCtx = {
-          actorRole: 'non-guardian',
-          guardianChatId: binding.guardianDeliveryChatId,
-          guardianExternalUserId: binding.guardianExternalUserId,
-          requesterIdentifier: requesterLabel,
-          requesterExternalUserId: body.senderExternalUserId,
-          requesterChatId: externalChatId,
-        };
-      } else {
-        // No guardian binding configured for this channel — the sender is
-        // unverified. Sensitive actions will be auto-denied (fail-closed).
-        guardianCtx = {
-          actorRole: 'unverified_channel',
-          denialReason: 'no_binding',
-          requesterIdentifier: requesterLabel,
-          requesterExternalUserId: body.senderExternalUserId,
-          requesterChatId: externalChatId,
-        };
-      }
-    }
-  } else {
-    // No sender identity available — treat as unverified and fail closed.
-    // Multi-actor channels must not grant default guardian permissions when
-    // the inbound actor cannot be identified.
-    guardianCtx = {
-      actorRole: 'unverified_channel',
-      denialReason: 'no_identity',
-      requesterIdentifier: body.senderUsername ? `@${body.senderUsername}` : undefined,
-      requesterExternalUserId: undefined,
-      requesterChatId: externalChatId,
-    };
-  }
+  // Uses shared channel-agnostic resolution so all ingress paths classify
+  // guardian vs non-guardian actors the same way.
+  const guardianCtx: GuardianContext = resolveGuardianContext({
+    assistantId,
+    sourceChannel,
+    externalChatId,
+    senderExternalUserId: body.senderExternalUserId,
+    senderUsername: body.senderUsername,
+  });
 
   // ── Approval interception ──
   // Keep this active whenever orchestrator + callback context are available.

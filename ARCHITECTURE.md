@@ -427,6 +427,16 @@ graph TB
 - Daemon startup runs `ensurePrebuiltHomeBaseSeeded()` to provision one idempotent prebuilt Home Base app in `~/.vellum/workspace/data/apps`.
 - Home Base onboarding buttons relay prefilled natural-language prompts to the main assistant; permission setup remains user-initiated and hatch + first-conversation flows avoid proactive permission asks.
 
+### Guardian Actor Context (Unified Across Channels)
+
+- Guardian/non-guardian/unverified classification is centralized in `assistant/src/runtime/guardian-context-resolver.ts`.
+- The same resolver is used by:
+  - `/channels/inbound` (Telegram/SMS/WhatsApp path) before run orchestration.
+  - Inbound Twilio voice setup (`RelayConnection.handleSetup`) to seed call-time actor context.
+- Runtime channel runs pass this as `guardianContext`, and session runtime assembly injects `<guardian_context>` into provider-facing prompts.
+- Voice call orchestration mirrors the same prompt contract: `CallOrchestrator` receives guardian context on setup and refreshes it immediately after successful voice challenge verification, so the first post-verification turn is grounded as `actor_role: guardian`.
+- Voice-specific behavior (DTMF/speech verification flow, relay state machine) remains voice-local; only actor-role resolution is shared.
+
 ### SMS Channel (Twilio)
 
 The SMS channel provides text-only messaging via Twilio, sharing the same telephony provider as voice calls. It follows the same ingress/egress pattern as Telegram but uses Twilio's HMAC-SHA1 signature validation instead of a secret header.

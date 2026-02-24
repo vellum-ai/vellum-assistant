@@ -134,6 +134,7 @@ import {
   createVerificationChallenge,
   getGuardianBinding,
 } from '../runtime/channel-guardian-service.js';
+import { createBinding } from '../memory/channel-guardian-store.js';
 
 initializeDb();
 
@@ -1112,6 +1113,132 @@ describe('relay-server', () => {
       .map((raw) => JSON.parse(raw) as { type: string; token?: string })
       .filter((m) => m.type === 'text');
     expect(textMessages.some((m) => (m.token ?? '').includes('verified caller'))).toBe(true);
+
+    relay.destroy();
+  });
+
+  test('inbound call: caller matching voice guardian binding is classified as guardian', async () => {
+    ensureConversation('conv-guardian-role-match');
+    const session = createCallSession({
+      conversationId: 'conv-guardian-role-match',
+      provider: 'twilio',
+      fromNumber: '+15550001111',
+      toNumber: '+15551111111',
+      assistantId: 'test-assistant',
+    });
+
+    createBinding({
+      assistantId: 'test-assistant',
+      channel: 'voice',
+      guardianExternalUserId: '+15550001111',
+      guardianDeliveryChatId: '+15550001111',
+    });
+
+    mockSendMessage.mockImplementation(createMockProviderResponse(['Hello there.']));
+
+    const { relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_guardian_role_match',
+      from: '+15550001111',
+      to: '+15551111111',
+    }));
+
+    const runtimeContext = (relay.getOrchestrator() as unknown as { guardianContext?: { sourceChannel?: string; actorRole?: string; guardianExternalUserId?: string } })?.guardianContext;
+    expect(runtimeContext?.sourceChannel).toBe('voice');
+    expect(runtimeContext?.actorRole).toBe('guardian');
+    expect(runtimeContext?.guardianExternalUserId).toBe('+15550001111');
+
+    relay.destroy();
+  });
+
+  test('inbound call: caller not matching voice guardian binding is classified as non-guardian', async () => {
+    ensureConversation('conv-guardian-role-mismatch');
+    const session = createCallSession({
+      conversationId: 'conv-guardian-role-mismatch',
+      provider: 'twilio',
+      fromNumber: '+15550002222',
+      toNumber: '+15551111111',
+      assistantId: 'test-assistant',
+    });
+
+    createBinding({
+      assistantId: 'test-assistant',
+      channel: 'voice',
+      guardianExternalUserId: '+15550009999',
+      guardianDeliveryChatId: '+15550009999',
+    });
+
+    mockSendMessage.mockImplementation(createMockProviderResponse(['Hello there.']));
+
+    const { relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_guardian_role_mismatch',
+      from: '+15550002222',
+      to: '+15551111111',
+    }));
+
+    const runtimeContext = (relay.getOrchestrator() as unknown as {
+      guardianContext?: {
+        sourceChannel?: string;
+        actorRole?: string;
+        guardianExternalUserId?: string;
+        requesterExternalUserId?: string;
+      };
+    })?.guardianContext;
+    expect(runtimeContext?.sourceChannel).toBe('voice');
+    expect(runtimeContext?.actorRole).toBe('non-guardian');
+    expect(runtimeContext?.guardianExternalUserId).toBe('+15550009999');
+    expect(runtimeContext?.requesterExternalUserId).toBe('+15550002222');
+
+    relay.destroy();
+  });
+
+  test('inbound guardian verification updates orchestrator context to guardian', async () => {
+    ensureConversation('conv-guardian-context-upgrade');
+    const session = createCallSession({
+      conversationId: 'conv-guardian-context-upgrade',
+      provider: 'twilio',
+      fromNumber: '+15550003333',
+      toNumber: '+15551111111',
+      assistantId: 'test-assistant',
+    });
+
+    const challenge = createVerificationChallenge('test-assistant', 'voice');
+    const spokenCode = challenge.secret.split('').join(' ');
+
+    const { relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_guardian_context_upgrade',
+      from: session.fromNumber,
+      to: session.toNumber,
+    }));
+
+    const preVerify = (relay.getOrchestrator() as unknown as {
+      guardianContext?: { actorRole?: string };
+    })?.guardianContext;
+    expect(preVerify?.actorRole).toBe('unverified_channel');
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'prompt',
+      voicePrompt: spokenCode,
+      lang: 'en-US',
+      last: true,
+    }));
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const postVerify = (relay.getOrchestrator() as unknown as {
+      guardianContext?: { sourceChannel?: string; actorRole?: string; guardianExternalUserId?: string };
+    })?.guardianContext;
+    expect(postVerify?.sourceChannel).toBe('voice');
+    expect(postVerify?.actorRole).toBe('guardian');
+    expect(postVerify?.guardianExternalUserId).toBe(session.fromNumber);
 
     relay.destroy();
   });

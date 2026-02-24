@@ -3,12 +3,14 @@
  */
 import { timingSafeEqual } from 'node:crypto';
 import type { ChannelId } from '../../channels/types.js';
-import type { GuardianRuntimeContext } from '../../daemon/session-runtime-assembly.js';
+import type { DenialReason } from '../guardian-context-resolver.js';
 import type {
   ApprovalAction,
   ApprovalDecisionResult,
   ApprovalUIMetadata,
 } from '../channel-approval-types.js';
+export type { ActorRole, DenialReason, GuardianContext } from '../guardian-context-resolver.js';
+export { toGuardianRuntimeContext } from '../guardian-context-resolver.js';
 
 // ---------------------------------------------------------------------------
 // Gateway-origin proof
@@ -51,40 +53,6 @@ export function verifyGatewayOrigin(
 // ---------------------------------------------------------------------------
 // Actor role
 // ---------------------------------------------------------------------------
-
-export type ActorRole = 'guardian' | 'non-guardian' | 'unverified_channel';
-
-/** Sub-reason for `unverified_channel` denials. */
-export type DenialReason = 'no_binding' | 'no_identity';
-
-export interface GuardianContext {
-  actorRole: ActorRole;
-  /** The guardian's delivery chat ID (from the guardian binding). */
-  guardianChatId?: string;
-  /** The guardian's external user ID. */
-  guardianExternalUserId?: string;
-  /** Display identifier for the requester (username or external user ID). */
-  requesterIdentifier?: string;
-  /** The requester's external user ID. */
-  requesterExternalUserId?: string;
-  /** The requester's chat ID. */
-  requesterChatId?: string;
-  /** Sub-reason when actorRole is 'unverified_channel'. */
-  denialReason?: DenialReason;
-}
-
-export function toGuardianRuntimeContext(sourceChannel: ChannelId, ctx: GuardianContext): GuardianRuntimeContext {
-  return {
-    sourceChannel,
-    actorRole: ctx.actorRole,
-    guardianChatId: ctx.guardianChatId,
-    guardianExternalUserId: ctx.guardianExternalUserId,
-    requesterIdentifier: ctx.requesterIdentifier,
-    requesterExternalUserId: ctx.requesterExternalUserId,
-    requesterChatId: ctx.requesterChatId,
-    denialReason: ctx.denialReason,
-  };
-}
 
 /** Guardian approval request expiry (30 minutes). */
 export const GUARDIAN_APPROVAL_TTL_MS = 30 * 60 * 1000;
