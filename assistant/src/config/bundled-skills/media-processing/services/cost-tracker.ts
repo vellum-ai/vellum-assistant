@@ -1,10 +1,11 @@
 /**
  * Tracks token usage and estimated costs across video segment processing.
  *
- * Uses Gemini 2.5 Flash pricing for cost estimation:
- *   - Input:  $0.15 per 1M tokens (for context <= 200k tokens)
- *   - Output: $0.60 per 1M tokens (for context <= 200k tokens)
+ * Cost estimation uses the shared pricing resolver from `assistant/src/util/pricing.ts`,
+ * which maintains a multi-provider pricing catalog including Gemini models.
  */
+
+import { resolvePricing } from '../../../../util/pricing.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -27,25 +28,17 @@ export interface CostSummary {
 }
 
 // ---------------------------------------------------------------------------
-// Pricing (per token)
-// ---------------------------------------------------------------------------
-
-/** Gemini 2.5 Flash: $0.15 / 1M input tokens (<=200k context) */
-const INPUT_COST_PER_TOKEN = 0.15 / 1_000_000;
-
-/** Gemini 2.5 Flash: $0.60 / 1M output tokens (<=200k context) */
-const OUTPUT_COST_PER_TOKEN = 0.60 / 1_000_000;
-
-// ---------------------------------------------------------------------------
 // CostTracker
 // ---------------------------------------------------------------------------
 
 export class CostTracker {
   private entries: SegmentCostEntry[] = [];
 
+  constructor(private readonly provider: string = 'gemini') {}
+
   /**
-   * Record token usage for a processed segment. Automatically computes
-   * estimated cost using Gemini 2.5 Flash pricing.
+   * Record token usage for a processed segment. Computes estimated cost
+   * via the shared pricing resolver.
    */
   record(params: {
     segmentId: string;
@@ -53,9 +46,8 @@ export class CostTracker {
     inputTokens: number;
     outputTokens: number;
   }): SegmentCostEntry {
-    const estimatedUSD =
-      params.inputTokens * INPUT_COST_PER_TOKEN +
-      params.outputTokens * OUTPUT_COST_PER_TOKEN;
+    const result = resolvePricing(this.provider, params.model, params.inputTokens, params.outputTokens);
+    const estimatedUSD = result.estimatedCostUsd ?? 0;
 
     const entry: SegmentCostEntry = {
       segmentId: params.segmentId,
@@ -88,7 +80,7 @@ export class CostTracker {
       totalOutputTokens,
       totalEstimatedUSD,
       segmentCount: this.entries.length,
-      entries: this.entries,
+      entries: [...this.entries],
     };
   }
 }

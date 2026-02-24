@@ -38,7 +38,7 @@ export class ConcurrencyPool {
     if (next) {
       // Hand the slot directly to the next waiter (running count stays the same)
       next();
-    } else {
+    } else if (this.running > 0) {
       this.running--;
     }
   }
