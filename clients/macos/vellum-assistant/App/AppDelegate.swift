@@ -57,6 +57,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var escapeMonitor: Any?
     private var quickChatPanel: QuickChatPanel?
     private var quickChatMonitor: Any?
+    private var quickChatLocalMonitor: Any?
+    private var lastRegisteredShortcut: String?
     var overlayWindow: SessionOverlayWindow?
     var currentSession: ComputerUseSession?
     var currentTextSession: TextSession?
@@ -345,6 +347,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 NSEvent.removeMonitor(quickChatMonitor)
                 self.quickChatMonitor = nil
             }
+            if let quickChatLocalMonitor {
+                NSEvent.removeMonitor(quickChatLocalMonitor)
+                self.quickChatLocalMonitor = nil
+            }
+            lastRegisteredShortcut = nil
             quickChatShortcutObserver?.cancel()
             quickChatShortcutObserver = nil
             quickChatPanel?.dismiss()
@@ -452,6 +459,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             NSEvent.removeMonitor(quickChatMonitor)
             self.quickChatMonitor = nil
         }
+        if let quickChatLocalMonitor {
+            NSEvent.removeMonitor(quickChatLocalMonitor)
+            self.quickChatLocalMonitor = nil
+        }
+        lastRegisteredShortcut = nil
         quickChatShortcutObserver?.cancel()
         quickChatShortcutObserver = nil
         quickChatPanel?.dismiss()
@@ -1061,15 +1073,24 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             }
     }
 
-    /// Tears down the existing Quick Chat global monitor and registers a new
-    /// one based on the current `quickChatShortcut` UserDefaults value.
+    /// Tears down the existing Quick Chat monitors and registers new ones
+    /// based on the current `quickChatShortcut` UserDefaults value.
+    /// Skips re-registration if the shortcut hasn't changed.
     private func registerQuickChatMonitor() {
+        let shortcut = UserDefaults.standard.string(forKey: "quickChatShortcut") ?? "cmd+shift+space"
+
+        // Skip re-registration when the shortcut hasn't changed
+        if shortcut == lastRegisteredShortcut { return }
+
         if let existing = quickChatMonitor {
             NSEvent.removeMonitor(existing)
             quickChatMonitor = nil
         }
+        if let existing = quickChatLocalMonitor {
+            NSEvent.removeMonitor(existing)
+            quickChatLocalMonitor = nil
+        }
 
-        let shortcut = UserDefaults.standard.string(forKey: "quickChatShortcut") ?? "cmd+shift+space"
         let (targetModifiers, targetKey) = ShortcutHelper.parseShortcut(shortcut)
 
         quickChatMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
@@ -1080,6 +1101,20 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.showQuickChat()
             }
         }
+
+        // Local monitor fires when the app itself is active (global monitor only
+        // fires when other apps are frontmost). Return nil to consume the event.
+        quickChatLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            let eventMods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            guard eventMods == targetModifiers,
+                  event.charactersIgnoringModifiers?.lowercased() == targetKey.lowercased() else { return event }
+            Task { @MainActor in
+                self?.showQuickChat()
+            }
+            return nil
+        }
+
+        lastRegisteredShortcut = shortcut
     }
 
     func showQuickChat() {
@@ -1443,6 +1478,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             NSEvent.removeMonitor(monitor)
         }
         if let monitor = quickChatMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
+        if let monitor = quickChatLocalMonitor {
             NSEvent.removeMonitor(monitor)
         }
         quickChatShortcutObserver?.cancel()
