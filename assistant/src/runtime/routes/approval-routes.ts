@@ -5,6 +5,7 @@
  * by requestId — orthogonal to message sending.
  */
 import * as pendingInteractions from '../pending-interactions.js';
+import { getConversationByKey } from '../../memory/conversation-key-store.js';
 import { addRule } from '../../permissions/trust-store.js';
 import { getTool } from '../../tools/registry.js';
 import { getLogger } from '../../util/logger.js';
@@ -176,4 +177,62 @@ export async function handleTrustRule(req: Request): Promise<Response> {
     log.error({ err }, 'Failed to add trust rule');
     return Response.json({ error: 'Failed to add trust rule' }, { status: 500 });
   }
+}
+
+/**
+ * GET /v1/pending-interactions?conversationKey=...
+ *
+ * Returns pending confirmations and secrets for a conversation, allowing
+ * polling-based clients (like the CLI) to discover approval requests
+ * without SSE.
+ */
+export function handleListPendingInteractions(url: URL): Response {
+  const conversationKey = url.searchParams.get('conversationKey');
+  const conversationId = url.searchParams.get('conversationId');
+
+  let resolvedConversationId: string | undefined;
+  if (conversationId) {
+    resolvedConversationId = conversationId;
+  } else if (conversationKey) {
+    const mapping = getConversationByKey(conversationKey);
+    resolvedConversationId = mapping?.conversationId;
+  } else {
+    return Response.json(
+      { error: 'conversationKey or conversationId query parameter is required' },
+      { status: 400 },
+    );
+  }
+
+  if (!resolvedConversationId) {
+    return Response.json({ pendingConfirmation: null, pendingSecret: null });
+  }
+
+  const interactions = pendingInteractions.getByConversation(resolvedConversationId);
+
+  const confirmation = interactions.find((i) => i.kind === 'confirmation');
+  const secret = interactions.find((i) => i.kind === 'secret');
+
+  return Response.json({
+    pendingConfirmation: confirmation
+      ? {
+          requestId: confirmation.requestId,
+          toolName: confirmation.confirmationDetails?.toolName,
+          toolUseId: confirmation.requestId,
+          input: confirmation.confirmationDetails?.input ?? {},
+          riskLevel: confirmation.confirmationDetails?.riskLevel ?? 'unknown',
+          executionTarget: confirmation.confirmationDetails?.executionTarget,
+          allowlistOptions: confirmation.confirmationDetails?.allowlistOptions?.map((o) => ({
+            label: o.label,
+            pattern: o.pattern,
+          })),
+          scopeOptions: confirmation.confirmationDetails?.scopeOptions,
+          persistentDecisionsAllowed: confirmation.confirmationDetails?.persistentDecisionsAllowed,
+        }
+      : null,
+    pendingSecret: secret
+      ? {
+          requestId: secret.requestId,
+        }
+      : null,
+  });
 }

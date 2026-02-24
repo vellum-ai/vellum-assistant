@@ -67,9 +67,6 @@ final class HTTPTransport {
     /// Health check interval in seconds.
     private let healthCheckInterval: TimeInterval = 15.0
 
-    /// Currently active run ID, tracked for decision/secret endpoints.
-    private(set) var activeRunId: String?
-
     /// Whether the assistant is reachable (health check passes).
     private(set) var isConnected: Bool = false
 
@@ -273,7 +270,7 @@ final class HTTPTransport {
     /// Translate an IPC message to the appropriate HTTP API call.
     func send<T: Encodable>(_ message: T) throws {
         if let msg = message as? UserMessageMessage {
-            Task { await self.createRun(content: msg.content, sessionId: msg.sessionId) }
+            Task { await self.sendMessage(content: msg.content, sessionId: msg.sessionId) }
         } else if let msg = message as? ConfirmationResponseMessage {
             Task { await self.sendDecision(requestId: msg.requestId, decision: msg.decision) }
         } else if let msg = message as? SecretResponseMessage {
@@ -304,8 +301,8 @@ final class HTTPTransport {
 
     // MARK: - HTTP Endpoints
 
-    private func createRun(content: String?, sessionId: String) async {
-        guard let url = URL(string: "\(baseURL)/v1/runs") else { return }
+    private func sendMessage(content: String?, sessionId: String) async {
+        guard let url = URL(string: "\(baseURL)/v1/messages") else { return }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -326,19 +323,11 @@ final class HTTPTransport {
 
             guard let http = response as? HTTPURLResponse else { return }
 
-            if http.statusCode == 201 || http.statusCode == 200 {
-                do {
-                    if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let runId = json["id"] as? String {
-                        self.activeRunId = runId
-                        log.info("Run created: \(runId)")
-                    }
-                } catch {
-                    log.error("Failed to deserialize create run response: \(error)")
-                }
+            if http.statusCode == 202 || http.statusCode == 200 {
+                log.info("Message sent successfully")
             } else {
                 let errorBody = String(data: data, encoding: .utf8) ?? "unknown"
-                log.error("Create run failed (\(http.statusCode)): \(errorBody)")
+                log.error("Send message failed (\(http.statusCode)): \(errorBody)")
                 onMessage?(.sessionError(SessionErrorMessage(
                     sessionId: sessionId,
                     code: .providerApi,
@@ -347,7 +336,7 @@ final class HTTPTransport {
                 )))
             }
         } catch {
-            log.error("Create run error: \(error.localizedDescription)")
+            log.error("Send message error: \(error.localizedDescription)")
             onMessage?(.sessionError(SessionErrorMessage(
                 sessionId: sessionId,
                 code: .providerApi,
@@ -358,19 +347,17 @@ final class HTTPTransport {
     }
 
     private func sendDecision(requestId: String, decision: String) async {
-        guard let runId = activeRunId else {
-            log.warning("No active run ID for decision response")
-            return
-        }
-
-        guard let url = URL(string: "\(baseURL)/v1/runs/\(runId)/decision") else { return }
+        guard let url = URL(string: "\(baseURL)/v1/confirm") else { return }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         applyAuth(&request)
 
-        let body: [String: Any] = ["decision": decision]
+        let body: [String: Any] = [
+            "requestId": requestId,
+            "decision": decision
+        ]
 
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -385,21 +372,15 @@ final class HTTPTransport {
     }
 
     private func sendSecret(requestId: String, value: String?) async {
-        // Secrets can be delivered via the /v1/secrets endpoint for persistence,
-        // or via the run's decision flow. Use the secrets endpoint.
-        guard let url = URL(string: "\(baseURL)/v1/secrets") else { return }
+        guard let url = URL(string: "\(baseURL)/v1/secret") else { return }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         applyAuth(&request)
 
-        // The secret_request includes service/field info but we receive it via
-        // the SecretResponseMessage which only has requestId and value.
-        // For now, send as a credential with the requestId as name.
         let body: [String: Any] = [
-            "type": "credential",
-            "name": requestId,
+            "requestId": requestId,
             "value": value ?? ""
         ]
 
@@ -407,7 +388,7 @@ final class HTTPTransport {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
             let (_, response) = try await URLSession.shared.data(for: request)
 
-            if let http = response as? HTTPURLResponse, http.statusCode != 201 {
+            if let http = response as? HTTPURLResponse, http.statusCode != 200 {
                 log.error("Secret response failed (\(http.statusCode))")
             }
         } catch {
@@ -550,7 +531,6 @@ final class HTTPTransport {
         sseTask = nil
         setConnected(false)
         setSSEConnected(false)
-        activeRunId = nil
     }
 
     // MARK: - SSE Reconnect
