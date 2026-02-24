@@ -45,8 +45,9 @@ extension AppDelegate {
             return pickerVM.selectedRecordingOptions
         }
 
-        // Try auto-apply from saved preference
-        if pickerVM.canAutoApply() {
+        // Try auto-apply from saved preference, but only when the caller
+        // didn't explicitly request the picker via promptForSource.
+        if routed.recordingOptions?.promptForSource != true, pickerVM.canAutoApply() {
             log.info("Auto-applied saved recording source preference")
             return pickerVM.selectedRecordingOptions
         }
