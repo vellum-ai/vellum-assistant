@@ -167,16 +167,66 @@ async function handleEvaluate(cmd: ExtensionCommand): Promise<DispatchResult> {
 
   const code = cmd.code;
 
-  // Inject into MAIN world so the script has access to the page's fetch,
-  // document, window — same as CDP Runtime.evaluate.
-  const results = await chrome.scripting.executeScript({
-    target: { tabId: cmd.tabId },
-    world: 'MAIN',
-    func: (src: string) => (0, eval)(src), // indirect eval runs in global scope
-    args: [code],
-  });
+  // Use chrome.debugger API (CDP Runtime.evaluate) for ALL evaluations.
+  //
+  // Why not chrome.scripting.executeScript?
+  //   1. MAIN world + eval/new Function is blocked by CSP on Instagram, Facebook,
+  //      TikTok, and many other sites.
+  //   2. MAIN world results don't serialize back through executeScript reliably
+  //      (returns null even when the script succeeds).
+  //   3. ISOLATED world can't access page JS globals or cookie-authenticated fetch().
+  //
+  // The debugger API operates at the browser engine level, bypassing ALL CSP
+  // restrictions while having full access to the page context (DOM, fetch,
+  // cookies, JS globals). It's the only approach that works universally.
+  //
+  // Trade-off: Chrome shows a yellow "debugging this tab" infobar while
+  // attached. We minimize this by attaching and detaching for each command.
 
-  return { result: results[0]?.result, tabId: cmd.tabId };
+  // Attach debugger to the tab
+  try {
+    await chrome.debugger.attach({ tabId: cmd.tabId }, '1.3');
+  } catch (e) {
+    // Already attached is fine
+    if (!(e instanceof Error && e.message.includes('Already attached'))) {
+      throw new Error(`Could not attach debugger: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  try {
+    // Wrap code in an IIFE so "return" statements work — but only if the code
+    // isn't already a self-executing expression (e.g. "(async function(){...})()"
+    // or "(function(){...})()"). Double-wrapping breaks the return value.
+    const trimmed = code.trim();
+    const isIIFE = /^\((?:async\s+)?function\s*\(/.test(trimmed) && trimmed.endsWith(')');
+    const wrapped = isIIFE ? trimmed : `(function(){ ${code} })()`;
+    const evalResult = await chrome.debugger.sendCommand(
+      { tabId: cmd.tabId },
+      'Runtime.evaluate',
+      {
+        expression: wrapped,
+        returnByValue: true,
+        awaitPromise: true,
+        userGesture: true,
+      },
+    ) as { result?: { value?: unknown; type?: string; description?: string }; exceptionDetails?: { text?: string; exception?: { description?: string } } };
+
+    if (evalResult.exceptionDetails) {
+      const errMsg = evalResult.exceptionDetails.exception?.description
+        ?? evalResult.exceptionDetails.text
+        ?? 'Unknown eval error';
+      throw new Error(errMsg);
+    }
+
+    return { result: evalResult.result?.value ?? null, tabId: cmd.tabId };
+  } finally {
+    // Detach debugger — minimizes the yellow infobar visibility
+    try {
+      await chrome.debugger.detach({ tabId: cmd.tabId });
+    } catch {
+      // Best effort
+    }
+  }
 }
 
 async function handleNavigate(cmd: ExtensionCommand): Promise<DispatchResult> {

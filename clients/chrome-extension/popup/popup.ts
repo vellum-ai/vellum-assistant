@@ -47,6 +47,8 @@ btnConnect.addEventListener('click', async () => {
     if (!isNaN(portNum) && portNum > 0 && portNum <= 65535) {
       storageUpdate.relayPort = portNum;
     }
+  } else {
+    await chrome.storage.local.remove('relayPort');
   }
   await chrome.storage.local.set(storageUpdate);
 

@@ -6,6 +6,8 @@
  * All metrics are generic media-processing infrastructure.
  */
 
+import { join, dirname } from 'node:path';
+import { readFile } from 'node:fs/promises';
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
 import {
   getMediaAssetById,
@@ -13,6 +15,7 @@ import {
   getKeyframesForAsset,
   type ProcessingStage,
 } from '../../../../memory/media-store.js';
+import type { PreprocessManifest } from '../services/preprocess.js';
 // ---------------------------------------------------------------------------
 // Cost estimation constants (Gemini 2.5 Flash pricing)
 // ---------------------------------------------------------------------------
@@ -98,7 +101,19 @@ export async function run(
 
   // Cost estimation: Gemini 2.5 Flash is ~$0.001 per segment (~10 frames each)
   const keyframeCount = keyframes.length;
-  const estimatedSegments = Math.ceil(keyframeCount / 10);
+
+  // Prefer actual segment count from preprocess manifest when available
+  let estimatedSegments: number;
+  const manifestPath = join(dirname(asset.filePath), 'pipeline', asset.id, 'manifest.json');
+  try {
+    const raw = await readFile(manifestPath, 'utf-8');
+    const manifest: PreprocessManifest = JSON.parse(raw);
+    estimatedSegments = manifest.segments.length;
+  } catch {
+    // Manifest doesn't exist yet (preprocess hasn't run) — fall back to estimation
+    estimatedSegments = Math.ceil(keyframeCount / 10);
+  }
+
   const estimatedTotalCost = estimatedSegments * ESTIMATED_COST_PER_SEGMENT_USD;
 
   const report: DiagnosticReport = {

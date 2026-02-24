@@ -39,5 +39,5 @@ export type {
   CallerIdentityConfig,
   SmsConfig,
   IngressConfig,
-  AssistantInboxConfig,
+  DaemonConfig,
 } from './schema.js';

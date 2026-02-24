@@ -1,59 +1,50 @@
 import SwiftUI
 import VellumAssistantShared
 
-struct QuickChatView: View {
+struct QuickInputView: View {
     let onSubmit: (String) -> Void
     let onDismiss: () -> Void
 
     @State private var text = ""
-    @State private var isPresented = false
     @FocusState private var isFocused: Bool
 
-    private let panelWidth: CGFloat = 400
-    private let minEditorHeight: CGFloat = 36
-    private let maxEditorHeight: CGFloat = 120
+    private let panelWidth: CGFloat = 500
 
     var body: some View {
-        VStack(spacing: 0) {
-            TextEditor(text: $text)
+        HStack(spacing: VSpacing.sm) {
+            TextField("Send a message...", text: $text)
                 .font(VFont.body)
                 .foregroundColor(VColor.textPrimary)
-                .scrollContentBackground(.hidden)
-                .padding(.horizontal, VSpacing.md)
-                .padding(.vertical, VSpacing.sm)
-                .frame(minHeight: minEditorHeight, maxHeight: maxEditorHeight)
-                .fixedSize(horizontal: false, vertical: true)
+                .textFieldStyle(.plain)
                 .focused($isFocused)
-                .overlay(alignment: .topLeading) {
-                    if text.isEmpty {
-                        Text("Type a message...")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textMuted)
-                            .padding(.horizontal, VSpacing.md + 5)
-                            .padding(.vertical, VSpacing.sm + 1)
-                            .allowsHitTesting(false)
-                    }
-                }
-                .onKeyPress(.return) {
+                .onSubmit {
                     submit()
-                    return .handled
                 }
                 .onKeyPress(.escape) {
                     onDismiss()
                     return .handled
                 }
+
+            Button(action: submit) {
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.system(size: 20))
+                    .foregroundColor(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        ? VColor.textMuted
+                        : VColor.sendButton)
+            }
+            .buttonStyle(.plain)
+            .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .accessibilityLabel("Send message")
         }
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.vertical, VSpacing.md)
         .frame(width: panelWidth)
         .background(
             VisualEffectBlur(material: .hudWindow, blendingMode: .behindWindow)
         )
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-        .scaleEffect(isPresented ? 1.0 : 0.95)
         .onAppear {
             isFocused = true
-            withAnimation(VAnimation.fast) {
-                isPresented = true
-            }
         }
     }
 
@@ -84,12 +75,10 @@ struct VisualEffectBlur: NSViewRepresentable {
     }
 }
 
-// MARK: - Preview
-
-#Preview("QuickChatView") {
+#Preview("QuickInputView") {
     ZStack {
         Color.black.opacity(0.5).ignoresSafeArea()
-        QuickChatView(
+        QuickInputView(
             onSubmit: { message in
                 print("Submitted: \(message)")
             },
@@ -98,5 +87,5 @@ struct VisualEffectBlur: NSViewRepresentable {
             }
         )
     }
-    .frame(width: 500, height: 300)
+    .frame(width: 600, height: 200)
 }

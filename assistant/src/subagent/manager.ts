@@ -343,20 +343,20 @@ export class SubagentManager {
 
   // ── Send message to subagent ──────────────────────────────────────────
 
-  sendMessage(subagentId: string, content: string): boolean {
+  sendMessage(subagentId: string, content: string): 'sent' | 'empty' | 'not_found' | 'terminal' | 'queue_full' {
     const trimmed = content?.trim();
-    if (!trimmed) return false;
+    if (!trimmed) return 'empty';
 
     const managed = this.subagents.get(subagentId);
-    if (!managed) return false;
-    if (TERMINAL_STATUSES.has(managed.state.status)) return false;
+    if (!managed) return 'not_found';
+    if (TERMINAL_STATUSES.has(managed.state.status)) return 'terminal';
 
     const onEvent = managed.session.sendToClient;
     const requestId = uuid();
 
     // If the session is busy, queue the message; otherwise process immediately.
     const result = managed.session.enqueueMessage(trimmed, [], onEvent, requestId);
-    if (result.rejected) return false;
+    if (result.rejected) return 'queue_full';
     if (!result.queued) {
       // Session is idle — send directly.  Fire-and-forget so we don't block.
       const messageId = managed.session.persistUserMessage(trimmed, []);
@@ -364,7 +364,7 @@ export class SubagentManager {
         log.error({ subagentId, err }, 'Subagent message processing failed');
       });
     }
-    return true;
+    return 'sent';
   }
 
   // ── Queries ───────────────────────────────────────────────────────────

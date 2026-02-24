@@ -147,7 +147,7 @@ export class ExtensionRelayServer {
 
   getStatus(): ExtensionRelayStatus {
     return {
-      connected: this.ws !== null,
+      connected: !!this.ws,
       connectionId: this.connectionId,
       lastHeartbeatAt: this.lastHeartbeatAt,
       pendingCommandCount: this.pendingCommands.size,

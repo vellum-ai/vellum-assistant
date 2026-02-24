@@ -1,6 +1,6 @@
 Plan a feature end-to-end, create GitHub issues on the project board, execute milestones sequentially with per-milestone review gates onto a feature branch, and present the final PR for manual review.
 
-Unlike `/blitz`, this command does NOT merge directly to main. Instead, it creates a **feature branch** and processes milestones **one at a time** — each milestone is executed, then recursively swept for review feedback until all feedback (including transitive feedback) is exhausted. Only after reviews are fully clean is the milestone PR merged into the feature branch. After all milestones are complete, a final sweep runs on the entire feature branch. Only then is a single PR from the feature branch into main created for you to review before merging.
+Unlike `/blitz`, this command does NOT merge directly to main. Instead, it creates a **feature branch** and processes milestones **one at a time** — each milestone is executed, then recursively swept for review feedback until all feedback (including transitive feedback) is exhausted. Only after reviews are fully clean is the milestone PR merged into the feature branch. After all milestones are complete, a final sweep runs on the entire feature branch. Then a PR from the feature branch into main is created, and a holistic Codex review is triggered. Codex feedback is iterated on until approved, CI is verified stable, and only then are you prompted to merge.
 
 The user passed: `$ARGUMENTS`
 
@@ -279,15 +279,102 @@ EOF
 )" --assignee @me
 ```
 
-3. If the final PR warrants focused human review, leave a Human Attention Comment (see "Human Attention Comments on PRs" in AGENTS.md). Skip for routine changes.
+3. Record the final PR number and URL for Phase 7.
 
-4. Get the project board URL:
+## Phase 7: Holistic Codex Review
+
+After the final PR is created, trigger a holistic review by Codex to catch any cross-milestone issues, architectural concerns, or integration problems that per-milestone reviews may have missed.
+
+### 7a. Trigger the review
+
+Leave a comment on the final PR to invoke Codex:
+
+```bash
+gh pr comment <final-pr-number> --body "@codex review"
+```
+
+Log: `"Triggered holistic Codex review on final PR #<final-pr-number>. Waiting for review..."`
+
+### 7b. Codex review feedback loop
+
+Repeat the following until the exit condition is met:
+
+1. **Wait for Codex to post its review.** Poll the PR review status using `.claude/check-pr-reviews`:
+
+   ```bash
+   .claude/check-pr-reviews <final-pr-number>
+   ```
+
+   - If Codex status is `pending`, wait 60 seconds and poll again. Log: `"Waiting for Codex review on final PR #<final-pr-number>..."`
+   - If Codex status is `rate_limited`, wait 120 seconds and poll again.
+   - If Codex status is `approved`, proceed to the exit condition check (step 7c).
+   - If Codex status is `changes_requested`, proceed to step 2.
+
+2. **Address Codex feedback.** When Codex requests changes:
+
+   a. Read the review comments on the final PR to understand the requested changes:
+      ```bash
+      gh api repos/{owner}/{repo}/pulls/<final-pr-number>/reviews --jq '.[-1].body'
+      gh api repos/{owner}/{repo}/pulls/<final-pr-number>/comments --jq '.[] | select(.user.login | test("codex")) | {path: .path, body: .body, line: .line}'
+      ```
+
+   b. For each piece of actionable feedback, add a namespaced TODO item to `.private/TODO.md`:
+      ```
+      - [<namespace>] Address the feedback on <final-pr-url>: <summary of change requested>
+      ```
+
+   c. Run the swarm workflow (`.claude/commands/swarm.md`) with these modifications:
+      - Pass `--namespace <namespace>` so only namespaced feedback items are processed.
+      - Pass the worker count as the first positional argument (or default: 12).
+      - All agents must use `--base <feature-branch-name>` (not main).
+      - Create worktrees from the feature branch: `.claude/worktree create swarm/<namespace>/task-<counter> origin/<feature-branch-name>`.
+      - Agents must NOT use `--merge` in `.claude/ship`. All PRs are created without auto-merging.
+
+   d. After the swarm completes, merge any approved feedback PRs into the feature branch (squash merge, in order of PR number):
+      ```bash
+      gh pr merge <feedback-pr-number> --squash
+      ```
+
+   e. Fetch the updated feature branch:
+      ```bash
+      git fetch origin <feature-branch-name>
+      ```
+
+   f. Resolve the addressed review threads on the final PR:
+      ```bash
+      .claude/gh-review resolve-threads <final-pr-number> "Addressed in feedback PRs"
+      ```
+
+   g. Re-trigger Codex review by commenting on the final PR again:
+      ```bash
+      gh pr comment <final-pr-number> --body "@codex review"
+      ```
+
+   h. Return to step 1 of this loop.
+
+### 7c. Verify CI is stable
+
+Once Codex has approved (or there are no remaining change requests), verify that CI checks are passing on the final PR:
+
+```bash
+gh pr checks <final-pr-number> --json name,state,conclusion --jq '.[] | {name: .name, state: .state, conclusion: .conclusion}'
+```
+
+- If any required checks are failing, investigate and address the failures using the same swarm workflow as step 7b (create TODO items, swarm, merge fixes, re-check).
+- If checks are still running, wait 60 seconds and poll again. Log: `"CI checks still running on final PR #<final-pr-number>..."`
+- If all checks pass (or there are no required checks), proceed to Phase 8.
+
+## Phase 8: Final Summary & Merge Prompt
+
+1. If the final PR warrants focused human review, leave a Human Attention Comment (see "Human Attention Comments on PRs" in AGENTS.md). Skip for routine changes.
+
+2. Get the project board URL:
 
 ```bash
 gh project view "$GH_PROJECT_NUMBER" --owner "$GH_PROJECT_OWNER" --format json | jq -r '.url'
 ```
 
-5. Print a final summary:
+3. Print the final summary:
 
 ```
 ## Safe Blitz Complete
@@ -297,7 +384,7 @@ gh project view "$GH_PROJECT_NUMBER" --owner "$GH_PROJECT_OWNER" --format json |
 **Project board:** <board-url>
 **Feature branch:** `<feature-branch-name>`
 
-### Final PR (ready for review — NOT auto-merged):
+### Final PR (reviewed by Codex, CI stable):
 <PR URL>
 
 | #   | Milestone                          | Issue | PR   | Status              |
@@ -307,13 +394,30 @@ gh project view "$GH_PROJECT_NUMBER" --owner "$GH_PROJECT_OWNER" --format json |
 | M3  | <title>                            | #12   | #17  | merged -> feature    |
 
 **Feedback PRs:** <count, if any>
-
-The final PR is open and waiting for your review. Merge it when ready.
+**Codex review:** Approved
+**CI status:** All checks passing
 ```
+
+4. **Ask the user if they are ready to merge:**
+
+   Pause and ask: **"All milestones complete, Codex review approved, and CI is stable. Ready to merge the final PR into main?"**
+
+   - If the user confirms, merge the final PR:
+     ```bash
+     gh pr merge <final-pr-number> --squash
+     ```
+     Then update the project issue status to "Done" and close it:
+     ```bash
+     .claude/gh-project set-status <project-issue-number> done
+     gh issue close <project-issue-number>
+     ```
+     Print: `"Final PR merged and project issue closed. Safe blitz complete!"`
+
+   - If the user declines, print: `"Final PR is open and waiting for your review at <PR URL>. Run /safe-blitz-done when ready to merge."`
 
 ## Important
 
 Read and follow `.claude/phases/blitz-important.md`. Additionally:
 - If an agent hits merge conflicts after another agent's PR landed, tell it to rebase against the appropriate branch: `git pull --rebase origin <milestone-pr-branch>` during per-milestone sweeps, or `git pull --rebase origin <feature-branch-name>` during the final sweep.
 - **Do NOT merge milestone PRs into the feature branch until the per-milestone sweep completes cleanly.** The merge happens in Phase 4c.5 — never before.
-- **Do NOT merge the final PR.** Only create it and present the link to the user.
+- **Do NOT merge the final PR until Phase 8** — after Codex holistic review is approved and CI is stable, and only with explicit user confirmation.

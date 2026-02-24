@@ -6,7 +6,7 @@ struct SettingsAppearanceTab: View {
     @ObservedObject var store: SettingsStore
     @AppStorage("themePreference") private var themePreference: String = "system"
     @State private var newAllowlistDomain = ""
-    @State private var isRecordingShortcut = false
+    @State private var isRecordingGlobalHotkey = false
     @State private var shortcutMonitor: Any?
     @State private var shortcutConflictWarning: String?
 
@@ -48,13 +48,13 @@ struct SettingsAppearanceTab: View {
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
 
-                // Quick Chat (configurable)
+                // Open Vellum (configurable)
                 HStack {
-                    Text("Quick Chat")
+                    Text("Open Vellum")
                         .font(VFont.body)
                         .foregroundColor(VColor.textSecondary)
                     Spacer()
-                    Text(ShortcutHelper.displayString(for: store.quickChatShortcut))
+                    Text(ShortcutHelper.displayString(for: store.globalHotkeyShortcut))
                         .font(VFont.mono)
                         .foregroundColor(VColor.textPrimary)
                         .padding(.horizontal, VSpacing.sm)
@@ -66,7 +66,7 @@ struct SettingsAppearanceTab: View {
                                 .stroke(VColor.surfaceBorder, lineWidth: 1)
                         )
 
-                    if isRecordingShortcut {
+                    if isRecordingGlobalHotkey {
                         VButton(label: "Press shortcut...", style: .tertiary) {
                             stopRecording()
                         }
@@ -81,25 +81,6 @@ struct SettingsAppearanceTab: View {
                     Text(shortcutConflictWarning)
                         .font(VFont.caption)
                         .foregroundColor(VColor.warning)
-                }
-
-                // Open Vellum (fixed, non-editable)
-                HStack {
-                    Text("Open Vellum")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
-                    Spacer()
-                    Text("\u{2318}\u{21E7}G")
-                        .font(VFont.mono)
-                        .foregroundColor(VColor.textMuted)
-                        .padding(.horizontal, VSpacing.sm)
-                        .padding(.vertical, VSpacing.xs)
-                        .background(VColor.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.sm)
-                                .stroke(VColor.surfaceBorder, lineWidth: 1)
-                        )
                 }
             }
             .padding(VSpacing.lg)
@@ -190,23 +171,18 @@ struct SettingsAppearanceTab: View {
 
     // MARK: - Shortcut Recording
 
-    /// The fixed "Open Vellum" shortcut tokens for order-independent conflict detection.
-    private static let openVellumShortcutTokens = ShortcutHelper.normalizeShortcut("cmd+shift+g")
-
     private func startRecording() {
-        isRecordingShortcut = true
+        isRecordingGlobalHotkey = true
         shortcutConflictWarning = nil
-        // Use local monitor so we capture key events while the settings window is focused
+
         shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
 
-            // Escape cancels recording without changing the shortcut
             if event.keyCode == 53 {
                 stopRecording()
                 return nil
             }
 
-            // Require at least one modifier key to form a valid global shortcut
             let hasModifier = mods.contains(.command) || mods.contains(.control)
                 || mods.contains(.option)
             guard hasModifier,
@@ -218,22 +194,15 @@ struct SettingsAppearanceTab: View {
                 from: mods, key: chars, keyCode: event.keyCode
             )
 
-            // Check for conflict with the fixed "Open Vellum" shortcut
-            if ShortcutHelper.normalizeShortcut(shortcut) == Self.openVellumShortcutTokens {
-                shortcutConflictWarning = "This shortcut conflicts with the Open Vellum shortcut (\u{2318}\u{21E7}G). Choose a different shortcut."
-                stopRecording()
-                return nil
-            }
-
             shortcutConflictWarning = nil
-            store.quickChatShortcut = shortcut
+            store.globalHotkeyShortcut = shortcut
             stopRecording()
-            return nil // consume the event
+            return nil
         }
     }
 
     private func stopRecording() {
-        isRecordingShortcut = false
+        isRecordingGlobalHotkey = false
         if let monitor = shortcutMonitor {
             NSEvent.removeMonitor(monitor)
             shortcutMonitor = nil

@@ -1183,9 +1183,8 @@ private struct ModelPickerItem: View {
     }
 }
 
-// MARK: - Environment Variables Sheet (Debug Only)
+// MARK: - Environment Variables Sheet
 
-#if DEBUG
 struct SettingsPanelEnvVarsSheet: View {
     let appEnvVars: [(String, String)]
     let daemonEnvVars: [(String, String)]
@@ -1243,7 +1242,6 @@ struct SettingsPanelEnvVarsSheet: View {
         }
     }
 }
-#endif
 
 struct SettingsPanel_Previews: PreviewProvider {
     static var previews: some View {

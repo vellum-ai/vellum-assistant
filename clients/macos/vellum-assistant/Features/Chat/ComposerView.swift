@@ -906,12 +906,14 @@ private final class CenteringClipView: NSClipView {
                let placeholder = textView.placeholderText,
                !placeholder.isEmpty {
                 let font = textView.font ?? NSFont.systemFont(ofSize: 13)
+                let paragraph = NSMutableParagraphStyle()
+                paragraph.lineBreakMode = .byTruncatingTail
                 let linePadding = textContainer.lineFragmentPadding
                 let availableWidth = max(0, textView.bounds.width - textView.textContainerInset.width * 2 - linePadding * 2)
                 let placeholderSize = (placeholder as NSString).boundingRect(
                     with: NSSize(width: availableWidth, height: .greatestFiniteMagnitude),
                     options: [.usesLineFragmentOrigin],
-                    attributes: [.font: font]
+                    attributes: [.font: font, .paragraphStyle: paragraph]
                 )
                 usedHeight = max(usedHeight, placeholderSize.height)
             }

@@ -6,7 +6,7 @@ import { getLogger } from "../../logger.js";
 import { RejectionRateLimiter } from "../../rejection-rate-limiter.js";
 import { resolveAssistant, resolveAssistantByPhoneNumber, isRejection } from "../../routing/resolve-assistant.js";
 import type { RouteResult } from "../../routing/types.js";
-import { resetConversation } from "../../runtime/client.js";
+import { CircuitBreakerOpenError, resetConversation } from "../../runtime/client.js";
 import { sendSmsReply } from "../../twilio/send-sms.js";
 import { validateTwilioWebhookRequest } from "../../twilio/validate-webhook.js";
 import type { GatewayInboundEventV1 } from "../../types.js";
@@ -206,6 +206,14 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
       dedupCache.mark(messageSid);
       tlog.info({ status: "forwarded", messageSid }, "SMS forwarded to runtime");
     } catch (err) {
+      if (err instanceof CircuitBreakerOpenError) {
+        tlog.warn({ retryAfterSecs: err.retryAfterSecs }, "Circuit breaker open — returning 503");
+        dedupCache.unreserve(messageSid);
+        return Response.json(
+          { error: "Service temporarily unavailable" },
+          { status: 503, headers: { "Retry-After": String(err.retryAfterSecs) } },
+        );
+      }
       tlog.error({ err, messageSid }, "Failed to process inbound SMS");
       dedupCache.unreserve(messageSid);
       return Response.json({ error: "Internal error" }, { status: 500 });

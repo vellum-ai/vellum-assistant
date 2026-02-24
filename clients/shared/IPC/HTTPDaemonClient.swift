@@ -111,6 +111,9 @@ final class HTTPTransport {
 
     /// Verify reachability via health check and start periodic health monitoring.
     /// Connection status is driven by health checks, not SSE.
+    /// SSE is auto-started after the first successful health check so that
+    /// system events (e.g. pairing approval requests) are received immediately,
+    /// even before any UI window appears.
     func connect() async throws {
         shouldReconnect = true
 
@@ -119,6 +122,11 @@ final class HTTPTransport {
 
         // Start periodic health checks
         startHealthCheckLoop()
+
+        // Auto-start SSE so system events (pairing, etc.) are received
+        // immediately. MainWindowView.onAppear also calls startSSE() but
+        // that's a no-op when the stream is already running.
+        startSSE()
     }
 
     /// Run a single health check against the gateway.

@@ -1,6 +1,9 @@
 import { randomBytes } from "node:crypto";
+import { readFileSync, watch, existsSync, mkdirSync, type FSWatcher } from "node:fs";
+import { join, dirname } from "node:path";
+import { homedir } from "node:os";
 import { ConfigFileWatcher } from "./config-file-watcher.js";
-import { loadConfig } from "./config.js";
+import { loadConfig, type GatewayConfig } from "./config.js";
 import { CredentialWatcher } from "./credential-watcher.js";
 import { createRuntimeProxyHandler } from "./http/routes/runtime-proxy.js";
 import { createTelegramDeliverHandler } from "./http/routes/telegram-deliver.js";
@@ -17,6 +20,7 @@ import { createWhatsAppDeliverHandler } from "./http/routes/whatsapp-deliver.js"
 import { createOAuthCallbackHandler } from "./http/routes/oauth-callback.js";
 import { createPairingProxyHandler } from "./http/routes/pairing-proxy.js";
 import { getLogger, initLogger } from "./logger.js";
+import { CircuitBreakerOpenError } from "./runtime/client.js";
 import { buildSchema } from "./schema.js";
 import { callTelegramApi } from "./telegram/api.js";
 import { reconcileTelegramWebhook } from "./telegram/webhook-manager.js";
@@ -28,6 +32,50 @@ function generateTraceId(): string {
 }
 
 let draining = false;
+
+/**
+ * Watch `~/.vellum/http-token` and update the config when the daemon
+ * writes a new token. Without this, a gateway started before the daemon
+ * would hold a stale bearer token and reject authenticated requests (401).
+ */
+function startHttpTokenWatcher(cfg: GatewayConfig): FSWatcher | null {
+  const tokenPath = process.env.VELLUM_HTTP_TOKEN_PATH
+    ?? join(process.env.BASE_DATA_DIR?.trim() || homedir(), ".vellum", "http-token");
+
+  const dir = dirname(tokenPath);
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function refresh(): void {
+    try {
+      const token = readFileSync(tokenPath, "utf-8").trim() || undefined;
+      if (token && token !== cfg.runtimeBearerToken) {
+        cfg.runtimeBearerToken = token;
+        cfg.runtimeProxyBearerToken = process.env.RUNTIME_PROXY_BEARER_TOKEN || token;
+        cfg.runtimeGatewayOriginSecret = process.env.RUNTIME_GATEWAY_ORIGIN_SECRET || token;
+        log.info("Runtime bearer token refreshed from http-token file");
+      }
+    } catch {
+      // File doesn't exist yet — will be created by the daemon
+    }
+  }
+
+  try {
+    const watcher = watch(existsSync(tokenPath) ? tokenPath : dir, { persistent: false }, (_event, filename) => {
+      if (!existsSync(tokenPath) && filename !== "http-token") return;
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(refresh, 500);
+    });
+    log.info({ path: tokenPath }, "Watching http-token for runtime bearer token changes");
+    return watcher;
+  } catch (err) {
+    log.warn({ err, path: tokenPath }, "Failed to watch http-token file");
+    return null;
+  }
+}
 
 function main() {
   const config = loadConfig();
@@ -64,6 +112,12 @@ function main() {
     port: config.port,
     websocket: getRelayWebsocketHandlers(),
     error(err) {
+      if (err instanceof CircuitBreakerOpenError) {
+        return Response.json(
+          { error: "Service temporarily unavailable — runtime is unreachable" },
+          { status: 503, headers: { "Retry-After": String(err.retryAfterSecs) } },
+        );
+      }
       log.error({ err }, "Unhandled gateway error");
       return Response.json({ error: "Internal server error" }, { status: 500 });
     },
@@ -295,6 +349,8 @@ function main() {
 
   configFileWatcher.start();
 
+  const httpTokenWatcher = startHttpTokenWatcher(config);
+
   const drainMs = config.shutdownDrainMs;
 
   process.on("SIGTERM", () => {
@@ -302,6 +358,7 @@ function main() {
     draining = true;
     credentialWatcher.stop();
     configFileWatcher.stop();
+    httpTokenWatcher?.close();
     setTimeout(() => {
       log.info("Drain window elapsed, stopping server");
       server.stop(true);

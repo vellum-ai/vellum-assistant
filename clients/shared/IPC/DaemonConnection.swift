@@ -135,6 +135,8 @@ extension DaemonClient {
                             resumed = true
                             timeoutTask.cancel()
                             checkedContinuation.resume(throwing: NWError.posix(.ECANCELED))
+                        } else {
+                            self.scheduleReconnect()
                         }
 
                     case .waiting(let error):

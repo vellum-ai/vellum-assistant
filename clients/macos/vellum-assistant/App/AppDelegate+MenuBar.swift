@@ -16,6 +16,21 @@ extension AppDelegate {
             button.action = #selector(statusBarButtonClicked(_:))
             button.target = self
         }
+
+        rebindConnectionStatusObserver()
+    }
+
+    /// (Re-)subscribe to `daemonClient.$isConnected` so the menu bar icon
+    /// tracks the current daemon client. Called from `setupMenuBar()` and
+    /// again from `setupDaemonClient()` after transport reconfiguration,
+    /// which may replace the underlying `DaemonClient` instance.
+    func rebindConnectionStatusObserver() {
+        connectionStatusCancellable?.cancel()
+        connectionStatusCancellable = daemonClient.$isConnected
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.updateMenuBarIcon()
+            }
     }
 
     func setupFileMenu() {
@@ -80,6 +95,7 @@ extension AppDelegate {
 
         let status = currentAssistantStatus
         let dotColor = status.statusColor
+        let dotAlpha = status.shouldPulse ? pulsePhase : 1.0
 
         let composited = NSImage(size: NSSize(width: iconSize, height: iconSize))
         composited.lockFocus()
@@ -94,14 +110,47 @@ extension AppDelegate {
         let dotRect = NSRect(x: dotX, y: dotY, width: dotSize, height: dotSize)
         NSColor.black.withAlphaComponent(0.5).setFill()
         NSBezierPath(ovalIn: dotRect.insetBy(dx: -0.5, dy: -0.5)).fill()
-        dotColor.setFill()
+        dotColor.withAlphaComponent(dotAlpha).setFill()
         NSBezierPath(ovalIn: dotRect).fill()
         composited.unlockFocus()
         composited.isTemplate = false
         button.image = composited
+
+        managePulseTimer(for: status)
+    }
+
+    /// Starts or stops the pulse timer based on the current status.
+    private func managePulseTimer(for status: AssistantStatus) {
+        if status.shouldPulse {
+            guard pulseTimer == nil else { return }
+            pulsePhase = 1.0
+            pulseDirection = -1.0
+            pulseTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+                Task { @MainActor in
+                    guard let self, self.statusItem != nil, let button = self.statusItem.button else { return }
+                    // Triangle wave: smoothly oscillate between 1.0 and 0.3,
+                    // reversing direction at each boundary to avoid abrupt jumps.
+                    self.pulsePhase += self.pulseDirection * 0.05
+                    if self.pulsePhase <= 0.3 {
+                        self.pulsePhase = 0.3
+                        self.pulseDirection = 1.0
+                    } else if self.pulsePhase >= 1.0 {
+                        self.pulsePhase = 1.0
+                        self.pulseDirection = -1.0
+                    }
+                    self.configureMenuBarIcon(button)
+                }
+            }
+        } else {
+            pulseTimer?.invalidate()
+            pulseTimer = nil
+            pulsePhase = 1.0
+            pulseDirection = -1.0
+        }
     }
 
     var currentAssistantStatus: AssistantStatus {
+        if !daemonClient.isConnected { return .disconnected }
         guard let viewModel = mainWindow?.threadManager.activeViewModel else { return .idle }
         if let error = viewModel.errorText { return .error(error) }
         if viewModel.isThinking { return .thinking }
@@ -249,6 +298,11 @@ extension AppDelegate {
         galleryItem.target = self
         menu.addItem(galleryItem)
         #endif
+
+        let restartItem = NSMenuItem(title: "Restart", action: #selector(performRestart), keyEquivalent: "")
+        restartItem.target = self
+        restartItem.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: nil)
+        menu.addItem(restartItem)
 
         menu.addItem(NSMenuItem.separator())
 

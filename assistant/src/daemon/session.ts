@@ -38,12 +38,13 @@ import { ContextWindowManager } from '../context/window-manager.js';
 import { getHookManager } from '../hooks/manager.js';
 import { ConflictGate } from './session-conflict-gate.js';
 import { MessageQueue } from './session-queue-manager.js';
-import type { QueueDrainReason } from './session-queue-manager.js';
+import type { QueueDrainReason, QueueMetrics } from './session-queue-manager.js';
 import type { ChannelCapabilities, GuardianRuntimeContext } from './session-runtime-assembly.js';
 import type { AssistantAttachmentDraft } from './assistant-attachments.js';
 import {
   handleSurfaceAction as handleSurfaceActionImpl,
   handleSurfaceUndo as handleSurfaceUndoImpl,
+  createSurfaceMutex,
 } from './session-surfaces.js';
 import {
   undo as undoImpl,
@@ -129,18 +130,21 @@ export class Session {
   /** @internal */ currentPage?: string;
   /** @internal */ channelCapabilities?: ChannelCapabilities;
   /** @internal */ guardianContext?: GuardianRuntimeContext;
+  /** @internal */ voiceCallControlPrompt?: string;
   /** @internal */ assistantId?: string;
   /** @internal */ commandIntent?: { type: string; payload?: string; languageCode?: string };
   /** @internal */ pendingSurfaceActions = new Map<string, { surfaceType: SurfaceType }>();
   /** @internal */ lastSurfaceAction = new Map<string, { actionId: string; data?: Record<string, unknown> }>();
   /** @internal */ surfaceState = new Map<string, { surfaceType: SurfaceType; data: SurfaceData }>();
   /** @internal */ surfaceUndoStacks = new Map<string, string[]>();
+  /** @internal */ withSurface = createSurfaceMutex();
   /** @internal */ currentTurnSurfaces: Array<{ surfaceId: string; surfaceType: SurfaceType; title?: string; data: SurfaceData; actions?: Array<{ id: string; label: string; style?: string }>; display?: string }> = [];
   /** @internal */ onEscalateToComputerUse?: (task: string, sourceSessionId: string) => boolean;
   /** @internal */ workspaceTopLevelContext: string | null = null;
   /** @internal */ workspaceTopLevelDirty = true;
   public readonly traceEmitter: TraceEmitter;
   public memoryPolicy: SessionMemoryPolicy;
+  /** @internal */ streamThinking: boolean;
   /** @internal */ turnCount = 0;
   public lastAssistantAttachments: AssistantAttachmentDraft[] = [];
   public lastAttachmentWarnings: string[] = [];
@@ -195,6 +199,7 @@ export class Session {
     );
 
     const config = getConfig();
+    this.streamThinking = config.thinking.streamThinking ?? false;
     const resolveTools = createResolveToolsCallback(toolDefs, this);
 
     this.agentLoop = new AgentLoop(
@@ -288,6 +293,10 @@ export class Session {
     return this.queue.length;
   }
 
+  getQueueMetrics(): QueueMetrics {
+    return this.queue.getMetrics();
+  }
+
   hasQueuedMessages(): boolean {
     return !this.queue.isEmpty;
   }
@@ -334,6 +343,10 @@ export class Session {
 
   setGuardianContext(ctx: GuardianRuntimeContext | null): void {
     this.guardianContext = ctx ?? undefined;
+  }
+
+  setVoiceCallControlPrompt(prompt: string | null): void {
+    this.voiceCallControlPrompt = prompt ?? undefined;
   }
 
   setAssistantId(assistantId: string | null): void {

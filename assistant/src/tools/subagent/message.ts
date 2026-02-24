@@ -23,9 +23,16 @@ export async function executeSubagentMessage(
     };
   }
 
-  const sent = manager.sendMessage(subagentId, content);
+  const result = manager.sendMessage(subagentId, content);
 
-  if (!sent) {
+  if (result === 'queue_full') {
+    return {
+      content: `Subagent "${subagentId}" message queue is full. Please wait for current messages to be processed.`,
+      isError: true,
+    };
+  }
+
+  if (result !== 'sent') {
     return {
       content: `Could not send message to subagent "${subagentId}". It may not exist or be in a terminal state.`,
       isError: true,

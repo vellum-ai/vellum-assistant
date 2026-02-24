@@ -6,7 +6,7 @@ includes: ["browser", "public-ingress"]
 metadata: {"vellum": {"emoji": "\ud83d\udd11"}}
 ---
 
-You are helping your user set up Google Cloud OAuth credentials so Gmail and Google Calendar integrations can connect. You will automate the entire GCP setup via the browser while the user watches via screencast.
+You are helping your user set up Google Cloud OAuth credentials so Gmail and Google Calendar integrations can connect. You will automate the entire GCP setup via the browser while the user watches via screencast. The user's only manual action is signing in to their Google account — everything else is fully automated.
 
 ## Client Check
 
@@ -26,11 +26,13 @@ Use `ui_show` with `surface_type: "confirmation"` and this message:
 
 > **Set up Google Cloud for Gmail & Calendar**
 >
-> I'll create a Google Cloud project, enable the Gmail and Calendar APIs, configure OAuth, and download credentials — all automatically in the browser. You can watch everything via screencast.
+> Here's what will happen:
+> 1. **A browser opens** — you sign in to your Google account
+> 2. **I automate everything** — project creation, APIs, OAuth config, credentials
+> 3. **You enter credentials** from a downloaded file (secure prompt — I never see them)
+> 4. **You authorize Vellum** with one click
 >
-> After the automated setup, I'll ask you to securely enter the client ID and client secret from the downloaded credential file (I never see these values).
->
-> Ready to get started?
+> The whole thing takes 2-3 minutes. Ready?
 
 If the user declines, acknowledge and stop. No further confirmations are needed after this point.
 
@@ -39,8 +41,9 @@ If the user declines, acknowledge and stop. No further confirmations are needed 
 Use `browser_navigate` to go to `https://console.cloud.google.com/`.
 
 Take a `browser_screenshot` and `browser_snapshot` to check the page state:
-- **If a sign-in page appears:** Tell the user "Please sign in to your Google account in the browser window. Let me know when you're done." Wait for their confirmation, then re-check.
-- **If a CAPTCHA appears:** Tell the user "There's a CAPTCHA to solve. Please complete it in the browser window and let me know." Wait, then re-check.
+- **If a sign-in page appears:** Tell the user: "Please sign in to your Google account in the browser preview panel (or the Chrome window that just opened)." Then **auto-detect sign-in completion** by polling `browser_snapshot` every 5-10 seconds. Check if the current URL has moved away from `accounts.google.com` to `console.cloud.google.com`. Do NOT ask the user to "let me know when you're done" — detect it automatically. Once sign-in is detected, tell the user: "Signed in! Starting the automated setup now..."
+- **If already signed in** (URL is already `console.cloud.google.com`): Tell the user: "Already signed in — starting setup now..." and continue immediately.
+- **If a CAPTCHA appears:** The browser automation's built-in handoff will handle this. If it persists, tell the user: "There's a CAPTCHA in the browser — please complete it and I'll continue automatically."
 - **If the console dashboard loads:** Continue to Step 3.
 
 ## Step 3: Create or Select a Project
@@ -75,7 +78,7 @@ Take a `browser_screenshot` to show result. Tell the user: "APIs enabled!"
 
 ## Step 5: Configure OAuth Consent Screen
 
-Tell the user: "Configuring OAuth consent screen..."
+Tell the user: "Configuring OAuth consent screen — this is the longest step, but it's fully automated..."
 
 Navigate to `https://console.cloud.google.com/apis/credentials/consent?project=PROJECT_ID`.
 
@@ -121,15 +124,17 @@ Click "Create".
 
 ## Step 7: Download Credentials JSON
 
+Tell the user: "Almost done — downloading credentials..."
+
 After the credentials dialog appears, click the "Download JSON" button (it may say "DOWNLOAD JSON" or show a download icon).
 
 Use `browser_wait_for_download` to wait for the file to download.
 
-Tell the user: "Credentials downloaded! The file is at: `<path>`"
+Tell the user: "Credentials downloaded!"
 
 ## Step 8: Secure Credential Entry
 
-Tell the user to open the downloaded JSON file, then prompt for secure entry:
+Tell the user: "I've downloaded the credentials file. Please open it and enter the values below. I won't see what you type — these go directly to secure storage."
 
 ```
 credential_store prompt:

@@ -103,6 +103,9 @@ export const ThinkingConfigSchema = z.object({
     .int('thinking.budgetTokens must be an integer')
     .positive('thinking.budgetTokens must be a positive integer')
     .default(10000),
+  streamThinking: z
+    .boolean({ error: 'thinking.streamThinking must be a boolean' })
+    .default(false),
 });
 
 export const ContextWindowConfigSchema = z.object({
@@ -170,17 +173,90 @@ export const SmsConfigSchema = z.object({
     .optional(),
 });
 
+export const IngressWebhookConfigSchema = z.object({
+  secret: z
+    .string({ error: 'ingress.webhook.secret must be a string' })
+    .default(''),
+  timeoutMs: z
+    .number({ error: 'ingress.webhook.timeoutMs must be a number' })
+    .int('ingress.webhook.timeoutMs must be an integer')
+    .positive('ingress.webhook.timeoutMs must be a positive integer')
+    .default(30_000),
+  maxRetries: z
+    .number({ error: 'ingress.webhook.maxRetries must be a number' })
+    .int('ingress.webhook.maxRetries must be an integer')
+    .nonnegative('ingress.webhook.maxRetries must be a non-negative integer')
+    .default(2),
+  initialBackoffMs: z
+    .number({ error: 'ingress.webhook.initialBackoffMs must be a number' })
+    .int('ingress.webhook.initialBackoffMs must be an integer')
+    .positive('ingress.webhook.initialBackoffMs must be a positive integer')
+    .default(500),
+  maxPayloadBytes: z
+    .number({ error: 'ingress.webhook.maxPayloadBytes must be a number' })
+    .int('ingress.webhook.maxPayloadBytes must be an integer')
+    .positive('ingress.webhook.maxPayloadBytes must be a positive integer')
+    .default(1_048_576),
+});
+
+export const IngressRateLimitConfigSchema = z.object({
+  maxRequestsPerMinute: z
+    .number({ error: 'ingress.rateLimit.maxRequestsPerMinute must be a number' })
+    .int('ingress.rateLimit.maxRequestsPerMinute must be an integer')
+    .nonnegative('ingress.rateLimit.maxRequestsPerMinute must be a non-negative integer')
+    .default(0),
+  maxRequestsPerHour: z
+    .number({ error: 'ingress.rateLimit.maxRequestsPerHour must be a number' })
+    .int('ingress.rateLimit.maxRequestsPerHour must be an integer')
+    .nonnegative('ingress.rateLimit.maxRequestsPerHour must be a non-negative integer')
+    .default(0),
+});
+
 const IngressBaseSchema = z.object({
   enabled: z
     .boolean({ error: 'ingress.enabled must be a boolean' })
     .optional(),
   publicBaseUrl: z
     .string({ error: 'ingress.publicBaseUrl must be a string' })
+    .refine(
+      (val) => val === '' || /^https?:\/\//i.test(val),
+      'ingress.publicBaseUrl must be an absolute URL starting with http:// or https://',
+    )
     .default(''),
+  webhook: IngressWebhookConfigSchema.default({
+    secret: '',
+    timeoutMs: 30_000,
+    maxRetries: 2,
+    initialBackoffMs: 500,
+    maxPayloadBytes: 1_048_576,
+  }),
+  rateLimit: IngressRateLimitConfigSchema.default({
+    maxRequestsPerMinute: 0,
+    maxRequestsPerHour: 0,
+  }),
+  shutdownDrainMs: z
+    .number({ error: 'ingress.shutdownDrainMs must be a number' })
+    .int('ingress.shutdownDrainMs must be an integer')
+    .nonnegative('ingress.shutdownDrainMs must be a non-negative integer')
+    .default(5_000),
 });
 
 export const IngressConfigSchema = IngressBaseSchema
-  .default({ publicBaseUrl: '' })
+  .default({
+    publicBaseUrl: '',
+    webhook: {
+      secret: '',
+      timeoutMs: 30_000,
+      maxRetries: 2,
+      initialBackoffMs: 500,
+      maxPayloadBytes: 1_048_576,
+    },
+    rateLimit: {
+      maxRequestsPerMinute: 0,
+      maxRequestsPerHour: 0,
+    },
+    shutdownDrainMs: 5_000,
+  })
   .transform((val) => ({
     ...val,
     // Backward compatibility: if `enabled` was never explicitly set (undefined),
@@ -194,19 +270,27 @@ export const IngressConfigSchema = IngressBaseSchema
     enabled: val.enabled ?? (val.publicBaseUrl ? true : undefined),
   }));
 
-export const AssistantInboxConfigSchema = z.object({
-  enabled: z
-    .boolean({ error: 'assistantInbox.enabled must be a boolean' })
-    .default(false),
-  invitesEnabled: z
-    .boolean({ error: 'assistantInbox.invitesEnabled must be a boolean' })
-    .default(false),
-  memberAclEnabled: z
-    .boolean({ error: 'assistantInbox.memberAclEnabled must be a boolean' })
-    .default(false),
-  policyEnabled: z
-    .boolean({ error: 'assistantInbox.policyEnabled must be a boolean' })
-    .default(false),
+export const DaemonConfigSchema = z.object({
+  startupSocketWaitMs: z
+    .number({ error: 'daemon.startupSocketWaitMs must be a number' })
+    .int('daemon.startupSocketWaitMs must be an integer')
+    .positive('daemon.startupSocketWaitMs must be a positive integer')
+    .default(5000),
+  stopTimeoutMs: z
+    .number({ error: 'daemon.stopTimeoutMs must be a number' })
+    .int('daemon.stopTimeoutMs must be an integer')
+    .positive('daemon.stopTimeoutMs must be a positive integer')
+    .default(5000),
+  sigkillGracePeriodMs: z
+    .number({ error: 'daemon.sigkillGracePeriodMs must be a number' })
+    .int('daemon.sigkillGracePeriodMs must be an integer')
+    .positive('daemon.sigkillGracePeriodMs must be a positive integer')
+    .default(2000),
+  titleGenerationMaxTokens: z
+    .number({ error: 'daemon.titleGenerationMaxTokens must be a number' })
+    .int('daemon.titleGenerationMaxTokens must be an integer')
+    .positive('daemon.titleGenerationMaxTokens must be a positive integer')
+    .default(30),
 });
 
 export type TimeoutConfig = z.infer<typeof TimeoutConfigSchema>;
@@ -219,5 +303,7 @@ export type ThinkingConfig = z.infer<typeof ThinkingConfigSchema>;
 export type ContextWindowConfig = z.infer<typeof ContextWindowConfigSchema>;
 export type ModelPricingOverride = z.infer<typeof ModelPricingOverrideSchema>;
 export type SmsConfig = z.infer<typeof SmsConfigSchema>;
+export type IngressWebhookConfig = z.infer<typeof IngressWebhookConfigSchema>;
+export type IngressRateLimitConfig = z.infer<typeof IngressRateLimitConfigSchema>;
+export type DaemonConfig = z.infer<typeof DaemonConfigSchema>;
 export type IngressConfig = z.infer<typeof IngressConfigSchema>;
-export type AssistantInboxConfig = z.infer<typeof AssistantInboxConfigSchema>;

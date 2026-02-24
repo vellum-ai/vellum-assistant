@@ -21,6 +21,8 @@ struct MainWindowView: View {
     @State private var isHoveredApp: String?
     @State private var requestedHomeBaseAtLaunch = false
     @State private var threadPendingDeletion: UUID?
+    @State private var renamingThreadId: UUID?
+    @State private var renameText: String = ""
     @State private var showAllThreads: Bool = false
     @State private var showAllScheduleThreads: Bool = false
     @State private var showAllApps: Bool = false
@@ -910,6 +912,14 @@ struct MainWindowView: View {
             } label: {
                 Label(thread.isPinned ? "Unpin" : "Pin to Top", systemImage: thread.isPinned ? "pin.slash" : "pin")
             }
+            if thread.sessionId != nil {
+                Button {
+                    renamingThreadId = thread.id
+                    renameText = thread.title
+                } label: {
+                    Label("Rename", systemImage: "pencil")
+                }
+            }
             if threadManager.visibleThreads.count > 1 {
                 Button {
                     threadManager.archiveThread(id: thread.id)
@@ -971,6 +981,28 @@ struct MainWindowView: View {
         .background(adaptiveColor(light: Moss._50, dark: Moss._950))
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
         .clipped()
+        .alert("Rename Thread", isPresented: Binding(
+            get: { renamingThreadId != nil },
+            set: { if !$0 { renamingThreadId = nil } }
+        )) {
+            TextField("Title", text: $renameText)
+            Button("Cancel", role: .cancel) { renamingThreadId = nil }
+            Button("Save") {
+                if let id = renamingThreadId, !renameText.isEmpty {
+                    threadManager.updateThreadTitle(id: id, title: renameText)
+                    if let sessionId = threadManager.threads.first(where: { $0.id == id })?.sessionId {
+                        try? daemonClient.send(IPCSessionRenameRequest(
+                            type: "session_rename",
+                            sessionId: sessionId,
+                            title: renameText
+                        ))
+                    }
+                }
+                renamingThreadId = nil
+            }
+        } message: {
+            Text("Enter a new name for this thread")
+        }
     }
 
     @ViewBuilder
@@ -988,10 +1020,8 @@ struct MainWindowView: View {
             SidebarNavRow(icon: "sparkles", label: "Skills", isActive: windowState.activePanel == .agent) {
                 windowState.togglePanel(.agent)
             }
-            if FeatureFlagManager.shared.isEnabled(.assistantInboxEnabled) {
-                SidebarNavRow(icon: "tray.fill", label: "Inbox", isActive: windowState.activePanel == .assistantInbox) {
-                    windowState.togglePanel(.assistantInbox)
-                }
+            SidebarNavRow(icon: "tray.fill", label: "Inbox", isActive: windowState.activePanel == .assistantInbox) {
+                windowState.togglePanel(.assistantInbox)
             }
 
             // Divider between nav items and threads
@@ -1102,10 +1132,8 @@ struct MainWindowView: View {
             SidebarNavRow(icon: "sparkles", label: "Skills", isActive: windowState.activePanel == .agent, isExpanded: false) {
                 windowState.togglePanel(.agent)
             }
-            if FeatureFlagManager.shared.isEnabled(.assistantInboxEnabled) {
-                SidebarNavRow(icon: "tray.fill", label: "Inbox", isActive: windowState.activePanel == .assistantInbox, isExpanded: false) {
-                    windowState.togglePanel(.assistantInbox)
-                }
+            SidebarNavRow(icon: "tray.fill", label: "Inbox", isActive: windowState.activePanel == .assistantInbox, isExpanded: false) {
+                windowState.togglePanel(.assistantInbox)
             }
 
             VColor.divider

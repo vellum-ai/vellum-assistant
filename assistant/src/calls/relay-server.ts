@@ -217,7 +217,7 @@ export class RelayConnection {
         this.handleError(parsed);
         break;
       default:
-        log.warn({ callSessionId: this.callSessionId, type: (parsed as Record<string, unknown>).type }, 'Unknown relay message type');
+        log.warn({ callSessionId: this.callSessionId, type: (parsed as { type: unknown }).type }, 'Unknown relay message type');
     }
   }
 
@@ -678,7 +678,9 @@ export class RelayConnection {
       'Caller transcript received (final)',
     );
 
-    const speakerMetadata = extractPromptSpeakerMetadata(msg as unknown as Record<string, unknown>);
+    // Spread to widen the typed message into a plain record — extractPromptSpeakerMetadata
+    // probes for snake_case and nested property variants not on RelayPromptMessage.
+    const speakerMetadata = extractPromptSpeakerMetadata({ ...msg });
     const speaker = this.speakerIdentityTracker.identifySpeaker(speakerMetadata);
 
     // Record in conversation history
@@ -701,14 +703,9 @@ export class RelayConnection {
 
     const session = getCallSession(this.callSessionId);
     if (session) {
-      // Persist caller transcript to the voice conversation so it survives
-      // even when no live daemon Session is listening.
-      conversationStore.addMessage(
-        session.conversationId,
-        'user',
-        JSON.stringify([{ type: 'text', text: msg.voicePrompt }]),
-        { userMessageChannel: 'voice', assistantMessageChannel: 'voice' },
-      );
+      // User message persistence is handled by the session pipeline
+      // (RunOrchestrator.startRun -> session.persistUserMessage) so we only
+      // need to fire the transcript notifier for UI subscribers here.
       fireCallTranscriptNotifier(session.conversationId, this.callSessionId, 'caller', msg.voicePrompt);
     }
 

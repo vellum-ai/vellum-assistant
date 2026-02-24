@@ -96,18 +96,50 @@ final class AlwaysOnAudioMonitor: ObservableObject {
             throw AudioMonitorError.noInputChannels
         }
 
-        // Install a tap using the hardware format for low-latency capture.
-        // The buffer is available for the WakeWordEngine to consume via its
-        // own internal processing (the engine's start() primes it for detection).
+        // Porcupine requires 16kHz mono Int16 PCM. Use hardware format for the tap
+        // (avoids runtime assertions on some Macs) and resample in the callback.
+        let targetFormat = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: 16000,
+            channels: 1,
+            interleaved: false
+        )!
+
+        guard let converter = AVAudioConverter(from: hwFormat, to: targetFormat) else {
+            throw AudioMonitorError.converterCreationFailed
+        }
+
         inputNode.installTap(
             onBus: 0,
             bufferSize: Self.bufferSize,
             format: hwFormat
         ) { [weak self] buffer, _ in
             guard let self else { return }
-            guard let floatData = buffer.floatChannelData else { return }
-            let frameLength = Int(buffer.frameLength)
-            // Convert Float32 PCM to Int16 for Porcupine
+
+            // Resample hardware audio to 16kHz mono
+            let frameCapacity = AVAudioFrameCount(
+                ceil(Double(buffer.frameLength) * targetFormat.sampleRate / hwFormat.sampleRate)
+            )
+            guard let convertedBuffer = AVAudioPCMBuffer(
+                pcmFormat: targetFormat,
+                frameCapacity: frameCapacity
+            ) else { return }
+
+            var error: NSError?
+            var inputConsumed = false
+            let status = converter.convert(to: convertedBuffer, error: &error) { _, outStatus in
+                if inputConsumed {
+                    outStatus.pointee = .noDataNow
+                    return nil
+                }
+                inputConsumed = true
+                outStatus.pointee = .haveData
+                return buffer
+            }
+            guard status == .haveData || status == .inputRanDry else { return }
+
+            guard let floatData = convertedBuffer.floatChannelData else { return }
+            let frameLength = Int(convertedBuffer.frameLength)
             var int16Samples = [Int16](repeating: 0, count: frameLength)
             for i in 0..<frameLength {
                 let sample = max(-1.0, min(1.0, floatData[0][i]))
@@ -186,11 +218,14 @@ final class AlwaysOnAudioMonitor: ObservableObject {
 
 enum AudioMonitorError: LocalizedError {
     case noInputChannels
+    case converterCreationFailed
 
     var errorDescription: String? {
         switch self {
         case .noInputChannels:
             return "No audio input channels available — microphone may not be connected or permitted"
+        case .converterCreationFailed:
+            return "Failed to create audio format converter for 16kHz resampling"
         }
     }
 }

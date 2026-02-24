@@ -1911,13 +1911,15 @@ public struct IPCGuardianRequestThreadCreated: Codable, Sendable {
     public let requestId: String
     public let callSessionId: String
     public let title: String
+    public let questionText: String
 
-    public init(type: String, conversationId: String, requestId: String, callSessionId: String, title: String) {
+    public init(type: String, conversationId: String, requestId: String, callSessionId: String, title: String, questionText: String) {
         self.type = type
         self.conversationId = conversationId
         self.requestId = requestId
         self.callSessionId = callSessionId
         self.title = title
+        self.questionText = questionText
     }
 }
 
@@ -3432,6 +3434,18 @@ public struct IPCSessionListResponseSession: Codable, Sendable {
         self.source = source
         self.channelBinding = channelBinding
         self.conversationOriginChannel = conversationOriginChannel
+    }
+}
+
+public struct IPCSessionRenameRequest: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let title: String
+
+    public init(type: String, sessionId: String, title: String) {
+        self.type = type
+        self.sessionId = sessionId
+        self.title = title
     }
 }
 

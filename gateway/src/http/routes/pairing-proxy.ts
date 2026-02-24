@@ -12,6 +12,9 @@ import { getLogger } from "../../logger.js";
 
 const log = getLogger("pairing-proxy");
 
+/** 64 KB — pairing payloads are tiny JSON; cap well below maxWebhookPayloadBytes. */
+const MAX_PAIRING_PAYLOAD_BYTES = 64 * 1024;
+
 const HOP_BY_HOP_HEADERS = [
   "connection",
   "keep-alive",
@@ -65,8 +68,31 @@ export function createPairingProxyHandler(config: GatewayConfig) {
     }
 
     const hasBody = req.method !== "GET" && req.method !== "HEAD";
+
+    // Payload size guard — primary defense: reject via Content-Length before
+    // reading the body into memory. This is the main protection against
+    // oversized requests because Bun's Request.arrayBuffer() buffers the
+    // entire body with no streaming-limit API, so once we call it the
+    // memory is already allocated.
+    if (hasBody) {
+      const contentLength = req.headers.get("content-length");
+      if (contentLength) {
+        const declared = Number(contentLength);
+        if (declared > MAX_PAIRING_PAYLOAD_BYTES || Number.isNaN(declared)) {
+          log.warn({ contentLength }, "Pairing proxy payload too large (content-length)");
+          return Response.json({ error: "Payload too large" }, { status: 413 });
+        }
+      }
+    }
+
     const bodyBuffer = hasBody ? await req.arrayBuffer() : null;
+    // Belt-and-suspenders: verify actual size after read in case
+    // Content-Length was absent (chunked) or spoofed.
     if (bodyBuffer !== null) {
+      if (bodyBuffer.byteLength > MAX_PAIRING_PAYLOAD_BYTES) {
+        log.warn({ bodyLength: bodyBuffer.byteLength }, "Pairing proxy payload too large");
+        return Response.json({ error: "Payload too large" }, { status: 413 });
+      }
       reqHeaders.set("content-length", String(bodyBuffer.byteLength));
     }
 

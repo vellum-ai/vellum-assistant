@@ -10,6 +10,7 @@ import { enqueueMemoryJob } from './jobs-store.js';
 import { extractTextFromStoredMessageContent } from './message-content.js';
 import { getDb } from './db.js';
 import { memoryItemConflicts, memoryItems, memoryItemSources, messages } from './schema.js';
+import { clampUnitInterval } from './validation.js';
 
 const log = getLogger('memory-items-extractor');
 
@@ -196,8 +197,8 @@ async function extractItemsWithLLM(
         if (!raw.subject || !raw.statement) continue;
         const subject = truncate(String(raw.subject), 80, '');
         const statement = truncate(String(raw.statement), 500, '');
-        const confidence = clamp(parseScore(raw.confidence, 0.5), 0, 1);
-        const importance = clamp(parseScore(raw.importance, 0.5), 0, 1);
+        const confidence = clampUnitInterval(parseScore(raw.confidence, 0.5));
+        const importance = clampUnitInterval(parseScore(raw.importance, 0.5));
         const fingerprint = computeMemoryFingerprint(scopeId, raw.kind, subject, statement);
         items.push({
           kind: raw.kind as MemoryItemKind,
@@ -284,8 +285,8 @@ export async function extractAndUpsertMemoryItemsForMessage(messageId: string, s
       db.update(memoryItems)
         .set({
           status: effectiveStatus,
-          confidence: Math.max(existing.confidence, item.confidence),
-          importance: Math.max(existing.importance ?? 0, item.importance),
+          confidence: clampUnitInterval(Math.max(existing.confidence, item.confidence)),
+          importance: clampUnitInterval(Math.max(existing.importance ?? 0, item.importance)),
           lastSeenAt: Math.max(existing.lastSeenAt, seenAt),
           verificationState: promotedState,
         })
@@ -436,10 +437,6 @@ function parseScore(value: unknown, fallback: number): number {
   if (value == null || value === '') return fallback;
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
 }
 
 /** Returns true if the given memory item is the candidate in an unresolved conflict. */
