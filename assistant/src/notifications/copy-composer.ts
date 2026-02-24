@@ -1,29 +1,25 @@
 /**
  * Deterministic, template-based copy generation for notification deliveries.
  *
+ * This is the fallback path used when the decision engine's LLM-generated
+ * copy is unavailable (fallbackUsed === true). It generates reasonable
+ * copy from the signal's sourceEventName, contextPayload, and attentionHints.
+ *
  * Each source event name has a set of fallback templates that interpolate
- * values from the event payload. Model-driven generation can be layered
- * on top later -- the deterministic path guarantees delivery reliability
- * even when the LLM is unavailable or slow.
+ * values from the context payload.
  */
 
-import type { NotificationChannel } from './types.js';
+import type { NotificationSignal } from './signal.js';
+import type { NotificationChannel, RenderedChannelCopy } from './types.js';
 
-export interface ComposedCopy {
-  title: string;
-  body: string;
-  threadTitle?: string;
-  threadSeedMessage?: string;
-}
-
-type CopyTemplate = (payload: Record<string, unknown>) => ComposedCopy;
+type CopyTemplate = (payload: Record<string, unknown>) => RenderedChannelCopy;
 
 function str(value: unknown, fallback: string): string {
   if (typeof value === 'string' && value.length > 0) return value;
   return fallback;
 }
 
-// Templates keyed by free-form sourceEventName strings instead of enum values.
+// Templates keyed by free-form sourceEventName strings.
 const TEMPLATES: Record<string, CopyTemplate> = {
   reminder_fired: (payload) => ({
     title: 'Reminder',
@@ -72,23 +68,41 @@ const TEMPLATES: Record<string, CopyTemplate> = {
 };
 
 /**
- * Generate notification copy for the given source event name, channel, and payload.
+ * Compose fallback notification copy for a signal when the decision
+ * engine's LLM path is unavailable.
  *
- * The `channel` parameter is accepted for future per-channel customisation
- * (e.g. shorter copy for push notifications) but is currently unused -- all
- * channels receive the same template output.
+ * Returns a map of channel -> RenderedChannelCopy for the requested channels.
+ * All channels currently receive the same template output; per-channel
+ * customisation can be layered on later.
  */
-export function composeCopy(
-  sourceEventName: string,
-  _channel: NotificationChannel,
-  payload: Record<string, unknown>,
-): ComposedCopy {
-  const template = TEMPLATES[sourceEventName];
-  if (!template) {
-    return {
-      title: 'Notification',
-      body: 'You have a new notification',
-    };
+export function composeFallbackCopy(
+  signal: NotificationSignal,
+  channels: NotificationChannel[],
+): Partial<Record<NotificationChannel, RenderedChannelCopy>> {
+  const template = TEMPLATES[signal.sourceEventName];
+
+  const baseCopy: RenderedChannelCopy = template
+    ? template(signal.contextPayload)
+    : buildGenericCopy(signal);
+
+  const result: Partial<Record<NotificationChannel, RenderedChannelCopy>> = {};
+  for (const ch of channels) {
+    result[ch] = { ...baseCopy };
   }
-  return template(payload);
+  return result;
+}
+
+/**
+ * Build generic copy when no template matches. Uses the signal's
+ * sourceEventName and attention hints to produce something reasonable.
+ */
+function buildGenericCopy(signal: NotificationSignal): RenderedChannelCopy {
+  const humanName = signal.sourceEventName.replace(/_/g, ' ');
+  const urgencyPrefix = signal.attentionHints.urgency === 'high' ? 'Urgent: ' : '';
+  const actionSuffix = signal.attentionHints.requiresAction ? ' — action required' : '';
+
+  return {
+    title: 'Notification',
+    body: `${urgencyPrefix}${humanName}${actionSuffix}`,
+  };
 }

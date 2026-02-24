@@ -22,16 +22,6 @@ export interface NotificationDeliveryResult {
 
 // -- Channel adapter interfaces -----------------------------------------------
 
-/** Copy rendered by the copy-composer for a single notification delivery. */
-export interface PreparedDelivery {
-  sourceEventName: string;
-  title: string;
-  body: string;
-  threadTitle?: string;
-  threadSeedMessage?: string;
-  deepLinkMetadata?: Record<string, unknown>;
-}
-
 /** Result returned by a channel adapter after attempting to send. */
 export interface DeliveryResult {
   success: boolean;
@@ -45,10 +35,20 @@ export interface ChannelDestination {
   metadata?: Record<string, unknown>;
 }
 
+/**
+ * Delivery payload assembled from the decision engine's rendered copy
+ * plus contextual fields the adapters need for formatting and routing.
+ */
+export interface ChannelDeliveryPayload {
+  sourceEventName: string;
+  copy: RenderedChannelCopy;
+  deepLinkTarget?: Record<string, unknown>;
+}
+
 /** Interface that each channel adapter must implement. */
 export interface ChannelAdapter {
   channel: NotificationChannel;
-  send(delivery: PreparedDelivery, destination: ChannelDestination): Promise<DeliveryResult>;
+  send(payload: ChannelDeliveryPayload, destination: ChannelDestination): Promise<DeliveryResult>;
 }
 
 // -- Decision engine output ---------------------------------------------------
@@ -71,4 +71,6 @@ export interface NotificationDecision {
   dedupeKey: string;
   confidence: number;
   fallbackUsed: boolean;
+  /** UUID of the persisted decision row (set after persistence in the decision engine). */
+  persistedDecisionId?: string;
 }

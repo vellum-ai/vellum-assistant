@@ -14,7 +14,7 @@ import { readHttpToken } from '../../util/platform.js';
 import type {
   NotificationChannel,
   ChannelAdapter,
-  PreparedDelivery,
+  ChannelDeliveryPayload,
   ChannelDestination,
   DeliveryResult,
 } from '../types.js';
@@ -24,17 +24,21 @@ const log = getLogger('notif-adapter-telegram');
 export class TelegramAdapter implements ChannelAdapter {
   readonly channel: NotificationChannel = 'telegram';
 
-  async send(delivery: PreparedDelivery, destination: ChannelDestination): Promise<DeliveryResult> {
+  async send(payload: ChannelDeliveryPayload, destination: ChannelDestination): Promise<DeliveryResult> {
     const chatId = destination.endpoint;
     if (!chatId) {
-      log.warn({ sourceEventName: delivery.sourceEventName }, 'Telegram destination has no chat ID — skipping');
+      log.warn({ sourceEventName: payload.sourceEventName }, 'Telegram destination has no chat ID — skipping');
       return { success: false, error: 'No chat ID configured for Telegram destination' };
     }
 
     const gatewayBase = getGatewayInternalBaseUrl();
     const deliverUrl = `${gatewayBase}/deliver/telegram`;
 
-    const messageText = `${delivery.title}\n\n${delivery.body}`;
+    // Format copy for Telegram as plain text (no parse_mode set on gateway side)
+    let messageText = payload.copy.title + '\n\n' + payload.copy.body;
+    if (payload.copy.threadTitle) {
+      messageText += '\n\nThread: ' + payload.copy.threadTitle;
+    }
 
     try {
       await deliverChannelReply(
@@ -44,7 +48,7 @@ export class TelegramAdapter implements ChannelAdapter {
       );
 
       log.info(
-        { sourceEventName: delivery.sourceEventName, chatId },
+        { sourceEventName: payload.sourceEventName, chatId },
         'Telegram notification delivered',
       );
 
@@ -52,7 +56,7 @@ export class TelegramAdapter implements ChannelAdapter {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log.error(
-        { err, sourceEventName: delivery.sourceEventName, chatId },
+        { err, sourceEventName: payload.sourceEventName, chatId },
         'Failed to deliver Telegram notification',
       );
       return { success: false, error: message };
