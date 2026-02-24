@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { Writable } from 'node:stream';
 import pino from 'pino';
 import pinoPretty from 'pino-pretty';
+import { logSerializers } from './log-redact.js';
 import { getLogPath } from './platform.js';
 
 export type LogFileConfig = {
@@ -55,7 +56,7 @@ let activeLogFileConfig: LogFileConfig | null = null;
 
 function buildRotatingLogger(config: LogFileConfig): pino.Logger {
   if (!config.dir) {
-    return pino({ name: 'assistant' }, pinoPretty({ destination: 1 }));
+    return pino({ name: 'assistant', serializers: logSerializers }, pinoPretty({ destination: 1 }));
   }
 
   if (!existsSync(config.dir)) {
@@ -74,7 +75,7 @@ function buildRotatingLogger(config: LogFileConfig): pino.Logger {
   if (process.env.VELLUM_DEBUG === '1') {
     const prettyStream = pinoPretty({ destination: 2 });
     return pino(
-      { name: 'assistant', level },
+      { name: 'assistant', level, serializers: logSerializers },
       pino.multistream([
         { stream: fileStream, level: 'info' as const },
         { stream: prettyStream, level: 'debug' as const },
@@ -83,7 +84,7 @@ function buildRotatingLogger(config: LogFileConfig): pino.Logger {
   }
 
   return pino(
-    { name: 'assistant', level },
+    { name: 'assistant', level, serializers: logSerializers },
     pino.multistream([
       { stream: fileStream, level: 'info' as const },
       { stream: pinoPretty({ destination: 1 }), level: 'info' as const },
@@ -121,7 +122,7 @@ function getRootLogger(): pino.Logger {
       || process.env.VELLUM_LOG_STDERR === '1';
     if (forceStderr) {
       rootLogger = pino(
-        { level: process.env.VELLUM_DEBUG === '1' ? 'debug' : 'info' },
+        { level: process.env.VELLUM_DEBUG === '1' ? 'debug' : 'info', serializers: logSerializers },
         pino.destination(2),
       );
       return rootLogger;
@@ -136,20 +137,20 @@ function getRootLogger(): pino.Logger {
           { stream: fileStream, level: 'info' as const },
           { stream: prettyStream, level: 'debug' as const },
         ]);
-        rootLogger = pino({ level: 'debug' }, multi);
+        rootLogger = pino({ level: 'debug', serializers: logSerializers }, multi);
       } else if (process.env.DEBUG_STDOUT_LOGS === '1') {
         rootLogger = pino(
-          { level: 'info' },
+          { level: 'info', serializers: logSerializers },
           pino.multistream([
             { stream: fileStream, level: 'info' as const },
             { stream: pinoPretty({ destination: 1 }), level: 'info' as const },
           ]),
         );
       } else {
-        rootLogger = pino({ level: 'info' }, fileStream);
+        rootLogger = pino({ level: 'info', serializers: logSerializers }, fileStream);
       }
     } catch {
-      rootLogger = pino({ level: process.env.VELLUM_DEBUG === '1' ? 'debug' : 'info' }, pinoPretty({ destination: 2 }));
+      rootLogger = pino({ level: process.env.VELLUM_DEBUG === '1' ? 'debug' : 'info', serializers: logSerializers }, pinoPretty({ destination: 2 }));
     }
   }
   return rootLogger;
@@ -225,7 +226,7 @@ export function getCliLogger(name: string): pino.Logger {
     get(_target, prop, receiver) {
       if (!logger) {
         logger = pino(
-          { name, level: 'trace' },
+          { name, level: 'trace', serializers: logSerializers },
           pino.multistream([
             { stream: cliDestination(1, 49), level: 'trace' as const },
             { stream: cliDestination(2), level: 'error' as const },
