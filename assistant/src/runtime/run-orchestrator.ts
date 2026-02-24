@@ -34,6 +34,29 @@ const log = getLogger('run-orchestrator');
 // Types
 // ---------------------------------------------------------------------------
 
+/**
+ * Real-time event sink for voice TTS streaming. When provided to startRun(),
+ * agent-loop events are forwarded here alongside the existing assistantEventHub
+ * publication. This enables voice relay to receive streaming text deltas for
+ * real-time text-to-speech without modifying the standard channel path.
+ */
+export interface VoiceRunEventSink {
+  onTextDelta(text: string): void;
+  onMessageComplete(): void;
+  onError(message: string): void;
+  onToolUse(toolName: string, input: Record<string, unknown>): void;
+}
+
+/**
+ * Handle returned by startRun() that allows callers to abort an in-flight
+ * run. Used by voice barge-in to cancel the current turn without crashing
+ * session state.
+ */
+export interface RunHandle {
+  run: Run;
+  abort: () => void;
+}
+
 interface PendingRunState {
   prompterRequestId: string;
   session: Session;
@@ -92,6 +115,11 @@ export interface RunStartOptions {
   commandIntent?: { type: string; payload?: string; languageCode?: string };
   /** Resolved channel context for this turn. */
   turnChannelContext?: TurnChannelContext;
+  /**
+   * When provided, agent-loop events are forwarded to this sink in real time.
+   * Used by voice relay for streaming TTS token delivery.
+   */
+  eventSink?: VoiceRunEventSink;
 }
 
 // ---------------------------------------------------------------------------
@@ -116,13 +144,16 @@ export class RunOrchestrator {
   /**
    * Start a new run: persist the user message, create a run record,
    * and fire the agent loop in the background.
+   *
+   * Returns a RunHandle containing the Run record and an abort() function
+   * that can cancel the in-flight agent loop (e.g. for voice barge-in).
    */
   async startRun(
     conversationId: string,
     content: string,
     attachmentIds?: string[],
     options?: RunStartOptions,
-  ): Promise<Run> {
+  ): Promise<RunHandle> {
     // Block inbound content that contains secrets — mirrors the IPC check in sessions.ts
     const ingressCheck = checkIngressForSecrets(content);
     if (ingressCheck.blocked) {
@@ -256,6 +287,8 @@ export class RunOrchestrator {
       session.updateClient(() => {}, true);
     };
 
+    const eventSink = options?.eventSink;
+
     void (async () => {
       try {
         await session.runAgentLoop(content, messageId, (msg: ServerMessage) => {
@@ -270,6 +303,23 @@ export class RunOrchestrator {
           // prompter (confirmation_request). Both paths must publish so SSE
           // consumers receive the full response stream.
           publishToHub(msg);
+
+          // Forward voice-relevant events to the real-time event sink when
+          // provided. This runs in addition to (not instead of) the hub
+          // publication above so both paths remain active.
+          if (eventSink) {
+            if (msg.type === 'assistant_text_delta') {
+              eventSink.onTextDelta(msg.text);
+            } else if (msg.type === 'message_complete') {
+              eventSink.onMessageComplete();
+            } else if (msg.type === 'error') {
+              eventSink.onError(msg.message);
+            } else if (msg.type === 'session_error') {
+              eventSink.onError(msg.userMessage);
+            } else if (msg.type === 'tool_use_start') {
+              eventSink.onToolUse(msg.toolName, msg.input);
+            }
+          }
         });
         if (lastError) {
           log.error({ runId: run.id, error: lastError }, 'Run failed (error event from agent loop)');
@@ -286,7 +336,10 @@ export class RunOrchestrator {
       }
     })();
 
-    return run;
+    return {
+      run,
+      abort: () => session.abort(),
+    };
   }
 
   /** Read current run state from the store. */
