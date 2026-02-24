@@ -137,11 +137,11 @@ function buildVoiceCallControlPrompt(opts: {
   if (opts.isInbound) {
     if (opts.isCallerGuardian) {
       lines.push(
-        '10. If the latest user turn is [CALL_OPENING], this is your user calling you. Answer casually and briefly, like picking up a call from someone you know well. For example: "Hey!" or "What\'s up?" Do NOT introduce yourself, do NOT say you are calling on behalf of anyone, and do NOT ask how you can help in a formal way. Keep it short and natural.',
+        '10. If the latest user turn is "(call connected — deliver opening greeting)", this is your user calling you. Answer casually and briefly, like picking up a call from someone you know well. For example: "Hey!" or "What\'s up?" Do NOT introduce yourself, do NOT say you are calling on behalf of anyone, and do NOT ask how you can help in a formal way. Keep it short and natural.',
       );
     } else {
       lines.push(
-        '10. If the latest user turn is [CALL_OPENING], greet the caller warmly and ask how you can help. Vary the wording; do not use a fixed template.',
+        '10. If the latest user turn is "(call connected — deliver opening greeting)", greet the caller warmly and ask how you can help. Vary the wording; do not use a fixed template.',
       );
     }
     lines.push(
@@ -149,7 +149,7 @@ function buildVoiceCallControlPrompt(opts: {
     );
   } else {
     lines.push(
-      '10. If the latest user turn is [CALL_OPENING], generate a natural, context-specific opener: briefly introduce yourself once as an assistant, state why you are calling using the Task context, and ask a short permission/check-in question. Vary the wording; do not use a fixed template.',
+      '10. If the latest user turn is "(call connected — deliver opening greeting)", generate a natural, context-specific opener: briefly introduce yourself once as an assistant, state why you are calling using the Task context, and ask a short permission/check-in question. Vary the wording; do not use a fixed template.',
       '11. If the latest user turn includes [CALL_OPENING_ACK], treat it as the callee acknowledging your opener and continue the conversation naturally without re-introducing yourself or repeating the initial check-in question.',
     );
   }
@@ -209,7 +209,7 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
     : opts.content;
 
   // Build the call-control protocol prompt so the model knows how to emit
-  // control markers (ASK_GUARDIAN, END_CALL, CALL_OPENING, etc.).
+  // control markers (ASK_GUARDIAN, END_CALL, etc.) and recognize opener turns.
   const isCallerGuardian = opts.guardianContext?.actorRole === 'guardian';
 
   const voiceCallControlPrompt = buildVoiceCallControlPrompt({

@@ -713,7 +713,18 @@ export class RelayConnection {
     if (this.controller) {
       await this.controller.handleCallerUtterance(msg.voicePrompt, speaker);
     } else {
-      // Fallback if controller not yet initialized
+      // Fallback if controller not yet initialized — persist the caller's
+      // transcript so it is available in conversation history once setup
+      // completes. The session pipeline normally handles persistence, but
+      // this early-utterance path bypasses it entirely.
+      if (session) {
+        conversationStore.addMessage(
+          session.conversationId,
+          'user',
+          JSON.stringify([{ type: 'text', text: msg.voicePrompt }]),
+          { userMessageChannel: 'voice', assistantMessageChannel: 'voice' },
+        );
+      }
       this.sendTextToken('I\'m still setting up. Please hold.', true);
     }
   }
