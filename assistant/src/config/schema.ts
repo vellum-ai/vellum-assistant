@@ -258,7 +258,7 @@ export const QdrantConfigSchema = z.object({
 export const MemoryRerankingConfigSchema = z.object({
   enabled: z
     .boolean({ error: 'memory.retrieval.reranking.enabled must be a boolean' })
-    .default(true),
+    .default(false),
   model: z
     .string({ error: 'memory.retrieval.reranking.model must be a string' })
     .default('claude-haiku-4-5-20251001'),
@@ -384,7 +384,7 @@ export const MemoryRetrievalConfigSchema = z.object({
     })
     .default('prepend_user_block'),
   reranking: MemoryRerankingConfigSchema.default({
-    enabled: true,
+    enabled: false,
     model: 'claude-haiku-4-5-20251001',
     topK: 20,
   }),
@@ -628,7 +628,7 @@ export const MemoryConfigSchema = z.object({
     injectionFormat: 'markdown',
     injectionStrategy: 'prepend_user_block',
     reranking: {
-      enabled: true,
+      enabled: false,
       model: 'claude-haiku-4-5-20251001',
       topK: 20,
     },
@@ -1203,7 +1203,7 @@ export const AssistantConfigSchema = z.object({
       injectionFormat: 'markdown',
       injectionStrategy: 'prepend_user_block',
       reranking: {
-        enabled: true,
+        enabled: false,
         model: 'claude-haiku-4-5-20251001',
         topK: 20,
       },
