@@ -100,6 +100,8 @@ export interface TaskSubmit {
   screenHeight: number;
   attachments?: UserMessageAttachment[];
   source?: 'voice' | 'text';
+  /** When set, overrides the QA-based requiresRecording computation. */
+  requiresRecording?: boolean;
 }
 
 export interface RideShotgunStart {

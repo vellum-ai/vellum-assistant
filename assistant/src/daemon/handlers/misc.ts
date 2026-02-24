@@ -87,8 +87,8 @@ export async function handleTaskSubmit(
     }
 
     const config = getConfig();
-    // Determine whether recording is required: (QA intent or active latch) + config flag
-    const requiresRecording = (isQa || (qaLatchActive && !isOptOut)) && config.qaRecording.enforceStartBeforeActions;
+    // Determine whether recording is required: explicit flag on the message, or (QA intent or active latch) + config flag
+    const requiresRecording = msg.requiresRecording ?? ((isQa || (qaLatchActive && !isOptOut)) && config.qaRecording.enforceStartBeforeActions);
 
     rlog.info({
       interactionType,
