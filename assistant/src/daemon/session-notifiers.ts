@@ -102,6 +102,7 @@ export function registerSessionNotifiers(
       conversationId,
       'assistant',
       JSON.stringify([{ type: 'text', text: questionText }]),
+      { userMessageChannel: 'voice', assistantMessageChannel: 'voice' },
     );
 
     ctx.messages.push(createAssistantMessage(questionText));

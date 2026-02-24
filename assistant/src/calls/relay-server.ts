@@ -406,6 +406,7 @@ export class RelayConnection {
         session.initiatedFromConversationId,
         'assistant',
         JSON.stringify([{ type: 'text', text: codeMsg }]),
+        { userMessageChannel: 'voice', assistantMessageChannel: 'voice' },
       );
     }
 
@@ -462,6 +463,7 @@ export class RelayConnection {
         session.conversationId,
         'user',
         JSON.stringify([{ type: 'text', text: msg.voicePrompt }]),
+        { userMessageChannel: 'voice', assistantMessageChannel: 'voice' },
       );
       fireCallTranscriptNotifier(session.conversationId, this.callSessionId, 'caller', msg.voicePrompt);
     }

@@ -7,6 +7,7 @@
  */
 
 import type { Message } from '../providers/types.js';
+import type { TurnChannelContext } from '../channels/types.js';
 import type { ServerMessage, UserMessageAttachment } from './ipc-protocol.js';
 import type { UsageStats } from './ipc-contract.js';
 import type { MessageQueue } from './session-queue-manager.js';
@@ -73,6 +74,7 @@ export interface ProcessSessionContext {
     onEvent: (msg: ServerMessage) => void,
     options?: { skipPreMessageRollback?: boolean },
   ): Promise<void>;
+  getTurnChannelContext(): TurnChannelContext | null;
 }
 
 /** Build a SlashContext from the current session state and config. */
@@ -125,11 +127,16 @@ export function drainQueue(session: ProcessSessionContext, reason: QueueDrainRea
   // failed write never leaves an unpersisted message in memory.
   if (slashResult.kind === 'unknown') {
     try {
+      const drainTurnCtx = session.getTurnChannelContext();
+      const drainChannelMeta = drainTurnCtx
+        ? { userMessageChannel: drainTurnCtx.userMessageChannel, assistantMessageChannel: drainTurnCtx.assistantMessageChannel }
+        : undefined;
       const userMsg = createUserMessage(next.content, next.attachments);
       conversationStore.addMessage(
         session.conversationId,
         'user',
         JSON.stringify(userMsg.content),
+        drainChannelMeta,
       );
       session.messages.push(userMsg);
 
@@ -138,6 +145,7 @@ export function drainQueue(session: ProcessSessionContext, reason: QueueDrainRea
         session.conversationId,
         'assistant',
         JSON.stringify(assistantMsg.content),
+        drainChannelMeta,
       );
       session.messages.push(assistantMsg);
 
@@ -236,11 +244,13 @@ export async function processMessage(
   if (guardianDelivery) {
     const guardianRequest = getGuardianActionRequest(guardianDelivery.requestId);
     if (guardianRequest && guardianRequest.status === 'pending') {
+      const guardianChannelMeta = { userMessageChannel: 'macos' as const, assistantMessageChannel: 'macos' as const };
       const userMsg = createUserMessage(content, attachments);
       const persisted = conversationStore.addMessage(
         session.conversationId,
         'user',
         JSON.stringify(userMsg.content),
+        guardianChannelMeta,
       );
       session.messages.push(userMsg);
 
@@ -251,7 +261,7 @@ export async function processMessage(
       const answerResult = await answerCall({ callSessionId: guardianRequest.callSessionId, answer: content });
 
       if ('ok' in answerResult && answerResult.ok) {
-        const resolved = resolveGuardianActionRequest(guardianRequest.id, content, 'mac');
+        const resolved = resolveGuardianActionRequest(guardianRequest.id, content, 'macos');
         const replyText = resolved
           ? 'Your answer has been relayed to the call.'
           : 'This question has already been answered from another channel.';
@@ -260,6 +270,7 @@ export async function processMessage(
           session.conversationId,
           'assistant',
           JSON.stringify(replyMsg.content),
+          guardianChannelMeta,
         );
         session.messages.push(replyMsg);
         onEvent({ type: 'assistant_text_delta', text: replyText });
@@ -271,6 +282,7 @@ export async function processMessage(
           session.conversationId,
           'assistant',
           JSON.stringify(failMsg.content),
+          guardianChannelMeta,
         );
         session.messages.push(failMsg);
         onEvent({ type: 'assistant_text_delta', text: 'Failed to deliver your answer to the call. Please try again.' });
@@ -287,11 +299,16 @@ export async function processMessage(
   // messageId is real.  Persist each message before pushing to session.messages
   // so that a failed write never leaves an unpersisted message in memory.
   if (slashResult.kind === 'unknown') {
+    const pmTurnCtx = session.getTurnChannelContext();
+    const pmChannelMeta = pmTurnCtx
+      ? { userMessageChannel: pmTurnCtx.userMessageChannel, assistantMessageChannel: pmTurnCtx.assistantMessageChannel }
+      : undefined;
     const userMsg = createUserMessage(content, attachments);
     const persisted = conversationStore.addMessage(
       session.conversationId,
       'user',
       JSON.stringify(userMsg.content),
+      pmChannelMeta,
     );
     session.messages.push(userMsg);
 
@@ -300,6 +317,7 @@ export async function processMessage(
       session.conversationId,
       'assistant',
       JSON.stringify(assistantMsg.content),
+      pmChannelMeta,
     );
     session.messages.push(assistantMsg);
 

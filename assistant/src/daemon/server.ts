@@ -749,11 +749,16 @@ export class DaemonServer {
     const slashResult = resolveSlash(content);
 
     if (slashResult.kind === 'unknown') {
+      const serverTurnCtx = session.getTurnChannelContext();
+      const serverChannelMeta = serverTurnCtx
+        ? { userMessageChannel: serverTurnCtx.userMessageChannel, assistantMessageChannel: serverTurnCtx.assistantMessageChannel }
+        : undefined;
       const userMsg = createUserMessage(content, attachments);
       const persisted = conversationStore.addMessage(
         conversationId,
         'user',
         JSON.stringify(userMsg.content),
+        serverChannelMeta,
       );
       session.getMessages().push(userMsg);
 
@@ -762,6 +767,7 @@ export class DaemonServer {
         conversationId,
         'assistant',
         JSON.stringify(assistantMsg.content),
+        serverChannelMeta,
       );
       session.getMessages().push(assistantMsg);
       return { messageId: persisted.id };

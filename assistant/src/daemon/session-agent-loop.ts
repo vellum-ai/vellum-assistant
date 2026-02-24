@@ -9,6 +9,7 @@
 
 import { v4 as uuid } from 'uuid';
 import type { Message, ContentBlock } from '../providers/types.js';
+import type { TurnChannelContext } from '../channels/types.js';
 import type { ServerMessage, UsageStats, SurfaceType, SurfaceData, DynamicPageSurfaceData } from './ipc-protocol.js';
 import type { AgentLoop, CheckpointDecision, AgentEvent } from '../agent/loop.js';
 import type { Provider } from '../providers/types.js';
@@ -126,6 +127,7 @@ export interface AgentLoopSessionContext {
   hasQueuedMessages(): boolean;
   canHandoffAtCheckpoint(): boolean;
   drainQueue(reason: QueueDrainReason): void;
+  getTurnChannelContext(): TurnChannelContext | null;
 }
 
 // ── runAgentLoop ─────────────────────────────────────────────────────
@@ -226,11 +228,16 @@ export async function runAgentLoopImpl(
     );
 
     if (memoryResult.conflictClarification) {
+      const loopTurnCtx = ctx.getTurnChannelContext();
+      const loopChannelMeta = loopTurnCtx
+        ? { userMessageChannel: loopTurnCtx.userMessageChannel, assistantMessageChannel: loopTurnCtx.assistantMessageChannel }
+        : undefined;
       const assistantMessage = createAssistantMessage(memoryResult.conflictClarification);
       conversationStore.addMessage(
         ctx.conversationId,
         'assistant',
         JSON.stringify(assistantMessage.content),
+        loopChannelMeta,
       );
       ctx.messages.push(assistantMessage);
       onEvent({
@@ -499,11 +506,16 @@ export async function runAgentLoopImpl(
 
     const hasAssistantResponse = newMessages.some((msg) => msg.role === 'assistant');
     if (!hasAssistantResponse && state.providerErrorUserMessage && !abortController.signal.aborted && !yieldedForHandoff) {
+      const errTurnCtx = ctx.getTurnChannelContext();
+      const errChannelMeta = errTurnCtx
+        ? { userMessageChannel: errTurnCtx.userMessageChannel, assistantMessageChannel: errTurnCtx.assistantMessageChannel }
+        : undefined;
       const errorAssistantMessage = createAssistantMessage(state.providerErrorUserMessage);
       conversationStore.addMessage(
         ctx.conversationId,
         'assistant',
         JSON.stringify(errorAssistantMessage.content),
+        errChannelMeta,
       );
       newMessages.push(errorAssistantMessage);
       onEvent({

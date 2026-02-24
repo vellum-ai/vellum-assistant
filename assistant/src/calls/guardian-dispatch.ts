@@ -122,6 +122,7 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
           macConversationId,
           'assistant',
           JSON.stringify([{ type: 'text', text: `Your assistant needs your input during a phone call.\n\nQuestion: ${request.questionText}\n\nReply to this message with your answer.` }]),
+          { userMessageChannel: 'voice', assistantMessageChannel: 'macos' },
         );
 
         // Emit IPC event for the mac client with the server-created conversation

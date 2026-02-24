@@ -8,6 +8,7 @@
 
 import type pino from 'pino';
 import type { ContentBlock, ImageContent } from '../providers/types.js';
+import type { TurnChannelContext } from '../channels/types.js';
 import type { ServerMessage } from './ipc-protocol.js';
 import type { AgentEvent } from '../agent/loop.js';
 import type { AgentLoopSessionContext } from './session-agent-loop.js';
@@ -308,10 +309,15 @@ export function handleMessageComplete(
     } as unknown as ContentBlock);
   }
 
+  const turnCtx: TurnChannelContext | null = deps.ctx.getTurnChannelContext();
+  const assistantChannelMetadata = turnCtx
+    ? { userMessageChannel: turnCtx.userMessageChannel, assistantMessageChannel: turnCtx.assistantMessageChannel }
+    : undefined;
   const assistantMsg = conversationStore.addMessage(
     deps.ctx.conversationId,
     'assistant',
     JSON.stringify(contentWithSurfaces),
+    assistantChannelMetadata,
   );
   state.lastAssistantMessageId = assistantMsg.id;
 

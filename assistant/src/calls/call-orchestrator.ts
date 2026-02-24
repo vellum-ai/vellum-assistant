@@ -474,6 +474,7 @@ export class CallOrchestrator {
             session.conversationId,
             'assistant',
             JSON.stringify([{ type: 'text', text: spokenText }]),
+            { userMessageChannel: 'voice', assistantMessageChannel: 'voice' },
           );
           fireCallTranscriptNotifier(session.conversationId, this.callSessionId, 'assistant', spokenText);
         }
