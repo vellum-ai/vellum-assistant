@@ -1,149 +1,9 @@
 import { join, dirname } from 'node:path';
-import { mkdir, readdir, rename, rm } from 'node:fs/promises';
-import { randomUUID } from 'node:crypto';
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import {
-  getMediaAssetById,
-  getKeyframesForAsset,
-  insertKeyframesBatch,
-  deleteKeyframesForAsset,
-  createProcessingStage,
-  updateProcessingStage,
-  getProcessingStagesForAsset,
-  type ProcessingStage,
-} from '../../../../memory/media-store.js';
+import { getMediaAssetById, getKeyframesForAsset } from '../../../../memory/media-store.js';
+import { preprocessForAsset, type PreprocessOptions, type PreprocessManifest } from '../services/preprocess.js';
 
-const FFMPEG_TIMEOUT_MS = 300_000;
-
-function spawnWithTimeout(
-  cmd: string[],
-  timeoutMs: number,
-): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    const proc = Bun.spawn(cmd, { stdout: 'pipe', stderr: 'pipe' });
-    const timer = setTimeout(() => {
-      proc.kill();
-      reject(new Error(`Process timed out after ${timeoutMs}ms: ${cmd[0]}`));
-    }, timeoutMs);
-    proc.exited.then(async (exitCode) => {
-      clearTimeout(timer);
-      const stdout = await new Response(proc.stdout).text();
-      const stderr = await new Response(proc.stderr).text();
-      resolve({ exitCode, stdout, stderr });
-    });
-  });
-}
-
-export async function extractKeyframesForAsset(
-  assetId: string,
-  intervalSeconds?: number,
-  onProgress?: (msg: string) => void,
-): Promise<void> {
-  const interval = intervalSeconds ?? 3;
-
-  const asset = getMediaAssetById(assetId);
-  if (!asset) {
-    throw new Error(`Media asset not found: ${assetId}`);
-  }
-
-  if (asset.mediaType !== 'video') {
-    throw new Error(`Keyframe extraction requires a video asset. Got: ${asset.mediaType}`);
-  }
-
-  // Find or create the keyframe_extraction processing stage
-  let stage: ProcessingStage | undefined;
-  const existingStages = getProcessingStagesForAsset(assetId);
-  stage = existingStages.find((s) => s.stage === 'keyframe_extraction');
-  if (!stage) {
-    stage = createProcessingStage({ assetId, stage: 'keyframe_extraction' });
-  }
-
-  updateProcessingStage(stage.id, { status: 'running', startedAt: Date.now() });
-
-  // Store keyframes in a durable directory alongside the source file.
-  // Extract to a temp dir first so that if ffmpeg fails the old frames remain intact.
-  const outputDir = join(dirname(asset.filePath), 'keyframes', assetId);
-  const tempDir = outputDir + '-tmp-' + randomUUID();
-  await mkdir(tempDir, { recursive: true });
-
-  try {
-    onProgress?.(`Extracting keyframes every ${interval}s from ${asset.title}...\n`);
-
-    // Use ffmpeg to extract frames at the specified interval
-    const result = await spawnWithTimeout([
-      'ffmpeg', '-y',
-      '-i', asset.filePath,
-      '-vf', `fps=1/${interval}`,
-      '-q:v', '2',
-      join(tempDir, 'frame-%06d.jpg'),
-    ], FFMPEG_TIMEOUT_MS);
-
-    if (result.exitCode !== 0) {
-      await rm(tempDir, { recursive: true, force: true });
-      updateProcessingStage(stage.id, {
-        status: 'failed',
-        lastError: result.stderr.slice(0, 500),
-      });
-      throw new Error(`ffmpeg failed: ${result.stderr.slice(0, 500)}`);
-    }
-
-    // List extracted frames
-    const files = await readdir(tempDir);
-    const frameFiles = files
-      .filter((f) => f.startsWith('frame-') && f.endsWith('.jpg'))
-      .sort();
-
-    if (frameFiles.length === 0) {
-      await rm(tempDir, { recursive: true, force: true });
-      updateProcessingStage(stage.id, {
-        status: 'failed',
-        lastError: 'No frames extracted',
-      });
-      throw new Error('No frames were extracted from the video.');
-    }
-
-    // Extraction succeeded — atomically swap temp dir into the durable path
-    await rm(outputDir, { recursive: true, force: true });
-    await rename(tempDir, outputDir);
-
-    onProgress?.(`Extracted ${frameFiles.length} frames. Registering in database...\n`);
-
-    // Build keyframe rows
-    const keyframeRows = frameFiles.map((file, index) => ({
-      assetId,
-      timestamp: index * interval,
-      filePath: join(outputDir, file),
-      metadata: { frameIndex: index, intervalSeconds: interval },
-    }));
-
-    // Clear existing keyframes to prevent duplicates on re-extraction
-    deleteKeyframesForAsset(assetId);
-
-    // Batch insert
-    const keyframes = insertKeyframesBatch(keyframeRows);
-
-    // Update progress
-    updateProcessingStage(stage.id, {
-      status: 'completed',
-      progress: 100,
-      completedAt: Date.now(),
-    });
-
-    onProgress?.(`Registered ${keyframes.length} keyframes.\n`);
-  } catch (err) {
-    // Clean up temp dir if it still exists (no-op when already removed above)
-    await rm(tempDir, { recursive: true, force: true }).catch(() => {});
-    // Update stage for unexpected errors (ffmpeg/no-frames cases already updated above)
-    const msg = (err as Error).message;
-    if (!msg.startsWith('ffmpeg failed:') && msg !== 'No frames were extracted from the video.') {
-      updateProcessingStage(stage.id, {
-        status: 'failed',
-        lastError: msg.slice(0, 500),
-      });
-    }
-    throw err;
-  }
-}
+export { preprocessForAsset } from '../services/preprocess.js';
 
 export async function run(
   input: Record<string, unknown>,
@@ -154,37 +14,46 @@ export async function run(
     return { content: 'asset_id is required.', isError: true };
   }
 
-  const intervalSeconds = (input.interval_seconds as number) || 3;
+  const options: PreprocessOptions = {
+    intervalSeconds: (input.interval_seconds as number) || undefined,
+    segmentDuration: (input.segment_duration as number) || undefined,
+    deadTimeThreshold: (input.dead_time_threshold as number) || undefined,
+    sectionConfigPath: (input.section_config as string) || undefined,
+    skipDeadTime: input.skip_dead_time !== undefined ? Boolean(input.skip_dead_time) : undefined,
+    shortEdge: (input.short_edge as number) || undefined,
+  };
 
   try {
-    await extractKeyframesForAsset(assetId, intervalSeconds, context.onOutput);
+    const manifest = await preprocessForAsset(assetId, options, context.onOutput);
 
     const asset = getMediaAssetById(assetId);
-    const outputDir = join(dirname(asset!.filePath), 'keyframes', assetId);
+    const pipelineDir = join(dirname(asset!.filePath), 'pipeline', assetId);
     const keyframes = getKeyframesForAsset(assetId);
 
     return {
       content: JSON.stringify({
-        message: `Extracted and registered ${keyframes.length} keyframes`,
+        message: `Preprocessed video: ${manifest.segments.length} segments, ${keyframes.length} keyframes`,
         assetId,
+        segmentCount: manifest.segments.length,
         keyframeCount: keyframes.length,
-        intervalSeconds,
-        outputDir,
+        deadTimeRanges: manifest.deadTimeRanges.length,
+        subjectGroups: manifest.subjectRegistry.groups.length,
+        manifestPath: join(pipelineDir, 'manifest.json'),
+        config: manifest.config,
       }, null, 2),
       isError: false,
     };
   } catch (err) {
     const msg = (err as Error).message;
-    // Preserve original error message format: validation and known failures
-    // are returned directly; unexpected errors get the prefix
     if (
       msg.startsWith('Media asset not found:') ||
-      msg.startsWith('Keyframe extraction requires a video asset.') ||
+      msg.startsWith('Preprocess requires a video asset.') ||
+      msg.startsWith('Video asset has no duration') ||
       msg.startsWith('ffmpeg failed:') ||
       msg === 'No frames were extracted from the video.'
     ) {
       return { content: msg, isError: true };
     }
-    return { content: `Keyframe extraction failed: ${msg}`, isError: true };
+    return { content: `Preprocess failed: ${msg}`, isError: true };
   }
 }
