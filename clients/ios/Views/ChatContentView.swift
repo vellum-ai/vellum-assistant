@@ -110,17 +110,33 @@ struct ChatContentView: View {
                                 .id("subagent-\(subagent.id)")
                         }
 
-                        // Current step indicator shown while generating
+                        // Typing / step indicator shown while generating
                         let hasPendingConfirmation = viewModel.messages.last?.confirmation?.state == .pending
                         if viewModel.isSending && !hasPendingConfirmation {
                             let allToolCalls = viewModel.messages.last?.toolCalls ?? []
-                            CurrentStepIndicator(
-                                toolCalls: allToolCalls,
-                                isStreaming: viewModel.isSending,
-                                onTap: {}
-                            )
-                            .padding(.horizontal, VSpacing.lg)
-                            .id("step-indicator")
+                            let isStreaming = viewModel.messages.last?.isStreaming == true
+                            let hasActiveToolCall = allToolCalls.contains { !$0.isComplete }
+
+                            if !isStreaming && !hasActiveToolCall {
+                                // No streaming text or active tool call yet — show typing dots
+                                HStack {
+                                    TypingIndicatorView()
+                                    Spacer()
+                                }
+                                .padding(.horizontal, VSpacing.lg)
+                                .id("step-indicator")
+                                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                            } else if hasActiveToolCall {
+                                // Tool execution in progress — show step indicator
+                                CurrentStepIndicator(
+                                    toolCalls: allToolCalls,
+                                    isStreaming: viewModel.isSending,
+                                    onTap: {}
+                                )
+                                .padding(.horizontal, VSpacing.lg)
+                                .id("step-indicator")
+                            }
+                            // When isStreaming: the growing message bubble is the indicator
                         }
 
                         // Invisible anchor at the very bottom of all content
