@@ -134,7 +134,7 @@ describe("twilio voice webhook handler", () => {
     expect(lastForwardedParams?.CallSid).toBe("CA_inbound_1");
   });
 
-  test("inbound call with unknown To number forwards without assistantId", async () => {
+  test("inbound call with unknown To number is rejected when unmappedPolicy is reject", async () => {
     const handler = createTwilioVoiceWebhookHandler(baseConfig);
     const req = makeVoiceRequest({
       CallSid: "CA_inbound_2",
@@ -144,8 +144,9 @@ describe("twilio voice webhook handler", () => {
 
     const res = await handler(req);
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(404);
     expect(lastForwardedAssistantId).toBeUndefined();
+    expect(lastForwardedParams).toBeUndefined();
   });
 
   test("outbound call (callSessionId present) does not resolve assistant by phone", async () => {
@@ -179,7 +180,7 @@ describe("twilio voice webhook handler", () => {
     expect(lastForwardedAssistantId).toBe("assistant-xyz");
   });
 
-  test("inbound call without assistantPhoneNumbers config forwards without assistantId", async () => {
+  test("inbound call without assistantPhoneNumbers config is rejected when unmappedPolicy is reject", async () => {
     const configNoMapping = { ...baseConfig, assistantPhoneNumbers: undefined };
     const handler = createTwilioVoiceWebhookHandler(configNoMapping);
     const req = makeVoiceRequest({
@@ -190,7 +191,67 @@ describe("twilio voice webhook handler", () => {
 
     const res = await handler(req);
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(404);
     expect(lastForwardedAssistantId).toBeUndefined();
+    expect(lastForwardedParams).toBeUndefined();
+  });
+
+  test("inbound call with unknown To number falls back to defaultAssistantId when unmappedPolicy is default", async () => {
+    const configDefault = {
+      ...baseConfig,
+      unmappedPolicy: "default" as const,
+      defaultAssistantId: "fallback-assistant",
+    };
+    const handler = createTwilioVoiceWebhookHandler(configDefault);
+    const req = makeVoiceRequest({
+      CallSid: "CA_inbound_5",
+      From: "+14155551234",
+      To: "+19999999999",
+    });
+
+    const res = await handler(req);
+
+    expect(res.status).toBe(200);
+    expect(lastForwardedAssistantId).toBe("fallback-assistant");
+  });
+
+  test("inbound call without assistantPhoneNumbers falls back to defaultAssistantId when unmappedPolicy is default", async () => {
+    const configDefault = {
+      ...baseConfig,
+      assistantPhoneNumbers: undefined,
+      unmappedPolicy: "default" as const,
+      defaultAssistantId: "fallback-assistant",
+    };
+    const handler = createTwilioVoiceWebhookHandler(configDefault);
+    const req = makeVoiceRequest({
+      CallSid: "CA_inbound_6",
+      From: "+14155551234",
+      To: "+15550001111",
+    });
+
+    const res = await handler(req);
+
+    expect(res.status).toBe(200);
+    expect(lastForwardedAssistantId).toBe("fallback-assistant");
+  });
+
+  test("inbound call with unmappedPolicy default but no defaultAssistantId is rejected", async () => {
+    const configNoDefault = {
+      ...baseConfig,
+      unmappedPolicy: "default" as const,
+      defaultAssistantId: undefined,
+    };
+    const handler = createTwilioVoiceWebhookHandler(configNoDefault);
+    const req = makeVoiceRequest({
+      CallSid: "CA_inbound_7",
+      From: "+14155551234",
+      To: "+19999999999",
+    });
+
+    const res = await handler(req);
+
+    expect(res.status).toBe(404);
+    expect(lastForwardedAssistantId).toBeUndefined();
+    expect(lastForwardedParams).toBeUndefined();
   });
 });
