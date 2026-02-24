@@ -2000,9 +2000,25 @@ async function handleApprovalInterception(
                 assistantId,
               );
             }
+
+            return { handled: true, type: 'guardian_decision_applied' };
           }
 
-          return { handled: true, type: 'guardian_decision_applied' };
+          // Race condition: run was already resolved. Deliver stale notice.
+          try {
+            const staleText = await composeApprovalMessageGenerative({
+              scenario: 'approval_already_resolved',
+              channel: sourceChannel,
+            }, {}, approvalCopyGenerator);
+            await deliverChannelReply(replyCallbackUrl, {
+              chatId: externalChatId,
+              text: staleText,
+              assistantId,
+            }, bearerToken);
+          } catch (err) {
+            log.error({ err, conversationId: targetLegacyApproval.conversationId }, 'Failed to deliver stale guardian legacy fallback notice');
+          }
+          return { handled: true, type: 'stale_ignored' };
         }
 
         // No decision could be parsed — send a generic reminder to the guardian
@@ -2243,24 +2259,29 @@ async function handleApprovalInterception(
 
       const result = handleChannelDecision(conversationId, cbDecision, orchestrator);
 
-      // Schedule a background poll for run terminal state and deliver the reply.
-      // This handles the case where the original poll in
-      // processChannelMessageWithApprovals has already exited due to timeout.
-      // The claimRunDelivery guard ensures at-most-once delivery when both
-      // pollers race to terminal state.
-      if (result.applied && result.runId) {
-        schedulePostDecisionDelivery(
-          orchestrator,
-          result.runId,
-          conversationId,
-          externalChatId,
-          replyCallbackUrl,
-          bearerToken,
-          assistantId,
-        );
+      if (result.applied) {
+        // Schedule a background poll for run terminal state and deliver the reply.
+        // This handles the case where the original poll in
+        // processChannelMessageWithApprovals has already exited due to timeout.
+        // The claimRunDelivery guard ensures at-most-once delivery when both
+        // pollers race to terminal state.
+        if (result.runId) {
+          schedulePostDecisionDelivery(
+            orchestrator,
+            result.runId,
+            conversationId,
+            externalChatId,
+            replyCallbackUrl,
+            bearerToken,
+            assistantId,
+          );
+        }
+        return { handled: true, type: 'decision_applied' };
       }
 
-      return { handled: true, type: 'decision_applied' };
+      // Race condition: run was already resolved between the stale check
+      // above and the decision attempt.
+      return { handled: true, type: 'stale_ignored' };
     }
   }
 
@@ -2401,18 +2422,36 @@ async function handleApprovalInterception(
         }
       }
       const result = handleChannelDecision(conversationId, legacyDecision, orchestrator);
-      if (result.applied && result.runId) {
-        schedulePostDecisionDelivery(
-          orchestrator,
-          result.runId,
-          conversationId,
-          externalChatId,
-          replyCallbackUrl,
-          bearerToken,
-          assistantId,
-        );
+      if (result.applied) {
+        if (result.runId) {
+          schedulePostDecisionDelivery(
+            orchestrator,
+            result.runId,
+            conversationId,
+            externalChatId,
+            replyCallbackUrl,
+            bearerToken,
+            assistantId,
+          );
+        }
+        return { handled: true, type: 'decision_applied' };
       }
-      return { handled: true, type: 'decision_applied' };
+
+      // Race condition: run was already resolved.
+      try {
+        const staleText = await composeApprovalMessageGenerative({
+          scenario: 'approval_already_resolved',
+          channel: sourceChannel,
+        }, {}, approvalCopyGenerator);
+        await deliverChannelReply(replyCallbackUrl, {
+          chatId: externalChatId,
+          text: staleText,
+          assistantId,
+        }, bearerToken);
+      } catch (err) {
+        log.error({ err, conversationId }, 'Failed to deliver stale approval notice (legacy path)');
+      }
+      return { handled: true, type: 'stale_ignored' };
     }
   }
 

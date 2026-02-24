@@ -3,8 +3,7 @@ import { v4 as uuid } from 'uuid';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import * as conversationStore from '../../memory/conversation-store.js';
-import { getConfig } from '../../config/loader.js';
-import { getFailoverProvider, listProviders } from '../../providers/registry.js';
+import { getConfiguredProvider } from '../../providers/provider-send-message.js';
 import type { Provider } from '../../providers/types.js';
 import { classifyInteraction } from '../classifier.js';
 import { checkIngressForSecrets } from '../../security/secret-ingress.js';
@@ -172,10 +171,9 @@ export async function handleSuggestionRequest(
     }
 
     // Try LLM suggestion using the configured provider
-    const config = getConfig();
-    if (listProviders().includes(config.provider)) {
+    const provider = getConfiguredProvider();
+    if (provider) {
       try {
-        const provider = getFailoverProvider(config.provider, config.providerOrder);
         let promise = suggestionInFlight.get(m.id);
         if (!promise) {
           promise = generateSuggestion(provider, text);

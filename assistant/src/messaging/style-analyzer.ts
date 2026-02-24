@@ -9,8 +9,7 @@
 import type { Message as ProviderMessage } from './provider-types.js';
 import type { Message, ToolDefinition } from '../providers/types.js';
 import { truncate } from '../util/truncate.js';
-import { getProvider } from '../providers/registry.js';
-import { getConfig } from '../config/loader.js';
+import { getConfiguredProvider } from '../providers/provider-send-message.js';
 
 export interface StylePattern {
   aspect: string;
@@ -118,8 +117,10 @@ export async function extractStylePatterns(
 
   const corpus = corpusEntries.map((e, i) => `--- Message ${i + 1} ---\n${e}`).join('\n\n');
 
-  const config = getConfig();
-  const provider = getProvider(config.provider);
+  const provider = getConfiguredProvider();
+  if (!provider) {
+    return { stylePatterns: [], contactObservations: [] };
+  }
   const promptMessages: Message[] = [{
     role: 'user',
     content: [{ type: 'text', text: `Analyze these ${corpusEntries.length} sent messages for writing style patterns:\n\n${corpus}` }],

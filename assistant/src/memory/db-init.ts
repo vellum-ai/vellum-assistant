@@ -571,9 +571,10 @@ export function initializeDb(): void {
   // Partial covering index for directItemSearch: the LIKE '%term%' pattern can't
   // seek a B-tree, but this index lets SQLite scan only active non-invalidated rows
   // and evaluate LIKE + return columns without touching the main table.
+  database.run(/*sql*/ `DROP INDEX IF EXISTS idx_memory_items_active_search`);
   database.run(/*sql*/ `
     CREATE INDEX IF NOT EXISTS idx_memory_items_active_search
-    ON memory_items(last_seen_at DESC, subject, statement, id, kind, confidence, importance, first_seen_at, scope_id)
+    ON memory_items(status, invalid_at, last_seen_at DESC, subject, statement, id, kind, confidence, importance, first_seen_at, scope_id)
     WHERE status = 'active' AND invalid_at IS NULL
   `);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_embeddings_target ON memory_embeddings(target_type, target_id)`);

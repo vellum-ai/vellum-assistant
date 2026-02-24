@@ -130,6 +130,10 @@ import { getMessages } from '../memory/conversation-store.js';
 import { registerCallCompletionNotifier, unregisterCallCompletionNotifier } from '../calls/call-state.js';
 import { RelayConnection, activeRelayConnections } from '../calls/relay-server.js';
 import type { RelayWebSocketData } from '../calls/relay-server.js';
+import {
+  createVerificationChallenge,
+  getGuardianBinding,
+} from '../runtime/channel-guardian-service.js';
 
 initializeDb();
 
@@ -190,6 +194,9 @@ function resetTables() {
   db.run('DELETE FROM tool_invocations');
   db.run('DELETE FROM messages');
   db.run('DELETE FROM conversations');
+  db.run('DELETE FROM channel_guardian_verification_challenges');
+  db.run('DELETE FROM channel_guardian_bindings');
+  db.run('DELETE FROM channel_guardian_rate_limits');
   ensuredConvIds = new Set();
 }
 
@@ -560,11 +567,13 @@ describe('relay-server', () => {
 
   test('verification failure remains failed if transport closes during goodbye delay', async () => {
     ensureConversation('conv-relay-verify-race');
+    ensureConversation('conv-relay-verify-race-initiator');
     const session = createCallSession({
       conversationId: 'conv-relay-verify-race',
       provider: 'twilio',
       fromNumber: '+15551111111',
       toNumber: '+15552222222',
+      initiatedFromConversationId: 'conv-relay-verify-race-initiator',
     });
 
     mockConfig.calls.verification.enabled = true;
@@ -825,5 +834,467 @@ describe('relay-server', () => {
 
     relay.destroy();
     expect(() => relay.destroy()).not.toThrow();
+  });
+
+  // ── Inbound call setup ────────────────────────────────────────────
+
+  test('handleMessage: inbound call (no task) triggers greeting without verification', async () => {
+    ensureConversation('conv-relay-inbound-greet');
+    // Inbound sessions have no task and no initiatedFromConversationId
+    const session = createCallSession({
+      conversationId: 'conv-relay-inbound-greet',
+      provider: 'twilio',
+      fromNumber: '+15559999999',
+      toNumber: '+15551111111',
+      // no task — inbound call
+    });
+
+    // Enable verification to prove inbound calls skip it
+    mockConfig.calls.verification.enabled = true;
+
+    mockSendMessage.mockImplementation(createMockProviderResponse(['Hello, how can I help you today?']));
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_inbound_greet_123',
+      from: '+15559999999',
+      to: '+15551111111',
+    }));
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // Should NOT have started verification (no verification code prompt)
+    expect(relay.getVerificationCode()).toBeNull();
+
+    // Should have generated a greeting via the orchestrator
+    const textMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string; last?: boolean })
+      .filter((m) => m.type === 'text');
+    expect(textMessages.some((m) => (m.token ?? '').includes('how can I help'))).toBe(true);
+    expect(textMessages.some((m) => m.last === true)).toBe(true);
+
+    relay.destroy();
+  });
+
+  test('handleMessage: inbound call persists caller transcript to voice conversation', async () => {
+    ensureConversation('conv-relay-inbound-persist');
+    const session = createCallSession({
+      conversationId: 'conv-relay-inbound-persist',
+      provider: 'twilio',
+      fromNumber: '+15559999999',
+      toNumber: '+15551111111',
+      // no task — inbound call
+    });
+
+    mockSendMessage.mockImplementation(createMockProviderResponse(['Sure, let me help with that.']));
+
+    const { relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_inbound_persist_123',
+      from: '+15559999999',
+      to: '+15551111111',
+    }));
+
+    // Wait for initial greeting to settle
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // Send a caller utterance
+    await relay.handleMessage(JSON.stringify({
+      type: 'prompt',
+      voicePrompt: 'I would like to schedule an appointment',
+      lang: 'en-US',
+      last: true,
+    }));
+
+    // Verify caller transcript is persisted to the voice conversation
+    const userMessages = getMessages('conv-relay-inbound-persist').filter((m) => m.role === 'user');
+    expect(userMessages.length).toBeGreaterThan(0);
+    const lastUserMsg = userMessages[userMessages.length - 1];
+    expect(lastUserMsg.content).toContain('schedule an appointment');
+
+    // Verify assistant response is also persisted
+    const assistantMessages = getMessages('conv-relay-inbound-persist').filter((m) => m.role === 'assistant');
+    expect(assistantMessages.length).toBeGreaterThan(0);
+
+    relay.destroy();
+  });
+
+  test('handleMessage: inbound call supports multi-turn conversation', async () => {
+    ensureConversation('conv-relay-inbound-multi');
+    const session = createCallSession({
+      conversationId: 'conv-relay-inbound-multi',
+      provider: 'twilio',
+      fromNumber: '+15559999999',
+      toNumber: '+15551111111',
+      // no task — inbound call
+    });
+
+    let turnCount = 0;
+    mockSendMessage.mockImplementation(async (_messages: unknown[], _tools: unknown[], _systemPrompt: unknown, options?: { onEvent?: (event: { type: string; text?: string }) => void }) => {
+      turnCount++;
+      let tokens: string[];
+      if (turnCount === 1) tokens = ['Hello, how can I help you?'];
+      else if (turnCount === 2) tokens = ['Sure, I can help with that.'];
+      else tokens = ['Your appointment is confirmed.'];
+      for (const token of tokens) {
+        options?.onEvent?.({ type: 'text_delta', text: token });
+      }
+      return {
+        content: [{ type: 'text', text: tokens.join('') }],
+        model: 'claude-sonnet-4-20250514',
+        usage: { inputTokens: 100, outputTokens: 50 },
+        stopReason: 'end_turn',
+      };
+    });
+
+    const { ws: _ws, relay } = createMockWs(session.id);
+
+    // Setup
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_inbound_multi_123',
+      from: '+15559999999',
+      to: '+15551111111',
+    }));
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // First caller turn
+    await relay.handleMessage(JSON.stringify({
+      type: 'prompt',
+      voicePrompt: 'I need to schedule something',
+      lang: 'en-US',
+      last: true,
+    }));
+
+    // Second caller turn
+    await relay.handleMessage(JSON.stringify({
+      type: 'prompt',
+      voicePrompt: 'How about next Tuesday?',
+      lang: 'en-US',
+      last: true,
+    }));
+
+    // Verify conversation history has multiple turns
+    const history = relay.getConversationHistory();
+    expect(history.length).toBe(2);
+    expect(history[0].text).toBe('I need to schedule something');
+    expect(history[1].text).toBe('How about next Tuesday?');
+
+    // Verify LLM was called for each turn (greeting + 2 caller turns)
+    expect(turnCount).toBe(3);
+
+    // Verify events were recorded for both caller utterances
+    const events = getCallEvents(session.id).filter((e) => e.eventType === 'caller_spoke');
+    expect(events.length).toBe(2);
+
+    relay.destroy();
+  });
+
+  // ── Inbound voice guardian verification gate ────────────────────────
+
+  test('inbound guardian verification: DTMF code entry succeeds and starts normal call flow', async () => {
+    ensureConversation('conv-guardian-dtmf-ok');
+    const session = createCallSession({
+      conversationId: 'conv-guardian-dtmf-ok',
+      provider: 'twilio',
+      fromNumber: '+15559999999',
+      toNumber: '+15551111111',
+      assistantId: 'test-assistant',
+      // no task — inbound call
+    });
+
+    // Create a pending voice guardian challenge
+    const challenge = createVerificationChallenge('test-assistant', 'voice');
+    const secret = challenge.secret;
+
+    mockSendMessage.mockImplementation(createMockProviderResponse(['Hello, how can I help you?']));
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_guardian_dtmf_ok',
+      from: '+15559999999',
+      to: '+15551111111',
+    }));
+
+    // Should be in verification-pending state
+    expect(relay.isGuardianVerificationActive()).toBe(true);
+    expect(relay.getConnectionState()).toBe('verification_pending');
+
+    // Verify TTS prompt was sent asking for code
+    const setupMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter((m) => m.type === 'text');
+    expect(setupMessages.some((m) => (m.token ?? '').includes('verification code'))).toBe(true);
+
+    // Enter the correct code via DTMF
+    for (const digit of secret) {
+      await relay.handleMessage(JSON.stringify({ type: 'dtmf', digit }));
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // Verification should have succeeded
+    expect(relay.isGuardianVerificationActive()).toBe(false);
+    expect(relay.getConnectionState()).toBe('connected');
+
+    // Guardian binding should have been created
+    const binding = getGuardianBinding('test-assistant', 'voice');
+    expect(binding).not.toBeNull();
+
+    // Orchestrator greeting should have fired
+    const textMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter((m) => m.type === 'text');
+    expect(textMessages.some((m) => (m.token ?? '').includes('how can I help'))).toBe(true);
+
+    // Verify events recorded
+    const guardianEvents = getCallEvents(session.id);
+    expect(guardianEvents.some((e) => e.eventType === 'guardian_voice_verification_started')).toBe(true);
+    expect(guardianEvents.some((e) => e.eventType === 'guardian_voice_verification_succeeded')).toBe(true);
+
+    relay.destroy();
+  });
+
+  test('inbound guardian verification: speech-based code entry succeeds', async () => {
+    ensureConversation('conv-guardian-speech-ok');
+    const session = createCallSession({
+      conversationId: 'conv-guardian-speech-ok',
+      provider: 'twilio',
+      fromNumber: '+15559999999',
+      toNumber: '+15551111111',
+      assistantId: 'test-assistant',
+    });
+
+    const challenge = createVerificationChallenge('test-assistant', 'voice');
+    const secret = challenge.secret;
+
+    mockSendMessage.mockImplementation(createMockProviderResponse(['Hello, verified caller!']));
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_guardian_speech_ok',
+      from: '+15559999999',
+      to: '+15551111111',
+    }));
+
+    expect(relay.isGuardianVerificationActive()).toBe(true);
+
+    // Speak the code as individual digit characters
+    const spokenCode = secret.split('').join(' ');
+    await relay.handleMessage(JSON.stringify({
+      type: 'prompt',
+      voicePrompt: spokenCode,
+      lang: 'en-US',
+      last: true,
+    }));
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // Verification should have succeeded
+    expect(relay.isGuardianVerificationActive()).toBe(false);
+    expect(relay.getConnectionState()).toBe('connected');
+
+    // Binding created
+    const binding = getGuardianBinding('test-assistant', 'voice');
+    expect(binding).not.toBeNull();
+
+    // Greeting should have started
+    const textMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter((m) => m.type === 'text');
+    expect(textMessages.some((m) => (m.token ?? '').includes('verified caller'))).toBe(true);
+
+    relay.destroy();
+  });
+
+  test('inbound guardian verification: invalid code triggers retry prompt', async () => {
+    ensureConversation('conv-guardian-retry');
+    const session = createCallSession({
+      conversationId: 'conv-guardian-retry',
+      provider: 'twilio',
+      fromNumber: '+15559999999',
+      toNumber: '+15551111111',
+      assistantId: 'test-assistant',
+    });
+
+    createVerificationChallenge('test-assistant', 'voice');
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_guardian_retry',
+      from: '+15559999999',
+      to: '+15551111111',
+    }));
+
+    expect(relay.isGuardianVerificationActive()).toBe(true);
+
+    // Enter a wrong code via DTMF
+    for (const digit of '000000') {
+      await relay.handleMessage(JSON.stringify({ type: 'dtmf', digit }));
+    }
+
+    // Should still be in verification-pending state (retry allowed)
+    expect(relay.isGuardianVerificationActive()).toBe(true);
+    expect(relay.getConnectionState()).toBe('verification_pending');
+
+    // Should have sent a retry prompt
+    const textMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter((m) => m.type === 'text');
+    expect(textMessages.some((m) => (m.token ?? '').includes('incorrect'))).toBe(true);
+
+    relay.destroy();
+  });
+
+  test('inbound guardian verification: max attempts exhaustion terminates call', async () => {
+    ensureConversation('conv-guardian-max-attempts');
+    const session = createCallSession({
+      conversationId: 'conv-guardian-max-attempts',
+      provider: 'twilio',
+      fromNumber: '+15559999999',
+      toNumber: '+15551111111',
+      assistantId: 'test-assistant',
+    });
+
+    createVerificationChallenge('test-assistant', 'voice');
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_guardian_max_attempts',
+      from: '+15559999999',
+      to: '+15551111111',
+    }));
+
+    expect(relay.isGuardianVerificationActive()).toBe(true);
+
+    // Enter wrong codes 3 times (max attempts = 3)
+    for (let attempt = 0; attempt < 3; attempt++) {
+      for (const digit of '000000') {
+        await relay.handleMessage(JSON.stringify({ type: 'dtmf', digit }));
+      }
+    }
+
+    // Call should be marked as failed
+    const updated = getCallSession(session.id);
+    expect(updated).not.toBeNull();
+    expect(updated!.status).toBe('failed');
+    expect(updated!.lastError).toContain('Guardian voice verification failed');
+
+    // Should have sent goodbye message
+    const textMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter((m) => m.type === 'text');
+    expect(textMessages.some((m) => (m.token ?? '').includes('Verification failed. Goodbye.'))).toBe(true);
+
+    // Verify events
+    const events = getCallEvents(session.id);
+    expect(events.some((e) => e.eventType === 'guardian_voice_verification_failed')).toBe(true);
+
+    // Let the delayed endSession callback flush
+    await new Promise((resolve) => setTimeout(resolve, 2100));
+
+    // Verify end message was sent
+    const endMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string })
+      .filter((m) => m.type === 'end');
+    expect(endMessages.length).toBe(1);
+
+    relay.destroy();
+  });
+
+  test('inbound guardian verification: no pending challenge proceeds with normal flow', async () => {
+    ensureConversation('conv-guardian-no-challenge');
+    const session = createCallSession({
+      conversationId: 'conv-guardian-no-challenge',
+      provider: 'twilio',
+      fromNumber: '+15559999999',
+      toNumber: '+15551111111',
+      assistantId: 'test-assistant',
+      // no task — inbound call
+    });
+
+    // Do NOT create any pending challenge
+
+    mockSendMessage.mockImplementation(createMockProviderResponse(['Welcome to the line.']));
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_guardian_no_challenge',
+      from: '+15559999999',
+      to: '+15551111111',
+    }));
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // Should NOT be in guardian verification state
+    expect(relay.isGuardianVerificationActive()).toBe(false);
+    expect(relay.getConnectionState()).toBe('connected');
+
+    // Should have started normal greeting
+    const textMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter((m) => m.type === 'text');
+    expect(textMessages.some((m) => (m.token ?? '').includes('Welcome to the line'))).toBe(true);
+
+    relay.destroy();
+  });
+
+  test('inbound guardian verification: speech with partial digits prompts for more', async () => {
+    ensureConversation('conv-guardian-partial-speech');
+    const session = createCallSession({
+      conversationId: 'conv-guardian-partial-speech',
+      provider: 'twilio',
+      fromNumber: '+15559999999',
+      toNumber: '+15551111111',
+      assistantId: 'test-assistant',
+    });
+
+    createVerificationChallenge('test-assistant', 'voice');
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_guardian_partial_speech',
+      from: '+15559999999',
+      to: '+15551111111',
+    }));
+
+    expect(relay.isGuardianVerificationActive()).toBe(true);
+
+    // Speak only 3 digits
+    await relay.handleMessage(JSON.stringify({
+      type: 'prompt',
+      voicePrompt: 'one two three',
+      lang: 'en-US',
+      last: true,
+    }));
+
+    // Should still be in verification state
+    expect(relay.isGuardianVerificationActive()).toBe(true);
+
+    // Should have prompted for more digits
+    const textMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter((m) => m.type === 'text');
+    expect(textMessages.some((m) => (m.token ?? '').includes('3 digits'))).toBe(true);
+    expect(textMessages.some((m) => (m.token ?? '').includes('all 6 digits'))).toBe(true);
+
+    relay.destroy();
   });
 });

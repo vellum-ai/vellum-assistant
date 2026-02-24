@@ -52,6 +52,12 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         XCTAssertFalse(store.smsGuardianVerificationInProgress)
         XCTAssertNil(store.smsGuardianInstruction)
         XCTAssertNil(store.smsGuardianError)
+
+        XCTAssertNil(store.voiceGuardianIdentity)
+        XCTAssertFalse(store.voiceGuardianVerified)
+        XCTAssertFalse(store.voiceGuardianVerificationInProgress)
+        XCTAssertNil(store.voiceGuardianInstruction)
+        XCTAssertNil(store.voiceGuardianError)
     }
 
     // MARK: - refreshChannelGuardianStatus
@@ -467,10 +473,13 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         // None of these should crash
         orphanStore.refreshChannelGuardianStatus(channel: "telegram")
         orphanStore.refreshChannelGuardianStatus(channel: "sms")
+        orphanStore.refreshChannelGuardianStatus(channel: "voice")
         orphanStore.startChannelGuardianVerification(channel: "telegram")
         orphanStore.startChannelGuardianVerification(channel: "sms")
+        orphanStore.startChannelGuardianVerification(channel: "voice")
         orphanStore.revokeChannelGuardian(channel: "telegram")
         orphanStore.revokeChannelGuardian(channel: "sms")
+        orphanStore.revokeChannelGuardian(channel: "voice")
     }
 
     // MARK: - Successful response clears previous error
@@ -524,17 +533,20 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
 
     // MARK: - Init sends status requests for both channels
 
-    func testInitSendsGuardianStatusRequestsForBothChannels() {
+    func testInitSendsGuardianStatusRequestsForAllChannels() {
         let guardianMessages = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
         let statusMessages = guardianMessages.filter { $0.action == "status" }
 
         let telegramStatus = statusMessages.filter { $0.channel == "telegram" }
         let smsStatus = statusMessages.filter { $0.channel == "sms" }
+        let voiceStatus = statusMessages.filter { $0.channel == "voice" }
 
         XCTAssertEqual(telegramStatus.count, 1)
         XCTAssertEqual(smsStatus.count, 1)
+        XCTAssertEqual(voiceStatus.count, 1)
         XCTAssertEqual(telegramStatus.first?.assistantId, testAssistantId)
         XCTAssertEqual(smsStatus.first?.assistantId, testAssistantId)
+        XCTAssertEqual(voiceStatus.first?.assistantId, testAssistantId)
     }
 
     func testStatusPollResponseDoesNotClearGuardianChallengePending() {
@@ -704,5 +716,132 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         // The SMS timeout should have fired, clearing the spinner and setting an error
         XCTAssertFalse(shortTimeoutStore.smsGuardianVerificationInProgress)
         XCTAssertEqual(shortTimeoutStore.smsGuardianError, "Timed out waiting for verification instructions. Try again.")
+    }
+
+    // MARK: - Voice Guardian Verification
+
+    func testStartVoiceVerificationSetsInProgressAndSendsChallenge() {
+        store.startChannelGuardianVerification(channel: "voice")
+
+        XCTAssertTrue(store.voiceGuardianVerificationInProgress)
+        XCTAssertNil(store.voiceGuardianError)
+
+        let guardianMessages = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
+        let challengeMessages = guardianMessages.filter { $0.action == "create_challenge" && $0.channel == "voice" }
+        XCTAssertEqual(challengeMessages.count, 1)
+        XCTAssertEqual(challengeMessages.first?.assistantId, testAssistantId)
+    }
+
+    func testSuccessfulStatusResponseUpdatesVoiceGuardianState() {
+        daemonClient.onGuardianVerificationResponse?(GuardianVerificationResponseMessage(
+            type: "guardian_verification_response",
+            success: true,
+            secret: nil,
+            instruction: nil,
+            bound: true,
+            guardianExternalUserId: "+15559876543",
+            channel: "voice",
+            assistantId: "self",
+            guardianDeliveryChatId: nil,
+            error: nil
+        ))
+
+        let predicate = NSPredicate { _, _ in self.store.voiceGuardianVerified }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+        wait(for: [expectation], timeout: 2.0)
+
+        XCTAssertEqual(store.voiceGuardianIdentity, "+15559876543")
+        XCTAssertTrue(store.voiceGuardianVerified)
+        XCTAssertFalse(store.voiceGuardianVerificationInProgress)
+        XCTAssertNil(store.voiceGuardianError)
+    }
+
+    func testFailedResponseSetsVoiceError() {
+        store.voiceGuardianVerificationInProgress = true
+
+        daemonClient.onGuardianVerificationResponse?(GuardianVerificationResponseMessage(
+            type: "guardian_verification_response",
+            success: false,
+            secret: nil,
+            instruction: nil,
+            bound: nil,
+            guardianExternalUserId: nil,
+            channel: "voice",
+            assistantId: "self",
+            guardianDeliveryChatId: nil,
+            error: "Voice channel not configured"
+        ))
+
+        let predicate = NSPredicate { _, _ in !self.store.voiceGuardianVerificationInProgress }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+        wait(for: [expectation], timeout: 2.0)
+
+        XCTAssertFalse(store.voiceGuardianVerificationInProgress)
+        XCTAssertEqual(store.voiceGuardianError, "Voice channel not configured")
+    }
+
+    func testRevokeVoiceGuardianSendsRevokeAction() {
+        store.revokeChannelGuardian(channel: "voice")
+
+        let guardianMessages = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
+        let revokeMessages = guardianMessages.filter { $0.action == "revoke" && $0.channel == "voice" }
+        XCTAssertEqual(revokeMessages.count, 1)
+        XCTAssertEqual(revokeMessages.first?.assistantId, testAssistantId)
+    }
+
+    func testRevokeVoiceGuardianClearsInstruction() {
+        store.voiceGuardianInstruction = "Call and say 123456"
+
+        store.revokeChannelGuardian(channel: "voice")
+
+        XCTAssertNil(store.voiceGuardianInstruction)
+    }
+
+    func testTimeoutClearsVoiceInstruction() {
+        sentMessages.removeAll()
+        let shortTimeoutStore = SettingsStore(
+            daemonClient: daemonClient,
+            guardianChallengeTimeoutDuration: 0.15,
+            guardianStatusPollInterval: 0.05,
+            guardianStatusPollWindow: 2.0
+        )
+
+        shortTimeoutStore.startChannelGuardianVerification(channel: "voice")
+
+        shortTimeoutStore.voiceGuardianInstruction = "Call and say 123456"
+
+        let predicate = NSPredicate { _, _ in
+            shortTimeoutStore.voiceGuardianError != nil
+        }
+        let timeoutExpectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+        wait(for: [timeoutExpectation], timeout: 2.0)
+
+        XCTAssertNil(shortTimeoutStore.voiceGuardianInstruction)
+        XCTAssertFalse(shortTimeoutStore.voiceGuardianVerificationInProgress)
+    }
+
+    func testVoiceResponseDoesNotAffectTelegramOrSmsState() {
+        daemonClient.onGuardianVerificationResponse?(GuardianVerificationResponseMessage(
+            type: "guardian_verification_response",
+            success: true,
+            secret: nil,
+            instruction: nil,
+            bound: true,
+            guardianExternalUserId: "+15559876543",
+            channel: "voice",
+            assistantId: "self",
+            guardianDeliveryChatId: nil,
+            error: nil
+        ))
+
+        let predicate = NSPredicate { _, _ in self.store.voiceGuardianVerified }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+        wait(for: [expectation], timeout: 2.0)
+
+        // Telegram and SMS should be unaffected
+        XCTAssertNil(store.telegramGuardianIdentity)
+        XCTAssertFalse(store.telegramGuardianVerified)
+        XCTAssertNil(store.smsGuardianIdentity)
+        XCTAssertFalse(store.smsGuardianVerified)
     }
 }

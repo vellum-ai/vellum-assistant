@@ -7,7 +7,7 @@
  */
 
 import { getConfig } from '../config/loader.js';
-import { getFailoverProvider, listProviders } from '../providers/registry.js';
+import { resolveConfiguredProvider } from '../providers/provider-send-message.js';
 import type { ProviderEvent } from '../providers/types.js';
 import { resolveUserReference } from '../config/user-reference.js';
 import { getLogger } from '../util/logger.js';
@@ -65,9 +65,11 @@ export class CallOrchestrator {
   private consultationTimer: ReturnType<typeof setTimeout> | null = null;
   private durationEndTimer: ReturnType<typeof setTimeout> | null = null;
   private task: string | null;
+  /** True when the call session was created via the inbound path (no outbound task). */
+  private isInbound: boolean;
   /** Instructions queued while an LLM turn is in-flight or during waiting_on_user */
   private pendingInstructions: string[] = [];
-  /** Ensures the outbound-call opener is triggered at most once per call. */
+  /** Ensures the call opener is triggered at most once per call. */
   private initialGreetingStarted = false;
   /** Marks that the next caller turn should be treated as an opening acknowledgment. */
   private awaitingOpeningAck = false;
@@ -82,6 +84,7 @@ export class CallOrchestrator {
     this.callSessionId = callSessionId;
     this.relay = relay;
     this.task = task;
+    this.isInbound = !task;
     this.broadcast = opts?.broadcast;
     this.assistantId = opts?.assistantId ?? 'self';
     this.startDurationTimer();
@@ -301,6 +304,10 @@ export class CallOrchestrator {
       ? `1. ${config.calls.disclosure.text}`
       : '1. Begin the conversation naturally.';
 
+    if (this.isInbound) {
+      return this.buildInboundSystemPrompt(disclosureRule);
+    }
+
     return [
       `You are on a live phone call on behalf of ${resolveUserReference()}.`,
       this.task ? `Task: ${this.task}` : '',
@@ -327,6 +334,38 @@ export class CallOrchestrator {
       .join('\n');
   }
 
+  /**
+   * Build a system prompt tailored for inbound calls where the caller
+   * reached out to us. The assistant greets naturally and helps the
+   * caller with whatever they need, rather than delivering an outbound
+   * task message.
+   */
+  private buildInboundSystemPrompt(disclosureRule: string): string {
+    return [
+      `You are on a live phone call, answering an incoming call on behalf of ${resolveUserReference()}.`,
+      '',
+      'The caller dialed in to reach you. You do not have a specific task — your role is to greet them warmly, find out what they need, and assist them.',
+      'Respond naturally and conversationally — speak as you would in a real phone conversation.',
+      '',
+      'IMPORTANT RULES:',
+      '0. When introducing yourself, refer to yourself as an assistant. Avoid the phrase "AI assistant" unless directly asked.',
+      disclosureRule,
+      '2. Be concise — phone conversations should be brief and natural.',
+      '3. If the caller asks something you don\'t know or need to verify, include [ASK_GUARDIAN: your question here] in your response along with a hold message like "Let me check on that for you."',
+      '4. If information is provided preceded by [USER_ANSWERED: ...], use that answer naturally in the conversation.',
+      '5. If you see [USER_INSTRUCTION: ...], treat it as a high-priority steering directive from your user. Follow the instruction immediately, adjusting your approach or response accordingly.',
+      '6. When the caller indicates they are done or the conversation reaches a natural conclusion, include [END_CALL] in your response along with a polite goodbye.',
+      '7. Do not make up information — ask the user if unsure.',
+      '8. Keep responses short — 1-3 sentences is ideal for phone conversation.',
+      '9. When caller text includes [SPEAKER id="..." label="..."], treat each speaker as a distinct person and personalize responses using that speaker\'s prior context in this call.',
+      '10. If the latest user turn is [CALL_OPENING], greet the caller warmly and ask how you can help. For example: "Hello, this is [name]\'s assistant. How can I help you today?" Vary the wording; do not use a fixed template.',
+      '11. If the latest user turn includes [CALL_OPENING_ACK], treat it as the caller acknowledging your greeting and continue the conversation naturally.',
+      '12. Do not repeat your introduction within the same call unless the caller explicitly asks who you are.',
+    ]
+      .filter(Boolean)
+      .join('\n');
+  }
+
   private formatCallerUtterance(transcript: string, speaker?: PromptSpeakerContext): string {
     if (!speaker) return transcript;
     const safeId = speaker.speakerId.replaceAll('"', '\'');
@@ -341,14 +380,14 @@ export class CallOrchestrator {
    */
   private async runLlm(): Promise<void> {
     const config = getConfig();
-    const providerName = config.provider;
-    if (!listProviders().includes(providerName)) {
+    const resolved = resolveConfiguredProvider();
+    if (!resolved) {
       log.error({ callSessionId: this.callSessionId }, 'No provider available');
       this.relay.sendTextToken('I\'m sorry, I\'m having a technical issue. Please try again later.', true);
       this.state = 'idle';
       return;
     }
-    const provider = getFailoverProvider(providerName, config.providerOrder);
+    const { provider } = resolved;
 
     const runVersion = ++this.llmRunVersion;
     const runSignal = this.abortController.signal;
@@ -356,12 +395,13 @@ export class CallOrchestrator {
     try {
       this.state = 'speaking';
 
-      // Only override the model when the user has explicitly configured one.
-      // When unset, each provider in the failover chain uses its own default
-      // model (set at initialization). Forwarding the primary provider's
-      // default to fallback providers would cause cross-provider 4xx errors
-      // (e.g., sending "gpt-5.2" to Anthropic).
-      const callModel = config.calls.model?.trim() || undefined;
+      // Only override the model when the user has explicitly configured one
+      // AND the selected provider matches the configured provider. Forwarding
+      // a provider-specific model to a fallback provider would cause
+      // cross-provider 4xx errors (e.g., sending "gpt-5.2" to Anthropic).
+      const callModel = !resolved.usedFallbackPrimary
+        ? (config.calls.model?.trim() || undefined)
+        : undefined;
 
       // Buffer incoming tokens so we can strip control markers ([ASK_GUARDIAN:...], [END_CALL])
       // before they reach TTS. We hold text whenever an unmatched '[' appears, since it

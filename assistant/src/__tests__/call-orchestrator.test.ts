@@ -114,6 +114,22 @@ mock.module('../providers/registry.js', () => {
   };
 });
 
+mock.module('../providers/provider-send-message.js', () => ({
+  resolveConfiguredProvider: () => ({
+    provider: {
+      name: 'anthropic',
+      sendMessage: (...args: unknown[]) => mockSendMessage(...args),
+    },
+    configuredProviderName: 'anthropic',
+    selectedProviderName: 'anthropic',
+    usedFallbackPrimary: false,
+  }),
+  getConfiguredProvider: () => ({
+    name: 'anthropic',
+    sendMessage: (...args: unknown[]) => mockSendMessage(...args),
+  }),
+}));
+
 // ── Import source modules after all mocks are registered ────────────
 
 import { initializeDb, getDb, resetDb } from '../memory/db.js';
@@ -1296,6 +1312,185 @@ describe('call-orchestrator', () => {
 
     const { orchestrator } = setupOrchestrator();
     await orchestrator.handleCallerUtterance('Hello');
+    orchestrator.destroy();
+  });
+
+  // ── Inbound call orchestration ──────────────────────────────────────
+
+  test('inbound call (no task) uses receptionist-style system prompt', async () => {
+    mockSendMessage.mockImplementation(async (_messages: unknown[], _tools: unknown[], systemPrompt: unknown, options?: { onEvent?: (event: { type: string; text?: string }) => void }) => {
+      // Should contain inbound-specific language
+      expect(systemPrompt as string).toContain('answering an incoming call');
+      expect(systemPrompt as string).toContain('find out what they need');
+      // Should NOT contain outbound-specific language
+      expect(systemPrompt as string).not.toContain('state why you are calling');
+      expect(systemPrompt as string).not.toContain('Task:');
+      const tokens = ['Hello, how can I help you today?'];
+      for (const token of tokens) {
+        options?.onEvent?.({ type: 'text_delta', text: token });
+      }
+      return {
+        content: [{ type: 'text', text: tokens.join('') }],
+        model: 'claude-sonnet-4-20250514',
+        usage: { inputTokens: 100, outputTokens: 50 },
+        stopReason: 'end_turn',
+      };
+    });
+
+    // setupOrchestrator with no task creates an inbound-style session
+    const { orchestrator } = setupOrchestrator(undefined);
+    await orchestrator.handleCallerUtterance('Hi there');
+    orchestrator.destroy();
+  });
+
+  test('outbound call (with task) uses task-driven system prompt', async () => {
+    mockSendMessage.mockImplementation(async (_messages: unknown[], _tools: unknown[], systemPrompt: unknown, options?: { onEvent?: (event: { type: string; text?: string }) => void }) => {
+      expect(systemPrompt as string).toContain('Task: Confirm Friday appointment');
+      expect(systemPrompt as string).toContain('state why you are calling');
+      expect(systemPrompt as string).not.toContain('answering an incoming call');
+      const tokens = ['Hi, I am calling about your appointment.'];
+      for (const token of tokens) {
+        options?.onEvent?.({ type: 'text_delta', text: token });
+      }
+      return {
+        content: [{ type: 'text', text: tokens.join('') }],
+        model: 'claude-sonnet-4-20250514',
+        usage: { inputTokens: 100, outputTokens: 50 },
+        stopReason: 'end_turn',
+      };
+    });
+
+    const { orchestrator } = setupOrchestrator('Confirm Friday appointment');
+    await orchestrator.handleCallerUtterance('Hello?');
+    orchestrator.destroy();
+  });
+
+  test('inbound call initial greeting sends receptionist opener', async () => {
+    mockSendMessage.mockImplementation(async (messages: unknown[], _tools: unknown[], systemPrompt: unknown, options?: { onEvent?: (event: { type: string; text?: string }) => void }) => {
+      // The system prompt should use inbound framing
+      expect(systemPrompt as string).toContain('answering an incoming call');
+      // The opening marker should be present
+      const msgs = messages as Array<{ role: string; content: Array<{ type: string; text: string }> }>;
+      const userMsgs = msgs.filter((m) => m.role === 'user');
+      expect(userMsgs.some((m) => m.content?.[0]?.text?.includes('[CALL_OPENING]'))).toBe(true);
+      const tokens = ['Hello, this is my human\'s assistant. How can I help you?'];
+      for (const token of tokens) {
+        options?.onEvent?.({ type: 'text_delta', text: token });
+      }
+      return {
+        content: [{ type: 'text', text: tokens.join('') }],
+        model: 'claude-sonnet-4-20250514',
+        usage: { inputTokens: 100, outputTokens: 50 },
+        stopReason: 'end_turn',
+      };
+    });
+
+    const { relay, orchestrator } = setupOrchestrator(undefined);
+    await orchestrator.startInitialGreeting();
+
+    const allText = relay.sentTokens.map((t) => t.token).join('');
+    expect(allText).toContain('How can I help you');
+
+    orchestrator.destroy();
+  });
+
+  test('inbound call multi-turn conversation uses inbound prompt consistently', async () => {
+    let turnNumber = 0;
+    mockSendMessage.mockImplementation(async (_messages: unknown[], _tools: unknown[], systemPrompt: unknown, options?: { onEvent?: (event: { type: string; text?: string }) => void }) => {
+      turnNumber++;
+      // Every turn should use the inbound system prompt
+      expect(systemPrompt as string).toContain('answering an incoming call');
+      expect(systemPrompt as string).not.toContain('Task:');
+
+      let tokens: string[];
+      if (turnNumber === 1) tokens = ['Hello, how can I help you?'];
+      else if (turnNumber === 2) tokens = ['Sure, let me help with scheduling.'];
+      else tokens = ['Your meeting is set for 3pm.'];
+      for (const token of tokens) {
+        options?.onEvent?.({ type: 'text_delta', text: token });
+      }
+      return {
+        content: [{ type: 'text', text: tokens.join('') }],
+        model: 'claude-sonnet-4-20250514',
+        usage: { inputTokens: 100, outputTokens: 50 },
+        stopReason: 'end_turn',
+      };
+    });
+
+    const { orchestrator } = setupOrchestrator(undefined);
+
+    await orchestrator.startInitialGreeting();
+    await orchestrator.handleCallerUtterance('I need to schedule a meeting');
+    await orchestrator.handleCallerUtterance('How about 3pm?');
+
+    expect(turnNumber).toBe(3);
+    orchestrator.destroy();
+  });
+
+  test('inbound call system prompt includes greet-the-caller guidance for CALL_OPENING', async () => {
+    mockSendMessage.mockImplementation(async (_messages: unknown[], _tools: unknown[], systemPrompt: unknown, options?: { onEvent?: (event: { type: string; text?: string }) => void }) => {
+      // Should tell the model to greet warmly and ask how to help
+      expect(systemPrompt as string).toContain('greet the caller warmly');
+      expect(systemPrompt as string).toContain('how you can help');
+      const tokens = ['Hello!'];
+      for (const token of tokens) {
+        options?.onEvent?.({ type: 'text_delta', text: token });
+      }
+      return {
+        content: [{ type: 'text', text: tokens.join('') }],
+        model: 'claude-sonnet-4-20250514',
+        usage: { inputTokens: 100, outputTokens: 50 },
+        stopReason: 'end_turn',
+      };
+    });
+
+    const { orchestrator } = setupOrchestrator(undefined);
+    await orchestrator.handleCallerUtterance('Hi');
+    orchestrator.destroy();
+  });
+
+  test('inbound call system prompt respects disclosure setting', async () => {
+    mockDisclosure = {
+      enabled: true,
+      text: 'Disclose that you are an AI at the start.',
+    };
+    mockSendMessage.mockImplementation(async (_messages: unknown[], _tools: unknown[], systemPrompt: unknown, options?: { onEvent?: (event: { type: string; text?: string }) => void }) => {
+      expect(systemPrompt as string).toContain('answering an incoming call');
+      expect(systemPrompt as string).toContain('Disclose that you are an AI at the start.');
+      const tokens = ['Hello, I am an AI assistant.'];
+      for (const token of tokens) {
+        options?.onEvent?.({ type: 'text_delta', text: token });
+      }
+      return {
+        content: [{ type: 'text', text: tokens.join('') }],
+        model: 'claude-sonnet-4-20250514',
+        usage: { inputTokens: 100, outputTokens: 50 },
+        stopReason: 'end_turn',
+      };
+    });
+
+    const { orchestrator } = setupOrchestrator(undefined);
+    await orchestrator.handleCallerUtterance('Who is this?');
+    orchestrator.destroy();
+  });
+
+  test('inbound call persists assistant response to voice conversation', async () => {
+    mockSendMessage.mockImplementation(createMockProviderResponse(['I can definitely help you with that.']));
+
+    const { session, orchestrator } = setupOrchestrator(undefined);
+    await orchestrator.startInitialGreeting();
+
+    // Verify assistant transcript was persisted
+    const messages = (await import('../memory/conversation-store.js')).getMessages('conv-orch-test');
+    const assistantMsgs = messages.filter((m) => m.role === 'assistant');
+    expect(assistantMsgs.length).toBeGreaterThan(0);
+    const lastAssistant = assistantMsgs[assistantMsgs.length - 1];
+    expect(lastAssistant.content).toContain('I can definitely help you with that');
+
+    // Verify event was recorded
+    const events = getCallEvents(session.id).filter((e) => e.eventType === 'assistant_spoke');
+    expect(events.length).toBeGreaterThan(0);
+
     orchestrator.destroy();
   });
 });

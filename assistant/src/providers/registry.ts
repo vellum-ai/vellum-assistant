@@ -29,33 +29,74 @@ export function getProvider(name: string): Provider {
   return provider;
 }
 
+export interface ProviderSelection {
+  /** Ordered list of available provider names */
+  availableProviders: string[];
+  /** The selected (effective) primary provider name, or null if none available */
+  selectedPrimary: string | null;
+  /** Whether the effective primary differs from the requested primary */
+  usedFallbackPrimary: boolean;
+}
+
 /**
- * Build a provider that tries the primary provider first, then falls back to
- * others in the configured order. If providerOrder is empty or only contains
- * the primary, returns the primary provider directly (no wrapper overhead).
- * Caches the FailoverProvider instance so health state persists across calls.
+ * Resolve provider selection from requested primary and provider order.
+ * Dedupes [requestedPrimary, ...providerOrder], filtered to initialized providers.
+ * Returns null selectedPrimary when no providers are available.
  */
-export function getFailoverProvider(primaryName: string, providerOrder: string[]): Provider {
-  const primary = getProvider(primaryName);
+export function resolveProviderSelection(
+  requestedPrimary: string,
+  providerOrder: string[],
+): ProviderSelection {
+  const ordered: string[] = [];
+  const seen = new Set<string>();
 
-  // Build the ordered list: primary first, then remaining from providerOrder
-  const orderedProviders: Provider[] = [primary];
-  const seen = new Set<string>([primaryName]);
-
-  for (const name of providerOrder) {
+  for (const name of [requestedPrimary, ...providerOrder]) {
     if (seen.has(name)) continue;
-    const p = providers.get(name);
-    if (p) {
-      orderedProviders.push(p);
-      seen.add(name);
+    seen.add(name);
+    if (providers.has(name)) {
+      ordered.push(name);
     }
   }
 
-  if (orderedProviders.length === 1) {
-    return primary;
+  if (ordered.length === 0) {
+    return { availableProviders: [], selectedPrimary: null, usedFallbackPrimary: false };
   }
 
-  const cacheKey = `${primaryName}:${providerOrder.join(',')}`;
+  return {
+    availableProviders: ordered,
+    selectedPrimary: ordered[0],
+    usedFallbackPrimary: ordered[0] !== requestedPrimary,
+  };
+}
+
+/**
+ * Build a provider that tries the effective primary provider first, then falls
+ * back to others in the configured order. If the requested primary is not
+ * available, automatically selects the first available provider from the
+ * deduped [primaryName, ...providerOrder] list (fail-open).
+ *
+ * Throws ConfigError only when NO providers are available at all.
+ * Caches the FailoverProvider instance so health state persists across calls.
+ */
+export function getFailoverProvider(primaryName: string, providerOrder: string[]): Provider {
+  const selection = resolveProviderSelection(primaryName, providerOrder);
+
+  if (!selection.selectedPrimary) {
+    throw new ConfigError(
+      `No providers available. Requested: "${primaryName}". Registered: ${listProviders().join(", ") || "none"}`,
+    );
+  }
+
+  const orderedProviders: Provider[] = selection.availableProviders.map(
+    (name) => providers.get(name)!,
+  );
+
+  if (orderedProviders.length === 1) {
+    return orderedProviders[0];
+  }
+
+  // Cache key from effective ordered providers (not raw input strings)
+  const cacheKey = selection.availableProviders.join(',');
   if (cachedFailoverProvider && cachedFailoverKey === cacheKey) {
     return cachedFailoverProvider;
   }

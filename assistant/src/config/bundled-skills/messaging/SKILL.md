@@ -20,7 +20,12 @@ Gmail, Slack, and Telegram setup all require a publicly reachable URL for OAuth 
 2. **If it fails because no client_id is found:** The user needs to create Google Cloud OAuth credentials first. Install and load the **google-oauth-setup** skill (which depends on **public-ingress** for the redirect URI):
    - Call `vellum_skills_catalog` with `action: "install"` and `skill_id: "google-oauth-setup"`.
    - Then call `skill_load` with `skill: "google-oauth-setup"`.
-   - Tell the user: *"Gmail isn't connected yet. I've loaded a setup guide that will walk you through creating Google credentials and connecting your account."*
+   - Tell the user Gmail isn't connected yet and briefly explain what the setup involves, then use `ui_show` with `surface_type: "confirmation"` to ask for permission to start:
+     - **message:** "Ready to set up Gmail?"
+     - **detail:** "I'll walk you through creating Google Cloud credentials and connecting your account. The process takes a few minutes, and I'll ask for your approval before each step."
+     - **confirmLabel:** "Get Started"
+     - **cancelLabel:** "Not Now"
+   - Wait for the user to confirm before proceeding with the setup guide. If they decline, acknowledge and let them know they can set it up later.
 3. **If the user provides a client_id directly in chat:** Call `credential_store` with `action: "oauth2_connect"`, `service: "gmail"`, and `client_id: "<their value>"`. Include `client_secret` too if they provide one. Everything else is auto-filled.
 
 ### Slack
@@ -28,7 +33,12 @@ Gmail, Slack, and Telegram setup all require a publicly reachable URL for OAuth 
 2. **If it fails because no client_id is found:** The user needs to create a Slack App first. Install and load the **slack-oauth-setup** skill (which depends on **public-ingress** for the redirect URI):
    - Call `vellum_skills_catalog` with `action: "install"` and `skill_id: "slack-oauth-setup"`.
    - Then call `skill_load` with `skill: "slack-oauth-setup"`.
-   - Tell the user: *"Slack isn't connected yet. I've loaded a setup guide that will walk you through creating a Slack App and connecting your workspace."*
+   - Tell the user Slack isn't connected yet and briefly explain what the setup involves, then use `ui_show` with `surface_type: "confirmation"` to ask for permission to start:
+     - **message:** "Ready to set up Slack?"
+     - **detail:** "I'll walk you through creating a Slack App and connecting your workspace. The process takes a few minutes, and I'll ask for your approval before each step."
+     - **confirmLabel:** "Get Started"
+     - **cancelLabel:** "Not Now"
+   - Wait for the user to confirm before proceeding with the setup guide. If they decline, acknowledge and let them know they can set it up later.
 3. **If the user provides client_id and client_secret directly in chat:** Call `credential_store` with `action: "oauth2_connect"`, `service: "slack"`, `client_id`, and `client_secret`. Everything else is auto-filled. Note: Slack always requires a client_secret.
 
 ### Telegram
