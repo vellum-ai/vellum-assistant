@@ -148,8 +148,18 @@ extension IPCUserMessageAttachment {
 public typealias CuSessionCreateMessage = IPCCuSessionCreate
 
 extension IPCCuSessionCreate {
-    public init(sessionId: String, task: String, screenWidth: Int, screenHeight: Int, attachments: [IPCAttachment]?, interactionType: String?, reportToSessionId: String? = nil, qaMode: Bool? = nil) {
-        self.init(type: "cu_session_create", sessionId: sessionId, task: task, screenWidth: screenWidth, screenHeight: screenHeight, attachments: attachments, interactionType: interactionType, reportToSessionId: reportToSessionId, qaMode: qaMode)
+    public init(sessionId: String, task: String, screenWidth: Int, screenHeight: Int, attachments: [IPCAttachment]?, interactionType: String?, reportToSessionId: String? = nil, qaMode: Bool? = nil, requiresRecording: Bool? = nil) {
+        self.init(type: "cu_session_create", sessionId: sessionId, task: task, screenWidth: screenWidth, screenHeight: screenHeight, attachments: attachments, interactionType: interactionType, reportToSessionId: reportToSessionId, qaMode: qaMode, targetAppName: nil, targetAppBundleId: nil, requiresRecording: requiresRecording)
+    }
+}
+
+/// Sent to notify the daemon of recording status changes (started, failed, stopped).
+/// Backed by generated `IPCCuRecordingStatus`.
+public typealias CuRecordingStatusMessage = IPCCuRecordingStatus
+
+extension IPCCuRecordingStatus {
+    public init(sessionId: String, status: String, reason: String? = nil) {
+        self.init(type: "cu_recording_status", sessionId: sessionId, status: status, reason: reason)
     }
 }
 
