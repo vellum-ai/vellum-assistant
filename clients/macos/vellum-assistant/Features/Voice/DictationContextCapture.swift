@@ -161,13 +161,27 @@ struct DictationContextCapture {
 
         // Poll for clipboard change with run loop alive so the target app
         // can process the Cmd+C keystroke and update the clipboard.
-        let deadline = Date().addingTimeInterval(0.2) // 200ms max wait
-        while pasteboard.changeCount == changeCount && Date() < deadline {
+        // Use a generous timeout — busy apps or large selections can be slow.
+        let copyDeadline = Date().addingTimeInterval(0.5) // 500ms max wait
+        while pasteboard.changeCount == changeCount && Date() < copyDeadline {
             RunLoop.current.run(until: Date().addingTimeInterval(0.01))
         }
 
         let text: String?
         if pasteboard.changeCount != changeCount {
+            // Wait a bit longer after the initial change to let the app finish
+            // writing all pasteboard types (the changeCount updates on first write
+            // but apps may add multiple representations asynchronously).
+            let settleCount = pasteboard.changeCount
+            let settleDeadline = Date().addingTimeInterval(0.05)
+            while Date() < settleDeadline {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+            }
+            // If the app wrote again during settle, wait a bit more
+            if pasteboard.changeCount != settleCount {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            }
+
             let raw = pasteboard.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines)
             text = (raw?.isEmpty == true) ? nil : raw
             log.info("Clipboard fallback captured \(text?.count ?? 0) chars")
@@ -176,7 +190,7 @@ struct DictationContextCapture {
             log.info("Clipboard unchanged after Cmd+C — no selection to copy")
         }
 
-        // Restore previous clipboard contents
+        // Restore previous clipboard contents after copy is fully settled
         pasteboard.clearContents()
         let newItems: [NSPasteboardItem] = savedItems.map { pairs in
             let item = NSPasteboardItem()
