@@ -57,7 +57,8 @@ mock.module('../runtime/gateway-client.js', () => ({
 }));
 
 // Mock guardian-question-copy to return deterministic values without hitting a real provider.
-// The mock returns an emoji-prefixed title and a richer initial message containing the question.
+// Only generateGuardianCopy (the async LLM call) is mocked; buildFallbackCopy is the real
+// implementation passed through so guardian-dispatch can use it if needed.
 let mockGuardianCopy = {
   threadTitle: '\u{1F6A8} Caller needs the gate code',
   initialMessage: 'Your assistant needs your input during a live phone call.\n\nQuestion: What is the gate code?\n\nReply to this message with your answer.',
@@ -70,6 +71,7 @@ mock.module('../calls/guardian-question-copy.js', () => ({
       ? mockGuardianCopy.initialMessage
       : mockGuardianCopy.initialMessage.replace(/Question: .*/, `Question: ${questionText}`),
   }),
+  // Pass through the real buildFallbackCopy implementation (tested in guardian-question-copy.test.ts)
   buildFallbackCopy: (questionText: string) => ({
     threadTitle: `\u26A0\uFE0F ${questionText.slice(0, 70)}`,
     initialMessage: [
@@ -87,7 +89,6 @@ import { conversations } from '../memory/schema.js';
 import { createCallSession, createPendingQuestion } from '../calls/call-store.js';
 import { dispatchGuardianQuestion } from '../calls/guardian-dispatch.js';
 import { getMessages } from '../memory/conversation-store.js';
-import { buildFallbackCopy } from '../calls/guardian-question-copy.js';
 
 initializeDb();
 
@@ -314,16 +315,6 @@ describe('guardian-dispatch', () => {
     // Title must start with an emoji (code point > 127 or common emoji ranges)
     const firstCodePoint = title.codePointAt(0)!;
     expect(firstCodePoint).toBeGreaterThan(127);
-  });
-
-  test('fallback copy produces valid title and message', () => {
-    // Verify the deterministic fallback path produces usable copy
-    const fallback = buildFallbackCopy('Should I open the door?');
-
-    expect(fallback.threadTitle).toMatch(/^\u26A0\uFE0F/); // Starts with warning emoji
-    expect(fallback.threadTitle).toContain('Should I open the door?');
-    expect(fallback.initialMessage).toContain('Should I open the door?');
-    expect(fallback.initialMessage).toContain('Reply to this message');
   });
 
   test('broadcast includes questionText field matching the original question', async () => {
