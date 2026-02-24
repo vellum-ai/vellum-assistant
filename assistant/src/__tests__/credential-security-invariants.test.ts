@@ -198,6 +198,7 @@ describe('Invariant 2: no generic plaintext secret read API', () => {
       'cli/config-commands.ts',          // CLI config management
       'messaging/providers/telegram-bot/adapter.ts', // Telegram bot token lookup for connectivity check
       'messaging/providers/sms/adapter.ts', // Twilio credential lookup for SMS connectivity check
+      'runtime/channel-readiness-service.ts', // channel readiness probes for SMS/Telegram connectivity
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));
