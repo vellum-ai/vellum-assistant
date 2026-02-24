@@ -190,7 +190,7 @@ function resetTables() {
 /**
  * Create a call session and a controller wired to a mock relay.
  */
-function setupController(task?: string) {
+function setupController(task?: string, opts?: { assistantId?: string; guardianContext?: import('../daemon/session-runtime-assembly.js').GuardianRuntimeContext }) {
   ensureConversation('conv-ctrl-test');
   const session = createCallSession({
     conversationId: 'conv-ctrl-test',
@@ -201,7 +201,10 @@ function setupController(task?: string) {
   });
   updateCallSession(session.id, { status: 'in_progress' });
   const relay = createMockRelay();
-  const controller = new CallController(session.id, relay as unknown as RelayConnection, task ?? null);
+  const controller = new CallController(session.id, relay as unknown as RelayConnection, task ?? null, {
+    assistantId: opts?.assistantId,
+    guardianContext: opts?.guardianContext,
+  });
   return { session, relay, controller };
 }
 
@@ -592,6 +595,102 @@ describe('call-controller', () => {
     await turnPromise;
 
     expect(controller.getState()).toBe('idle');
+
+    controller.destroy();
+  });
+
+  // ── Guardian context pass-through ──────────────────────────────────
+
+  test('handleCallerUtterance: passes guardian context to startVoiceTurn', async () => {
+    const guardianCtx = {
+      sourceChannel: 'voice' as const,
+      actorRole: 'non-guardian' as const,
+      guardianExternalUserId: '+15550009999',
+      guardianChatId: '+15550009999',
+      requesterExternalUserId: '+15550002222',
+    };
+
+    let capturedGuardianContext: unknown = undefined;
+    mockStartVoiceTurn.mockImplementation(async (opts: {
+      guardianContext?: unknown;
+      onTextDelta: (t: string) => void;
+      onComplete: () => void;
+    }) => {
+      capturedGuardianContext = opts.guardianContext;
+      opts.onTextDelta('Hello.');
+      opts.onComplete();
+      return { runId: 'run-gc', abort: () => {} };
+    });
+
+    const { controller } = setupController(undefined, { guardianContext: guardianCtx });
+
+    await controller.handleCallerUtterance('Hello');
+
+    expect(capturedGuardianContext).toEqual(guardianCtx);
+
+    controller.destroy();
+  });
+
+  test('handleCallerUtterance: passes assistantId to startVoiceTurn', async () => {
+    let capturedAssistantId: string | undefined;
+    mockStartVoiceTurn.mockImplementation(async (opts: {
+      assistantId?: string;
+      onTextDelta: (t: string) => void;
+      onComplete: () => void;
+    }) => {
+      capturedAssistantId = opts.assistantId;
+      opts.onTextDelta('Hello.');
+      opts.onComplete();
+      return { runId: 'run-aid', abort: () => {} };
+    });
+
+    const { controller } = setupController(undefined, { assistantId: 'my-assistant' });
+
+    await controller.handleCallerUtterance('Hello');
+
+    expect(capturedAssistantId).toBe('my-assistant');
+
+    controller.destroy();
+  });
+
+  test('setGuardianContext: subsequent turns use updated guardian context', async () => {
+    const initialCtx = {
+      sourceChannel: 'voice' as const,
+      actorRole: 'unverified_channel' as const,
+      denialReason: 'no_binding' as const,
+    };
+
+    const upgradedCtx = {
+      sourceChannel: 'voice' as const,
+      actorRole: 'guardian' as const,
+      guardianExternalUserId: '+15550003333',
+      guardianChatId: '+15550003333',
+    };
+
+    const capturedContexts: unknown[] = [];
+    mockStartVoiceTurn.mockImplementation(async (opts: {
+      guardianContext?: unknown;
+      onTextDelta: (t: string) => void;
+      onComplete: () => void;
+    }) => {
+      capturedContexts.push(opts.guardianContext);
+      opts.onTextDelta('Response.');
+      opts.onComplete();
+      return { runId: `run-${capturedContexts.length}`, abort: () => {} };
+    });
+
+    const { controller } = setupController(undefined, { guardianContext: initialCtx });
+
+    // First turn: unverified
+    await controller.handleCallerUtterance('Hello');
+    expect(capturedContexts[0]).toEqual(initialCtx);
+
+    // Simulate guardian verification succeeding
+    controller.setGuardianContext(upgradedCtx);
+
+    // Second turn: should use upgraded guardian context
+    await controller.handleCallerUtterance('I verified');
+    expect(capturedContexts[1]).toEqual(upgradedCtx);
 
     controller.destroy();
   });

@@ -229,6 +229,423 @@ describe('voice-session-bridge', () => {
     expect(abortCalled).toBe(true);
   });
 
+  test('startVoiceTurn passes turnChannelContext with voice channel', async () => {
+    const conversation = createConversation('voice bridge channel context test');
+    const events: ServerMessage[] = [
+      { type: 'message_complete', sessionId: conversation.id },
+    ];
+
+    let capturedTurnChannelContext: unknown = null;
+    const session = {
+      ...makeStreamingSession(events),
+      setTurnChannelContext: (ctx: unknown) => { capturedTurnChannelContext = ctx; },
+    } as unknown as Session;
+
+    const orchestrator = new RunOrchestrator({
+      getOrCreateSession: async () => session,
+      resolveAttachments: () => [],
+      deriveDefaultStrictSideEffects: () => false,
+    });
+    setVoiceBridgeOrchestrator(orchestrator);
+
+    await startVoiceTurn({
+      conversationId: conversation.id,
+      content: 'Hello',
+      onTextDelta: () => {},
+      onComplete: () => {},
+      onError: () => {},
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(capturedTurnChannelContext).toEqual({
+      userMessageChannel: 'voice',
+      assistantMessageChannel: 'voice',
+    });
+  });
+
+  test('startVoiceTurn forces strict side effects for non-guardian actors', async () => {
+    const conversation = createConversation('voice bridge strict non-guardian test');
+    const events: ServerMessage[] = [
+      { type: 'message_complete', sessionId: conversation.id },
+    ];
+
+    let capturedStrictSideEffects: boolean | undefined;
+    const session = {
+      ...makeStreamingSession(events),
+      get memoryPolicy() { return { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false }; },
+      set memoryPolicy(val: Record<string, unknown>) { capturedStrictSideEffects = val.strictSideEffects as boolean; },
+    } as unknown as Session;
+
+    const orchestrator = new RunOrchestrator({
+      getOrCreateSession: async () => session,
+      resolveAttachments: () => [],
+      deriveDefaultStrictSideEffects: () => false,
+    });
+    setVoiceBridgeOrchestrator(orchestrator);
+
+    await startVoiceTurn({
+      conversationId: conversation.id,
+      content: 'Hello',
+      guardianContext: {
+        sourceChannel: 'voice',
+        actorRole: 'non-guardian',
+        guardianExternalUserId: '+15550009999',
+        guardianChatId: '+15550009999',
+        requesterExternalUserId: '+15550002222',
+      },
+      onTextDelta: () => {},
+      onComplete: () => {},
+      onError: () => {},
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(capturedStrictSideEffects).toBe(true);
+  });
+
+  test('startVoiceTurn forces strict side effects for unverified_channel actors', async () => {
+    const conversation = createConversation('voice bridge strict unverified test');
+    const events: ServerMessage[] = [
+      { type: 'message_complete', sessionId: conversation.id },
+    ];
+
+    let capturedStrictSideEffects: boolean | undefined;
+    const session = {
+      ...makeStreamingSession(events),
+      get memoryPolicy() { return { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false }; },
+      set memoryPolicy(val: Record<string, unknown>) { capturedStrictSideEffects = val.strictSideEffects as boolean; },
+    } as unknown as Session;
+
+    const orchestrator = new RunOrchestrator({
+      getOrCreateSession: async () => session,
+      resolveAttachments: () => [],
+      deriveDefaultStrictSideEffects: () => false,
+    });
+    setVoiceBridgeOrchestrator(orchestrator);
+
+    await startVoiceTurn({
+      conversationId: conversation.id,
+      content: 'Hello',
+      guardianContext: {
+        sourceChannel: 'voice',
+        actorRole: 'unverified_channel',
+        denialReason: 'no_binding',
+      },
+      onTextDelta: () => {},
+      onComplete: () => {},
+      onError: () => {},
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(capturedStrictSideEffects).toBe(true);
+  });
+
+  test('startVoiceTurn does not force strict side effects for guardian actors', async () => {
+    const conversation = createConversation('voice bridge strict guardian test');
+    const events: ServerMessage[] = [
+      { type: 'message_complete', sessionId: conversation.id },
+    ];
+
+    let capturedStrictSideEffects: boolean | undefined;
+    const session = {
+      ...makeStreamingSession(events),
+      get memoryPolicy() { return { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false }; },
+      set memoryPolicy(val: Record<string, unknown>) { capturedStrictSideEffects = val.strictSideEffects as boolean; },
+    } as unknown as Session;
+
+    const orchestrator = new RunOrchestrator({
+      getOrCreateSession: async () => session,
+      resolveAttachments: () => [],
+      deriveDefaultStrictSideEffects: () => false,
+    });
+    setVoiceBridgeOrchestrator(orchestrator);
+
+    await startVoiceTurn({
+      conversationId: conversation.id,
+      content: 'Hello',
+      guardianContext: {
+        sourceChannel: 'voice',
+        actorRole: 'guardian',
+        guardianExternalUserId: '+15550001111',
+        guardianChatId: '+15550001111',
+      },
+      onTextDelta: () => {},
+      onComplete: () => {},
+      onError: () => {},
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Guardian actors use the derived default (false), not forced true
+    expect(capturedStrictSideEffects).toBe(false);
+  });
+
+  test('startVoiceTurn passes guardian context to the session', async () => {
+    const conversation = createConversation('voice bridge guardian context test');
+    const events: ServerMessage[] = [
+      { type: 'message_complete', sessionId: conversation.id },
+    ];
+
+    let capturedGuardianContext: unknown = null;
+    const session = {
+      ...makeStreamingSession(events),
+      setGuardianContext: (ctx: unknown) => { capturedGuardianContext = ctx; },
+    } as unknown as Session;
+
+    const orchestrator = new RunOrchestrator({
+      getOrCreateSession: async () => session,
+      resolveAttachments: () => [],
+      deriveDefaultStrictSideEffects: () => false,
+    });
+    setVoiceBridgeOrchestrator(orchestrator);
+
+    const guardianCtx = {
+      sourceChannel: 'voice' as const,
+      actorRole: 'guardian' as const,
+      guardianExternalUserId: '+15550001111',
+      guardianChatId: '+15550001111',
+    };
+
+    await startVoiceTurn({
+      conversationId: conversation.id,
+      content: 'Hello',
+      assistantId: 'test-assistant',
+      guardianContext: guardianCtx,
+      onTextDelta: () => {},
+      onComplete: () => {},
+      onError: () => {},
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(capturedGuardianContext).toEqual(guardianCtx);
+  });
+
+  test('auto-denies confirmation requests for non-guardian voice turns', async () => {
+    const conversation = createConversation('voice bridge auto-deny non-guardian test');
+
+    let clientHandler: (msg: ServerMessage) => void = () => {};
+    const handleConfirmationCalls: Array<{
+      requestId: string;
+      decision: string;
+      decisionContext?: string;
+    }> = [];
+
+    const session = {
+      isProcessing: () => false,
+      persistUserMessage: () => undefined as unknown as string,
+      memoryPolicy: { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false },
+      setChannelCapabilities: () => {},
+      setAssistantId: () => {},
+      setGuardianContext: () => {},
+      setCommandIntent: () => {},
+      setTurnChannelContext: () => {},
+      updateClient: (handler: (msg: ServerMessage) => void) => {
+        clientHandler = handler;
+      },
+      runAgentLoop: async () => {
+        // Simulate the prompter emitting a confirmation_request via the
+        // updateClient callback (this is how the real prompter works).
+        clientHandler({
+          type: 'confirmation_request',
+          requestId: 'req-voice-1',
+          toolName: 'host_bash',
+          input: { command: 'rm -rf /' },
+          riskLevel: 'high',
+          allowlistOptions: [],
+          scopeOptions: [],
+        } as ServerMessage);
+        // The auto-deny resolves the prompter immediately, so the agent loop
+        // can continue. In production the loop would continue; here we just
+        // return to simulate completion.
+      },
+      handleConfirmationResponse: (
+        requestId: string,
+        decision: string,
+        _selectedPattern?: string,
+        _selectedScope?: string,
+        decisionContext?: string,
+      ) => {
+        handleConfirmationCalls.push({ requestId, decision, decisionContext });
+      },
+      abort: () => {},
+    } as unknown as Session;
+
+    const orchestrator = new RunOrchestrator({
+      getOrCreateSession: async () => session,
+      resolveAttachments: () => [],
+      deriveDefaultStrictSideEffects: () => false,
+    });
+    setVoiceBridgeOrchestrator(orchestrator);
+
+    await startVoiceTurn({
+      conversationId: conversation.id,
+      content: 'Delete everything',
+      guardianContext: {
+        sourceChannel: 'voice',
+        actorRole: 'non-guardian',
+        guardianExternalUserId: '+15550009999',
+        guardianChatId: '+15550009999',
+        requesterExternalUserId: '+15550002222',
+      },
+      onTextDelta: () => {},
+      onComplete: () => {},
+      onError: () => {},
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    // The confirmation should have been auto-denied immediately
+    expect(handleConfirmationCalls.length).toBe(1);
+    expect(handleConfirmationCalls[0].requestId).toBe('req-voice-1');
+    expect(handleConfirmationCalls[0].decision).toBe('deny');
+    expect(handleConfirmationCalls[0].decisionContext).toContain('voice call');
+    expect(handleConfirmationCalls[0].decisionContext).toContain('host_bash');
+  });
+
+  test('auto-denies confirmation requests for unverified_channel voice turns', async () => {
+    const conversation = createConversation('voice bridge auto-deny unverified test');
+
+    let clientHandler: (msg: ServerMessage) => void = () => {};
+    const handleConfirmationCalls: Array<{
+      requestId: string;
+      decision: string;
+    }> = [];
+
+    const session = {
+      isProcessing: () => false,
+      persistUserMessage: () => undefined as unknown as string,
+      memoryPolicy: { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false },
+      setChannelCapabilities: () => {},
+      setAssistantId: () => {},
+      setGuardianContext: () => {},
+      setCommandIntent: () => {},
+      setTurnChannelContext: () => {},
+      updateClient: (handler: (msg: ServerMessage) => void) => {
+        clientHandler = handler;
+      },
+      runAgentLoop: async () => {
+        clientHandler({
+          type: 'confirmation_request',
+          requestId: 'req-voice-2',
+          toolName: 'network_request',
+          input: { url: 'https://evil.com' },
+          riskLevel: 'medium',
+          allowlistOptions: [],
+          scopeOptions: [],
+        } as ServerMessage);
+      },
+      handleConfirmationResponse: (
+        requestId: string,
+        decision: string,
+      ) => {
+        handleConfirmationCalls.push({ requestId, decision });
+      },
+      abort: () => {},
+    } as unknown as Session;
+
+    const orchestrator = new RunOrchestrator({
+      getOrCreateSession: async () => session,
+      resolveAttachments: () => [],
+      deriveDefaultStrictSideEffects: () => false,
+    });
+    setVoiceBridgeOrchestrator(orchestrator);
+
+    await startVoiceTurn({
+      conversationId: conversation.id,
+      content: 'Make a request',
+      guardianContext: {
+        sourceChannel: 'voice',
+        actorRole: 'unverified_channel',
+        denialReason: 'no_binding',
+      },
+      onTextDelta: () => {},
+      onComplete: () => {},
+      onError: () => {},
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(handleConfirmationCalls.length).toBe(1);
+    expect(handleConfirmationCalls[0].requestId).toBe('req-voice-2');
+    expect(handleConfirmationCalls[0].decision).toBe('deny');
+  });
+
+  test('does NOT auto-deny confirmation requests for guardian voice turns', async () => {
+    const conversation = createConversation('voice bridge no-auto-deny guardian test');
+
+    let clientHandler: (msg: ServerMessage) => void = () => {};
+    const handleConfirmationCalls: Array<{
+      requestId: string;
+      decision: string;
+    }> = [];
+
+    const session = {
+      isProcessing: () => false,
+      persistUserMessage: () => undefined as unknown as string,
+      memoryPolicy: { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false },
+      setChannelCapabilities: () => {},
+      setAssistantId: () => {},
+      setGuardianContext: () => {},
+      setCommandIntent: () => {},
+      setTurnChannelContext: () => {},
+      updateClient: (handler: (msg: ServerMessage) => void) => {
+        clientHandler = handler;
+      },
+      runAgentLoop: async () => {
+        clientHandler({
+          type: 'confirmation_request',
+          requestId: 'req-voice-3',
+          toolName: 'host_bash',
+          input: { command: 'ls' },
+          riskLevel: 'low',
+          allowlistOptions: [],
+          scopeOptions: [],
+        } as ServerMessage);
+        // For guardian actors, the confirmation enters the normal
+        // pending state — it is NOT auto-denied. The runAgentLoop
+        // would normally block waiting for resolution. We just return
+        // to keep the test simple.
+      },
+      handleConfirmationResponse: (
+        requestId: string,
+        decision: string,
+      ) => {
+        handleConfirmationCalls.push({ requestId, decision });
+      },
+      abort: () => {},
+    } as unknown as Session;
+
+    const orchestrator = new RunOrchestrator({
+      getOrCreateSession: async () => session,
+      resolveAttachments: () => [],
+      deriveDefaultStrictSideEffects: () => false,
+    });
+    setVoiceBridgeOrchestrator(orchestrator);
+
+    await startVoiceTurn({
+      conversationId: conversation.id,
+      content: 'List files',
+      guardianContext: {
+        sourceChannel: 'voice',
+        actorRole: 'guardian',
+        guardianExternalUserId: '+15550001111',
+        guardianChatId: '+15550001111',
+      },
+      onTextDelta: () => {},
+      onComplete: () => {},
+      onError: () => {},
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Guardian actors should NOT have auto-deny — confirmation enters
+    // the normal pending flow (stored in run store, not auto-denied).
+    expect(handleConfirmationCalls.length).toBe(0);
+  });
+
   test('pre-aborted signal triggers immediate abort', async () => {
     const conversation = createConversation('voice bridge pre-abort test');
     let abortCalled = false;
