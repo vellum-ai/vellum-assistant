@@ -47,26 +47,11 @@ struct APIKeySection: View {
 
 struct DaemonConnectionSection: View {
     @EnvironmentObject var clientProvider: ClientProvider
-    @State private var showingAlert = false
-    @State private var alertMessage = ""
     @State private var showingQRPairing = false
-
-    // Manual setup fields
-    @State private var manualGatewayURL: String = ""
-    @State private var manualAuthValue: String = ""
-    @State private var isConnecting = false
-
-    @AppStorage(PairingConfiguration.devLocalPairingKey) private var devLocalPairingEnabled: Bool = false
-    @State private var devOptionsExpanded: Bool = false
 
     /// The currently configured gateway URL, shown as read-only status.
     private var gatewayURL: String? {
         UserDefaults.standard.string(forKey: UserDefaultsKeys.gatewayBaseURL).flatMap { $0.isEmpty ? nil : $0 }
-    }
-
-    /// Whether the current transport is HTTP (gateway-based).
-    private var isHTTPTransport: Bool {
-        gatewayURL != nil
     }
 
     var body: some View {
@@ -135,96 +120,18 @@ struct DaemonConnectionSection: View {
                 Text("Open Vellum on your Mac, go to Settings \u{2192} Connect, and tap Show QR Code.")
             }
 
-            // Manual setup section
+            // Manual setup — NavigationLink to sub-view
             Section {
-                TextField("Gateway URL", text: $manualGatewayURL)
-                    .keyboardType(.URL)
-                    .textContentType(.URL)
-                    .autocapitalization(.none)
-                    .disableAutocorrection(true)
-                    .textFieldStyle(.roundedBorder)
-
-                SecureField("Bearer Token", text: $manualAuthValue)
-                    .textContentType(.password)
-                    .autocapitalization(.none)
-                    .disableAutocorrection(true)
-                    .textFieldStyle(.roundedBorder)
-
-                Button {
-                    connectManually()
-                } label: {
-                    HStack {
-                        Spacer()
-                        if isConnecting {
-                            ProgressView()
-                                .controlSize(.small)
-                                .padding(.trailing, 4)
-                        }
-                        Text("Connect")
-                            .font(.headline)
-                        Spacer()
-                    }
+                NavigationLink("Manual Setup") {
+                    ManualSetupView(clientProvider: clientProvider)
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(manualGatewayURL.isEmpty || manualAuthValue.isEmpty || isConnecting)
-            } header: {
-                Text("Manual Setup")
             } footer: {
-                Text("Enter the gateway URL and bearer token shown in your Mac's Settings.")
-            }
-
-            // Developer options
-            Section {
-                DisclosureGroup("Developer Options", isExpanded: $devOptionsExpanded) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Toggle("Allow Local HTTP Connections", isOn: $devLocalPairingEnabled)
-                            .font(VFont.body)
-
-                        Text("When enabled, QR pairing accepts local HTTP gateway URLs for LAN debugging. Keep disabled unless you're developing locally.")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
-
-                        if devLocalPairingEnabled {
-                            HStack(spacing: 6) {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .foregroundColor(VColor.warning)
-                                    .font(.system(size: 12))
-                                Text("Debug only. Uses unencrypted HTTP over your local network. Do not use in production.")
-                                    .font(VFont.caption)
-                                    .foregroundColor(VColor.warning)
-                            }
-                            .padding(8)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(VColor.warning.opacity(0.1))
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                        }
-                    }
-                }
-
-                // Show a brief warning when dev mode is on but section is collapsed
-                if devLocalPairingEnabled && !devOptionsExpanded {
-                    HStack(spacing: 6) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundColor(VColor.warning)
-                            .font(.system(size: 12))
-                        Text("Local HTTP connections enabled")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.warning)
-                    }
-                }
-            }
-            .onAppear {
-                devOptionsExpanded = devLocalPairingEnabled
+                Text("Enter the gateway URL and bearer token manually if you can't scan the QR code.")
             }
 
         }
         .navigationTitle("Connect")
         .navigationBarTitleDisplayMode(.inline)
-        .alert("Connection", isPresented: $showingAlert) {
-            Button("OK") {}
-        } message: {
-            Text(alertMessage)
-        }
         .sheet(isPresented: $showingQRPairing) {
             QRPairingSheet()
         }
@@ -264,6 +171,57 @@ struct DaemonConnectionSection: View {
         return false
     }
 
+}
+
+// MARK: - Manual Setup Sub-View
+
+struct ManualSetupView: View {
+    @ObservedObject var clientProvider: ClientProvider
+    @State private var manualGatewayURL: String = ""
+    @State private var manualAuthValue: String = ""
+    @State private var isConnecting = false
+    @State private var showingAlert = false
+    @State private var alertMessage = ""
+
+    var body: some View {
+        Form {
+            Section {
+                TextField("Gateway URL", text: $manualGatewayURL)
+                    .keyboardType(.URL)
+                    .textContentType(.URL)
+                    .autocapitalization(.none)
+                    .disableAutocorrection(true)
+
+                SecureField("Bearer Token", text: $manualAuthValue)
+                    .textContentType(.password)
+                    .autocapitalization(.none)
+                    .disableAutocorrection(true)
+
+                Button { connectManually() } label: {
+                    HStack {
+                        Spacer()
+                        if isConnecting {
+                            ProgressView().controlSize(.small).padding(.trailing, 4)
+                        }
+                        Text("Connect").font(.headline)
+                        Spacer()
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(manualGatewayURL.isEmpty || manualAuthValue.isEmpty || isConnecting)
+            } footer: {
+                Text("Enter the gateway URL and bearer token shown in your Mac's Settings.")
+            }
+        }
+        .navigationTitle("Manual Setup")
+        .navigationBarTitleDisplayMode(.inline)
+        .alert("Connection", isPresented: $showingAlert) {
+            Button("OK") {}
+        } message: {
+            Text(alertMessage)
+        }
+    }
+
     // MARK: - Manual Connection
 
     private func connectManually() {
@@ -279,7 +237,7 @@ struct DaemonConnectionSection: View {
 
         // Require HTTPS for non-local connections (ATS policy)
         if url.scheme == "http" {
-            if !Self.isLocalHost(url.host ?? "") {
+            if !DaemonConnectionSection.isLocalHost(url.host ?? "") {
                 alertMessage = "HTTPS is required for non-local connections."
                 showingAlert = true
                 return
