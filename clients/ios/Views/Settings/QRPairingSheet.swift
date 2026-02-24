@@ -2,27 +2,30 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// QR pairing sheet: scan QR code → parse → confirm → save config → connect.
+/// QR pairing sheet: scan v4 QR code → send pairing request → poll for approval → save config → connect.
+///
+/// v4 flow:
+/// 1. Parse QR → extract pairingRequestId, pairingSecret, localLanUrl (nullable), gateway URL (g)
+/// 2. If localLanUrl is non-nil, try LAN first: POST <localLanUrl>/pairing/request
+/// 3. If LAN fails or localLanUrl is nil, use cloud gateway: POST <g>/pairing/request
+/// 4. If approved immediately (auto-approve from allowlist) → save, connect
+/// 5. If pending → show "Waiting for approval on Mac" → poll GET pairing/status every 2s
+/// 6. On approved → save, connect. On denied → error. On expired → error.
 struct QRPairingSheet: View {
     @EnvironmentObject var clientProvider: ClientProvider
     @Environment(\.dismiss) var dismiss
 
     @State private var phase: PairingPhase = .scanning
-    @State private var scannedPayload: DaemonQRPayload?
+    @State private var scannedPayload: DaemonQRPayloadV4?
     @State private var errorMessage: String?
-    @State private var showGatewayChangedAlert = false
+    @State private var pollTimer: Timer?
 
     enum PairingPhase {
         case scanning
-        case confirming
-        /// Intermediate phase while showing the gateway-changed alert.
-        /// Distinct from `.scanning` so that Cancel → `.scanning` is a real
-        /// state transition, which forces SwiftUI to recreate the scanner view
-        /// (the old QRScannerViewController has already stopped scanning).
-        case confirmingUpdate
+        case requestingApproval
+        case waitingForApproval
         case connecting
         case connected
-        case alreadyConnected
         case error
     }
 
@@ -32,19 +35,14 @@ struct QRPairingSheet: View {
                 switch phase {
                 case .scanning:
                     scanningView
-                case .confirming:
-                    confirmingView
-                case .confirmingUpdate:
-                    // Empty placeholder behind the gateway-changed alert.
-                    // Using a distinct phase ensures Cancel → .scanning is a
-                    // real state transition that recreates the scanner.
-                    Color.clear
+                case .requestingApproval:
+                    requestingApprovalView
+                case .waitingForApproval:
+                    waitingView
                 case .connecting:
                     connectingView
                 case .connected:
                     connectedView
-                case .alreadyConnected:
-                    alreadyConnectedView
                 case .error:
                     errorView
                 }
@@ -53,21 +51,15 @@ struct QRPairingSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button("Cancel") {
+                        stopPolling()
+                        dismiss()
+                    }
                 }
             }
-            .alert("Gateway Settings Changed", isPresented: $showGatewayChangedAlert) {
-                Button("Update") {
-                    connectToMac()
-                }
-                Button("Cancel", role: .cancel) {
-                    // Keep existing values, return to scanning
-                    scannedPayload = nil
-                    phase = .scanning
-                }
-            } message: {
-                Text("Your Mac's gateway settings have changed. Update connection?")
-            }
+        }
+        .onDisappear {
+            stopPolling()
         }
     }
 
@@ -75,7 +67,7 @@ struct QRPairingSheet: View {
 
     private var scanningView: some View {
         VStack(spacing: VSpacing.lg) {
-            Text("Scan the QR code from your Mac to connect through the gateway.")
+            Text("Scan the QR code from your Mac to pair.")
                 .font(VFont.body)
                 .foregroundColor(VColor.textSecondary)
                 .multilineTextAlignment(.center)
@@ -88,7 +80,7 @@ struct QRPairingSheet: View {
             .cornerRadius(VRadius.md)
             .padding(.horizontal, VSpacing.lg)
 
-            Text("Open Vellum on your Mac, go to Settings \u{2192} Connect, and tap Show QR Code. The gateway must be configured on the Mac for pairing.")
+            Text("Open Vellum on your Mac, go to Settings \u{2192} Connect, and tap Show QR Code.")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textMuted)
                 .multilineTextAlignment(.center)
@@ -97,53 +89,44 @@ struct QRPairingSheet: View {
         .padding(.vertical, VSpacing.lg)
     }
 
-    // MARK: - Confirming
+    // MARK: - Requesting Approval
 
-    private var confirmingView: some View {
+    private var requestingApprovalView: some View {
+        VStack(spacing: VSpacing.lg) {
+            Spacer()
+            ProgressView()
+                .controlSize(.large)
+            Text("Sending pairing request...")
+                .font(VFont.body)
+                .foregroundColor(VColor.textSecondary)
+            Spacer()
+        }
+    }
+
+    // MARK: - Waiting for Approval
+
+    private var waitingView: some View {
         VStack(spacing: VSpacing.xl) {
             Spacer()
 
-            Image(systemName: "checkmark.circle")
+            Image(systemName: "laptopcomputer.and.iphone")
                 .font(.system(size: 48))
                 .foregroundColor(VColor.accent)
 
-            Text("QR Code Scanned")
+            Text("Waiting for Approval")
                 .font(VFont.title)
                 .foregroundColor(VColor.textPrimary)
 
-            if let payload = scannedPayload {
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    infoRow(label: "Gateway", value: payload.gatewayURL)
-                }
-                .padding(VSpacing.lg)
-                .background(VColor.surface)
-                .cornerRadius(VRadius.md)
+            Text("Approve this pairing request on your Mac to continue.")
+                .font(VFont.body)
+                .foregroundColor(VColor.textSecondary)
+                .multilineTextAlignment(.center)
                 .padding(.horizontal, VSpacing.xl)
 
-                if payload.allowLocalHttp {
-                    HStack(spacing: 6) {
-                        Image(systemName: "laptopcomputer.and.iphone")
-                            .foregroundColor(VColor.warning)
-                            .font(.system(size: 14))
-                        Text("Local network connection (developer mode)")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.warning)
-                    }
-                    .padding(VSpacing.md)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(VColor.warning.opacity(0.1))
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                    .padding(.horizontal, VSpacing.xl)
-                }
-            }
+            ProgressView()
+                .controlSize(.small)
 
             Spacer()
-
-            Button("Connect") {
-                connectToMac()
-            }
-            .buttonStyle(.borderedProminent)
-            .padding(.bottom, VSpacing.xxl)
         }
     }
 
@@ -190,35 +173,6 @@ struct QRPairingSheet: View {
         }
     }
 
-    // MARK: - Already Connected
-
-    private var alreadyConnectedView: some View {
-        VStack(spacing: VSpacing.xl) {
-            Spacer()
-
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 64))
-                .foregroundColor(VColor.success)
-
-            Text("Already Connected")
-                .font(VFont.title)
-                .foregroundColor(VColor.textPrimary)
-
-            Text("Already connected to this Mac.")
-                .font(VFont.body)
-                .foregroundColor(VColor.textSecondary)
-                .multilineTextAlignment(.center)
-
-            Spacer()
-
-            Button("Done") {
-                dismiss()
-            }
-            .buttonStyle(.borderedProminent)
-            .padding(.bottom, VSpacing.xxl)
-        }
-    }
-
     // MARK: - Error
 
     private var errorView: some View {
@@ -229,7 +183,7 @@ struct QRPairingSheet: View {
                 .font(.system(size: 48))
                 .foregroundColor(VColor.error)
 
-            Text("Connection Failed")
+            Text("Pairing Failed")
                 .font(VFont.title)
                 .foregroundColor(VColor.textPrimary)
 
@@ -271,120 +225,260 @@ struct QRPairingSheet: View {
         }
 
         guard json["type"] as? String == "vellum-daemon" else {
-            errorMessage = "This QR code isn't from Vellum. Open Vellum on your Mac \u{2192} Settings \u{2192} Connect \u{2192} Show QR Code."
+            errorMessage = "This QR code isn't from Vellum."
             phase = .error
             return
         }
 
         let version = json["v"] as? Int ?? 0
 
-        // Reject v1 and older payloads — require v2 with gateway URL
-        guard version >= 2, json["g"] != nil else {
-            errorMessage = "This QR code is from an older version of Vellum. Update Vellum on your Mac and scan again."
+        // Reject v2/v3 QR codes — require v4
+        guard version >= 4 else {
+            errorMessage = "This QR code is outdated. Update Vellum on your Mac and try again."
             phase = .error
             return
         }
 
         guard let gatewayURL = json["g"] as? String,
-              let bearerToken = json["bt"] as? String,
-              let hostId = json["id"] as? String else {
-            errorMessage = "QR code is missing required fields. Open Settings \u{2192} Connect on your Mac and tap Show QR Code to regenerate."
+              let hostId = json["id"] as? String,
+              let pairingRequestId = json["pairingRequestId"] as? String,
+              let pairingSecret = json["pairingSecret"] as? String else {
+            errorMessage = "QR code is missing required fields. Show a new QR code on your Mac."
             phase = .error
             return
         }
 
-        let allowLocalHttp = json["allowLocalHttp"] as? Bool ?? false
         let localLanUrl = json["localLanUrl"] as? String
 
-        // Validate HTTP scheme — require HTTPS for non-local, or allowLocalHttp for local HTTP
-        if let url = URL(string: gatewayURL), url.scheme?.lowercased() == "http" {
-            guard let host = url.host, !host.isEmpty else {
-                errorMessage = "Invalid HTTP URL — no host found."
-                phase = .error
-                return
-            }
-            let isLocal = DaemonConnectionSection.isLocalHost(host)
-            if !isLocal {
-                errorMessage = "HTTPS is required for non-local connections."
-                phase = .error
-                return
-            }
-            if !allowLocalHttp {
-                errorMessage = "This QR code uses a local network connection. Enable Developer Local Pairing on your Mac and rescan."
-                phase = .error
-                return
-            }
-        }
-
-        let payload = DaemonQRPayload(
+        let payload = DaemonQRPayloadV4(
             gatewayURL: gatewayURL,
-            bearerToken: bearerToken,
             hostId: hostId,
-            allowLocalHttp: allowLocalHttp,
+            pairingRequestId: pairingRequestId,
+            pairingSecret: pairingSecret,
             localLanUrl: localLanUrl
         )
         scannedPayload = payload
+        sendPairingRequest(payload: payload)
+    }
 
-        // Compare with stored values to detect first-time vs re-scan vs same config
-        let storedGatewayURL = UserDefaults.standard.string(forKey: UserDefaultsKeys.gatewayBaseURL) ?? ""
-        let storedBearerToken = APIKeyManager.shared.getAPIKey(provider: "runtime-bearer-token") ?? ""
+    // MARK: - Pairing Handshake
 
-        let hasStoredConfig = !storedGatewayURL.isEmpty && !storedBearerToken.isEmpty
-        let valuesMatch = storedGatewayURL == payload.gatewayURL && storedBearerToken == payload.bearerToken
+    private func sendPairingRequest(payload: DaemonQRPayloadV4) {
+        phase = .requestingApproval
 
-        if !hasStoredConfig {
-            // First-time scan — save directly, proceed to confirm then connect
-            phase = .confirming
-        } else if valuesMatch {
-            // Same config — only show "already connected" if actually live.
-            // If disconnected, reconnect so the user can recover by re-scanning.
-            if clientProvider.isConnected {
-                phase = .alreadyConnected
-            } else {
-                connectToMac()
+        let deviceId = getOrCreateDeviceId()
+        let deviceName = UIDevice.current.name
+
+        let body: [String: Any] = [
+            "pairingRequestId": payload.pairingRequestId,
+            "pairingSecret": payload.pairingSecret,
+            "deviceId": deviceId,
+            "deviceName": deviceName,
+        ]
+
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: body) else {
+            errorMessage = "Failed to create pairing request."
+            phase = .error
+            return
+        }
+
+        Task {
+            // Try LAN first if available
+            if let lanUrl = payload.localLanUrl,
+               isAllowedLocalHttp(urlString: lanUrl, payload: payload) {
+                let result = await attemptPairingRequest(
+                    baseURL: lanUrl,
+                    jsonData: jsonData,
+                    timeoutSeconds: 3
+                )
+                if let result = result {
+                    handlePairingResponse(result, payload: payload)
+                    return
+                }
+                // LAN failed, fall through to cloud gateway
             }
+
+            // Cloud gateway
+            let result = await attemptPairingRequest(
+                baseURL: payload.gatewayURL,
+                jsonData: jsonData,
+                timeoutSeconds: 15
+            )
+            if let result = result {
+                handlePairingResponse(result, payload: payload)
+            } else {
+                await MainActor.run {
+                    errorMessage = "Could not reach your Mac. Make sure the Vellum daemon is running."
+                    phase = .error
+                }
+            }
+        }
+    }
+
+    private func attemptPairingRequest(baseURL: String, jsonData: Data, timeoutSeconds: TimeInterval) async -> [String: Any]? {
+        guard let url = URL(string: "\(baseURL)/pairing/request") else { return nil }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = jsonData
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = timeoutSeconds
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse,
+                  (200..<300).contains(httpResponse.statusCode),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return nil
+            }
+            return json
+        } catch {
+            return nil
+        }
+    }
+
+    private func handlePairingResponse(_ response: [String: Any], payload: DaemonQRPayloadV4) {
+        guard let status = response["status"] as? String else {
+            errorMessage = "Unexpected response from Mac."
+            phase = .error
+            return
+        }
+
+        switch status {
+        case "approved":
+            guard let bearerToken = response["bearerToken"] as? String,
+                  let gatewayUrl = response["gatewayUrl"] as? String else {
+                errorMessage = "Approval response missing required fields."
+                phase = .error
+                return
+            }
+            let localLanUrl = response["localLanUrl"] as? String
+            savePairingConfig(
+                bearerToken: bearerToken,
+                gatewayUrl: gatewayUrl,
+                hostId: payload.hostId,
+                localLanUrl: localLanUrl
+            )
+            connectToMac()
+
+        case "pending":
+            phase = .waitingForApproval
+            startPolling(payload: payload)
+
+        case "denied":
+            errorMessage = "Pairing was denied on your Mac."
+            phase = .error
+
+        case "expired":
+            errorMessage = "Pairing request expired. Show a new QR code on your Mac."
+            phase = .error
+
+        default:
+            errorMessage = "Unexpected pairing status: \(status)"
+            phase = .error
+        }
+    }
+
+    // MARK: - Polling
+
+    private func startPolling(payload: DaemonQRPayloadV4) {
+        stopPolling()
+
+        // Determine which URL to poll
+        let baseURL: String
+        if let lanUrl = payload.localLanUrl, isAllowedLocalHttp(urlString: lanUrl, payload: payload) {
+            baseURL = lanUrl
         } else {
-            // Re-scan with different values — move to an intermediate phase
-            // before showing the alert so Cancel → .scanning is a real state
-            // change that recreates the (now-stopped) scanner.
-            phase = .confirmingUpdate
-            showGatewayChangedAlert = true
+            baseURL = payload.gatewayURL
+        }
+
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 2.5, repeats: true) { _ in
+            Task {
+                await pollPairingStatus(baseURL: baseURL, payload: payload)
+            }
+        }
+    }
+
+    private func stopPolling() {
+        pollTimer?.invalidate()
+        pollTimer = nil
+    }
+
+    private func pollPairingStatus(baseURL: String, payload: DaemonQRPayloadV4) async {
+        guard let url = URL(string: "\(baseURL)/pairing/status?id=\(payload.pairingRequestId)&secret=\(payload.pairingSecret)") else {
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 10
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse,
+                  (200..<300).contains(httpResponse.statusCode),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let status = json["status"] as? String else {
+                return
+            }
+
+            await MainActor.run {
+                switch status {
+                case "approved":
+                    stopPolling()
+                    guard let bearerToken = json["bearerToken"] as? String,
+                          let gatewayUrl = json["gatewayUrl"] as? String else {
+                        errorMessage = "Approval response missing fields."
+                        phase = .error
+                        return
+                    }
+                    let localLanUrl = json["localLanUrl"] as? String
+                    savePairingConfig(
+                        bearerToken: bearerToken,
+                        gatewayUrl: gatewayUrl,
+                        hostId: payload.hostId,
+                        localLanUrl: localLanUrl
+                    )
+                    connectToMac()
+
+                case "denied":
+                    stopPolling()
+                    errorMessage = "Pairing was denied on your Mac."
+                    phase = .error
+
+                case "expired":
+                    stopPolling()
+                    errorMessage = "Pairing request expired. Show a new QR code on your Mac."
+                    phase = .error
+
+                default:
+                    break // Still pending, keep polling
+                }
+            }
+        } catch {
+            // Network error during poll — ignore and retry
+        }
+    }
+
+    // MARK: - Config Persistence
+
+    private func savePairingConfig(bearerToken: String, gatewayUrl: String, hostId: String, localLanUrl: String?) {
+        UserDefaults.standard.set(gatewayUrl, forKey: UserDefaultsKeys.gatewayBaseURL)
+        _ = APIKeyManager.shared.setAPIKey(bearerToken, provider: "runtime-bearer-token")
+        if !hostId.isEmpty {
+            UserDefaults.standard.set(hostId, forKey: "gateway_host_id")
+        }
+
+        // Generate conversation key if missing
+        if UserDefaults.standard.string(forKey: UserDefaultsKeys.conversationKey)?.isEmpty != false {
+            UserDefaults.standard.set(UUID().uuidString, forKey: UserDefaultsKeys.conversationKey)
         }
     }
 
     private func connectToMac() {
-        guard let payload = scannedPayload else { return }
         phase = .connecting
-
-        // Check if this hostId matches a previously-stored host with a different gateway URL.
-        // If so, clean up old config (same Mac, new gateway).
-        detectAndMigrateHost(payload: payload)
-
-        // Store gateway URL
-        UserDefaults.standard.set(payload.gatewayURL, forKey: UserDefaultsKeys.gatewayBaseURL)
-
-        // Store bearer token in Keychain
-        _ = APIKeyManager.shared.setAPIKey(payload.bearerToken, provider: "runtime-bearer-token")
-
-        // Generate and store a conversation key if one doesn't already exist
-        if UserDefaults.standard.string(forKey: UserDefaultsKeys.conversationKey)?.isEmpty != false {
-            UserDefaults.standard.set(UUID().uuidString, forKey: UserDefaultsKeys.conversationKey)
-        }
-
-        // Store host ID for migration detection
-        if !payload.hostId.isEmpty {
-            UserDefaults.standard.set(payload.hostId, forKey: "gateway_host_id")
-        }
-
-        // Clear old TCP-related UserDefaults from v1 pairing
-        UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.daemonHostname)
-        UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.daemonPort)
-        UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.daemonTLSEnabled)
-
-        // Rebuild the client so the new gateway config takes effect
         clientProvider.rebuildClient()
 
-        // Connect
         Task {
             do {
                 try await clientProvider.client.connect()
@@ -393,63 +487,46 @@ struct QRPairingSheet: View {
                 }
             } catch {
                 await MainActor.run {
-                    errorMessage = "Couldn't reach your Mac: \(error.localizedDescription). Make sure both devices are on the same network and the Vellum daemon is running."
+                    errorMessage = "Couldn't connect: \(error.localizedDescription)"
                     phase = .error
                 }
             }
         }
     }
 
-    /// If the scanned hostId matches a stored hostId for a different gateway URL,
-    /// this is the same Mac with a new gateway. Clean up old config.
-    private func detectAndMigrateHost(payload: DaemonQRPayload) {
-        guard !payload.hostId.isEmpty else { return }
+    // MARK: - Device ID
 
-        let storedHostId = UserDefaults.standard.string(forKey: "gateway_host_id") ?? ""
-        let storedGatewayURL = UserDefaults.standard.string(forKey: UserDefaultsKeys.gatewayBaseURL) ?? ""
-
-        // Same Mac (matching hostId) but different gateway URL — clean up old bearer token
-        if storedHostId == payload.hostId && !storedGatewayURL.isEmpty && storedGatewayURL != payload.gatewayURL {
-            _ = APIKeyManager.shared.deleteAPIKey(provider: "runtime-bearer-token")
+    /// Get or create a stable device ID stored in the Keychain.
+    private func getOrCreateDeviceId() -> String {
+        if let existing = APIKeyManager.shared.getAPIKey(provider: "pairing-device-id"), !existing.isEmpty {
+            return existing
         }
-
-        // Also clean up any legacy TCP pairing config if a host ID was stored per-host:port
-        let oldHostname = UserDefaults.standard.string(forKey: UserDefaultsKeys.daemonHostname) ?? ""
-        let oldPort = UserDefaults.standard.integer(forKey: UserDefaultsKeys.daemonPort)
-        if oldPort > 0 {
-            let oldIdKey = UserDefaultsKeys.daemonHostId(host: oldHostname, port: UInt16(oldPort))
-            let oldTcpHostId = UserDefaults.standard.string(forKey: oldIdKey)
-            if oldTcpHostId == payload.hostId {
-                let oldTokenProvider = "daemon-token:\(oldHostname):\(oldPort)"
-                _ = APIKeyManager.shared.deleteAPIKey(provider: oldTokenProvider)
-                _ = APIKeyManager.shared.deleteAPIKey(provider: "daemon-token")
-                let oldFpKey = UserDefaultsKeys.daemonCertFingerprint(host: oldHostname, port: UInt16(oldPort))
-                UserDefaults.standard.removeObject(forKey: oldFpKey)
-                UserDefaults.standard.removeObject(forKey: oldIdKey)
-            }
-        }
+        let newId = UUID().uuidString
+        _ = APIKeyManager.shared.setAPIKey(newId, provider: "pairing-device-id")
+        return newId
     }
 
-    private func infoRow(label: String, value: String) -> some View {
-        HStack {
-            Text(label)
-                .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
-                .frame(width: 60, alignment: .leading)
-            Text(value)
-                .font(VFont.mono)
-                .foregroundColor(VColor.textPrimary)
-            Spacer()
+    // MARK: - HTTP Validation
+
+    /// For v4 payloads, allow HTTP when the URL host is a local address AND
+    /// the URL matches the localLanUrl from the payload.
+    private func isAllowedLocalHttp(urlString: String, payload: DaemonQRPayloadV4) -> Bool {
+        guard let url = URL(string: urlString),
+              url.scheme?.lowercased() == "http",
+              let host = url.host, !host.isEmpty else {
+            return urlString.hasPrefix("https://")
         }
+        guard urlString == payload.localLanUrl else { return false }
+        return LocalAddressValidator.isLocalAddress(host)
     }
 }
 
-/// Parsed QR code payload from the macOS pairing QR code (v2/v3 gateway format).
-struct DaemonQRPayload {
+/// Parsed v4 QR code payload.
+struct DaemonQRPayloadV4 {
     let gatewayURL: String
-    let bearerToken: String
     let hostId: String
-    let allowLocalHttp: Bool    // v3 — whether iOS should accept local HTTP
-    let localLanUrl: String?    // v3 — LAN URL for display
+    let pairingRequestId: String
+    let pairingSecret: String
+    let localLanUrl: String?
 }
 #endif

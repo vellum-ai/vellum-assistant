@@ -158,15 +158,8 @@ struct ChoosePathStep: View {
 
 struct DaemonSetupStep: View {
     var onContinue: (() -> Void)?
-    @State private var hostname = ""
-    @State private var port = "8765"
-    @State private var sessionToken = ""
-    @State private var showingAlert = false
-    @State private var alertMessage = ""
     @State private var showingQRPairing = false
-    /// Tracks whether a token is configured (via QR or manual entry).
-    /// Re-checked on appear and after QR sheet dismissal.
-    @State private var hasConfiguredToken = false
+    @State private var isPaired = false
 
     var body: some View {
         VStack(spacing: VSpacing.xl) {
@@ -176,7 +169,7 @@ struct DaemonSetupStep: View {
                 .font(VFont.title)
                 .foregroundColor(VColor.textPrimary)
 
-            Text("Scan the QR code from your Mac, or enter the connection details manually.")
+            Text("Scan the QR code from your Mac to pair.")
                 .font(VFont.body)
                 .foregroundColor(VColor.textSecondary)
                 .multilineTextAlignment(.center)
@@ -192,7 +185,7 @@ struct DaemonSetupStep: View {
                     VStack(alignment: .leading, spacing: VSpacing.xxs) {
                         Text("Scan QR Code")
                             .font(VFont.bodyBold)
-                        Text("Open Vellum on your Mac > Settings > Show QR Code")
+                        Text("Open Vellum on your Mac \u{2192} Settings \u{2192} Show QR Code")
                             .font(VFont.caption)
                     }
                 }
@@ -208,48 +201,11 @@ struct DaemonSetupStep: View {
             .foregroundColor(VColor.textPrimary)
             .padding(.horizontal, VSpacing.xl)
 
-            // Manual entry section
-            VStack(spacing: VSpacing.lg) {
-                Text("Or enter manually:")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-
-                TextField("Hostname (e.g. 192.168.1.100)", text: $hostname)
-                    .textFieldStyle(.roundedBorder)
-                    .autocapitalization(.none)
-                    .autocorrectionDisabled()
-
-                TextField("Port", text: $port)
-                    .textFieldStyle(.roundedBorder)
-                    .keyboardType(.numberPad)
-
-                SecureField("Session token", text: $sessionToken)
-                    .textFieldStyle(.roundedBorder)
-                    .autocapitalization(.none)
-                    .autocorrectionDisabled()
-            }
-            .padding(.horizontal, VSpacing.xl)
-
             Button("Continue") {
-                guard let portInt = Int(port), portInt > 0, portInt <= 65535 else {
-                    alertMessage = "Port must be a valid number between 1 and 65535"
-                    showingAlert = true
-                    return
-                }
-                if !hostname.isEmpty {
-                    UserDefaults.standard.set(hostname, forKey: UserDefaultsKeys.daemonHostname)
-                }
-                UserDefaults.standard.set(portInt, forKey: UserDefaultsKeys.daemonPort)
-                // iOS always uses TLS for TCP connections
-                UserDefaults.standard.set(true, forKey: UserDefaultsKeys.daemonTLSEnabled)
-                if !sessionToken.isEmpty {
-                    _ = APIKeyManager.shared.setAPIKey(sessionToken, provider: "daemon-token")
-                }
                 onContinue?()
             }
             .buttonStyle(.borderedProminent)
-            // Enable if either QR pairing configured a token, or manual fields are filled
-            .disabled(!hasConfiguredToken && (hostname.isEmpty || port.isEmpty || sessionToken.isEmpty))
+            .disabled(!isPaired)
 
             Button("Skip for now") {
                 onContinue?()
@@ -259,38 +215,20 @@ struct DaemonSetupStep: View {
             Spacer()
         }
         .padding(VSpacing.xl)
-        .alert("Daemon Setup", isPresented: $showingAlert) {
-            Button("OK") {}
-        } message: {
-            Text(alertMessage)
-        }
         .sheet(isPresented: $showingQRPairing, onDismiss: {
-            reloadSettings()
+            checkPairingState()
         }) {
             QRPairingSheet()
         }
         .onAppear {
-            reloadSettings()
+            checkPairingState()
         }
     }
 
-    private func reloadSettings() {
-        let storedHostname = UserDefaults.standard.string(forKey: UserDefaultsKeys.daemonHostname) ?? ""
-        if !storedHostname.isEmpty && storedHostname != "localhost" {
-            hostname = storedHostname
-        }
-        let portValue = UserDefaults.standard.integer(forKey: UserDefaultsKeys.daemonPort)
-        port = portValue > 0 ? String(portValue) : "8765"
-        sessionToken = APIKeyManager.shared.getAPIKey(provider: "daemon-token") ?? ""
-        // Check if any token is configured (bare key or host-specific)
-        hasConfiguredToken = !sessionToken.isEmpty || hasHostSpecificToken()
-    }
-
-    private func hasHostSpecificToken() -> Bool {
-        let h = UserDefaults.standard.string(forKey: UserDefaultsKeys.daemonHostname) ?? ""
-        let p = UserDefaults.standard.integer(forKey: UserDefaultsKeys.daemonPort)
-        guard !h.isEmpty, p > 0 else { return false }
-        return APIKeyManager.shared.getAPIKey(provider: "daemon-token:\(h):\(p)") != nil
+    private func checkPairingState() {
+        let gatewayURL = UserDefaults.standard.string(forKey: UserDefaultsKeys.gatewayBaseURL) ?? ""
+        let bearerToken = APIKeyManager.shared.getAPIKey(provider: "runtime-bearer-token") ?? ""
+        isPaired = !gatewayURL.isEmpty && !bearerToken.isEmpty
     }
 }
 
