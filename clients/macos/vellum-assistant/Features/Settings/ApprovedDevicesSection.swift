@@ -1,21 +1,58 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Displays always-allowed devices in the Connect tab.
+/// Displays always-allowed devices in a collapsible section of the Connect tab.
 /// Each row shows device name + last paired time + a Remove button.
 /// Clear All button at bottom. Empty state: "No approved devices."
 @MainActor
 struct ApprovedDevicesSection: View {
     @ObservedObject var store: SettingsStore
+    @Binding var isExpanded: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            HStack {
-                Text("Approved Devices")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-                Spacer()
-                if !store.approvedDevices.isEmpty {
+        VDisclosureSection(
+            title: "Approved Devices",
+            icon: "person.badge.shield.checkmark",
+            subtitle: !isExpanded && !store.approvedDevices.isEmpty
+                ? "\(store.approvedDevices.count) device\(store.approvedDevices.count == 1 ? "" : "s")"
+                : nil,
+            isExpanded: $isExpanded
+        ) {
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                Text("Devices granted \"Always Allow\" pair automatically without prompting.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+
+                if store.approvedDevices.isEmpty {
+                    Text("No approved devices.")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textMuted)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.vertical, VSpacing.md)
+                } else {
+                    ForEach(store.approvedDevices, id: \.hashedDeviceId) { device in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(device.deviceName)
+                                    .font(VFont.body)
+                                    .foregroundColor(VColor.textPrimary)
+                                Text("Last paired: \(formattedDate(device.lastPairedAt))")
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.textMuted)
+                            }
+                            Spacer()
+                            Button("Remove") {
+                                store.removeApprovedDevice(hashedDeviceId: device.hashedDeviceId)
+                            }
+                            .font(VFont.caption)
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                        }
+                        .padding(.vertical, VSpacing.xs)
+                    }
+
+                    Divider().background(VColor.surfaceBorder)
+
                     Button("Clear All") {
                         store.clearAllApprovedDevices()
                     }
@@ -24,41 +61,9 @@ struct ApprovedDevicesSection: View {
                     .buttonStyle(.borderless)
                 }
             }
-
-            Text("Devices that have been granted \"Always Allow\" will pair automatically without prompting.")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
-
-            if store.approvedDevices.isEmpty {
-                Text("No approved devices.")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textMuted)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.vertical, VSpacing.md)
-            } else {
-                ForEach(store.approvedDevices, id: \.hashedDeviceId) { device in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(device.deviceName)
-                                .font(VFont.body)
-                                .foregroundColor(VColor.textPrimary)
-                            Text("Last paired: \(formattedDate(device.lastPairedAt))")
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                        }
-                        Spacer()
-                        Button("Remove") {
-                            store.removeApprovedDevice(hashedDeviceId: device.hashedDeviceId)
-                        }
-                        .font(VFont.caption)
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                    }
-                    .padding(.vertical, VSpacing.xs)
-                }
-            }
         }
-        .padding(VSpacing.md)
+        .padding(VSpacing.lg)
+        .vCard(background: VColor.surfaceSubtle)
         .onAppear {
             store.refreshApprovedDevices()
         }
