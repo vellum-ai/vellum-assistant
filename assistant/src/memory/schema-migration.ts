@@ -238,6 +238,14 @@ export function migrateMemoryEntityRelationDedup(database: Db): void {
   ).get(checkpointKey);
   if (checkpoint) return;
 
+  // Drop the staging temp table if it was left behind by a previous failed
+  // attempt in the same connection.  TEMP tables survive ROLLBACK (they live
+  // in a separate SQLite schema) so a mid-migration exception can leave the
+  // table present even after the transaction rolls back.  Clearing it here
+  // makes re-entry safe without needing IF NOT EXISTS semantics on the full
+  // CREATE … AS SELECT.
+  raw.exec(/*sql*/ `DROP TABLE IF EXISTS memory_entity_relation_merge`);
+
   try {
     raw.exec('BEGIN');
 
