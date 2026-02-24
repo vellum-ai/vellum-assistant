@@ -89,11 +89,15 @@ public struct ToolConfirmationData: Equatable {
             return "The assistant wants to update a schedule"
         case "schedule_delete":
             return "The assistant wants to delete a schedule"
-        case "reminder":
+        case "reminder_create":
             let msg = (input["message"]?.value as? String) ?? ""
             return msg.isEmpty
                 ? "The assistant wants to set a reminder"
                 : "The assistant wants to remind you: \(msg)"
+        case "reminder_list":
+            return "The assistant wants to list reminders"
+        case "reminder_cancel":
+            return "The assistant wants to cancel a reminder"
         default:
             return "The assistant wants to use \(toolName)"
         }
@@ -155,8 +159,13 @@ public struct ToolConfirmationData: Equatable {
             return jobId.isEmpty ? "Delete schedule" : "Delete schedule \(jobId)"
         case "schedule_list":
             return "List schedules"
-        case "reminder":
+        case "reminder_create":
             return Self.reminderPreview(input: input)
+        case "reminder_list":
+            return "List reminders"
+        case "reminder_cancel":
+            let id = (input["id"]?.value as? String) ?? ""
+            return id.isEmpty ? "Cancel reminder" : "Cancel reminder \(id)"
         case "credential_store":
             return Self.credentialPreview(input: input)
         default:
@@ -167,6 +176,7 @@ public struct ToolConfirmationData: Equatable {
     /// Build a preview string for schedule_create/schedule_update tools.
     private static func schedulePreview(input: [String: AnyCodable], verb: String) -> String {
         let name = (input["name"]?.value as? String) ?? ""
+        let jobId = (input["job_id"]?.value as? String) ?? ""
         let expr = (input["expression"]?.value as? String)
             ?? (input["cron_expression"]?.value as? String)
             ?? ""
@@ -174,6 +184,7 @@ public struct ToolConfirmationData: Equatable {
 
         var parts: [String] = []
         if !name.isEmpty { parts.append("\"\(name)\"") }
+        if !jobId.isEmpty && name.isEmpty { parts.append(jobId) }
         if !expr.isEmpty { parts.append(expr) }
         if parts.isEmpty && !message.isEmpty {
             parts.append("\"\(message.count > 60 ? String(message.prefix(57)) + "..." : message)\"")
@@ -253,7 +264,7 @@ public struct ToolConfirmationData: Equatable {
         case _ where toolName.hasPrefix("memory_"):   return "Memory"
         case "skill_load":                            return "Skill"
         case "evaluate_typescript_code":              return "Code Sandbox"
-        case "reminder":                              return "Reminder"
+        case _ where toolName.hasPrefix("reminder_"):   return "Reminder"
         case "document_create", "document_update":    return "Document"
         default:
             return toolName
@@ -281,7 +292,7 @@ public struct ToolConfirmationData: Equatable {
         case _ where toolName.hasPrefix("memory_"):   return "brain"
         case "skill_load":                            return "puzzlepiece.extension"
         case "evaluate_typescript_code":              return "chevron.left.forwardslash.chevron.right"
-        case "reminder":                              return "bell"
+        case _ where toolName.hasPrefix("reminder_"):   return "bell"
         case "document_create", "document_update":    return "doc.richtext"
         default:                                      return "puzzlepiece.extension"
         }
@@ -423,13 +434,17 @@ public struct ToolConfirmationData: Equatable {
             return "Allow updating a schedule?"
         case "schedule_delete":
             return "Allow deleting a schedule?"
-        case "reminder":
+        case "reminder_create":
             let msg = (input["message"]?.value as? String) ?? ""
             if !msg.isEmpty {
                 let truncated = msg.count > 40 ? String(msg.prefix(37)) + "..." : msg
                 return "Allow setting a reminder: \"\(truncated)\"?"
             }
             return "Allow setting a reminder?"
+        case "reminder_list":
+            return "Allow listing reminders?"
+        case "reminder_cancel":
+            return "Allow canceling a reminder?"
         default:
             let tc = toolCategory.lowercased()
             if !r.isEmpty { return "Allow using \(tc) \(r)?" }

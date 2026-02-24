@@ -125,7 +125,9 @@ public final class ToolConfirmationNotificationService {
         case "schedule_update": return "Update Schedule"
         case "schedule_delete": return "Delete Schedule"
         case "schedule_list":   return "List Schedules"
-        case "reminder":        return "Reminder"
+        case "reminder_create":  return "Create Reminder"
+        case "reminder_list":    return "List Reminders"
+        case "reminder_cancel":  return "Cancel Reminder"
         default: return toolName.replacingOccurrences(of: "_", with: " ").capitalized
         }
     }
@@ -145,21 +147,24 @@ public final class ToolConfirmationNotificationService {
         case "browser_navigate":
             return "navigate \((input["url"]?.value as? String) ?? "")"
         case "schedule_create", "schedule_update":
+            let verb = toolName == "schedule_create" ? "Create" : "Update"
             let name = (input["name"]?.value as? String) ?? ""
+            let jobId = (input["job_id"]?.value as? String) ?? ""
             let expr = (input["expression"]?.value as? String)
                 ?? (input["cron_expression"]?.value as? String) ?? ""
             let message = (input["message"]?.value as? String) ?? ""
             var parts: [String] = []
             if !name.isEmpty { parts.append("\"\(name)\"") }
+            if !jobId.isEmpty && name.isEmpty { parts.append(jobId) }
             if !expr.isEmpty { parts.append(expr) }
             if parts.isEmpty && !message.isEmpty {
                 let truncated = message.count > 60 ? String(message.prefix(57)) + "..." : message
                 parts.append("\"\(truncated)\"")
             }
-            return parts.isEmpty ? toolName : parts.joined(separator: " — ")
+            return parts.isEmpty ? "\(verb) schedule" : parts.joined(separator: " — ")
         case "schedule_delete":
             return (input["job_id"]?.value as? String) ?? "schedule"
-        case "reminder":
+        case "reminder_create":
             let msg = (input["message"]?.value as? String) ?? ""
             let at = (input["at"]?.value as? String) ?? ""
             let delay = (input["delay"]?.value as? String) ?? ""
@@ -170,7 +175,12 @@ public final class ToolConfirmationNotificationService {
             }
             if !at.isEmpty { parts.append("at \(at)") }
             else if !delay.isEmpty { parts.append("in \(delay)") }
-            return parts.isEmpty ? "reminder" : parts.joined(separator: " ")
+            return parts.isEmpty ? "Set reminder" : parts.joined(separator: " ")
+        case "reminder_list":
+            return "List reminders"
+        case "reminder_cancel":
+            let id = (input["id"]?.value as? String) ?? ""
+            return id.isEmpty ? "Cancel reminder" : "Cancel reminder \(id)"
         default:
             // Prefer semantically meaningful keys over arbitrary dictionary order
             let preferredKeys = ["name", "query", "message", "description", "title", "url", "path", "command", "id"]
