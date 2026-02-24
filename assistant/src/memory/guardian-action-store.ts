@@ -14,6 +14,7 @@ import {
   guardianActionRequests,
   guardianActionDeliveries,
 } from './schema.js';
+import { getLogger } from '../util/logger.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -344,30 +345,38 @@ export function getPendingDeliveriesByDestination(
   channel: string,
   chatId: string,
 ): GuardianActionDelivery[] {
-  const db = getDb();
+  try {
+    const db = getDb();
 
-  // Join deliveries with requests to filter by assistantId
-  const rows = db
-    .select({
-      delivery: guardianActionDeliveries,
-    })
-    .from(guardianActionDeliveries)
-    .innerJoin(
-      guardianActionRequests,
-      eq(guardianActionDeliveries.requestId, guardianActionRequests.id),
-    )
-    .where(
-      and(
-        eq(guardianActionRequests.assistantId, assistantId),
-        eq(guardianActionRequests.status, 'pending'),
-        eq(guardianActionDeliveries.destinationChannel, channel),
-        eq(guardianActionDeliveries.destinationChatId, chatId),
-        eq(guardianActionDeliveries.status, 'sent'),
-      ),
-    )
-    .all();
+    // Join deliveries with requests to filter by assistantId
+    const rows = db
+      .select({
+        delivery: guardianActionDeliveries,
+      })
+      .from(guardianActionDeliveries)
+      .innerJoin(
+        guardianActionRequests,
+        eq(guardianActionDeliveries.requestId, guardianActionRequests.id),
+      )
+      .where(
+        and(
+          eq(guardianActionRequests.assistantId, assistantId),
+          eq(guardianActionRequests.status, 'pending'),
+          eq(guardianActionDeliveries.destinationChannel, channel),
+          eq(guardianActionDeliveries.destinationChatId, chatId),
+          eq(guardianActionDeliveries.status, 'sent'),
+        ),
+      )
+      .all();
 
-  return rows.map((r) => rowToDelivery(r.delivery));
+    return rows.map((r) => rowToDelivery(r.delivery));
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('no such table')) {
+      getLogger().warn({ err }, 'guardian tables not yet created');
+      return [];
+    }
+    throw err;
+  }
 }
 
 /**
@@ -392,9 +401,12 @@ export function getPendingDeliveryByConversation(conversationId: string): Guardi
       )
       .all();
     return rows.length > 0 ? rowToDelivery(rows[0].delivery) : null;
-  } catch {
-    // Table may not exist yet (pre-migration or test environments)
-    return null;
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('no such table')) {
+      getLogger().warn({ err }, 'guardian tables not yet created');
+      return null;
+    }
+    throw err;
   }
 }
 
