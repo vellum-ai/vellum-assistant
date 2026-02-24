@@ -616,7 +616,7 @@ struct MainWindowView: View {
                             }
                         )
                         .frame(width: drawerWidth)
-                        .offset(x: drawerX, y: -52)
+                        .offset(x: drawerX, y: -28)
                         .zIndex(10)
                         .transition(.opacity)
                     }
@@ -1077,6 +1077,8 @@ struct MainWindowView: View {
     @ViewBuilder
     private var collapsedSidebarContent: some View {
         VStack(spacing: VSpacing.sm) {
+            Spacer().frame(height: 0)
+
             SidebarNavRow(icon: "square.grid.2x2", label: "Home Base", isActive: windowState.activePanel == .directory, isExpanded: false) {
                 windowState.togglePanel(.directory)
             }
@@ -1103,6 +1105,8 @@ struct MainWindowView: View {
                     showControlCenterDrawer.toggle()
                 }
             }
+
+            Spacer().frame(height: 0)
         }
     }
 
@@ -1260,7 +1264,7 @@ private struct SidebarNavRow: View {
             .padding(.trailing, isExpanded ? VSpacing.sm : 0)
             .padding(.vertical, VSpacing.sm)
             .frame(maxWidth: .infinity, alignment: isExpanded ? .leading : .center)
-            .background(isActive ? adaptiveColor(light: Moss._100, dark: Moss._700) : isHovered ? adaptiveColor(light: Moss._100, dark: Moss._700).opacity(0.5) : .clear)
+            .background(isActive ? adaptiveColor(light: Color(hex: 0xD4DFD0), dark: Moss._700) : isHovered ? adaptiveColor(light: Color(hex: 0xD4DFD0), dark: Moss._700).opacity(0.5) : .clear)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .contentShape(Rectangle())
         }
@@ -1325,7 +1329,7 @@ private struct DrawerMenuView: View {
             DrawerMenuItem(icon: "stethoscope", label: "Vellum Doctor", action: onDoctor)
         }
         .padding(.vertical, VSpacing.sm)
-        .background(VColor.surface)
+        .background(VColor.surfaceSubtle)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.lg)
