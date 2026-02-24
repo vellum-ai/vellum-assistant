@@ -49,9 +49,9 @@ struct SettingsConnectTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
-            vellumSection
             pairingSection
             gatewaySection
+            vellumSection
             advancedSection
             diagnosticsSection
             channelsSection
