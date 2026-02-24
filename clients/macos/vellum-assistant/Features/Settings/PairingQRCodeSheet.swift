@@ -14,13 +14,23 @@ struct PairingQRCodeSheet: View {
     let gatewayUrl: String
     let resolvedBearerToken: String
 
+    /// Whether the developer local pairing override is active.
+    let isLocalOverride: Bool
+
     @State private var hostId: String = ""
     @State private var isTokenRevealed: Bool = false
     @State private var copiedField: String? = nil
 
-    /// Whether the ingress configuration is sufficient for pairing.
+    /// Whether the configuration is sufficient for pairing.
     private var canGenerateQR: Bool {
-        ingressEnabled && !gatewayUrl.isEmpty && !resolvedBearerToken.isEmpty
+        let hasRequiredFields = !gatewayUrl.isEmpty && !resolvedBearerToken.isEmpty
+        if isLocalOverride {
+            // For developer local pairing, ingress is not required
+            // but the URL must be a local/private address
+            guard let url = URL(string: gatewayUrl), let host = url.host else { return false }
+            return hasRequiredFields && LocalAddressValidator.isLocalAddress(host)
+        }
+        return ingressEnabled && hasRequiredFields
     }
 
     var body: some View {
@@ -47,7 +57,12 @@ struct PairingQRCodeSheet: View {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.system(size: 32))
                         .foregroundColor(VColor.error)
-                    if !ingressEnabled || gatewayUrl.isEmpty {
+                    if isLocalOverride {
+                        Text("The override URL must be a local/private network address for developer pairing.")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.error)
+                            .multilineTextAlignment(.center)
+                    } else if !ingressEnabled || gatewayUrl.isEmpty {
                         Text("Enable ingress and set a public URL in Settings to pair with iOS")
                             .font(VFont.body)
                             .foregroundColor(VColor.error)

@@ -13,20 +13,26 @@ export interface TwilioConfig {
   wssBaseUrl: string;
 }
 
-export function getTwilioConfig(): TwilioConfig {
-  const accountSid = getSecureKey('credential:twilio:account_sid');
-  const authToken = getSecureKey('credential:twilio:auth_token');
-  const config = loadConfig();
+function resolveTwilioPhoneNumber(assistantId: string | undefined, config: ReturnType<typeof loadConfig>): string {
+  if (assistantId) {
+    const assistantPhone = config.sms?.assistantPhoneNumbers?.[assistantId];
+    if (assistantPhone) {
+      return assistantPhone;
+    }
+  }
 
-  // Phone number resolution priority:
+  // Global fallback order:
   // 1. TWILIO_PHONE_NUMBER env var (explicit override)
   // 2. config file sms.phoneNumber (primary storage)
   // 3. credential:twilio:phone_number secure key (backward-compat fallback)
-  const phoneNumber =
-    process.env.TWILIO_PHONE_NUMBER ||
-    config.sms?.phoneNumber ||
-    getSecureKey('credential:twilio:phone_number') ||
-    '';
+  return process.env.TWILIO_PHONE_NUMBER || config.sms?.phoneNumber || getSecureKey('credential:twilio:phone_number') || '';
+}
+
+export function getTwilioConfig(assistantId?: string): TwilioConfig {
+  const accountSid = getSecureKey('credential:twilio:account_sid');
+  const authToken = getSecureKey('credential:twilio:auth_token');
+  const config = loadConfig();
+  const phoneNumber = resolveTwilioPhoneNumber(assistantId, config);
   const webhookBaseUrl = getPublicBaseUrl(config);
 
   // Always use the centralized relay URL derived from the public ingress base URL.
@@ -45,7 +51,7 @@ export function getTwilioConfig(): TwilioConfig {
     throw new Error('Twilio credentials not configured. Set credential:twilio:account_sid and credential:twilio:auth_token via the credential_store tool.');
   }
   if (!phoneNumber) {
-    throw new Error('TWILIO_PHONE_NUMBER not configured.');
+    throw new Error('Twilio phone number not configured.');
   }
 
   log.debug('Twilio config loaded successfully');

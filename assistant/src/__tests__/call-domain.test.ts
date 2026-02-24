@@ -34,10 +34,10 @@ mock.module('../util/logger.js', () => ({
 }));
 
 mock.module('../calls/twilio-config.js', () => ({
-  getTwilioConfig: () => ({
+  getTwilioConfig: (assistantId?: string) => ({
     accountSid: 'AC_test',
     authToken: 'test_token',
-    phoneNumber: '+15550001111',
+    phoneNumber: assistantId === 'ast-alpha' ? '+15550003333' : '+15550001111',
     webhookBaseUrl: 'https://test.example.com',
     wssBaseUrl: 'wss://test.example.com',
   }),
@@ -93,6 +93,16 @@ describe('resolveCallerIdentity — strict implicit-default policy', () => {
     if (result.ok) {
       expect(result.mode).toBe('assistant_number');
       expect(result.fromNumber).toBe('+15550001111');
+      expect(result.source).toBe('implicit_default');
+    }
+  });
+
+  test('assistant_number resolves from assistant-scoped Twilio number when assistantId is provided', async () => {
+    const result = await resolveCallerIdentity(makeConfig(), undefined, 'ast-alpha');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.mode).toBe('assistant_number');
+      expect(result.fromNumber).toBe('+15550003333');
       expect(result.source).toBe('implicit_default');
     }
   });

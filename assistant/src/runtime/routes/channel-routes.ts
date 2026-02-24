@@ -417,7 +417,7 @@ export async function handleChannelInbound(
 
       const replyText = verifyResult.success
         ? composeApprovalMessage({ scenario: 'guardian_verify_success' })
-        : composeApprovalMessage({ scenario: 'guardian_verify_failed', failureReason: 'Please try again later.' });
+        : verifyResult.reason;
 
       try {
         await deliverChannelReply(replyCallbackUrl, {
