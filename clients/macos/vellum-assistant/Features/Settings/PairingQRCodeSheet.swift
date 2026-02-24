@@ -17,7 +17,7 @@ struct PairingQRCodeSheet: View {
     @Environment(\.dismiss) var dismiss
 
     let gatewayUrl: String
-    let daemonClient: DaemonClient
+    let daemonClient: DaemonClient?
 
     @State private var hostId: String = ""
     @State private var pairingRequestId: String = UUID().uuidString
@@ -25,6 +25,10 @@ struct PairingQRCodeSheet: View {
     @State private var localLanUrl: String? = nil
     @State private var registrationState: RegistrationState = .idle
     @State private var registrationError: String? = nil
+    @State private var refreshTask: Task<Void, Never>? = nil
+
+    /// Re-register every 4 minutes to stay ahead of the 5-minute TTL.
+    private static let refreshInterval: UInt64 = 4 * 60 * 1_000_000_000
 
     enum RegistrationState {
         case idle, registering, registered, failed
@@ -45,54 +49,58 @@ struct PairingQRCodeSheet: View {
                 Button("Done") { dismiss() }
             }
 
-            switch registrationState {
-            case .idle, .registering:
-                VStack(spacing: VSpacing.sm) {
-                    ProgressView()
-                        .controlSize(.large)
-                    Text("Registering pairing request...")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
-                }
-                .frame(width: 220, height: 220)
+            if daemonClient == nil {
+                errorContent("Cannot generate QR code \u{2014} daemon not connected. Please wait for the daemon to start and try again.")
+            } else {
+                switch registrationState {
+                case .idle, .registering:
+                    VStack(spacing: VSpacing.sm) {
+                        ProgressView()
+                            .controlSize(.large)
+                        Text("Registering pairing request...")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textSecondary)
+                    }
+                    .frame(width: 220, height: 220)
 
-            case .registered:
-                if let qrImage = generateQRImage() {
-                    Image(nsImage: qrImage)
-                        .resizable()
-                        .interpolation(.none)
-                        .scaledToFit()
-                        .frame(width: 220, height: 220)
-                        .padding(VSpacing.md)
-                        .background(Color.white)
-                        .cornerRadius(VRadius.md)
-                } else {
-                    errorContent("Failed to generate QR code.")
-                }
+                case .registered:
+                    if let qrImage = generateQRImage() {
+                        Image(nsImage: qrImage)
+                            .resizable()
+                            .interpolation(.none)
+                            .scaledToFit()
+                            .frame(width: 220, height: 220)
+                            .padding(VSpacing.md)
+                            .background(Color.white)
+                            .cornerRadius(VRadius.md)
+                    } else {
+                        errorContent("Failed to generate QR code.")
+                    }
 
-            case .failed:
-                errorContent(registrationError ?? "Could not register pairing request. Ensure the daemon is running.")
-            }
-
-            // State indicator
-            if canGenerateQR {
-                HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(VColor.success)
-                        .font(.system(size: 14))
-                    Text("Ready to pair with iOS")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.success)
+                case .failed:
+                    errorContent(registrationError ?? "Could not register pairing request. Ensure the daemon is running.")
                 }
 
-                if localLanUrl != nil {
-                    HStack(spacing: VSpacing.xs) {
-                        Image(systemName: "wifi")
-                            .foregroundColor(VColor.textMuted)
-                            .font(.system(size: 12))
-                        Text("LAN pairing available")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
+                // State indicator
+                if canGenerateQR {
+                    HStack(spacing: VSpacing.sm) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(VColor.success)
+                            .font(.system(size: 14))
+                        Text("Ready to pair with iOS")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.success)
+                    }
+
+                    if localLanUrl != nil {
+                        HStack(spacing: VSpacing.xs) {
+                            Image(systemName: "wifi")
+                                .foregroundColor(VColor.textMuted)
+                                .font(.system(size: 12))
+                            Text("LAN pairing available")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                        }
                     }
                 }
             }
@@ -102,7 +110,7 @@ struct PairingQRCodeSheet: View {
                 .foregroundColor(VColor.textSecondary)
                 .multilineTextAlignment(.center)
 
-            if registrationState == .failed {
+            if registrationState == .failed && daemonClient != nil {
                 Button("Retry") {
                     pairingRequestId = UUID().uuidString
                     pairingSecret = Self.generatePairingSecret()
@@ -116,7 +124,12 @@ struct PairingQRCodeSheet: View {
         .onAppear {
             hostId = Self.computeHostId()
             localLanUrl = computeLocalLanUrl()
+            guard daemonClient != nil else { return }
             registerWithDaemon()
+            startRefreshTimer()
+        }
+        .onDisappear {
+            stopRefreshTimer()
         }
     }
 
@@ -133,13 +146,33 @@ struct PairingQRCodeSheet: View {
         .frame(width: 220, height: 220)
     }
 
+    // MARK: - Refresh Timer
+
+    private func startRefreshTimer() {
+        stopRefreshTimer()
+        refreshTask = Task { @MainActor in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: Self.refreshInterval)
+                guard !Task.isCancelled else { break }
+                pairingRequestId = UUID().uuidString
+                pairingSecret = Self.generatePairingSecret()
+                registerWithDaemon()
+            }
+        }
+    }
+
+    private func stopRefreshTimer() {
+        refreshTask?.cancel()
+        refreshTask = nil
+    }
+
     // MARK: - Registration
 
     private func registerWithDaemon() {
         registrationState = .registering
         registrationError = nil
 
-        guard let port = daemonClient.httpPort else {
+        guard let port = daemonClient?.httpPort else {
             registrationState = .failed
             registrationError = "Daemon HTTP server not running."
             return
