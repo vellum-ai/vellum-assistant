@@ -128,8 +128,10 @@ struct DaemonConnectionSection: View {
                     }
                     .padding(.vertical, 12)
                 }
+            } header: {
+                Text("Pair with Mac")
             } footer: {
-                Text("Open Vellum on your Mac, then go to Settings > Show QR Code.")
+                Text("Open Vellum on your Mac, go to Settings \u{2192} Connect, and tap Show QR Code.")
             }
 
             // Manual setup section
@@ -172,15 +174,31 @@ struct DaemonConnectionSection: View {
 
             // Developer options
             Section {
-                Toggle("Developer Local Pairing", isOn: $devLocalPairingEnabled)
-                    .font(VFont.body)
-                if devLocalPairingEnabled {
-                    Text("Debug only. Allows connecting to local HTTP gateways scanned via QR code.")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.warning)
+                DisclosureGroup("Developer Options") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Toggle("Allow Local HTTP Connections", isOn: $devLocalPairingEnabled)
+                            .font(VFont.body)
+
+                        Text("When enabled, QR pairing accepts local HTTP gateway URLs for LAN debugging. Keep disabled unless you're developing locally.")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+
+                        if devLocalPairingEnabled {
+                            HStack(spacing: 6) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundColor(VColor.warning)
+                                    .font(.system(size: 12))
+                                Text("Local HTTP connections are unencrypted. Only use on trusted networks.")
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.warning)
+                            }
+                            .padding(8)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(VColor.warning.opacity(0.1))
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                        }
+                    }
                 }
-            } header: {
-                Text("Developer")
             }
 
         }

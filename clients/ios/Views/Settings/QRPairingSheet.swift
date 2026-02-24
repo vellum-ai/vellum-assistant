@@ -89,7 +89,7 @@ struct QRPairingSheet: View {
             .cornerRadius(VRadius.md)
             .padding(.horizontal, VSpacing.lg)
 
-            Text("Open Vellum on your Mac > Settings > Show QR Code. Ingress must be enabled on the Mac for pairing.")
+            Text("Open Vellum on your Mac, go to Settings \u{2192} Connect, and tap Show QR Code. Ingress must be enabled on the Mac for pairing.")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textMuted)
                 .multilineTextAlignment(.center)
@@ -256,7 +256,7 @@ struct QRPairingSheet: View {
         }
 
         guard json["type"] as? String == "vellum-daemon" else {
-            errorMessage = "This QR code is not from Vellum. Open Vellum on your Mac and scan the QR code from Settings."
+            errorMessage = "This QR code is not from Vellum. Open Vellum on your Mac and scan the QR code from Settings \u{2192} Connect."
             phase = .error
             return
         }
