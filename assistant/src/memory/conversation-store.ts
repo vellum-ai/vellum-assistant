@@ -159,7 +159,7 @@ export function addMessage(conversationId: string, role: string, content: string
       throw err;
     }
   }
-  const message = { id: messageId, conversationId, role, content, createdAt: now };
+  const message = { id: messageId, conversationId, role, content, createdAt: now, ...(metadataStr ? { metadata: metadataStr } : {}) };
 
   try {
     const config = getConfig();
