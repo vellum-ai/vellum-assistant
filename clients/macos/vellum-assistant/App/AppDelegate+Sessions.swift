@@ -64,12 +64,22 @@ extension AppDelegate {
     // MARK: - External App Target Detection
 
     /// Returns `true` when the CU session targets an external app (not Vellum
-    /// itself). When `bundleId` is nil the session has no target constraint and
-    /// is treated as "self" (backward compatibility).
-    private func isExternalAppTarget(bundleId: String?) -> Bool {
-        guard let bundleId, !bundleId.isEmpty else { return false }
-        let selfBundleId = Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant"
-        return bundleId != selfBundleId
+    /// itself). Uses bundle ID for precise comparison when available, falls back
+    /// to name-based check for sessions where only the app name is set.
+    /// When both are nil the session has no target constraint and is treated as
+    /// "self" (backward compatibility).
+    private func isExternalAppTarget(bundleId: String?, name: String?) -> Bool {
+        // If we have a bundleId, use precise comparison
+        if let bundleId, !bundleId.isEmpty {
+            let selfBundleId = Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant"
+            return bundleId != selfBundleId
+        }
+        // If we only have a name, check it's not Vellum
+        if let name, !name.isEmpty {
+            let lower = name.lowercased()
+            return lower != "vellum" && lower != "vellum assistant"
+        }
+        return false
     }
 
     // MARK: - Accessibility Permission
@@ -150,7 +160,7 @@ extension AppDelegate {
             // target app IS Vellum itself (or unspecified). For external-app QA
             // sessions (e.g., targeting Slack, Chrome), activating Vellum's main
             // window would steal focus from the app under test.
-            if !self.isExternalAppTarget(bundleId: routed.targetAppBundleId) {
+            if !self.isExternalAppTarget(bundleId: routed.targetAppBundleId, name: routed.targetAppName) {
                 self.showMainWindow()
             }
 
@@ -303,7 +313,7 @@ extension AppDelegate {
                     // but only when the target app is Vellum itself (or
                     // unspecified). For external-app QA sessions, activating
                     // Vellum would steal focus from the app under test.
-                    if !self.isExternalAppTarget(bundleId: routed.targetAppBundleId) {
+                    if !self.isExternalAppTarget(bundleId: routed.targetAppBundleId, name: routed.targetAppName) {
                         self.showMainWindow()
                     }
                 }
