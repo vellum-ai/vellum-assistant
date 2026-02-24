@@ -567,11 +567,13 @@ describe('relay-server', () => {
 
   test('verification failure remains failed if transport closes during goodbye delay', async () => {
     ensureConversation('conv-relay-verify-race');
+    ensureConversation('conv-relay-verify-race-initiator');
     const session = createCallSession({
       conversationId: 'conv-relay-verify-race',
       provider: 'twilio',
       fromNumber: '+15551111111',
       toNumber: '+15552222222',
+      initiatedFromConversationId: 'conv-relay-verify-race-initiator',
     });
 
     mockConfig.calls.verification.enabled = true;
@@ -850,7 +852,7 @@ describe('relay-server', () => {
     // Enable verification to prove inbound calls skip it
     mockConfig.calls.verification.enabled = true;
 
-    mockStreamFn.mockImplementation(() => createMockStream(['Hello, how can I help you today?']));
+    mockSendMessage.mockImplementation(createMockProviderResponse(['Hello, how can I help you today?']));
 
     const { ws, relay } = createMockWs(session.id);
 
@@ -886,7 +888,7 @@ describe('relay-server', () => {
       // no task — inbound call
     });
 
-    mockStreamFn.mockImplementation(() => createMockStream(['Sure, let me help with that.']));
+    mockSendMessage.mockImplementation(createMockProviderResponse(['Sure, let me help with that.']));
 
     const { relay } = createMockWs(session.id);
 
@@ -932,11 +934,21 @@ describe('relay-server', () => {
     });
 
     let turnCount = 0;
-    mockStreamFn.mockImplementation(() => {
+    mockSendMessage.mockImplementation(async (_messages: unknown[], _tools: unknown[], _systemPrompt: unknown, options?: { onEvent?: (event: { type: string; text?: string }) => void }) => {
       turnCount++;
-      if (turnCount === 1) return createMockStream(['Hello, how can I help you?']);
-      if (turnCount === 2) return createMockStream(['Sure, I can help with that.']);
-      return createMockStream(['Your appointment is confirmed.']);
+      let tokens: string[];
+      if (turnCount === 1) tokens = ['Hello, how can I help you?'];
+      else if (turnCount === 2) tokens = ['Sure, I can help with that.'];
+      else tokens = ['Your appointment is confirmed.'];
+      for (const token of tokens) {
+        options?.onEvent?.({ type: 'text_delta', text: token });
+      }
+      return {
+        content: [{ type: 'text', text: tokens.join('') }],
+        model: 'claude-sonnet-4-20250514',
+        usage: { inputTokens: 100, outputTokens: 50 },
+        stopReason: 'end_turn',
+      };
     });
 
     const { ws: _ws, relay } = createMockWs(session.id);
@@ -1000,7 +1012,7 @@ describe('relay-server', () => {
     const challenge = createVerificationChallenge('test-assistant', 'voice');
     const secret = challenge.secret;
 
-    mockStreamFn.mockImplementation(() => createMockStream(['Hello, how can I help you?']));
+    mockSendMessage.mockImplementation(createMockProviderResponse(['Hello, how can I help you?']));
 
     const { ws, relay } = createMockWs(session.id);
 
@@ -1063,7 +1075,7 @@ describe('relay-server', () => {
     const challenge = createVerificationChallenge('test-assistant', 'voice');
     const secret = challenge.secret;
 
-    mockStreamFn.mockImplementation(() => createMockStream(['Hello, verified caller!']));
+    mockSendMessage.mockImplementation(createMockProviderResponse(['Hello, verified caller!']));
 
     const { ws, relay } = createMockWs(session.id);
 
@@ -1216,7 +1228,7 @@ describe('relay-server', () => {
 
     // Do NOT create any pending challenge
 
-    mockStreamFn.mockImplementation(() => createMockStream(['Welcome to the line.']));
+    mockSendMessage.mockImplementation(createMockProviderResponse(['Welcome to the line.']));
 
     const { ws, relay } = createMockWs(session.id);
 

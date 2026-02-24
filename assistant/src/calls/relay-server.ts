@@ -375,9 +375,14 @@ export class RelayConnection {
     });
     this.setOrchestrator(orchestrator);
 
-    // Inbound calls (no task) skip callee verification — verification is
-    // an outbound-call concern where we need to confirm the callee's identity.
-    const isInbound = session?.task == null;
+    // Inbound calls skip callee verification — verification is an
+    // outbound-call concern where we need to confirm the callee's identity.
+    // We use initiatedFromConversationId rather than task == null because
+    // outbound calls always have an initiating conversation, while inbound
+    // calls (created via createInboundVoiceSession) never do. Relying on
+    // task == null is unreliable: task-less outbound sessions would
+    // incorrectly bypass outbound verification.
+    const isInbound = session?.initiatedFromConversationId == null;
 
     const config = getConfig();
     const verificationConfig = config.calls.verification;
