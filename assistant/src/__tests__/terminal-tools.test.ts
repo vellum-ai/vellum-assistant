@@ -1,8 +1,10 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
 import { mkdtempSync, mkdirSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { Tool } from '../tools/types.js';
+import type { SandboxBackend } from '../tools/terminal/backends/types.js';
+import type { ShellOutputResult } from '../tools/shared/shell-output.js';
 
 // ── Mock modules ────────────────────────────────────────────────────────────
 
@@ -502,7 +504,7 @@ describe('wrapCommand', () => {
 describe('Native sandbox backend', () => {
   // We test NativeBackend directly rather than through wrapCommand to avoid
   // platform-dependent sandbox-exec/bwrap availability.
-  let NativeBackend: any;
+  let NativeBackend: new () => SandboxBackend;
 
   beforeEach(async () => {
     const mod = await import('../tools/terminal/backends/native.js');
@@ -546,8 +548,8 @@ describe('Native sandbox backend', () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('Docker sandbox backend', () => {
-  let DockerBackend: any;
-  let _resetDockerChecks: any;
+  let DockerBackend: new (sandboxRoot: string, config?: Record<string, unknown>, uid?: number, gid?: number) => SandboxBackend;
+  let _resetDockerChecks: () => void;
 
   const sandboxDir = join(testTmpDir, 'docker-sandbox');
 
@@ -628,7 +630,7 @@ describe('Docker sandbox backend', () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('Shell tool input validation', () => {
-  let shellTool: any;
+  let shellTool: Tool;
 
   beforeEach(async () => {
     const mod = await import('../tools/terminal/shell.js');
@@ -715,7 +717,7 @@ describe('Shell tool input validation', () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('formatShellOutput', () => {
-  let formatShellOutput: any;
+  let formatShellOutput: (stdout: string, stderr: string, code: number | null, timedOut: boolean, timeoutSec: number) => ShellOutputResult;
 
   beforeEach(async () => {
     const mod = await import('../tools/shared/shell-output.js');
@@ -775,7 +777,7 @@ describe('formatShellOutput', () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('EvaluateTypescriptTool input validation', () => {
-  let evalTool: any;
+  let evalTool: Tool;
 
   beforeEach(async () => {
     const mod = await import('../tools/terminal/evaluate-typescript.js');
