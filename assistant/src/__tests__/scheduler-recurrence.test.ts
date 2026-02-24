@@ -254,8 +254,8 @@ describe('scheduler RRULE execution', () => {
     const currentMinuteDate = new Date(now);
     currentMinuteDate.setUTCSeconds(0);
     currentMinuteDate.setUTCMilliseconds(0);
-    // Round to the previous minute boundary relative to dtstart
-    const exDate = `${currentMinuteDate.getUTCFullYear()}${pad(currentMinuteDate.getUTCMonth() + 1)}${pad(currentMinuteDate.getUTCDate())}T${pad(currentMinuteDate.getUTCHours())}${pad(currentMinuteDate.getUTCMinutes())}00Z`;
+    // Seconds must match DTSTART so the EXDATE aligns with a recurrence instance
+    const exDate = `${currentMinuteDate.getUTCFullYear()}${pad(currentMinuteDate.getUTCMonth() + 1)}${pad(currentMinuteDate.getUTCDate())}T${pad(currentMinuteDate.getUTCHours())}${pad(currentMinuteDate.getUTCMinutes())}${pad(pastDate.getUTCSeconds())}Z`;
 
     const expression = `DTSTART:${ds}\nRRULE:FREQ=MINUTELY;INTERVAL=1\nEXDATE:${exDate}`;
 
