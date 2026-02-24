@@ -1158,6 +1158,17 @@ struct SettingsConnectTab: View {
                         .foregroundColor(VColor.textPrimary)
                 }
 
+                // Token Override
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Token Override (optional)")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                    SecureField("Custom bearer token", text: $iosPairingTokenOverride)
+                        .vInputStyle()
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+                }
+
                 // Reset / disable button
                 VButton(label: "Disable & Reset", style: .danger) {
                     iosPairingGatewayOverride = ""
