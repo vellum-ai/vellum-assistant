@@ -65,9 +65,11 @@ export class CallOrchestrator {
   private consultationTimer: ReturnType<typeof setTimeout> | null = null;
   private durationEndTimer: ReturnType<typeof setTimeout> | null = null;
   private task: string | null;
+  /** True when the call session was created via the inbound path (no outbound task). */
+  private isInbound: boolean;
   /** Instructions queued while an LLM turn is in-flight or during waiting_on_user */
   private pendingInstructions: string[] = [];
-  /** Ensures the outbound-call opener is triggered at most once per call. */
+  /** Ensures the call opener is triggered at most once per call. */
   private initialGreetingStarted = false;
   /** Marks that the next caller turn should be treated as an opening acknowledgment. */
   private awaitingOpeningAck = false;
@@ -82,6 +84,7 @@ export class CallOrchestrator {
     this.callSessionId = callSessionId;
     this.relay = relay;
     this.task = task;
+    this.isInbound = task === null;
     this.broadcast = opts?.broadcast;
     this.assistantId = opts?.assistantId ?? 'self';
     this.startDurationTimer();
@@ -301,6 +304,10 @@ export class CallOrchestrator {
       ? `1. ${config.calls.disclosure.text}`
       : '1. Begin the conversation naturally.';
 
+    if (this.isInbound) {
+      return this.buildInboundSystemPrompt(disclosureRule);
+    }
+
     return [
       `You are on a live phone call on behalf of ${resolveUserReference()}.`,
       this.task ? `Task: ${this.task}` : '',
@@ -322,6 +329,38 @@ export class CallOrchestrator {
       '10. If the latest user turn is [CALL_OPENING], generate a natural, context-specific opener: briefly introduce yourself once as an assistant, state why you are calling using the Task context, and ask a short permission/check-in question. Vary the wording; do not use a fixed template.',
       '11. If the latest user turn includes [CALL_OPENING_ACK], treat it as the callee acknowledging your opener and continue the conversation naturally without re-introducing yourself or repeating the initial check-in question.',
       '12. Do not repeat your introduction within the same call unless the callee explicitly asks who you are.',
+    ]
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  /**
+   * Build a system prompt tailored for inbound calls where the caller
+   * reached out to us. The assistant greets naturally and helps the
+   * caller with whatever they need, rather than delivering an outbound
+   * task message.
+   */
+  private buildInboundSystemPrompt(disclosureRule: string): string {
+    return [
+      `You are on a live phone call, answering an incoming call on behalf of ${resolveUserReference()}.`,
+      '',
+      'The caller dialed in to reach you. You do not have a specific task — your role is to greet them warmly, find out what they need, and assist them.',
+      'Respond naturally and conversationally — speak as you would in a real phone conversation.',
+      '',
+      'IMPORTANT RULES:',
+      '0. When introducing yourself, refer to yourself as an assistant. Avoid the phrase "AI assistant" unless directly asked.',
+      disclosureRule,
+      '2. Be concise — phone conversations should be brief and natural.',
+      '3. If the caller asks something you don\'t know or need to verify, include [ASK_GUARDIAN: your question here] in your response along with a hold message like "Let me check on that for you."',
+      '4. If information is provided preceded by [USER_ANSWERED: ...], use that answer naturally in the conversation.',
+      '5. If you see [USER_INSTRUCTION: ...], treat it as a high-priority steering directive from your user. Follow the instruction immediately, adjusting your approach or response accordingly.',
+      '6. When the caller indicates they are done or the conversation reaches a natural conclusion, include [END_CALL] in your response along with a polite goodbye.',
+      '7. Do not make up information — ask the user if unsure.',
+      '8. Keep responses short — 1-3 sentences is ideal for phone conversation.',
+      '9. When caller text includes [SPEAKER id="..." label="..."], treat each speaker as a distinct person and personalize responses using that speaker\'s prior context in this call.',
+      '10. If the latest user turn is [CALL_OPENING], greet the caller warmly and ask how you can help. For example: "Hello, this is [name]\'s assistant. How can I help you today?" Vary the wording; do not use a fixed template.',
+      '11. If the latest user turn includes [CALL_OPENING_ACK], treat it as the caller acknowledging your greeting and continue the conversation naturally.',
+      '12. Do not repeat your introduction within the same call unless the caller explicitly asks who you are.',
     ]
       .filter(Boolean)
       .join('\n');

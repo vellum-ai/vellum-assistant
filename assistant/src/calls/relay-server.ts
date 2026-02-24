@@ -352,10 +352,13 @@ export class RelayConnection {
     });
     this.setOrchestrator(orchestrator);
 
-    // Check if callee verification is enabled
+    // Inbound calls (no task) skip callee verification — verification is
+    // an outbound-call concern where we need to confirm the callee's identity.
+    const isInbound = !session?.task;
+
     const config = getConfig();
     const verificationConfig = config.calls.verification;
-    if (verificationConfig.enabled) {
+    if (!isInbound && verificationConfig.enabled) {
       this.startVerification(session, verificationConfig);
     } else {
       // Skip the LLM-driven opener when a static welcome greeting is already
@@ -365,7 +368,7 @@ export class RelayConnection {
       const hasStaticGreeting = !!process.env.CALL_WELCOME_GREETING?.trim();
       if (!hasStaticGreeting) {
         orchestrator.startInitialGreeting().catch((err) =>
-          log.error({ err, callSessionId: this.callSessionId }, 'Failed to start initial outbound greeting'),
+          log.error({ err, callSessionId: this.callSessionId }, `Failed to start initial ${isInbound ? 'inbound' : 'outbound'} greeting`),
         );
       }
     }
