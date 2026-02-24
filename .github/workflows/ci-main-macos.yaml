@@ -47,6 +47,29 @@ jobs:
 
           security find-identity -v -p codesigning "$KEYCHAIN_PATH"
 
+      - name: Cache SPM build artifacts
+        uses: actions/cache@v4
+        with:
+          path: clients/.build
+          key: macos-spm-${{ hashFiles('clients/Package.resolved') }}-${{ hashFiles('clients/**/*.swift') }}
+          restore-keys: |
+            macos-spm-${{ hashFiles('clients/Package.resolved') }}-
+            macos-spm-
+
+      - name: Cache Bun dependencies (assistant)
+        uses: actions/cache@v4
+        with:
+          path: assistant/node_modules
+          key: macos-bun-assistant-${{ hashFiles('assistant/bun.lock') }}
+          restore-keys: macos-bun-assistant-
+
+      - name: Cache Bun dependencies (cli)
+        uses: actions/cache@v4
+        with:
+          path: cli/node_modules
+          key: macos-bun-cli-${{ hashFiles('cli/bun.lock') }}
+          restore-keys: macos-bun-cli-
+
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -70,6 +93,7 @@ jobs:
           chmod +x ../clients/macos/daemon-bin/vellum-daemon
           cp node_modules/web-tree-sitter/web-tree-sitter.wasm ../clients/macos/daemon-bin/
           cp node_modules/tree-sitter-bash/tree-sitter-bash.wasm ../clients/macos/daemon-bin/
+          cp -R src/config/bundled-skills ../clients/macos/daemon-bin/bundled-skills
           echo "Daemon universal binary built:"
           ls -lh ../clients/macos/daemon-bin/vellum-daemon
           file ../clients/macos/daemon-bin/vellum-daemon
