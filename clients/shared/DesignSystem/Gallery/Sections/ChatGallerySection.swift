@@ -141,22 +141,173 @@ struct ChatGallerySection: View {
             // MARK: - Tool Chips
             GallerySectionHeader(
                 title: "Tool Chips",
-                description: "ToolCallChip"
+                description: "ToolCallChip — collapsed chips showing tool call status with expandable details."
             )
-            Text("Coming soon")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+
+            VCard {
+                VStack(alignment: .leading, spacing: VSpacing.lg) {
+                    Text("Completed (success)")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                    ToolCallChip(toolCall: ToolCallData(
+                        toolName: "bash",
+                        inputSummary: "ls -la /Users/test/project",
+                        result: "total 42\ndrwxr-xr-x  10 user  staff  320 Jan  1 12:00 .\ndrwxr-xr-x   5 user  staff  160 Jan  1 11:00 ..",
+                        isComplete: true
+                    ))
+
+                    Divider().background(VColor.surfaceBorder)
+
+                    Text("Completed (error)")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                    ToolCallChip(toolCall: ToolCallData(
+                        toolName: "bash",
+                        inputSummary: "rm -rf /important",
+                        result: "Permission denied",
+                        isError: true,
+                        isComplete: true
+                    ))
+
+                    Divider().background(VColor.surfaceBorder)
+
+                    Text("File edit (success)")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                    ToolCallChip(toolCall: ToolCallData(
+                        toolName: "file_edit",
+                        inputSummary: "/src/Config.swift",
+                        result: "File updated successfully.",
+                        isComplete: true
+                    ))
+
+                    Divider().background(VColor.surfaceBorder)
+
+                    Text("In progress")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                    ToolCallChip(toolCall: ToolCallData(
+                        toolName: "file_read",
+                        inputSummary: "/src/main.swift",
+                        isComplete: false
+                    ))
+                }
+            }
 
             Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
 
             // MARK: - Step Indicators
             GallerySectionHeader(
                 title: "Step Indicators",
-                description: "CurrentStepIndicator, ToolCallProgressBar"
+                description: "CurrentStepIndicator — shows current step with progress count. ToolCallProgressBar — horizontal progress bar with clickable steps."
             )
-            Text("Coming soon")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+
+            VCard {
+                VStack(alignment: .leading, spacing: VSpacing.lg) {
+                    Text("CurrentStepIndicator — in progress with multiple steps")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                    CurrentStepIndicator(
+                        toolCalls: [
+                            ToolCallData(
+                                toolName: "Web Search",
+                                inputSummary: "flights from New York to London",
+                                isComplete: true
+                            ),
+                            ToolCallData(
+                                toolName: "Browser Navigate",
+                                inputSummary: "https://google.com/flights",
+                                isComplete: false
+                            ),
+                            ToolCallData(
+                                toolName: "Browser Click",
+                                inputSummary: "Departure field",
+                                isComplete: false
+                            )
+                        ],
+                        isStreaming: true,
+                        onTap: {}
+                    )
+
+                    Divider().background(VColor.surfaceBorder)
+
+                    Text("CurrentStepIndicator — completed")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                    CurrentStepIndicator(
+                        toolCalls: [
+                            ToolCallData(
+                                toolName: "Web Search",
+                                inputSummary: "flights",
+                                isComplete: true
+                            ),
+                            ToolCallData(
+                                toolName: "Browser Navigate",
+                                inputSummary: "url",
+                                isComplete: true
+                            )
+                        ],
+                        isStreaming: false,
+                        onTap: {}
+                    )
+                }
+            }
+
+            VCard {
+                VStack(alignment: .leading, spacing: VSpacing.lg) {
+                    Text("ToolCallProgressBar — multi-step with one in progress")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                    ToolCallProgressBar(toolCalls: [
+                        ToolCallData(
+                            toolName: "Web Search",
+                            inputSummary: "flights from New York to London",
+                            isComplete: true
+                        ),
+                        ToolCallData(
+                            toolName: "Browser Navigate",
+                            inputSummary: "https://www.google.com/travel/flights",
+                            result: "Navigated to Google Flights",
+                            isComplete: true
+                        ),
+                        ToolCallData(
+                            toolName: "Browser Screenshot",
+                            inputSummary: "",
+                            isComplete: true
+                        ),
+                        ToolCallData(
+                            toolName: "Browser Click",
+                            inputSummary: "[aria-label=\"Departure\"]",
+                            isComplete: false
+                        )
+                    ])
+
+                    Divider().background(VColor.surfaceBorder)
+
+                    Text("ToolCallProgressBar — completed with error")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                    ToolCallProgressBar(toolCalls: [
+                        ToolCallData(
+                            toolName: "Web Search",
+                            inputSummary: "flights NYC to London",
+                            isComplete: true
+                        ),
+                        ToolCallData(
+                            toolName: "Browser Navigate",
+                            inputSummary: "https://www.google.com/travel/flights",
+                            isComplete: true
+                        ),
+                        ToolCallData(
+                            toolName: "Browser Click",
+                            inputSummary: "invalid selector",
+                            result: "Element not found",
+                            isError: true,
+                            isComplete: true
+                        )
+                    ])
+                }
+            }
 
             Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
 
