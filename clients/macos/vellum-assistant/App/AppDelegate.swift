@@ -1094,7 +1094,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         let (targetModifiers, targetKey) = ShortcutHelper.parseShortcut(shortcut)
 
         quickChatMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            let eventMods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            let eventMods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.numericPad)
             guard eventMods == targetModifiers,
                   event.charactersIgnoringModifiers?.lowercased() == targetKey.lowercased() else { return }
             Task { @MainActor in
@@ -1105,7 +1105,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // Local monitor fires when the app itself is active (global monitor only
         // fires when other apps are frontmost). Return nil to consume the event.
         quickChatLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            let eventMods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            let eventMods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.numericPad)
             guard eventMods == targetModifiers,
                   event.charactersIgnoringModifiers?.lowercased() == targetKey.lowercased() else { return event }
             Task { @MainActor in

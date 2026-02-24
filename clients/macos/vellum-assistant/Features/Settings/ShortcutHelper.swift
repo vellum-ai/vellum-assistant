@@ -43,12 +43,15 @@ enum ShortcutHelper {
     /// Builds a shortcut string from modifier flags and a key code/characters,
     /// as captured from an NSEvent during recording.
     static func shortcutString(from modifiers: NSEvent.ModifierFlags, key: String, keyCode: UInt16) -> String {
+        // Strip .numericPad — macOS implicitly sets it on arrow key events and it
+        // shouldn't participate in shortcut matching.
+        let mods = modifiers.subtracting(.numericPad)
         var parts: [String] = []
-        if modifiers.contains(.function) { parts.append("fn") }
-        if modifiers.contains(.control) { parts.append("ctrl") }
-        if modifiers.contains(.option) { parts.append("opt") }
-        if modifiers.contains(.shift) { parts.append("shift") }
-        if modifiers.contains(.command) { parts.append("cmd") }
+        if mods.contains(.function) { parts.append("fn") }
+        if mods.contains(.control) { parts.append("ctrl") }
+        if mods.contains(.option) { parts.append("opt") }
+        if mods.contains(.shift) { parts.append("shift") }
+        if mods.contains(.command) { parts.append("cmd") }
 
         let keyPart = keyName(for: key, keyCode: keyCode)
         parts.append(keyPart == "+" ? "plus" : keyPart)
