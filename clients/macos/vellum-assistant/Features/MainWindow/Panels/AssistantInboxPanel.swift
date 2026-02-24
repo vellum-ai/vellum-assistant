@@ -4,6 +4,7 @@ import SwiftUI
 struct AssistantInboxPanel: View {
     var onClose: () -> Void
     @StateObject private var viewModel: InboxViewModel
+    @State private var selectedThread: InboxThread?
 
     init(onClose: @escaping () -> Void, daemonClient: DaemonClient) {
         self.onClose = onClose
@@ -11,41 +12,52 @@ struct AssistantInboxPanel: View {
     }
 
     var body: some View {
-        VSidePanel(title: "Inbox", onClose: onClose) {
-            if viewModel.isLoading {
-                VStack {
-                    Spacer()
-                    VLoadingIndicator()
-                    Spacer()
+        if let thread = selectedThread {
+            InboxThreadDetailView(
+                thread: thread,
+                viewModel: viewModel,
+                onBack: { selectedThread = nil }
+            )
+        } else {
+            VSidePanel(title: "Inbox", onClose: onClose) {
+                if viewModel.isLoading {
+                    VStack {
+                        Spacer()
+                        VLoadingIndicator()
+                        Spacer()
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if let error = viewModel.error {
+                    VEmptyState(
+                        title: "Failed to load",
+                        subtitle: error,
+                        icon: "exclamationmark.triangle.fill"
+                    )
+                } else if viewModel.threads.isEmpty {
+                    VEmptyState(
+                        title: "No messages",
+                        subtitle: "Messages from your assistant will appear here",
+                        icon: "tray.fill"
+                    )
+                } else {
+                    threadListView
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let error = viewModel.error {
-                VEmptyState(
-                    title: "Failed to load",
-                    subtitle: error,
-                    icon: "exclamationmark.triangle.fill"
-                )
-            } else if viewModel.threads.isEmpty {
-                VEmptyState(
-                    title: "No messages",
-                    subtitle: "Messages from your assistant will appear here",
-                    icon: "tray.fill"
-                )
-            } else {
-                threadListView
             }
-        }
-        .task {
-            await viewModel.loadThreads()
+            .task {
+                await viewModel.loadThreads()
+            }
         }
     }
 
     private var threadListView: some View {
         VStack(spacing: 0) {
             ForEach(viewModel.threads) { thread in
-                VListRow {
-                    InboxThreadRow(thread: thread)
+                Button(action: { selectedThread = thread }) {
+                    VListRow {
+                        InboxThreadRow(thread: thread)
+                    }
                 }
+                .buttonStyle(.plain)
                 if thread.id != viewModel.threads.last?.id {
                     Divider()
                         .background(VColor.surfaceBorder)

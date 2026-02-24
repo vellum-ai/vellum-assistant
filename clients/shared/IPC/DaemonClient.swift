@@ -1066,6 +1066,17 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         ))
     }
 
+    /// Request messages for a specific inbox thread from the daemon.
+    public func sendAssistantInboxGetThreadMessages(conversationId: String, limit: Int? = nil, beforeMessageId: String? = nil) throws {
+        try send(IPCAssistantInboxRequest(
+            type: "assistant_inbox",
+            action: "get_thread_messages",
+            limit: limit.map { Double($0) },
+            conversationId: conversationId,
+            beforeMessageId: beforeMessageId
+        ))
+    }
+
     // MARK: - Model Config
 
     /// Request the current model/provider configuration from the daemon.
