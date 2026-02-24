@@ -57,7 +57,7 @@ struct SettingsConnectTab: View {
         }
         .onAppear {
             Task { await authManager.checkSession() }
-            Task { await store.checkVellumPlatform() }
+            if store.isDevMode { Task { await store.checkVellumPlatform() } }
             store.refreshIngressConfig()
             store.refreshAssistantEmail()
             gatewayUrlText = store.ingressPublicBaseUrl
