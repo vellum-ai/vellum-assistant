@@ -549,6 +549,7 @@ export function initializeDb(): void {
   // Indexes for query performance on large datasets
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_llm_request_logs_conv_created ON llm_request_logs(conversation_id, created_at)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_tool_invocations_conversation_id ON tool_invocations(conversation_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_conversations_updated_at ON conversations(updated_at)`);
   database.run(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_segments_message_segment ON memory_segments(message_id, segment_index)`);
@@ -565,9 +566,11 @@ export function initializeDb(): void {
     WHERE status = 'pending_clarification'
   `);
   database.run(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_items_fingerprint_scope ON memory_items(fingerprint, scope_id)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_items_fingerprint ON memory_items(fingerprint)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_items_kind_status ON memory_items(kind, status)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_items_status_invalid_at ON memory_items(status, invalid_at)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_items_scope_status_kind ON memory_items(scope_id, status, kind)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_items_scope_kind_status ON memory_items(scope_id, kind, status)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_items_last_seen_at ON memory_items(last_seen_at)`);
   // Partial covering index for directItemSearch: the LIKE '%term%' pattern can't
   // seek a B-tree, but this index lets SQLite scan only active non-invalidated rows
