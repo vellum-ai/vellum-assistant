@@ -83,9 +83,9 @@ const smsProbe: ChannelProbe = {
     // Resolve the assigned phone number using fallback chain
     const raw = loadRawConfig();
     const smsConfig = (raw?.sms ?? {}) as Record<string, unknown>;
-    const phoneNumber = (smsConfig.phoneNumber as string)
+    const phoneNumber = process.env.TWILIO_PHONE_NUMBER
+      || (smsConfig.phoneNumber as string)
       || getSecureKey('credential:twilio:phone_number')
-      || process.env.TWILIO_PHONE_NUMBER
       || '';
     if (!phoneNumber) return [];
 
