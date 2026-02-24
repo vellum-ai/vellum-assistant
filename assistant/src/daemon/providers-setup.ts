@@ -13,7 +13,7 @@ import { telegramBotMessagingProvider } from '../messaging/providers/telegram-bo
 import { smsMessagingProvider } from '../messaging/providers/sms/adapter.js';
 import { whatsappMessagingProvider } from '../messaging/providers/whatsapp/adapter.js';
 import { initWatcherEngine } from '../watcher/engine.js';
-import type { AssistantConfig } from '../config/loader.js';
+import type { AssistantConfig } from '../config/types.js';
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('lifecycle');
