@@ -99,6 +99,36 @@ public struct ToolConfirmationData: Equatable {
         }
     }
 
+    /// Structured preview of ALL input parameters, formatted as key: value lines.
+    /// Used in the "More details" section so the user can see exactly what will happen.
+    public var fullInputPreview: String {
+        // For bash, the command itself is the full picture
+        switch toolName {
+        case "bash", "host_bash":
+            return (input["command"]?.value as? String) ?? ""
+        default:
+            break
+        }
+
+        let lines: [String] = input.keys.sorted().compactMap { key in
+            guard let value = input[key]?.value else { return nil }
+            let formatted: String
+            if let str = value as? String {
+                formatted = str.count > 120 ? String(str.prefix(117)) + "..." : str
+            } else if let bool = value as? Bool {
+                formatted = bool ? "true" : "false"
+            } else if let num = value as? Int {
+                formatted = "\(num)"
+            } else if let num = value as? Double {
+                formatted = "\(num)"
+            } else {
+                formatted = "\(value)"
+            }
+            return "\(key): \(formatted)"
+        }
+        return lines.joined(separator: "\n")
+    }
+
     /// Human-readable preview of the tool input (e.g. the bash command or file path).
     public var commandPreview: String {
         switch toolName {

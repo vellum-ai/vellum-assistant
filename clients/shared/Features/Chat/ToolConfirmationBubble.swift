@@ -52,9 +52,9 @@ public struct ToolConfirmationBubble: View {
         confirmation.riskLevel.lowercased() == "high" ? "always_allow_high_risk" : "always_allow"
     }
 
-    /// The raw command/path preview for the inline display.
+    /// The full input preview for the inline display (all key-value pairs).
     private var inlinePreviewText: String? {
-        let preview = confirmation.commandPreview
+        let preview = confirmation.fullInputPreview
         return preview.isEmpty ? nil : preview
     }
 
