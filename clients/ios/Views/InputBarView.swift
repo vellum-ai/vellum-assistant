@@ -85,12 +85,12 @@ struct InputBarView: View {
                         RoundedRectangle(cornerRadius: VRadius.lg)
                             .stroke(VColor.surfaceBorder, lineWidth: isInputFocused.wrappedValue ? 1.5 : 1)
                     )
-                    .animation(.easeInOut(duration: 0.15), value: isInputFocused.wrappedValue)
+                    .animation(VAnimation.fast, value: isInputFocused.wrappedValue)
                     .overlay(
                         RoundedRectangle(cornerRadius: VRadius.lg)
                             .stroke(VColor.surfaceBorder.opacity(0.12), lineWidth: 3)
                             .opacity(isInputFocused.wrappedValue ? 1 : 0)
-                            .animation(.easeInOut(duration: 0.15), value: isInputFocused.wrappedValue)
+                            .animation(VAnimation.fast, value: isInputFocused.wrappedValue)
                     )
                     .shadow(color: VColor.textPrimary.opacity(0.06), radius: 8, x: 0, y: 2)
 

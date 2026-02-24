@@ -107,7 +107,7 @@ public struct VSlider: View {
             }
         }
         .scaleEffect(isDragging ? 1.05 : 1.0)
-        .animation(.easeOut(duration: 0.15), value: isDragging)
+        .animation(VAnimation.fast, value: isDragging)
     }
 
     // MARK: - Tick Marks

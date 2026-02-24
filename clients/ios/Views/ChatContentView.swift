@@ -201,9 +201,9 @@ struct ChatContentView: View {
         }
         .background(alignment: .bottom) { chatBackground }
         .background(VColor.chatBackground)
-        .animation(.easeInOut(duration: 0.2), value: viewModel.sessionError != nil)
-        .animation(.easeInOut(duration: 0.2), value: viewModel.errorText)
-        .animation(.easeInOut(duration: 0.2), value: viewModel.isMemoryDegraded)
+        .animation(VAnimation.standard, value: viewModel.sessionError != nil)
+        .animation(VAnimation.standard, value: viewModel.errorText)
+        .animation(VAnimation.standard, value: viewModel.isMemoryDegraded)
         .onChange(of: viewModel.messages.isEmpty) { _, isEmpty in
             if isEmpty {
                 greeting = greetingChoices.randomElement()!

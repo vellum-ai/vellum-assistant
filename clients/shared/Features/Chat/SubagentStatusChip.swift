@@ -103,7 +103,7 @@ public struct SubagentStatusChip: View {
     private func startDotAnimation() {
         guard !subagent.isTerminal else { return }
         timer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { _ in
-            withAnimation(.easeInOut(duration: 0.2)) {
+            withAnimation(VAnimation.standard) {
                 phase += 1
             }
         }
