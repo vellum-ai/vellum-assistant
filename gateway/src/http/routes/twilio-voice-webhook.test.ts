@@ -15,7 +15,7 @@ import { describe, test, expect, mock, beforeEach } from "bun:test";
 
 let lastForwardedAssistantId: string | undefined;
 let lastForwardedParams: Record<string, string> | undefined;
-let lastForwardedOriginalUrl: string | undefined;
+let _lastForwardedOriginalUrl: string | undefined;
 let forwardCalled = false;
 
 mock.module("../../runtime/client.js", () => ({
@@ -26,7 +26,7 @@ mock.module("../../runtime/client.js", () => ({
     assistantId?: string,
   ) => {
     lastForwardedParams = params;
-    lastForwardedOriginalUrl = originalUrl;
+    _lastForwardedOriginalUrl = originalUrl;
     lastForwardedAssistantId = assistantId;
     forwardCalled = true;
     return {
@@ -120,7 +120,7 @@ describe("twilio voice webhook handler", () => {
   beforeEach(() => {
     lastForwardedAssistantId = undefined;
     lastForwardedParams = undefined;
-    lastForwardedOriginalUrl = undefined;
+    _lastForwardedOriginalUrl = undefined;
     forwardCalled = false;
   });
 
