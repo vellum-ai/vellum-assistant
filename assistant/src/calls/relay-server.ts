@@ -555,16 +555,19 @@ export class RelayConnection {
       });
       log.info({ callSessionId: this.callSessionId }, 'Inbound guardian voice verification succeeded');
 
-      // Proceed to normal call flow
+      // Proceed to normal call flow (use startNormalCallFlow to respect
+      // the CALL_WELCOME_GREETING static greeting guard)
       if (this.orchestrator) {
-        this.orchestrator.startInitialGreeting().catch((err) =>
-          log.error({ err, callSessionId: this.callSessionId }, 'Failed to start initial inbound greeting after guardian verification'),
-        );
+        this.startNormalCallFlow(this.orchestrator, true);
       }
     } else {
       this.verificationAttempts++;
 
       if (this.verificationAttempts >= this.verificationMaxAttempts) {
+        // Immediately deactivate verification so DTMF/speech input during
+        // the goodbye window doesn't trigger more verification attempts.
+        this.guardianVerificationActive = false;
+
         recordCallEvent(this.callSessionId, 'guardian_voice_verification_failed', {
           attempts: this.verificationAttempts,
         });
