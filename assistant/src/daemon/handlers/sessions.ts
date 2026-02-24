@@ -358,6 +358,11 @@ export function handleSessionRename(
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
+  const conversation = conversationStore.getConversation(msg.sessionId);
+  if (!conversation) {
+    ctx.send(socket, { type: 'error', message: `Session ${msg.sessionId} not found` });
+    return;
+  }
   conversationStore.updateConversationTitle(msg.sessionId, msg.title);
   ctx.send(socket, {
     type: 'session_title_updated',
