@@ -273,7 +273,7 @@ class IOSThreadStore: ObservableObject {
         // Find the thread's default title; skip if already customized.
         guard threads.first(where: { $0.id == threadId })?.title == "New Chat" else { return }
 
-        vm.$messages
+        vm.messageManager.$messages
             .dropFirst()
             .compactMap { messages -> String? in
                 // Trigger once we have at least one user message and the first assistant
@@ -309,7 +309,7 @@ class IOSThreadStore: ObservableObject {
         guard !observedActivityThreadIds.contains(threadId) else { return }
         observedActivityThreadIds.insert(threadId)
 
-        vm.$messages
+        vm.messageManager.$messages
             .dropFirst()
             .map(\.count)
             .removeDuplicates()

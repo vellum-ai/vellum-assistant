@@ -82,7 +82,7 @@ final class VoiceModeManager: ObservableObject {
         chatViewModel.isVoiceModeActive = true
 
         // Monitor for permission requests during voice mode
-        messageCancellable = chatViewModel.$messages
+        messageCancellable = chatViewModel.messageManager.$messages
             .sink { [weak self] messages in
                 self?.checkForConfirmations(in: messages)
             }
