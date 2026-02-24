@@ -69,6 +69,10 @@ declare -a SAFE_LINE_PATTERNS=(
     # (typeof checks, null/undefined comparisons, variable/property references).
     # Avoids false positives like `oauth2ClientSecret: typeof record.oauth2ClientSecret`.
     "[a-zA-Z0-9_]*[Cc]lient[Ss]ecret[[:space:]]*[:=]+[[:space:]]*(typeof[[:space:]]|null[[:space:];,){}]|undefined[[:space:];,){}]|[a-zA-Z_][a-zA-Z0-9_]*[.?]+[a-zA-Z_])"
+    # TS/JS: dotted property access like `record.oauth2ClientSecret` or
+    # `policy?.oauth2ClientSecret`. Handles lines with multiple clientSecret
+    # references where the first pattern strips one occurrence but others remain.
+    "[.?]+[a-zA-Z0-9_]*[Cc]lient[Ss]ecret"
 )
 
 matches_safe_line_pattern() {

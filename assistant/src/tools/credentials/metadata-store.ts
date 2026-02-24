@@ -6,9 +6,10 @@
  * in the secure key backend only.
  */
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from 'node:fs';
+import { writeFileSync, renameSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { getDataDir } from '../../util/platform.js';
+import { ensureDir, readTextFileSync } from '../../util/fs.js';
 import { randomUUID } from 'node:crypto';
 import type { CredentialInjectionTemplate } from './policy-types.js';
 
@@ -112,12 +113,11 @@ function migrateRecordV1toV2(record: Record<string, unknown>): CredentialMetadat
 }
 
 function loadFile(): LoadResult {
-  const path = getMetadataPath();
-  if (!existsSync(path)) {
+  const raw = readTextFileSync(getMetadataPath());
+  if (raw === null) {
     return { version: CURRENT_VERSION, credentials: [] };
   }
   try {
-    const raw = readFileSync(path, 'utf-8');
     const data = JSON.parse(raw);
     if (typeof data !== 'object' || data === null) {
       return { version: CURRENT_VERSION, credentials: [] };
@@ -149,9 +149,7 @@ function loadFile(): LoadResult {
 function saveFile(data: MetadataFile): void {
   const path = getMetadataPath();
   const dir = dirname(path);
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
+  ensureDir(dir);
   const tmpPath = join(dir, `.tmp-${randomUUID()}`);
   writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf-8');
   renameSync(tmpPath, path);
