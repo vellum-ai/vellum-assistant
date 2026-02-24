@@ -145,6 +145,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var connectionStatusCancellable: AnyCancellable?
     var pulseTimer: Timer?
     var pulsePhase: CGFloat = 1.0
+    var pulseDirection: CGFloat = -1.0
     var cachedSkills: [SkillInfo] = []
     var refreshSkillsTask: Task<Void, Never>?
     var cachedApps: [AppItem] = []
@@ -674,6 +675,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         configureDaemonTransport(for: assistant)
+
+        // Rebind the menu bar icon observer to the (potentially new) daemon client
+        // so status changes on the replacement client trigger icon updates.
+        rebindConnectionStatusObserver()
 
         // Show macOS notification when a reminder fires
         daemonClient.onReminderFired = { msg in
