@@ -9,6 +9,8 @@ public enum PairingConfiguration {
     public static let overrideEnabledKey = "iosPairingUseOverride"
     public static let gatewayOverrideKey = "iosPairingGatewayOverride"
     public static let tokenOverrideKey = "iosPairingTokenOverride"
+    /// Key for the developer local pairing toggle.
+    /// Used on macOS only — iOS derives this permission from the QR payload's `allowLocalHttp` field.
     public static let devLocalPairingKey = "devLocalPairingEnabled"
 
     // MARK: - Override State

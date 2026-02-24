@@ -11,7 +11,6 @@ struct QRPairingSheet: View {
     @State private var scannedPayload: DaemonQRPayload?
     @State private var errorMessage: String?
     @State private var showGatewayChangedAlert = false
-    @AppStorage(PairingConfiguration.devLocalPairingKey) private var devLocalPairingEnabled: Bool = false
 
     enum PairingPhase {
         case scanning
@@ -297,7 +296,7 @@ struct QRPairingSheet: View {
         let allowLocalHttp = json["allowLocalHttp"] as? Bool ?? false
         let localLanUrl = json["localLanUrl"] as? String
 
-        // Validate HTTP scheme — require HTTPS for non-local, or allowLocalHttp/devLocalPairingEnabled for local HTTP
+        // Validate HTTP scheme — require HTTPS for non-local, or allowLocalHttp for local HTTP
         if let url = URL(string: gatewayURL), url.scheme?.lowercased() == "http" {
             guard let host = url.host, !host.isEmpty else {
                 errorMessage = "Invalid HTTP URL — no host found."
@@ -310,9 +309,7 @@ struct QRPairingSheet: View {
                 phase = .error
                 return
             }
-            // v3: QR payload carries the permission
-            // v2 fallback: check iOS developer toggle
-            if !allowLocalHttp && !devLocalPairingEnabled {
+            if !allowLocalHttp {
                 errorMessage = "This QR code uses a local network connection. Enable Developer Local Pairing on your Mac and rescan."
                 phase = .error
                 return
@@ -323,7 +320,6 @@ struct QRPairingSheet: View {
             gatewayURL: gatewayURL,
             bearerToken: bearerToken,
             hostId: hostId,
-            mode: json["m"] as? String,
             allowLocalHttp: allowLocalHttp,
             localLanUrl: localLanUrl
         )
@@ -453,7 +449,6 @@ struct DaemonQRPayload {
     let gatewayURL: String
     let bearerToken: String
     let hostId: String
-    let mode: String?           // v2 compat — "gateway", "local", or nil
     let allowLocalHttp: Bool    // v3 — whether iOS should accept local HTTP
     let localLanUrl: String?    // v3 — LAN URL for display
 }
