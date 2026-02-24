@@ -685,8 +685,8 @@ export class ComputerUseSession {
           };
         }
 
-        // Inject targetAppBundleId when the LLM didn't provide one
-        if (!input.app_bundle_id && this.targetAppBundleId) {
+        // Inject targetAppBundleId only when the requested app matches the target app
+        if (!input.app_bundle_id && this.targetAppBundleId && (!requestedApp || this.isTargetAppMatch(requestedApp))) {
           input = { ...input, app_bundle_id: this.targetAppBundleId };
         }
       }
