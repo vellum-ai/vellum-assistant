@@ -184,23 +184,31 @@
       "execution_target": "host"
     },
     {
-      "name": "query_media_events",
-      "description": "Query media events using natural language. Parses the query into structured filters (event type, count, confidence threshold, time range) and retrieves matching events ranked by confidence. Supports domain-specific keyword mapping (e.g., 'turnovers' → eventType='turnover').",
+      "name": "query_media",
+      "description": "Query video analysis data using natural language. Sends map output (from analyze_keyframes) to Claude for intelligent analysis and Q&A. Supports arbitrary questions about video content — Claude reads the full structured analysis and answers based on the data.",
       "category": "media",
       "risk": "low",
       "input_schema": {
         "type": "object",
         "properties": {
-          "query": {
-            "type": "string",
-            "description": "Natural language query describing the events to find (e.g., 'top 5 turnovers', 'high confidence goals in the first half')"
-          },
           "asset_id": {
             "type": "string",
-            "description": "ID of the media asset to search within"
+            "description": "ID of the media asset to query"
+          },
+          "query": {
+            "type": "string",
+            "description": "Natural language query about the video data (e.g., 'What happens at the 5 minute mark?', 'Summarize the key events', 'Are there any scoring plays?')"
+          },
+          "system_prompt": {
+            "type": "string",
+            "description": "Optional system prompt for Claude to customize analysis behavior"
+          },
+          "model": {
+            "type": "string",
+            "description": "LLM model to use for analysis. Default: 'claude-sonnet-4-6'"
           }
         },
-        "required": ["query", "asset_id"]
+        "required": ["asset_id", "query"]
       },
       "executor": "tools/query-media-events.ts",
       "execution_target": "host"
