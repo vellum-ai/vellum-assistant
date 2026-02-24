@@ -27,7 +27,7 @@ struct TasksView: View {
                     }
                 }
                 .refreshable {
-                    viewModel.fetchItems()
+                    await viewModel.fetchItemsAsync()
                 }
         }
         .sheet(isPresented: Binding(
@@ -125,9 +125,11 @@ struct TasksView: View {
                 .listRowInsets(EdgeInsets(top: VSpacing.xs, leading: VSpacing.md, bottom: VSpacing.xs, trailing: VSpacing.md))
             }
             .onDelete { indexSet in
-                for index in indexSet {
-                    let item = viewModel.items[index]
-                    viewModel.removeTask(id: item.id)
+                // Resolve all IDs before any removal so index shifts
+                // from earlier removeTask calls don't corrupt later lookups.
+                let ids = indexSet.map { viewModel.items[$0].id }
+                for id in ids {
+                    viewModel.removeTask(id: id)
                 }
             }
         }

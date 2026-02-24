@@ -39,6 +39,10 @@ class TasksViewModel: ObservableObject {
 
     private var runTimeoutTasks: [String: Task<Void, Never>] = [:]
 
+    /// One-shot continuation set by `fetchItemsAsync()` so the pull-to-refresh
+    /// indicator waits until the daemon responds rather than dismissing immediately.
+    private var pendingRefreshContinuation: CheckedContinuation<Void, Never>?
+
     /// How long to wait for a daemon run-task response before treating
     /// the request as timed out (matches macOS behaviour).
     private static let runTimeoutSeconds: UInt64 = 10
@@ -61,6 +65,11 @@ class TasksViewModel: ObservableObject {
                     .filter { WorkItemStatus(rawStatus: $0.status) != .running }
                     .map(\.id))
                 self.runInFlightIds.subtract(nonRunningIds)
+                // Signal pull-to-refresh completion if one is in flight.
+                if let continuation = self.pendingRefreshContinuation {
+                    self.pendingRefreshContinuation = nil
+                    continuation.resume()
+                }
             }
         }
 
@@ -167,6 +176,18 @@ class TasksViewModel: ObservableObject {
             logger.error("fetchItems failed: \(error.localizedDescription, privacy: .public)")
             errorMessage = error.localizedDescription
             isLoading = false
+        }
+    }
+
+    /// Async variant used by `.refreshable` so the pull-to-refresh indicator
+    /// stays visible until the daemon actually responds (not just until the
+    /// request is sent).
+    func fetchItemsAsync() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            // Register a one-shot listener that resumes the continuation once
+            // the next work-items-list response arrives, then clears itself.
+            pendingRefreshContinuation = continuation
+            fetchItems()
         }
     }
 
