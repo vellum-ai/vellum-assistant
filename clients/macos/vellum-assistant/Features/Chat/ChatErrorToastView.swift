@@ -22,7 +22,7 @@ struct ChatErrorBanner: View {
                 Text(text)
                     .font(VFont.caption)
                     .lineLimit(4)
-                if let hint = connectionDiagnosticHint {
+                if isConnectionError, let hint = connectionDiagnosticHint {
                     Text(hint)
                         .font(VFont.small)
                         .opacity(0.8)
