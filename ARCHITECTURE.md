@@ -119,6 +119,9 @@ graph TB
             DB_TASKS["tasks"]
             DB_TASK_RUNS["task_runs"]
             DB_WORK_ITEMS["work_items"]
+            DB_INGRESS_INVITES["assistant_ingress_invites"]
+            DB_INGRESS_MEMBERS["assistant_ingress_members"]
+            DB_INBOX_THREADS["assistant_inbox_thread_state"]
         end
 
         subgraph "Tracing"
@@ -1389,6 +1392,11 @@ graph LR
         C11["work_items_list / work_item_get<br/>work_item_create / work_item_update<br/>work_item_complete / work_item_run_task<br/>(planned)"]
         C12["tool_permission_simulate<br/>toolName, input, workingDir?,<br/>isInteractive?, forcePromptSideEffects?,<br/>executionTarget?"]
         C13["conversation_search<br/>query, limit?,<br/>maxMessagesPerConversation?"]
+        C14["ingress_invite<br/>create / list / revoke / redeem"]
+        C15["ingress_member<br/>list / upsert / revoke / block"]
+        C16["assistant_inbox<br/>list_threads / get_thread_messages"]
+        C17["assistant_inbox_escalation<br/>list / decide"]
+        C18["assistant_inbox_reply<br/>conversationId, content"]
     end
 
     SOCKET["Unix Socket<br/>~/.vellum/vellum.sock<br/>───────────────<br/>Newline-delimited JSON<br/>Max 96MB per message<br/>Ping/pong every 30s<br/>Auto-reconnect<br/>1s → 30s backoff"]
@@ -1419,6 +1427,11 @@ graph LR
         S21["work_item_status_changed<br/>workItemId, newStatus<br/>(planned push)"]
         S22["tool_permission_simulate_response<br/>decision, riskLevel, reason?,<br/>promptPayload?, matchedRuleId?"]
         S23["conversation_search_response<br/>query, results[]: conversationId,<br/>title, updatedAt, matchingMessages[]"]
+        S24["ingress_invite_response<br/>invite / invites"]
+        S25["ingress_member_response<br/>member / members"]
+        S26["assistant_inbox_response<br/>threads / messages"]
+        S27["assistant_inbox_escalation_response<br/>escalations / decision"]
+        S28["assistant_inbox_reply_response<br/>messageId"]
     end
 
     C0 --> SOCKET
@@ -1435,6 +1448,11 @@ graph LR
     C11 --> SOCKET
     C12 --> SOCKET
     C13 --> SOCKET
+    C14 --> SOCKET
+    C15 --> SOCKET
+    C16 --> SOCKET
+    C17 --> SOCKET
+    C18 --> SOCKET
 
     SOCKET --> S0
     SOCKET --> S1
@@ -1459,6 +1477,11 @@ graph LR
     SOCKET --> S20
     SOCKET --> S21
     SOCKET --> S22
+    SOCKET --> S24
+    SOCKET --> S25
+    SOCKET --> S26
+    SOCKET --> S27
+    SOCKET --> S28
 ```
 
 ---
@@ -3863,6 +3886,101 @@ The `channelGuardianApprovalRequests` table tracks per-run approval state. Each 
 | `assistant/src/calls/guardian-action-sweep.ts` | Periodic 60s sweep for expired guardian action requests; sends expiry notices to delivery channels |
 | `assistant/src/memory/guardian-action-store.ts` | CRUD for guardian_action_requests and guardian_action_deliveries tables; first-writer-wins resolution via atomic status check |
 
+### Assistant Inbox — Ingress Membership and Escalation
+
+The assistant inbox extends the guardian security model to support controlled cross-user access. External users interact with the assistant through channels (Telegram, SMS) under an invite-based membership system with per-member access policies.
+
+#### Ingress Membership ACL
+
+The channel inbound handler (`channel-routes.ts`) enforces an access control layer between message receipt and agent processing:
+
+1. When `inbox_enabled` is true and the sender is not the guardian, the handler looks up the sender in `assistant_ingress_members` by `(sourceChannel, externalUserId)`.
+2. If no member record exists, the `inbox_default_policy` config determines behavior (allow, deny, or escalate).
+3. If a member exists, their individual `policy` field takes precedence.
+
+Invite tokens are created via the `ingress_invite` IPC contract. Each token is SHA-256 hashed before storage — the raw token is returned exactly once at creation time. External users redeem invites by sending the token as a channel message, which creates a member record with the default policy.
+
+#### Escalation Data Flow
+
+When a member's policy is `escalate`:
+
+```mermaid
+sequenceDiagram
+    participant Ext as External User
+    participant GW as Gateway
+    participant RT as Runtime (channel-routes)
+    participant DB as SQLite
+    participant Guardian as Guardian (Dual-Surface)
+    participant Desktop as Desktop Inbox UI
+
+    Ext->>GW: Send message via channel
+    GW->>RT: POST /channels/inbound
+    RT->>DB: Look up ingress member → policy = escalate
+    RT->>DB: Store raw payload (channel-delivery-store)
+    RT->>DB: Create channel_guardian_approval_request
+    RT->>DB: Update assistant_inbox_thread_state (escalation count)
+    RT->>GW: Notify guardian via channel push notification
+    GW->>Guardian: Deliver escalation notice (Telegram/SMS)
+
+    par Desktop polling
+        Desktop->>RT: assistant_inbox_escalation (list, 15s poll)
+        RT->>Desktop: Pending escalations with approve/deny
+    end
+
+    alt Guardian approves (desktop or channel)
+        Guardian->>RT: Approve decision
+        RT->>DB: Resolve approval request
+        RT->>DB: Recover stored payload
+        RT->>RT: Process message through agent pipeline
+        RT->>GW: Deliver assistant reply
+        GW->>Ext: Reply via channel
+    else Guardian denies
+        Guardian->>RT: Deny decision
+        RT->>GW: Deliver refusal message
+        GW->>Ext: Refusal via channel
+    end
+```
+
+The escalation system is **dual-surface**: the guardian can approve or deny from either their channel (Telegram/SMS push notification) or the desktop inbox UI (`AssistantInboxPanel`). Both surfaces write to the same `channel_guardian_approval_requests` table. The desktop UI polls every 15 seconds for updates.
+
+If no guardian binding exists for the channel, escalation fails closed — the message is denied with `escalate_no_guardian`.
+
+#### Inbox Thread State
+
+The `assistant_inbox_thread_state` table provides a denormalized projection of per-contact conversation metadata:
+
+| Column | Description |
+|--------|-------------|
+| `conversation_id` | PK, FK to conversations |
+| `assistant_id` | Scopes threads per assistant |
+| `source_channel` | Channel the contact uses (telegram, sms) |
+| `external_chat_id` | Contact's chat ID on the channel |
+| `unread_count` | Incremented on inbound, reset on outbound |
+| `pending_escalation_count` | Count of pending approval requests for this thread |
+| `has_pending_escalation` | Boolean (0/1) derived from pending count |
+| `last_inbound_at` / `last_outbound_at` | Directional activity timestamps |
+
+The escalation projection (`inbox-escalation-projection.ts`) keeps badge counts in sync by querying pending `channel_guardian_approval_requests` and updating thread state. This runs after approval decisions and can be triggered for a single thread or all threads.
+
+#### SQLite Tables
+
+| Table | Purpose |
+|-------|---------|
+| `assistant_ingress_invites` | Invite tokens with SHA-256 hashes, expiry, use counts |
+| `assistant_ingress_members` | Member records with per-member access policy (allow/deny/escalate) |
+| `assistant_inbox_thread_state` | Denormalized thread metadata (unread counts, escalation badges, timestamps) |
+
+#### Key Modules
+
+| Module | Purpose |
+|--------|---------|
+| `assistant/src/memory/ingress-invite-store.ts` | CRUD for invite tokens with SHA-256 hashing and expiry |
+| `assistant/src/memory/ingress-member-store.ts` | CRUD for ingress members with policy enforcement |
+| `assistant/src/memory/inbox-thread-store.ts` | Inbox thread state queries (unread counts, escalation badges) |
+| `assistant/src/memory/inbox-escalation-projection.ts` | Projects escalation state from approval requests onto thread state |
+| `assistant/src/daemon/handlers/config-inbox.ts` | IPC handlers for all inbox contracts (invite, member, escalation, reply) |
+| `assistant/src/runtime/routes/channel-routes.ts` | ACL enforcement point — member lookup, policy check, escalation creation |
+
 ### Telegram Credential Flow
 
 In desktop deployments, Telegram bot tokens are stored in secure storage (macOS Keychain or the encrypted file fallback) and never in plaintext config files. When deploying the gateway standalone, operators may also supply credentials via environment variables (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`).
@@ -4358,6 +4476,9 @@ Keep-alive heartbeats (every 30 s by default):
 | Guardian bindings | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; revoked bindings retained |
 | Guardian verification challenges | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; consumed/expired challenges retained |
 | Guardian approval requests | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; decision outcome retained |
+| Ingress invites | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; token hash stored, raw token never persisted |
+| Ingress members | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; revoked/blocked members retained |
+| Inbox thread state | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; denormalized projection of per-contact threads |
 | IPC transport | `~/.vellum/vellum.sock` | Unix domain socket | NWConnection (Swift) / Bun net | Ephemeral |
 
 ## SMS/Twilio Parity Verification Checklist
