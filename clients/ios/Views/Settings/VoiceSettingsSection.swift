@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import SwiftUI
+import VellumAssistantShared
 
 /// TTS provider options surfaced in Voice settings.
 /// The system provider uses iOS AVSpeechSynthesizer; ElevenLabs uses the
