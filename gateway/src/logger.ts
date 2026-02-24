@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, unlinkSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import pino from "pino";
 import pinoPretty from "pino-pretty";
@@ -64,6 +64,8 @@ function buildLogger(config: LogFileConfig | null): pino.Logger {
   const today = formatDate(new Date());
   const filePath = logFilePathForDate(config.dir, new Date());
   const fileStream = pino.destination({ dest: filePath, sync: false, mkdir: true, mode: 0o600 });
+  // Tighten permissions on pre-existing log files that may have been created with looser modes
+  try { chmodSync(filePath, 0o600); } catch { /* best-effort */ }
 
   activeLogDate = today;
   activeConfig = config;

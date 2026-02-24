@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, unlinkSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { Writable } from 'node:stream';
 import pino from 'pino';
@@ -67,6 +67,8 @@ function buildRotatingLogger(config: LogFileConfig): pino.Logger {
   const today = formatDate(new Date());
   const filePath = logFilePathForDate(config.dir, new Date());
   const fileStream = pino.destination({ dest: filePath, sync: false, mkdir: true, mode: 0o600 });
+  // Tighten permissions on pre-existing log files that may have been created with looser modes
+  try { chmodSync(filePath, 0o600); } catch { /* best-effort */ }
 
   activeLogDate = today;
   activeLogFileConfig = config;
@@ -130,7 +132,10 @@ function getRootLogger(): pino.Logger {
     }
 
     try {
-      const fileStream = pino.destination({ dest: getLogPath(), sync: false, mkdir: true, mode: 0o600 });
+      const logPath = getLogPath();
+      const fileStream = pino.destination({ dest: logPath, sync: false, mkdir: true, mode: 0o600 });
+      // Tighten permissions on pre-existing log files that may have been created with looser modes
+      try { chmodSync(logPath, 0o600); } catch { /* best-effort */ }
 
       if (getDebugMode()) {
         const prettyStream = pinoPretty({ destination: 2 });
