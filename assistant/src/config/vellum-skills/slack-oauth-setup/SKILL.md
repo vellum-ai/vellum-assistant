@@ -67,6 +67,7 @@ Tell the user: "App created! Now let's configure the permissions it needs."
 > - `groups:history` — Read message history in private channels
 > - `im:read` — View direct message info
 > - `im:history` — Read direct message history
+> - `im:write` — Open and send direct messages
 > - `mpim:read` — View group DM info
 > - `mpim:history` — Read group DM history
 > - `users:read` — View user profiles
