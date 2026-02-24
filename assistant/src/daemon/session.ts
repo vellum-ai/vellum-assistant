@@ -141,6 +141,7 @@ export class Session {
   /** @internal */ workspaceTopLevelDirty = true;
   public readonly traceEmitter: TraceEmitter;
   public memoryPolicy: SessionMemoryPolicy;
+  /** @internal */ streamThinking: boolean;
   /** @internal */ turnCount = 0;
   public lastAssistantAttachments: AssistantAttachmentDraft[] = [];
   public lastAttachmentWarnings: string[] = [];
@@ -195,6 +196,7 @@ export class Session {
     );
 
     const config = getConfig();
+    this.streamThinking = config.thinking.streamThinking ?? false;
     const resolveTools = createResolveToolsCallback(toolDefs, this);
 
     this.agentLoop = new AgentLoop(

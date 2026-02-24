@@ -103,6 +103,9 @@ export const ThinkingConfigSchema = z.object({
     .int('thinking.budgetTokens must be an integer')
     .positive('thinking.budgetTokens must be a positive integer')
     .default(10000),
+  streamThinking: z
+    .boolean({ error: 'thinking.streamThinking must be a boolean' })
+    .default(false),
 });
 
 export const ContextWindowConfigSchema = z.object({

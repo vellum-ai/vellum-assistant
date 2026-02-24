@@ -116,6 +116,7 @@ export interface AgentLoopSessionContext {
   lastAttachmentWarnings: string[];
 
   hasNoClient: boolean;
+  readonly streamThinking: boolean;
   readonly prompter: PermissionPrompter;
   readonly queue: MessageQueue;
 

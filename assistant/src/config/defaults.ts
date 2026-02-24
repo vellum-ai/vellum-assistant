@@ -12,6 +12,7 @@ export const DEFAULT_CONFIG: AssistantConfig = {
   thinking: {
     enabled: false,
     budgetTokens: 10000,
+    streamThinking: false,
   },
   contextWindow: {
     enabled: true,
