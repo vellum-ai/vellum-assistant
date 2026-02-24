@@ -140,10 +140,12 @@ async function fetchNotifications(
   const allNodes: LinearNotification[] = [];
   let cursor: string | null = null;
 
+  type NotificationsResponse = {
+    notifications: { nodes: LinearNotification[]; pageInfo: { hasNextPage: boolean; endCursor: string } };
+  };
+
   do {
-    const data = await graphql<{
-      notifications: { nodes: LinearNotification[]; pageInfo: { hasNextPage: boolean; endCursor: string } };
-    }>(token, `
+    const data: NotificationsResponse = await graphql<NotificationsResponse>(token, `
       query FetchNotifications($after: DateTime, $cursor: String) {
         notifications(
           filter: { updatedAt: { gte: $after } }
@@ -222,10 +224,12 @@ async function fetchAssignedIssueUpdates(
   const allNodes: LinearIssue[] = [];
   let cursor: string | null = null;
 
+  type IssuesResponse = {
+    issues: { nodes: LinearIssue[]; pageInfo: { hasNextPage: boolean; endCursor: string } };
+  };
+
   do {
-    const data = await graphql<{
-      issues: { nodes: LinearIssue[]; pageInfo: { hasNextPage: boolean; endCursor: string } };
-    }>(token, `
+    const data: IssuesResponse = await graphql<IssuesResponse>(token, `
       query FetchAssignedIssues($assigneeId: ID, $after: DateTime, $cursor: String) {
         issues(
           filter: {
