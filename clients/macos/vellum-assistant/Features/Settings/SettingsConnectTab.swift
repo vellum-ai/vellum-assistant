@@ -18,9 +18,8 @@ struct SettingsConnectTab: View {
     @State private var gatewayTargetCopied: Bool = false
     @State private var showingPairingQR: Bool = false
     @State private var showingRegenerateConfirmation: Bool = false
-    @State private var iosPairingEnabled: Bool = false
-    @State private var showingPairingWarning: Bool = false
     @State private var devPairingExpanded: Bool = false
+    @State private var diagnosticsExpanded: Bool = false
 
     // Telegram credential entry
     @State private var telegramBotTokenText = ""
@@ -45,13 +44,12 @@ struct SettingsConnectTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
-            pairingSection
+            showQRSection
             gatewaySection
             bearerTokenSection
             telegramCard
             twilioCard
-            statusSection
-            testConnectionSection
+            diagnosticsSection
             developerLocalPairingSection
         }
         .onAppear {
@@ -60,7 +58,6 @@ struct SettingsConnectTab: View {
             refreshBearerToken()
             store.refreshChannelGuardianStatus(channel: "telegram")
             store.refreshChannelGuardianStatus(channel: "sms")
-            iosPairingEnabled = FileManager.default.fileExists(atPath: NSHomeDirectory() + "/.vellum/ios-pairing-enabled")
         }
         .onChange(of: store.ingressPublicBaseUrl) { _, newValue in
             if !isGatewayUrlFocused {
@@ -85,17 +82,6 @@ struct SettingsConnectTab: View {
             }
         } message: {
             Text("This will replace the current bearer token and restart the daemon. Any paired devices will need to reconnect.")
-        }
-        .alert("Enable iOS Pairing", isPresented: $showingPairingWarning) {
-            Button("Cancel", role: .cancel) {
-                iosPairingEnabled = false
-            }
-            Button("Enable") {
-                UserDefaults.standard.set(true, forKey: "ios_pairing_warning_shown")
-                setIOSPairingEnabled(true)
-            }
-        } message: {
-            Text("Your iPhone will connect through the gateway. Only devices with a valid session token can reach your assistant.")
         }
         .sheet(isPresented: $showingPairingQR) {
             PairingQRCodeSheet(
@@ -831,213 +817,141 @@ struct SettingsConnectTab: View {
         }
     }
 
-    // MARK: - Pairing Section
+    // MARK: - Show QR Section (Hero)
 
-    private var pairingSection: some View {
+    private var showQRSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("QR Pairing")
+            Text("Pair with iOS")
                 .font(VFont.sectionTitle)
                 .foregroundColor(VColor.textPrimary)
 
-            // Enable iOS Pairing toggle
-            HStack {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Enable iOS Pairing")
-                        .font(VFont.bodyMedium)
-                        .foregroundColor(VColor.textPrimary)
-                    Text("Allow your iPhone to connect via the gateway (bearer-token authenticated).")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                }
-                Spacer()
-                Toggle("", isOn: $iosPairingEnabled)
-                    .toggleStyle(.switch)
-                    .labelsHidden()
-                    .onChange(of: iosPairingEnabled) { _, enabled in
-                        if enabled {
-                            if !UserDefaults.standard.bool(forKey: "ios_pairing_warning_shown") {
-                                showingPairingWarning = true
-                            } else {
-                                setIOSPairingEnabled(true)
-                            }
-                        } else {
-                            setIOSPairingEnabled(false)
-                        }
-                    }
-            }
+            Text("Scan the QR code with the Vellum iOS app to connect your iPhone.")
+                .font(VFont.body)
+                .foregroundColor(VColor.textSecondary)
 
-            // QR code button
-            HStack {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Pair an iOS device")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
-                    Text("Generate a QR code for the Vellum iOS app to scan.")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-                }
-                Spacer()
-                VButton(label: "Show QR Code", style: .primary) {
-                    showingPairingQR = true
-                }
-            }
-
-            // Gateway & token readout (when pairing is enabled)
-            if iosPairingEnabled {
-                Divider().background(VColor.surfaceBorder)
-
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    HStack(alignment: .top) {
-                        Text("Gateway URL")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                            .frame(width: 90, alignment: .leading)
-                        Text(store.resolvedIosGatewayUrl.isEmpty ? "Not configured" : store.resolvedIosGatewayUrl)
-                            .font(VFont.mono)
-                            .foregroundColor(store.resolvedIosGatewayUrl.isEmpty ? VColor.textMuted : VColor.textPrimary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        Spacer()
-                    }
-
-                    HStack(alignment: .top) {
-                        Text("Bearer Token")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                            .frame(width: 90, alignment: .leading)
-                        Text(store.resolvedIosBearerToken.isEmpty
-                             ? "Not configured"
-                             : String(repeating: "\u{2022}", count: 8))
-                            .font(VFont.mono)
-                            .foregroundColor(store.resolvedIosBearerToken.isEmpty ? VColor.textMuted : VColor.textPrimary)
-                        Spacer()
-                    }
-                }
-                .padding(VSpacing.md)
-                .background(VColor.surface.opacity(0.5))
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(VColor.surfaceBorder.opacity(0.3), lineWidth: 1)
-                )
+            VButton(label: "Show QR Code", leftIcon: "qrcode", style: .primary) {
+                showingPairingQR = true
             }
         }
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
     }
 
-    // MARK: - Status Section
+    // MARK: - Diagnostics Section (merged Status + Test Connection)
 
-    private var statusSection: some View {
+    private var diagnosticsSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Status")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
+            DisclosureGroup("Diagnostics", isExpanded: $diagnosticsExpanded) {
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    statusContent
 
-            if store.ingressPublicBaseUrl.isEmpty {
-                HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(VColor.warning)
-                        .font(.system(size: 14))
-                    Text("Set a Gateway URL to enable devices and integrations.")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
+                    Divider().background(VColor.surfaceBorder)
+
+                    testConnectionContent
                 }
-            } else if !store.ingressEnabled {
-                HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(VColor.warning)
-                        .font(.system(size: 14))
-                    Text("Gateway URL is set but the gateway is not active. Check your tunnel or gateway configuration.")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
-                }
-            } else {
-                HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(VColor.success)
-                        .font(.system(size: 14))
-                    Text("Configured")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
-                }
+                .padding(.top, VSpacing.sm)
             }
-
-            Text("This URL is used by your devices and integrations to reach this Mac.")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+            .font(VFont.sectionTitle)
+            .foregroundColor(VColor.textPrimary)
         }
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
     }
 
-    // MARK: - Test Connection Section
-
-    private var testConnectionSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Test Connection")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
-
-            // Test Connection button
+    @ViewBuilder
+    private var statusContent: some View {
+        if store.ingressPublicBaseUrl.isEmpty {
             HStack(spacing: VSpacing.sm) {
-                if store.isCheckingGateway {
-                    VLoadingIndicator(size: 14, color: VColor.accent)
-                    Text("Checking...")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
-                } else {
-                    VButton(
-                        label: "Test Connection",
-                        leftIcon: "antenna.radiowaves.left.and.right",
-                        style: .secondary,
-                        isDisabled: store.isCheckingGateway
-                    ) {
-                        Task { await store.testGatewayConnection() }
-                    }
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(VColor.warning)
+                    .font(.system(size: 14))
+                Text("Set a Gateway URL to enable devices and integrations.")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textSecondary)
+            }
+        } else if !store.ingressEnabled {
+            HStack(spacing: VSpacing.sm) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(VColor.warning)
+                    .font(.system(size: 14))
+                Text("Gateway URL is set but the gateway is not active. Check your tunnel or gateway configuration.")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textSecondary)
+            }
+        } else {
+            HStack(spacing: VSpacing.sm) {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(VColor.success)
+                    .font(.system(size: 14))
+                Text("Configured")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textSecondary)
+            }
+        }
+
+        Text("This URL is used by your devices and integrations to reach this Mac.")
+            .font(VFont.caption)
+            .foregroundColor(VColor.textMuted)
+    }
+
+    @ViewBuilder
+    private var testConnectionContent: some View {
+        // Test Connection button
+        HStack(spacing: VSpacing.sm) {
+            if store.isCheckingGateway {
+                VLoadingIndicator(size: 14, color: VColor.accent)
+                Text("Checking...")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textSecondary)
+            } else {
+                VButton(
+                    label: "Test Connection",
+                    leftIcon: "antenna.radiowaves.left.and.right",
+                    style: .secondary,
+                    isDisabled: store.isCheckingGateway
+                ) {
+                    Task { await store.testGatewayConnection() }
                 }
             }
+        }
 
-            // Gateway status row
-            connectionStatusRow(
-                label: "Gateway",
-                status: gatewayStatusInfo
-            )
+        // Gateway status row
+        connectionStatusRow(
+            label: "Gateway",
+            status: gatewayStatusInfo
+        )
 
-            // Tunnel status row
-            connectionStatusRow(
-                label: "Tunnel",
-                status: tunnelStatusInfo
-            )
+        // Tunnel status row
+        connectionStatusRow(
+            label: "Tunnel",
+            status: tunnelStatusInfo
+        )
 
-            // Diagnostic message when gateway is up but tunnel is down
-            if store.gatewayReachable == true,
-               !store.ingressPublicBaseUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-               store.ingressReachable == false {
-                HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(VColor.warning)
-                        .font(.system(size: 12))
-                    Text("Gateway is running but tunnel is unreachable. Check your tunnel configuration.")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.warning)
-                }
-            }
-
-            // Last verified timestamp
-            if let lastChecked = store.gatewayLastChecked {
-                Text("Last verified: \(relativeTimeString(from: lastChecked))")
+        // Diagnostic message when gateway is up but tunnel is down
+        if store.gatewayReachable == true,
+           !store.ingressPublicBaseUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           store.ingressReachable == false {
+            HStack(spacing: VSpacing.sm) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(VColor.warning)
+                    .font(.system(size: 12))
+                Text("Gateway is running but tunnel is unreachable. Check your tunnel configuration.")
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
+                    .foregroundColor(VColor.warning)
             }
+        }
 
-            // Helper text
-            Text("Gateway checks the local process. Tunnel checks the public URL.")
+        // Last verified timestamp
+        if let lastChecked = store.gatewayLastChecked {
+            Text("Last verified: \(relativeTimeString(from: lastChecked))")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textMuted)
         }
-        .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceSubtle)
+
+        // Helper text
+        Text("Gateway checks the local process. Tunnel checks the public URL.")
+            .font(VFont.caption)
+            .foregroundColor(VColor.textMuted)
     }
 
     // MARK: - Developer Local Pairing Section
@@ -1253,17 +1167,6 @@ struct SettingsConnectTab: View {
         let hours = minutes / 60
         if hours == 1 { return "1 hour ago" }
         return "\(hours) hours ago"
-    }
-
-    // MARK: - iOS Pairing Helpers
-
-    private func setIOSPairingEnabled(_ enabled: Bool) {
-        let flagPath = NSHomeDirectory() + "/.vellum/ios-pairing-enabled"
-        if enabled {
-            FileManager.default.createFile(atPath: flagPath, contents: nil)
-        } else {
-            try? FileManager.default.removeItem(atPath: flagPath)
-        }
     }
 
     // MARK: - Token Helpers
