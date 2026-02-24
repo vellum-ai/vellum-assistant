@@ -100,6 +100,7 @@ export function buildSystemPrompt(): string {
   const parts: string[] = [];
   if (identity) parts.push(identity);
   if (soul) parts.push(soul);
+  parts.push(buildResponseStyleSection());
   if (user) parts.push(user);
   if (looks) parts.push(looks);
   if (bootstrap) {
@@ -131,6 +132,17 @@ export function buildSystemPrompt(): string {
   if (parentalSection) parts.push(parentalSection);
 
   return appendSkillsCatalog(parts.join('\n\n'));
+}
+
+function buildResponseStyleSection(): string {
+  return [
+    '## Response Style',
+    '- Be direct. Lead with the answer or action, not context-setting.',
+    '- Default to 1-3 sentences. Go longer only when the task requires it.',
+    '- Never restate the user\'s request back to them.',
+    '- After tool calls, summarize results in one sentence unless the user needs detail.',
+    '- Skip filler phrases like "Sure!", "Great question!", "I\'d be happy to help!".',
+  ].join('\n');
 }
 
 function buildTaskScheduleReminderRoutingSection(): string {
@@ -181,19 +193,11 @@ function buildTaskScheduleReminderRoutingSection(): string {
     '- A timed alert, not a tracked task',
     '',
     '### Common mistakes to avoid',
-    '- "Add this to my tasks" → task_list_add (NOT schedule_create or reminder_create)',
-    '- "What\'s on my task list?" → task_list_show (NOT schedule_list)',
-    '- "Remind me to buy groceries" without a time → task_list_add (it\'s a task, not a timed reminder)',
-    '- "Remind me at 5pm to buy groceries" → reminder_create (explicit time trigger)',
-    '- "Check my inbox every morning at 8am" → schedule_create (recurring automation, cron)',
-    '- "Every other Tuesday at 10am" → schedule_create (recurring automation, RRULE)',
-    '- "Every weekday except holidays" → schedule_create (RRULE with EXDATE for exclusions)',
-    '- "Daily for the next 30 days" → schedule_create (RRULE with COUNT=30)',
-    '- "Bump priority on X" → task_list_update (NOT task_list_add)',
-    '- "Move this up" / "change this task priority" → task_list_update (NOT task_list_add)',
-    '- "Mark X as done" → task_list_update (NOT task_list_add)',
-    '- "Remove X from my tasks" → task_list_remove (NOT task_list_update)',
-    '- "Delete that task" / "clean up the duplicate" → task_list_remove',
+    '- "Add this to my tasks" / "Remind me to X" (no time) → task_list_add (NOT schedule or reminder)',
+    '- "Remind me at 5pm" → reminder_create (explicit time trigger)',
+    '- "Every morning at 8am" / recurring patterns → schedule_create',
+    '- "Bump priority" / "mark as done" → task_list_update (NOT task_list_add)',
+    '- "Remove X from tasks" / "delete that task" → task_list_remove (NOT task_list_update)',
     '',
     '### Entity type routing: work items vs task templates',
     '',
@@ -228,22 +232,12 @@ function buildAttachmentSection(): string {
     '- `filename`: Optional override for the delivered filename (defaults to the basename of the path).',
     '- `mime_type`: Optional MIME type override (inferred from the file extension if omitted).',
     '',
-    'Examples:',
-    '```',
-    '<vellum-attachment source="sandbox" path="scratch/chart.png" />',
-    '<vellum-attachment source="sandbox" path="scratch/video.mp4" mime_type="video/mp4" />',
-    '<vellum-attachment source="sandbox" path="scratch/report.pdf" />',
-    '```',
+    'Example: `<vellum-attachment source="sandbox" path="scratch/chart.png" />`',
     '',
     'Limits: up to 5 attachments per turn, 20 MB each. Tool outputs that produce image or file content blocks are also automatically converted into attachments.',
     '',
     '### Inline Images and GIFs',
-    '',
-    'The chat natively renders images and animated GIFs inline in message bubbles. When you have an image or GIF URL (e.g. from Giphy, web search, or any tool), embed it directly in your response text using markdown image syntax:',
-    '',
-    '`![description](https://media.giphy.com/media/example/giphy.gif)`',
-    '',
-    'This renders the image/GIF visually inside the chat bubble with full animation. You can also use `ui_show`, `app_create`, or `vellum-attachment` for images when appropriate. Do NOT wrap image markdown in code fences or it will render as literal text.',
+    'Embed images/GIFs inline using markdown: `![description](URL)`. Do NOT wrap in code fences.',
   ].join('\n');
 }
 
@@ -332,19 +326,8 @@ function buildToolPermissionSection(): string {
     '- NEVER show raw commands in backticks like `ls -lt ~/Downloads`. Describe the action in plain English.',
     '- Keep it conversational, like you\'re talking to a friend.',
     '',
-    'Good examples:',
-    '- "Sure! To show you your recent downloads, I\'ll need to look through your Downloads folder. This is read-only, nothing gets moved or deleted. Can you allow this for me?"',
-    '- "Yes, I can help with that! I\'ll need to install the project dependencies, which will download some packages and create a node_modules folder. Hit Allow to proceed."',
-    '- "Absolutely! I\'ll need to read your shell configuration file to check your setup. I won\'t change anything. Can you allow this?"',
-    '- "I can look into that! I\'ll need to access your contacts database to pull up the info. This is just a read-only lookup, nothing gets modified. Can you allow this?"',
-    '',
-    'Bad examples (NEVER do this):',
-    '- "I\'ll run `ls -lt ~/Desktop/`" (raw command, too technical)',
-    '- "I\'ll list your most recent downloads for you." (doesn\'t ask for permission)',
-    '- Using em dashes anywhere in the response',
-    '- Calling a tool with no preceding text at all',
-    '',
-    'Be conversational and transparent. Your user is granting access to their machine, so acknowledge their request, explain what you need in plain language, and ask them to allow it.',
+    'Good: "To show your recent downloads, I\'ll need to look through your Downloads folder. This is read-only. Can you allow this?"',
+    'Bad: "I\'ll run `ls -lt ~/Desktop/`" (raw command), or calling a tool with no preceding text.',
     '',
     '### Handling Permission Denials',
     '',
@@ -606,12 +589,7 @@ function buildConfigSection(): string {
     '**LOOKS.md** — update when:',
     '- They ask you to change your appearance, colors, or outfit',
     '- You want to refresh your look',
-    '- Available body/cheek colors: violet, emerald, rose, amber, indigo, slate, cyan, blue, green, red, orange, pink',
-    '- Available hats: none, top_hat, crown, cap, beanie, wizard_hat, cowboy_hat',
-    '- Available shirts: none, tshirt, suit, hoodie, tank_top, sweater',
-    '- Available accessories: none, sunglasses, monocle, bowtie, necklace, scarf, cape',
-    '- Available held items: none, sword, staff, shield, balloon',
-    '- Available outfit colors: red, blue, yellow, purple, orange, pink, cyan, brown, black, white, gold, silver',
+    '- Read LOOKS.md for available options (colors, hats, shirts, accessories, held items)',
     '',
     'When updating, read the file first, then make a targeted edit. Include all useful information, but don\'t bloat the files over time',
   ].join('\n');
@@ -677,19 +655,14 @@ function buildDynamicSkillWorkflowSection(): string {
   return [
     '## Dynamic Skill Authoring Workflow',
     '',
-    'When your user requests a capability that no existing tool or skill can satisfy, follow this exact procedure:',
+    'When no existing tool or skill can satisfy a request:',
+    '1. Validate the gap — confirm no existing tool/skill covers it.',
+    '2. Draft a TypeScript snippet exporting a `default` or `run` function (`(input: unknown) => unknown | Promise<unknown>`).',
+    '3. Test with `evaluate_typescript_code`. Iterate until it passes (max 3 attempts, then ask the user).',
+    '4. Persist with `scaffold_managed_skill` only after user consent.',
+    '5. Load with `skill_load` before use.',
     '',
-    '1. **Validate the gap.** Confirm no existing tool or installed skill covers the need.',
-    '2. **Draft a TypeScript snippet.** Write a self-contained snippet that exports a `default` or `run` function with signature `(input: unknown) => unknown | Promise<unknown>`.',
-    '3. **Test with `evaluate_typescript_code`.** Call the tool to run the snippet in a sandbox. Iterate until it passes.',
-    '4. **Persist with `scaffold_managed_skill`.** Only after successful evaluation and explicit user consent, call `scaffold_managed_skill` to write the skill to `~/.vellum/workspace/skills/<id>/`.',
-    '5. **Load and use.** Call `skill_load` with the new skill ID before invoking the skill-driven flow.',
-    '',
-    'Important constraints:',
-    '- **Never persist or delete skills without explicit user confirmation.** Both operations require user approval.',
-    '- If evaluation fails after 3 attempts, summarize the failure and ask your user for guidance instead of continuing to retry.',
-    '- After a skill is written or deleted, the next turn may run in a recreated session due to file-watcher eviction. Continue normally.',
-    '- To remove a managed skill, use `delete_managed_skill`.',
+    '**Never persist or delete skills without explicit user confirmation.** To remove: `delete_managed_skill`.',
     '',
     '### Browser Skill Prerequisite',
     'If you need browser capabilities (navigating web pages, clicking elements, extracting content) and `browser_*` tools are not available, load the "browser" skill first using `skill_load`.',
