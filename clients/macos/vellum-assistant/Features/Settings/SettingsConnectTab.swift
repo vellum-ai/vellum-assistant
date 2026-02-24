@@ -57,6 +57,7 @@ struct SettingsConnectTab: View {
         }
         .onAppear {
             Task { await authManager.checkSession() }
+            Task { await store.checkVellumPlatform() }
             store.refreshIngressConfig()
             store.refreshAssistantEmail()
             gatewayUrlText = store.ingressPublicBaseUrl
@@ -99,6 +100,28 @@ struct SettingsConnectTab: View {
     }
 
     // MARK: - Vellum Section
+
+    private var platformHealthIcon: String {
+        if store.isCheckingVellumPlatform {
+            return "arrow.trianglehead.2.counterclockwise"
+        }
+        switch store.vellumPlatformReachable {
+        case true: return "checkmark.circle.fill"
+        case false: return "xmark.circle.fill"
+        case nil: return "questionmark.circle"
+        }
+    }
+
+    private var platformHealthIconColor: Color {
+        if store.isCheckingVellumPlatform {
+            return VColor.textMuted
+        }
+        switch store.vellumPlatformReachable {
+        case true: return VColor.success
+        case false: return VColor.error
+        case nil: return VColor.textMuted
+        }
+    }
 
     private var vellumSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -150,11 +173,12 @@ struct SettingsConnectTab: View {
 
                 channelStatusRow(
                     label: "Platform URL",
-                    icon: "link",
-                    iconColor: VColor.textMuted,
+                    icon: platformHealthIcon,
+                    iconColor: platformHealthIconColor,
                     value: AuthService.shared.baseURL,
                     valueFont: VFont.mono
                 )
+                .help(store.vellumPlatformError ?? "")
             }
         }
         .padding(VSpacing.lg)

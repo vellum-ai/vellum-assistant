@@ -144,6 +144,10 @@ public final class SettingsStore: ObservableObject {
     @Published var gatewayLastChecked: Date?
     @Published var isCheckingGateway: Bool = false
 
+    @Published var vellumPlatformReachable: Bool?
+    @Published var vellumPlatformError: String?
+    @Published var isCheckingVellumPlatform: Bool = false
+
     // MARK: - Dev Mode
 
     @Published var isDevMode: Bool
@@ -1241,6 +1245,37 @@ public final class SettingsStore: ObservableObject {
             return false
         } catch {
             return false
+        }
+    }
+
+    // MARK: - Platform Health Check
+
+    func checkVellumPlatform() async {
+        isCheckingVellumPlatform = true
+        defer { isCheckingVellumPlatform = false }
+
+        let baseUrl = AuthService.shared.baseURL
+        let normalized = baseUrl.hasSuffix("/") ? String(baseUrl.dropLast()) : baseUrl
+        guard let url = URL(string: "\(normalized)/healthz") else {
+            vellumPlatformReachable = false
+            vellumPlatformError = "Invalid URL"
+            return
+        }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 5
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) {
+                vellumPlatformReachable = true
+                vellumPlatformError = nil
+            } else {
+                let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+                vellumPlatformReachable = false
+                vellumPlatformError = "HTTP \(code)"
+            }
+        } catch {
+            vellumPlatformReachable = false
+            vellumPlatformError = error.localizedDescription
         }
     }
 
