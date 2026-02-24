@@ -26,8 +26,20 @@ const log = getLogger('call-orchestrator');
 
 type OrchestratorState = 'idle' | 'processing' | 'waiting_on_user' | 'speaking';
 
-const ASK_USER_REGEX = /\[ASK_USER:\s*(.+?)\]/;
+const ASK_USER_CAPTURE_REGEX = /\[ASK_USER:\s*(.+?)\]/;
+const ASK_USER_MARKER_REGEX = /\[ASK_USER:\s*.+?\]/g;
+const USER_ANSWERED_MARKER_REGEX = /\[USER_ANSWERED:\s*.+?\]/g;
+const USER_INSTRUCTION_MARKER_REGEX = /\[USER_INSTRUCTION:\s*.+?\]/g;
+const END_CALL_MARKER_REGEX = /\[END_CALL\]/g;
 const END_CALL_MARKER = '[END_CALL]';
+
+function stripInternalSpeechMarkers(text: string): string {
+  return text
+    .replace(ASK_USER_MARKER_REGEX, '')
+    .replace(USER_ANSWERED_MARKER_REGEX, '')
+    .replace(USER_INSTRUCTION_MARKER_REGEX, '')
+    .replace(END_CALL_MARKER_REGEX, '');
+}
 
 export class CallOrchestrator {
   private callSessionId: string;
@@ -314,8 +326,12 @@ export class CallOrchestrator {
           const afterBracket = ttsBuffer;
           const couldBeControl =
             '[ASK_USER:'.startsWith(afterBracket) ||
+            '[USER_ANSWERED:'.startsWith(afterBracket) ||
+            '[USER_INSTRUCTION:'.startsWith(afterBracket) ||
             '[END_CALL]'.startsWith(afterBracket) ||
             afterBracket.startsWith('[ASK_USER:') ||
+            afterBracket.startsWith('[USER_ANSWERED:') ||
+            afterBracket.startsWith('[USER_INSTRUCTION:') ||
             afterBracket === '[END_CALL' ||
             afterBracket.startsWith('[END_CALL]');
 
@@ -339,13 +355,8 @@ export class CallOrchestrator {
         if (!this.isCurrentRun(runVersion)) return;
         ttsBuffer += text;
 
-        // If the buffer contains a complete control marker, strip it
-        if (ASK_USER_REGEX.test(ttsBuffer)) {
-          ttsBuffer = ttsBuffer.replace(ASK_USER_REGEX, '');
-        }
-        if (ttsBuffer.includes(END_CALL_MARKER)) {
-          ttsBuffer = ttsBuffer.replace(END_CALL_MARKER, '');
-        }
+        // Remove complete control markers before text reaches TTS.
+        ttsBuffer = stripInternalSpeechMarkers(ttsBuffer);
 
         flushSafeText(false);
       });
@@ -354,7 +365,7 @@ export class CallOrchestrator {
       if (!this.isCurrentRun(runVersion)) return;
 
       // Final sweep: strip any remaining control markers from the buffer
-      ttsBuffer = ttsBuffer.replace(ASK_USER_REGEX, '').replace(END_CALL_MARKER, '');
+      ttsBuffer = stripInternalSpeechMarkers(ttsBuffer);
       if (ttsBuffer.length > 0) {
         this.relay.sendTextToken(ttsBuffer, false);
       }
@@ -371,7 +382,7 @@ export class CallOrchestrator {
       // Record the assistant response
       this.conversationHistory.push({ role: 'assistant', content: responseText });
       recordCallEvent(this.callSessionId, 'assistant_spoke', { text: responseText });
-      const spokenText = responseText.replace(ASK_USER_REGEX, '').replace(END_CALL_MARKER, '').trim();
+      const spokenText = stripInternalSpeechMarkers(responseText).trim();
       if (spokenText.length > 0) {
         const session = getCallSession(this.callSessionId);
         if (session) {
@@ -380,7 +391,7 @@ export class CallOrchestrator {
       }
 
       // Check for ASK_USER pattern
-      const askMatch = responseText.match(ASK_USER_REGEX);
+      const askMatch = responseText.match(ASK_USER_CAPTURE_REGEX);
       if (askMatch) {
         const questionText = askMatch[1];
         createPendingQuestion(this.callSessionId, questionText);

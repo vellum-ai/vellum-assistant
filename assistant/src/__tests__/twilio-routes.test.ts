@@ -87,7 +87,7 @@ import {
   updateCallSession,
   getCallEvents,
 } from '../calls/call-store.js';
-import { resolveRelayUrl, handleStatusCallback, handleVoiceWebhook } from '../calls/twilio-routes.js';
+import { resolveRelayUrl, buildWelcomeGreeting, handleStatusCallback, handleVoiceWebhook } from '../calls/twilio-routes.js';
 import { registerCallCompletionNotifier, unregisterCallCompletionNotifier } from '../calls/call-state.js';
 
 initializeDb();
@@ -119,14 +119,14 @@ function resetTables() {
   ensuredConvIds = new Set();
 }
 
-function createTestSession(convId: string, callSid: string) {
+function createTestSession(convId: string, callSid: string, task = 'test task') {
   ensureConversation(convId);
   const session = createCallSession({
     conversationId: convId,
     provider: 'twilio',
     fromNumber: '+15550001111',
     toNumber: '+15559998888',
-    task: 'test task',
+    task,
   });
   updateCallSession(session.id, { providerCallSid: callSid });
   return session;
@@ -416,6 +416,24 @@ describe('twilio webhook routes', () => {
     });
   });
 
+  describe('buildWelcomeGreeting', () => {
+    test('builds a contextual opener from task text', () => {
+      const greeting = buildWelcomeGreeting('check store hours for tomorrow');
+      expect(greeting).toBe('Hello, I am calling about check store hours for tomorrow. Is now a good time to talk?');
+    });
+
+    test('ignores appended Context block when building opener', () => {
+      const greeting = buildWelcomeGreeting('check store hours\n\nContext: Caller asked by email');
+      expect(greeting).toBe('Hello, I am calling about check store hours. Is now a good time to talk?');
+      expect(greeting).not.toContain('Context:');
+    });
+
+    test('uses configured greeting override when provided', () => {
+      const greeting = buildWelcomeGreeting('check store hours', 'Custom hello');
+      expect(greeting).toBe('Custom hello');
+    });
+  });
+
   // ── TwiML relay URL generation ──────────────────────────────────────
   // Call handleVoiceWebhook directly since direct routes are blocked.
 
@@ -445,6 +463,24 @@ describe('twilio webhook routes', () => {
       expect(res.status).toBe(200);
       const twiml = await res.text();
       expect(twiml).toContain('wss://gateway.example.com/v1/calls/relay');
+    });
+
+    test('TwiML welcome greeting is task-aware by default', async () => {
+      const session = createTestSession(
+        'conv-twiml-3',
+        'CA_twiml_3',
+        'confirm appointment time\n\nContext: Prior email thread',
+      );
+      const req = makeVoiceRequest(session.id, { CallSid: 'CA_twiml_3' });
+
+      const res = await handleVoiceWebhook(req);
+
+      expect(res.status).toBe(200);
+      const twiml = await res.text();
+      expect(twiml).toContain(
+        'welcomeGreeting="Hello, I am calling about confirm appointment time. Is now a good time to talk?"',
+      );
+      expect(twiml).not.toContain('Hello, how can I help you today?');
     });
   });
 

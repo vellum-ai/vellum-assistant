@@ -291,6 +291,30 @@ describe('call-orchestrator', () => {
     orchestrator.destroy();
   });
 
+  test('strips USER_ANSWERED and USER_INSTRUCTION markers from spoken output', async () => {
+    mockStreamFn.mockImplementation(() =>
+      createMockStream([
+        'Thanks for waiting. ',
+        '[USER_ANSWERED: The guardian said 3 PM works.] ',
+        '[USER_INSTRUCTION: Keep this short.] ',
+        'I can confirm 3 PM works.',
+      ]),
+    );
+    const { relay, orchestrator } = setupOrchestrator();
+
+    await orchestrator.handleCallerUtterance('Any update?');
+
+    const allText = relay.sentTokens.map((t) => t.token).join('');
+    expect(allText).toContain('Thanks for waiting.');
+    expect(allText).toContain('I can confirm 3 PM works.');
+    expect(allText).not.toContain('[USER_ANSWERED:');
+    expect(allText).not.toContain('[USER_INSTRUCTION:');
+    expect(allText).not.toContain('USER_ANSWERED');
+    expect(allText).not.toContain('USER_INSTRUCTION');
+
+    orchestrator.destroy();
+  });
+
   // ── END_CALL pattern ──────────────────────────────────────────────
 
   test('END_CALL pattern: detects marker, calls endSession, updates status to completed', async () => {
