@@ -9,7 +9,7 @@ struct ContentView: View {
     @State private var selectedTab: Tab = .home
     @State private var navigateToConnect = false
 
-    private enum Tab { case home, chats, identity, settings }
+    private enum Tab { case home, chats, tasks, identity, settings }
 
     private enum ConnectPhase {
         case initial    // Haven't attempted connection yet
@@ -175,6 +175,14 @@ struct ContentView: View {
                 .tag(Tab.chats)
                 .tabItem {
                     Label("Chats", systemImage: "message")
+                }
+
+            TasksTabView(onConnectTapped: navigateToConnectSettings)
+                .environmentObject(clientProvider)
+                .id(ObjectIdentifier(clientProvider.client as AnyObject))
+                .tag(Tab.tasks)
+                .tabItem {
+                    Label("Tasks", systemImage: "list.bullet.clipboard")
                 }
 
             IdentityView(onConnectTapped: navigateToConnectSettings)
