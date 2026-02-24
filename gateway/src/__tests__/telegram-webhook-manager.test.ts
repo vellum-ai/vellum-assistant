@@ -1,4 +1,4 @@
-import { describe, test, expect, mock, afterEach } from "bun:test";
+import { describe, test, expect, mock, spyOn, afterEach } from "bun:test";
 import { reconcileTelegramWebhook } from "../telegram/webhook-manager.js";
 import type { GatewayConfig } from "../config.js";
 
@@ -43,10 +43,11 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   return merged;
 }
 
-const originalFetch = globalThis.fetch;
+let fetchSpy: ReturnType<typeof spyOn<typeof globalThis, "fetch">> | null = null;
 
 afterEach(() => {
-  globalThis.fetch = originalFetch;
+  fetchSpy?.mockRestore();
+  fetchSpy = null;
 });
 
 function makeTelegramResponse(result: unknown) {
@@ -60,7 +61,7 @@ describe("reconcileTelegramWebhook", () => {
   test("calls setWebhook when URL does not match", async () => {
     const calls: { method: string; body: unknown }[] = [];
 
-    globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+    fetchSpy = spyOn(globalThis, "fetch").mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       if (url.includes("/getWebhookInfo")) {
         calls.push({ method: "getWebhookInfo", body: null });
@@ -76,7 +77,7 @@ describe("reconcileTelegramWebhook", () => {
         return makeTelegramResponse(true);
       }
       return new Response("Not found", { status: 404 });
-    }) as any;
+    });
 
     const config = makeConfig();
     await reconcileTelegramWebhook(config);
@@ -92,7 +93,7 @@ describe("reconcileTelegramWebhook", () => {
   test("always calls setWebhook even when URL already matches (secret may have rotated)", async () => {
     const calls: string[] = [];
 
-    globalThis.fetch = mock(async (input: string | URL | Request) => {
+    fetchSpy = spyOn(globalThis, "fetch").mockImplementation(async (input: string | URL | Request) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       if (url.includes("/getWebhookInfo")) {
         calls.push("getWebhookInfo");
@@ -107,7 +108,7 @@ describe("reconcileTelegramWebhook", () => {
         return makeTelegramResponse(true);
       }
       return new Response("Not found", { status: 404 });
-    }) as any;
+    });
 
     const config = makeConfig();
     await reconcileTelegramWebhook(config);
@@ -118,7 +119,7 @@ describe("reconcileTelegramWebhook", () => {
   test("normalizes trailing slash on ingress base URL", async () => {
     const calls: { method: string; body: unknown }[] = [];
 
-    globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+    fetchSpy = spyOn(globalThis, "fetch").mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       if (url.includes("/getWebhookInfo")) {
         calls.push({ method: "getWebhookInfo", body: null });
@@ -134,7 +135,7 @@ describe("reconcileTelegramWebhook", () => {
         return makeTelegramResponse(true);
       }
       return new Response("Not found", { status: 404 });
-    }) as any;
+    });
 
     const config = makeConfig({ ingressPublicBaseUrl: "https://example.ngrok.io/" });
     await reconcileTelegramWebhook(config);
@@ -144,39 +145,36 @@ describe("reconcileTelegramWebhook", () => {
   });
 
   test("skips reconciliation when bot token is not configured", async () => {
-    const fetchMock = mock(async () => new Response("", { status: 200 }));
-    globalThis.fetch = fetchMock as any;
+    fetchSpy = spyOn(globalThis, "fetch").mockImplementation(async () => new Response("", { status: 200 }));
 
     const config = makeConfig({ telegramBotToken: undefined });
     await reconcileTelegramWebhook(config);
 
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   test("skips reconciliation when webhook secret is not configured", async () => {
-    const fetchMock = mock(async () => new Response("", { status: 200 }));
-    globalThis.fetch = fetchMock as any;
+    fetchSpy = spyOn(globalThis, "fetch").mockImplementation(async () => new Response("", { status: 200 }));
 
     const config = makeConfig({ telegramWebhookSecret: undefined });
     await reconcileTelegramWebhook(config);
 
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   test("skips reconciliation when ingress URL is not configured", async () => {
-    const fetchMock = mock(async () => new Response("", { status: 200 }));
-    globalThis.fetch = fetchMock as any;
+    fetchSpy = spyOn(globalThis, "fetch").mockImplementation(async () => new Response("", { status: 200 }));
 
     const config = makeConfig({ ingressPublicBaseUrl: undefined });
     await reconcileTelegramWebhook(config);
 
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   test("calls setWebhook when current URL is empty", async () => {
     const calls: string[] = [];
 
-    globalThis.fetch = mock(async (input: string | URL | Request) => {
+    fetchSpy = spyOn(globalThis, "fetch").mockImplementation(async (input: string | URL | Request) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       if (url.includes("/getWebhookInfo")) {
         calls.push("getWebhookInfo");
@@ -191,7 +189,7 @@ describe("reconcileTelegramWebhook", () => {
         return makeTelegramResponse(true);
       }
       return new Response("Not found", { status: 404 });
-    }) as any;
+    });
 
     const config = makeConfig();
     await reconcileTelegramWebhook(config);
