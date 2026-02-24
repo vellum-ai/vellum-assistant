@@ -124,6 +124,8 @@ private struct ScheduleRow: View {
     let onToggle: (Bool) -> Void
     let onDelete: () -> Void
 
+    @State private var isExpanded = false
+
     private var nextRunText: String {
         guard schedule.enabled else { return "Paused" }
         let date = Date(timeIntervalSince1970: Double(schedule.nextRunAt) / 1000.0)
@@ -149,65 +151,92 @@ private struct ScheduleRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Text(schedule.name)
-                        .fontWeight(.medium)
-                    Text(syntaxLabel)
-                        .font(.caption2)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(syntaxColor.opacity(0.12))
-                        .foregroundStyle(syntaxColor)
-                        .clipShape(Capsule())
-                    if let status = schedule.lastStatus {
-                        Text(status)
-                            .font(.caption)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(statusColor.opacity(0.15))
-                            .foregroundStyle(statusColor)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Text(schedule.name)
+                            .fontWeight(.medium)
+                        Text(syntaxLabel)
+                            .font(.caption2)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(syntaxColor.opacity(0.12))
+                            .foregroundStyle(syntaxColor)
                             .clipShape(Capsule())
+                        if let status = schedule.lastStatus {
+                            Text(status)
+                                .font(.caption)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(statusColor.opacity(0.15))
+                                .foregroundStyle(statusColor)
+                                .clipShape(Capsule())
+                        }
                     }
-                }
-                Text(schedule.description)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(schedule.expression)
+                    Text(schedule.description)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(schedule.expression)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                    HStack(spacing: 6) {
+                        if schedule.enabled {
+                            Text("Next: \(nextRunText)")
+                        } else {
+                            Text("Disabled")
+                        }
+                        if let tz = schedule.timezone {
+                            Text("(\(tz))")
+                        }
+                    }
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-                HStack(spacing: 6) {
-                    if schedule.enabled {
-                        Text("Next: \(nextRunText)")
-                    } else {
-                        Text("Disabled")
-                    }
-                    if let tz = schedule.timezone {
-                        Text("(\(tz))")
-                    }
+                    .foregroundStyle(.tertiary)
                 }
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
+
+                Spacer()
+
+                Toggle("", isOn: Binding(
+                    get: { schedule.enabled },
+                    set: { onToggle($0) }
+                ))
+                .toggleStyle(.switch)
+                .labelsHidden()
+
+                Button {
+                    onDelete()
+                } label: {
+                    Image(systemName: "trash")
+                        .foregroundStyle(.red)
+                }
+                .buttonStyle(.borderless)
             }
-
-            Spacer()
-
-            Toggle("", isOn: Binding(
-                get: { schedule.enabled },
-                set: { onToggle($0) }
-            ))
-            .toggleStyle(.switch)
-            .labelsHidden()
 
             Button {
-                onDelete()
+                withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
             } label: {
-                Image(systemName: "trash")
-                    .foregroundStyle(.red)
+                HStack(spacing: 4) {
+                    Image(systemName: "chevron.right")
+                        .font(.caption2)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    Text("Task definition")
+                        .font(.caption2)
+                }
+                .foregroundStyle(.secondary)
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                Text(schedule.message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .padding(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.primary.opacity(0.05))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+            }
         }
         .padding(.vertical, 2)
     }
