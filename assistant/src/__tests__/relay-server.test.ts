@@ -807,4 +807,153 @@ describe('relay-server', () => {
     relay.destroy();
     expect(() => relay.destroy()).not.toThrow();
   });
+
+  // ── Inbound call setup ────────────────────────────────────────────
+
+  test('handleMessage: inbound call (no task) triggers greeting without verification', async () => {
+    ensureConversation('conv-relay-inbound-greet');
+    // Inbound sessions have no task and no initiatedFromConversationId
+    const session = createCallSession({
+      conversationId: 'conv-relay-inbound-greet',
+      provider: 'twilio',
+      fromNumber: '+15559999999',
+      toNumber: '+15551111111',
+      // no task — inbound call
+    });
+
+    // Enable verification to prove inbound calls skip it
+    mockConfig.calls.verification.enabled = true;
+
+    mockStreamFn.mockImplementation(() => createMockStream(['Hello, how can I help you today?']));
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_inbound_greet_123',
+      from: '+15559999999',
+      to: '+15551111111',
+    }));
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // Should NOT have started verification (no verification code prompt)
+    expect(relay.getVerificationCode()).toBeNull();
+
+    // Should have generated a greeting via the orchestrator
+    const textMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string; last?: boolean })
+      .filter((m) => m.type === 'text');
+    expect(textMessages.some((m) => (m.token ?? '').includes('how can I help'))).toBe(true);
+    expect(textMessages.some((m) => m.last === true)).toBe(true);
+
+    relay.destroy();
+  });
+
+  test('handleMessage: inbound call persists caller transcript to voice conversation', async () => {
+    ensureConversation('conv-relay-inbound-persist');
+    const session = createCallSession({
+      conversationId: 'conv-relay-inbound-persist',
+      provider: 'twilio',
+      fromNumber: '+15559999999',
+      toNumber: '+15551111111',
+      // no task — inbound call
+    });
+
+    mockStreamFn.mockImplementation(() => createMockStream(['Sure, let me help with that.']));
+
+    const { relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_inbound_persist_123',
+      from: '+15559999999',
+      to: '+15551111111',
+    }));
+
+    // Wait for initial greeting to settle
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // Send a caller utterance
+    await relay.handleMessage(JSON.stringify({
+      type: 'prompt',
+      voicePrompt: 'I would like to schedule an appointment',
+      lang: 'en-US',
+      last: true,
+    }));
+
+    // Verify caller transcript is persisted to the voice conversation
+    const userMessages = getMessages('conv-relay-inbound-persist').filter((m) => m.role === 'user');
+    expect(userMessages.length).toBeGreaterThan(0);
+    const lastUserMsg = userMessages[userMessages.length - 1];
+    expect(lastUserMsg.content).toContain('schedule an appointment');
+
+    // Verify assistant response is also persisted
+    const assistantMessages = getMessages('conv-relay-inbound-persist').filter((m) => m.role === 'assistant');
+    expect(assistantMessages.length).toBeGreaterThan(0);
+
+    relay.destroy();
+  });
+
+  test('handleMessage: inbound call supports multi-turn conversation', async () => {
+    ensureConversation('conv-relay-inbound-multi');
+    const session = createCallSession({
+      conversationId: 'conv-relay-inbound-multi',
+      provider: 'twilio',
+      fromNumber: '+15559999999',
+      toNumber: '+15551111111',
+      // no task — inbound call
+    });
+
+    let turnCount = 0;
+    mockStreamFn.mockImplementation(() => {
+      turnCount++;
+      if (turnCount === 1) return createMockStream(['Hello, how can I help you?']);
+      if (turnCount === 2) return createMockStream(['Sure, I can help with that.']);
+      return createMockStream(['Your appointment is confirmed.']);
+    });
+
+    const { ws, relay } = createMockWs(session.id);
+
+    // Setup
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_inbound_multi_123',
+      from: '+15559999999',
+      to: '+15551111111',
+    }));
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // First caller turn
+    await relay.handleMessage(JSON.stringify({
+      type: 'prompt',
+      voicePrompt: 'I need to schedule something',
+      lang: 'en-US',
+      last: true,
+    }));
+
+    // Second caller turn
+    await relay.handleMessage(JSON.stringify({
+      type: 'prompt',
+      voicePrompt: 'How about next Tuesday?',
+      lang: 'en-US',
+      last: true,
+    }));
+
+    // Verify conversation history has multiple turns
+    const history = relay.getConversationHistory();
+    expect(history.length).toBe(2);
+    expect(history[0].text).toBe('I need to schedule something');
+    expect(history[1].text).toBe('How about next Tuesday?');
+
+    // Verify LLM was called for each turn (greeting + 2 caller turns)
+    expect(turnCount).toBe(3);
+
+    // Verify events were recorded for both caller utterances
+    const events = getCallEvents(session.id).filter((e) => e.eventType === 'caller_spoke');
+    expect(events.length).toBe(2);
+
+    relay.destroy();
+  });
 });

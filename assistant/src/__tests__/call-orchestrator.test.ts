@@ -1140,4 +1140,135 @@ describe('call-orchestrator', () => {
     await orchestrator.handleCallerUtterance('Hello');
     orchestrator.destroy();
   });
+
+  // ── Inbound call orchestration ──────────────────────────────────────
+
+  test('inbound call (no task) uses receptionist-style system prompt', async () => {
+    mockStreamFn.mockImplementation((...args: unknown[]) => {
+      const firstArg = args[0] as { system: string };
+      // Should contain inbound-specific language
+      expect(firstArg.system).toContain('answering an incoming call');
+      expect(firstArg.system).toContain('find out what they need');
+      // Should NOT contain outbound-specific language
+      expect(firstArg.system).not.toContain('state why you are calling');
+      expect(firstArg.system).not.toContain('Task:');
+      return createMockStream(['Hello, how can I help you today?']);
+    });
+
+    // setupOrchestrator with no task creates an inbound-style session
+    const { orchestrator } = setupOrchestrator(undefined);
+    await orchestrator.handleCallerUtterance('Hi there');
+    orchestrator.destroy();
+  });
+
+  test('outbound call (with task) uses task-driven system prompt', async () => {
+    mockStreamFn.mockImplementation((...args: unknown[]) => {
+      const firstArg = args[0] as { system: string };
+      expect(firstArg.system).toContain('Task: Confirm Friday appointment');
+      expect(firstArg.system).toContain('state why you are calling');
+      expect(firstArg.system).not.toContain('answering an incoming call');
+      return createMockStream(['Hi, I am calling about your appointment.']);
+    });
+
+    const { orchestrator } = setupOrchestrator('Confirm Friday appointment');
+    await orchestrator.handleCallerUtterance('Hello?');
+    orchestrator.destroy();
+  });
+
+  test('inbound call initial greeting sends receptionist opener', async () => {
+    mockStreamFn.mockImplementation((...args: unknown[]) => {
+      const firstArg = args[0] as { system: string; messages: Array<{ role: string; content: string }> };
+      // The system prompt should use inbound framing
+      expect(firstArg.system).toContain('answering an incoming call');
+      // The opening marker should be present
+      const userMsgs = firstArg.messages.filter((m) => m.role === 'user');
+      expect(userMsgs.some((m) => m.content.includes('[CALL_OPENING]'))).toBe(true);
+      return createMockStream(['Hello, this is my human\'s assistant. How can I help you?']);
+    });
+
+    const { relay, orchestrator } = setupOrchestrator(undefined);
+    await orchestrator.startInitialGreeting();
+
+    const allText = relay.sentTokens.map((t) => t.token).join('');
+    expect(allText).toContain('How can I help you');
+
+    orchestrator.destroy();
+  });
+
+  test('inbound call multi-turn conversation uses inbound prompt consistently', async () => {
+    let turnNumber = 0;
+    mockStreamFn.mockImplementation((...args: unknown[]) => {
+      turnNumber++;
+      const firstArg = args[0] as { system: string };
+      // Every turn should use the inbound system prompt
+      expect(firstArg.system).toContain('answering an incoming call');
+      expect(firstArg.system).not.toContain('Task:');
+
+      if (turnNumber === 1) return createMockStream(['Hello, how can I help you?']);
+      if (turnNumber === 2) return createMockStream(['Sure, let me help with scheduling.']);
+      return createMockStream(['Your meeting is set for 3pm.']);
+    });
+
+    const { orchestrator } = setupOrchestrator(undefined);
+
+    await orchestrator.startInitialGreeting();
+    await orchestrator.handleCallerUtterance('I need to schedule a meeting');
+    await orchestrator.handleCallerUtterance('How about 3pm?');
+
+    expect(turnNumber).toBe(3);
+    orchestrator.destroy();
+  });
+
+  test('inbound call system prompt includes greet-the-caller guidance for CALL_OPENING', async () => {
+    mockStreamFn.mockImplementation((...args: unknown[]) => {
+      const firstArg = args[0] as { system: string };
+      // Should tell the model to greet warmly and ask how to help
+      expect(firstArg.system).toContain('greet the caller warmly');
+      expect(firstArg.system).toContain('how you can help');
+      return createMockStream(['Hello!']);
+    });
+
+    const { orchestrator } = setupOrchestrator(undefined);
+    await orchestrator.handleCallerUtterance('Hi');
+    orchestrator.destroy();
+  });
+
+  test('inbound call system prompt respects disclosure setting', async () => {
+    mockDisclosure = {
+      enabled: true,
+      text: 'Disclose that you are an AI at the start.',
+    };
+    mockStreamFn.mockImplementation((...args: unknown[]) => {
+      const firstArg = args[0] as { system: string };
+      expect(firstArg.system).toContain('answering an incoming call');
+      expect(firstArg.system).toContain('Disclose that you are an AI at the start.');
+      return createMockStream(['Hello, I am an AI assistant.']);
+    });
+
+    const { orchestrator } = setupOrchestrator(undefined);
+    await orchestrator.handleCallerUtterance('Who is this?');
+    orchestrator.destroy();
+  });
+
+  test('inbound call persists assistant response to voice conversation', async () => {
+    mockStreamFn.mockImplementation(() =>
+      createMockStream(['I can definitely help you with that.']),
+    );
+
+    const { session, orchestrator } = setupOrchestrator(undefined);
+    await orchestrator.startInitialGreeting();
+
+    // Verify assistant transcript was persisted
+    const messages = (await import('../memory/conversation-store.js')).getMessages('conv-orch-test');
+    const assistantMsgs = messages.filter((m) => m.role === 'assistant');
+    expect(assistantMsgs.length).toBeGreaterThan(0);
+    const lastAssistant = assistantMsgs[assistantMsgs.length - 1];
+    expect(lastAssistant.content).toContain('I can definitely help you with that');
+
+    // Verify event was recorded
+    const events = getCallEvents(session.id).filter((e) => e.eventType === 'assistant_spoke');
+    expect(events.length).toBeGreaterThan(0);
+
+    orchestrator.destroy();
+  });
 });
