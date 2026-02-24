@@ -424,7 +424,7 @@ export async function handleSkillsSearch(
 ): Promise<void> {
   try {
     // Search vellum-skills catalog (platform API with bundled fallback)
-    const catalogEntries = await listCatalogEntries(msg.sessionToken);
+    const catalogEntries = await listCatalogEntries();
     const query = (msg.query ?? '').toLowerCase();
     const matchingCatalog = catalogEntries.filter((e) => {
       if (!query) return true;

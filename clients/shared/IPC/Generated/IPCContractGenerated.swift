@@ -3485,13 +3485,10 @@ public struct IPCSkillsOperationResponse: Codable, Sendable {
 public struct IPCSkillsSearchRequest: Codable, Sendable {
     public let type: String
     public let query: String
-    /// Platform session token (X-Session-Token) for authenticated catalog fetch.
-    public let sessionToken: String?
 
-    public init(type: String, query: String, sessionToken: String? = nil) {
+    public init(type: String, query: String) {
         self.type = type
         self.query = query
-        self.sessionToken = sessionToken
     }
 }
 

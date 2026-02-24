@@ -100,8 +100,7 @@ final class SkillsManager: ObservableObject {
             let stream = daemonClient.subscribe()
 
             do {
-                let sessionToken = await SessionTokenManager.getTokenAsync()
-                try daemonClient.searchSkills(query: query, sessionToken: sessionToken)
+                try daemonClient.searchSkills(query: query)
             } catch {
                 isSearching = false
                 return
