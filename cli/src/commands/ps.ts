@@ -245,6 +245,57 @@ async function showAssistantProcesses(entry: AssistantEntry): Promise<void> {
   printTable(rows);
 }
 
+// ── Orphaned process detection ──────────────────────────────────
+
+interface OrphanedProcess {
+  name: string;
+  pid: string;
+  source: string;
+}
+
+async function detectOrphanedProcesses(): Promise<OrphanedProcess[]> {
+  const results: OrphanedProcess[] = [];
+  const seenPids = new Set<string>();
+  const vellumDir = join(homedir(), ".vellum");
+
+  // Strategy 1: PID file scan
+  const pidFiles: Array<{ file: string; name: string }> = [
+    { file: join(vellumDir, "vellum.pid"), name: "daemon" },
+    { file: join(vellumDir, "gateway.pid"), name: "gateway" },
+    { file: join(vellumDir, "qdrant.pid"), name: "qdrant" },
+  ];
+
+  for (const { file, name } of pidFiles) {
+    const result = checkPidFile(file);
+    if (result.status === "running" && result.pid) {
+      results.push({ name, pid: result.pid, source: "pid file" });
+      seenPids.add(result.pid);
+    }
+  }
+
+  // Strategy 2: Process table scan
+  try {
+    const output = await execOutput("sh", [
+      "-c",
+      "ps ax -o pid=,ppid=,args= | grep -E 'vellum|gateway|qdrant|openclaw' | grep -v grep",
+    ]);
+    const procs = parseRemotePs(output);
+    const ownPid = String(process.pid);
+
+    for (const p of procs) {
+      if (p.pid === ownPid || seenPids.has(p.pid)) continue;
+      const type = classifyProcess(p.command);
+      if (type === "unknown") continue;
+      results.push({ name: type, pid: p.pid, source: "process table" });
+      seenPids.add(p.pid);
+    }
+  } catch {
+    // grep exits 1 when no matches found — ignore
+  }
+
+  return results;
+}
+
 // ── List all assistants (no arg) ────────────────────────────────
 
 async function listAllAssistants(): Promise<void> {
@@ -252,6 +303,20 @@ async function listAllAssistants(): Promise<void> {
 
   if (assistants.length === 0) {
     console.log("No assistants found.");
+
+    const orphans = await detectOrphanedProcesses();
+    if (orphans.length > 0) {
+      console.log("\nOrphaned processes detected:\n");
+      const rows: TableRow[] = orphans.map((o) => ({
+        name: o.name,
+        status: withStatusEmoji("running"),
+        info: `PID ${o.pid} (from ${o.source})`,
+      }));
+      printTable(rows);
+      const pids = orphans.map((o) => o.pid).join(" ");
+      console.log(`\nHint: Run \`kill ${pids}\` to clean up orphaned processes.`);
+    }
+
     return;
   }
 
