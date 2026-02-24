@@ -7,7 +7,7 @@ import VellumAssistantShared
 @MainActor
 struct ApprovedDevicesSection: View {
     @ObservedObject var store: SettingsStore
-    @Binding var isExpanded: Bool
+    @State private var isExpanded: Bool = false
 
     var body: some View {
         VDisclosureSection(
