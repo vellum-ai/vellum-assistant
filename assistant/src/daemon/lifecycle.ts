@@ -9,9 +9,9 @@ import {
   getHttpTokenPath,
   getRootDir,
   ensureDataDir,
-  migrateToDataLayout,
-  migrateToWorkspaceLayout,
 } from '../util/platform.js';
+import { migrateToDataLayout } from '../migrations/data-layout.js';
+import { migrateToWorkspaceLayout } from '../migrations/workspace-layout.js';
 import { initializeDb } from '../memory/db.js';
 import { rotateToolInvocations } from '../memory/tool-usage-store.js';
 import { loadConfig } from '../config/loader.js';
