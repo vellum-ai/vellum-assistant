@@ -1845,6 +1845,24 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertNotNil(viewModel.errorText)
     }
 
+    func testRetryButtonAppearsForNonConnectionSendFailure() {
+        viewModel.sessionId = "sess-1"
+        daemonClient.isConnected = true
+        // Make the IPC send throw to simulate a non-connection send failure
+        // (e.g. socket write error while technically connected).
+        daemonClient.sendOverride = { _ in throw NSError(domain: "test", code: 1) }
+
+        viewModel.inputText = "Test message"
+        viewModel.sendMessage()
+
+        XCTAssertTrue(viewModel.isRetryableError,
+                       "Non-connection send failure should show Retry button")
+        XCTAssertFalse(viewModel.isConnectionError,
+                        "Non-connection send failure should not be a connection error")
+        XCTAssertNotNil(viewModel.errorText)
+        XCTAssertEqual(viewModel.lastFailedMessageText, "Test message")
+    }
+
     func testRetryButtonNotShownForRegenerateFailure() {
         viewModel.sessionId = "sess-1"
         daemonClient.isConnected = false
