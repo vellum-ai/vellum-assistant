@@ -194,6 +194,17 @@ struct DaemonConnectionSection: View {
             return
         }
 
+        // Require HTTPS for non-local connections (ATS policy)
+        if url.scheme == "http" {
+            let host = url.host ?? ""
+            let isLocal = host == "localhost" || host == "127.0.0.1" || host.hasSuffix(".local")
+            if !isLocal {
+                alertMessage = "HTTPS is required for non-local connections."
+                showingAlert = true
+                return
+            }
+        }
+
         let trimmedAuth = manualAuthValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedAuth.isEmpty else {
             alertMessage = "Please enter a bearer token."
