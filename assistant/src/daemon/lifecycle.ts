@@ -16,7 +16,7 @@ import {
   migrateToWorkspaceLayout,
   removeSocketFile,
 } from '../util/platform.js';
-import { initializeDb, getSqlite } from '../memory/db.js';
+import { initializeDb, getSqlite, resetDb } from '../memory/db.js';
 import { rotateToolInvocations } from '../memory/tool-usage-store.js';
 import { initializeProviders, getFailoverProvider, listProviders } from '../providers/registry.js';
 import { initializeTools } from '../tools/registry.js';
@@ -784,13 +784,18 @@ export async function runDaemon(): Promise<void> {
     memoryWorker.stop();
     await qdrantManager.stop();
 
-    // Checkpoint WAL and close SQLite so no writes are lost on exit
+    // Checkpoint WAL and close SQLite so no writes are lost on exit.
+    // Checkpoint and close are in separate try blocks so that close()
+    // always runs even if checkpointing throws (e.g. SQLITE_BUSY).
     try {
-      const sqlite = getSqlite();
-      sqlite.exec('PRAGMA wal_checkpoint(TRUNCATE)');
-      sqlite.close();
+      getSqlite().exec('PRAGMA wal_checkpoint(TRUNCATE)');
     } catch (err) {
-      log.warn({ err }, 'Database cleanup failed (non-fatal)');
+      log.warn({ err }, 'WAL checkpoint failed (non-fatal)');
+    }
+    try {
+      resetDb();
+    } catch (err) {
+      log.warn({ err }, 'Database close failed (non-fatal)');
     }
 
     await Sentry.flush(2000);
