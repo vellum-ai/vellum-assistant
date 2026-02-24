@@ -1542,9 +1542,13 @@ public struct IPCGuardianVerificationResponse: Codable, Sendable {
     public let assistantId: String?
     /// The delivery chat ID for the guardian (e.g. Telegram chat ID). Present when action is 'status' and bound is true.
     public let guardianDeliveryChatId: String?
+    /// Optional channel username/handle for the bound guardian (for UI display).
+    public let guardianUsername: String?
+    /// Optional display name for the bound guardian (for UI display).
+    public let guardianDisplayName: String?
     public let error: String?
 
-    public init(type: String, success: Bool, secret: String?, instruction: String?, bound: Bool?, guardianExternalUserId: String?, channel: String?, assistantId: String?, guardianDeliveryChatId: String?, error: String?) {
+    public init(type: String, success: Bool, secret: String?, instruction: String?, bound: Bool?, guardianExternalUserId: String?, channel: String?, assistantId: String?, guardianDeliveryChatId: String?, guardianUsername: String?, guardianDisplayName: String?, error: String?) {
         self.type = type
         self.success = success
         self.secret = secret
@@ -1554,6 +1558,8 @@ public struct IPCGuardianVerificationResponse: Codable, Sendable {
         self.channel = channel
         self.assistantId = assistantId
         self.guardianDeliveryChatId = guardianDeliveryChatId
+        self.guardianUsername = guardianUsername
+        self.guardianDisplayName = guardianDisplayName
         self.error = error
     }
 }
