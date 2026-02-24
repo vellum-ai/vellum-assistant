@@ -159,8 +159,12 @@ struct DictationContextCapture {
         keyDown.post(tap: .cghidEventTap)
         keyUp.post(tap: .cghidEventTap)
 
-        // Wait for clipboard to update
-        usleep(100_000) // 100ms
+        // Poll for clipboard change with run loop alive so the target app
+        // can process the Cmd+C keystroke and update the clipboard.
+        let deadline = Date().addingTimeInterval(0.2) // 200ms max wait
+        while pasteboard.changeCount == changeCount && Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
 
         let text: String?
         if pasteboard.changeCount != changeCount {
