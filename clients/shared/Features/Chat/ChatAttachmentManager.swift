@@ -372,50 +372,55 @@ public final class ChatAttachmentManager: ObservableObject {
         }
 
         #if os(macOS)
-        // NSImage, tiffRepresentation, and NSBitmapImageRep are not thread-safe
-        // off the main thread. This method is nonisolated and called from
-        // Task.detached, so we must hop AppKit work onto the main thread.
-        let compressBlock = { () -> (Data, Bool) in
-            guard let image = NSImage(data: data),
-                  let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
-                return (data, false)
-            }
+        // Only NSImage/NSBitmapImageRep calls need the main thread; keep
+        // the CPU-heavy CGContext resize and encoding work off it.
 
-            let originalWidth = CGFloat(cgImage.width)
-            let originalHeight = CGFloat(cgImage.height)
-            guard originalWidth > 0 && originalHeight > 0 else {
-                return (data, false)
-            }
+        // Step 1 (AppKit – main thread): extract a CGImage from the raw data.
+        let extractBlock = { () -> CGImage? in
+            guard let image = NSImage(data: data) else { return nil }
+            return image.cgImage(forProposedRect: nil, context: nil, hints: nil)
+        }
+        guard let cgImage = Thread.isMainThread ? extractBlock() : DispatchQueue.main.sync(execute: extractBlock) else {
+            return (data, false)
+        }
 
-            // Calculate scale factor needed to reduce file size
-            // Rough heuristic: file size scales roughly with pixel count
-            let sizeReduction = Double(maxSize) / Double(data.count)
-            let pixelReduction = sqrt(sizeReduction * 0.85) // Target 85% of max for safety margin
-            let scale = min(CGFloat(pixelReduction), 1.0)
+        let originalWidth = CGFloat(cgImage.width)
+        let originalHeight = CGFloat(cgImage.height)
+        guard originalWidth > 0 && originalHeight > 0 else {
+            return (data, false)
+        }
 
-            let newWidth = Int(originalWidth * scale)
-            let newHeight = Int(originalHeight * scale)
+        // Step 2 (background): CoreGraphics resize – no AppKit required.
+        let sizeReduction = Double(maxSize) / Double(data.count)
+        let pixelReduction = sqrt(sizeReduction * 0.85) // Target 85% of max for safety margin
+        let scale = min(CGFloat(pixelReduction), 1.0)
 
-            guard let colorSpace = cgImage.colorSpace,
-                  let context = CGContext(
-                    data: nil,
-                    width: newWidth,
-                    height: newHeight,
-                    bitsPerComponent: 8,
-                    bytesPerRow: 0,
-                    space: colorSpace,
-                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-                  ) else {
-                return (data, false)
-            }
+        let newWidth = Int(originalWidth * scale)
+        let newHeight = Int(originalHeight * scale)
 
-            context.interpolationQuality = .high
-            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: newWidth, height: newHeight))
+        guard let colorSpace = cgImage.colorSpace,
+              let context = CGContext(
+                data: nil,
+                width: newWidth,
+                height: newHeight,
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: colorSpace,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              ) else {
+            return (data, false)
+        }
 
-            guard let scaledCGImage = context.makeImage() else {
-                return (data, false)
-            }
+        context.interpolationQuality = .high
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: newWidth, height: newHeight))
 
+        guard let scaledCGImage = context.makeImage() else {
+            return (data, false)
+        }
+
+        // Step 3 (AppKit – main thread): encode the scaled CGImage via
+        // NSImage/NSBitmapImageRep (tiffRepresentation is not thread-safe).
+        let encodeBlock = { () -> (Data, Bool) in
             let scaledImage = NSImage(cgImage: scaledCGImage, size: NSSize(width: newWidth, height: newHeight))
 
             // Try JPEG compression first (better for photos)
@@ -441,7 +446,7 @@ public final class ChatAttachmentManager: ObservableObject {
             log.warning("Failed to compress image to \(maxSize) bytes, final size: \(data.count)")
             return (data, false)
         }
-        return Thread.isMainThread ? compressBlock() : DispatchQueue.main.sync(execute: compressBlock)
+        return Thread.isMainThread ? encodeBlock() : DispatchQueue.main.sync(execute: encodeBlock)
 
         #elseif os(iOS)
         guard let image = UIImage(data: data) else {
