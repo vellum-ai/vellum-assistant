@@ -38,14 +38,20 @@ import {
   buildReminderPrompt,
   channelSupportsRichApprovalUI,
 } from '../channel-approvals.js';
-import type { ApprovalAction, ApprovalDecisionResult } from '../channel-approval-types.js';
+import type {
+  ApprovalAction,
+  ApprovalDecisionResult,
+  ApprovalUIMetadata,
+  ChannelApprovalPrompt,
+} from '../channel-approval-types.js';
 import type { RunOrchestrator } from '../run-orchestrator.js';
 import type {
   MessageProcessor,
   RuntimeAttachmentMetadata,
 } from '../http-types.js';
 import type { GuardianRuntimeContext } from '../../daemon/session-runtime-assembly.js';
-import { composeApprovalMessage } from '../approval-message-composer.js';
+import { composeApprovalMessageGenerative } from '../approval-message-composer.js';
+import type { ApprovalMessageContext } from '../approval-message-composer.js';
 
 const log = getLogger('runtime-http');
 
@@ -129,17 +135,104 @@ function toGuardianRuntimeContext(sourceChannel: string, ctx: GuardianContext): 
 const GUARDIAN_APPROVAL_TTL_MS = 30 * 60 * 1000;
 
 /**
- * Return the effective prompt text for an approval prompt, appending the
- * plainTextFallback instructions when the channel does not support rich
- * inline approval UI (e.g. Telegram inline keyboards).
+ * Keywords the plain-text parser accepts for approval decisions. We require
+ * these in generated plain-text prompts so text fallback remains actionable.
  */
-function effectivePromptText(
-  promptText: string,
-  plainTextFallback: string,
-  channel: string,
-): string {
-  if (channelSupportsRichApprovalUI(channel)) return promptText;
-  return plainTextFallback;
+function requiredDecisionKeywords(actions: ApprovalUIMetadata['actions']): string[] {
+  const hasAlways = actions.some((action) => action.id === 'approve_always');
+  return hasAlways ? ['yes', 'always', 'no'] : ['yes', 'no'];
+}
+
+interface DeliverGeneratedApprovalPromptParams {
+  replyCallbackUrl: string;
+  chatId: string;
+  sourceChannel: string;
+  assistantId: string;
+  bearerToken?: string;
+  prompt: ChannelApprovalPrompt;
+  uiMetadata: ApprovalUIMetadata;
+  messageContext: ApprovalMessageContext;
+}
+
+/**
+ * Deliver approval prompts with best-available UX:
+ * 1) Rich UI (buttons) when supported
+ * 2) Plain-text fallback if rich delivery fails
+ * 3) Plain-text path for channels without rich UI
+ */
+async function deliverGeneratedApprovalPrompt(params: DeliverGeneratedApprovalPromptParams): Promise<boolean> {
+  const {
+    replyCallbackUrl,
+    chatId,
+    sourceChannel,
+    assistantId,
+    bearerToken,
+    prompt,
+    uiMetadata,
+    messageContext,
+  } = params;
+  const keywords = requiredDecisionKeywords(uiMetadata.actions);
+
+  if (channelSupportsRichApprovalUI(sourceChannel)) {
+    const richText = await composeApprovalMessageGenerative(
+      { ...messageContext, channel: sourceChannel, richUi: true },
+      { fallbackText: prompt.promptText },
+    );
+
+    try {
+      await deliverApprovalPrompt(
+        replyCallbackUrl,
+        chatId,
+        richText,
+        uiMetadata,
+        assistantId,
+        bearerToken,
+      );
+      return true;
+    } catch (err) {
+      log.error(
+        { err, chatId, sourceChannel },
+        'Failed to deliver rich approval prompt, attempting plain-text fallback',
+      );
+    }
+
+    const plainTextFallback = await composeApprovalMessageGenerative(
+      { ...messageContext, channel: sourceChannel, richUi: false },
+      { fallbackText: prompt.plainTextFallback, requiredKeywords: keywords },
+    );
+
+    try {
+      await deliverChannelReply(replyCallbackUrl, {
+        chatId,
+        text: plainTextFallback,
+        assistantId,
+      }, bearerToken);
+      return true;
+    } catch (err) {
+      log.error(
+        { err, chatId, sourceChannel },
+        'Failed to deliver plain-text fallback approval prompt',
+      );
+      return false;
+    }
+  }
+
+  const plainText = await composeApprovalMessageGenerative(
+    { ...messageContext, channel: sourceChannel, richUi: false },
+    { fallbackText: prompt.plainTextFallback, requiredKeywords: keywords },
+  );
+
+  try {
+    await deliverChannelReply(replyCallbackUrl, {
+      chatId,
+      text: plainText,
+      assistantId,
+    }, bearerToken);
+    return true;
+  } catch (err) {
+    log.error({ err, chatId, sourceChannel }, 'Failed to deliver plain-text approval prompt');
+    return false;
+  }
 }
 
 /**
@@ -150,13 +243,22 @@ function effectivePromptText(
 function buildGuardianDenyContext(
   toolName: string,
   denialReason: DenialReason,
-  sourceChannel: string,
+  _sourceChannel: string,
 ): string {
   if (denialReason === 'no_identity') {
-    return `Permission denied: ${composeApprovalMessage({ scenario: 'guardian_deny_no_identity', toolName, channel: sourceChannel })} Do not retry yet. Ask the user to message from a verifiable direct account/chat, and then retry after identity is available.`;
+    return `Permission denied for "${toolName}": guardian approval was required, but requester identity could not be verified for this channel. In your next assistant reply, explain this clearly, avoid retrying yet, and ask the user to message from a verifiable direct account/chat before retrying.`;
   }
 
-  return `Permission denied: ${composeApprovalMessage({ scenario: 'guardian_deny_no_binding', toolName, channel: sourceChannel })} Do not retry yet. Offer to set up guardian verification. The setup flow will provide a verification token to send as /guardian_verify <token>.`;
+  return `Permission denied for "${toolName}": guardian approval was required, but no guardian is configured for this channel. In your next assistant reply, explain this and offer guardian setup. Mention that setup provides a verification token to send as /guardian_verify <token>.`;
+}
+
+function buildPromptDeliveryFailureContext(toolName: string): string {
+  return `Permission denied for "${toolName}": approval UI delivery failed and no plain-text fallback could be delivered. In your next assistant reply, apologize briefly, explain approval delivery failed, and ask the user to retry.`;
+}
+
+function stripVerificationFailurePrefix(reason: string): string {
+  const trimmed = reason.trim();
+  return trimmed.replace(/^verification failed\.?\s*/i, '').trim() || trimmed;
 }
 
 // ---------------------------------------------------------------------------
@@ -416,8 +518,15 @@ export async function handleChannelInbound(
       );
 
       const replyText = verifyResult.success
-        ? composeApprovalMessage({ scenario: 'guardian_verify_success' })
-        : verifyResult.reason;
+        ? await composeApprovalMessageGenerative({
+          scenario: 'guardian_verify_success',
+          channel: sourceChannel,
+        })
+        : await composeApprovalMessageGenerative({
+          scenario: 'guardian_verify_failed',
+          channel: sourceChannel,
+          failureReason: stripVerificationFailurePrefix(verifyResult.reason),
+        });
 
       try {
         await deliverChannelReply(replyCallbackUrl, {
@@ -843,48 +952,48 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
               expiresAt: Date.now() + GUARDIAN_APPROVAL_TTL_MS,
             });
 
-            let guardianNotified = false;
-            try {
-              const guardianText = effectivePromptText(
-                guardianPrompt.promptText,
-                guardianPrompt.plainTextFallback,
-                sourceChannel,
-              );
-              await deliverApprovalPrompt(
-                replyCallbackUrl,
-                guardianCtx.guardianChatId,
-                guardianText,
-                uiMetadata,
-                assistantId,
-                bearerToken,
-              );
-              guardianNotified = true;
+            const guardianNotified = await deliverGeneratedApprovalPrompt({
+              replyCallbackUrl,
+              chatId: guardianCtx.guardianChatId,
+              sourceChannel,
+              assistantId,
+              bearerToken,
+              prompt: guardianPrompt,
+              uiMetadata,
+              messageContext: {
+                scenario: 'guardian_prompt',
+                toolName: pending[0].toolName,
+                requesterIdentifier: guardianCtx.requesterIdentifier ?? 'Unknown user',
+              },
+            });
+
+            if (guardianNotified) {
               hasPostDecisionDelivery = true;
-            } catch (err) {
-              log.error({ err, runId: run.id }, 'Failed to deliver guardian approval prompt');
+            } else {
               // Deny the approval and the underlying run — fail-closed. If
               // the prompt could not be delivered, the guardian will never see
               // it, so the safest action is to deny rather than cancel (which
               // would allow requester fallback).
               updateApprovalDecision(approvalReqRecord.id, { status: 'denied' });
-              handleChannelDecision(conversationId, { action: 'reject', source: 'plain_text' }, orchestrator);
-              try {
-                await deliverChannelReply(replyCallbackUrl, {
-                  chatId: guardianCtx.requesterChatId ?? externalChatId,
-                  text: composeApprovalMessage({ scenario: 'guardian_delivery_failed', toolName: pending[0].toolName }),
-                  assistantId,
-                }, bearerToken);
-              } catch (notifyErr) {
-                log.error({ err: notifyErr, runId: run.id }, 'Failed to notify requester of guardian delivery failure');
-              }
+              handleChannelDecision(
+                conversationId,
+                { action: 'reject', source: 'plain_text' },
+                orchestrator,
+                buildPromptDeliveryFailureContext(pending[0].toolName),
+              );
             }
 
             // Only notify the requester if the guardian prompt was actually delivered
             if (guardianNotified) {
               try {
+                const forwardedText = await composeApprovalMessageGenerative({
+                  scenario: 'guardian_request_forwarded',
+                  toolName: pending[0].toolName,
+                  channel: sourceChannel,
+                });
                 await deliverChannelReply(replyCallbackUrl, {
                   chatId: guardianCtx.requesterChatId ?? externalChatId,
-                  text: composeApprovalMessage({ scenario: 'guardian_request_forwarded', toolName: pending[0].toolName }),
+                  text: forwardedText,
                   assistantId,
                 }, bearerToken);
               } catch (err) {
@@ -897,30 +1006,35 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
             const prompt = getChannelApprovalPrompt(conversationId);
             if (prompt && pending.length > 0) {
               const uiMetadata = buildApprovalUIMetadata(prompt, pending[0]);
-              try {
-                const promptTextForChannel = effectivePromptText(
-                  prompt.promptText,
-                  prompt.plainTextFallback,
-                  sourceChannel,
-                );
-                await deliverApprovalPrompt(
-                  replyCallbackUrl,
-                  externalChatId,
-                  promptTextForChannel,
-                  uiMetadata,
-                  assistantId,
-                  bearerToken,
-                );
+              const delivered = await deliverGeneratedApprovalPrompt({
+                replyCallbackUrl,
+                chatId: externalChatId,
+                sourceChannel,
+                assistantId,
+                bearerToken,
+                prompt,
+                uiMetadata,
+                messageContext: {
+                  scenario: 'standard_prompt',
+                  toolName: pending[0].toolName,
+                },
+              });
+              if (delivered) {
                 hasPostDecisionDelivery = true;
-              } catch (err) {
+              } else {
                 // Fail-closed: if we cannot deliver the approval prompt, the
                 // user will never see it and the run would hang indefinitely
                 // in needs_confirmation. Auto-deny to avoid silent wait states.
                 log.error(
-                  { err, runId: run.id, conversationId },
+                  { runId: run.id, conversationId },
                   'Failed to deliver standard approval prompt; auto-denying (fail-closed)',
                 );
-                handleChannelDecision(conversationId, { action: 'reject', source: 'plain_text' }, orchestrator);
+                handleChannelDecision(
+                  conversationId,
+                  { action: 'reject', source: 'plain_text' },
+                  orchestrator,
+                  buildPromptDeliveryFailureContext(pending[0].toolName),
+                );
               }
             }
           }
@@ -1109,9 +1223,14 @@ async function handleApprovalInterception(
       const allPending = getAllPendingApprovalsByGuardianChat(sourceChannel, externalChatId, assistantId);
       if (allPending.length > 1) {
         try {
+          const disambiguationText = await composeApprovalMessageGenerative({
+            scenario: 'guardian_disambiguation',
+            pendingCount: allPending.length,
+            channel: sourceChannel,
+          });
           await deliverChannelReply(replyCallbackUrl, {
             chatId: externalChatId,
-            text: composeApprovalMessage({ scenario: 'guardian_disambiguation', pendingCount: allPending.length }),
+            text: disambiguationText,
             assistantId,
           }, bearerToken);
         } catch (err) {
@@ -1142,9 +1261,13 @@ async function handleApprovalInterception(
           'Non-guardian sender attempted to act on guardian approval request',
         );
         try {
+          const mismatchText = await composeApprovalMessageGenerative({
+            scenario: 'guardian_identity_mismatch',
+            channel: sourceChannel,
+          });
           await deliverChannelReply(replyCallbackUrl, {
             chatId: externalChatId,
-            text: composeApprovalMessage({ scenario: 'guardian_identity_mismatch' }),
+            text: mismatchText,
             assistantId,
           }, bearerToken);
         } catch (err) {
@@ -1178,10 +1301,11 @@ async function handleApprovalInterception(
 
         if (result.applied) {
           // Notify the requester's chat about the outcome with the tool name
-          const outcomeText = composeApprovalMessage({
+          const outcomeText = await composeApprovalMessageGenerative({
             scenario: 'guardian_decision_outcome',
             decision: decision.action === 'reject' ? 'denied' : 'approved',
             toolName: guardianApproval.toolName,
+            channel: sourceChannel,
           });
           try {
             await deliverChannelReply(replyCallbackUrl, {
@@ -1221,19 +1345,26 @@ async function handleApprovalInterception(
         const reminder = buildReminderPrompt(guardianPrompt);
         const uiMetadata = buildApprovalUIMetadata(reminder, pendingInfo[0]);
         try {
-          const reminderText = effectivePromptText(
-            reminder.promptText,
-            reminder.plainTextFallback,
-            sourceChannel,
-          );
-          await deliverApprovalPrompt(
+          const delivered = await deliverGeneratedApprovalPrompt({
             replyCallbackUrl,
-            externalChatId,
-            reminderText,
-            uiMetadata,
+            chatId: externalChatId,
+            sourceChannel,
             assistantId,
             bearerToken,
-          );
+            prompt: reminder,
+            uiMetadata,
+            messageContext: {
+              scenario: 'reminder_prompt',
+              channel: sourceChannel,
+              toolName: pendingInfo[0].toolName,
+            },
+          });
+          if (!delivered) {
+            log.error(
+              { conversationId: guardianApproval.conversationId, externalChatId },
+              'Failed to deliver guardian approval reminder',
+            );
+          }
         } catch (err) {
           log.error({ err, conversationId: guardianApproval.conversationId }, 'Failed to deliver guardian approval reminder');
         }
@@ -1286,9 +1417,13 @@ async function handleApprovalInterception(
       const guardianApprovalForRun = getPendingApprovalForRun(pending[0].runId);
       if (guardianApprovalForRun) {
         try {
+          const pendingText = await composeApprovalMessageGenerative({
+            scenario: 'request_pending_guardian',
+            channel: sourceChannel,
+          });
           await deliverChannelReply(replyCallbackUrl, {
             chatId: externalChatId,
-            text: composeApprovalMessage({ scenario: 'request_pending_guardian' }),
+            text: pendingText,
             assistantId,
           }, bearerToken);
         } catch (err) {
@@ -1313,9 +1448,14 @@ async function handleApprovalInterception(
         handleChannelDecision(conversationId, expiredDecision, orchestrator);
 
         try {
+          const expiredText = await composeApprovalMessageGenerative({
+            scenario: 'guardian_expired_requester',
+            toolName: pending[0].toolName,
+            channel: sourceChannel,
+          });
           await deliverChannelReply(replyCallbackUrl, {
             chatId: externalChatId,
-            text: composeApprovalMessage({ scenario: 'guardian_expired_requester', toolName: pending[0].toolName }),
+            text: expiredText,
             assistantId,
           }, bearerToken);
         } catch (err) {
@@ -1381,19 +1521,23 @@ async function handleApprovalInterception(
   if (pending.length > 0) {
     const uiMetadata = buildApprovalUIMetadata(reminder, pending[0]);
     try {
-      const reminderText = effectivePromptText(
-        reminder.promptText,
-        reminder.plainTextFallback,
-        sourceChannel,
-      );
-      await deliverApprovalPrompt(
+      const delivered = await deliverGeneratedApprovalPrompt({
         replyCallbackUrl,
-        externalChatId,
-        reminderText,
-        uiMetadata,
+        chatId: externalChatId,
+        sourceChannel,
         assistantId,
         bearerToken,
-      );
+        prompt: reminder,
+        uiMetadata,
+        messageContext: {
+          scenario: 'reminder_prompt',
+          channel: sourceChannel,
+          toolName: pending[0].toolName,
+        },
+      });
+      if (!delivered) {
+        log.error({ conversationId, externalChatId }, 'Failed to deliver approval reminder');
+      }
     } catch (err) {
       log.error({ err, conversationId }, 'Failed to deliver approval reminder');
     }
@@ -1582,20 +1726,35 @@ export function sweepExpiredGuardianApprovals(
     const deliverUrl = `${gatewayBaseUrl}/deliver/${approval.channel}`;
 
     // Notify the requester that the approval expired
-    deliverChannelReply(deliverUrl, {
-      chatId: approval.requesterChatId,
-      text: composeApprovalMessage({ scenario: 'guardian_expired_requester', toolName: approval.toolName }),
-      assistantId: approval.assistantId,
-    }, bearerToken).catch((err) => {
+    void (async () => {
+      const requesterText = await composeApprovalMessageGenerative({
+        scenario: 'guardian_expired_requester',
+        toolName: approval.toolName,
+        channel: approval.channel,
+      });
+      await deliverChannelReply(deliverUrl, {
+        chatId: approval.requesterChatId,
+        text: requesterText,
+        assistantId: approval.assistantId,
+      }, bearerToken);
+    })().catch((err) => {
       log.error({ err, runId: approval.runId }, 'Failed to notify requester of guardian approval expiry');
     });
 
     // Notify the guardian that the approval expired
-    deliverChannelReply(deliverUrl, {
-      chatId: approval.guardianChatId,
-      text: composeApprovalMessage({ scenario: 'guardian_expired_guardian', toolName: approval.toolName, requesterIdentifier: approval.requesterExternalUserId }),
-      assistantId: approval.assistantId,
-    }, bearerToken).catch((err) => {
+    void (async () => {
+      const guardianText = await composeApprovalMessageGenerative({
+        scenario: 'guardian_expired_guardian',
+        toolName: approval.toolName,
+        requesterIdentifier: approval.requesterExternalUserId,
+        channel: approval.channel,
+      });
+      await deliverChannelReply(deliverUrl, {
+        chatId: approval.guardianChatId,
+        text: guardianText,
+        assistantId: approval.assistantId,
+      }, bearerToken);
+    })().catch((err) => {
       log.error({ err, runId: approval.runId }, 'Failed to notify guardian of approval expiry');
     });
 
