@@ -111,6 +111,8 @@ extension MainWindowView {
                     }
                 }
             )
+        case .assistantInbox:
+            AssistantInboxPanel(onClose: { windowState.selection = nil })
         }
     }
 
@@ -468,6 +470,10 @@ extension MainWindowView {
             // Document editor is handled inline in chatContentView
             EmptyView()
                 .onAppear { windowState.dismissOverlay() }
+        case .assistantInbox:
+            AssistantInboxPanel(onClose: { windowState.dismissOverlay() })
+                .overlay(alignment: .topTrailing) { panelDismissButton }
+                .background(adaptiveColor(light: Moss._50, dark: Moss._950))
         default:
             EmptyView()
         }

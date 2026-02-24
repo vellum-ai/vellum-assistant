@@ -8,6 +8,7 @@ public enum FeatureFlag: String, CaseIterable {
     case featureFlagEditorEnabled = "feature_flag_editor_enabled"
     case hatchNewAssistantEnabled = "hatch_new_assistant_enabled"
     case localHttpEnabled = "local_http_enabled"
+    case assistantInboxEnabled = "assistant_inbox_enabled"
 
     public var displayName: String {
         switch self {
@@ -16,6 +17,7 @@ public enum FeatureFlag: String, CaseIterable {
         case .featureFlagEditorEnabled: return "Feature Flag Editor Enabled"
         case .hatchNewAssistantEnabled: return "Hatch New Assistant Enabled"
         case .localHttpEnabled: return "Local HTTP Enabled"
+        case .assistantInboxEnabled: return "Assistant Inbox Enabled"
         }
     }
 }
