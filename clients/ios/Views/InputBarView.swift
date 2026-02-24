@@ -27,6 +27,13 @@ struct InputBarView: View {
     /// and stopRecording). Prevents double-stop when the auto-stop path and the isFinal callback
     /// both reach teardown code.
     @State private var isAudioEngineStopped = false
+    /// True while the auto-stop path is waiting for the isFinal callback to arrive. During this
+    /// window the voice orb is already collapsed and the text field is visible, so the user may
+    /// start typing. textAtAutoStop captures the text value the moment auto-stop fires; the isFinal
+    /// handler only applies the final transcription when text still matches that snapshot, i.e.
+    /// the user has not typed anything in the interim.
+    @State private var isAutoStopPending = false
+    @State private var textAtAutoStop: String = ""
     @State private var recognitionTask: SFSpeechRecognitionTask?
     @State private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     @State private var audioEngine = AVAudioEngine()
@@ -348,6 +355,8 @@ struct InputBarView: View {
         lastSpeechTime = Date()
         hasSpeechOccurred = false
         isAudioEngineStopped = false
+        isAutoStopPending = false
+        textAtAutoStop = ""
 
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
             request.append(buffer)
@@ -382,8 +391,14 @@ struct InputBarView: View {
                     let transcribed = result.bestTranscription.formattedString
                     if result.isFinal {
                         log.info("Voice transcription final: \(transcribed, privacy: .public)")
-                        text = transcribed
-                        onVoiceResult?(transcribed)
+                        // Only apply the final transcription if the user has not typed anything
+                        // since auto-stop. When isAutoStopPending is true the voice orb has already
+                        // collapsed and the text field is visible, so the user may have started
+                        // editing; we respect their input by skipping the overwrite in that case.
+                        if !isAutoStopPending || text == textAtAutoStop {
+                            text = transcribed
+                            onVoiceResult?(transcribed)
+                        }
                         stopRecording()
                         isVoiceOrbExpanded = false
                     }
@@ -467,17 +482,15 @@ struct InputBarView: View {
         }
         cleanupRecognition()
         isRecording = false
+        isAutoStopPending = false
         micAmplitude = 0
     }
 
-    /// Ends the recording session without immediately cancelling the recognition task,
-    /// allowing SFSpeechRecognizer to deliver a final transcription result naturally.
-    /// The recognition callback will call stopRecording() once isFinal fires, which
-    /// performs full cleanup. Use this from auto-stop paths (silence detection, listening
-    /// timeout) so that in-flight speech is not dropped when the timer fires before the
-    /// last recognition result arrives.
     private func finishRecordingForAutoStop() {
-        guard isRecording else { return }
+        // isAudioEngineStopped guards against both timers queuing async blocks that both
+        // pass the isRecording check before either executes — the second call would otherwise
+        // call audioEngine.stop() and endAudio() a second time on the same session.
+        guard isRecording, !isAudioEngineStopped else { return }
         log.info("Voice recording finishing (auto-stop) — awaiting final transcription")
 
         // Disarm auto-stop timers so they don't fire again.
@@ -485,6 +498,11 @@ struct InputBarView: View {
         listeningTimeoutTimer = nil
         silenceTimer?.invalidate()
         silenceTimer = nil
+
+        // Snapshot the current text so the isFinal callback can detect whether the user has
+        // typed anything in the text field while we were waiting for the final result.
+        isAutoStopPending = true
+        textAtAutoStop = text
 
         // Stop the audio engine and signal end-of-audio to the recognizer.
         // Do NOT cancel the recognition task and do NOT clear isRecording — the existing
