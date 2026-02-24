@@ -169,7 +169,7 @@ function buildFallbackDecision(
       selectedChannels: [...availableChannels],
       reasoningSummary: 'Fallback: high urgency + requires action',
       renderedCopy: copy,
-      dedupeKey: `fallback:${signal.sourceEventName}:${signal.sourceSessionId}`,
+      dedupeKey: `fallback:${signal.sourceEventName}:${signal.sourceSessionId}:${signal.createdAt}`,
       confidence: 0.3,
       fallbackUsed: true,
     };
@@ -180,7 +180,7 @@ function buildFallbackDecision(
     selectedChannels: [],
     reasoningSummary: 'Fallback: suppressed (not high urgency + requires action)',
     renderedCopy: {},
-    dedupeKey: `fallback:${signal.sourceEventName}:${signal.sourceSessionId}`,
+    dedupeKey: `fallback:${signal.sourceEventName}:${signal.sourceSessionId}:${signal.createdAt}`,
     confidence: 0.3,
     fallbackUsed: true,
   };
