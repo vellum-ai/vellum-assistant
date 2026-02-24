@@ -7,7 +7,9 @@
  */
 
 import type { ServerWebSocket } from 'bun';
+import { randomInt } from 'node:crypto';
 import { getLogger } from '../util/logger.js';
+import { getConfig } from '../config/loader.js';
 import {
   getCallSession,
   updateCallSession,
@@ -17,6 +19,7 @@ import {
 import { CallOrchestrator } from './call-orchestrator.js';
 import { fireCallTranscriptNotifier, fireCallCompletionNotifier } from './call-state.js';
 import { addPointerMessage, formatDuration } from './call-pointer-messages.js';
+import * as conversationStore from '../memory/conversation-store.js';
 import {
   extractPromptSpeakerMetadata,
   SpeakerIdentityTracker,
@@ -111,6 +114,8 @@ export const activeRelayConnections = new Map<string, RelayConnection>();
 /**
  * Manages a single WebSocket connection for one call.
  */
+export type RelayConnectionState = 'connected' | 'verification_pending';
+
 export class RelayConnection {
   private ws: ServerWebSocket<RelayWebSocketData>;
   private callSessionId: string;
@@ -124,12 +129,27 @@ export class RelayConnection {
   private orchestrator: CallOrchestrator | null = null;
   private speakerIdentityTracker: SpeakerIdentityTracker;
 
+  // Verification state
+  private connectionState: RelayConnectionState = 'connected';
+  private verificationCode: string | null = null;
+  private verificationAttempts = 0;
+  private verificationMaxAttempts = 3;
+  private verificationCodeLength = 6;
+  private dtmfBuffer = '';
+
   constructor(ws: ServerWebSocket<RelayWebSocketData>, callSessionId: string) {
     this.ws = ws;
     this.callSessionId = callSessionId;
     this.conversationHistory = [];
     this.abortController = new AbortController();
     this.speakerIdentityTracker = new SpeakerIdentityTracker();
+  }
+
+  /**
+   * Get the verification code for this connection (if verification is active).
+   */
+  getVerificationCode(): string | null {
+    return this.verificationCode;
   }
 
   /**
@@ -318,14 +338,73 @@ export class RelayConnection {
     // Create and attach the LLM-driven orchestrator
     const orchestrator = new CallOrchestrator(this.callSessionId, this, session?.task ?? null);
     this.setOrchestrator(orchestrator);
-    orchestrator.startInitialGreeting().catch((err) =>
-      log.error({ err, callSessionId: this.callSessionId }, 'Failed to start initial outbound greeting'),
+
+    // Check if callee verification is enabled
+    const config = getConfig();
+    const verificationConfig = config.calls.verification;
+    if (verificationConfig.enabled) {
+      this.startVerification(session, verificationConfig);
+    } else {
+      orchestrator.startInitialGreeting().catch((err) =>
+        log.error({ err, callSessionId: this.callSessionId }, 'Failed to start initial outbound greeting'),
+      );
+    }
+  }
+
+  /**
+   * Generate a verification code and prompt the callee to enter it via DTMF.
+   */
+  private startVerification(
+    session: ReturnType<typeof getCallSession>,
+    verificationConfig: { maxAttempts: number; codeLength: number },
+  ): void {
+    this.verificationMaxAttempts = verificationConfig.maxAttempts;
+    this.verificationCodeLength = verificationConfig.codeLength;
+    this.verificationAttempts = 0;
+    this.dtmfBuffer = '';
+
+    // Generate a random numeric code
+    const maxValue = Math.pow(10, this.verificationCodeLength);
+    const code = randomInt(0, maxValue).toString().padStart(this.verificationCodeLength, '0');
+    this.verificationCode = code;
+    this.connectionState = 'verification_pending';
+
+    recordCallEvent(this.callSessionId, 'callee_verification_started', {
+      codeLength: this.verificationCodeLength,
+      maxAttempts: this.verificationMaxAttempts,
+    });
+
+    // Send a TTS prompt with the code spoken digit by digit
+    const spokenCode = code.split('').join('. ');
+    this.sendTextToken(`Please enter the verification code: ${spokenCode}.`, true);
+
+    // Post the verification code to the initiating conversation so the
+    // guardian (user) can share it with the callee.
+    if (session?.initiatedFromConversationId) {
+      const codeMsg = `\u{1F510} Verification code for call to ${session.toNumber}: ${code}`;
+      conversationStore.addMessage(
+        session.initiatedFromConversationId,
+        'assistant',
+        JSON.stringify([{ type: 'text', text: codeMsg }]),
+      );
+    }
+
+    log.info(
+      { callSessionId: this.callSessionId, codeLength: this.verificationCodeLength },
+      'Callee verification started',
     );
   }
 
   private async handlePrompt(msg: RelayPromptMessage): Promise<void> {
     if (!msg.last) {
       // Partial transcript, wait for final
+      return;
+    }
+
+    // During verification, ignore voice prompts — the callee should be
+    // entering DTMF digits, not speaking.
+    if (this.connectionState === 'verification_pending') {
+      log.debug({ callSessionId: this.callSessionId }, 'Ignoring voice prompt during verification');
       return;
     }
 
@@ -394,6 +473,70 @@ export class RelayConnection {
     recordCallEvent(this.callSessionId, 'caller_spoke', {
       dtmfDigit: msg.digit,
     });
+
+    // If verification is pending, accumulate digits and check the code
+    if (this.connectionState === 'verification_pending' && this.verificationCode) {
+      this.dtmfBuffer += msg.digit;
+
+      if (this.dtmfBuffer.length >= this.verificationCodeLength) {
+        const enteredCode = this.dtmfBuffer.slice(0, this.verificationCodeLength);
+        this.dtmfBuffer = '';
+
+        if (enteredCode === this.verificationCode) {
+          // Verification succeeded
+          this.connectionState = 'connected';
+          this.verificationCode = null;
+          this.verificationAttempts = 0;
+
+          recordCallEvent(this.callSessionId, 'callee_verification_succeeded', {});
+          log.info({ callSessionId: this.callSessionId }, 'Callee verification succeeded');
+
+          // Proceed to the normal call flow
+          if (this.orchestrator) {
+            this.orchestrator.startInitialGreeting().catch((err) =>
+              log.error({ err, callSessionId: this.callSessionId }, 'Failed to start initial outbound greeting after verification'),
+            );
+          }
+        } else {
+          // Verification failed for this attempt
+          this.verificationAttempts++;
+
+          if (this.verificationAttempts >= this.verificationMaxAttempts) {
+            // Max attempts reached — end the call
+            recordCallEvent(this.callSessionId, 'callee_verification_failed', {
+              attempts: this.verificationAttempts,
+            });
+            log.warn({ callSessionId: this.callSessionId, attempts: this.verificationAttempts }, 'Callee verification failed — max attempts reached');
+
+            this.sendTextToken('Verification failed. Goodbye.', true);
+
+            // End the call with failed status after TTS plays
+            setTimeout(() => {
+              this.endSession('Verification failed');
+              updateCallSession(this.callSessionId, {
+                status: 'failed',
+                endedAt: Date.now(),
+                lastError: 'Callee verification failed — max attempts exceeded',
+              });
+
+              const session = getCallSession(this.callSessionId);
+              if (session?.initiatedFromConversationId) {
+                addPointerMessage(session.initiatedFromConversationId, 'failed', session.toNumber, {
+                  reason: 'Callee verification failed',
+                });
+              }
+            }, 2000);
+          } else {
+            // Allow another attempt
+            log.info(
+              { callSessionId: this.callSessionId, attempt: this.verificationAttempts, maxAttempts: this.verificationMaxAttempts },
+              'Callee verification attempt failed — retrying',
+            );
+            this.sendTextToken('That code was incorrect. Please try again.', true);
+          }
+        }
+      }
+    }
   }
 
   private handleError(msg: RelayErrorMessage): void {
