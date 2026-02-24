@@ -262,6 +262,26 @@ export function injectActiveSurfaceContext(message: Message, ctx: ActiveSurfaceC
 }
 
 /**
+ * Append voice call-control protocol instructions to the last user
+ * message so the model knows how to emit control markers during voice
+ * turns routed through the session pipeline.
+ */
+export function injectVoiceCallControlContext(message: Message, prompt: string): Message {
+  return {
+    ...message,
+    content: [
+      ...message.content,
+      { type: 'text', text: prompt },
+    ],
+  };
+}
+
+/** Strip `<voice_call_control>` blocks injected by `injectVoiceCallControlContext`. */
+export function stripVoiceCallControlContext(messages: Message[]): Message[] {
+  return stripUserTextBlocksByPrefix(messages, ['<voice_call_control>']);
+}
+
+/**
  * Prepend channel capability context to the last user message so the
  * model knows what the current channel can and cannot do.
  */
@@ -514,6 +534,7 @@ const RUNTIME_INJECTION_PREFIXES = [
   '<channel_command_context>',
   '<channel_turn_context>',
   '<guardian_context>',
+  '<voice_call_control>',
   '<workspace_top_level>',
   TEMPORAL_INJECTED_PREFIX,
   '<active_workspace>',
@@ -558,9 +579,20 @@ export function applyRuntimeInjections(
     channelTurnContext?: ChannelTurnContextParams | null;
     guardianContext?: GuardianRuntimeContext | null;
     temporalContext?: string | null;
+    voiceCallControlPrompt?: string | null;
   },
 ): Message[] {
   let result = runMessages;
+
+  if (options.voiceCallControlPrompt) {
+    const userTail = result[result.length - 1];
+    if (userTail && userTail.role === 'user') {
+      result = [
+        ...result.slice(0, -1),
+        injectVoiceCallControlContext(userTail, options.voiceCallControlPrompt),
+      ];
+    }
+  }
 
   if (options.softConflictInstruction) {
     const userTail = result[result.length - 1];

@@ -100,6 +100,7 @@ export interface AgentLoopSessionContext {
   channelCapabilities?: ChannelCapabilities;
   commandIntent?: { type: string; payload?: string; languageCode?: string };
   guardianContext?: GuardianRuntimeContext;
+  voiceCallControlPrompt?: string;
 
   readonly coreToolNames: Set<string>;
   allowedToolNames?: Set<string>;
@@ -321,6 +322,7 @@ export async function runAgentLoopImpl(
       channelTurnContext,
       guardianContext: ctx.guardianContext ?? null,
       temporalContext,
+      voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
     });
 
     // Pre-run repair
@@ -431,6 +433,7 @@ export async function runAgentLoopImpl(
           channelTurnContext,
           guardianContext: ctx.guardianContext ?? null,
           temporalContext,
+          voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
         });
         preRepairMessages = runMessages;
         preRunHistoryLength = runMessages.length;
@@ -466,6 +469,7 @@ export async function runAgentLoopImpl(
             channelTurnContext,
             guardianContext: ctx.guardianContext ?? null,
             temporalContext,
+            voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
           });
           preRepairMessages = runMessages;
           preRunHistoryLength = runMessages.length;
