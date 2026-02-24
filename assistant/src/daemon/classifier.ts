@@ -1,4 +1,4 @@
-import { getConfiguredProvider, createTimeout, extractToolUse, userMessage } from '../providers/anthropic-send-message.js';
+import { getConfiguredProvider, createTimeout, extractToolUse, userMessage } from '../providers/provider-send-message.js';
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('classifier');

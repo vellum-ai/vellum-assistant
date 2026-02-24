@@ -2,7 +2,7 @@ import { inArray, sql } from 'drizzle-orm';
 import type { AssistantConfig, MemoryRerankingConfig } from '../../config/types.js';
 import { estimateTextTokens } from '../../context/token-estimator.js';
 import { getLogger } from '../../util/logger.js';
-import { getConfiguredProvider, extractText, userMessage } from '../../providers/anthropic-send-message.js';
+import { getConfiguredProvider, extractText, userMessage } from '../../providers/provider-send-message.js';
 import { getDb } from '../db.js';
 import { memoryItems } from '../schema.js';
 import type { Candidate, CandidateSource, ItemMetadata } from './types.js';
