@@ -714,6 +714,11 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     correlationId: 'corr-001',
     threadType: 'standard',
   },
+  session_title_updated: {
+    type: 'session_title_updated',
+    sessionId: 'sess-001',
+    title: 'Plan sprint rollout',
+  },
   session_list_response: {
     type: 'session_list_response',
     sessions: [

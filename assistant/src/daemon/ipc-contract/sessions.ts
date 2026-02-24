@@ -146,6 +146,12 @@ export interface SessionInfo {
   threadType?: ThreadType;
 }
 
+export interface SessionTitleUpdated {
+  type: 'session_title_updated';
+  sessionId: string;
+  title: string;
+}
+
 /** Channel binding metadata exposed in session/conversation list APIs. */
 export interface ChannelBinding {
   sourceChannel: string;

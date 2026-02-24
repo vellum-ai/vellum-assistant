@@ -245,7 +245,7 @@ graph TB
 
     %% Main Window Chat flow
     CHAT_VM -->|"session_create +<br/>user_message +<br/>cancel"| IPC_SERVER
-    IPC_SERVER -->|"session_info +<br/>text deltas +<br/>message_complete +<br/>session_error +<br/>message_queued +<br/>message_dequeued +<br/>generation_handoff"| CHAT_VM
+    IPC_SERVER -->|"session_info +<br/>session_title_updated +<br/>text deltas +<br/>message_complete +<br/>session_error +<br/>message_queued +<br/>message_dequeued +<br/>generation_handoff"| CHAT_VM
     CHAT_VIEW --> CHAT_VM
     MW_STATE -->|"home_base_get + app_open_request<br/>(dashboard-first bootstrap)"| IPC_SERVER
 
@@ -1414,10 +1414,11 @@ graph LR
         S16["session_error<br/>sessionId, code,<br/>userMessage, retryable,<br/>debugDetails?"]
         S17["ipc_blob_probe_result<br/>probeId, ok,<br/>observedNonceSha256?, reason?"]
         S18["session_info<br/>sessionId, title,<br/>correlationId?, threadType?"]
-        S19["session_list_response<br/>sessions[]: id, title,<br/>updatedAt, threadType?"]
-        S20["work_item_status_changed<br/>workItemId, newStatus<br/>(planned push)"]
-        S21["tool_permission_simulate_response<br/>decision, riskLevel, reason?,<br/>promptPayload?, matchedRuleId?"]
-        S22["conversation_search_response<br/>query, results[]: conversationId,<br/>title, updatedAt, matchingMessages[]"]
+        S19["session_title_updated<br/>sessionId, title"]
+        S20["session_list_response<br/>sessions[]: id, title,<br/>updatedAt, threadType?"]
+        S21["work_item_status_changed<br/>workItemId, newStatus<br/>(planned push)"]
+        S22["tool_permission_simulate_response<br/>decision, riskLevel, reason?,<br/>promptPayload?, matchedRuleId?"]
+        S23["conversation_search_response<br/>query, results[]: conversationId,<br/>title, updatedAt, matchingMessages[]"]
     end
 
     C0 --> SOCKET

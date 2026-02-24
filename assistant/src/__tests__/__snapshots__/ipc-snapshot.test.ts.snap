@@ -482,6 +482,15 @@ exports[`IPC message snapshots ClientMessage types sessions_clear serializes to 
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types conversation_search serializes to expected JSON 1`] = `
+{
+  "limit": 20,
+  "maxMessagesPerConversation": 3,
+  "query": "hello world",
+  "type": "conversation_search",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types ipc_blob_probe serializes to expected JSON 1`] = `
 {
   "nonceSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -1130,6 +1139,14 @@ exports[`IPC message snapshots ServerMessage types session_info serializes to ex
 }
 `;
 
+exports[`IPC message snapshots ServerMessage types session_title_updated serializes to expected JSON 1`] = `
+{
+  "sessionId": "sess-001",
+  "title": "Plan sprint rollout",
+  "type": "session_title_updated",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types session_list_response serializes to expected JSON 1`] = `
 {
   "sessions": [
@@ -1154,6 +1171,28 @@ exports[`IPC message snapshots ServerMessage types sessions_clear_response seria
 {
   "cleared": 3,
   "type": "sessions_clear_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types conversation_search_response serializes to expected JSON 1`] = `
+{
+  "query": "hello world",
+  "results": [
+    {
+      "conversationId": "conv-001",
+      "conversationTitle": "My Conversation",
+      "conversationUpdatedAt": 1700000000,
+      "matchingMessages": [
+        {
+          "createdAt": 1699999000,
+          "excerpt": "…hello world, how are you?…",
+          "messageId": "msg-001",
+          "role": "user",
+        },
+      ],
+    },
+  ],
+  "type": "conversation_search_response",
 }
 `;
 
