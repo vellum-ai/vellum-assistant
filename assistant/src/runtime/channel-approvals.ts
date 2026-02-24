@@ -215,6 +215,10 @@ export function channelSupportsRichApprovalUI(channel: string): boolean {
  * Build a reminder prompt when the user sends a non-decision message while
  * an approval is pending. Reuses the original actions and fallback text
  * but prefixes the prompt text with a reminder.
+ *
+ * NOTE: Only used by the guardian reminder path. The standard (non-guardian)
+ * approval flow now uses the conversational approval engine (M2). This
+ * function will be removed when M3 migrates the guardian path.
  */
 export function buildReminderPrompt(
   pendingPrompt: ChannelApprovalPrompt,
