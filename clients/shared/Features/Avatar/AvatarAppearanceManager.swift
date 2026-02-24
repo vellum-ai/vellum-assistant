@@ -22,7 +22,7 @@ public final class AvatarAppearanceManager {
     }
 
     private var homeDirectory: String {
-        FileManager.default.homeDirectoryForCurrentUser.path
+        NSHomeDirectory()
     }
 
     public func start() {

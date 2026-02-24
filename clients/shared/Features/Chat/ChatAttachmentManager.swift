@@ -32,12 +32,12 @@ public final class ChatAttachmentManager: ObservableObject {
     // MARK: - Limits
 
     /// Maximum file size per attachment (20 MB).
-    static let maxFileSize = 20 * 1024 * 1024
+    nonisolated(unsafe) static let maxFileSize = 20 * 1024 * 1024
     /// Maximum image size before compression (4 MB - leaves headroom for base64 encoding).
     /// Anthropic has a 5 MB limit per image; base64 encoding adds ~33% overhead.
-    static let maxImageSize = 4 * 1024 * 1024
+    nonisolated(unsafe) static let maxImageSize = 4 * 1024 * 1024
     /// Maximum number of attachments per message.
-    public static let maxAttachments = 5
+    nonisolated(unsafe) public static let maxAttachments = 5
 
     // MARK: - Error callback
 
@@ -321,7 +321,7 @@ public final class ChatAttachmentManager: ObservableObject {
     // MARK: - Static helpers (shared with ChatViewModel+Attachments and mapIPCAttachments)
 
     /// Resize image data to fit within `maxDimension` and return PNG data.
-    public static func generateThumbnail(from data: Data, maxDimension: CGFloat) -> Data? {
+    nonisolated public static func generateThumbnail(from data: Data, maxDimension: CGFloat) -> Data? {
         #if os(macOS)
         guard let image = NSImage(data: data) else { return nil }
         let size = image.size
@@ -362,7 +362,7 @@ public final class ChatAttachmentManager: ObservableObject {
 
     /// Compress image data if it exceeds the size limit.
     /// Returns (compressedData, wasCompressed) tuple.
-    public static func compressImageIfNeeded(data: Data, maxSize: Int) -> (Data, Bool) {
+    nonisolated public static func compressImageIfNeeded(data: Data, maxSize: Int) -> (Data, Bool) {
         // Check if compression is needed
         guard data.count > maxSize else {
             return (data, false)
