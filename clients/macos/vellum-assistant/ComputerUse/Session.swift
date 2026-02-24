@@ -689,7 +689,13 @@ final class ComputerUseSession: ObservableObject {
 
         if let result = enumerator.enumerateCurrentWindow() {
             // On first step with Chrome: check if web content is visible.
+            // Skip this check when targeting an external app — showing the
+            // NSAlert would activate Vellum and steal focus from the app
+            // under test.
+            let isExternalTarget = targetAppBundleId != nil
+                && targetAppBundleId != Bundle.main.bundleIdentifier
             if !didChromeAccessibilityCheck,
+               !isExternalTarget,
                let frontApp = NSWorkspace.shared.frontmostApplication,
                ChromeAccessibilityHelper.isChromium(frontApp),
                !ChromeAccessibilityHelper.hasWebContent(elements: result.elements) {
