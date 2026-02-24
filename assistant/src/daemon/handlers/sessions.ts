@@ -1,5 +1,5 @@
 import * as net from 'node:net';
-import { isChannelId } from '../../channels/types.js';
+import { isChannelId, parseChannelId } from '../../channels/types.js';
 import type { ChannelId } from '../../channels/types.js';
 import { silentlyWithLog } from '../../util/silently.js';
 import { v4 as uuid } from 'uuid';
@@ -215,6 +215,7 @@ export function handleSessionList(socket: net.Socket, ctx: HandlerContext, offse
     type: 'session_list_response',
     sessions: conversations.map((c) => {
       const binding = bindings.get(c.id);
+      const originChannel = parseChannelId(c.originChannel);
       return {
         id: c.id,
         title: c.title ?? 'Untitled',
@@ -230,6 +231,7 @@ export function handleSessionList(socket: net.Socket, ctx: HandlerContext, offse
             username: binding.username,
           },
         } : {}),
+        ...(originChannel ? { conversationOriginChannel: originChannel } : {}),
       };
     }),
     hasMore: offset + conversations.length < totalCount,

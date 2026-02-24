@@ -1,9 +1,10 @@
-import { eq, desc, asc, and, count, sql, inArray, or } from 'drizzle-orm';
+import { eq, desc, asc, and, count, sql, inArray, or, isNull } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb, rawGet, rawExec } from './db.js';
 import { conversations, messages, toolInvocations, messageRuns, channelInboundEvents, memoryItemSources, memoryItems, memoryEmbeddings, memoryItemEntities, memorySegments, messageAttachments, llmRequestLogs } from './schema.js';
 import { getConfig } from '../config/loader.js';
 import { indexMessageNow } from './indexer.js';
+import type { ChannelId } from '../channels/types.js';
 import { getLogger } from '../util/logger.js';
 import { deleteOrphanAttachments } from './attachments-store.js';
 
@@ -648,4 +649,21 @@ function buildExcerpt(rawContent: string, query: string): string {
   const end = Math.min(text.length, idx + query.length + WINDOW);
   const excerpt = (start > 0 ? '…' : '') + text.slice(start, end).replace(/\s+/g, ' ').trim() + (end < text.length ? '…' : '');
   return excerpt;
+}
+
+export function setConversationOriginChannelIfUnset(conversationId: string, channel: ChannelId): void {
+  const db = getDb();
+  db.update(conversations)
+    .set({ originChannel: channel })
+    .where(and(eq(conversations.id, conversationId), isNull(conversations.originChannel)))
+    .run();
+}
+
+export function getConversationOriginChannel(conversationId: string): ChannelId | null {
+  const db = getDb();
+  const row = db.select({ originChannel: conversations.originChannel })
+    .from(conversations)
+    .where(eq(conversations.id, conversationId))
+    .get();
+  return (row?.originChannel as ChannelId) ?? null;
 }
