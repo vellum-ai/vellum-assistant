@@ -88,7 +88,8 @@ struct DictationContextCapture {
             log.debug("Could not get focused window — AX permission may be missing")
             return ""
         }
-        guard let window = windowRef as? AXUIElement else { return "" }
+        guard CFGetTypeID(windowRef as CFTypeRef) == AXUIElementGetTypeID() else { return "" }
+        let window = windowRef as! AXUIElement
         return axStringAttribute(window, kAXTitleAttribute as CFString) ?? ""
     }
 
@@ -100,7 +101,8 @@ struct DictationContextCapture {
             log.debug("Could not get focused UI element")
             return (nil, false)
         }
-        guard let focused = focusedRef as? AXUIElement else { return (nil, false) }
+        guard CFGetTypeID(focusedRef as CFTypeRef) == AXUIElementGetTypeID() else { return (nil, false) }
+        let focused = focusedRef as! AXUIElement
 
         // Selected text
         let selectedText = axStringAttribute(focused, kAXSelectedTextAttribute as CFString)
