@@ -61,6 +61,17 @@ extension AppDelegate {
         return baseMessage
     }
 
+    // MARK: - External App Target Detection
+
+    /// Returns `true` when the CU session targets an external app (not Vellum
+    /// itself). When `bundleId` is nil the session has no target constraint and
+    /// is treated as "self" (backward compatibility).
+    private func isExternalAppTarget(bundleId: String?) -> Bool {
+        guard let bundleId, !bundleId.isEmpty else { return false }
+        let selfBundleId = Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant"
+        return bundleId != selfBundleId
+    }
+
     // MARK: - Accessibility Permission
 
     /// Poll for accessibility permission after prompting, giving the user time to grant it in System Settings.
@@ -135,8 +146,13 @@ extension AppDelegate {
             self.textResponseWindow = nil
 
             // Keep the main app visible during escalated CU so permission prompts
-            // and status are always visible to the user.
-            self.showMainWindow()
+            // and status are always visible to the user — but only when the
+            // target app IS Vellum itself (or unspecified). For external-app QA
+            // sessions (e.g., targeting Slack, Chrome), activating Vellum's main
+            // window would steal focus from the app under test.
+            if !self.isExternalAppTarget(bundleId: routed.targetAppBundleId) {
+                self.showMainWindow()
+            }
 
             await session.run()
             let endMessage = self.computerUseEndMessage(for: session)
@@ -283,8 +299,13 @@ extension AppDelegate {
                     || effectiveTask.localizedCaseInsensitiveContains("test")
                     || effectiveTask.localizedCaseInsensitiveContains("verify")
                 if routed.qaMode == true || looksLikeQaTask {
-                    // QA/test CU sessions should keep the main app open.
-                    self.showMainWindow()
+                    // QA/test CU sessions should keep the main app open —
+                    // but only when the target app is Vellum itself (or
+                    // unspecified). For external-app QA sessions, activating
+                    // Vellum would steal focus from the app under test.
+                    if !self.isExternalAppTarget(bundleId: routed.targetAppBundleId) {
+                        self.showMainWindow()
+                    }
                 }
                 await session.run()
                 let endMessage = self.computerUseEndMessage(for: session)
