@@ -26,6 +26,7 @@ struct PairingQRCodeSheet: View {
     @State private var registrationState: RegistrationState = .idle
     @State private var registrationError: String? = nil
     @State private var refreshTask: Task<Void, Never>? = nil
+    @State private var consecutiveRefreshFailures: Int = 0
 
     /// Re-register every 4 minutes to stay ahead of the 5-minute TTL.
     private static let refreshInterval: UInt64 = 4 * 60 * 1_000_000_000
@@ -131,14 +132,6 @@ struct PairingQRCodeSheet: View {
         .onDisappear {
             stopRefreshTimer()
         }
-        .onChange(of: daemonClient != nil) { _, isConnected in
-            // When the daemon connects after the sheet is already open,
-            // trigger registration so the user doesn't have to dismiss and reopen.
-            if isConnected, registrationState != .registered {
-                registerWithDaemon()
-                startRefreshTimer()
-            }
-        }
     }
 
     private func errorContent(_ message: String) -> some View {
@@ -215,9 +208,15 @@ struct PairingQRCodeSheet: View {
             pairingRequestId = newRequestId
             pairingSecret = newSecret
             registrationState = .registered
+            consecutiveRefreshFailures = 0
         case .failure:
-            // Keep the old QR visible; the next timer tick will retry.
-            break
+            consecutiveRefreshFailures += 1
+            if consecutiveRefreshFailures >= 2 {
+                registrationState = .failed
+                registrationError = "Re-registration failed. Close and reopen to try again."
+                stopRefreshTimer()
+            }
+            // On first failure, keep old QR visible; the next timer tick will retry.
         }
     }
 
