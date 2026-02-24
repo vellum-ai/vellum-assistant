@@ -25,6 +25,12 @@ export function createTwilioVoiceWebhookHandler(config: GatewayConfig) {
       if (routing && "assistantId" in routing) {
         assistantId = routing.assistantId;
         log.info({ assistantId, toNumber: params.To }, "Resolved assistant by phone number for inbound call");
+      } else if (config.unmappedPolicy === "default" && config.defaultAssistantId) {
+        assistantId = config.defaultAssistantId;
+        log.info({ assistantId, toNumber: params.To }, "Fell back to default assistant for unmapped inbound call");
+      } else {
+        log.warn({ toNumber: params.To, callSid: params.CallSid }, "No route configured for inbound voice call, rejecting");
+        return new Response("No route configured for this phone number", { status: 404 });
       }
     }
 
