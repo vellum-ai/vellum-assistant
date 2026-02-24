@@ -1,7 +1,7 @@
 import type { AssistantConfig } from '../config/types.js';
 import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
-import { getDb, rawRun } from './db.js';
+import { rawRun } from './db.js';
 import {
   claimMemoryJobs,
   completeMemoryJob,
