@@ -88,7 +88,9 @@ async function graphql<T>(token: string, query: string, variables?: Record<strin
   const resp = await fetch(LINEAR_GRAPHQL_URL, {
     method: 'POST',
     headers: {
-      'Authorization': token,
+      // Linear accepts both personal API keys and OAuth tokens; the Bearer scheme
+      // is required for all token types per Linear's API docs.
+      'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ query, variables }),
@@ -126,112 +128,158 @@ async function fetchViewer(token: string): Promise<LinearViewer> {
   return data.viewer;
 }
 
-/** Fetch notifications since a given ISO timestamp. */
+/**
+ * Fetch all notifications since a given ISO timestamp, paginating until
+ * `pageInfo.hasNextPage` is false so we never miss events when 50+ arrive
+ * between polls.
+ */
 async function fetchNotifications(
   token: string,
   since: string,
 ): Promise<LinearNotification[]> {
-  const data = await graphql<{ notifications: { nodes: LinearNotification[] } }>(token, `
-    query FetchNotifications($after: DateTime) {
-      notifications(
-        filter: { updatedAt: { gte: $after } }
-        orderBy: updatedAt
-        first: 50
-      ) {
-        nodes {
-          id
-          type
-          createdAt
-          updatedAt
-          ... on IssueNotification {
-            issue {
-              id
-              identifier
-              title
-              url
-              state {
+  const allNodes: LinearNotification[] = [];
+  let cursor: string | null = null;
+
+  do {
+    const data = await graphql<{
+      notifications: { nodes: LinearNotification[]; pageInfo: { hasNextPage: boolean; endCursor: string } };
+    }>(token, `
+      query FetchNotifications($after: DateTime, $cursor: String) {
+        notifications(
+          filter: { updatedAt: { gte: $after } }
+          orderBy: updatedAt
+          first: 50
+          after: $cursor
+        ) {
+          nodes {
+            id
+            type
+            createdAt
+            updatedAt
+            ... on IssueNotification {
+              issue {
                 id
-                name
-                type
+                identifier
+                title
+                url
+                state {
+                  id
+                  name
+                  type
+                }
+                assignee {
+                  id
+                  name
+                  email
+                }
+                team {
+                  id
+                  name
+                }
               }
-              assignee {
+            }
+            ... on IssueCommentMentionNotification {
+              issue {
                 id
-                name
-                email
+                identifier
+                title
+                url
+                team {
+                  id
+                  name
+                }
               }
-              team {
+              comment {
                 id
-                name
+                body
               }
             }
           }
-          ... on IssueCommentMentionNotification {
-            issue {
-              id
-              identifier
-              title
-              url
-              team {
-                id
-                name
-              }
-            }
-            comment {
-              id
-              body
-            }
+          pageInfo {
+            hasNextPage
+            endCursor
           }
         }
       }
-    }
-  `, { after: since });
-  return data.notifications.nodes;
+    `, { after: since, cursor });
+
+    allNodes.push(...data.notifications.nodes);
+    cursor = data.notifications.pageInfo.hasNextPage ? data.notifications.pageInfo.endCursor : null;
+  } while (cursor !== null);
+
+  return allNodes;
 }
 
 /**
- * Fetch issues assigned to the viewer that had status changes since the watermark.
- * We fetch assigned issues updated recently and emit events for state changes.
+ * Fetch all assigned issues updated since the watermark, paginating until
+ * `pageInfo.hasNextPage` is false so updates beyond the first 50 aren't skipped.
  */
 async function fetchAssignedIssueUpdates(
   token: string,
   viewerId: string,
   since: string,
 ): Promise<LinearIssue[]> {
-  const data = await graphql<{ issues: { nodes: LinearIssue[] } }>(token, `
-    query FetchAssignedIssues($assigneeId: ID, $after: DateTime) {
-      issues(
-        filter: {
-          assignee: { id: { eq: $assigneeId } }
-          updatedAt: { gte: $after }
-        }
-        orderBy: updatedAt
-        first: 50
-      ) {
-        nodes {
-          id
-          identifier
-          title
-          url
-          updatedAt
-          state {
-            id
-            name
-            type
+  const allNodes: LinearIssue[] = [];
+  let cursor: string | null = null;
+
+  do {
+    const data = await graphql<{
+      issues: { nodes: LinearIssue[]; pageInfo: { hasNextPage: boolean; endCursor: string } };
+    }>(token, `
+      query FetchAssignedIssues($assigneeId: ID, $after: DateTime, $cursor: String) {
+        issues(
+          filter: {
+            assignee: { id: { eq: $assigneeId } }
+            updatedAt: { gte: $after }
           }
-          team {
+          orderBy: updatedAt
+          first: 50
+          after: $cursor
+        ) {
+          nodes {
             id
-            name
+            identifier
+            title
+            url
+            updatedAt
+            state {
+              id
+              name
+              type
+            }
+            team {
+              id
+              name
+            }
+            assignee {
+              id
+              name
+            }
           }
-          assignee {
-            id
-            name
+          pageInfo {
+            hasNextPage
+            endCursor
           }
         }
       }
-    }
-  `, { assigneeId: viewerId, after: since });
-  return data.issues.nodes;
+    `, { assigneeId: viewerId, after: since, cursor });
+
+    allNodes.push(...data.issues.nodes);
+    cursor = data.issues.pageInfo.hasNextPage ? data.issues.pageInfo.endCursor : null;
+  } while (cursor !== null);
+
+  return allNodes;
 }
+
+// ── Issue state tracking ──────────────────────────────────────────────────────
+
+/**
+ * Tracks the last known state ID per issue (keyed by issue ID).
+ * Populated on every poll so we can detect transitions across consecutive polls.
+ * In-memory only; resets on daemon restart, which is acceptable — the first
+ * poll after restart will seed the map without emitting false-positive events.
+ */
+const knownIssueStateIds = new Map<string, string>();
 
 // ── Event type mapping ────────────────────────────────────────────────────────
 
@@ -279,10 +327,10 @@ function notificationToItem(n: LinearNotification): WatcherItem {
   };
 }
 
-function issueToStatusChangeItem(issue: LinearIssue): WatcherItem {
-  // Use a composite key so each distinct status seen for an issue is a unique event.
-  // This prevents duplicate events across polls when the issue stays in the same state.
-  const externalId = `status_change:${issue.id}:${issue.state.id}`;
+function issueToStatusChangeItem(issue: LinearIssue, previousStateId: string): WatcherItem {
+  // Composite key encodes both the old and new state so re-polling the same
+  // transition doesn't generate a duplicate event via the dedup layer.
+  const externalId = `status_change:${issue.id}:${previousStateId}→${issue.state.id}`;
   const teamName = issue.team?.name ?? 'Unknown Team';
 
   return {
@@ -344,12 +392,20 @@ export const linearProvider: WatcherProvider = {
         items.push(notificationToItem(n));
       }
 
-      // Also poll assigned issues directly for status changes not reflected in
-      // notifications (e.g., bulk team updates), avoiding duplicate notification events
-      // by using a distinct externalId schema (status_change:<issueId>:<stateId>).
+      // Also poll assigned issues directly for status changes not covered by
+      // notifications (e.g., bulk team updates). We only emit an event when the
+      // state ID differs from what we recorded on the previous poll — any other
+      // field update (title, description, etc.) does not constitute a status change.
+      // On first sight of an issue we seed the map without emitting, so we don't
+      // fire false-positive events after a daemon restart.
       const assignedIssues = await fetchAssignedIssueUpdates(token, viewer.id, since);
       for (const issue of assignedIssues) {
-        items.push(issueToStatusChangeItem(issue));
+        const previousStateId = knownIssueStateIds.get(issue.id);
+        if (previousStateId !== undefined && previousStateId !== issue.state.id) {
+          items.push(issueToStatusChangeItem(issue, previousStateId));
+        }
+        // Always update the map so the next poll has an accurate baseline.
+        knownIssueStateIds.set(issue.id, issue.state.id);
       }
 
       const newWatermark = new Date().toISOString();
