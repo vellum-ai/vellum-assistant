@@ -1,10 +1,14 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import type { GatewayConfig } from "../config.js";
-import { callTelegramApi } from "../telegram/api.js";
 
-// Use mock() + direct globalThis.fetch assignment instead of spyOn(globalThis, "fetch")
-// because spyOn doesn't reliably intercept fetch on Linux in Bun 1.3.9.
-const originalFetch = globalThis.fetch;
+type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(async () => new Response());
+
+mock.module("../fetch.js", () => ({
+  fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
+}));
+
+const { callTelegramApi } = await import("../telegram/api.js");
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
@@ -47,22 +51,15 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   return merged;
 }
 
-function mockFetch(fn: (...args: Parameters<typeof fetch>) => Promise<Response>) {
-  const m = mock(fn);
-  Object.assign(m, { preconnect: () => {} });
-  globalThis.fetch = m as unknown as typeof fetch;
-  return m;
-}
-
 describe("callTelegramApi transport error redaction", () => {
   afterEach(() => {
-    globalThis.fetch = originalFetch;
+    fetchMock = mock(async () => new Response());
   });
 
   test("redacts bot token from warning logs and thrown error", async () => {
     const tgToken = ["123456789", ":", "ABCDefGHIJklmnopQRSTuvwxyz012345678"].join("");
 
-    mockFetch(async () => {
+    fetchMock = mock(async () => {
       const err = new Error("Unable to connect. Is the computer able to access the url?") as Error & {
         path?: string;
         code?: string;
@@ -91,7 +88,7 @@ describe("callTelegramApi transport error redaction", () => {
     // "error-123456789:...") must still be redacted.
     const tgToken = ["123456789", ":", "ABCDefGHIJklmnopQRSTuvwxyz012345678"].join("");
 
-    mockFetch(async () => {
+    fetchMock = mock(async () => {
       const err = new Error("Connection refused") as Error & {
         path?: string;
         code?: string;
@@ -121,7 +118,7 @@ describe("callTelegramApi transport error redaction", () => {
     // would fail to match the trailing `-`, leaking part of the token.
     const tgToken = ["123456789", ":", "ABCDefGHIJklmnopQRSTuvwxyz01234567-"].join("");
 
-    mockFetch(async () => {
+    fetchMock = mock(async () => {
       const err = new Error("Connection refused") as Error & {
         path?: string;
         code?: string;

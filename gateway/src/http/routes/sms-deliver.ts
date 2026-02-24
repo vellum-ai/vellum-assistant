@@ -1,4 +1,5 @@
 import type { GatewayConfig } from "../../config.js";
+import { fetchImpl } from "../../fetch.js";
 import { validateBearerToken } from "../auth/bearer.js";
 import { getLogger } from "../../logger.js";
 
@@ -30,7 +31,7 @@ async function sendTwilioSms(
   const authHeader =
     "Basic " + Buffer.from(`${accountSid}:${authToken}`).toString("base64");
 
-  const response = await globalThis.fetch(url, {
+  const response = await fetchImpl(url, {
     method: "POST",
     headers: {
       Authorization: authHeader,

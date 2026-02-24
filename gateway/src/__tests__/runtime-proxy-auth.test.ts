@@ -1,6 +1,14 @@
 import { describe, test, expect, mock, afterEach } from "bun:test";
-import { createRuntimeProxyHandler } from "../http/routes/runtime-proxy.js";
 import type { GatewayConfig } from "../config.js";
+
+type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(async () => new Response());
+
+mock.module("../fetch.js", () => ({
+  fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
+}));
+
+const { createRuntimeProxyHandler } = await import("../http/routes/runtime-proxy.js");
 
 const TOKEN = "test-secret-token";
 
@@ -45,19 +53,17 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   return merged;
 }
 
-const originalFetch = globalThis.fetch;
-
 afterEach(() => {
-  globalThis.fetch = originalFetch;
+  fetchMock = mock(async () => new Response());
 });
 
 function mockUpstream() {
-  globalThis.fetch = mock(async () => {
+  fetchMock = mock(async () => {
     return new Response(JSON.stringify({ ok: true }), {
       status: 200,
       headers: { "content-type": "application/json" },
     });
-  }) as any;
+  });
 }
 
 describe("runtime proxy auth enforcement", () => {
@@ -98,13 +104,13 @@ describe("runtime proxy auth enforcement", () => {
 
   test("auth required: replaces client authorization with configured bearer token for upstream", async () => {
     let capturedHeaders: Headers | undefined;
-    globalThis.fetch = mock(async (_input: any, init?: any) => {
-      capturedHeaders = init?.headers;
+    fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
+      capturedHeaders = init?.headers as unknown as Headers;
       return new Response(JSON.stringify({ ok: true }), {
         status: 200,
         headers: { "content-type": "application/json" },
       });
-    }) as any;
+    });
 
     const handler = createRuntimeProxyHandler(makeConfig());
     const req = new Request("http://localhost:7830/v1/health", {

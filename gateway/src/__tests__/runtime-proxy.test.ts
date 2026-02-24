@@ -1,6 +1,14 @@
 import { describe, test, expect, mock, afterEach } from "bun:test";
-import { createRuntimeProxyHandler } from "../http/routes/runtime-proxy.js";
 import type { GatewayConfig } from "../config.js";
+
+type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(async () => new Response());
+
+mock.module("../fetch.js", () => ({
+  fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
+}));
+
+const { createRuntimeProxyHandler } = await import("../http/routes/runtime-proxy.js");
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
@@ -43,19 +51,17 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   return merged;
 }
 
-const originalFetch = globalThis.fetch;
-
 afterEach(() => {
-  globalThis.fetch = originalFetch;
+  fetchMock = mock(async () => new Response());
 });
 
 describe("runtime proxy handler", () => {
   test("rewrites /v1/assistants/:assistantId/... to /v1/... for upstream", async () => {
     const captured: { url: string }[] = [];
-    globalThis.fetch = mock(async (input: any) => {
+    fetchMock = mock(async (input: string | URL | Request) => {
       captured.push({ url: String(input) });
       return new Response(JSON.stringify({ ok: true }), { status: 200 });
-    }) as any;
+    });
 
     const handler = createRuntimeProxyHandler(makeConfig());
     const req = new Request("http://localhost:7830/v1/assistants/test-assistant/channels/inbound");
@@ -66,13 +72,13 @@ describe("runtime proxy handler", () => {
 
   test("forwards request to upstream with correct path and query (assistant-scoped rewrite)", async () => {
     const captured: { url: string; method: string }[] = [];
-    globalThis.fetch = mock(async (input: any, init?: any) => {
+    fetchMock = mock(async (input: string | URL | Request, init?: RequestInit) => {
       captured.push({ url: String(input), method: init?.method ?? "GET" });
       return new Response(JSON.stringify({ ok: true }), {
         status: 200,
         headers: { "content-type": "application/json" },
       });
-    }) as any;
+    });
 
     const handler = createRuntimeProxyHandler(makeConfig());
     const req = new Request("http://localhost:7830/v1/assistants/test/health?foo=bar");
@@ -88,13 +94,13 @@ describe("runtime proxy handler", () => {
 
   test("forwards POST body to upstream", async () => {
     let capturedBody = "";
-    globalThis.fetch = mock(async (_input: any, init?: any) => {
+    fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
       if (init?.body) {
         // Body is an ArrayBuffer after buffering in the proxy handler
-        capturedBody = new TextDecoder().decode(init.body);
+        capturedBody = new TextDecoder().decode(init.body as ArrayBuffer);
       }
       return new Response("ok", { status: 200 });
-    }) as any;
+    });
 
     const handler = createRuntimeProxyHandler(makeConfig());
     const req = new Request("http://localhost:7830/v1/chat", {
@@ -109,9 +115,9 @@ describe("runtime proxy handler", () => {
   });
 
   test("relays upstream status code", async () => {
-    globalThis.fetch = mock(async () => {
+    fetchMock = mock(async () => {
       return new Response("Not Found", { status: 404 });
-    }) as any;
+    });
 
     const handler = createRuntimeProxyHandler(makeConfig());
     const req = new Request("http://localhost:7830/v1/nonexistent");
@@ -121,9 +127,9 @@ describe("runtime proxy handler", () => {
   });
 
   test("returns 502 on upstream connection failure", async () => {
-    globalThis.fetch = mock(async () => {
+    fetchMock = mock(async () => {
       throw new Error("Connection refused");
-    }) as any;
+    });
 
     const handler = createRuntimeProxyHandler(makeConfig());
     const req = new Request("http://localhost:7830/v1/health");
@@ -136,10 +142,10 @@ describe("runtime proxy handler", () => {
 
   test("strips hop-by-hop headers from request", async () => {
     let capturedHeaders: Headers | undefined;
-    globalThis.fetch = mock(async (_input: any, init?: any) => {
-      capturedHeaders = init?.headers;
+    fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
+      capturedHeaders = init?.headers as unknown as Headers;
       return new Response("ok", { status: 200 });
-    }) as any;
+    });
 
     const handler = createRuntimeProxyHandler(makeConfig());
     const req = new Request("http://localhost:7830/v1/health", {
@@ -159,7 +165,7 @@ describe("runtime proxy handler", () => {
   });
 
   test("strips hop-by-hop headers from response", async () => {
-    globalThis.fetch = mock(async () => {
+    fetchMock = mock(async () => {
       return new Response("ok", {
         status: 200,
         headers: {
@@ -169,7 +175,7 @@ describe("runtime proxy handler", () => {
           "content-type": "text/plain",
         },
       });
-    }) as any;
+    });
 
     const handler = createRuntimeProxyHandler(makeConfig());
     const req = new Request("http://localhost:7830/v1/health");
@@ -183,9 +189,9 @@ describe("runtime proxy handler", () => {
 
   test("returns 504 on upstream timeout", async () => {
     const timeoutError = new DOMException("The operation was aborted due to timeout", "TimeoutError");
-    globalThis.fetch = mock(async () => {
+    fetchMock = mock(async () => {
       throw timeoutError;
-    }) as any;
+    });
 
     const handler = createRuntimeProxyHandler(makeConfig({ runtimeTimeoutMs: 100 }));
     const req = new Request("http://localhost:7830/v1/health");
@@ -198,10 +204,10 @@ describe("runtime proxy handler", () => {
 
   test("passes AbortSignal.timeout to upstream fetch", async () => {
     let capturedSignal: AbortSignal | undefined;
-    globalThis.fetch = mock(async (_input: any, init?: any) => {
+    fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
       capturedSignal = init?.signal;
       return new Response("ok", { status: 200 });
-    }) as any;
+    });
 
     const handler = createRuntimeProxyHandler(makeConfig({ runtimeTimeoutMs: 5000 }));
     const req = new Request("http://localhost:7830/v1/health");
@@ -213,10 +219,10 @@ describe("runtime proxy handler", () => {
 
   test("forwards authorization header when auth is not required", async () => {
     let capturedHeaders: Headers | undefined;
-    globalThis.fetch = mock(async (_input: any, init?: any) => {
-      capturedHeaders = init?.headers;
+    fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
+      capturedHeaders = init?.headers as unknown as Headers;
       return new Response("ok", { status: 200 });
-    }) as any;
+    });
 
     const handler = createRuntimeProxyHandler(makeConfig());
     const req = new Request("http://localhost:7830/v1/health", {
@@ -229,10 +235,10 @@ describe("runtime proxy handler", () => {
 
   test("replaces client authorization with configured bearer token for upstream", async () => {
     let capturedHeaders: Headers | undefined;
-    globalThis.fetch = mock(async (_input: any, init?: any) => {
-      capturedHeaders = init?.headers;
+    fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
+      capturedHeaders = init?.headers as unknown as Headers;
       return new Response("ok", { status: 200 });
-    }) as any;
+    });
 
     const handler = createRuntimeProxyHandler(
       makeConfig({ runtimeProxyBearerToken: "daemon-token" }),
@@ -247,9 +253,9 @@ describe("runtime proxy handler", () => {
 
   test("truncates long upstream error bodies in logs", async () => {
     const longBody = "x".repeat(512);
-    globalThis.fetch = mock(async () => {
+    fetchMock = mock(async () => {
       return new Response(longBody, { status: 500 });
-    }) as any;
+    });
 
     const handler = createRuntimeProxyHandler(makeConfig());
     const req = new Request("http://localhost:7830/v1/fail");
@@ -263,10 +269,10 @@ describe("runtime proxy handler", () => {
 
   test("does not forward host header to upstream", async () => {
     let capturedHeaders: Headers | undefined;
-    globalThis.fetch = mock(async (_input: any, init?: any) => {
-      capturedHeaders = init?.headers;
+    fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
+      capturedHeaders = init?.headers as unknown as Headers;
       return new Response("ok", { status: 200 });
-    }) as any;
+    });
 
     const handler = createRuntimeProxyHandler(makeConfig());
     const req = new Request("http://localhost:7830/v1/health", {
@@ -282,10 +288,10 @@ describe("runtime proxy handler", () => {
   describe("webhook path guard", () => {
     test("blocks /webhooks/telegram from being proxied", async () => {
       const fetchCalls: string[] = [];
-      globalThis.fetch = mock(async (input: any) => {
+      fetchMock = mock(async (input: string | URL | Request) => {
         fetchCalls.push(String(input));
         return new Response("ok", { status: 200 });
-      }) as any;
+      });
 
       const handler = createRuntimeProxyHandler(makeConfig());
       const req = new Request("http://localhost:7830/webhooks/telegram", {
@@ -304,10 +310,10 @@ describe("runtime proxy handler", () => {
 
     test("blocks /webhooks/twilio/voice from being proxied", async () => {
       const fetchCalls: string[] = [];
-      globalThis.fetch = mock(async (input: any) => {
+      fetchMock = mock(async (input: string | URL | Request) => {
         fetchCalls.push(String(input));
         return new Response("ok", { status: 200 });
-      }) as any;
+      });
 
       const handler = createRuntimeProxyHandler(makeConfig());
       const req = new Request("http://localhost:7830/webhooks/twilio/voice", {
@@ -321,10 +327,10 @@ describe("runtime proxy handler", () => {
 
     test("blocks /webhooks/oauth/callback from being proxied", async () => {
       const fetchCalls: string[] = [];
-      globalThis.fetch = mock(async (input: any) => {
+      fetchMock = mock(async (input: string | URL | Request) => {
         fetchCalls.push(String(input));
         return new Response("ok", { status: 200 });
-      }) as any;
+      });
 
       const handler = createRuntimeProxyHandler(makeConfig());
       const req = new Request("http://localhost:7830/webhooks/oauth/callback");
@@ -336,10 +342,10 @@ describe("runtime proxy handler", () => {
 
     test("blocks /webhooks/any-future-channel from being proxied", async () => {
       const fetchCalls: string[] = [];
-      globalThis.fetch = mock(async (input: any) => {
+      fetchMock = mock(async (input: string | URL | Request) => {
         fetchCalls.push(String(input));
         return new Response("ok", { status: 200 });
-      }) as any;
+      });
 
       const handler = createRuntimeProxyHandler(makeConfig());
       const req = new Request("http://localhost:7830/webhooks/any-future-channel", {
@@ -353,10 +359,10 @@ describe("runtime proxy handler", () => {
 
     test("allows /v1/channels/inbound to be proxied (non-webhook path)", async () => {
       const fetchCalls: string[] = [];
-      globalThis.fetch = mock(async (input: any) => {
+      fetchMock = mock(async (input: string | URL | Request) => {
         fetchCalls.push(String(input));
         return new Response(JSON.stringify({ ok: true }), { status: 200 });
-      }) as any;
+      });
 
       const handler = createRuntimeProxyHandler(makeConfig());
       const req = new Request("http://localhost:7830/v1/channels/inbound", {
@@ -372,10 +378,10 @@ describe("runtime proxy handler", () => {
 
     test("allows /v1/health to be proxied (non-webhook path)", async () => {
       const fetchCalls: string[] = [];
-      globalThis.fetch = mock(async (input: any) => {
+      fetchMock = mock(async (input: string | URL | Request) => {
         fetchCalls.push(String(input));
         return new Response(JSON.stringify({ ok: true }), { status: 200 });
-      }) as any;
+      });
 
       const handler = createRuntimeProxyHandler(makeConfig());
       const req = new Request("http://localhost:7830/v1/health");
@@ -391,10 +397,10 @@ describe("runtime proxy handler", () => {
   describe("gateway-origin header", () => {
     test("sets X-Gateway-Origin header when runtimeBearerToken is configured", async () => {
       let capturedHeaders: Headers | undefined;
-      globalThis.fetch = mock(async (_input: any, init?: any) => {
-        capturedHeaders = init?.headers;
+      fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
+        capturedHeaders = init?.headers as unknown as Headers;
         return new Response("ok", { status: 200 });
-      }) as any;
+      });
 
       const handler = createRuntimeProxyHandler(
         makeConfig({ runtimeBearerToken: "runtime-secret" }),
@@ -411,10 +417,10 @@ describe("runtime proxy handler", () => {
 
     test("does not set X-Gateway-Origin header when no runtimeBearerToken", async () => {
       let capturedHeaders: Headers | undefined;
-      globalThis.fetch = mock(async (_input: any, init?: any) => {
-        capturedHeaders = init?.headers;
+      fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
+        capturedHeaders = init?.headers as unknown as Headers;
         return new Response("ok", { status: 200 });
-      }) as any;
+      });
 
       const handler = createRuntimeProxyHandler(
         makeConfig({ runtimeBearerToken: undefined }),

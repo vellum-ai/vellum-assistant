@@ -1,6 +1,14 @@
 import { describe, it, expect, mock, afterEach } from "bun:test";
 import type { GatewayConfig } from "../../config.js";
-import { createSmsDeliverHandler } from "./sms-deliver.js";
+
+type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(async () => new Response());
+
+mock.module("../../fetch.js", () => ({
+  fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
+}));
+
+const { createSmsDeliverHandler } = await import("./sms-deliver.js");
 
 // --- Helpers ---------------------------------------------------------------
 
@@ -58,19 +66,17 @@ function makeRequest(body: unknown, headers?: Record<string, string>): Request {
   });
 }
 
-const originalFetch = globalThis.fetch;
-
 afterEach(() => {
-  globalThis.fetch = originalFetch;
+  fetchMock = mock(async () => new Response());
 });
 
 function mockTwilioApi(overrides?: Record<string, unknown>) {
-  globalThis.fetch = mock(async () => {
+  fetchMock = mock(async () => {
     return new Response(JSON.stringify({ sid: "SM-sent", status: "queued", error_code: null, error_message: null, ...overrides }), {
       status: 201,
       headers: { "content-type": "application/json" },
     });
-  }) as unknown as typeof fetch;
+  });
 }
 
 // --- Tests -----------------------------------------------------------------
@@ -189,11 +195,11 @@ describe("/deliver/sms", () => {
   });
 
   it("returns 502 when Twilio API fails", async () => {
-    globalThis.fetch = mock(async () => {
+    fetchMock = mock(async () => {
       return new Response(JSON.stringify({ message: "Bad Request" }), {
         status: 400,
       });
-    }) as unknown as typeof fetch;
+    });
 
     const handler = createSmsDeliverHandler(
       makeConfig({ runtimeProxyBearerToken: undefined, smsDeliverAuthBypass: true }),
@@ -207,14 +213,14 @@ describe("/deliver/sms", () => {
 
   it("accepts { chatId, text } and sends Twilio request to chatId", async () => {
     const fetchCalls: Array<{ url: string; init: RequestInit }> = [];
-    globalThis.fetch = mock(async (url: string | URL | Request, init?: RequestInit) => {
+    fetchMock = mock(async (url: string | URL | Request, init?: RequestInit) => {
       const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
       fetchCalls.push({ url: urlStr, init: init ?? {} });
       return new Response(JSON.stringify({ sid: "SM-sent" }), {
         status: 201,
         headers: { "content-type": "application/json" },
       });
-    }) as unknown as typeof fetch;
+    });
 
     const handler = createSmsDeliverHandler(
       makeConfig({ runtimeProxyBearerToken: undefined, smsDeliverAuthBypass: true }),
@@ -246,14 +252,14 @@ describe("/deliver/sms", () => {
 
   it("sends correct Twilio API request", async () => {
     const fetchCalls: Array<{ url: string; init: RequestInit }> = [];
-    globalThis.fetch = mock(async (url: string | URL | Request, init?: RequestInit) => {
+    fetchMock = mock(async (url: string | URL | Request, init?: RequestInit) => {
       const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
       fetchCalls.push({ url: urlStr, init: init ?? {} });
       return new Response(JSON.stringify({ sid: "SM-sent" }), {
         status: 201,
         headers: { "content-type": "application/json" },
       });
-    }) as unknown as typeof fetch;
+    });
 
     const handler = createSmsDeliverHandler(
       makeConfig({ runtimeProxyBearerToken: undefined, smsDeliverAuthBypass: true }),
@@ -274,14 +280,14 @@ describe("/deliver/sms", () => {
 
   it("uses assistant-specific From number when assistantId mapping exists", async () => {
     const fetchCalls: Array<{ url: string; init: RequestInit }> = [];
-    globalThis.fetch = mock(async (url: string | URL | Request, init?: RequestInit) => {
+    fetchMock = mock(async (url: string | URL | Request, init?: RequestInit) => {
       const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
       fetchCalls.push({ url: urlStr, init: init ?? {} });
       return new Response(JSON.stringify({ sid: "SM-sent" }), {
         status: 201,
         headers: { "content-type": "application/json" },
       });
-    }) as unknown as typeof fetch;
+    });
 
     const handler = createSmsDeliverHandler(
       makeConfig({
@@ -306,14 +312,14 @@ describe("/deliver/sms", () => {
 
   it("falls back to global From number when assistant mapping is missing", async () => {
     const fetchCalls: Array<{ url: string; init: RequestInit }> = [];
-    globalThis.fetch = mock(async (url: string | URL | Request, init?: RequestInit) => {
+    fetchMock = mock(async (url: string | URL | Request, init?: RequestInit) => {
       const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
       fetchCalls.push({ url: urlStr, init: init ?? {} });
       return new Response(JSON.stringify({ sid: "SM-sent" }), {
         status: 201,
         headers: { "content-type": "application/json" },
       });
-    }) as unknown as typeof fetch;
+    });
 
     const handler = createSmsDeliverHandler(
       makeConfig({
@@ -338,14 +344,14 @@ describe("/deliver/sms", () => {
 
   it("attachment-only request (no text) uses fallback text", async () => {
     const fetchCalls: Array<{ url: string; init: RequestInit }> = [];
-    globalThis.fetch = mock(async (url: string | URL | Request, init?: RequestInit) => {
+    fetchMock = mock(async (url: string | URL | Request, init?: RequestInit) => {
       const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
       fetchCalls.push({ url: urlStr, init: init ?? {} });
       return new Response(JSON.stringify({ sid: "SM-sent" }), {
         status: 201,
         headers: { "content-type": "application/json" },
       });
-    }) as unknown as typeof fetch;
+    });
 
     const handler = createSmsDeliverHandler(
       makeConfig({ runtimeProxyBearerToken: undefined, smsDeliverAuthBypass: true }),

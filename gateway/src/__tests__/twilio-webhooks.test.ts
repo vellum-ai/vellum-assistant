@@ -1,9 +1,17 @@
 import { describe, test, expect, mock, afterEach } from "bun:test";
 import { createHmac } from "node:crypto";
 import type { GatewayConfig } from "../config.js";
-import { createTwilioVoiceWebhookHandler } from "../http/routes/twilio-voice-webhook.js";
-import { createTwilioStatusWebhookHandler } from "../http/routes/twilio-status-webhook.js";
-import { createTwilioConnectActionWebhookHandler } from "../http/routes/twilio-connect-action-webhook.js";
+
+type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(async () => new Response());
+
+mock.module("../fetch.js", () => ({
+  fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
+}));
+
+const { createTwilioVoiceWebhookHandler } = await import("../http/routes/twilio-voice-webhook.js");
+const { createTwilioStatusWebhookHandler } = await import("../http/routes/twilio-status-webhook.js");
+const { createTwilioConnectActionWebhookHandler } = await import("../http/routes/twilio-connect-action-webhook.js");
 
 const AUTH_TOKEN = "test-twilio-auth-token";
 
@@ -86,18 +94,9 @@ function buildSignedRequest(
   });
 }
 
-function mockFetch(fn: () => Promise<Response>) {
-  const m = mock(fn);
-  Object.assign(m, { preconnect: () => {} });
-  globalThis.fetch = m as unknown as typeof fetch;
-  return m;
-}
-
 describe("Twilio voice webhook", () => {
-  const originalFetch = globalThis.fetch;
-
   afterEach(() => {
-    globalThis.fetch = originalFetch;
+    fetchMock = mock(async () => new Response());
   });
 
   test("rejects GET requests with 405", async () => {
@@ -149,13 +148,11 @@ describe("Twilio voice webhook", () => {
 
   test("forwards valid signed request to runtime and returns response", async () => {
     const twiml = '<?xml version="1.0" encoding="UTF-8"?><Response/>';
-    const fetchMock = mockFetch(() =>
-      Promise.resolve(
-        new Response(twiml, {
-          status: 200,
-          headers: { "Content-Type": "text/xml" },
-        }),
-      ),
+    fetchMock = mock(async () =>
+      new Response(twiml, {
+        status: 200,
+        headers: { "Content-Type": "text/xml" },
+      }),
     );
 
     const handler = createTwilioVoiceWebhookHandler(makeConfig());
@@ -175,7 +172,7 @@ describe("Twilio voice webhook", () => {
   });
 
   test("returns 502 when runtime is unreachable", async () => {
-    mockFetch(() => Promise.reject(new Error("Connection refused")));
+    fetchMock = mock(async () => { throw new Error("Connection refused"); });
 
     const handler = createTwilioVoiceWebhookHandler(makeConfig());
     const url = "http://localhost:7830/webhooks/twilio/voice";
@@ -228,10 +225,8 @@ describe("Twilio voice webhook", () => {
 });
 
 describe("Twilio status webhook", () => {
-  const originalFetch = globalThis.fetch;
-
   afterEach(() => {
-    globalThis.fetch = originalFetch;
+    fetchMock = mock(async () => new Response());
   });
 
   test("rejects invalid signature with 403", async () => {
@@ -249,9 +244,7 @@ describe("Twilio status webhook", () => {
   });
 
   test("forwards valid signed request to runtime", async () => {
-    const fetchMock = mockFetch(() =>
-      Promise.resolve(new Response(null, { status: 200 })),
-    );
+    fetchMock = mock(async () => new Response(null, { status: 200 }));
 
     const handler = createTwilioStatusWebhookHandler(makeConfig());
     const url = "http://localhost:7830/webhooks/twilio/status";
@@ -266,7 +259,7 @@ describe("Twilio status webhook", () => {
   });
 
   test("returns 502 when runtime returns error", async () => {
-    mockFetch(() => Promise.reject(new Error("Runtime down")));
+    fetchMock = mock(async () => { throw new Error("Runtime down"); });
 
     const handler = createTwilioStatusWebhookHandler(makeConfig());
     const url = "http://localhost:7830/webhooks/twilio/status";
@@ -279,10 +272,8 @@ describe("Twilio status webhook", () => {
 });
 
 describe("Twilio connect-action webhook", () => {
-  const originalFetch = globalThis.fetch;
-
   afterEach(() => {
-    globalThis.fetch = originalFetch;
+    fetchMock = mock(async () => new Response());
   });
 
   test("rejects invalid signature with 403", async () => {
@@ -301,13 +292,11 @@ describe("Twilio connect-action webhook", () => {
 
   test("forwards valid signed request to runtime", async () => {
     const twiml = '<?xml version="1.0" encoding="UTF-8"?><Response/>';
-    const fetchMock = mockFetch(() =>
-      Promise.resolve(
-        new Response(twiml, {
-          status: 200,
-          headers: { "Content-Type": "text/xml" },
-        }),
-      ),
+    fetchMock = mock(async () =>
+      new Response(twiml, {
+        status: 200,
+        headers: { "Content-Type": "text/xml" },
+      }),
     );
 
     const handler = createTwilioConnectActionWebhookHandler(makeConfig());
@@ -327,21 +316,17 @@ describe("Twilio connect-action webhook", () => {
 });
 
 describe("Twilio webhook signature with canonical ingress base URL", () => {
-  const originalFetch = globalThis.fetch;
-
   afterEach(() => {
-    globalThis.fetch = originalFetch;
+    fetchMock = mock(async () => new Response());
   });
 
   test("validates signature against ingressPublicBaseUrl when configured", async () => {
     const twiml = '<?xml version="1.0" encoding="UTF-8"?><Response/>';
-    mockFetch(() =>
-      Promise.resolve(
-        new Response(twiml, {
-          status: 200,
-          headers: { "Content-Type": "text/xml" },
-        }),
-      ),
+    fetchMock = mock(async () =>
+      new Response(twiml, {
+        status: 200,
+        headers: { "Content-Type": "text/xml" },
+      }),
     );
 
     const publicBaseUrl = "https://public.example.com";
@@ -370,13 +355,11 @@ describe("Twilio webhook signature with canonical ingress base URL", () => {
   });
 
   test("accepts when signature matches raw request URL even with public URL configured", async () => {
-    mockFetch(() =>
-      Promise.resolve(
-        new Response('<?xml version="1.0" encoding="UTF-8"?><Response/>', {
-          status: 200,
-          headers: { "Content-Type": "text/xml" },
-        }),
-      ),
+    fetchMock = mock(async () =>
+      new Response('<?xml version="1.0" encoding="UTF-8"?><Response/>', {
+        status: 200,
+        headers: { "Content-Type": "text/xml" },
+      }),
     );
 
     const publicBaseUrl = "https://public.example.com";
@@ -404,13 +387,11 @@ describe("Twilio webhook signature with canonical ingress base URL", () => {
   });
 
   test("accepts signature from forwarded public URL headers when configured URL is stale", async () => {
-    mockFetch(() =>
-      Promise.resolve(
-        new Response('<?xml version="1.0" encoding="UTF-8"?><Response/>', {
-          status: 200,
-          headers: { "Content-Type": "text/xml" },
-        }),
-      ),
+    fetchMock = mock(async () =>
+      new Response('<?xml version="1.0" encoding="UTF-8"?><Response/>', {
+        status: 200,
+        headers: { "Content-Type": "text/xml" },
+      }),
     );
 
     const staleConfiguredBase = "https://stale.example.com";

@@ -1,13 +1,21 @@
 import { describe, test, expect, mock, afterEach } from "bun:test";
-import {
+import type { RuntimeAttachmentMeta } from "../runtime/client.js";
+import type { GatewayConfig } from "../config.js";
+
+type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(async () => new Response());
+
+mock.module("../fetch.js", () => ({
+  fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
+}));
+
+const {
   forwardToRuntime,
   downloadAttachment,
   forwardTwilioVoiceWebhook,
   forwardTwilioStatusWebhook,
   forwardTwilioConnectActionWebhook,
-} from "../runtime/client.js";
-import type { RuntimeAttachmentMeta } from "../runtime/client.js";
-import type { GatewayConfig } from "../config.js";
+} = await import("../runtime/client.js");
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
@@ -79,25 +87,14 @@ const successBody = {
   },
 };
 
-function mockFetch(fn: (...args: Parameters<typeof fetch>) => Promise<Response>) {
-  const m = mock(fn);
-  Object.assign(m, { preconnect: () => {} });
-  globalThis.fetch = m as unknown as typeof fetch;
-  return m;
-}
-
 describe("forwardToRuntime", () => {
-  const originalFetch = globalThis.fetch;
-
   afterEach(() => {
-    globalThis.fetch = originalFetch;
+    fetchMock = mock(async () => new Response());
   });
 
   test("successful forward returns runtime response", async () => {
-    mockFetch(() =>
-      Promise.resolve(
-        new Response(JSON.stringify(successBody), { status: 200 }),
-      ),
+    fetchMock = mock(async () =>
+      new Response(JSON.stringify(successBody), { status: 200 }),
     );
 
     const config = makeConfig();
@@ -108,8 +105,8 @@ describe("forwardToRuntime", () => {
   });
 
   test("4xx error throws immediately without retry", async () => {
-    const fetchMock = mockFetch(() =>
-      Promise.resolve(new Response("Bad request", { status: 400 })),
+    fetchMock = mock(async () =>
+      new Response("Bad request", { status: 400 }),
     );
 
     const config = makeConfig();
@@ -124,7 +121,7 @@ describe("forwardToRuntime", () => {
     const config = makeConfig();
     const expectedUrl = `${config.assistantRuntimeBaseUrl}/v1/assistants/assistant-a/channels/inbound`;
     let inboundCallCount = 0;
-    const fetchMock = mockFetch((input) => {
+    fetchMock = mock(async (input) => {
       const calledUrl =
         typeof input === "string"
           ? input
@@ -136,13 +133,9 @@ describe("forwardToRuntime", () => {
       }
 
       if (inboundCallCount <= 2) {
-        return Promise.resolve(
-          new Response("Internal error", { status: 500 }),
-        );
+        return new Response("Internal error", { status: 500 });
       }
-      return Promise.resolve(
-        new Response(JSON.stringify(successBody), { status: 200 }),
-      );
+      return new Response(JSON.stringify(successBody), { status: 200 });
     });
 
     const result = await forwardToRuntime(config, "assistant-a", payload);
@@ -155,8 +148,8 @@ describe("forwardToRuntime", () => {
   });
 
   test("5xx error exhausts retries and throws", async () => {
-    mockFetch(() =>
-      Promise.resolve(new Response("Server error", { status: 500 })),
+    fetchMock = mock(async () =>
+      new Response("Server error", { status: 500 }),
     );
 
     const config = makeConfig();
@@ -166,10 +159,8 @@ describe("forwardToRuntime", () => {
   });
 
   test("response includes typed attachment metadata", async () => {
-    mockFetch(() =>
-      Promise.resolve(
-        new Response(JSON.stringify(successBody), { status: 200 }),
-      ),
+    fetchMock = mock(async () =>
+      new Response(JSON.stringify(successBody), { status: 200 }),
     );
 
     const config = makeConfig();
@@ -184,10 +175,8 @@ describe("forwardToRuntime", () => {
   });
 
   test("sends Authorization header when runtimeBearerToken is configured", async () => {
-    const fetchMock = mockFetch(() =>
-      Promise.resolve(
-        new Response(JSON.stringify(successBody), { status: 200 }),
-      ),
+    fetchMock = mock(async () =>
+      new Response(JSON.stringify(successBody), { status: 200 }),
     );
 
     const config = makeConfig({ runtimeBearerToken: "my-secret-token" });
@@ -199,10 +188,8 @@ describe("forwardToRuntime", () => {
   });
 
   test("omits Authorization header when runtimeBearerToken is undefined", async () => {
-    const fetchMock = mockFetch(() =>
-      Promise.resolve(
-        new Response(JSON.stringify(successBody), { status: 200 }),
-      ),
+    fetchMock = mock(async () =>
+      new Response(JSON.stringify(successBody), { status: 200 }),
     );
 
     const config = makeConfig();
@@ -215,10 +202,8 @@ describe("forwardToRuntime", () => {
 });
 
 describe("downloadAttachment", () => {
-  const originalFetch = globalThis.fetch;
-
   afterEach(() => {
-    globalThis.fetch = originalFetch;
+    fetchMock = mock(async () => new Response());
   });
 
   test("downloads attachment payload with base64 data", async () => {
@@ -231,10 +216,8 @@ describe("downloadAttachment", () => {
       data: "iVBORw0KGgo=",
     };
 
-    const fetchMock = mockFetch(() =>
-      Promise.resolve(
-        new Response(JSON.stringify(attachmentPayload), { status: 200 }),
-      ),
+    fetchMock = mock(async () =>
+      new Response(JSON.stringify(attachmentPayload), { status: 200 }),
     );
 
     const config = makeConfig();
@@ -248,10 +231,8 @@ describe("downloadAttachment", () => {
   });
 
   test("throws on 404 not found", async () => {
-    mockFetch(() =>
-      Promise.resolve(
-        new Response('{"error":"Attachment not found"}', { status: 404 }),
-      ),
+    fetchMock = mock(async () =>
+      new Response('{"error":"Attachment not found"}', { status: 404 }),
     );
 
     const config = makeConfig();
@@ -262,21 +243,17 @@ describe("downloadAttachment", () => {
 });
 
 describe("forwardTwilioVoiceWebhook", () => {
-  const originalFetch = globalThis.fetch;
-
   afterEach(() => {
-    globalThis.fetch = originalFetch;
+    fetchMock = mock(async () => new Response());
   });
 
   test("sends params and originalUrl to runtime internal endpoint", async () => {
     const twiml = '<?xml version="1.0" encoding="UTF-8"?><Response/>';
-    const fetchMock = mockFetch(() =>
-      Promise.resolve(
-        new Response(twiml, {
-          status: 200,
-          headers: { "Content-Type": "text/xml" },
-        }),
-      ),
+    fetchMock = mock(async () =>
+      new Response(twiml, {
+        status: 200,
+        headers: { "Content-Type": "text/xml" },
+      }),
     );
 
     const config = makeConfig({ runtimeBearerToken: "rt-tok" });
@@ -302,16 +279,12 @@ describe("forwardTwilioVoiceWebhook", () => {
 });
 
 describe("forwardTwilioStatusWebhook", () => {
-  const originalFetch = globalThis.fetch;
-
   afterEach(() => {
-    globalThis.fetch = originalFetch;
+    fetchMock = mock(async () => new Response());
   });
 
   test("sends params to runtime internal status endpoint", async () => {
-    const fetchMock = mockFetch(() =>
-      Promise.resolve(new Response(null, { status: 200 })),
-    );
+    fetchMock = mock(async () => new Response(null, { status: 200 }));
 
     const config = makeConfig({ runtimeBearerToken: "rt-tok" });
     const params = { CallSid: "CA123", CallStatus: "completed" };
@@ -329,21 +302,17 @@ describe("forwardTwilioStatusWebhook", () => {
 });
 
 describe("forwardTwilioConnectActionWebhook", () => {
-  const originalFetch = globalThis.fetch;
-
   afterEach(() => {
-    globalThis.fetch = originalFetch;
+    fetchMock = mock(async () => new Response());
   });
 
   test("sends params to runtime internal connect-action endpoint", async () => {
     const twiml = '<?xml version="1.0" encoding="UTF-8"?><Response/>';
-    const fetchMock = mockFetch(() =>
-      Promise.resolve(
-        new Response(twiml, {
-          status: 200,
-          headers: { "Content-Type": "text/xml" },
-        }),
-      ),
+    fetchMock = mock(async () =>
+      new Response(twiml, {
+        status: 200,
+        headers: { "Content-Type": "text/xml" },
+      }),
     );
 
     const config = makeConfig({ runtimeBearerToken: "rt-tok" });
@@ -358,10 +327,8 @@ describe("forwardTwilioConnectActionWebhook", () => {
   });
 
   test("returns runtime error status and body", async () => {
-    mockFetch(() =>
-      Promise.resolve(
-        new Response('{"error":"Not found"}', { status: 404 }),
-      ),
+    fetchMock = mock(async () =>
+      new Response('{"error":"Not found"}', { status: 404 }),
     );
 
     const config = makeConfig();

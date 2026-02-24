@@ -1,4 +1,5 @@
 import type { GatewayConfig } from "../config.js";
+import { fetchImpl } from "../fetch.js";
 import { getLogger } from "../logger.js";
 
 const log = getLogger("telegram-api");
@@ -154,7 +155,7 @@ export async function callTelegramApi<T>(
   body: Record<string, unknown>,
 ): Promise<T> {
   return retryableFetch<T>(config, method, () =>
-    globalThis.fetch(
+    fetchImpl(
       `${config.telegramApiBaseUrl}/bot${config.telegramBotToken}/${method}`,
       {
         method: "POST",
@@ -172,7 +173,7 @@ export async function callTelegramApiMultipart<T>(
   form: FormData,
 ): Promise<T> {
   return retryableFetch<T>(config, method, () =>
-    globalThis.fetch(
+    fetchImpl(
       `${config.telegramApiBaseUrl}/bot${config.telegramBotToken}/${method}`,
       {
         method: "POST",
