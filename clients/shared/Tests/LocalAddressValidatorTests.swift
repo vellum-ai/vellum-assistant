@@ -57,6 +57,14 @@ final class LocalAddressValidatorTests: XCTestCase {
         XCTAssertTrue(LocalAddressValidator.isLocalAddress("myhost.local"))
     }
 
+    func testLinkLocal169_254_1_1() {
+        XCTAssertTrue(LocalAddressValidator.isLocalAddress("169.254.1.1"))
+    }
+
+    func testLinkLocal169_254_255_255() {
+        XCTAssertTrue(LocalAddressValidator.isLocalAddress("169.254.255.255"))
+    }
+
     // MARK: - Negative cases (should return false)
 
     func testPublicDomain() {
@@ -87,6 +95,14 @@ final class LocalAddressValidatorTests: XCTestCase {
 
     func testNonPrivate11_0_0_1() {
         XCTAssertFalse(LocalAddressValidator.isLocalAddress("11.0.0.1"))
+    }
+
+    func testNonLinkLocal169_253() {
+        XCTAssertFalse(LocalAddressValidator.isLocalAddress("169.253.1.1"))
+    }
+
+    func testNonLinkLocal169_255() {
+        XCTAssertFalse(LocalAddressValidator.isLocalAddress("169.255.1.1"))
     }
 
     func testEmptyString() {
