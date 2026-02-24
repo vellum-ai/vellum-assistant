@@ -202,6 +202,40 @@ public final class ChatViewModel: ObservableObject {
     /// Observers can check this to avoid treating the history hydration as new activity.
     public private(set) var isLoadingHistory: Bool = false
 
+    // MARK: - Message Pagination
+
+    /// Page size for chat message display; older messages are loaded in this increment.
+    public static let messagePageSize = 50
+
+    /// Number of messages currently revealed at the top of the conversation.
+    /// The view slices `messages` to `messages.suffix(displayedMessageCount)`.
+    /// Grows by `messagePageSize` each time the user scrolls to the top.
+    @Published public var displayedMessageCount: Int = messagePageSize
+
+    /// True while a previous-page load is in progress (brief async delay for UX).
+    @Published public var isLoadingMoreMessages: Bool = false
+
+    /// Whether there are more messages above the current display window.
+    public var hasMoreMessages: Bool { displayedMessageCount < messages.count }
+
+    /// Load the previous page of messages by expanding the display window.
+    /// Returns `true` if there were additional messages to reveal.
+    @discardableResult
+    public func loadPreviousMessagePage() async -> Bool {
+        guard hasMoreMessages, !isLoadingMoreMessages else { return false }
+        isLoadingMoreMessages = true
+        // Brief delay so the loading indicator is visible before the list shifts.
+        try? await Task.sleep(nanoseconds: 150_000_000)
+        displayedMessageCount = min(displayedMessageCount + Self.messagePageSize, messages.count)
+        isLoadingMoreMessages = false
+        return true
+    }
+
+    /// Reset pagination when the thread switches or history is reloaded.
+    public func resetMessagePagination() {
+        displayedMessageCount = Self.messagePageSize
+    }
+
     /// Surface the user is currently viewing in workspace mode.
     /// Set by MainWindowView when the dynamic workspace is expanded.
     public var activeSurfaceId: String? {
@@ -1444,6 +1478,8 @@ public final class ChatViewModel: ObservableObject {
         }
         self.isLoadingHistory = false
         self.isHistoryLoaded = true
+        // Reset pagination so the view shows the most-recent page after history loads.
+        self.displayedMessageCount = Self.messagePageSize
         // Surfaces are now included directly in the history response and populated above
     }
 
