@@ -46,6 +46,8 @@ public struct VDisclosureSection<Content: View>: View {
                             Text(subtitle)
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.textMuted)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
                         }
                     }
 
