@@ -115,6 +115,10 @@ public final class SettingsStore: ObservableObject {
     @Published var smsGuardianInstruction: String?
     @Published var smsGuardianError: String?
 
+    // MARK: - Email Integration State
+
+    @Published var assistantEmail: String?
+
     // MARK: - Ingress Config State
 
     @Published var ingressEnabled: Bool = false
@@ -1051,6 +1055,19 @@ public final class SettingsStore: ObservableObject {
     }
 
     // MARK: - Ingress Config Actions
+
+    // MARK: - Email Integration
+
+    /// Fetches the assistant email from the gateway's `/integrations/status` endpoint.
+    func refreshAssistantEmail() {
+        guard let daemonClient else { return }
+        Task {
+            let status = await daemonClient.fetchIntegrationsStatus()
+            self.assistantEmail = status?.email.address
+        }
+    }
+
+    // MARK: - Ingress Config
 
     func refreshIngressConfig() {
         do {

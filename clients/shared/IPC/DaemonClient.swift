@@ -1159,6 +1159,55 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(IdentityGetRequestMessage())
     }
 
+    // MARK: - Integrations Status
+
+    /// Response from the `GET /integrations/status` gateway endpoint.
+    public struct IntegrationsStatusResponse: Decodable {
+        public struct Email: Decodable {
+            public let address: String?
+        }
+        public let email: Email
+    }
+
+    /// Fetch integration status from the gateway via HTTP (`GET /integrations/status`).
+    /// Uses `httpTransport` for remote assistants or `httpPort` for local connections.
+    /// Returns the decoded response, or `nil` if the request fails.
+    public func fetchIntegrationsStatus() async -> IntegrationsStatusResponse? {
+        let baseURL: String
+        let bearerToken: String?
+
+        if let httpTransport {
+            baseURL = httpTransport.baseURL
+            bearerToken = httpTransport.bearerToken
+        } else if let port = httpPort {
+            baseURL = "http://localhost:\(port)"
+            let tokenPath = resolveHttpTokenPath()
+            do {
+                bearerToken = try String(contentsOfFile: tokenPath, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
+            } catch {
+                log.error("Failed to read HTTP bearer token from \(tokenPath, privacy: .private): \(error)")
+                bearerToken = nil
+            }
+        } else {
+            return nil
+        }
+
+        guard let url = URL(string: "\(baseURL)/integrations/status") else { return nil }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 5
+        if let token = bearerToken, !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
+            return try JSONDecoder().decode(IntegrationsStatusResponse.self, from: data)
+        } catch {
+            return nil
+        }
+    }
+
     // MARK: - Interface Files
 
     /// Fetch an interface file from the daemon via HTTP (`GET /v1/interfaces/<path>`).

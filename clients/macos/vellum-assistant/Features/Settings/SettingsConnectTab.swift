@@ -34,6 +34,9 @@ struct SettingsConnectTab: View {
     // Twilio number picker
     @State private var twilioNumberPickerExpanded = false
 
+    // Email copy state
+    @State private var emailCopied: Bool = false
+
     // Guardian copy state (tracks which channel's command was just copied)
     @State private var guardianCommandCopiedChannel: String?
 
@@ -53,6 +56,7 @@ struct SettingsConnectTab: View {
         }
         .onAppear {
             store.refreshIngressConfig()
+            store.refreshAssistantEmail()
             gatewayUrlText = store.ingressPublicBaseUrl
             refreshBearerToken()
             store.refreshChannelGuardianStatus(channel: "telegram")
@@ -261,15 +265,73 @@ struct SettingsConnectTab: View {
                 Text("Channels")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
-                Text("Telegram, SMS, and Voice integrations")
+                Text("Email, Telegram, SMS, and Voice integrations")
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
             }
 
+            emailCard
             telegramCard
             twilioCard
             voiceCard
         }
+    }
+
+    // MARK: - Email Channel Card
+
+    private var emailCard: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("Email")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+                Text("Send and receive emails as your assistant")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+            }
+
+            if let email = store.assistantEmail {
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(VColor.success)
+                        .font(.system(size: 14))
+                    Text(email)
+                        .font(VFont.mono)
+                        .foregroundColor(VColor.textPrimary)
+                        .textSelection(.enabled)
+                    Spacer()
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(email, forType: .string)
+                        emailCopied = true
+                        Task {
+                            try? await Task.sleep(nanoseconds: 2_000_000_000)
+                            emailCopied = false
+                        }
+                    } label: {
+                        Image(systemName: emailCopied ? "checkmark" : "doc.on.doc")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(emailCopied ? VColor.success : VColor.textSecondary)
+                            .frame(width: 28, height: 28)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Copy email address")
+                    .help("Copy email address")
+                }
+            } else {
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .foregroundColor(VColor.warning)
+                        .font(.system(size: 12))
+                    Text("Not configured — run the Email Setup skill to assign an address")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
+            }
+        }
+        .padding(VSpacing.lg)
+        .vCard(background: VColor.surfaceSubtle)
     }
 
     // MARK: - Advanced Section
