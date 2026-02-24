@@ -613,6 +613,7 @@ export async function runAgentLoopImpl(
         status: 'warning',
       });
       onEvent({ type: 'generation_cancelled', sessionId: ctx.conversationId });
+      onEvent({ type: 'message_complete', sessionId: ctx.conversationId });
     } else {
       ctx.traceEmitter.emit('message_complete', 'Message processing complete', {
         requestId: reqId,
@@ -643,6 +644,7 @@ export async function runAgentLoopImpl(
         status: 'warning',
       });
       onEvent({ type: 'generation_cancelled', sessionId: ctx.conversationId });
+      onEvent({ type: 'message_complete', sessionId: ctx.conversationId });
     } else {
       const message = err instanceof Error ? err.message : String(err);
       const errorClass = err instanceof Error ? err.constructor.name : 'Error';
@@ -655,6 +657,7 @@ export async function runAgentLoopImpl(
       onEvent({ type: 'error', message: `Failed to process message: ${message}` });
       const classified = classifySessionError(err, errorCtx);
       onEvent(buildSessionErrorMessage(ctx.conversationId, classified));
+      onEvent({ type: 'message_complete', sessionId: ctx.conversationId });
       void getHookManager().trigger('on-error', {
         error: err instanceof Error ? err.name : 'Error',
         message,

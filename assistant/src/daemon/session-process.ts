@@ -191,6 +191,7 @@ export function drainQueue(session: ProcessSessionContext, reason: QueueDrainRea
         attributes: { reason: 'persist_failure' },
       });
       next.onEvent({ type: 'error', message });
+      next.onEvent({ type: 'message_complete', sessionId: session.conversationId });
     }
     // Continue draining regardless of success/failure
     drainQueue(session);
@@ -220,6 +221,7 @@ export function drainQueue(session: ProcessSessionContext, reason: QueueDrainRea
       attributes: { reason: 'persist_failure' },
     });
     next.onEvent({ type: 'error', message });
+    next.onEvent({ type: 'message_complete', sessionId: session.conversationId });
     // runAgentLoop never ran, so its finally block won't clear this
     session.preactivatedSkillIds = undefined;
     // Continue draining — don't strand remaining messages
@@ -238,6 +240,7 @@ export function drainQueue(session: ProcessSessionContext, reason: QueueDrainRea
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err, conversationId: session.conversationId, requestId: next.requestId }, 'Error processing queued message');
     next.onEvent({ type: 'error', message: `Failed to process queued message: ${message}` });
+    next.onEvent({ type: 'message_complete', sessionId: session.conversationId });
   });
 }
 

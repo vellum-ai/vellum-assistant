@@ -313,6 +313,10 @@ export class RunOrchestrator {
 
     const sourceChannel = options?.sourceChannel ?? 'macos';
 
+    // Pre-compute per-run options to apply when the message is dequeued
+    const strictSideEffects = options?.forceStrictSideEffects
+      ?? this.deps.deriveDefaultStrictSideEffects(conversationId);
+
     // Serialized publish chain so hub subscribers observe events in order.
     let hubChain: Promise<void> = Promise.resolve();
     const publishToHub = (msg: ServerMessage): void => {
@@ -333,21 +337,80 @@ export class RunOrchestrator {
       })();
     };
 
+    const cleanup = () => {
+      this.pending.delete(run.id);
+      session.setChannelCapabilities(null);
+      session.setGuardianContext(null);
+      session.setCommandIntent(null);
+      session.setAssistantId('self');
+      session.updateClient(() => {}, true);
+    };
+
     let lastError: string | null = null;
+    let finalized = false;
+    const finalizeRun = () => {
+      if (finalized) return;
+      finalized = true;
+      if (lastError) {
+        runsStore.failRun(run.id, lastError);
+      } else {
+        runsStore.completeRun(run.id);
+      }
+      cleanup();
+    };
+
     const onEvent = (msg: ServerMessage) => {
       if (msg.type === 'message_dequeued') {
         runsStore.startRun(run.id);
+
+        // Apply per-run session options deferred from enqueue time
+        session.memoryPolicy = { ...session.memoryPolicy, strictSideEffects };
+        session.setAssistantId(options?.assistantId ?? 'self');
+        session.setGuardianContext(options?.guardianContext ?? null);
+        session.setCommandIntent(options?.commandIntent ?? null);
+        session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel));
+
+        // Wire confirmation/secret tracking so queued runs can be polled
+        session.updateClient((clientMsg: ServerMessage) => {
+          if (clientMsg.type === 'confirmation_request') {
+            runsStore.setRunConfirmation(run.id, {
+              toolName: clientMsg.toolName,
+              toolUseId: clientMsg.requestId,
+              input: clientMsg.input,
+              riskLevel: clientMsg.riskLevel,
+              executionTarget: clientMsg.executionTarget,
+              allowlistOptions: clientMsg.allowlistOptions,
+              scopeOptions: clientMsg.scopeOptions,
+              persistentDecisionsAllowed: clientMsg.persistentDecisionsAllowed,
+            });
+            this.pending.set(run.id, { prompterRequestId: clientMsg.requestId, session });
+          } else if (clientMsg.type === 'secret_request') {
+            runsStore.setRunSecret(run.id, {
+              requestId: clientMsg.requestId,
+              service: clientMsg.service,
+              field: clientMsg.field,
+              label: clientMsg.label,
+              description: clientMsg.description,
+              placeholder: clientMsg.placeholder,
+              purpose: clientMsg.purpose,
+              allowOneTimeSend: clientMsg.allowOneTimeSend,
+            });
+            this.pending.set(run.id, { prompterRequestId: clientMsg.requestId, session });
+          }
+          publishToHub(clientMsg);
+        });
       } else if (msg.type === 'error') {
         lastError = msg.message;
       } else if (msg.type === 'session_error') {
         lastError = msg.userMessage;
-      } else if (msg.type === 'message_complete') {
-        if (lastError) {
-          runsStore.failRun(run.id, lastError);
-        } else {
-          runsStore.completeRun(run.id);
-        }
+      } else if (msg.type === 'generation_cancelled') {
+        lastError = lastError ?? 'Generation cancelled';
       }
+
+      if (msg.type === 'message_complete') {
+        finalizeRun();
+      }
+
       publishToHub(msg);
     };
 
@@ -367,15 +430,16 @@ export class RunOrchestrator {
     );
 
     if (result.rejected) {
-      // Queue is full — fail the run immediately
       runsStore.failRun(run.id, 'Message queue is full');
       log.warn({ runId: run.id, conversationId }, 'Queued run rejected — queue full');
-    } else {
-      log.info(
-        { runId: run.id, conversationId, queuePosition: session.getQueueDepth() },
-        'Run queued (session busy)',
-      );
+      // Return fresh copy reflecting the failed status
+      return runsStore.getRun(run.id)!;
     }
+
+    log.info(
+      { runId: run.id, conversationId, queuePosition: session.getQueueDepth() },
+      'Run queued (session busy)',
+    );
 
     return run;
   }
