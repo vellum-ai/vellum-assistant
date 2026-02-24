@@ -7,7 +7,6 @@
  *   1. Detect pending confirmations for a conversation
  *   2. Build human-readable approval prompts with action buttons
  *   3. Consume user decisions and apply them to the underlying run
- *   4. Build reminder prompts when non-decision messages arrive
  */
 
 import { getPendingConfirmationsByConversation, getRun } from '../memory/runs-store.js';
@@ -205,28 +204,4 @@ const RICH_APPROVAL_CHANNELS: ReadonlySet<string> = new Set(['telegram']);
  */
 export function channelSupportsRichApprovalUI(channel: string): boolean {
   return RICH_APPROVAL_CHANNELS.has(channel);
-}
-
-// ---------------------------------------------------------------------------
-// 6. Reminder prompt for non-decision messages
-// ---------------------------------------------------------------------------
-
-/**
- * Build a reminder prompt when the user sends a non-decision message while
- * an approval is pending. Reuses the original actions and fallback text
- * but prefixes the prompt text with a reminder.
- *
- * NOTE: Only used by the guardian reminder path. The standard (non-guardian)
- * approval flow now uses the conversational approval engine (M2). This
- * function will be removed when M3 migrates the guardian path.
- */
-export function buildReminderPrompt(
-  pendingPrompt: ChannelApprovalPrompt,
-): ChannelApprovalPrompt {
-  const reminderPrefix = composeApprovalMessage({ scenario: 'reminder_prompt' });
-  return {
-    promptText: `${reminderPrefix}\n\n${pendingPrompt.promptText}`,
-    actions: pendingPrompt.actions,
-    plainTextFallback: `${reminderPrefix}\n\n${pendingPrompt.plainTextFallback}`,
-  };
 }

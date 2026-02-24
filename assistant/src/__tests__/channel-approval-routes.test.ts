@@ -54,6 +54,7 @@ import * as conversationStore from '../memory/conversation-store.js';
 import {
   createBinding,
   createApprovalRequest,
+  getAllPendingApprovalsByGuardianChat,
   getPendingApprovalForRun,
   getUnresolvedApprovalForRun,
 } from '../memory/channel-guardian-store.js';
@@ -2479,18 +2480,28 @@ describe('ambiguous plain-text decision with multiple pending requests', () => {
 
     const orchestrator = makeMockOrchestrator();
 
-    // Guardian sends plain-text "yes" — ambiguous because two approvals are pending
+    // Conversational engine that returns keep_pending for disambiguation
+    const mockConversationGenerator = mock(async () => ({
+      disposition: 'keep_pending' as const,
+      replyText: 'You have 2 pending requests. Which one?',
+    }));
+
+    // Guardian sends plain-text "yes" — ambiguous because two approvals are pending.
+    // The conversational engine handles disambiguation by returning keep_pending.
     const req = makeInboundRequest({
       content: 'yes',
       externalChatId: 'guardian-ambig-chat',
       senderExternalUserId: 'guardian-ambig-user',
     });
 
-    const res = await handleChannelInbound(req, noopProcessMessage, 'token', orchestrator);
+    const res = await handleChannelInbound(
+      req, noopProcessMessage, 'token', orchestrator, 'self', undefined, undefined,
+      mockConversationGenerator,
+    );
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
-    expect(body.approval).toBe('guardian_decision_applied');
+    expect(body.approval).toBe('assistant_turn');
 
     // Neither approval should have been resolved — disambiguation was required
     const approvalA = getPendingApprovalForRun(runA.id);
@@ -2501,9 +2512,14 @@ describe('ambiguous plain-text decision with multiple pending requests', () => {
     // submitDecision should NOT have been called — no decision was applied
     expect(orchestrator.submitDecision).not.toHaveBeenCalled();
 
-    // A disambiguation message should have been sent to the guardian
+    // The conversational engine should have been called with both pending approvals
+    expect(mockConversationGenerator).toHaveBeenCalledTimes(1);
+    const engineCtx = mockConversationGenerator.mock.calls[0][0] as Record<string, unknown>;
+    expect((engineCtx.pendingApprovals as Array<unknown>)).toHaveLength(2);
+
+    // A disambiguation reply should have been sent to the guardian
     const disambigCalls = deliverSpy.mock.calls.filter(
-      (call) => typeof call[1] === 'object' && (call[1] as { text?: string }).text?.toLowerCase().includes('pending'),
+      (call) => typeof call[1] === 'object' && (call[1] as { text?: string }).text?.includes('pending'),
     );
     expect(disambigCalls.length).toBeGreaterThanOrEqual(1);
 
@@ -3739,6 +3755,299 @@ describe('conversational approval engine — standard path', () => {
     // The callback button should have been used directly, not the engine
     expect(mockConversationGenerator).not.toHaveBeenCalled();
     expect(orchestrator.submitDecision).toHaveBeenCalledWith(run.id, 'allow');
+
+    deliverSpy.mockRestore();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Guardian conversational approval engine tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('guardian conversational approval via conversation engine', () => {
+  beforeEach(() => {
+  });
+
+  test('guardian follow-up clarification: engine returns keep_pending, reply sent, run remains pending', async () => {
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'guardian-conv-user',
+      guardianDeliveryChatId: 'guardian-conv-chat',
+    });
+
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    const convId = 'conv-guardian-clarify';
+    ensureConversation(convId);
+    const run = createRun(convId);
+    setRunConfirmation(run.id, sampleConfirmation);
+
+    createApprovalRequest({
+      runId: run.id,
+      conversationId: convId,
+      channel: 'telegram',
+      requesterExternalUserId: 'requester-clarify',
+      requesterChatId: 'chat-requester-clarify',
+      guardianExternalUserId: 'guardian-conv-user',
+      guardianChatId: 'guardian-conv-chat',
+      toolName: 'shell',
+      expiresAt: Date.now() + 300_000,
+    });
+
+    const orchestrator = makeMockOrchestrator();
+
+    // Engine returns keep_pending for a clarification question
+    const mockConversationGenerator = mock(async () => ({
+      disposition: 'keep_pending' as const,
+      replyText: 'Could you clarify which action you want me to approve?',
+    }));
+
+    const req = makeInboundRequest({
+      content: 'hmm what does this do?',
+      externalChatId: 'guardian-conv-chat',
+      senderExternalUserId: 'guardian-conv-user',
+    });
+
+    const res = await handleChannelInbound(
+      req, noopProcessMessage, 'token', orchestrator, 'self', undefined, undefined,
+      mockConversationGenerator,
+    );
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    expect(body.approval).toBe('assistant_turn');
+
+    // The engine should have been called with role: 'guardian'
+    expect(mockConversationGenerator).toHaveBeenCalledTimes(1);
+    const callCtx = mockConversationGenerator.mock.calls[0][0] as Record<string, unknown>;
+    expect(callCtx.role).toBe('guardian');
+    expect(callCtx.allowedActions).toEqual(['approve_once', 'reject']);
+    expect(callCtx.userMessage).toBe('hmm what does this do?');
+
+    // Clarification reply delivered to the guardian's chat
+    const replyCall = deliverSpy.mock.calls.find(
+      (call) => (call[1] as { text?: string }).text === 'Could you clarify which action you want me to approve?',
+    );
+    expect(replyCall).toBeTruthy();
+
+    // The orchestrator should NOT have received a decision
+    expect(orchestrator.submitDecision).not.toHaveBeenCalled();
+
+    // The approval should still be pending
+    const pending = getAllPendingApprovalsByGuardianChat('telegram', 'guardian-conv-chat', 'self');
+    expect(pending).toHaveLength(1);
+
+    deliverSpy.mockRestore();
+  });
+
+  test('guardian natural-language approval: engine returns approve_once, decision applied', async () => {
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'guardian-nlp-user',
+      guardianDeliveryChatId: 'guardian-nlp-chat',
+    });
+
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    const convId = 'conv-guardian-nlp';
+    ensureConversation(convId);
+    const run = createRun(convId);
+    setRunConfirmation(run.id, sampleConfirmation);
+
+    createApprovalRequest({
+      runId: run.id,
+      conversationId: convId,
+      channel: 'telegram',
+      requesterExternalUserId: 'requester-nlp',
+      requesterChatId: 'chat-requester-nlp',
+      guardianExternalUserId: 'guardian-nlp-user',
+      guardianChatId: 'guardian-nlp-chat',
+      toolName: 'shell',
+      expiresAt: Date.now() + 300_000,
+    });
+
+    const orchestrator = makeMockOrchestrator();
+
+    // Engine returns approve_once decision
+    const mockConversationGenerator = mock(async () => ({
+      disposition: 'approve_once' as const,
+      replyText: 'Approved! The shell command will proceed.',
+    }));
+
+    const req = makeInboundRequest({
+      content: 'yes go ahead and run it',
+      externalChatId: 'guardian-nlp-chat',
+      senderExternalUserId: 'guardian-nlp-user',
+    });
+
+    const res = await handleChannelInbound(
+      req, noopProcessMessage, 'token', orchestrator, 'self', undefined, undefined,
+      mockConversationGenerator,
+    );
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    expect(body.approval).toBe('guardian_decision_applied');
+
+    // The orchestrator should have received an 'allow' decision
+    expect(orchestrator.submitDecision).toHaveBeenCalledTimes(1);
+    expect(orchestrator.submitDecision).toHaveBeenCalledWith(run.id, 'allow');
+
+    // The approval record should have been updated (no longer pending)
+    const pending = getAllPendingApprovalsByGuardianChat('telegram', 'guardian-nlp-chat', 'self');
+    expect(pending).toHaveLength(0);
+
+    // The engine context excluded approve_always for guardians
+    const callCtx = mockConversationGenerator.mock.calls[0][0] as Record<string, unknown>;
+    expect(callCtx.allowedActions).toEqual(['approve_once', 'reject']);
+    expect((callCtx.allowedActions as string[])).not.toContain('approve_always');
+
+    deliverSpy.mockRestore();
+  });
+
+  test('guardian callback button approve_always is downgraded to approve_once', async () => {
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'guardian-dg-user',
+      guardianDeliveryChatId: 'guardian-dg-chat',
+    });
+
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    const convId = 'conv-guardian-downgrade';
+    ensureConversation(convId);
+    const run = createRun(convId);
+    setRunConfirmation(run.id, sampleConfirmation);
+
+    createApprovalRequest({
+      runId: run.id,
+      conversationId: convId,
+      channel: 'telegram',
+      requesterExternalUserId: 'requester-dg',
+      requesterChatId: 'chat-requester-dg',
+      guardianExternalUserId: 'guardian-dg-user',
+      guardianChatId: 'guardian-dg-chat',
+      toolName: 'shell',
+      expiresAt: Date.now() + 300_000,
+    });
+
+    const orchestrator = makeMockOrchestrator();
+
+    // Guardian clicks approve_always via callback button
+    const req = makeInboundRequest({
+      content: '',
+      externalChatId: 'guardian-dg-chat',
+      callbackData: `apr:${run.id}:approve_always`,
+      senderExternalUserId: 'guardian-dg-user',
+    });
+
+    const res = await handleChannelInbound(
+      req, noopProcessMessage, 'token', orchestrator, 'self', undefined, undefined,
+      undefined,
+    );
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    expect(body.approval).toBe('guardian_decision_applied');
+
+    // approve_always should have been downgraded to approve_once ('allow')
+    expect(orchestrator.submitDecision).toHaveBeenCalledTimes(1);
+    expect(orchestrator.submitDecision).toHaveBeenCalledWith(run.id, 'allow');
+
+    deliverSpy.mockRestore();
+  });
+
+  test('multi-pending guardian disambiguation: engine requests clarification', async () => {
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'guardian-multi-user',
+      guardianDeliveryChatId: 'guardian-multi-chat',
+    });
+
+    const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
+
+    const convA = 'conv-multi-a';
+    const convB = 'conv-multi-b';
+    ensureConversation(convA);
+    ensureConversation(convB);
+
+    const runA = createRun(convA);
+    setRunConfirmation(runA.id, { ...sampleConfirmation, toolUseId: 'req-multi-a' });
+
+    const runB = createRun(convB);
+    setRunConfirmation(runB.id, { ...sampleConfirmation, toolName: 'file_edit', toolUseId: 'req-multi-b' });
+
+    createApprovalRequest({
+      runId: runA.id,
+      conversationId: convA,
+      channel: 'telegram',
+      requesterExternalUserId: 'requester-multi-a',
+      requesterChatId: 'chat-requester-multi-a',
+      guardianExternalUserId: 'guardian-multi-user',
+      guardianChatId: 'guardian-multi-chat',
+      toolName: 'shell',
+      expiresAt: Date.now() + 300_000,
+    });
+
+    createApprovalRequest({
+      runId: runB.id,
+      conversationId: convB,
+      channel: 'telegram',
+      requesterExternalUserId: 'requester-multi-b',
+      requesterChatId: 'chat-requester-multi-b',
+      guardianExternalUserId: 'guardian-multi-user',
+      guardianChatId: 'guardian-multi-chat',
+      toolName: 'file_edit',
+      expiresAt: Date.now() + 300_000,
+    });
+
+    const orchestrator = makeMockOrchestrator();
+
+    // Engine returns keep_pending for disambiguation
+    const mockConversationGenerator = mock(async () => ({
+      disposition: 'keep_pending' as const,
+      replyText: 'You have 2 pending requests: shell and file_edit. Which one?',
+    }));
+
+    const req = makeInboundRequest({
+      content: 'approve it',
+      externalChatId: 'guardian-multi-chat',
+      senderExternalUserId: 'guardian-multi-user',
+    });
+
+    const res = await handleChannelInbound(
+      req, noopProcessMessage, 'token', orchestrator, 'self', undefined, undefined,
+      mockConversationGenerator,
+    );
+    const body = await res.json() as Record<string, unknown>;
+
+    expect(body.accepted).toBe(true);
+    expect(body.approval).toBe('assistant_turn');
+
+    // The engine should have received both pending approvals
+    expect(mockConversationGenerator).toHaveBeenCalledTimes(1);
+    const engineCtx = mockConversationGenerator.mock.calls[0][0] as Record<string, unknown>;
+    expect((engineCtx.pendingApprovals as Array<unknown>)).toHaveLength(2);
+    expect(engineCtx.role).toBe('guardian');
+
+    // Both approvals should remain pending
+    const pendingA = getPendingApprovalForRun(runA.id);
+    const pendingB = getPendingApprovalForRun(runB.id);
+    expect(pendingA).not.toBeNull();
+    expect(pendingB).not.toBeNull();
+
+    // submitDecision should NOT have been called
+    expect(orchestrator.submitDecision).not.toHaveBeenCalled();
+
+    // Disambiguation reply delivered to guardian
+    const disambigCall = deliverSpy.mock.calls.find(
+      (call) => (call[1] as { text?: string }).text?.includes('2 pending requests'),
+    );
+    expect(disambigCall).toBeTruthy();
 
     deliverSpy.mockRestore();
   });

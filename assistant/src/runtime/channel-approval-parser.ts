@@ -5,11 +5,10 @@
  * rejection, or "approve always" intent. This module is transport-agnostic
  * and can be used by any channel adapter (Telegram, SMS, etc.).
  *
- * NOTE: The standard (non-guardian) approval flow now uses the conversational
- * approval engine (M2) as the primary classifier. This deterministic parser
- * is retained as a legacy fallback for when the conversational engine is not
- * available, and is still used by the guardian approval path. M3 will migrate
- * the guardian path and this file can then be removed entirely.
+ * Both the standard and guardian approval flows now use the conversational
+ * approval engine as the primary classifier. This deterministic parser is
+ * retained only as a legacy fallback for when the conversational engine is
+ * not injected (i.e. approvalConversationGenerator is undefined).
  */
 
 import type { ApprovalAction, ApprovalDecisionResult } from './channel-approval-types.js';
