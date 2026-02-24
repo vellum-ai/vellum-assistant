@@ -151,9 +151,13 @@ struct ChatContentView: View {
                         // Typing / step indicator shown while generating
                         let hasPendingConfirmation = viewModel.messages.last?.confirmation?.state == .pending
                         if viewModel.isSending && !hasPendingConfirmation {
-                            let allToolCalls = viewModel.messages.last?.toolCalls ?? []
-                            let isStreaming = viewModel.messages.last?.isStreaming == true
+                            let lastMessage = viewModel.messages.last
+                            let allToolCalls = lastMessage?.toolCalls ?? []
+                            let isStreaming = lastMessage?.isStreaming == true
                             let hasActiveToolCall = allToolCalls.contains { !$0.isComplete }
+                            // True when the assistant is streaming but has not yet emitted any text.
+                            // This happens between tool-call completion and the next text chunk.
+                            let isStreamingWithoutText = isStreaming && (lastMessage?.text.isEmpty ?? true)
 
                             if !isStreaming && !hasActiveToolCall {
                                 // No streaming text or active tool call yet — show typing dots
@@ -173,8 +177,18 @@ struct ChatContentView: View {
                                 )
                                 .padding(.horizontal, VSpacing.lg)
                                 .id("step-indicator")
+                            } else if isStreamingWithoutText {
+                                // Tool call just finished but no text has arrived yet — show
+                                // typing dots so the user isn't left without feedback.
+                                HStack {
+                                    TypingIndicatorView()
+                                    Spacer()
+                                }
+                                .padding(.horizontal, VSpacing.lg)
+                                .id("step-indicator")
+                                .transition(.opacity.combined(with: .move(edge: .bottom)))
                             }
-                            // When isStreaming: the growing message bubble is the indicator
+                            // Otherwise isStreaming with text: the growing message bubble is the indicator
                         }
 
                         // Invisible anchor at the very bottom of all content
