@@ -31,8 +31,12 @@ struct OnboardingView: View {
                 )
                 .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
             case .login:
-                LoginView(authManager: authManager, onContinue: { currentStep = .permissions })
-                    .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
+                LoginView(
+                    authManager: authManager,
+                    onContinue: { currentStep = .permissions },
+                    onCancel: { currentStep = .choosePath }
+                )
+                .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
             case .daemonSetup:
                 DaemonSetupStep(onContinue: { currentStep = .permissions })
                     .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
