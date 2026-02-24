@@ -40,7 +40,7 @@ async function sendTwilioSms(
   });
 
   if (!response.ok) {
-    // Try to parse structured error details from the Twilio error body
+    // Read body as text first to avoid double-consumption (response body is a one-shot stream)
     let errorText: string;
     const rawBody = await response.text().catch(() => "<unreadable>");
     try {

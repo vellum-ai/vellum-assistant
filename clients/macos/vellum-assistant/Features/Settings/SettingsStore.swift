@@ -351,13 +351,19 @@ public final class SettingsStore: ObservableObject {
             self.twilioListInProgress = false
             if response.success {
                 self.twilioHasCredentials = response.hasCredentials
-                if self.twilioPhoneRefreshPending || response.phoneNumber != nil {
+                if !response.hasCredentials {
+                    // Credentials were confirmed removed — clear derived state
+                    self.twilioPhoneNumber = nil
+                    self.twilioNumbers = []
+                } else if self.twilioPhoneRefreshPending || response.phoneNumber != nil {
                     self.twilioPhoneNumber = response.phoneNumber
                 }
-                if self.twilioNumbersRefreshPending {
-                    self.twilioNumbers = response.numbers ?? []
-                } else if let numbers = response.numbers {
-                    self.twilioNumbers = numbers
+                if response.hasCredentials {
+                    if self.twilioNumbersRefreshPending {
+                        self.twilioNumbers = response.numbers ?? []
+                    } else if let numbers = response.numbers {
+                        self.twilioNumbers = numbers
+                    }
                 }
                 self.twilioWarning = response.warning
                 self.twilioError = nil
@@ -919,6 +925,12 @@ public final class SettingsStore: ObservableObject {
         default:
             break
         }
+        // Invalidate the pending challenge token on the backend so it can't be used after cancellation
+        do {
+            try daemonClient?.sendGuardianVerification(action: "revoke", channel: channel, assistantId: guardianAssistantScope)
+        } catch {
+            log.error("Failed to revoke \(channel) guardian challenge on cancel: \(error)")
+        }
     }
 
     func revokeChannelGuardian(channel: String) {
@@ -1075,7 +1087,7 @@ public final class SettingsStore: ObservableObject {
 
     // MARK: - Connection Health Check
 
-    /// Tests reachability of both the local gateway process and the public ingress tunnel.
+    /// Tests reachability of both the local gateway process and the public tunnel.
     /// Updates `gatewayReachable`, `ingressReachable`, and `gatewayLastChecked` with results.
     func testGatewayConnection() async {
         isCheckingGateway = true
@@ -1090,7 +1102,7 @@ public final class SettingsStore: ObservableObject {
             timeoutSeconds: 3
         )
 
-        // Test public ingress (only if URL is non-empty)
+        // Test public tunnel (only if URL is non-empty)
         let trimmedUrl = ingressPublicBaseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmedUrl.isEmpty {
             ingressReachable = nil
@@ -1131,7 +1143,7 @@ public final class SettingsStore: ObservableObject {
         PairingConfiguration.resolvedBearerToken(fallback: readHttpToken() ?? "")
     }
 
-    /// Resolved gateway URL for public ingress — uses per-integration override if enabled, else global.
+    /// Resolved gateway URL — uses per-integration override if enabled, else global.
     var resolvedIngressGatewayUrl: String {
         UserDefaults.standard.bool(forKey: "ingressUseOverride")
             ? (nonEmpty(UserDefaults.standard.string(forKey: "ingressGatewayOverride")) ?? ingressPublicBaseUrl)

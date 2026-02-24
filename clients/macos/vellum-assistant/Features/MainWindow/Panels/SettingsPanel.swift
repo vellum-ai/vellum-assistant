@@ -1060,7 +1060,7 @@ struct SettingsPanel: View {
 
     // MARK: - Ingress Global Config Card
 
-    /// Card showing the resolved gateway URL for public ingress, referencing global Connect config.
+    /// Card showing the resolved gateway URL, referencing global Connect config.
     private var ingressGlobalConfigCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Using Global Gateway & Token")
@@ -1096,11 +1096,11 @@ struct SettingsPanel: View {
         )
     }
 
-    /// Collapsed override section for per-integration ingress gateway URL customization.
+    /// Collapsed override section for per-integration gateway URL customization.
     private var ingressOverrideSection: some View {
         DisclosureGroup("Override") {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
-                Toggle("Use custom gateway for ingress", isOn: $ingressUseOverride)
+                Toggle("Use custom gateway URL", isOn: $ingressUseOverride)
                     .toggleStyle(.switch)
                     .font(VFont.body)
                     .foregroundColor(VColor.textSecondary)
@@ -1110,7 +1110,7 @@ struct SettingsPanel: View {
                         Text("Gateway URL Override")
                             .font(VFont.caption)
                             .foregroundColor(VColor.textSecondary)
-                        TextField("https://custom-ingress.example.com", text: $ingressGatewayOverride)
+                        TextField("https://custom-gateway.example.com", text: $ingressGatewayOverride)
                             .textFieldStyle(.plain)
                             .font(VFont.body)
                             .foregroundColor(VColor.textPrimary)

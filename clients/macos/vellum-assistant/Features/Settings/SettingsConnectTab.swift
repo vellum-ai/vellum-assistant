@@ -72,6 +72,12 @@ struct SettingsConnectTab: View {
                 gatewayUrlText = store.ingressPublicBaseUrl
             }
         }
+        .onChange(of: store.twilioHasCredentials) { _, hasCredentials in
+            if !hasCredentials {
+                twilioSetupExpanded = false
+                twilioNumberPickerExpanded = false
+            }
+        }
         .alert("Regenerate Bearer Token", isPresented: $showingRegenerateConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button("Regenerate", role: .destructive) {
@@ -382,10 +388,6 @@ struct SettingsConnectTab: View {
                     value: "Configured",
                     action: .init(label: "Clear", style: .danger, disabled: store.twilioSaveInProgress) {
                         store.clearTwilioCredentials()
-                        twilioSetupExpanded = false
-                        twilioNumberPickerExpanded = false
-                        store.twilioNumbers = []
-                        store.twilioPhoneNumber = nil
                     }
                 )
             } else if twilioSetupExpanded {
@@ -946,7 +948,7 @@ struct SettingsConnectTab: View {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundColor(VColor.warning)
                         .font(.system(size: 14))
-                    Text("Gateway URL is set but ingress is disabled. Enable ingress in Advanced settings to allow pairing.")
+                    Text("Gateway URL is set but the gateway is not active. Check your tunnel or gateway configuration.")
                         .font(VFont.body)
                         .foregroundColor(VColor.textSecondary)
                 }

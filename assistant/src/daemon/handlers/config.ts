@@ -1895,12 +1895,18 @@ export async function handleTwilioConfig(
 
       const raw = loadRawConfig();
       const smsSection = (raw?.sms ?? {}) as Record<string, unknown>;
-      const assistantId = msg.assistantId as string | undefined;
-      const assistantMapping = (smsSection.assistantPhoneNumbers as Record<string, string> | undefined) ?? {};
-      const from = (assistantId && assistantMapping[assistantId])
-        || (smsSection.phoneNumber as string | undefined)
-        || getSecureKey('credential:twilio:phone_number')
-        || '';
+      let from = '';
+      // When assistantId is provided, check assistant-scoped phone mapping first
+      if (msg.assistantId) {
+        const mapping = (smsSection.assistantPhoneNumbers as Record<string, string> | undefined) ?? {};
+        from = mapping[msg.assistantId] ?? '';
+      }
+      // Fall back to global phone number
+      if (!from) {
+        from = (smsSection.phoneNumber as string | undefined)
+          || getSecureKey('credential:twilio:phone_number')
+          || '';
+      }
       if (!from) {
         ctx.send(socket, {
           type: 'twilio_config_response',
@@ -1926,7 +1932,7 @@ export async function handleTwilioConfig(
           'Content-Type': 'application/json',
           ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
         },
-        body: JSON.stringify({ to, text, ...(assistantId ? { assistantId } : {}) }),
+        body: JSON.stringify({ to, text, ...(msg.assistantId ? { assistantId: msg.assistantId } : {}) }),
         signal: AbortSignal.timeout(30_000),
       });
 
@@ -1998,10 +2004,15 @@ export async function handleTwilioConfig(
       const readinessIssues: string[] = [];
       try {
         const readinessService = getReadinessService();
-        const [snapshot] = await readinessService.getReadiness('sms', false);
-        readinessReady = snapshot.ready;
-        for (const r of snapshot.reasons) {
-          readinessIssues.push(r.text);
+        const snapshots = await readinessService.getReadiness('sms', false);
+        const snapshot = snapshots[0];
+        if (snapshot) {
+          readinessReady = snapshot.ready;
+          for (const r of snapshot.reasons) {
+            readinessIssues.push(r.text);
+          }
+        } else {
+          readinessIssues.push('No readiness snapshot returned for SMS channel');
         }
       } catch (err) {
         readinessIssues.push(`Readiness check failed: ${err instanceof Error ? err.message : String(err)}`);

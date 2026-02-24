@@ -627,40 +627,144 @@ jobs:
           sleep 10
           gh pr merge "$PR_URL" --auto --squash
 
-  notify-failure:
-    if: >-
-      !cancelled() &&
-      (needs.bump-and-tag.result == 'failure' ||
-       needs.publish-npm.result == 'failure' ||
-       needs.publish-meta.result == 'failure' ||
-       needs.build-macos.result == 'failure' ||
-       needs.release.result == 'failure' ||
-       needs.update-platform.result == 'failure')
-    needs: [bump-and-tag, publish-npm, publish-meta, build-macos, release, update-platform]
+  ci-assistant:
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
-      - name: Notify Slack of release failure
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.8
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+        working-directory: assistant
+
+      - name: Lint
+        run: bun run lint
+        working-directory: assistant
+
+      - name: Typecheck
+        run: bunx tsc --noEmit
+        working-directory: assistant
+
+      - name: Test
+        run: bun run test
+        working-directory: assistant
+        env:
+          EXCLUDE_EXPERIMENTAL: 'true'
+
+  ci-cli:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.8
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+        working-directory: cli
+
+      - name: Lint
+        run: bun run lint
+        working-directory: cli
+
+      - name: Typecheck
+        run: bun run typecheck
+        working-directory: cli
+
+  ci-gateway:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.8
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+        working-directory: gateway
+
+      - name: Lint
+        run: bun run lint
+        working-directory: gateway
+
+      - name: Typecheck
+        run: bun run typecheck
+        working-directory: gateway
+
+      - name: Test
+        run: bun run test
+        working-directory: gateway
+
+  notify:
+    if: always() && !cancelled()
+    needs: [bump-and-tag, publish-npm, publish-meta, build-macos, release, update-platform, ci-assistant, ci-cli, ci-gateway]
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Build Slack payload
+        run: |
+          # Determine release status from core jobs
+          RELEASE_FAILED="false"
+          for result in \
+            "${{ needs.bump-and-tag.result }}" \
+            "${{ needs.publish-npm.result }}" \
+            "${{ needs.publish-meta.result }}" \
+            "${{ needs.build-macos.result }}" \
+            "${{ needs.release.result }}" \
+            "${{ needs.update-platform.result }}"; do
+            if [ "$result" = "failure" ]; then
+              RELEASE_FAILED="true"
+              break
+            fi
+          done
+
+          if [ "$RELEASE_FAILED" = "true" ]; then
+            HEADER="❌ Release v${{ inputs.version }} Failed"
+            STYLE="danger"
+          else
+            HEADER="✅ Release v${{ inputs.version }} Succeeded"
+            STYLE=""
+          fi
+
+          # Build CI status icons
+          ci_icon() { if [ "$1" = "success" ]; then printf '✅'; else printf '❌'; fi; }
+
+          A=$(ci_icon "${{ needs.ci-assistant.outcome }}")
+          C=$(ci_icon "${{ needs.ci-cli.outcome }}")
+          G=$(ci_icon "${{ needs.ci-gateway.outcome }}")
+          D=$(ci_icon "${{ needs.build-macos.result }}")
+
+          BODY="*CI Checks:*  ${A} assistant    ${C} cli    ${G} gateway    ${D} desktop\n\n*Version:* \`${{ inputs.version }}\`\n*Triggered by:* ${{ github.actor }}"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          # Build JSON payload with jq
+          BUTTON=$(jq -n --arg style "$STYLE" --arg url "$RUN_URL" '{
+            type: "button",
+            text: { type: "plain_text", text: "View Run" },
+            url: $url
+          } + (if $style != "" then { style: $style } else {} end)')
+
+          jq -n --arg header "$HEADER" --arg body "$BODY" --argjson button "$BUTTON" '{
+            unfurl_links: false,
+            unfurl_media: false,
+            blocks: [
+              { type: "header", text: { type: "plain_text", text: $header } },
+              { type: "section", text: { type: "mrkdwn", text: $body } },
+              { type: "actions", elements: [$button] }
+            ]
+          }' > /tmp/slack-payload.json
+
+      - name: Notify Slack
         uses: slackapi/slack-github-action@v2.1.0
         with:
           webhook: ${{ secrets.SLACK_RELEASES_WEBHOOK_URL }}
           webhook-type: incoming-webhook
-          payload: |
-            unfurl_links: false
-            unfurl_media: false
-            blocks:
-              - type: header
-                text:
-                  type: plain_text
-                  text: "\u274c Release v${{ inputs.version }} Failed"
-              - type: section
-                text:
-                  type: mrkdwn
-                  text: "*Workflow:* Unified Release\n*Version:* `${{ inputs.version }}`\n*Triggered by:* ${{ github.actor }}"
-              - type: actions
-                elements:
-                  - type: button
-                    text:
-                      type: plain_text
-                      text: "View Run"
-                    url: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-                    style: danger
+          payload-file-path: /tmp/slack-payload.json

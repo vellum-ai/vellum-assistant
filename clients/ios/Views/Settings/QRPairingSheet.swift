@@ -89,7 +89,7 @@ struct QRPairingSheet: View {
             .cornerRadius(VRadius.md)
             .padding(.horizontal, VSpacing.lg)
 
-            Text("Open Vellum on your Mac, go to Settings \u{2192} Connect, and tap Show QR Code. Ingress must be enabled on the Mac for pairing.")
+            Text("Open Vellum on your Mac, go to Settings \u{2192} Connect, and tap Show QR Code. The gateway must be configured on the Mac for pairing.")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textMuted)
                 .multilineTextAlignment(.center)
@@ -120,6 +120,22 @@ struct QRPairingSheet: View {
                 .background(VColor.surface)
                 .cornerRadius(VRadius.md)
                 .padding(.horizontal, VSpacing.xl)
+
+                if payload.mode == "local" {
+                    HStack(spacing: 6) {
+                        Image(systemName: "laptopcomputer.and.iphone")
+                            .foregroundColor(VColor.warning)
+                            .font(.system(size: 14))
+                        Text("Local network connection (developer mode)")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.warning)
+                    }
+                    .padding(VSpacing.md)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(VColor.warning.opacity(0.1))
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                    .padding(.horizontal, VSpacing.xl)
+                }
             }
 
             Spacer()
@@ -298,10 +314,13 @@ struct QRPairingSheet: View {
             }
         }
 
+        let mode = json["m"] as? String
+
         let payload = DaemonQRPayload(
             gatewayURL: gatewayURL,
             bearerToken: bearerToken,
-            hostId: hostId
+            hostId: hostId,
+            mode: mode
         )
         scannedPayload = payload
 
@@ -429,5 +448,6 @@ struct DaemonQRPayload {
     let gatewayURL: String
     let bearerToken: String
     let hostId: String
+    let mode: String?  // "gateway", "local", or nil (legacy)
 }
 #endif

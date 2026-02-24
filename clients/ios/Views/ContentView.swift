@@ -100,7 +100,7 @@ struct ContentView: View {
                 .font(VFont.title)
                 .foregroundColor(VColor.textPrimary)
 
-            Text("Unable to reach your Mac's gateway. This could mean your Mac is offline, the tunnel is down, or ingress is disabled.")
+            Text("Unable to reach your Mac's gateway. This could mean your Mac is offline, the tunnel is down, or the gateway is not active.")
                 .font(VFont.body)
                 .foregroundColor(VColor.textSecondary)
                 .multilineTextAlignment(.center)

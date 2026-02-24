@@ -3,7 +3,7 @@ import SwiftUI
 import VellumAssistantShared
 
 /// Displays a QR code containing the v2 connection payload for iOS pairing.
-/// Payload format: `{"type":"vellum-daemon","v":2,"id":"<mac-hash>","g":"<ingress-url>","bt":"<bearer-token>"}`
+/// Payload format: `{"type":"vellum-daemon","v":2,"id":"<mac-hash>","g":"<gateway-url>","bt":"<bearer-token>"}`
 ///
 /// Below the QR code, shows the gateway URL and bearer token for manual entry on iOS.
 @MainActor
@@ -25,7 +25,7 @@ struct PairingQRCodeSheet: View {
     private var canGenerateQR: Bool {
         let hasRequiredFields = !gatewayUrl.isEmpty && !resolvedBearerToken.isEmpty
         if isLocalOverride {
-            // For developer local pairing, ingress is not required
+            // For developer local pairing, the gateway is not required
             // but the URL must be a local/private address
             guard let url = URL(string: gatewayUrl), let host = url.host else { return false }
             return hasRequiredFields && LocalAddressValidator.isLocalAddress(host)
@@ -73,7 +73,7 @@ struct PairingQRCodeSheet: View {
                             .foregroundColor(VColor.error)
                             .multilineTextAlignment(.center)
                     } else if !ingressEnabled || gatewayUrl.isEmpty {
-                        Text("Enable ingress and set a public URL in Settings to pair with iOS")
+                        Text("Set up a gateway URL in the Connect tab to enable pairing.")
                             .font(VFont.body)
                             .foregroundColor(VColor.error)
                             .multilineTextAlignment(.center)
@@ -87,7 +87,39 @@ struct PairingQRCodeSheet: View {
                 .frame(width: 220, height: 220)
             }
 
-            Text("Scan this QR code with the Vellum iOS app to connect.")
+            // State indicator
+            if canGenerateQR {
+                if isLocalOverride {
+                    HStack(spacing: VSpacing.sm) {
+                        Image(systemName: "laptopcomputer.and.iphone")
+                            .foregroundColor(VColor.warning)
+                            .font(.system(size: 14))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Developer mode — local network")
+                                .font(VFont.body)
+                                .foregroundColor(VColor.warning)
+                            Text(gatewayUrl)
+                                .font(VFont.mono)
+                                .foregroundColor(VColor.textMuted)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                    }
+                } else {
+                    HStack(spacing: VSpacing.sm) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(VColor.success)
+                            .font(.system(size: 14))
+                        Text("Ready to pair with iOS")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.success)
+                    }
+                }
+            }
+
+            Text(isLocalOverride && canGenerateQR
+                 ? "Scan this QR code with the Vellum iOS app. Developer Local Pairing must be enabled on the iPhone."
+                 : "Scan this QR code with the Vellum iOS app to connect.")
                 .font(VFont.body)
                 .foregroundColor(VColor.textSecondary)
                 .multilineTextAlignment(.center)
@@ -203,6 +235,7 @@ struct PairingQRCodeSheet: View {
             "id": hostId,
             "g": gatewayUrl,
             "bt": resolvedBearerToken,
+            "m": isLocalOverride ? "local" : "gateway",
         ]
 
         guard let jsonData = try? JSONSerialization.data(withJSONObject: payload),
