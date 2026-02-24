@@ -624,6 +624,7 @@ struct ChatView: View {
                         .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
                     }
                     .buttonStyle(.plain)
+                    .background { ScrollWheelPassthrough() }
                     .padding(.bottom, VSpacing.lg)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
@@ -755,6 +756,59 @@ private struct ScrollWheelDetector: NSViewRepresentable {
             while let v = current {
                 if let sv = v as? NSScrollView { return sv }
                 current = v.superview
+            }
+            return nil
+        }
+    }
+}
+
+// MARK: - Scroll Wheel Passthrough
+
+/// Forwards scroll-wheel events to the chat's NSScrollView so that overlaid
+/// controls (like the "Scroll to latest" pill) don't swallow trackpad/mouse-wheel input.
+private struct ScrollWheelPassthrough: NSViewRepresentable {
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        let coordinator = context.coordinator
+        coordinator.view = view
+        coordinator.monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
+            guard let v = coordinator.view,
+                  let window = v.window,
+                  event.window == window else { return event }
+            let location = v.convert(event.locationInWindow, from: nil)
+            guard v.bounds.width > 0, v.bounds.contains(location) else { return event }
+
+            if let scrollView = coordinator.findScrollView() {
+                scrollView.scrollWheel(with: event)
+            }
+            return event
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        if let monitor = coordinator.monitor {
+            NSEvent.removeMonitor(monitor)
+        }
+    }
+
+    class Coordinator {
+        weak var view: NSView?
+        var monitor: Any?
+
+        func findScrollView() -> NSScrollView? {
+            guard let contentView = view?.window?.contentView else { return nil }
+            return Self.firstScrollView(in: contentView)
+        }
+
+        private static func firstScrollView(in view: NSView) -> NSScrollView? {
+            if let sv = view as? NSScrollView { return sv }
+            for sub in view.subviews {
+                if let sv = firstScrollView(in: sub) { return sv }
             }
             return nil
         }
