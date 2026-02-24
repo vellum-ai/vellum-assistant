@@ -312,7 +312,7 @@ async function buildCommandCandidates(toolName: string, input: Record<string, un
 }
 
 export async function classifyRisk(toolName: string, input: Record<string, unknown>, workingDir?: string, preParsed?: ParsedCommand, manifestOverride?: ManifestOverride, signal?: AbortSignal): Promise<RiskLevel> {
-  if (signal?.aborted) throw new Error('Cancelled');
+  signal?.throwIfAborted();
 
   // Check cache first (skip when preParsed is provided since caller already
   // parsed and we'd just be duplicating the key computation cost).
@@ -473,7 +473,7 @@ export async function check(
   manifestOverride?: ManifestOverride,
   signal?: AbortSignal,
 ): Promise<PermissionCheckResult> {
-  if (signal?.aborted) throw new Error('Cancelled');
+  signal?.throwIfAborted();
 
   // For shell tools, parse once and share the result to avoid duplicate tree-sitter work.
   let shellParsed: ParsedCommand | undefined;
@@ -615,7 +615,7 @@ function friendlyHostname(url: URL): string {
 }
 
 export async function generateAllowlistOptions(toolName: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<AllowlistOption[]> {
-  if (signal?.aborted) throw new Error('Cancelled');
+  signal?.throwIfAborted();
   if (toolName === 'bash' || toolName === 'host_bash') {
     const command = ((input.command as string) ?? '').trim();
     return buildShellAllowlistOptions(command);
