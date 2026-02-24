@@ -21,6 +21,7 @@ final class WakeWordCoordinator: ObservableObject {
     /// we queue it and process once `markReady()` is called.
     private var pendingWakeWord = false
     private var isReady = false
+    private var activatedViaWakeWord = false
 
     private let activationWindow = WakeWordActivationWindow()
     private var stateCancellable: AnyCancellable?
@@ -84,6 +85,7 @@ final class WakeWordCoordinator: ObservableObject {
         }
 
         log.info("Wake word detected — activating voice mode")
+        activatedViaWakeWord = true
 
         // 1. Play activation chime and show visual indicator
         WakeWordFeedback.playActivationChime()
@@ -127,8 +129,11 @@ final class WakeWordCoordinator: ObservableObject {
                 guard let self else { return }
                 if newState == .off {
                     log.info("Voice mode deactivated — resuming wake word listening")
-                    WakeWordFeedback.playDeactivationChime()
-                    self.activationWindow.show(state: .listening)
+                    if self.activatedViaWakeWord {
+                        WakeWordFeedback.playDeactivationChime()
+                        self.activationWindow.show(state: .listening)
+                        self.activatedViaWakeWord = false
+                    }
                     self.audioMonitor.startMonitoring()
                 }
             }
