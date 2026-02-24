@@ -7,7 +7,7 @@ private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "Di
 @MainActor
 final class DictationOverlayWindow {
     private var panel: NSPanel?
-    private var state: DictationState = .recording
+    private var currentState: DictationState = .recording
 
     private func panelWidth(for state: DictationState) -> CGFloat {
         switch state {
@@ -17,51 +17,56 @@ final class DictationOverlayWindow {
     }
 
     func show(state: DictationState) {
-        self.state = state
+        currentState = state
         let width = panelWidth(for: state)
 
-        if panel == nil {
+        if let panel = panel {
+            // Update content in-place by replacing the hosting view's root view
+            if let hostingView = panel.contentView as? NSHostingView<DictationOverlayView> {
+                hostingView.rootView = DictationOverlayView(state: state)
+            } else {
+                panel.contentView = NSHostingView(rootView: DictationOverlayView(state: state))
+            }
+
+            // Re-center if width changed
+            if let screen = NSScreen.main {
+                let screenFrame = screen.visibleFrame
+                let x = screenFrame.midX - width / 2
+                let newFrame = NSRect(x: x, y: panel.frame.origin.y, width: width, height: 40)
+                panel.setFrame(newFrame, display: true, animate: false)
+            }
+
+            panel.orderFront(nil)
+        } else {
             let hostingView = NSHostingView(rootView: DictationOverlayView(state: state))
             hostingView.frame = NSRect(x: 0, y: 0, width: width, height: 40)
 
-            let panel = NSPanel(
+            let newPanel = NSPanel(
                 contentRect: hostingView.frame,
-                styleMask: [.nonactivatingPanel, .fullSizeContentView],
+                styleMask: [.borderless, .nonactivatingPanel],
                 backing: .buffered,
                 defer: false
             )
-            panel.isFloatingPanel = true
-            panel.level = .floating
-            panel.backgroundColor = .clear
-            panel.isOpaque = false
-            panel.hasShadow = false
-            panel.contentView = hostingView
-            panel.isMovableByWindowBackground = false
+            newPanel.isFloatingPanel = true
+            newPanel.level = .floating
+            newPanel.backgroundColor = .clear
+            newPanel.isOpaque = false
+            newPanel.hasShadow = false
+            newPanel.contentView = hostingView
+            newPanel.isMovableByWindowBackground = false
 
             // Position near top-center of screen
             if let screen = NSScreen.main {
                 let screenFrame = screen.visibleFrame
                 let x = screenFrame.midX - width / 2
                 let y = screenFrame.maxY - 60
-                panel.setFrameOrigin(NSPoint(x: x, y: y))
+                newPanel.setFrameOrigin(NSPoint(x: x, y: y))
             }
 
-            self.panel = panel
-        } else {
-            let hostingView = NSHostingView(rootView: DictationOverlayView(state: state))
-            hostingView.frame = NSRect(x: 0, y: 0, width: width, height: 40)
-            panel?.contentView = hostingView
-
-            // Re-center when width changes (e.g. switching to/from transforming state)
-            if let screen = NSScreen.main, let panel = panel {
-                let screenFrame = screen.visibleFrame
-                let x = screenFrame.midX - width / 2
-                panel.setFrameOrigin(NSPoint(x: x, y: panel.frame.origin.y))
-                panel.setContentSize(NSSize(width: width, height: 40))
-            }
+            self.panel = newPanel
+            newPanel.orderFront(nil)
         }
 
-        panel?.orderFront(nil)
         log.debug("Showing dictation overlay: \(String(describing: state))")
     }
 
