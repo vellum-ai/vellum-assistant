@@ -301,11 +301,11 @@ function handleRelationship(
     const freshExisting = db.select().from(memoryItems).where(eq(memoryItems.id, existingItem.id)).get();
     const freshNew = db.select().from(memoryItems).where(eq(memoryItems.id, newItem.id)).get();
 
-    if (!freshExisting || freshExisting.status !== 'active' || freshExisting.invalidAt !== null) {
+    if (!freshExisting || freshExisting.status !== 'active' || freshExisting.invalidAt !== undefined) {
       log.debug({ existingId: existingItem.id }, 'Existing item no longer active — skipping');
       return;
     }
-    if (!freshNew || (freshNew.status !== 'active' && result.relationship !== 'ambiguous_contradiction') || freshNew.invalidAt !== null) {
+    if (!freshNew || (freshNew.status !== 'active' && result.relationship !== 'ambiguous_contradiction') || freshNew.invalidAt !== undefined) {
       log.debug({ newId: newItem.id }, 'New item no longer active — skipping');
       return;
     }

@@ -59,10 +59,6 @@ mock.module('../runtime/gateway-client.js', () => ({
 import { initializeDb, getDb, resetDb } from '../memory/db.js';
 import { conversations } from '../memory/schema.js';
 import { createCallSession, createPendingQuestion } from '../calls/call-store.js';
-import {
-  getGuardianActionRequest,
-  getDeliveriesByRequestId,
-} from '../memory/guardian-action-store.js';
 import { dispatchGuardianQuestion } from '../calls/guardian-dispatch.js';
 import { getMessages } from '../memory/conversation-store.js';
 
