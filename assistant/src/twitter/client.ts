@@ -331,12 +331,177 @@ async function graphqlGet(queryId: string, queryName: string, variables: Record<
   return json;
 }
 
+// ─── Twitter API response types ──────────────────────────────────────────────
+
+interface TwitterUserLegacy {
+  screen_name?: string;
+  name?: string;
+}
+
+interface TwitterUserCore {
+  screen_name?: string;
+  name?: string;
+}
+
+interface TwitterUserResult {
+  rest_id?: string;
+  legacy?: TwitterUserLegacy;
+  core?: TwitterUserCore;
+}
+
+interface TwitterUserResults {
+  result?: TwitterUserResult;
+}
+
+interface TweetLegacy {
+  full_text?: string;
+  created_at?: string;
+}
+
+interface TweetResult {
+  __typename?: string;
+  rest_id?: string;
+  legacy?: TweetLegacy;
+  core?: { user_results?: TwitterUserResults };
+  tweet?: TweetResult;
+}
+
+interface TweetResults {
+  result?: TweetResult;
+}
+
+interface TimelineItemContent {
+  __typename?: string;
+  tweet_results?: TweetResults;
+  user_results?: TwitterUserResults;
+  // Notification-specific fields
+  id?: string;
+  rich_message?: { text?: string };
+  notification_text?: { text?: string };
+  timestamp_ms?: string;
+  notification_url?: { url?: string };
+}
+
+interface TimelineModuleItem {
+  item?: { itemContent?: TimelineItemContent };
+}
+
+interface TimelineEntryContent {
+  itemContent?: TimelineItemContent;
+  items?: TimelineModuleItem[];
+}
+
+interface TimelineEntry {
+  entryId?: string;
+  content?: TimelineEntryContent;
+}
+
+interface TimelineInstruction {
+  entries?: TimelineEntry[];
+}
+
+interface TimelineContainer {
+  instructions?: TimelineInstruction[];
+}
+
+interface TimelineWrapper {
+  timeline?: TimelineContainer;
+}
+
+interface TwitterApiError {
+  message: string;
+}
+
+/** Response from CreateTweet mutation. */
+interface CreateTweetResponse {
+  errors?: TwitterApiError[];
+  data?: {
+    create_tweet?: {
+      tweet_results?: TweetResults;
+    };
+  };
+}
+
+/** Response from UserByScreenName query. */
+interface UserByScreenNameResponse {
+  data?: {
+    user?: {
+      result?: TwitterUserResult;
+    };
+  };
+}
+
+/** Response from UserTweets query. */
+interface UserTweetsResponse {
+  data?: {
+    user?: {
+      result?: {
+        timeline_v2?: TimelineWrapper;
+        timeline?: TimelineWrapper;
+      };
+    };
+  };
+}
+
+/** Response from TweetDetail query. */
+interface TweetDetailResponse {
+  data?: {
+    threaded_conversation_with_injections_v2?: TimelineContainer;
+  };
+}
+
+/** Response from SearchTimeline query. */
+interface SearchTimelineResponse {
+  data?: {
+    search_by_raw_query?: {
+      search_timeline?: TimelineWrapper;
+    };
+  };
+}
+
+/** Response from Bookmarks query. */
+interface BookmarksResponse {
+  data?: {
+    bookmark_timeline_v2?: TimelineWrapper;
+  };
+}
+
+/** Response from HomeTimeline query. */
+interface HomeTimelineResponse {
+  data?: {
+    home?: {
+      home_timeline_urt?: TimelineContainer;
+    };
+  };
+}
+
+/** Response from NotificationsTimeline query. */
+interface NotificationsTimelineResponse {
+  data?: {
+    viewer_v2?: {
+      user_results?: {
+        result?: {
+          notification_timeline?: TimelineWrapper;
+        };
+      };
+    };
+  };
+}
+
+/** Response from Likes / Following / Followers / UserMedia queries. */
+interface UserTimelineResponse {
+  data?: {
+    user?: {
+      result?: {
+        timeline?: TimelineWrapper;
+      };
+    };
+  };
+}
+
 // ─── Tweet extraction helpers ────────────────────────────────────────────────
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyJson = any;
-
-function extractScreenName(tweetResult: AnyJson): string {
+function extractScreenName(tweetResult: TweetResult): string {
   return (
     tweetResult?.core?.user_results?.result?.legacy?.screen_name ??
     tweetResult?.core?.user_results?.result?.core?.screen_name ??
@@ -345,7 +510,7 @@ function extractScreenName(tweetResult: AnyJson): string {
 }
 
 /** Extract tweets from a timeline instructions array (shared by most endpoints). */
-function extractTweetsFromInstructions(instructions: AnyJson[]): TweetEntry[] {
+function extractTweetsFromInstructions(instructions: TimelineInstruction[]): TweetEntry[] {
   const tweets: TweetEntry[] = [];
   for (const instruction of instructions) {
     // Handle both array-style entries and direct entries
@@ -387,7 +552,7 @@ function extractTweetsFromInstructions(instructions: AnyJson[]): TweetEntry[] {
 }
 
 /** Extract users from a timeline instructions array (Followers/Following). */
-function extractUsersFromInstructions(instructions: AnyJson[]): UserInfo[] {
+function extractUsersFromInstructions(instructions: TimelineInstruction[]): UserInfo[] {
   const users: UserInfo[] = [];
   for (const instruction of instructions) {
     for (const entry of instruction.entries ?? []) {
@@ -461,10 +626,10 @@ export async function postTweet(text: string, opts?: { inReplyToTweetId?: string
     queryId: QUERY_IDS.CreateTweet,
   });
 
-  const json = (await cdpFetch(wsUrl, url, body)) as AnyJson;
+  const json = (await cdpFetch(wsUrl, url, body)) as CreateTweetResponse;
 
   if (json.errors?.length) {
-    throw new ProviderError(`X API errors: ${json.errors.map((e: AnyJson) => e.message).join('; ')}`, 'x');
+    throw new ProviderError(`X API errors: ${json.errors.map(e => e.message).join('; ')}`, 'x');
   }
 
   const tweetResults = json.data?.create_tweet?.tweet_results;
@@ -489,7 +654,7 @@ export async function getUserByScreenName(screenName: string): Promise<UserInfo>
   const json = await graphqlGet(QUERY_IDS.UserByScreenName, 'UserByScreenName', {
     screen_name: screenName,
     withGrokTranslatedBio: true,
-  }) as AnyJson;
+  }) as UserByScreenNameResponse;
 
   const user = json.data?.user?.result;
   if (!user?.rest_id) {
@@ -512,7 +677,7 @@ export async function getUserTweets(userId: string, count = 20): Promise<TweetEn
     includePromotedContent: true,
     withQuickPromoteEligibilityTweetFields: true,
     withVoice: true,
-  }) as AnyJson;
+  }) as UserTweetsResponse;
 
   // Response path: data.user.result.timeline_v2.timeline.instructions[]
   // Fallback to data.user.result.timeline.timeline.instructions[]
@@ -534,7 +699,7 @@ export async function getTweetDetail(tweetId: string): Promise<TweetEntry[]> {
     withQuickPromoteEligibilityTweetFields: true,
     withBirdwatchNotes: true,
     withVoice: true,
-  }) as AnyJson;
+  }) as TweetDetailResponse;
 
   // Response path: data.threaded_conversation_with_injections_v2.instructions[]
   const instructions = json.data?.threaded_conversation_with_injections_v2?.instructions ?? [];
@@ -554,7 +719,7 @@ export async function searchTweets(
   // to the search page and capture the response from network events.
   const productParam = product === 'Top' ? '' : `&f=${product.toLowerCase()}`;
   const pageUrl = `https://x.com/search?q=${encodeURIComponent(query)}&src=typed_query${productParam}`;
-  const json = await cdpNavigateAndCapture(wsUrl, pageUrl, 'SearchTimeline') as AnyJson;
+  const json = await cdpNavigateAndCapture(wsUrl, pageUrl, 'SearchTimeline') as SearchTimelineResponse;
 
   const instructions = json.data?.search_by_raw_query?.search_timeline?.timeline?.instructions ?? [];
   return extractTweetsFromInstructions(instructions);
@@ -566,7 +731,7 @@ export async function getBookmarks(count = 20): Promise<TweetEntry[]> {
   const json = await graphqlGet(QUERY_IDS.Bookmarks, 'Bookmarks', {
     count,
     includePromotedContent: true,
-  }) as AnyJson;
+  }) as BookmarksResponse;
 
   // Response path: data.bookmark_timeline_v2.timeline.instructions[]
   const instructions = json.data?.bookmark_timeline_v2?.timeline?.instructions ?? [];
@@ -581,7 +746,7 @@ export async function getHomeTimeline(count = 20): Promise<TweetEntry[]> {
     includePromotedContent: true,
     requestContext: 'launch',
     withCommunity: true,
-  }) as AnyJson;
+  }) as HomeTimelineResponse;
 
   // Response path: data.home.home_timeline_urt.instructions[]
   const instructions = json.data?.home?.home_timeline_urt?.instructions ?? [];
@@ -594,7 +759,7 @@ export async function getNotifications(count = 20): Promise<NotificationEntry[]>
   const json = await graphqlGet(QUERY_IDS.NotificationsTimeline, 'NotificationsTimeline', {
     timeline_type: 'All',
     count,
-  }) as AnyJson;
+  }) as NotificationsTimelineResponse;
 
   // Response path: data.viewer_v2.user_results.result.notification_timeline.timeline.instructions[]
   const instructions =
@@ -626,7 +791,7 @@ export async function getLikes(userId: string, count = 20): Promise<TweetEntry[]
     withClientEventToken: false,
     withBirdwatchNotes: false,
     withVoice: true,
-  }) as AnyJson;
+  }) as UserTimelineResponse;
 
   // Response path: data.user.result.timeline.timeline.instructions[]
   const instructions = json.data?.user?.result?.timeline?.timeline?.instructions ?? [];
@@ -641,7 +806,7 @@ export async function getFollowers(userId: string, screenName?: string): Promise
   if (screenName) {
     requireSession();
     const wsUrl = await findTwitterTab();
-    const json = await cdpNavigateAndCapture(wsUrl, `https://x.com/${screenName}/followers`, 'Followers') as AnyJson;
+    const json = await cdpNavigateAndCapture(wsUrl, `https://x.com/${screenName}/followers`, 'Followers') as UserTimelineResponse;
     const instructions = json.data?.user?.result?.timeline?.timeline?.instructions ?? [];
     return extractUsersFromInstructions(instructions);
   }
@@ -651,7 +816,7 @@ export async function getFollowers(userId: string, screenName?: string): Promise
     count: 20,
     includePromotedContent: false,
     withGrokTranslatedBio: false,
-  }) as AnyJson;
+  }) as UserTimelineResponse;
 
   const instructions = json.data?.user?.result?.timeline?.timeline?.instructions ?? [];
   return extractUsersFromInstructions(instructions);
@@ -665,7 +830,7 @@ export async function getFollowing(userId: string, count = 20): Promise<UserInfo
     count,
     includePromotedContent: false,
     withGrokTranslatedBio: false,
-  }) as AnyJson;
+  }) as UserTimelineResponse;
 
   // Response path: data.user.result.timeline.timeline.instructions[]
   const instructions = json.data?.user?.result?.timeline?.timeline?.instructions ?? [];
@@ -682,7 +847,7 @@ export async function getUserMedia(userId: string, count = 20): Promise<TweetEnt
     withClientEventToken: false,
     withBirdwatchNotes: false,
     withVoice: true,
-  }) as AnyJson;
+  }) as UserTimelineResponse;
 
   // Response path: data.user.result.timeline.timeline.instructions[]
   // (same as Likes — contains tweets that have media)
