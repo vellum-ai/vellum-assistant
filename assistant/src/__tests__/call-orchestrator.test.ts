@@ -287,11 +287,11 @@ describe('call-orchestrator', () => {
     orchestrator.destroy();
   });
 
-  // ── ASK_USER pattern ──────────────────────────────────────────────
+  // ── ASK_GUARDIAN pattern ──────────────────────────────────────────
 
-  test('ASK_USER pattern: detects pattern, creates pending question, enters waiting_on_user', async () => {
+  test('ASK_GUARDIAN pattern: detects pattern, creates pending question, enters waiting_on_user', async () => {
     mockStreamFn.mockImplementation(() =>
-      createMockStream(['Let me check on that. ', '[ASK_USER: What date works best?]']),
+      createMockStream(['Let me check on that. ', '[ASK_GUARDIAN: What date works best?]']),
     );
     const { session, relay, orchestrator } = setupOrchestrator('Book appointment');
 
@@ -307,9 +307,9 @@ describe('call-orchestrator', () => {
     const updatedSession = getCallSession(session.id);
     expect(updatedSession!.status).toBe('waiting_on_user');
 
-    // The ASK_USER marker text should NOT appear in the relay tokens
+    // The ASK_GUARDIAN marker text should NOT appear in the relay tokens
     const allText = relay.sentTokens.map((t) => t.token).join('');
-    expect(allText).not.toContain('[ASK_USER:');
+    expect(allText).not.toContain('[ASK_GUARDIAN:');
 
     orchestrator.destroy();
   });
@@ -366,9 +366,9 @@ describe('call-orchestrator', () => {
   // ── handleUserAnswer ──────────────────────────────────────────────
 
   test('handleUserAnswer: returns true immediately and fires LLM asynchronously', async () => {
-    // First utterance triggers ASK_USER
+    // First utterance triggers ASK_GUARDIAN
     mockStreamFn.mockImplementation(() =>
-      createMockStream(['Hold on. [ASK_USER: Preferred time?]']),
+      createMockStream(['Hold on. [ASK_GUARDIAN: Preferred time?]']),
     );
     const { relay, orchestrator } = setupOrchestrator();
 
@@ -402,7 +402,7 @@ describe('call-orchestrator', () => {
   test('mid-call question flow: unavailable time → ask user → user confirms → resumed call', async () => {
     // Step 1: Caller says "7:30" but it's unavailable. The LLM asks the user.
     mockStreamFn.mockImplementation(() =>
-      createMockStream(['I\'m sorry, 7:30 is not available. ', '[ASK_USER: Is 8:00 okay instead?]']),
+      createMockStream(['I\'m sorry, 7:30 is not available. ', '[ASK_GUARDIAN: Is 8:00 okay instead?]']),
     );
 
     const { session, relay, orchestrator } = setupOrchestrator('Schedule a haircut');
@@ -892,9 +892,9 @@ describe('call-orchestrator', () => {
   });
 
   test('handleUserInstruction: does not trigger LLM when orchestrator is not idle', async () => {
-    // First, trigger ASK_USER so orchestrator enters waiting_on_user
+    // First, trigger ASK_GUARDIAN so orchestrator enters waiting_on_user
     mockStreamFn.mockImplementation(() =>
-      createMockStream(['Hold on. [ASK_USER: What time?]']),
+      createMockStream(['Hold on. [ASK_GUARDIAN: What time?]']),
     );
 
     const { session, orchestrator } = setupOrchestrator();

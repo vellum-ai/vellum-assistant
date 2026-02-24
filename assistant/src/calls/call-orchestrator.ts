@@ -26,8 +26,8 @@ const log = getLogger('call-orchestrator');
 
 type OrchestratorState = 'idle' | 'processing' | 'waiting_on_user' | 'speaking';
 
-const ASK_USER_CAPTURE_REGEX = /\[ASK_USER:\s*(.+?)\]/;
-const ASK_USER_MARKER_REGEX = /\[ASK_USER:\s*.+?\]/g;
+const ASK_GUARDIAN_CAPTURE_REGEX = /\[ASK_GUARDIAN:\s*(.+?)\]/;
+const ASK_GUARDIAN_MARKER_REGEX = /\[ASK_GUARDIAN:\s*.+?\]/g;
 const USER_ANSWERED_MARKER_REGEX = /\[USER_ANSWERED:\s*.+?\]/g;
 const USER_INSTRUCTION_MARKER_REGEX = /\[USER_INSTRUCTION:\s*.+?\]/g;
 const CALL_OPENING_MARKER_REGEX = /\[CALL_OPENING\]/g;
@@ -37,7 +37,7 @@ const END_CALL_MARKER = '[END_CALL]';
 
 function stripInternalSpeechMarkers(text: string): string {
   return text
-    .replace(ASK_USER_MARKER_REGEX, '')
+    .replace(ASK_GUARDIAN_MARKER_REGEX, '')
     .replace(USER_ANSWERED_MARKER_REGEX, '')
     .replace(USER_INSTRUCTION_MARKER_REGEX, '')
     .replace(CALL_OPENING_MARKER_REGEX, '')
@@ -256,7 +256,7 @@ export class CallOrchestrator {
       '0. When introducing yourself, refer to yourself as an assistant. Avoid the phrase "AI assistant" unless directly asked.',
       disclosureRule,
       '2. Be concise — phone conversations should be brief and natural.',
-      '3. If the callee asks something you don\'t know, include [ASK_USER: your question here] in your response along with a hold message like "Let me check on that for you."',
+      '3. If the callee asks something you don\'t know, include [ASK_GUARDIAN: your question here] in your response along with a hold message like "Let me check on that for you."',
       '4. If the callee provides information preceded by [USER_ANSWERED: ...], use that answer naturally in the conversation.',
       '5. If you see [USER_INSTRUCTION: ...], treat it as a high-priority steering directive from your user. Follow the instruction immediately, adjusting your approach or response accordingly.',
       '6. When the call\'s purpose is fulfilled, include [END_CALL] in your response along with a polite goodbye.',
@@ -312,7 +312,7 @@ export class CallOrchestrator {
         { signal: runSignal },
       );
 
-      // Buffer incoming tokens so we can strip control markers ([ASK_USER:...], [END_CALL])
+      // Buffer incoming tokens so we can strip control markers ([ASK_GUARDIAN:...], [END_CALL])
       // before they reach TTS. We hold text whenever an unmatched '[' appears, since it
       // could be the start of a control marker.
       let ttsBuffer = '';
@@ -339,17 +339,17 @@ export class CallOrchestrator {
           // The check must be bidirectional:
           //  - When the buffer is shorter than the prefix (e.g. "[ASK"), the
           //    buffer is a prefix of the control tag → hold it.
-          //  - When the buffer is longer than the prefix (e.g. "[ASK_USER: what"),
+          //  - When the buffer is longer than the prefix (e.g. "[ASK_GUARDIAN: what"),
           //    the buffer starts with the control tag prefix → hold it (the
           //    variable-length payload hasn't been closed yet).
           const afterBracket = ttsBuffer;
           const couldBeControl =
-            '[ASK_USER:'.startsWith(afterBracket) ||
+            '[ASK_GUARDIAN:'.startsWith(afterBracket) ||
             '[USER_ANSWERED:'.startsWith(afterBracket) ||
             '[USER_INSTRUCTION:'.startsWith(afterBracket) ||
             '[CALL_OPENING]'.startsWith(afterBracket) ||
             '[END_CALL]'.startsWith(afterBracket) ||
-            afterBracket.startsWith('[ASK_USER:') ||
+            afterBracket.startsWith('[ASK_GUARDIAN:') ||
             afterBracket.startsWith('[USER_ANSWERED:') ||
             afterBracket.startsWith('[USER_INSTRUCTION:') ||
             afterBracket === '[CALL_OPENING' ||
@@ -412,8 +412,8 @@ export class CallOrchestrator {
         }
       }
 
-      // Check for ASK_USER pattern
-      const askMatch = responseText.match(ASK_USER_CAPTURE_REGEX);
+      // Check for ASK_GUARDIAN pattern
+      const askMatch = responseText.match(ASK_GUARDIAN_CAPTURE_REGEX);
       if (askMatch) {
         const questionText = askMatch[1];
         createPendingQuestion(this.callSessionId, questionText);

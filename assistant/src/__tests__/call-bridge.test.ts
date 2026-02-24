@@ -261,9 +261,9 @@ describe('call-bridge', () => {
   });
 
   test('routes answer to orchestrator when waiting and returns handled:true', async () => {
-    // Setup: trigger ASK_USER to put orchestrator in waiting_on_user state
+    // Setup: trigger ASK_GUARDIAN to put orchestrator in waiting_on_user state
     mockStreamFn.mockImplementation(() =>
-      createMockStream(['Hold on. [ASK_USER: Preferred date?]']),
+      createMockStream(['Hold on. [ASK_GUARDIAN: Preferred date?]']),
     );
 
     ensureConversation('conv-bridge');
@@ -327,9 +327,9 @@ describe('call-bridge', () => {
   });
 
   test('prefers answer path over instruction path when pending question exists', async () => {
-    // Setup: trigger ASK_USER to put orchestrator in waiting_on_user state
+    // Setup: trigger ASK_GUARDIAN to put orchestrator in waiting_on_user state
     mockStreamFn.mockImplementation(() =>
-      createMockStream(['Hold on. [ASK_USER: Budget range?]']),
+      createMockStream(['Hold on. [ASK_GUARDIAN: Budget range?]']),
     );
 
     ensureConversation('conv-prefer-answer');
