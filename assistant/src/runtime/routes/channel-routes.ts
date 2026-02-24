@@ -14,6 +14,7 @@ import { getPendingConfirmationsByConversation } from '../../memory/runs-store.j
 import { renderHistoryContent } from '../../daemon/handlers.js';
 import { checkIngressForSecrets } from '../../security/secret-ingress.js';
 import { IngressBlockedError } from '../../util/errors.js';
+import { getConfig } from '../../config/loader.js';
 import { getLogger } from '../../util/logger.js';
 import {
   getGuardianBinding,
@@ -407,6 +408,13 @@ export async function handleChannelInbound(
   if (trimmedContent.length === 0 && !hasAttachments && !isEdit && !hasCallbackData) {
     return Response.json({ error: 'content or attachmentIds is required' }, { status: 400 });
   }
+
+  // ── Assistant Inbox config access ──
+  // Load inbox config so downstream guards can check feature flags.
+  // Currently a no-op — ingress ACL enforcement will be added here by A-07/A-08
+  // when assistantInbox.memberAclEnabled is true.
+  const _inboxConfig = getConfig().assistantInbox;
+  void _inboxConfig;
 
   if (hasAttachments) {
     const resolved = attachmentsStore.getAttachmentsByIds(attachmentIds);

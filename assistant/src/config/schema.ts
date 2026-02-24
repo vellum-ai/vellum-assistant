@@ -1080,6 +1080,21 @@ export const SkillsConfigSchema = z.object({
   allowBundled: z.array(z.string()).nullable().default(null),
 });
 
+export const AssistantInboxConfigSchema = z.object({
+  enabled: z
+    .boolean({ error: 'assistantInbox.enabled must be a boolean' })
+    .default(false),
+  invitesEnabled: z
+    .boolean({ error: 'assistantInbox.invitesEnabled must be a boolean' })
+    .default(false),
+  memberAclEnabled: z
+    .boolean({ error: 'assistantInbox.memberAclEnabled must be a boolean' })
+    .default(false),
+  policyEnabled: z
+    .boolean({ error: 'assistantInbox.policyEnabled must be a boolean' })
+    .default(false),
+});
+
 export const SmsConfigSchema = z.object({
   enabled: z
     .boolean({ error: 'sms.enabled must be a boolean' })
@@ -1404,6 +1419,12 @@ export const AssistantConfigSchema = z.object({
     phoneNumber: '',
   }),
   ingress: IngressConfigSchema,
+  assistantInbox: AssistantInboxConfigSchema.default({
+    enabled: false,
+    invitesEnabled: false,
+    memberAclEnabled: false,
+    policyEnabled: false,
+  }),
 }).superRefine((config, ctx) => {
   if (config.contextWindow.targetInputTokens >= config.contextWindow.maxInputTokens) {
     ctx.addIssue({
@@ -1470,3 +1491,4 @@ export type CallerIdentityConfig = z.infer<typeof CallerIdentityConfigSchema>;
 export type CallsVerificationConfig = z.infer<typeof CallsVerificationConfigSchema>;
 export type SmsConfig = z.infer<typeof SmsConfigSchema>;
 export type IngressConfig = z.infer<typeof IngressConfigSchema>;
+export type AssistantInboxConfig = z.infer<typeof AssistantInboxConfigSchema>;

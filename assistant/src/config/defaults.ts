@@ -266,4 +266,10 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     enabled: undefined,
     publicBaseUrl: '',
   },
+  assistantInbox: {
+    enabled: false,
+    invitesEnabled: false,
+    memberAclEnabled: false,
+    policyEnabled: false,
+  },
 };
