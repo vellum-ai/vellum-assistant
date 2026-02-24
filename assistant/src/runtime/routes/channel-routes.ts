@@ -1386,10 +1386,12 @@ async function handleApprovalInterception(
       ? getPendingApprovalByRunAndGuardianChat(decision.runId, sourceChannel, externalChatId, assistantId)
       : null;
 
-    // For plain-text decisions (no run ID), check how many pending
-    // approvals exist for this guardian chat. If there are multiple,
-    // the guardian must use buttons to disambiguate.
-    if (!guardianApproval && decision && !decision.runId) {
+    // When the scoped lookup didn't resolve an approval (either because
+    // the decision had no runId, or the runId pointed to a stale/expired
+    // run), fall back to checking all pending approvals for this guardian
+    // chat. If there are multiple, the guardian must use buttons to
+    // disambiguate.
+    if (!guardianApproval && decision) {
       const allPending = getAllPendingApprovalsByGuardianChat(sourceChannel, externalChatId, assistantId);
       if (allPending.length > 1) {
         try {
