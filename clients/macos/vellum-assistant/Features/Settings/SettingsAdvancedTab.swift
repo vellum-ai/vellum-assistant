@@ -279,7 +279,7 @@ struct SettingsAdvancedTab: View {
                     Text("Enable iOS Pairing")
                         .font(VFont.bodyMedium)
                         .foregroundColor(VColor.textPrimary)
-                    Text("Allow iPhone connections over your local network (TLS encrypted).")
+                    Text("Allow your iPhone to connect via the gateway (bearer-token authenticated).")
                         .font(VFont.caption)
                         .foregroundColor(VColor.textSecondary)
                 }
@@ -317,7 +317,7 @@ struct SettingsAdvancedTab: View {
                 setIOSPairingEnabled(true)
             }
         } message: {
-            Text("Your assistant will be reachable on your local network. Only devices with the session token can connect. TLS encryption is always enabled.")
+            Text("Your iPhone will connect through the gateway. Only devices with a valid session token can reach your assistant.")
         }
     }
 
