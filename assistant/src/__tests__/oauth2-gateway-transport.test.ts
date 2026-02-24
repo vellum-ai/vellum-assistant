@@ -328,12 +328,13 @@ describe('OAuth2 gateway transport', () => {
       expect(lastTokenRequestBody!.get('code_verifier')).toBeTruthy();
     });
 
-    test('sends Basic Auth header and omits client_id/client_secret from body when clientSecret is provided', async () => {
+    test('sends Basic Auth header and omits client_id/client_secret from body when tokenEndpointAuthMethod is client_secret_basic', async () => {
       mockPublicBaseUrl = 'https://gw.example.com';
 
       const configWithSecret: OAuth2Config = {
         ...BASE_OAUTH_CONFIG,
         clientSecret: 'test-client-secret',
+        tokenEndpointAuthMethod: 'client_secret_basic',
       };
 
       const flowPromise = startOAuth2Flow(configWithSecret, {
@@ -358,6 +359,34 @@ describe('OAuth2 gateway transport', () => {
 
       // Body should still contain code_verifier
       expect(lastTokenRequestBody!.get('code_verifier')).toBeTruthy();
+    });
+
+    test('sends client_id and client_secret in body when tokenEndpointAuthMethod is client_secret_post (default)', async () => {
+      mockPublicBaseUrl = 'https://gw.example.com';
+
+      const configWithSecret: OAuth2Config = {
+        ...BASE_OAUTH_CONFIG,
+        clientSecret: 'test-client-secret',
+      };
+
+      const flowPromise = startOAuth2Flow(configWithSecret, {
+        openUrl: () => {},
+      });
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      const entries = Array.from(pendingCallbacks.entries());
+      entries[0][1].resolve('post-auth-code');
+
+      await flowPromise;
+
+      // No Authorization header for client_secret_post
+      expect(lastTokenRequestHeaders['Authorization']).toBeUndefined();
+
+      // Body should contain client_id and client_secret
+      expect(lastTokenRequestBody).not.toBeNull();
+      expect(lastTokenRequestBody!.get('client_id')).toBe('test-client-id');
+      expect(lastTokenRequestBody!.get('client_secret')).toBe('test-client-secret');
     });
 
     test('sends client_id in body without Basic Auth when no clientSecret', async () => {

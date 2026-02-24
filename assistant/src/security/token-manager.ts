@@ -8,7 +8,7 @@
 
 import { getSecureKey, setSecureKey } from './secure-keys.js';
 import { getCredentialMetadata, upsertCredentialMetadata } from '../tools/credentials/metadata-store.js';
-import { refreshOAuth2Token } from './oauth2.js';
+import { refreshOAuth2Token, type TokenEndpointAuthMethod } from './oauth2.js';
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('token-manager');
@@ -66,11 +66,12 @@ async function doRefresh(service: string): Promise<string> {
   }
 
   const clientSecret = meta?.oauth2ClientSecret as string | undefined;
+  const authMethod = meta?.oauth2TokenEndpointAuthMethod as TokenEndpointAuthMethod | undefined;
   const resolvedTokenUrl = tokenUrl;
 
   log.info({ service }, 'Refreshing OAuth2 access token');
 
-  const result = await refreshOAuth2Token(resolvedTokenUrl, clientId, refreshToken, clientSecret);
+  const result = await refreshOAuth2Token(resolvedTokenUrl, clientId, refreshToken, clientSecret, authMethod);
 
   if (!setSecureKey(`credential:${service}:access_token`, result.accessToken)) {
     throw new Error(`Failed to store refreshed access token for "${service}"`);

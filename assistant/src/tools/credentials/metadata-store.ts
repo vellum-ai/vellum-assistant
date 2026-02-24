@@ -28,6 +28,8 @@ export interface CredentialMetadata {
   oauth2ClientId?: string;
   /** OAuth2 client secret — for providers that require it (e.g. Slack). Stored in metadata for autonomous refresh. */
   oauth2ClientSecret?: string;
+  /** How the client authenticates at the token endpoint (client_secret_basic or client_secret_post). */
+  oauth2TokenEndpointAuthMethod?: string;
   /** Human-friendly name for this credential (e.g. "fal-primary"). */
   alias?: string;
   /** Templates describing how to inject this credential into proxied requests. */
@@ -99,6 +101,7 @@ function migrateRecordV1toV2(record: Record<string, unknown>): CredentialMetadat
     oauth2TokenUrl: typeof record.oauth2TokenUrl === 'string' ? record.oauth2TokenUrl : undefined,
     oauth2ClientId: typeof record.oauth2ClientId === 'string' ? record.oauth2ClientId : undefined,
     oauth2ClientSecret: typeof record.oauth2ClientSecret === 'string' ? record.oauth2ClientSecret : undefined,
+    oauth2TokenEndpointAuthMethod: typeof record.oauth2TokenEndpointAuthMethod === 'string' ? record.oauth2TokenEndpointAuthMethod : undefined,
     alias: typeof record.alias === 'string' ? record.alias : undefined,
     injectionTemplates: Array.isArray(record.injectionTemplates)
       ? (record.injectionTemplates as CredentialInjectionTemplate[])
@@ -186,6 +189,7 @@ export function upsertCredentialMetadata(
     oauth2ClientId?: string;
     /** Pass `null` to explicitly clear a previously-set client secret. */
     oauth2ClientSecret?: string | null;
+    oauth2TokenEndpointAuthMethod?: string;
     /** Pass `null` to explicitly clear a previously-set alias. */
     alias?: string | null;
     /** Pass `null` to explicitly clear injection templates. */
@@ -231,6 +235,7 @@ export function upsertCredentialMetadata(
         existing.oauth2ClientSecret = policy.oauth2ClientSecret;
       }
     }
+    if (policy?.oauth2TokenEndpointAuthMethod !== undefined) existing.oauth2TokenEndpointAuthMethod = policy.oauth2TokenEndpointAuthMethod;
     if (policy?.alias !== undefined) {
       if (policy.alias === null) {
         delete existing.alias;
@@ -263,6 +268,7 @@ export function upsertCredentialMetadata(
     oauth2TokenUrl: policy?.oauth2TokenUrl,
     oauth2ClientId: policy?.oauth2ClientId,
     oauth2ClientSecret: policy?.oauth2ClientSecret ?? undefined,
+    oauth2TokenEndpointAuthMethod: policy?.oauth2TokenEndpointAuthMethod,
     alias: policy?.alias ?? undefined,
     injectionTemplates: policy?.injectionTemplates ?? undefined,
     createdAt: now,
