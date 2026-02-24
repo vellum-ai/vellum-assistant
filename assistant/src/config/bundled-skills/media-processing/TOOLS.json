@@ -97,10 +97,12 @@
           },
           "chunk_size": {
             "type": "number",
+            "minimum": 1,
             "description": "Number of frames per analysis chunk. Default: 10"
           },
           "overlap": {
             "type": "number",
+            "minimum": 0,
             "description": "Number of overlapping frames between adjacent chunks to avoid missing boundary events. Default: 2"
           }
         },
