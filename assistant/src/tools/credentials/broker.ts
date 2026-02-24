@@ -20,6 +20,9 @@ import { getLogger } from '../../util/logger.js';
 
 const log = getLogger('credential-broker');
 
+/** Tokens expire after 5 minutes to limit the window for using stale/revoked credentials. */
+const TOKEN_TTL_MS = 5 * 60 * 1000;
+
 /**
  * Credential broker that issues single-use tokens for policy-checked credential access.
  *
@@ -100,6 +103,11 @@ export class CredentialBroker {
     }
     if (token.consumed) {
       return { success: false, reason: 'Token already consumed' };
+    }
+    if (Date.now() - token.createdAt > TOKEN_TTL_MS) {
+      this.tokens.delete(tokenId);
+      log.info({ tokenId }, 'Token expired (TTL exceeded)');
+      return { success: false, reason: 'Token expired' };
     }
 
     token.consumed = true;
@@ -358,11 +366,12 @@ export class CredentialBroker {
     };
   }
 
-  /** Return the number of active (non-consumed, non-revoked) tokens. */
+  /** Return the number of active (non-consumed, non-revoked, non-expired) tokens. */
   get activeTokenCount(): number {
+    const now = Date.now();
     let count = 0;
     for (const token of this.tokens.values()) {
-      if (!token.consumed) count++;
+      if (!token.consumed && now - token.createdAt <= TOKEN_TTL_MS) count++;
     }
     return count;
   }
