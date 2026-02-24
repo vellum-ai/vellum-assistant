@@ -24,10 +24,10 @@ enum TTSRedactor {
             (#"gh[phsor]_[A-Za-z0-9]{36}"#, "a redacted GitHub token"),
             // JWT: three base64url segments separated by dots
             (#"eyJ[A-Za-z0-9\-_]{10,}\.[A-Za-z0-9\-_]{10,}\.[A-Za-z0-9\-_]{10,}"#, "a redacted token"),
-            // Bearer tokens (Authorization header value)
-            (#"Bearer [A-Za-z0-9\-_.]{20,}"#, "a redacted bearer token"),
-            // ElevenLabs-style 32-char alphanumeric keys (no spaces, mixed case)
-            (#"\b[0-9a-fA-F]{32}\b"#, "a redacted key"),
+            // Bearer tokens (Authorization header value); case-insensitive to catch bearer/BEARER
+            (#"(?i)Bearer [A-Za-z0-9\-_.]{20,}"#, "a redacted bearer token"),
+            // 32-char alphanumeric credentials — ElevenLabs keys and similar (not just hex)
+            (#"\b[A-Za-z0-9]{32}\b"#, "a redacted key"),
             // Long hex strings (40+ chars) — SHA-1/SHA-256 hashes and token IDs
             (#"\b[0-9a-f]{40,}\b"#, "a redacted hash"),
         ]
