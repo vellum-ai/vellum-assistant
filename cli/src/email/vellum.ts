@@ -12,8 +12,7 @@ const DEFAULT_VELLUM_API_URL = "https://api.vellum.ai";
 export interface EmailInbox {
   id: string;
   address: string;
-  displayName?: string;
-  createdAt: string;
+  created_at: string;
 }
 
 export interface EmailStatus {
@@ -63,8 +62,10 @@ async function vellumFetch(
 export class VellumEmailClient {
   private apiKey: string;
   private baseUrl: string;
+  private assistantId: string;
 
-  constructor(apiKey?: string, baseUrl?: string) {
+  constructor(assistantId: string, apiKey?: string, baseUrl?: string) {
+    this.assistantId = assistantId;
     const resolvedKey = apiKey ?? process.env.VELLUM_API_KEY;
     if (!resolvedKey) {
       throw new Error(
@@ -81,9 +82,9 @@ export class VellumEmailClient {
     const result = await vellumFetch(
       this.apiKey,
       this.baseUrl,
-      "/v1/email-addresses",
+      `/v1/assistants/${this.assistantId}/email-addresses/`,
     );
-    const inboxes = (result as { inboxes: EmailInbox[] }).inboxes;
+    const inboxes = result as EmailInbox[];
     return { provider: "vellum", ok: true, inboxes };
   }
 
@@ -92,7 +93,7 @@ export class VellumEmailClient {
     const result = await vellumFetch(
       this.apiKey,
       this.baseUrl,
-      "/v1/email-addresses",
+      `/v1/assistants/${this.assistantId}/email-addresses/`,
       {
         method: "POST",
         body: { username },
