@@ -1091,8 +1091,13 @@ public final class SettingsStore: ObservableObject {
         let previousLastChecked = gatewayLastChecked
         ingressReachable = nil
         gatewayLastChecked = nil
+        // Auto-enable ingress when a non-empty URL is saved, auto-disable when cleared.
+        // The dedicated Public Ingress toggle was removed, so this is the only path
+        // that controls the enabled flag.
+        let shouldEnable = !trimmed.isEmpty
+        ingressEnabled = shouldEnable
         do {
-            try daemonClient?.send(IngressConfigRequestMessage(action: "set", publicBaseUrl: trimmed, enabled: ingressEnabled))
+            try daemonClient?.send(IngressConfigRequestMessage(action: "set", publicBaseUrl: trimmed, enabled: shouldEnable))
         } catch {
             // IPC send failed — roll back the optimistic update
             ingressPublicBaseUrl = previous
