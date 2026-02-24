@@ -1,6 +1,6 @@
 /**
- * NotificationBroadcaster — dispatches a notification envelope to all
- * enabled channels through their respective adapters.
+ * NotificationBroadcaster -- dispatches a notification to all selected
+ * channels through their respective adapters.
  *
  * For each channel the broadcaster:
  *   1. Resolves the destination via the destination-resolver
@@ -15,13 +15,25 @@ import { composeCopy } from './copy-composer.js';
 import { resolveDestinations } from './destination-resolver.js';
 import { createDelivery, updateDeliveryStatus } from './deliveries-store.js';
 import type {
-  NotificationEnvelope,
   NotificationChannel,
   NotificationDeliveryResult,
   ChannelAdapter,
 } from './types.js';
 
 const log = getLogger('notif-broadcaster');
+
+/**
+ * Minimal envelope the broadcaster needs to dispatch a notification.
+ * This replaces the old NotificationEnvelope which was tightly coupled
+ * to the enum-based NotificationType.
+ */
+export interface BroadcastEnvelope {
+  decisionId: string;
+  assistantId: string;
+  sourceEventName: string;
+  payload: Record<string, unknown>;
+  createdAt: number;
+}
 
 export interface BroadcastOptions {
   /** Override the set of channels to deliver to (bypasses preference resolution). */
@@ -39,12 +51,12 @@ export class NotificationBroadcaster {
   }
 
   /**
-   * Broadcast a notification envelope to the given set of enabled channels.
+   * Broadcast a notification to the given set of channels.
    *
-   * Returns an array of delivery results — one per channel attempted.
+   * Returns an array of delivery results -- one per channel attempted.
    */
   async broadcast(
-    envelope: NotificationEnvelope,
+    envelope: BroadcastEnvelope,
     enabledChannels: NotificationChannel[],
     _options?: BroadcastOptions,
   ): Promise<NotificationDeliveryResult[]> {
@@ -54,7 +66,7 @@ export class NotificationBroadcaster {
     for (const channel of enabledChannels) {
       const adapter = this.adapters.get(channel);
       if (!adapter) {
-        log.warn({ channel, eventId: envelope.id }, 'No adapter registered for channel — skipping');
+        log.warn({ channel, decisionId: envelope.decisionId }, 'No adapter registered for channel -- skipping');
         results.push({
           channel,
           destination: '',
@@ -66,7 +78,7 @@ export class NotificationBroadcaster {
 
       const destination = destinations.get(channel);
       if (!destination) {
-        log.warn({ channel, eventId: envelope.id }, 'Could not resolve destination — skipping');
+        log.warn({ channel, decisionId: envelope.decisionId }, 'Could not resolve destination -- skipping');
         results.push({
           channel,
           destination: '',
@@ -76,9 +88,9 @@ export class NotificationBroadcaster {
         continue;
       }
 
-      const copy = composeCopy(envelope.type, channel, envelope.payload);
+      const copy = composeCopy(envelope.sourceEventName, channel, envelope.payload);
       const delivery = {
-        notificationType: envelope.type,
+        sourceEventName: envelope.sourceEventName,
         title: copy.title,
         body: copy.body,
         threadTitle: copy.threadTitle,
@@ -93,7 +105,7 @@ export class NotificationBroadcaster {
         // Record a pending delivery row before attempting send
         createDelivery({
           id: deliveryId,
-          notificationEventId: envelope.id,
+          notificationDecisionId: envelope.decisionId,
           assistantId: envelope.assistantId,
           channel,
           destination: destinationLabel,
@@ -128,13 +140,13 @@ export class NotificationBroadcaster {
         }
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : String(err);
-        log.error({ err, channel, eventId: envelope.id }, 'Unexpected error during channel delivery');
+        log.error({ err, channel, decisionId: envelope.decisionId }, 'Unexpected error during channel delivery');
 
         // Best-effort update of the delivery row
         try {
           updateDeliveryStatus(deliveryId, 'failed', { message: errorMessage });
         } catch {
-          // Swallow — the delivery record may not exist if createDelivery failed
+          // Swallow -- the delivery record may not exist if createDelivery failed
         }
 
         results.push({

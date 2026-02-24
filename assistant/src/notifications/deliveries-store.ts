@@ -1,9 +1,9 @@
 /**
  * Delivery audit records for notifications.
  *
- * Each row represents a single attempt to deliver a notification event
+ * Each row represents a single attempt to deliver a notification decision
  * to a specific channel and destination. Multiple attempts for the same
- * (event, channel, destination) are tracked via the `attempt` counter.
+ * (decision, channel, destination) are tracked via the `attempt` counter.
  */
 
 import { and, eq } from 'drizzle-orm';
@@ -13,7 +13,7 @@ import type { NotificationChannel, NotificationDeliveryStatus } from './types.js
 
 export interface NotificationDeliveryRow {
   id: string;
-  notificationEventId: string;
+  notificationDecisionId: string;
   assistantId: string;
   channel: string;
   destination: string;
@@ -31,7 +31,7 @@ export interface NotificationDeliveryRow {
 function rowToDelivery(row: typeof notificationDeliveries.$inferSelect): NotificationDeliveryRow {
   return {
     id: row.id,
-    notificationEventId: row.notificationEventId,
+    notificationDecisionId: row.notificationDecisionId,
     assistantId: row.assistantId,
     channel: row.channel,
     destination: row.destination,
@@ -49,7 +49,7 @@ function rowToDelivery(row: typeof notificationDeliveries.$inferSelect): Notific
 
 export interface CreateDeliveryParams {
   id: string;
-  notificationEventId: string;
+  notificationDecisionId: string;
   assistantId: string;
   channel: NotificationChannel;
   destination: string;
@@ -69,7 +69,7 @@ export function createDelivery(params: CreateDeliveryParams): NotificationDelive
 
   const row = {
     id: params.id,
-    notificationEventId: params.notificationEventId,
+    notificationDecisionId: params.notificationDecisionId,
     assistantId: params.assistantId,
     channel: params.channel,
     destination: params.destination,
@@ -118,13 +118,13 @@ export function updateDeliveryStatus(
   return (result.changes ?? 0) > 0;
 }
 
-/** List all delivery records for a given notification event. */
-export function listDeliveries(eventId: string): NotificationDeliveryRow[] {
+/** List all delivery records for a given notification decision. */
+export function listDeliveries(decisionId: string): NotificationDeliveryRow[] {
   const db = getDb();
   const rows = db
     .select()
     .from(notificationDeliveries)
-    .where(eq(notificationDeliveries.notificationEventId, eventId))
+    .where(eq(notificationDeliveries.notificationDecisionId, decisionId))
     .all();
   return rows.map(rowToDelivery);
 }

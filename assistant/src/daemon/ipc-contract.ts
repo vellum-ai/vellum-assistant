@@ -65,7 +65,7 @@ import type { SchedulesList, ScheduleToggle, ScheduleRemove, ScheduleRunNow, Rem
 import type { ParentalControlGetRequest, ParentalControlVerifyPinRequest, ParentalControlSetPinRequest, ParentalControlUpdateRequest, ParentalControlGetResponse, ParentalControlVerifyPinResponse, ParentalControlSetPinResponse, ParentalControlUpdateResponse } from './ipc-contract/parental-control.js';
 import type { IngressInviteRequest, IngressMemberRequest, AssistantInboxRequest, AssistantInboxEscalationRequest, AssistantInboxReplyRequest, IngressInviteResponse, IngressMemberResponse, AssistantInboxResponse, AssistantInboxEscalationResponse, AssistantInboxReplyResponse } from './ipc-contract/inbox.js';
 import type { PairingApprovalResponse, ApprovedDevicesList, ApprovedDeviceRemove, ApprovedDevicesClear, PairingApprovalRequest, ApprovedDevicesListResponse, ApprovedDeviceRemoveResponse } from './ipc-contract/pairing.js';
-import type { NotificationSettingsGet, NotificationSettingsSet, NotificationSettingsSetBulk, NotificationSettingsListTypes, NotificationSettingsResponse, NotificationIntent } from './ipc-contract/notifications.js';
+import type { NotificationIntent } from './ipc-contract/notifications.js';
 
 // === SubagentEvent — defined here because it references ServerMessage ===
 
@@ -211,11 +211,7 @@ export type ClientMessage =
   | PairingApprovalResponse
   | ApprovedDevicesList
   | ApprovedDeviceRemove
-  | ApprovedDevicesClear
-  | NotificationSettingsGet
-  | NotificationSettingsSet
-  | NotificationSettingsSetBulk
-  | NotificationSettingsListTypes;
+  | ApprovedDevicesClear;
 
 // === Server → Client aggregate union ===
 
@@ -367,7 +363,6 @@ export type ServerMessage =
   | PairingApprovalRequest
   | ApprovedDevicesListResponse
   | ApprovedDeviceRemoveResponse
-  | NotificationSettingsResponse
   | NotificationIntent;
 
 // === Contract schema ===
