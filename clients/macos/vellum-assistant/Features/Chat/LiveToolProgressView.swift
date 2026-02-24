@@ -11,8 +11,7 @@ struct LiveToolProgressView: View {
     /// Used for the "all tools done but still streaming" state.
     var thinkingLabel: String? = nil
 
-    @State private var isExpanded: Bool = true
-    @State private var userHasToggled: Bool = false
+    @State private var isExpanded: Bool = false
 
     private var currentCall: ToolCallData? {
         toolCalls.first(where: { !$0.isComplete })
@@ -20,12 +19,19 @@ struct LiveToolProgressView: View {
 
     private var headerLabel: String {
         if let thinkingLabel { return thinkingLabel }
-        if isRunning, let current = currentCall {
-            return ChatBubble.friendlyRunningLabel(
-                current.toolName,
-                inputSummary: current.inputSummary,
-                buildingStatus: current.buildingStatus
-            )
+        let completedCount = toolCalls.filter(\.isComplete).count
+        if isRunning {
+            if completedCount == 0 {
+                if let current = currentCall {
+                    return ChatBubble.friendlyRunningLabel(
+                        current.toolName,
+                        inputSummary: current.inputSummary,
+                        buildingStatus: current.buildingStatus
+                    )
+                }
+                return "Working"
+            }
+            return "Completed \(completedCount) step\(completedCount == 1 ? "" : "s")"
         }
         return "Completed \(toolCalls.count) step\(toolCalls.count == 1 ? "" : "s")"
     }
@@ -36,7 +42,6 @@ struct LiveToolProgressView: View {
             Button(action: {
                 withAnimation(VAnimation.fast) {
                     isExpanded.toggle()
-                    userHasToggled = true
                 }
             }) {
                 HStack(spacing: VSpacing.sm) {
@@ -114,13 +119,6 @@ struct LiveToolProgressView: View {
         }
         .background(VColor.surface.opacity(0.5))
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-        .onChange(of: isRunning) { _, newValue in
-            if !newValue && !userHasToggled {
-                withAnimation(VAnimation.fast) {
-                    isExpanded = false
-                }
-            }
-        }
     }
 }
 

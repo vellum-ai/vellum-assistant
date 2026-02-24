@@ -132,13 +132,27 @@ export function addMessage(conversationId: string, role: string, content: string
     ...(metadata ? { metadata: JSON.stringify(metadata) } : {}),
   };
   // Wrap insert + updatedAt bump in a transaction so they're atomic.
-  db.transaction((tx) => {
-    tx.insert(messages).values(message).run();
-    tx.update(conversations)
-      .set({ updatedAt: now })
-      .where(eq(conversations.id, conversationId))
-      .run();
-  });
+  // Retry on SQLITE_BUSY in case busy_timeout is exhausted under heavy contention.
+  const MAX_RETRIES = 3;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      db.transaction((tx) => {
+        tx.insert(messages).values(message).run();
+        tx.update(conversations)
+          .set({ updatedAt: now })
+          .where(eq(conversations.id, conversationId))
+          .run();
+      });
+      break;
+    } catch (err) {
+      if (attempt < MAX_RETRIES && (err as { code?: string }).code === 'SQLITE_BUSY') {
+        log.warn({ attempt, conversationId }, 'addMessage: SQLITE_BUSY, retrying');
+        Bun.sleepSync(50 * (attempt + 1));
+        continue;
+      }
+      throw err;
+    }
+  }
 
   try {
     const config = getConfig();

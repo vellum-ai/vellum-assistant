@@ -287,6 +287,41 @@ describe('call-orchestrator', () => {
     orchestrator.destroy();
   });
 
+  test('startInitialGreeting: tags only the first caller response with CALL_OPENING_ACK', async () => {
+    let callCount = 0;
+    mockStreamFn.mockImplementation((...args: unknown[]) => {
+      callCount++;
+      const firstArg = args[0] as { messages: Array<{ role: string; content: string }> };
+      const userMessages = firstArg.messages.filter((m) => m.role === 'user');
+      const lastUser = userMessages[userMessages.length - 1]?.content ?? '';
+
+      if (callCount === 1) {
+        expect(lastUser).toContain('[CALL_OPENING]');
+        return createMockStream(['Hey Noa, it\'s Credence calling about your joke request. Is now okay for a quick one?']);
+      }
+
+      if (callCount === 2) {
+        expect(lastUser).toContain('[CALL_OPENING_ACK]');
+        expect(lastUser).toContain('Yeah. Sure. What\'s up?');
+        return createMockStream(['Great, here\'s one right away. Why did the scarecrow win an award?']);
+      }
+
+      expect(lastUser).not.toContain('[CALL_OPENING_ACK]');
+      expect(lastUser).toContain('Tell me the punchline');
+      return createMockStream(['Because he was outstanding in his field.']);
+    });
+
+    const { orchestrator } = setupOrchestrator('Tell a joke immediately');
+
+    await orchestrator.startInitialGreeting();
+    await orchestrator.handleCallerUtterance('Yeah. Sure. What\'s up?');
+    await orchestrator.handleCallerUtterance('Tell me the punchline');
+
+    expect(callCount).toBe(3);
+
+    orchestrator.destroy();
+  });
+
   // ── ASK_GUARDIAN pattern ──────────────────────────────────────────
 
   test('ASK_GUARDIAN pattern: detects pattern, creates pending question, enters waiting_on_user', async () => {
@@ -314,12 +349,13 @@ describe('call-orchestrator', () => {
     orchestrator.destroy();
   });
 
-  test('strips USER_ANSWERED and USER_INSTRUCTION markers from spoken output', async () => {
+  test('strips internal context markers from spoken output', async () => {
     mockStreamFn.mockImplementation(() =>
       createMockStream([
         'Thanks for waiting. ',
         '[USER_ANSWERED: The guardian said 3 PM works.] ',
         '[USER_INSTRUCTION: Keep this short.] ',
+        '[CALL_OPENING_ACK] ',
         'I can confirm 3 PM works.',
       ]),
     );
@@ -332,8 +368,10 @@ describe('call-orchestrator', () => {
     expect(allText).toContain('I can confirm 3 PM works.');
     expect(allText).not.toContain('[USER_ANSWERED:');
     expect(allText).not.toContain('[USER_INSTRUCTION:');
+    expect(allText).not.toContain('[CALL_OPENING_ACK]');
     expect(allText).not.toContain('USER_ANSWERED');
     expect(allText).not.toContain('USER_INSTRUCTION');
+    expect(allText).not.toContain('CALL_OPENING_ACK');
 
     orchestrator.destroy();
   });
@@ -969,6 +1007,19 @@ describe('call-orchestrator', () => {
       expect(firstArg.system).toContain('refer to yourself as an assistant');
       expect(firstArg.system).toContain('Avoid the phrase "AI assistant" unless directly asked');
       return createMockStream(['Sure thing.']);
+    });
+
+    const { orchestrator } = setupOrchestrator();
+    await orchestrator.handleCallerUtterance('Hi');
+    orchestrator.destroy();
+  });
+
+  test('system prompt includes opening-ack guidance to avoid duplicate introductions', async () => {
+    mockStreamFn.mockImplementation((...args: unknown[]) => {
+      const firstArg = args[0] as { system: string };
+      expect(firstArg.system).toContain('[CALL_OPENING_ACK]');
+      expect(firstArg.system).toContain('without re-introducing yourself');
+      return createMockStream(['Understood.']);
     });
 
     const { orchestrator } = setupOrchestrator();

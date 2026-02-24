@@ -383,6 +383,11 @@ export interface ScheduleRemove {
   id: string;
 }
 
+export interface ScheduleRunNow {
+  type: 'schedule_run_now';
+  id: string;
+}
+
 export interface AppsListRequest {
   type: 'apps_list';
 }
@@ -1148,6 +1153,7 @@ export type ClientMessage =
   | SchedulesList
   | ScheduleToggle
   | ScheduleRemove
+  | ScheduleRunNow
   | RemindersList
   | ReminderCancel
   | BundleAppRequest

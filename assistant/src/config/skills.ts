@@ -209,7 +209,22 @@ export function getSkillsDir(): string {
 }
 
 export function getBundledSkillsDir(): string {
-  return join(import.meta.dir, 'bundled-skills');
+  const dir = import.meta.dir;
+
+  // In compiled Bun binaries, import.meta.dir points into the virtual
+  // /$bunfs/ filesystem where non-JS assets don't exist.  Fall back to
+  // the macOS .app bundle Resources dir or next to the binary.
+  if (dir.startsWith('/$bunfs/')) {
+    const execDir = dirname(process.execPath);
+    // macOS .app bundle: binary is in Contents/MacOS/, resources in Contents/Resources/
+    const resourcesPath = join(execDir, '..', 'Resources', 'bundled-skills');
+    if (existsSync(resourcesPath)) return resourcesPath;
+    // Next to the binary itself (non-app-bundle deployments)
+    const execDirPath = join(execDir, 'bundled-skills');
+    if (existsSync(execDirPath)) return execDirPath;
+  }
+
+  return join(dir, 'bundled-skills');
 }
 
 function getSkillsIndexPath(skillsDir: string): string {

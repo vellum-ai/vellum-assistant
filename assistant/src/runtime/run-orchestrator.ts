@@ -87,7 +87,7 @@ export interface RunStartOptions {
   /** Guardian trust/identity context for the inbound actor. */
   guardianContext?: GuardianRuntimeContext;
   /** Channel command intent metadata (e.g. Telegram /start). */
-  commandIntent?: { type: string; payload?: string };
+  commandIntent?: { type: string; payload?: string; languageCode?: string };
 }
 
 // ---------------------------------------------------------------------------
@@ -236,6 +236,7 @@ export class RunOrchestrator {
       // same conversation is not incorrectly treated as an HTTP-API client.
       session.setChannelCapabilities(null);
       session.setGuardianContext(null);
+      session.setCommandIntent(null);
       session.setAssistantId('self');
       // Reset the session's client callback to a no-op so the stale
       // closure doesn't intercept events from future runs on the same session.

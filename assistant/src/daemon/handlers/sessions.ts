@@ -116,6 +116,7 @@ export async function handleUserMessage(
     rlog.info('Processing user message');
     session.setAssistantId('self');
     session.setGuardianContext(null);
+    session.setCommandIntent(null);
     // Fire-and-forget: don't block the IPC handler so the connection can
     // continue receiving messages (e.g. cancel, confirmations, or
     // additional user_message that will be queued by the session).

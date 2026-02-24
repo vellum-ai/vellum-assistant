@@ -178,12 +178,12 @@ struct MarkdownSegmentView: View {
                     var prefixAttr = AttributedString(prefix)
                     prefixAttr.foregroundColor = secondaryTextColor
                     prefixAttr.font = .system(size: 13)
-                    prefixAttr.paragraphStyle = paraStyle
+                    prefixAttr.applyParagraphStyle(paraStyle)
                     result += prefixAttr
 
                     var itemAttr = (try? AttributedString(markdown: item.text, options: mdOptions))
                         ?? AttributedString(item.text)
-                    itemAttr.paragraphStyle = paraStyle
+                    itemAttr.applyParagraphStyle(paraStyle)
                     result += itemAttr
                 }
 
@@ -193,5 +193,17 @@ struct MarkdownSegmentView: View {
         }
 
         return result
+    }
+}
+
+// MARK: - NSParagraphStyle Sendable workaround
+
+private extension AttributedString {
+    /// Applies a paragraph style via NSMutableAttributedString to avoid the
+    /// compiler warning about NSParagraphStyle's revoked Sendable conformance.
+    mutating func applyParagraphStyle(_ style: NSParagraphStyle) {
+        let ns = NSMutableAttributedString(self)
+        ns.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: ns.length))
+        self = AttributedString(ns)
     }
 }

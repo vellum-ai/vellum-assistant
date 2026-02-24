@@ -753,6 +753,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(ScheduleRemoveMessage(id: id))
     }
 
+    /// Run a schedule immediately as a one-off execution.
+    public func sendRunScheduleNow(id: String) throws {
+        try send(ScheduleRunNowMessage(id: id))
+    }
+
     // MARK: - Reminders Management
 
     /// Request the list of all reminders from the daemon.

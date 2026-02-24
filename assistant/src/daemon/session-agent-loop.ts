@@ -34,7 +34,7 @@ import {
   stripInjectedContext,
 } from './session-runtime-assembly.js';
 import { buildTemporalContext } from './date-context.js';
-import type { ActiveSurfaceContext, ChannelCapabilities, ChannelCommandContext, GuardianRuntimeContext } from './session-runtime-assembly.js';
+import type { ActiveSurfaceContext, ChannelCapabilities, GuardianRuntimeContext } from './session-runtime-assembly.js';
 import {
   cleanAssistantContent,
   drainDirectiveDisplayBuffer,
@@ -95,7 +95,7 @@ export interface AgentLoopSessionContext {
   workspaceTopLevelContext: string | null;
   workspaceTopLevelDirty: boolean;
   channelCapabilities?: ChannelCapabilities;
-  commandIntent?: { type: string; payload?: string };
+  commandIntent?: { type: string; payload?: string; languageCode?: string };
   guardianContext?: GuardianRuntimeContext;
 
   readonly coreToolNames: Set<string>;
@@ -870,6 +870,9 @@ export async function runAgentLoopImpl(
     ctx.currentActiveSurfaceId = undefined;
     ctx.allowedToolNames = undefined;
     ctx.preactivatedSkillIds = undefined;
+    // Channel command intents (e.g. Telegram /start) are single-turn metadata.
+    // Clear at turn end so they never leak into subsequent unrelated messages.
+    ctx.commandIntent = undefined;
 
     if (userMessageId) {
       consolidateAssistantMessages(ctx.conversationId, userMessageId);

@@ -715,9 +715,18 @@ private struct ScrollWheelDetector: NSViewRepresentable {
             guard view.bounds.width > 0, view.bounds.contains(locationInView) else { return event }
 
             if event.scrollingDeltaY > 3 && event.momentumPhase.isEmpty {
-                // Direct user scroll up (toward older content) — untether.
+                // Direct user scroll up (toward older content) — untether,
+                // but only if actually scrolled away from the bottom.
                 // Momentum events are excluded so a flick doesn't accidentally untether.
-                coordinator.onScrollUp?()
+                if let scrollView = coordinator.findEnclosingScrollView() {
+                    let clipBounds = scrollView.contentView.bounds
+                    let docHeight = scrollView.documentView?.frame.height ?? 0
+                    if docHeight - clipBounds.maxY >= 50 {
+                        coordinator.onScrollUp?()
+                    }
+                } else {
+                    coordinator.onScrollUp?()
+                }
             } else if event.scrollingDeltaY < -1 {
                 // Scrolling down (direct or momentum) — re-tether if at bottom.
                 // Scrolling down — check if the underlying NSScrollView is at the bottom
@@ -780,7 +789,7 @@ private struct ScrollWheelPassthrough: NSViewRepresentable {
             let location = v.convert(event.locationInWindow, from: nil)
             guard v.bounds.width > 0, v.bounds.contains(location) else { return event }
 
-            if let scrollView = coordinator.findScrollView() {
+            if let scrollView = coordinator.findScrollView(for: event) {
                 scrollView.scrollWheel(with: event)
             }
             return event
@@ -800,16 +809,24 @@ private struct ScrollWheelPassthrough: NSViewRepresentable {
         weak var view: NSView?
         var monitor: Any?
 
-        func findScrollView() -> NSScrollView? {
+        /// Finds the deepest NSScrollView whose frame contains the event point.
+        /// This ensures we forward to the chat scroll view, not the sidebar.
+        func findScrollView(for event: NSEvent) -> NSScrollView? {
             guard let contentView = view?.window?.contentView else { return nil }
-            return Self.firstScrollView(in: contentView)
+            return Self.deepestScrollView(in: contentView, containing: event.locationInWindow)
         }
 
-        private static func firstScrollView(in view: NSView) -> NSScrollView? {
-            if let sv = view as? NSScrollView { return sv }
-            for sub in view.subviews {
-                if let sv = firstScrollView(in: sub) { return sv }
+        private static func deepestScrollView(in view: NSView, containing windowPoint: NSPoint) -> NSScrollView? {
+            let localPoint = view.convert(windowPoint, from: nil)
+            guard view.bounds.contains(localPoint) else { return nil }
+
+            for sub in view.subviews.reversed() {
+                if let sv = deepestScrollView(in: sub, containing: windowPoint) {
+                    return sv
+                }
             }
+
+            if let sv = view as? NSScrollView { return sv }
             return nil
         }
     }

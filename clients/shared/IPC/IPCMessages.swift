@@ -1247,6 +1247,16 @@ extension IPCScheduleRemove {
     }
 }
 
+/// Run a schedule immediately as a one-off.
+/// Backed by generated `IPCScheduleRunNow`.
+public typealias ScheduleRunNowMessage = IPCScheduleRunNow
+
+extension IPCScheduleRunNow {
+    public init(id: String) {
+        self.init(type: "schedule_run_now", id: id)
+    }
+}
+
 /// A single trust rule item returned from the daemon.
 /// Backed by generated `IPCTrustRulesListResponseRule`.
 public typealias TrustRuleItem = IPCTrustRulesListResponseRule

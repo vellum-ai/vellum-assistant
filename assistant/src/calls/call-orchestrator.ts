@@ -34,8 +34,10 @@ const ASK_GUARDIAN_MARKER_REGEX = /\[ASK_GUARDIAN:\s*.+?\]/g;
 const USER_ANSWERED_MARKER_REGEX = /\[USER_ANSWERED:\s*.+?\]/g;
 const USER_INSTRUCTION_MARKER_REGEX = /\[USER_INSTRUCTION:\s*.+?\]/g;
 const CALL_OPENING_MARKER_REGEX = /\[CALL_OPENING\]/g;
+const CALL_OPENING_ACK_MARKER_REGEX = /\[CALL_OPENING_ACK\]/g;
 const END_CALL_MARKER_REGEX = /\[END_CALL\]/g;
 const CALL_OPENING_MARKER = '[CALL_OPENING]';
+const CALL_OPENING_ACK_MARKER = '[CALL_OPENING_ACK]';
 const END_CALL_MARKER = '[END_CALL]';
 
 function stripInternalSpeechMarkers(text: string): string {
@@ -44,6 +46,7 @@ function stripInternalSpeechMarkers(text: string): string {
     .replace(USER_ANSWERED_MARKER_REGEX, '')
     .replace(USER_INSTRUCTION_MARKER_REGEX, '')
     .replace(CALL_OPENING_MARKER_REGEX, '')
+    .replace(CALL_OPENING_ACK_MARKER_REGEX, '')
     .replace(END_CALL_MARKER_REGEX, '');
 }
 
@@ -64,6 +67,8 @@ export class CallOrchestrator {
   private pendingInstructions: string[] = [];
   /** Ensures the outbound-call opener is triggered at most once per call. */
   private initialGreetingStarted = false;
+  /** Marks that the next caller turn should be treated as an opening acknowledgment. */
+  private awaitingOpeningAck = false;
   /** Monotonic run id used to suppress stale turn side effects after interruption. */
   private llmRunVersion = 0;
   /** Optional broadcast function for emitting IPC events to connected clients. */
@@ -100,6 +105,10 @@ export class CallOrchestrator {
     this.resetSilenceTimer();
     this.conversationHistory.push({ role: 'user', content: CALL_OPENING_MARKER });
     await this.runLlm();
+    const lastMessage = this.conversationHistory[this.conversationHistory.length - 1];
+    if (lastMessage?.role === 'assistant') {
+      this.awaitingOpeningAck = true;
+    }
   }
 
   /**
@@ -111,11 +120,32 @@ export class CallOrchestrator {
     if (interruptedInFlight) {
       this.abortController.abort();
       this.abortController = new AbortController();
+
+      // Strip the one-shot [CALL_OPENING] marker from conversation history
+      // so it doesn't leak into subsequent LLM requests after barge-in.
+      // Without this, the consecutive-user merge path below would append
+      // the caller's transcript to the synthetic "[CALL_OPENING]" message,
+      // causing the model to re-run opener behavior instead of responding
+      // directly to the caller.
+      for (const entry of this.conversationHistory) {
+        if (entry.content.includes(CALL_OPENING_MARKER)) {
+          entry.content = entry.content.replace(CALL_OPENING_MARKER_REGEX, '').trim();
+        }
+      }
     }
 
     this.state = 'processing';
     this.resetSilenceTimer();
     const callerContent = this.formatCallerUtterance(transcript, speaker);
+    const shouldMarkOpeningAck = this.awaitingOpeningAck;
+    if (shouldMarkOpeningAck) {
+      this.awaitingOpeningAck = false;
+    }
+    const callerTurnContent = shouldMarkOpeningAck
+      ? callerContent.length > 0
+        ? `${CALL_OPENING_ACK_MARKER}\n${callerContent}`
+        : CALL_OPENING_ACK_MARKER
+      : callerContent;
 
     // Preserve strict role alternation for Anthropic. If the last message
     // is already user-role (e.g. interrupted run never appended assistant,
@@ -123,11 +153,11 @@ export class CallOrchestrator {
     // this utterance into that same user turn.
     const lastMessage = this.conversationHistory[this.conversationHistory.length - 1];
     if (lastMessage?.role === 'user') {
-      lastMessage.content = `${lastMessage.content}\n${callerContent}`;
+      lastMessage.content = `${lastMessage.content}\n${callerTurnContent}`;
     } else {
       this.conversationHistory.push({
         role: 'user',
-        content: callerContent,
+        content: callerTurnContent,
       });
     }
 
@@ -272,7 +302,9 @@ export class CallOrchestrator {
       '7. Do not make up information — ask the user if unsure.',
       '8. Keep responses short — 1-3 sentences is ideal for phone conversation.',
       '9. When caller text includes [SPEAKER id="..." label="..."], treat each speaker as a distinct person and personalize responses using that speaker\'s prior context in this call.',
-      '10. If the latest user turn is [CALL_OPENING], produce the first outbound-call line: briefly state the reason for calling using the Task context and ask if now is a good time to talk.',
+      '10. If the latest user turn is [CALL_OPENING], generate a natural, context-specific opener: briefly introduce yourself once as an assistant, state why you are calling using the Task context, and ask a short permission/check-in question. Vary the wording; do not use a fixed template.',
+      '11. If the latest user turn includes [CALL_OPENING_ACK], treat it as the callee acknowledging your opener and continue the conversation naturally without re-introducing yourself or repeating the initial check-in question.',
+      '12. Do not repeat your introduction within the same call unless the callee explicitly asks who you are.',
     ]
       .filter(Boolean)
       .join('\n');
@@ -357,12 +389,15 @@ export class CallOrchestrator {
             '[USER_ANSWERED:'.startsWith(afterBracket) ||
             '[USER_INSTRUCTION:'.startsWith(afterBracket) ||
             '[CALL_OPENING]'.startsWith(afterBracket) ||
+            '[CALL_OPENING_ACK]'.startsWith(afterBracket) ||
             '[END_CALL]'.startsWith(afterBracket) ||
             afterBracket.startsWith('[ASK_GUARDIAN:') ||
             afterBracket.startsWith('[USER_ANSWERED:') ||
             afterBracket.startsWith('[USER_INSTRUCTION:') ||
             afterBracket === '[CALL_OPENING' ||
             afterBracket.startsWith('[CALL_OPENING]') ||
+            afterBracket === '[CALL_OPENING_ACK' ||
+            afterBracket.startsWith('[CALL_OPENING_ACK]') ||
             afterBracket === '[END_CALL' ||
             afterBracket.startsWith('[END_CALL]');
 

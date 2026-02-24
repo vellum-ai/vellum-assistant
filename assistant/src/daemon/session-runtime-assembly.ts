@@ -280,6 +280,7 @@ export function injectChannelCapabilityContext(message: Message, caps: ChannelCa
 export interface ChannelCommandContext {
   type: string;
   payload?: string;
+  languageCode?: string;
 }
 
 /**
@@ -291,6 +292,9 @@ export function injectChannelCommandContext(message: Message, ctx: ChannelComman
   lines.push(`command_type: ${ctx.type}`);
   if (ctx.payload) {
     lines.push(`payload: ${ctx.payload}`);
+  }
+  if (ctx.languageCode) {
+    lines.push(`language_code: ${ctx.languageCode}`);
   }
   lines.push('</channel_command_context>');
 

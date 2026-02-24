@@ -374,6 +374,13 @@ exports[`IPC message snapshots ClientMessage types schedule_remove serializes to
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types schedule_run_now serializes to expected JSON 1`] = `
+{
+  "id": "sched-001",
+  "type": "schedule_run_now",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types reminders_list serializes to expected JSON 1`] = `
 {
   "type": "reminders_list",

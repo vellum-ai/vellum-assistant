@@ -47,9 +47,9 @@ struct SettingsConnectTab: View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
             pairingSection
             gatewaySection
-            channelsSection
             advancedSection
             diagnosticsSection
+            channelsSection
         }
         .onAppear {
             store.refreshIngressConfig()
@@ -178,6 +178,8 @@ struct SettingsConnectTab: View {
                             .truncationMode(.middle)
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
         }
         .padding(VSpacing.lg)
@@ -305,6 +307,8 @@ struct SettingsConnectTab: View {
                         .font(VFont.caption)
                         .foregroundColor(VColor.textMuted)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
         }
         .padding(VSpacing.lg)
@@ -955,10 +959,16 @@ struct SettingsConnectTab: View {
             // Status line — use resolvedIosGatewayUrl for gateway (no I/O) and
             // cached bearerToken + override for token (avoids synchronous disk read).
             let hasGateway = !store.resolvedIosGatewayUrl.isEmpty
-            let hasToken = !bearerToken.isEmpty || (iosPairingUseOverride && !iosPairingTokenOverride.isEmpty)
+            let trimmedOverrideToken = iosPairingTokenOverride.trimmingCharacters(in: .whitespacesAndNewlines)
+            let hasToken = !bearerToken.isEmpty || (iosPairingUseOverride && !trimmedOverrideToken.isEmpty)
+
+            // Token is from daemon file — true unless override mode is active WITH a
+            // custom token. When override only sets the URL (token override empty), the
+            // resolver falls back to the daemon token, so regeneration is still useful.
+            let tokenFromDaemon = !bearerToken.isEmpty && !(iosPairingUseOverride && !trimmedOverrideToken.isEmpty)
 
             if hasGateway && hasToken {
-                // "Ready to pair" — green checkmark
+                // "Ready to pair" — green checkmark + subtle regenerate (daemon token only)
                 HStack(spacing: VSpacing.sm) {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundColor(VColor.success)
@@ -966,6 +976,16 @@ struct SettingsConnectTab: View {
                     Text("Ready to pair")
                         .font(VFont.body)
                         .foregroundColor(VColor.success)
+                    if tokenFromDaemon {
+                        Spacer()
+                        Button("Regenerate Token") {
+                            showingRegenerateConfirmation = true
+                        }
+                        .buttonStyle(.plain)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                        .help("Replace the current token. Paired devices will need to reconnect.")
+                    }
                 }
             } else if !hasGateway {
                 // "Configure a gateway URL below" — amber warning
@@ -978,14 +998,19 @@ struct SettingsConnectTab: View {
                         .foregroundColor(VColor.warning)
                 }
             } else {
-                // "Bearer token required" — amber warning
-                HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(VColor.warning)
-                        .font(.system(size: 14))
-                    Text("Bearer token required \u{2014} check Advanced settings")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.warning)
+                // "Bearer token required" — amber warning + Generate button
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    HStack(spacing: VSpacing.sm) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(VColor.warning)
+                            .font(.system(size: 14))
+                        Text("Bearer token required")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.warning)
+                    }
+                    VButton(label: "Generate Token", leftIcon: "key", style: .secondary) {
+                        regenerateHttpToken()
+                    }
                 }
             }
         }
@@ -998,7 +1023,7 @@ struct SettingsConnectTab: View {
 
     private var diagnosticsSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            DisclosureGroup("Diagnostics", isExpanded: $diagnosticsExpanded) {
+            DisclosureGroup(isExpanded: $diagnosticsExpanded) {
                 VStack(alignment: .leading, spacing: VSpacing.md) {
                     statusContent
 
@@ -1007,9 +1032,13 @@ struct SettingsConnectTab: View {
                     testConnectionContent
                 }
                 .padding(.top, VSpacing.sm)
+            } label: {
+                Text("Diagnostics")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
             }
-            .font(VFont.sectionTitle)
-            .foregroundColor(VColor.textPrimary)
         }
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)

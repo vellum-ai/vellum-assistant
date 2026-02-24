@@ -186,6 +186,57 @@ describe("telegram webhook handler: gatewayInternalBaseUrl", () => {
 });
 
 describe("telegram webhook handler: /new rejection", () => {
+  test("/start forwards command intent metadata and does not reset conversation", async () => {
+    const config = makeConfig({
+      routingEntries: [{ type: "chat_id", key: "12345", assistantId: "assistant-a" }],
+    });
+    installFetchMock();
+    const handler = createTelegramWebhookHandler(config);
+
+    const payload = makeTelegramPayload("/start deep-link-token", 2501);
+    const req = makeWebhookRequest(payload);
+    const res = await handler(req);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+
+    const runtimeCall = fetchCalls.find((c) => c.url.includes("/inbound"));
+    expect(runtimeCall).toBeDefined();
+    expect((runtimeCall!.body as any).sourceMetadata.commandIntent).toEqual({
+      type: "start",
+      payload: "deep-link-token",
+    });
+
+    const resetCall = fetchCalls.find((c) => c.url.includes("/channels/conversation"));
+    expect(resetCall).toBeUndefined();
+
+    const sendMessageCall = fetchCalls.find((c) => c.url.includes("/sendMessage"));
+    expect(sendMessageCall).toBeUndefined();
+  });
+
+  test("/start with routing rejection sends setup notice and does not forward", async () => {
+    const config = makeConfig({ unmappedPolicy: "reject" });
+    installFetchMock();
+    const handler = createTelegramWebhookHandler(config);
+
+    const payload = makeTelegramPayload("/start", 2502);
+    (payload.message as any).chat.id = 54321;
+    const req = makeWebhookRequest(payload);
+    const res = await handler(req);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+
+    const runtimeCall = fetchCalls.find((c) => c.url.includes("/inbound"));
+    expect(runtimeCall).toBeUndefined();
+
+    const sendMessageCall = fetchCalls.find((c) => c.url.includes("/sendMessage"));
+    expect(sendMessageCall).toBeDefined();
+    expect((sendMessageCall!.body as any).text).toContain("not fully set up");
+  });
+
   test("sends rejection notice when /new command routing is rejected", async () => {
     // No routing entries and unmappedPolicy is "reject" — routing will fail
     const config = makeConfig({ unmappedPolicy: "reject" });

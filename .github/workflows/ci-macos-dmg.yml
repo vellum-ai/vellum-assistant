@@ -101,6 +101,7 @@ jobs:
           chmod +x ../clients/macos/daemon-bin/vellum-daemon
           cp node_modules/web-tree-sitter/web-tree-sitter.wasm ../clients/macos/daemon-bin/
           cp node_modules/tree-sitter-bash/tree-sitter-bash.wasm ../clients/macos/daemon-bin/
+          cp -R src/config/bundled-skills ../clients/macos/daemon-bin/bundled-skills
           echo "Daemon universal binary built:"
           ls -lh ../clients/macos/daemon-bin/vellum-daemon
           file ../clients/macos/daemon-bin/vellum-daemon

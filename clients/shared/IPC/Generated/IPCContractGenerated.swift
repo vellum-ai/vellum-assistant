@@ -2582,6 +2582,16 @@ public struct IPCScheduleRemove: Codable, Sendable {
     }
 }
 
+public struct IPCScheduleRunNow: Codable, Sendable {
+    public let type: String
+    public let id: String
+
+    public init(type: String, id: String) {
+        self.type = type
+        self.id = id
+    }
+}
+
 public struct IPCSchedulesList: Codable, Sendable {
     public let type: String
 
