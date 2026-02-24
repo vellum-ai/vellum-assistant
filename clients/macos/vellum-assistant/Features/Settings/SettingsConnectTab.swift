@@ -49,6 +49,7 @@ struct SettingsConnectTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
             pairingSection
+            ApprovedDevicesSection(store: store)
             gatewaySection
             advancedSection
             diagnosticsSection

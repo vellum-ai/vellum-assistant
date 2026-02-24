@@ -1229,6 +1229,34 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
+    // MARK: - Approved Devices
+
+    @Published var approvedDevices: [ApprovedDevicesListResponseMessage.Device] = []
+
+    func refreshApprovedDevices() {
+        guard let daemonClient else { return }
+        daemonClient.onApprovedDevicesListResponse = { [weak self] msg in
+            self?.approvedDevices = msg.devices
+        }
+        try? daemonClient.sendApprovedDevicesList()
+    }
+
+    func removeApprovedDevice(hashedDeviceId: String) {
+        guard let daemonClient else { return }
+        daemonClient.onApprovedDeviceRemoveResponse = { [weak self] msg in
+            if msg.success {
+                self?.approvedDevices.removeAll { $0.hashedDeviceId == hashedDeviceId }
+            }
+        }
+        try? daemonClient.sendApprovedDeviceRemove(hashedDeviceId: hashedDeviceId)
+    }
+
+    func clearAllApprovedDevices() {
+        guard let daemonClient else { return }
+        try? daemonClient.sendApprovedDevicesClear()
+        approvedDevices = []
+    }
+
     // MARK: - Override Resolution
 
     /// Resolved gateway URL for iOS pairing — uses per-integration override if enabled, else global.
