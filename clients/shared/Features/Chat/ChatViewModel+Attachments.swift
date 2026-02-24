@@ -107,7 +107,7 @@ extension ChatViewModel {
 
     // MARK: - Private background helpers
 
-    private enum AttachmentError {
+    private enum AttachmentError: Error {
         case message(String)
         var message: String {
             if case .message(let m) = self { return m }
