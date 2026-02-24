@@ -21,6 +21,8 @@ export type ConfigChangeEvent = {
   smsPhoneNumberChanged: boolean;
   assistantPhoneNumbers: Record<string, string> | undefined;
   assistantPhoneNumbersChanged: boolean;
+  assistantEmail: string | undefined;
+  assistantEmailChanged: boolean;
 };
 
 export type ConfigChangeCallback = (event: ConfigChangeEvent) => void;
@@ -29,7 +31,7 @@ function getConfigPath(): string {
   return join(getRootDir(), "workspace", CONFIG_FILENAME);
 }
 
-function readConfigFile(path: string): { ingressPublicBaseUrl?: string; smsPhoneNumber?: string; assistantPhoneNumbers?: Record<string, string> } {
+function readConfigFile(path: string): { ingressPublicBaseUrl?: string; smsPhoneNumber?: string; assistantPhoneNumbers?: Record<string, string>; assistantEmail?: string } {
   try {
     if (!existsSync(path)) return {};
 
@@ -57,7 +59,12 @@ function readConfigFile(path: string): { ingressPublicBaseUrl?: string; smsPhone
       assistantPhoneNumbers = data.sms.assistantPhoneNumbers as Record<string, string>;
     }
 
-    return { ingressPublicBaseUrl, smsPhoneNumber, assistantPhoneNumbers };
+    const assistantEmail =
+      data.email && typeof data.email.address === "string"
+        ? data.email.address || undefined
+        : undefined;
+
+    return { ingressPublicBaseUrl, smsPhoneNumber, assistantPhoneNumbers, assistantEmail };
   } catch (err) {
     log.debug({ err }, "Failed to read config file");
     return {};
@@ -71,6 +78,7 @@ export class ConfigFileWatcher {
   private lastIngressPublicBaseUrl: string | undefined;
   private lastSmsPhoneNumber: string | undefined;
   private lastAssistantPhoneNumbers: Record<string, string> | undefined;
+  private lastAssistantEmail: string | undefined;
   private callback: ConfigChangeCallback;
   private configPath: string;
 
@@ -153,21 +161,23 @@ export class ConfigFileWatcher {
   }
 
   private pollOnce(): void {
-    const { ingressPublicBaseUrl, smsPhoneNumber, assistantPhoneNumbers } = readConfigFile(this.configPath);
+    const { ingressPublicBaseUrl, smsPhoneNumber, assistantPhoneNumbers, assistantEmail } = readConfigFile(this.configPath);
 
     const ingressChanged = ingressPublicBaseUrl !== this.lastIngressPublicBaseUrl;
     const smsPhoneNumberChanged = smsPhoneNumber !== this.lastSmsPhoneNumber;
     // Shallow JSON comparison is sufficient for the Record<string, string> mapping
     const assistantPhoneNumbersChanged =
       JSON.stringify(assistantPhoneNumbers) !== JSON.stringify(this.lastAssistantPhoneNumbers);
+    const assistantEmailChanged = assistantEmail !== this.lastAssistantEmail;
 
-    if (!ingressChanged && !smsPhoneNumberChanged && !assistantPhoneNumbersChanged) {
+    if (!ingressChanged && !smsPhoneNumberChanged && !assistantPhoneNumbersChanged && !assistantEmailChanged) {
       return;
     }
 
     this.lastIngressPublicBaseUrl = ingressPublicBaseUrl;
     this.lastSmsPhoneNumber = smsPhoneNumber;
     this.lastAssistantPhoneNumbers = assistantPhoneNumbers;
+    this.lastAssistantEmail = assistantEmail;
 
     if (ingressChanged) {
       log.info(
@@ -187,6 +197,12 @@ export class ConfigFileWatcher {
         "Assistant phone numbers updated",
       );
     }
+    if (assistantEmailChanged) {
+      log.info(
+        { assistantEmail },
+        "Assistant email updated from config file",
+      );
+    }
 
     this.callback({
       ingressPublicBaseUrl,
@@ -195,6 +211,8 @@ export class ConfigFileWatcher {
       smsPhoneNumberChanged,
       assistantPhoneNumbers,
       assistantPhoneNumbersChanged,
+      assistantEmail,
+      assistantEmailChanged,
     });
   }
 }

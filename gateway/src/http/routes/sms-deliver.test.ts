@@ -46,6 +46,7 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     twilioPhoneNumber: "+15551234567",
     smsDeliverAuthBypass: false,
     ingressPublicBaseUrl: undefined,
+    assistantEmail: undefined,
     unmappedPolicy: "reject",
     ...overrides,
   };

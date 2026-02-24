@@ -535,6 +535,24 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/integrations/status": {
+        get: {
+          summary: "Integration status",
+          description:
+            "Returns the current status of configured integrations, including the assistant's email address. The desktop app uses this endpoint to display integration info in its settings UI.",
+          operationId: "integrationsStatus",
+          responses: {
+            "200": {
+              description: "Integration status",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/IntegrationsStatusResponse" },
+                },
+              },
+            },
+          },
+        },
+      },
       "/deliver/telegram": {
         post: {
           summary: "Telegram delivery (internal)",
@@ -867,6 +885,24 @@ export function buildSchema(): Record<string, unknown> {
             mimeType: { type: "string" },
             sizeBytes: { type: "integer" },
             kind: { type: "string" },
+          },
+        },
+        IntegrationsStatusResponse: {
+          type: "object",
+          required: ["email"],
+          description: "Current status of configured integrations.",
+          properties: {
+            email: {
+              type: "object",
+              required: ["address"],
+              description: "Assistant email integration status.",
+              properties: {
+                address: {
+                  type: ["string", "null"],
+                  description: "The assistant's email address, or null if not yet set up.",
+                },
+              },
+            },
           },
         },
       },

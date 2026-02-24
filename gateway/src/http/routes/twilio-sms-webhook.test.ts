@@ -61,6 +61,7 @@ const baseConfig: GatewayConfig = {
   twilioAccountSid: "AC-test",
   twilioPhoneNumber: "+15551234567",
   smsDeliverAuthBypass: false,
+  assistantEmail: undefined,
   ingressPublicBaseUrl: undefined,
   unmappedPolicy: "default",
 };
