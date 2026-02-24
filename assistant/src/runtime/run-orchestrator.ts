@@ -179,11 +179,14 @@ export class RunOrchestrator {
           : undefined;
       const resolvedSessionId = msgSessionId ?? conversationId;
       const event = buildAssistantEvent('self', msg, resolvedSessionId);
-      hubChain = hubChain
-        .then(() => assistantEventHub.publish(event))
-        .catch((err: unknown) => {
+      hubChain = (async () => {
+        await hubChain;
+        try {
+          await assistantEventHub.publish(event);
+        } catch (err) {
           log.warn({ err }, 'assistant-events hub subscriber threw during HTTP run');
-        });
+        }
+      })();
     };
 
 
@@ -245,32 +248,35 @@ export class RunOrchestrator {
       session.updateClient(() => {}, true);
     };
 
-    session.runAgentLoop(content, messageId, (msg: ServerMessage) => {
-      if (msg.type === 'error') {
-        lastError = msg.message;
-      } else if (msg.type === 'session_error') {
-        lastError = msg.userMessage;
+    void (async () => {
+      try {
+        await session.runAgentLoop(content, messageId, (msg: ServerMessage) => {
+          if (msg.type === 'error') {
+            lastError = msg.message;
+          } else if (msg.type === 'session_error') {
+            lastError = msg.userMessage;
+          }
+          // Mirror agent-loop events (assistant_text_delta, message_complete,
+          // tool_use_start, tool_result, etc.) to the hub. These travel through
+          // the onEvent path, distinct from the updateClient path used by the
+          // prompter (confirmation_request). Both paths must publish so SSE
+          // consumers receive the full response stream.
+          publishToHub(msg);
+        });
+        if (lastError) {
+          log.error({ runId: run.id, error: lastError }, 'Run failed (error event from agent loop)');
+          runsStore.failRun(run.id, lastError);
+        } else {
+          runsStore.completeRun(run.id);
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.error({ err, runId: run.id }, 'Run failed');
+        runsStore.failRun(run.id, message);
+      } finally {
+        cleanup();
       }
-      // Mirror agent-loop events (assistant_text_delta, message_complete,
-      // tool_use_start, tool_result, etc.) to the hub. These travel through
-      // the onEvent path, distinct from the updateClient path used by the
-      // prompter (confirmation_request). Both paths must publish so SSE
-      // consumers receive the full response stream.
-      publishToHub(msg);
-    }).then(() => {
-      if (lastError) {
-        log.error({ runId: run.id, error: lastError }, 'Run failed (error event from agent loop)');
-        runsStore.failRun(run.id, lastError);
-      } else {
-        runsStore.completeRun(run.id);
-      }
-      cleanup();
-    }).catch((err) => {
-      const message = err instanceof Error ? err.message : String(err);
-      log.error({ err, runId: run.id }, 'Run failed');
-      runsStore.failRun(run.id, message);
-      cleanup();
-    });
+    })();
 
     return run;
   }
