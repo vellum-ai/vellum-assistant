@@ -34,12 +34,8 @@ struct QuickChatView: View {
                             .allowsHitTesting(false)
                     }
                 }
-                .onKeyPress(.return, modifiers: []) {
+                .onKeyPress(.return) {
                     submit()
-                    return .handled
-                }
-                .onKeyPress(.return, modifiers: .command) {
-                    text += "\n"
                     return .handled
                 }
                 .onKeyPress(.escape) {
