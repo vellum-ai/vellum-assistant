@@ -12,7 +12,7 @@ The processing pipeline follows a sequential flow. Each stage depends on the out
 
 1. **Ingest** (`ingest_media`) — Register a media file, detect MIME type, extract duration, deduplicate by content hash.
 2. **Extract Keyframes** (`extract_keyframes`) — Pull frames from video at regular intervals (default: every 3 seconds) using ffmpeg.
-3. **Analyze Keyframes** (`analyze_keyframes`) — Send each keyframe to Claude VLM for structured scene analysis (subjects, actions, context).
+3. **Analyze Keyframes** (`analyze_keyframes`) — Group keyframes into overlapping chunks and send each chunk to Claude VLM for structured scene analysis (subjects, actions, context).
 4. **Generate Timeline** — Aggregate vision outputs into coherent timeline segments (called via `services/timeline-service.ts`).
 5. **Detect Events** (`detect_events`) — Apply configurable detection rules against timeline segments to find events of interest.
 6. **Query & Clip** — Use `query_media_events` to search events with natural language, and `generate_clip` to extract video clips around specific moments.
@@ -36,6 +36,8 @@ Extract keyframes from a video asset at regular intervals using ffmpeg. Frames a
 ### analyze_keyframes
 
 Analyze extracted keyframes using Claude VLM (vision language model). Produces structured JSON output with scene descriptions, subjects, actions, and context. Supports resumability by skipping already-analyzed frames.
+
+Frames are grouped into overlapping chunks (default 10 frames, 2 overlap). Each chunk is analyzed in a single multi-image API call, so the model sees temporal context across frames for better event detection. Overlap ensures events at chunk boundaries are not missed.
 
 ### detect_events
 
@@ -167,13 +169,13 @@ Vision analysis is the primary cost driver. Cost scales linearly with video dura
 | 90 min         | 3s       | ~1,800    | ~$5.40         |
 | 90 min         | 5s       | ~1,080    | ~$3.24         |
 
-Increasing the keyframe interval reduces cost proportionally but may miss short-duration events. The `media_diagnostics` tool provides per-asset cost estimates.
+Increasing the keyframe interval reduces cost proportionally but may miss short-duration events. With default settings (chunk_size=10, overlap=2), a 200-frame video requires ~26 API calls instead of 200, reducing latency by ~8x while maintaining per-frame output granularity. The `media_diagnostics` tool provides per-asset cost estimates.
 
 ### Known Limitations
 
 - **ffmpeg required**: Keyframe extraction and clip generation require ffmpeg to be installed on the host.
 - **Single-file ingestion**: Each `ingest_media` call processes one file. Batch ingestion is not yet supported.
-- **Vision model latency**: Analyzing keyframes is the slowest stage. A 90-minute video at 3-second intervals requires ~1,800 API calls.
+- **Vision model latency**: Analyzing keyframes is the slowest stage. With chunked analysis (default chunk_size=10, overlap=2), API calls are significantly reduced but still scale with video length.
 - **Scene similarity heuristic**: Timeline segmentation uses Jaccard similarity on subjects — it works well for distinct scenes but may over-merge visually similar but semantically different moments.
 - **Detection rules are heuristic**: Event detection uses rule-based scoring, not ML. Accuracy depends on how well the rules match the target event patterns. Use feedback and recalibration to improve over time.
 - **No real-time processing**: The pipeline processes pre-recorded media files. Live/streaming video is not supported.
@@ -184,7 +186,8 @@ Increasing the keyframe interval reduces cost proportionally but may miss short-
 |---------|-------------|-----|
 | "No keyframes found" | extract_keyframes not run or failed | Check keyframe_extraction stage status; re-run if needed |
 | "No Anthropic API key available" | API key not configured | Add one in Settings → Integrations |
-| Vision analysis very slow | Large video, small interval | Increase interval_seconds or use smaller batch_size |
+| Vision analysis very slow | Large video, small interval | Reduce chunk_size or process fewer frames |
+| Vision analysis returns generic descriptions | Chunk too large for the model to attend to all frames | Reduce chunk_size to 5-8 |
 | Low event confidence | Detection rules too broad | Tune rules: increase weights on high-signal rules, use tighter regex patterns |
 | Many false positives | Rules overfitting on noise | Submit `incorrect` feedback, then run `recalibrate` |
 | Pipeline stuck at "processing" | Stage crashed without updating status | Use `media_diagnostics` to find the stuck stage; re-run manually |
