@@ -41,6 +41,9 @@ struct SettingsConnectTab: View {
     // Guardian copy state (tracks which channel's command was just copied)
     @State private var guardianCommandCopiedChannel: String?
 
+    // Token regeneration state
+    @State private var isRegeneratingToken: Bool = false
+
     // Override fields for power users / debugging
     @AppStorage(PairingConfiguration.gatewayOverrideKey) private var iosPairingGatewayOverride: String = ""
     @AppStorage(PairingConfiguration.tokenOverrideKey) private var iosPairingTokenOverride: String = ""
@@ -1202,10 +1205,12 @@ struct SettingsConnectTab: View {
             VButton(label: "Show QR Code", leftIcon: "qrcode", style: .primary) {
                 showingPairingQR = true
             }
+            .disabled(isRegeneratingToken)
 
             // Status line — use resolvedIosGatewayUrl for gateway (no I/O) and
             // cached bearerToken + override for token (avoids synchronous disk read).
-            let hasGateway = !store.resolvedIosGatewayUrl.isEmpty
+            // LAN pairing works without a cloud gateway URL.
+            let hasGateway = !store.resolvedIosGatewayUrl.isEmpty || LANIPHelper.currentLANAddress() != nil
             let trimmedOverrideToken = iosPairingTokenOverride.trimmingCharacters(in: .whitespacesAndNewlines)
             // Has a usable token — either the daemon file token or a non-empty override.
             let hasToken = !bearerToken.isEmpty || !trimmedOverrideToken.isEmpty
@@ -1214,7 +1219,16 @@ struct SettingsConnectTab: View {
             // is present and no override token has been entered.
             let tokenFromDaemon = !bearerToken.isEmpty && trimmedOverrideToken.isEmpty
 
-            if hasGateway && hasToken {
+            if isRegeneratingToken {
+                // "Restarting daemon..." — spinner while daemon restarts with new token
+                HStack(spacing: VSpacing.sm) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Restarting daemon with new token\u{2026}")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
+                }
+            } else if hasGateway && hasToken {
                 // "Ready to pair" — green checkmark + subtle regenerate (daemon token only)
                 HStack(spacing: VSpacing.sm) {
                     Image(systemName: "checkmark.circle.fill")
@@ -1478,10 +1492,29 @@ struct SettingsConnectTab: View {
         bearerToken = newToken
         // Kill the daemon so the health monitor restarts it with the new token.
         // The daemon only reads the token at startup, so a restart is required.
+        isRegeneratingToken = true
         let pidPath = resolvePidPath()
         if let pidStr = try? String(contentsOfFile: pidPath, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines),
            let pid = Int32(pidStr) {
             kill(pid, SIGTERM)
+        }
+        // Wait for the daemon to restart and become reachable with the new token.
+        Task {
+            let port = ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"]
+                .flatMap(Int.init) ?? 7821
+            let url = URL(string: "http://localhost:\(port)/healthz")!
+            var request = URLRequest(url: url)
+            request.setValue("Bearer \(newToken)", forHTTPHeaderField: "Authorization")
+            request.timeoutInterval = 2
+            for _ in 0..<30 { // up to ~30s
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                if let (_, response) = try? await URLSession.shared.data(for: request),
+                   let http = response as? HTTPURLResponse, http.statusCode == 200 {
+                    isRegeneratingToken = false
+                    return
+                }
+            }
+            isRegeneratingToken = false
         }
     }
 }

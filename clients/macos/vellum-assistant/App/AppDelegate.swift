@@ -141,7 +141,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     #endif
     private var windowObserver: Any?
     private weak var recordingViewModel: ChatViewModel?
-    private var statusIconCancellable: AnyCancellable?
+    var statusIconCancellable: AnyCancellable?
     var connectionStatusCancellable: AnyCancellable?
     var pulseTimer: Timer?
     var pulsePhase: CGFloat = 1.0
