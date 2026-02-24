@@ -1,6 +1,6 @@
 import { and, asc, eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
-import { getDb, rawAll } from './db.js';
+import { getDb, getSqlite, rawAll } from './db.js';
 import { enqueueMemoryJob } from './jobs-store.js';
 import { memoryItemConflicts, memoryItems } from './schema.js';
 
@@ -64,48 +64,54 @@ export interface ApplyConflictResolutionInput {
 }
 
 export function createOrUpdatePendingConflict(input: CreatePendingConflictInput): MemoryItemConflict {
-  const db = getDb();
-  const now = Date.now();
-  const scopeId = input.scopeId;
-  const existing = getPendingConflictByPair(scopeId, input.existingItemId, input.candidateItemId);
+  // Wrap in BEGIN IMMEDIATE so the SELECT-then-INSERT is atomic against concurrent
+  // writers. Without this, two parallel memory workers could both observe no
+  // existing conflict and both attempt to INSERT the same pair, resulting in a
+  // duplicate or an unexpected constraint violation.
+  return getSqlite().transaction((): MemoryItemConflict => {
+    const db = getDb();
+    const now = Date.now();
+    const scopeId = input.scopeId;
+    const existing = getPendingConflictByPair(scopeId, input.existingItemId, input.candidateItemId);
 
-  if (existing) {
-    db.update(memoryItemConflicts)
-      .set({
-        relationship: input.relationship,
-        clarificationQuestion: input.clarificationQuestion !== undefined ? input.clarificationQuestion : existing.clarificationQuestion,
-        updatedAt: now,
-      })
-      .where(eq(memoryItemConflicts.id, existing.id))
-      .run();
-    const updated = getConflictById(existing.id);
-    if (!updated) {
-      throw new Error(`Failed to reload updated conflict: ${existing.id}`);
+    if (existing) {
+      db.update(memoryItemConflicts)
+        .set({
+          relationship: input.relationship,
+          clarificationQuestion: input.clarificationQuestion !== undefined ? input.clarificationQuestion : existing.clarificationQuestion,
+          updatedAt: now,
+        })
+        .where(eq(memoryItemConflicts.id, existing.id))
+        .run();
+      const updated = getConflictById(existing.id);
+      if (!updated) {
+        throw new Error(`Failed to reload updated conflict: ${existing.id}`);
+      }
+      return updated;
     }
-    return updated;
-  }
 
-  const id = uuid();
-  db.insert(memoryItemConflicts).values({
-    id,
-    scopeId,
-    existingItemId: input.existingItemId,
-    candidateItemId: input.candidateItemId,
-    relationship: input.relationship,
-    status: 'pending_clarification',
-    clarificationQuestion: input.clarificationQuestion ?? null,
-    resolutionNote: null,
-    lastAskedAt: null,
-    resolvedAt: null,
-    createdAt: now,
-    updatedAt: now,
-  }).run();
+    const id = uuid();
+    db.insert(memoryItemConflicts).values({
+      id,
+      scopeId,
+      existingItemId: input.existingItemId,
+      candidateItemId: input.candidateItemId,
+      relationship: input.relationship,
+      status: 'pending_clarification',
+      clarificationQuestion: input.clarificationQuestion ?? null,
+      resolutionNote: null,
+      lastAskedAt: null,
+      resolvedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    }).run();
 
-  const created = getConflictById(id);
-  if (!created) {
-    throw new Error(`Failed to load created conflict: ${id}`);
-  }
-  return created;
+    const created = getConflictById(id);
+    if (!created) {
+      throw new Error(`Failed to load created conflict: ${id}`);
+    }
+    return created;
+  }).immediate();
 }
 
 export function getConflictById(conflictId: string): MemoryItemConflict | null {
