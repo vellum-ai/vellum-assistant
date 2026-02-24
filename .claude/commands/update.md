@@ -153,22 +153,65 @@ PY
    cd ..
    ```
 
-7. Build and launch the macOS app from source with gateway pinned to local `gateway/`:
+7. Poll gateway health with retries (fail fast before building the macOS app):
+   ```bash
+   # Poll gateway health with retries
+   GATEWAY_HEALTHY=false
+   for i in 1 2 3 4 5 6 7 8 9 10; do
+     sleep 1
+     if curl -sS --max-time 2 http://127.0.0.1:7830/healthz >/dev/null 2>&1; then
+       GATEWAY_HEALTHY=true
+       break
+     fi
+   done
+
+   if [ "$GATEWAY_HEALTHY" != "true" ]; then
+     echo ""
+     echo "ERROR: Gateway failed to start or is not healthy after 10 seconds."
+     echo "Recent gateway logs:"
+     cat "${HOME}/.vellum/gateway-dev.log" 2>/dev/null || echo "(no log file found)"
+     echo ""
+     echo "Troubleshooting:"
+     echo "  1. Check if port 7830 is in use: lsof -i :7830"
+     echo "  2. Review full gateway log: cat ~/.vellum/gateway-dev.log"
+     echo "  3. Try restarting: pkill -f 'gateway/src/index' && /update"
+     echo ""
+     echo "Stopping — please fix the issue before continuing."
+     exit 1
+   fi
+
+   GATEWAY_PIDS=$(pgrep -f "gateway/src/index" 2>/dev/null | wc -l | tr -d ' ')
+   if [ "$GATEWAY_PIDS" -gt 1 ]; then
+     echo "WARNING: Multiple gateway processes detected ($GATEWAY_PIDS). Kill extras with: pkill -f 'gateway/src/index'"
+   fi
+   ```
+
+8. Build and launch the macOS app from source with gateway pinned to local `gateway/`:
    ```bash
    REPO_ROOT="$(pwd)"
    cd clients/macos && VELLUM_GATEWAY_DIR="$REPO_ROOT/gateway" ./build.sh run &
    ```
 
-8. Verify health:
+9. Print startup summary:
    ```bash
-   curl -sS http://127.0.0.1:7821/healthz
-   curl -sS http://127.0.0.1:7830/healthz
+   echo ""
+   echo "=== Startup Summary ==="
+   DAEMON_STATUS=$(curl -sS --max-time 2 http://127.0.0.1:7821/healthz 2>&1 || echo "UNHEALTHY")
+   GATEWAY_STATUS=$(curl -sS --max-time 2 http://127.0.0.1:7830/healthz 2>&1 || echo "UNHEALTHY")
+   echo "  Daemon:   $DAEMON_STATUS"
+   echo "  Gateway:  $GATEWAY_STATUS"
+   echo "  Ingress:  ${INGRESS_PUBLIC_BASE_URL:-<not set>}"
+   echo "  Twilio SID:   $([ -n "$TWILIO_ACCOUNT_SID" ] && echo 'present' || echo 'MISSING')"
+   echo "  Twilio Token: $([ -n "$TWILIO_AUTH_TOKEN" ] && echo 'present' || echo 'MISSING')"
+   echo "  Twilio Phone: $([ -n "$TWILIO_PHONE_NUMBER" ] && echo "$TWILIO_PHONE_NUMBER" || echo 'MISSING')"
+   echo "  Gateway routing: ${GATEWAY_UNMAPPED_POLICY:-reject} ${GATEWAY_DEFAULT_ASSISTANT_ID:+(default: $GATEWAY_DEFAULT_ASSISTANT_ID)}"
+   echo "  Gateway log: ~/.vellum/gateway-dev.log"
+   echo "======================="
+   echo ""
    ```
 
 Report:
 
 1. What was pulled (new commits).
-2. Daemon health and gateway health results.
-3. Whether ingress and Twilio auth env were non-empty at startup.
-4. Gateway routing env values used (`GATEWAY_UNMAPPED_POLICY`, `GATEWAY_DEFAULT_ASSISTANT_ID`).
-5. The gateway log path: `~/.vellum/gateway-dev.log`.
+2. The startup summary block output (daemon health, gateway health, env presence, routing config).
+3. The gateway log path: `~/.vellum/gateway-dev.log`.
