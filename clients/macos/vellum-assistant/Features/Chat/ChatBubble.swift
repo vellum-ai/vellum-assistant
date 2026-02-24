@@ -845,8 +845,8 @@ struct ChatBubble: View {
             ForEach(images, id: \.0.id) { attachment, nsImage in
                 Image(nsImage: nsImage)
                     .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(maxHeight: 180)
+                    .aspectRatio(contentMode: images.count == 1 ? .fit : .fill)
+                    .frame(maxHeight: images.count == 1 ? 320 : 180)
                     .clipped()
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                     .onTapGesture {
