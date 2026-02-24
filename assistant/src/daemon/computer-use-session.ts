@@ -29,6 +29,7 @@ const log = getLogger('computer-use-session');
 
 const MAX_STEPS = 50;
 const SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+const RECORDING_HANDSHAKE_TIMEOUT_MS = 8_000; // 8 seconds
 const MAX_HISTORY_ENTRIES = 10;
 const LOOP_DETECTION_WINDOW = 3;
 const CONSECUTIVE_UNCHANGED_WARNING_THRESHOLD = 2;
@@ -41,6 +42,20 @@ const AX_TREE_PATTERN = /<ax-tree>[\s\S]*?<\/ax-tree>/g;
 const AX_TREE_PLACEHOLDER = '<ax_tree_omitted />';
 
 type SessionState = 'idle' | 'awaiting_observation' | 'inferring' | 'complete' | 'error';
+
+/**
+ * Tool names considered destructive — these MUST NOT run before recording has
+ * started when `requiresRecording` is true.
+ */
+const DESTRUCTIVE_TOOLS = new Set([
+  'computer_use_click',
+  'computer_use_double_click',
+  'computer_use_right_click',
+  'computer_use_type_text',
+  'computer_use_key',
+  'computer_use_scroll',
+  'computer_use_drag',
+]);
 
 interface ActionRecord {
   step: number;
@@ -89,6 +104,12 @@ export class ComputerUseSession {
 
   /** Tracks client-side recording lifecycle. Set by cu_recording_status handler. */
   recordingGateStatus: 'pending' | 'started' | 'failed' | 'stopped' = 'pending';
+  /** Failure reason from the last cu_recording_status(failed) message. */
+  recordingFailureReason?: string;
+  /** When true, destructive actions are blocked until recording has started. */
+  private readonly requiresRecording: boolean;
+  /** Timer for the recording handshake timeout. */
+  private recordingHandshakeTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Tracks the agent loop promise so callers can await session completion
   private loopPromise: Promise<void> | null = null;
@@ -105,6 +126,7 @@ export class ComputerUseSession {
     preactivatedSkillIds?: string[],
     targetAppName?: string,
     targetAppBundleId?: string,
+    requiresRecording?: boolean,
   ) {
     this.sessionId = sessionId;
     this.task = task;
@@ -117,6 +139,7 @@ export class ComputerUseSession {
     this.preactivatedSkillIds = preactivatedSkillIds ?? ['computer-use'];
     this.targetAppName = targetAppName;
     this.targetAppBundleId = targetAppBundleId;
+    this.requiresRecording = requiresRecording ?? false;
   }
 
   // ---------------------------------------------------------------------------
@@ -167,6 +190,23 @@ export class ComputerUseSession {
       this.abort();
     }, SESSION_TIMEOUT_MS);
 
+    // Recording handshake timeout: if requiresRecording is true and the
+    // recording gate is still pending after RECORDING_HANDSHAKE_TIMEOUT_MS,
+    // abort the session so it doesn't hang indefinitely.
+    if (this.requiresRecording && this.recordingGateStatus === 'pending') {
+      this.recordingHandshakeTimer = setTimeout(() => {
+        if (this.recordingGateStatus === 'pending') {
+          log.error(
+            { sessionId: this.sessionId, timeoutMs: RECORDING_HANDSHAKE_TIMEOUT_MS },
+            'Recording handshake timeout — recording never started',
+          );
+          this.abortWithError(
+            'Recording handshake timed out: recording did not start within 8 seconds. Session aborted to prevent unrecorded actions.',
+          );
+        }
+      }, RECORDING_HANDSHAKE_TIMEOUT_MS);
+    }
+
     const messages = this.buildMessages(obs, hadPreviousAXTree);
     this.loopPromise = this.runAgentLoop(messages).catch((err) => {
       // Catches errors from setup code (e.g. skill projection failures) that
@@ -199,6 +239,10 @@ export class ComputerUseSession {
       clearTimeout(this.sessionTimer);
       this.sessionTimer = null;
     }
+    if (this.recordingHandshakeTimer) {
+      clearTimeout(this.recordingHandshakeTimer);
+      this.recordingHandshakeTimer = null;
+    }
     this.abortController?.abort();
 
     // If waiting for an observation, resolve it as cancelled
@@ -222,6 +266,44 @@ export class ComputerUseSession {
       type: 'cu_error',
       sessionId: this.sessionId,
       message: 'Session aborted by user',
+    });
+    this.notifyTerminal();
+  }
+
+  /**
+   * Abort the session with a specific error message.  Used by the recording
+   * gate when a timeout or recording failure makes the session unrecoverable.
+   */
+  private abortWithError(message: string): void {
+    if (this.state === 'complete' || this.state === 'error') return;
+
+    log.error({ sessionId: this.sessionId }, message);
+    if (this.sessionTimer) {
+      clearTimeout(this.sessionTimer);
+      this.sessionTimer = null;
+    }
+    if (this.recordingHandshakeTimer) {
+      clearTimeout(this.recordingHandshakeTimer);
+      this.recordingHandshakeTimer = null;
+    }
+    this.abortController?.abort();
+
+    if (this.pendingObservation) {
+      this.pendingObservation.resolve({ content: message, isError: true });
+      this.pendingObservation = null;
+    }
+    this.prompter?.dispose();
+    for (const [, pending] of this.pendingSurfaceActions) {
+      pending.resolve({ content: message, isError: true });
+    }
+    this.pendingSurfaceActions.clear();
+    this.surfaceState.clear();
+
+    this.state = 'error';
+    this.sendToClient({
+      type: 'cu_error',
+      sessionId: this.sessionId,
+      message,
     });
     this.notifyTerminal();
   }
@@ -587,6 +669,28 @@ export class ComputerUseSession {
         }
       }
 
+      // ── Recording gate: block destructive actions before recording ──
+      if (this.requiresRecording && this.recordingGateStatus !== 'started') {
+        if (this.recordingGateStatus === 'failed') {
+          const reason = this.recordingFailureReason ?? 'unknown';
+          this.abortWithError(`Recording failed: ${reason}. Session cannot proceed without recording.`);
+          return {
+            content: `Recording failed: ${reason}. Session aborted.`,
+            isError: true,
+          };
+        }
+        if (this.recordingGateStatus === 'pending' && DESTRUCTIVE_TOOLS.has(toolName)) {
+          log.warn(
+            { sessionId: this.sessionId, toolName, recordingGateStatus: this.recordingGateStatus },
+            'Blocked destructive action — recording has not started yet',
+          );
+          return {
+            content: 'Recording has not started yet. Waiting for recording confirmation before executing destructive actions. Use computer_use_wait to wait, or computer_use_done/computer_use_respond if the task can be completed without interaction.',
+            isError: true,
+          };
+        }
+      }
+
       // ── Computer-use tool proxying ─────────────────────────────────
       const reasoning = typeof input.reasoning === 'string' ? input.reasoning : undefined;
 
@@ -768,6 +872,10 @@ export class ComputerUseSession {
       if (this.sessionTimer) {
         clearTimeout(this.sessionTimer);
         this.sessionTimer = null;
+      }
+      if (this.recordingHandshakeTimer) {
+        clearTimeout(this.recordingHandshakeTimer);
+        this.recordingHandshakeTimer = null;
       }
     }
   }
