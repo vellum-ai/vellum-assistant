@@ -11,9 +11,18 @@ final class VoiceModeManager: ObservableObject {
         case off, idle, listening, processing, speaking
     }
 
-    @Published var state: State = .off
+    @Published var state: State = .off {
+        didSet { handleStateTransition(from: oldValue, to: state) }
+    }
     @Published var partialTranscription: String = ""
     @Published var errorMessage: String = ""
+    /// Set to true when deactivation was triggered by the conversation timeout
+    /// (as opposed to manual deactivation). WakeWordCoordinator uses this to
+    /// decide whether to resume passive listening.
+    @Published var wasAutoDeactivated: Bool = false
+
+    /// How long to wait in `.idle` before auto-deactivating voice mode.
+    var conversationTimeoutInterval: TimeInterval = 30
 
     let voiceService: OpenAIVoiceService
 
@@ -23,6 +32,8 @@ final class VoiceModeManager: ObservableObject {
     private var previousOnVoiceTextDelta: ((String) -> Void)?
     /// Safety timeout to recover from stuck TTS.
     private var ttsTimeoutTask: Task<Void, Never>?
+    /// Timer that fires when the conversation has been idle too long.
+    private var conversationTimeoutTask: Task<Void, Never>?
     /// Permission request IDs currently being handled via voice.
     private var pendingPermissionIds: [String] = []
     /// Combine subscription to detect new confirmations in chat messages.
@@ -54,6 +65,7 @@ final class VoiceModeManager: ObservableObject {
 
     func activate(chatViewModel: ChatViewModel, settingsStore: SettingsStore? = nil) {
         guard state == .off else { return }
+        wasAutoDeactivated = false
 
         guard voiceService.hasAPIKey else {
             log.error("Voice mode: no OpenAI API key configured")
@@ -112,6 +124,10 @@ final class VoiceModeManager: ObservableObject {
 
     func deactivate() {
         guard state != .off else { return }
+
+        // Cancel conversation timeout before setting state to .off
+        // (didSet would cancel it too, but be explicit for clarity).
+        cancelConversationTimeout()
 
         // Set state to .off BEFORE shutdown so that any synchronous
         // ttsOnComplete callbacks (from stopSpeaking) won't re-enter
@@ -472,6 +488,35 @@ final class VoiceModeManager: ObservableObject {
                 self.startListening()
             }
         }
+    }
+
+    // MARK: - Conversation Timeout
+
+    private func handleStateTransition(from oldState: State, to newState: State) {
+        guard oldState != newState else { return }
+
+        if newState == .idle {
+            startConversationTimeout()
+        } else {
+            cancelConversationTimeout()
+        }
+    }
+
+    private func startConversationTimeout() {
+        conversationTimeoutTask?.cancel()
+        conversationTimeoutTask = Task { [weak self] in
+            let interval = self?.conversationTimeoutInterval ?? 30
+            try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
+            guard let self, !Task.isCancelled, self.state == .idle else { return }
+            log.info("Voice mode: conversation timeout after \(interval)s idle — auto-deactivating")
+            self.wasAutoDeactivated = true
+            self.deactivate()
+        }
+    }
+
+    private func cancelConversationTimeout() {
+        conversationTimeoutTask?.cancel()
+        conversationTimeoutTask = nil
     }
 
     // MARK: - Barge-in (interrupt TTS)
