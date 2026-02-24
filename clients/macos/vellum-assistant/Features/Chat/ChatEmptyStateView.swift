@@ -66,7 +66,7 @@ struct ChatEmptyStateView: View {
                     .interpolation(.none)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
-                    .frame(width: 48, height: 48)
+                    .frame(width: 32, height: 32)
                     .clipShape(Circle())
 
                 Text(title)
@@ -127,6 +127,7 @@ struct ChatEmptyStateView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
+            isComposerExpanded = true
             withAnimation(.easeOut(duration: 0.5)) {
                 visible = true
             }
