@@ -794,7 +794,7 @@ export class RuntimeHttpServer {
 
       // ── Call API routes ───────────────────────────────────────────
       if (endpoint === 'calls/start' && req.method === 'POST') {
-        return await handleStartCall(req);
+        return await handleStartCall(req, assistantId);
       }
 
       // Match calls/:callSessionId and calls/:callSessionId/cancel, calls/:callSessionId/answer, calls/:callSessionId/instruction

@@ -80,10 +80,10 @@ mock.module('../calls/twilio-provider.js', () => ({
 
 // Mock Twilio config
 mock.module('../calls/twilio-config.js', () => ({
-  getTwilioConfig: () => ({
+  getTwilioConfig: (assistantId?: string) => ({
     accountSid: 'AC_test',
     authToken: 'test_token',
-    phoneNumber: '+15550001111',
+    phoneNumber: assistantId === 'asst-alpha' ? '+15550009999' : '+15550001111',
     webhookBaseUrl: 'https://test.example.com',
     wssBaseUrl: 'wss://test.example.com',
   }),
@@ -168,6 +168,10 @@ describe('runtime call routes — HTTP layer', () => {
     return `http://127.0.0.1:${port}/v1/calls${path}`;
   }
 
+  function assistantCallsUrl(assistantId: string, path = ''): string {
+    return `http://127.0.0.1:${port}/v1/assistants/${assistantId}/calls${path}`;
+  }
+
   // ── POST /v1/calls/start ────────────────────────────────────────────
 
   test('POST /v1/calls/start returns 201 with call session', async () => {
@@ -218,6 +222,27 @@ describe('runtime call routes — HTTP layer', () => {
     expect(res.status).toBe(400);
     const body = await res.json() as { error: string };
     expect(body.error).toContain('conversationId');
+
+    await stopServer();
+  });
+
+  test('POST /v1/assistants/:assistantId/calls/start uses assistant-scoped caller number', async () => {
+    await startServer();
+    ensureConversation('conv-start-scoped-1');
+
+    const res = await fetch(assistantCallsUrl('asst-alpha', '/start'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
+      body: JSON.stringify({
+        phoneNumber: '+15559997777',
+        task: 'Check order status',
+        conversationId: 'conv-start-scoped-1',
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    const body = await res.json() as { fromNumber: string };
+    expect(body.fromNumber).toBe('+15550009999');
 
     await stopServer();
   });

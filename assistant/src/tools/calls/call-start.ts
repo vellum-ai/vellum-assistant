@@ -54,6 +54,7 @@ class CallStartTool implements Tool {
       task: input.task as string,
       context: input.context as string | undefined,
       conversationId: context.conversationId,
+      assistantId: context.assistantId,
       callerIdentityMode: input.caller_identity_mode as 'assistant_number' | 'user_number' | undefined,
     });
 

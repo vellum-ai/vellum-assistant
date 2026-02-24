@@ -523,6 +523,54 @@ describe('Twilio config handler', () => {
     }
   });
 
+  test('getTwilioConfig with assistantId prefers assistant-scoped mapping over global phone number', () => {
+    secureKeyStore['credential:twilio:account_sid'] = 'AC1234567890abcdef1234567890abcdef';
+    secureKeyStore['credential:twilio:auth_token'] = 'test_auth_token';
+    rawConfigStore = {
+      sms: {
+        phoneNumber: '+15551234567',
+        assistantPhoneNumbers: {
+          'ast-alpha': '+15550000001',
+        },
+      },
+      ingress: { enabled: true, publicBaseUrl: 'https://test.ngrok.io' },
+    };
+
+    const savedEnv = process.env.TWILIO_PHONE_NUMBER;
+    delete process.env.TWILIO_PHONE_NUMBER;
+
+    try {
+      const config = getTwilioConfig('ast-alpha');
+      expect(config.phoneNumber).toBe('+15550000001');
+    } finally {
+      if (savedEnv !== undefined) process.env.TWILIO_PHONE_NUMBER = savedEnv;
+    }
+  });
+
+  test('getTwilioConfig with assistantId falls back to global number when mapping is missing', () => {
+    secureKeyStore['credential:twilio:account_sid'] = 'AC1234567890abcdef1234567890abcdef';
+    secureKeyStore['credential:twilio:auth_token'] = 'test_auth_token';
+    rawConfigStore = {
+      sms: {
+        phoneNumber: '+15551234567',
+        assistantPhoneNumbers: {
+          'ast-alpha': '+15550000001',
+        },
+      },
+      ingress: { enabled: true, publicBaseUrl: 'https://test.ngrok.io' },
+    };
+
+    const savedEnv = process.env.TWILIO_PHONE_NUMBER;
+    delete process.env.TWILIO_PHONE_NUMBER;
+
+    try {
+      const config = getTwilioConfig('ast-beta');
+      expect(config.phoneNumber).toBe('+15551234567');
+    } finally {
+      if (savedEnv !== undefined) process.env.TWILIO_PHONE_NUMBER = savedEnv;
+    }
+  });
+
   // ── assign_number ───────────────────────────────────────────────────
 
   test('assign_number persists phone number to config', async () => {

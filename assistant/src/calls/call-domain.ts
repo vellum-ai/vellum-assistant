@@ -51,6 +51,7 @@ export type StartCallInput = {
   task: string;
   context?: string;
   conversationId: string;
+  assistantId?: string;
   callerIdentityMode?: 'assistant_number' | 'user_number';
 };
 
@@ -87,7 +88,8 @@ export type CallerIdentityResult =
  * - If `requestedMode` is provided but overrides are disabled, return an error.
  * - Otherwise, always use `assistant_number` (implicit default).
  *
- * For `assistant_number`: uses the Twilio phone number from `getTwilioConfig()`.
+ * For `assistant_number`: uses the Twilio phone number from
+ *   `getTwilioConfig(assistantId)` so multi-assistant mappings are honored.
  *   No eligibility check is performed — this is a fast path.
  * For `user_number`: uses `config.calls.callerIdentity.userNumber` or the
  *   secure key `credential:twilio:user_phone_number`, then validates that the
@@ -96,6 +98,7 @@ export type CallerIdentityResult =
 export async function resolveCallerIdentity(
   config: AssistantConfig,
   requestedMode?: 'assistant_number' | 'user_number',
+  assistantId?: string,
 ): Promise<CallerIdentityResult> {
   const identityConfig = config.calls.callerIdentity;
   let mode: 'assistant_number' | 'user_number';
@@ -118,8 +121,8 @@ export async function resolveCallerIdentity(
   }
 
   if (mode === 'assistant_number') {
-    const twilioConfig = getTwilioConfig();
-    log.info({ mode, source, fromNumber: twilioConfig.phoneNumber }, 'Resolved caller identity');
+    const twilioConfig = getTwilioConfig(assistantId);
+    log.info({ mode, source, fromNumber: twilioConfig.phoneNumber, assistantId }, 'Resolved caller identity');
     return { ok: true, mode, fromNumber: twilioConfig.phoneNumber, source };
   }
 
@@ -175,7 +178,7 @@ export async function resolveCallerIdentity(
  * Initiate a new outbound call.
  */
 export async function startCall(input: StartCallInput): Promise<StartCallResult | CallError> {
-  const { phoneNumber, task, context: callContext, conversationId, callerIdentityMode } = input;
+  const { phoneNumber, task, context: callContext, conversationId, callerIdentityMode, assistantId = 'self' } = input;
 
   if (!phoneNumber || typeof phoneNumber !== 'string') {
     return { ok: false, error: 'phone_number is required and must be a string', status: 400 };
@@ -204,7 +207,7 @@ export async function startCall(input: StartCallInput): Promise<StartCallResult 
     const provider = new TwilioConversationRelayProvider();
 
     // Resolve which phone number to use as caller ID
-    const identityResult = await resolveCallerIdentity(ingressConfig, callerIdentityMode);
+    const identityResult = await resolveCallerIdentity(ingressConfig, callerIdentityMode, assistantId);
     if (!identityResult.ok) {
       return { ok: false, error: identityResult.error, status: 400 };
     }
