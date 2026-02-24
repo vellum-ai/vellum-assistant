@@ -181,6 +181,13 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         defaults.removeObject(forKey: "devLocalPairingEnabled")
         defaults.removeObject(forKey: "iosPairingUseOverride")
 
+        // Clear stale override values — the isOverrideEnabled gate was removed
+        // in M9, so any non-empty override now applies unconditionally. Users
+        // who had values typed in but the toggle OFF would have those stale
+        // values silently activate on upgrade.
+        defaults.removeObject(forKey: PairingConfiguration.gatewayOverrideKey)
+        defaults.removeObject(forKey: PairingConfiguration.tokenOverrideKey)
+
         // Mark migration as done
         defaults.set(true, forKey: Self.pairingV4MigrationKey)
 
