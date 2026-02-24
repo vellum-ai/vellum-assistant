@@ -324,8 +324,14 @@ public final class ChatViewModel: ObservableObject {
     /// True while a previous-page load is in progress (brief async delay for UX).
     @Published public var isLoadingMoreMessages: Bool = false
 
+    /// The subset of messages that are actually displayed (excludes subagent notifications
+    /// and other UI-only messages that the view filters before rendering).
+    public var displayedMessages: [ChatMessage] { messages.filter { !$0.isSubagentNotification } }
+
     /// Whether there are more messages above the current display window.
-    public var hasMoreMessages: Bool { displayedMessageCount < messages.count }
+    /// Compares against the filtered (displayed) count so the "load more" sentinel
+    /// appears only when there are genuinely more visible messages to reveal.
+    public var hasMoreMessages: Bool { displayedMessageCount < displayedMessages.count }
 
     /// Load the previous page of messages by expanding the display window.
     /// Returns `true` if there were additional messages to reveal.
@@ -335,7 +341,7 @@ public final class ChatViewModel: ObservableObject {
         isLoadingMoreMessages = true
         // Brief delay so the loading indicator is visible before the list shifts.
         try? await Task.sleep(nanoseconds: 150_000_000)
-        displayedMessageCount = min(displayedMessageCount + Self.messagePageSize, messages.count)
+        displayedMessageCount = min(displayedMessageCount + Self.messagePageSize, displayedMessages.count)
         isLoadingMoreMessages = false
         return true
     }

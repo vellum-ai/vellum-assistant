@@ -71,6 +71,13 @@ class IOSThreadStore: ObservableObject {
     private static let threadPageSize = 50
     /// Current offset used for the next page fetch; advances by `threadPageSize` on each load.
     private var threadListOffset: Int = 0
+    /// Monotonically increasing token incremented whenever pagination is reset (e.g. reconnect).
+    /// Responses carrying a stale token are discarded to prevent a page N reply that was
+    /// in-flight before a reconnect from being misclassified as a first-page result.
+    private var sessionListToken: UInt64 = 0
+    /// Token captured when the most-recent session-list request was sent.
+    /// The response handler compares the current token against this to detect staleness.
+    private var inFlightSessionListToken: UInt64 = 0
 
     init(daemonClient: any DaemonClientProtocol) {
         self.daemonClient = daemonClient
@@ -133,12 +140,18 @@ class IOSThreadStore: ObservableObject {
         // otherwise wait for the daemonDidReconnect notification.
         if daemon.isConnected {
             threadListOffset = 0
+            sessionListToken += 1
+            inFlightSessionListToken = sessionListToken
             try? daemon.sendSessionList(offset: 0, limit: Self.threadPageSize)
         }
 
         NotificationCenter.default.publisher(for: .daemonDidReconnect)
             .sink { [weak self, weak daemon] _ in
                 guard let self, let daemon else { return }
+                // Bump the token so any in-flight page responses from the previous
+                // connection are identified as stale and discarded in the handler.
+                self.sessionListToken += 1
+                self.inFlightSessionListToken = self.sessionListToken
                 // Reset pagination state on reconnect so the list refreshes from page 1.
                 self.threadListOffset = 0
                 self.hasMoreThreads = false
@@ -148,6 +161,12 @@ class IOSThreadStore: ObservableObject {
     }
 
     private func handleSessionListResponse(_ response: SessionListResponseMessage) {
+        // Discard responses that arrived after a reconnect reset the token; they
+        // belong to the previous connection and must not corrupt the fresh list.
+        guard inFlightSessionListToken == sessionListToken else {
+            return
+        }
+
         let filteredSessions = response.sessions.filter { $0.threadType != "private" }
         guard !filteredSessions.isEmpty || (response.hasMore == false && threadListOffset == 0) else {
             // Empty non-first page means nothing more to append.
@@ -224,8 +243,17 @@ class IOSThreadStore: ObservableObject {
               !isLoadingMoreThreads,
               hasMoreThreads else { return }
         isLoadingMoreThreads = true
-        threadListOffset += Self.threadPageSize
-        try? daemon.sendSessionList(offset: threadListOffset, limit: Self.threadPageSize)
+        let nextOffset = threadListOffset + Self.threadPageSize
+        threadListOffset = nextOffset
+        inFlightSessionListToken = sessionListToken
+        do {
+            try daemon.sendSessionList(offset: nextOffset, limit: Self.threadPageSize)
+        } catch {
+            // Request failed before being sent — roll back pagination state so a
+            // subsequent call can retry from the same offset.
+            isLoadingMoreThreads = false
+            threadListOffset -= Self.threadPageSize
+        }
     }
 
     private func handleHistoryResponse(_ response: HistoryResponseMessage) {

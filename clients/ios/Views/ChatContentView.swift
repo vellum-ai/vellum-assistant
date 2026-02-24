@@ -25,10 +25,12 @@ struct ChatContentView: View {
 
     /// The slice of messages shown in the view, honoring the pagination window.
     private var visibleMessages: [ChatMessage] {
-        let all = viewModel.messages.filter { !$0.isSubagentNotification }
-        // displayedMessageCount tracks how many of the most-recent messages to show.
-        let count = min(viewModel.displayedMessageCount, all.count)
-        return Array(all.suffix(count))
+        let all = viewModel.displayedMessages
+        // When the user has scrolled back through the full history (displayedMessageCount
+        // reaches all.count), keep showing everything — don't clamp the window back down
+        // as new messages arrive, which would cause previously loaded history to vanish.
+        guard viewModel.displayedMessageCount < all.count else { return all }
+        return Array(all.suffix(viewModel.displayedMessageCount))
     }
 
     var body: some View {
