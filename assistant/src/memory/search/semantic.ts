@@ -1,6 +1,7 @@
 import { inArray } from 'drizzle-orm';
 import { getDb } from '../db.js';
 import { getQdrantClient } from '../qdrant-client.js';
+import type { QdrantSearchResult } from '../qdrant-client.js';
 import {
   memoryItems,
   memoryItemSources,
@@ -9,6 +10,76 @@ import {
 } from '../schema.js';
 import type { Candidate } from './types.js';
 import { computeRecencyScore } from './ranking.js';
+import { getLogger } from '../../util/logger.js';
+
+const log = getLogger('qdrant-circuit-breaker');
+
+// ── Qdrant circuit breaker ───────────────────────────────────────────
+// After FAILURE_THRESHOLD consecutive Qdrant failures, stop sending
+// requests (open state). After COOLDOWN_MS, allow a single probe
+// request (half-open). If the probe succeeds, close the circuit; if it
+// fails, re-open and restart the cooldown.
+
+const FAILURE_THRESHOLD = 5;
+const COOLDOWN_MS = 60_000;
+
+type BreakerState = 'closed' | 'open' | 'half-open';
+
+let breakerState: BreakerState = 'closed';
+let consecutiveFailures = 0;
+let openedAt = 0;
+
+function qdrantBreakerAllows(): boolean {
+  if (breakerState === 'closed') return true;
+  if (breakerState === 'open') {
+    if (Date.now() - openedAt >= COOLDOWN_MS) {
+      breakerState = 'half-open';
+      log.info('Qdrant circuit breaker entering half-open state — allowing probe request');
+      return true;
+    }
+    return false;
+  }
+  // half-open: allow the single probe
+  return true;
+}
+
+function qdrantBreakerRecordSuccess(): void {
+  if (breakerState !== 'closed') {
+    log.info({ previousFailures: consecutiveFailures }, 'Qdrant circuit breaker closed — search succeeded');
+  }
+  consecutiveFailures = 0;
+  breakerState = 'closed';
+  openedAt = 0;
+}
+
+function qdrantBreakerRecordFailure(): void {
+  consecutiveFailures++;
+  if (consecutiveFailures >= FAILURE_THRESHOLD) {
+    breakerState = 'open';
+    openedAt = Date.now();
+    log.warn(
+      { consecutiveFailures, cooldownMs: COOLDOWN_MS },
+      'Qdrant circuit breaker opened — semantic search disabled until probe succeeds',
+    );
+  } else if (breakerState === 'half-open') {
+    // Probe failed — re-open
+    breakerState = 'open';
+    openedAt = Date.now();
+    log.warn('Qdrant circuit breaker re-opened — half-open probe failed');
+  }
+}
+
+/** @internal Test-only: reset circuit breaker state */
+export function _resetQdrantBreaker(): void {
+  breakerState = 'closed';
+  consecutiveFailures = 0;
+  openedAt = 0;
+}
+
+/** @internal Test-only: get breaker state */
+export function _getQdrantBreakerState(): { state: BreakerState; consecutiveFailures: number } {
+  return { state: breakerState, consecutiveFailures };
+}
 
 export async function semanticSearch(
   queryVector: number[],
@@ -20,18 +91,31 @@ export async function semanticSearch(
 ): Promise<Candidate[]> {
   if (limit <= 0) return [];
 
+  // Circuit breaker: skip Qdrant when the breaker is open
+  if (!qdrantBreakerAllows()) {
+    log.debug('Qdrant circuit breaker open — skipping semantic search');
+    return [];
+  }
+
   const qdrant = getQdrantClient();
 
   // Overfetch to account for items filtered out post-query (invalidated, excluded, etc.)
   // Use 3x when exclusions are active to ensure enough results survive filtering
   const overfetchMultiplier = excludedMessageIds.length > 0 ? 3 : 2;
   const fetchLimit = limit * overfetchMultiplier;
-  const results = await qdrant.searchWithFilter(
-    queryVector,
-    fetchLimit,
-    ['item', 'summary', 'segment'],
-    excludedMessageIds,
-  );
+  let results: QdrantSearchResult[];
+  try {
+    results = await qdrant.searchWithFilter(
+      queryVector,
+      fetchLimit,
+      ['item', 'summary', 'segment'],
+      excludedMessageIds,
+    );
+    qdrantBreakerRecordSuccess();
+  } catch (err) {
+    qdrantBreakerRecordFailure();
+    throw err;
+  }
 
   const db = getDb();
 
