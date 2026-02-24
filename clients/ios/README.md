@@ -75,39 +75,24 @@ cd clients/ios
 
 ### Connected to Mac Mode
 
-Requires the Vellum daemon running on your Mac (either as the macOS desktop app or `bun run src/daemon/main.ts`).
+Requires the Vellum daemon running on your Mac (via the macOS desktop app or `bun run src/index.ts daemon start`). The iOS app connects to the daemon through an HTTP gateway using a bearer token for authentication.
 
-**In the simulator** (same machine as Mac):
+**QR Code Pairing (recommended):**
 
-1. Choose **"Connect to Mac"** in onboarding
-2. Hostname: `localhost`, Port: `8765`
-3. Get the session token from your Mac:
-   ```bash
-   cat ~/.vellum/session-token
-   ```
-4. Paste the token into the Session Token field
+1. On your Mac, open **Settings → Connect → Show QR Code**
+2. On your iPhone, go to **Settings → Connect → Scan QR Code**
+3. Scan the QR code — the app auto-configures the gateway URL and bearer token
 
-**On a real iPhone** (same Wi-Fi network):
+The QR code contains a v3 payload with the gateway URL, bearer token, and local network settings. For LAN-only connections (e.g., development), the QR code includes an `allowLocalHttp` flag that permits plain HTTP for local/private addresses.
 
-1. Find your Mac's local IP:
-   - System Settings → Network → Wi-Fi → Details → IP Address
-   - Or run `ipconfig getifaddr en0` in Terminal
-2. Use that IP as the hostname (e.g. `192.168.1.42`)
-3. Copy the session token from Mac app **Settings → iOS Device → Copy** (or `~/.vellum/session-token`)
+**Manual Setup:**
 
-**Starting the daemon with TCP enabled:**
-```bash
-cd assistant
-# For simulator (localhost only):
-VELLUM_DAEMON_TCP_ENABLED=1 bun run src/index.ts daemon start
+1. On your iPhone, go to **Settings → Connect → Manual Setup**
+2. Enter the gateway URL shown in your Mac's **Settings → Connect → Gateway** section
+3. Enter the bearer token shown in your Mac's **Settings → Connect → Advanced** section
+4. Tap **Connect**
 
-# For real device (all network interfaces):
-VELLUM_DAEMON_TCP_ENABLED=1 VELLUM_DAEMON_TCP_HOST=0.0.0.0 bun run src/index.ts daemon start
-```
-
-TCP is opt-in (`VELLUM_DAEMON_TCP_ENABLED=1`) for security — the Unix socket default binds only to the local filesystem. By default the TCP listener binds to `127.0.0.1` (simulator use). Set `VELLUM_DAEMON_TCP_HOST=0.0.0.0` to accept LAN connections from a real device.
-
-The macOS app sets `VELLUM_DAEMON_TCP_ENABLED=1` automatically when the daemon starts.
+HTTPS is required for non-local connections. HTTP is permitted only for loopback, mDNS `.local`, link-local, and RFC 1918 private addresses.
 
 ## Running Tests
 
@@ -144,14 +129,14 @@ swift test --filter VellumAssistantSharedTests
 
 ## Configuration Reference
 
-| Setting | UserDefaults Key | Default | Description |
-|---------|-----------------|---------|-------------|
-| Connection mode | `connection_mode` | `Standalone` | `Standalone` or `Connected to Mac` |
-| Daemon hostname | `daemon_hostname` | `localhost` | Mac hostname or IP |
-| Daemon port | `daemon_port` | `8765` | Daemon TCP port |
-| Session token | Keychain (device) / UserDefaults (simulator), provider key `"daemon-token"` | — | Token from `~/.vellum/session-token` on Mac |
-| Use TLS | `daemon_tls_enabled` | `false` | Enable TLS for TCP connection |
-| Anthropic API key | (UserDefaults on simulator, Keychain on device) | — | For standalone mode |
+| Setting | Storage | Default | Description |
+|---------|---------|---------|-------------|
+| Gateway URL | UserDefaults `gateway_base_url` | — | HTTP(S) gateway URL from QR code or manual entry |
+| Bearer token | Keychain (device) / UserDefaults (sim), provider `"runtime-bearer-token"` | — | Authentication token for gateway requests |
+| Conversation key | UserDefaults `conversation_key` | — | Auto-generated UUID for session identification |
+| Anthropic API key | Keychain (device) / UserDefaults (sim) | — | For standalone mode (direct API) |
+| Daemon hostname | UserDefaults `daemon_hostname` | `localhost` | Legacy TCP hostname (still used for cert pinning) |
+| Daemon port | UserDefaults `daemon_port` | `8765` | Legacy TCP port |
 
 ## Dependencies
 
@@ -161,7 +146,9 @@ The iOS app depends only on `VellumAssistantShared`. It must **not** import `Vel
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| "Cannot connect to daemon" | Daemon not running or wrong hostname/port | Start daemon, verify `localhost:8765` in simulator |
-| Auth timeout / immediate disconnect | Missing or wrong session token | Copy from `~/.vellum/session-token` on Mac |
+| "Cannot connect" | Daemon not running or wrong gateway URL | Start the macOS app, verify gateway URL in Settings → Connect |
+| "Connection failed" after QR scan | Gateway unreachable from iPhone | Ensure both devices are on the same network; check firewall settings |
+| "HTTPS is required" on manual entry | Non-local URL with `http://` scheme | Use `https://` or connect via QR code for local HTTP |
+| Auth timeout / immediate disconnect | Missing or wrong bearer token | Re-scan QR code or re-enter token from Mac's Settings → Connect → Advanced |
 | "Failed to save API Key" | Keychain unavailable (simulator) | Expected — key saved to UserDefaults instead |
 | Old version still showing in simulator | Cached build | `xcrun simctl uninstall <UDID> ai.vellum.assistant.ios` then reinstall |
