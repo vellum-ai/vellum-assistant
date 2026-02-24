@@ -30,7 +30,7 @@ async function sendTwilioSms(
   const authHeader =
     "Basic " + Buffer.from(`${accountSid}:${authToken}`).toString("base64");
 
-  const response = await fetch(url, {
+  const response = await globalThis.fetch(url, {
     method: "POST",
     headers: {
       Authorization: authHeader,
