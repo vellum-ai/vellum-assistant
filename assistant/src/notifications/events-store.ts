@@ -61,15 +61,20 @@ export function createEvent(params: CreateEventParams): NotificationEventRow | n
   const db = getDb();
   const now = Date.now();
 
+  // Normalize empty strings to null so the falsy check below and the DB
+  // unique index stay in agreement (empty string is falsy in JS but would
+  // be stored as a non-null value in SQLite).
+  const normalizedDedupeKey = params.dedupeKey || null;
+
   // If there's a dedupe key, check for duplicates first
-  if (params.dedupeKey) {
+  if (normalizedDedupeKey) {
     const existing = db
       .select()
       .from(notificationEvents)
       .where(
         and(
           eq(notificationEvents.assistantId, params.assistantId),
-          eq(notificationEvents.dedupeKey, params.dedupeKey),
+          eq(notificationEvents.dedupeKey, normalizedDedupeKey),
         ),
       )
       .get();
@@ -86,7 +91,7 @@ export function createEvent(params: CreateEventParams): NotificationEventRow | n
     sourceEventId: params.sourceEventId,
     requiresAction: params.requiresAction ? 1 : 0,
     payloadJson: JSON.stringify(params.payload),
-    dedupeKey: params.dedupeKey ?? null,
+    dedupeKey: normalizedDedupeKey,
     createdAt: now,
     updatedAt: now,
   };
