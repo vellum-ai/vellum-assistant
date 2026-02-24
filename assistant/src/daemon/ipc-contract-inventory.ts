@@ -2,7 +2,8 @@
  * Core logic for extracting the IPC contract inventory from ipc-contract.ts.
  *
  * Parses the TypeScript AST to extract sorted union member lists for
- * ClientMessage and ServerMessage.
+ * ClientMessage and ServerMessage. Interface declarations are resolved
+ * from both the barrel file and the domain files in ipc-contract/.
  */
 
 import * as ts from 'typescript';
@@ -50,48 +51,69 @@ function extractUnionMembers(
  * Looks for `type: 'some_wire_type'` property signatures.
  */
 function extractWireType(
-  sourceFile: ts.SourceFile,
+  sourceFiles: ts.SourceFile[],
   interfaceName: string,
 ): string | null {
-  let wireType: string | null = null;
+  for (const sourceFile of sourceFiles) {
+    let wireType: string | null = null;
 
-  ts.forEachChild(sourceFile, (node) => {
-    if (
-      ts.isInterfaceDeclaration(node) &&
-      node.name.text === interfaceName
-    ) {
-      for (const member of node.members) {
-        if (
-          ts.isPropertySignature(member) &&
-          member.name &&
-          ts.isIdentifier(member.name) &&
-          member.name.text === 'type' &&
-          member.type &&
-          ts.isLiteralTypeNode(member.type) &&
-          ts.isStringLiteral(member.type.literal)
-        ) {
-          wireType = member.type.literal.text;
+    ts.forEachChild(sourceFile, (node) => {
+      if (
+        ts.isInterfaceDeclaration(node) &&
+        node.name.text === interfaceName
+      ) {
+        for (const member of node.members) {
+          if (
+            ts.isPropertySignature(member) &&
+            member.name &&
+            ts.isIdentifier(member.name) &&
+            member.name.text === 'type' &&
+            member.type &&
+            ts.isLiteralTypeNode(member.type) &&
+            ts.isStringLiteral(member.type.literal)
+          ) {
+            wireType = member.type.literal.text;
+          }
         }
       }
-    }
-  });
+    });
 
-  return wireType;
+    if (wireType) return wireType;
+  }
+
+  return null;
 }
 
 /**
  * Extract wire type literals for all members of a union type.
  */
 function extractWireTypes(
-  sourceFile: ts.SourceFile,
+  sourceFiles: ts.SourceFile[],
   memberNames: string[],
 ): string[] {
   const wireTypes: string[] = [];
   for (const name of memberNames) {
-    const wt = extractWireType(sourceFile, name);
+    const wt = extractWireType(sourceFiles, name);
     if (wt) wireTypes.push(wt);
   }
   return wireTypes.sort();
+}
+
+/**
+ * Parse all .ts files in the domain directory (ipc-contract/) and return
+ * their parsed ASTs alongside the barrel file's AST.
+ */
+function parseDomainFiles(barrelDir: string): ts.SourceFile[] {
+  const domainDir = path.join(barrelDir, 'ipc-contract');
+  if (!fs.existsSync(domainDir)) return [];
+
+  return fs.readdirSync(domainDir)
+    .filter((f) => f.endsWith('.ts'))
+    .map((f) => {
+      const filePath = path.join(domainDir, f);
+      const source = fs.readFileSync(filePath, 'utf-8');
+      return ts.createSourceFile(f, source, ts.ScriptTarget.Latest, true);
+    });
 }
 
 /** Parse the contract file and extract the inventory. */
@@ -102,15 +124,15 @@ export function extractInventory(contractPath?: string): ContractInventory {
   );
 
   const source = fs.readFileSync(resolvedPath, 'utf-8');
-  const sourceFile = ts.createSourceFile(
+  const barrelFile = ts.createSourceFile(
     path.basename(resolvedPath),
     source,
     ts.ScriptTarget.Latest,
     true,
   );
 
-  const clientMessageTypes = extractUnionMembers(sourceFile, 'ClientMessage');
-  const serverMessageTypes = extractUnionMembers(sourceFile, 'ServerMessage');
+  const clientMessageTypes = extractUnionMembers(barrelFile, 'ClientMessage');
+  const serverMessageTypes = extractUnionMembers(barrelFile, 'ServerMessage');
 
   if (clientMessageTypes.length === 0) {
     throw new Error('Failed to extract ClientMessage union members from contract');
@@ -119,8 +141,12 @@ export function extractInventory(contractPath?: string): ContractInventory {
     throw new Error('Failed to extract ServerMessage union members from contract');
   }
 
-  const clientWireTypes = extractWireTypes(sourceFile, clientMessageTypes);
-  const serverWireTypes = extractWireTypes(sourceFile, serverMessageTypes);
+  // Parse domain files for interface declarations (wire type extraction)
+  const domainFiles = parseDomainFiles(path.dirname(resolvedPath));
+  const allSourceFiles = [barrelFile, ...domainFiles];
+
+  const clientWireTypes = extractWireTypes(allSourceFiles, clientMessageTypes);
+  const serverWireTypes = extractWireTypes(allSourceFiles, serverMessageTypes);
 
   return { clientMessageTypes, serverMessageTypes, clientWireTypes, serverWireTypes };
 }
