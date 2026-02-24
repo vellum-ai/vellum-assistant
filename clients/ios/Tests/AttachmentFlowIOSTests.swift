@@ -168,6 +168,14 @@ final class AttachmentFlowIOSTests: XCTestCase {
 
         viewModel.addAttachment(imageData: pngData, filename: "Screenshot.png")
 
+        // addAttachment(imageData:) processes the image in a background Task,
+        // so we need to wait for the attachment to appear.
+        let predicate = NSPredicate { _, _ in
+            self.viewModel.pendingAttachments.count == 1
+        }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+        wait(for: [expectation], timeout: 5.0)
+
         XCTAssertEqual(viewModel.pendingAttachments.count, 1)
         XCTAssertEqual(viewModel.pendingAttachments[0].filename, "Screenshot.png")
         XCTAssertEqual(viewModel.pendingAttachments[0].mimeType, "image/png")
