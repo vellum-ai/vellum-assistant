@@ -635,7 +635,20 @@ public struct ToolCallData: Identifiable, Equatable {
     }
 
     private func interpretBashCommand(_ cmd: String) -> String {
-        let tokens = cmd.trimmingCharacters(in: .whitespaces)
+        // For compound commands (cd foo && claude ...), skip trivial prefix commands
+        // to describe the meaningful part.
+        let trivialPrefixes: Set<String> = ["cd", "pushd", "popd", "export", "source"]
+        let segments = cmd.components(separatedBy: "&&").map { $0.trimmingCharacters(in: .whitespaces) }
+        let effectiveCmd: String
+        if segments.count > 1,
+           let firstWord = segments[0].components(separatedBy: .whitespaces).first(where: { !$0.isEmpty }),
+           trivialPrefixes.contains((firstWord as NSString).lastPathComponent.lowercased()) {
+            effectiveCmd = segments.dropFirst().joined(separator: " && ").trimmingCharacters(in: .whitespaces)
+        } else {
+            effectiveCmd = cmd
+        }
+
+        let tokens = effectiveCmd.trimmingCharacters(in: .whitespaces)
             .components(separatedBy: .whitespaces)
             .filter { !$0.isEmpty }
         guard let first = tokens.first else { return "Ran a command" }
@@ -721,6 +734,16 @@ public struct ToolCallData: Identifiable, Equatable {
         case "pkill", "kill", "killall":
             return target().map { "Stopped \($0)" } ?? "Stopped a process"
         case "build.sh":            return "Built the project"
+        case "cd", "pushd", "popd":
+            return target().map { "Navigated to \($0)" } ?? "Changed directory"
+        case "claude":
+            // Extract the prompt flag value for context
+            if let pIdx = tokens.firstIndex(of: "-p"), pIdx + 1 < tokens.count {
+                let prompt = tokens[(pIdx + 1)...].joined(separator: " ")
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+                return truncated(prompt, to: 60)
+            }
+            return "Ran Claude Code"
         case "echo", "printf":      return "Output text"
         case "export", "env":       return "Set environment variables"
         default:
