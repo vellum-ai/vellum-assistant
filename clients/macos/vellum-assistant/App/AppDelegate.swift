@@ -600,23 +600,28 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Key that tracks whether the pairing override migration has run.
     private static let pairingOverrideMigrationKey = "pairing_override_migration_done"
 
-    /// Clears stale gateway/token override values when the old toggle was OFF
-    /// (or absent). Runs once; the flag persists across future launches.
+    /// Clears stale gateway/token override values when the old toggle was OFF.
+    /// Runs once; the flag persists across future launches.
+    ///
+    /// Only acts when the legacy `iosPairingUseOverride` key is actually present.
+    /// After M9 the toggle is no longer persisted, so absence means the user
+    /// may have intentionally set overrides post-M9 — skip cleanup to preserve them.
     private func migratePairingOverridesIfNeeded() {
         let defaults = UserDefaults.standard
         guard !defaults.bool(forKey: Self.pairingOverrideMigrationKey) else { return }
 
-        // If the legacy toggle was off (false or absent), the user did not
-        // intend for overrides to be active. Clear them so they don't
-        // silently take effect now that the gate is removed.
-        let overrideWasEnabled = defaults.bool(forKey: "iosPairingUseOverride")
-        if !overrideWasEnabled {
-            defaults.removeObject(forKey: PairingConfiguration.gatewayOverrideKey)
-            defaults.removeObject(forKey: PairingConfiguration.tokenOverrideKey)
+        // Only clean up when the legacy toggle key is actually present.
+        // After M9 the toggle is no longer persisted, so absence means
+        // the user may have intentionally set overrides post-M9.
+        if defaults.object(forKey: "iosPairingUseOverride") != nil {
+            let overrideWasEnabled = defaults.bool(forKey: "iosPairingUseOverride")
+            if !overrideWasEnabled {
+                defaults.removeObject(forKey: PairingConfiguration.gatewayOverrideKey)
+                defaults.removeObject(forKey: PairingConfiguration.tokenOverrideKey)
+            }
+            // Clean up the legacy toggle key itself — no longer used.
+            defaults.removeObject(forKey: "iosPairingUseOverride")
         }
-
-        // Clean up the legacy toggle key itself — no longer used.
-        defaults.removeObject(forKey: "iosPairingUseOverride")
 
         defaults.set(true, forKey: Self.pairingOverrideMigrationKey)
     }
