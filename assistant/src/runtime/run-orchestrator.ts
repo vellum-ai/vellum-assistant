@@ -34,6 +34,29 @@ const log = getLogger('run-orchestrator');
 // Types
 // ---------------------------------------------------------------------------
 
+/**
+ * Real-time event sink for voice TTS streaming. When provided to startRun(),
+ * agent-loop events are forwarded here alongside the existing assistantEventHub
+ * publication. This enables voice relay to receive streaming text deltas for
+ * real-time text-to-speech without modifying the standard channel path.
+ */
+export interface VoiceRunEventSink {
+  onTextDelta(text: string): void;
+  onMessageComplete(): void;
+  onError(message: string): void;
+  onToolUse(toolName: string, input: Record<string, unknown>): void;
+}
+
+/**
+ * Handle returned by startRun() that allows callers to abort an in-flight
+ * run. Used by voice barge-in to cancel the current turn without crashing
+ * session state.
+ */
+export interface RunHandle {
+  run: Run;
+  abort: () => void;
+}
+
 interface PendingRunState {
   prompterRequestId: string;
   session: Session;
@@ -92,6 +115,36 @@ export interface RunStartOptions {
   commandIntent?: { type: string; payload?: string; languageCode?: string };
   /** Resolved channel context for this turn. */
   turnChannelContext?: TurnChannelContext;
+  /**
+   * When provided, agent-loop events are forwarded to this sink in real time.
+   * Used by voice relay for streaming TTS token delivery.
+   */
+  eventSink?: VoiceRunEventSink;
+  /**
+   * When true, any confirmation_request from the prompter is immediately
+   * auto-denied instead of being stored for client polling. Used by the
+   * voice path when forceStrictSideEffects is active: the voice transport
+   * has no interactive approval UI, so without this flag the run would
+   * stall for the full permission timeout (300s by default).
+   */
+  voiceAutoDenyConfirmations?: boolean;
+  /**
+   * When true, confirmation_request events are auto-approved immediately.
+   * Used for verified-guardian voice turns where there is no interactive
+   * approval UI but parity with guardian chat permissions is required.
+   */
+  voiceAutoAllowConfirmations?: boolean;
+  /**
+   * When true, secret_request events are resolved immediately with a null
+   * value so voice turns do not stall waiting for a secret-entry UI that
+   * voice does not provide.
+   */
+  voiceAutoResolveSecrets?: boolean;
+  /**
+   * Call-control protocol prompt injected into each voice turn so the
+   * model knows to emit control markers ([ASK_GUARDIAN:], [END_CALL], etc.).
+   */
+  voiceCallControlPrompt?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -116,13 +169,16 @@ export class RunOrchestrator {
   /**
    * Start a new run: persist the user message, create a run record,
    * and fire the agent loop in the background.
+   *
+   * Returns a RunHandle containing the Run record and an abort() function
+   * that can cancel the in-flight agent loop (e.g. for voice barge-in).
    */
   async startRun(
     conversationId: string,
     content: string,
     attachmentIds?: string[],
     options?: RunStartOptions,
-  ): Promise<Run> {
+  ): Promise<RunHandle> {
     // Block inbound content that contains secrets — mirrors the IPC check in sessions.ts
     const ingressCheck = checkIngressForSecrets(content);
     if (ingressCheck.blocked) {
@@ -176,6 +232,7 @@ export class RunOrchestrator {
     // (e.g. attachment scope) match the actual transport rather than always
     // defaulting to 'macos'.
     session.setChannelCapabilities(resolveChannelCapabilities(options?.sourceChannel ?? 'macos'));
+    session.setVoiceCallControlPrompt(options?.voiceCallControlPrompt ?? null);
 
     // Serialized publish chain so hub subscribers observe events in order.
     let hubChain: Promise<void> = Promise.resolve();
@@ -202,9 +259,55 @@ export class RunOrchestrator {
     // When the prompter sends one of these, we record it in the run store so
     // the client can poll and submit a decision/secret via the respective endpoint.
     // Do NOT set hasNoClient — run sessions have a client (the HTTP caller).
+    const autoDeny = options?.voiceAutoDenyConfirmations === true;
+    const autoAllow = !autoDeny && options?.voiceAutoAllowConfirmations === true;
+    const autoResolveSecrets = options?.voiceAutoResolveSecrets === true;
     let lastError: string | null = null;
     session.updateClient((msg: ServerMessage) => {
       if (msg.type === 'confirmation_request') {
+        if (autoDeny) {
+          // Voice path with strict side effects: immediately deny the
+          // confirmation request so the agent loop resumes without
+          // waiting for the full permission timeout (300s). The voice
+          // transport has no interactive approval UI, so polling would
+          // just stall. Security is preserved — the tool call is denied.
+          log.info(
+            { runId: run.id, toolName: msg.toolName },
+            'Auto-denying confirmation request for voice turn (forceStrictSideEffects)',
+          );
+          session.handleConfirmationResponse(
+            msg.requestId,
+            'deny',
+            undefined,
+            undefined,
+            `Permission denied for "${msg.toolName}": this voice call does not have interactive approval capabilities. Side-effect tools are not available for non-guardian voice callers. In your next assistant reply, explain briefly that this action requires guardian-level access and cannot be performed during this call.`,
+          );
+          // Still publish to hub for observability, but skip run-store
+          // bookkeeping since the confirmation is already resolved.
+          publishToHub(msg);
+          return;
+        }
+        if (autoAllow) {
+          // Verified guardian voice turn: auto-approve so voice has the same
+          // permission capabilities as guardian chat despite lacking an
+          // interactive confirmation UI.
+          log.info(
+            { runId: run.id, toolName: msg.toolName },
+            'Auto-approving confirmation request for guardian voice turn',
+          );
+          session.handleConfirmationResponse(
+            msg.requestId,
+            'allow',
+            undefined,
+            undefined,
+            `Permission approved for "${msg.toolName}": this is a verified guardian voice call.`,
+          );
+          // Publish for observability, but skip run-store pending state since
+          // the request is already resolved.
+          publishToHub(msg);
+          return;
+        }
+
         runsStore.setRunConfirmation(run.id, {
           toolName: msg.toolName,
           toolUseId: msg.requestId,
@@ -220,6 +323,18 @@ export class RunOrchestrator {
           session,
         });
       } else if (msg.type === 'secret_request') {
+        if (autoResolveSecrets) {
+          // Voice has no secret-entry UI, so resolve immediately to avoid
+          // waiting for the full secret prompt timeout.
+          log.info(
+            { runId: run.id, service: msg.service, field: msg.field },
+            'Auto-resolving secret request for voice turn (no secret-entry UI)',
+          );
+          session.handleSecretResponse(msg.requestId, undefined, 'store');
+          publishToHub(msg);
+          return;
+        }
+
         runsStore.setRunSecret(run.id, {
           requestId: msg.requestId,
           service: msg.service,
@@ -249,12 +364,15 @@ export class RunOrchestrator {
       session.setGuardianContext(null);
       session.setCommandIntent(null);
       session.setAssistantId('self');
+      session.setVoiceCallControlPrompt(null);
       // Reset the session's client callback to a no-op so the stale
       // closure doesn't intercept events from future runs on the same session.
       // Set hasNoClient=true here since the run is done and no HTTP caller
       // is actively listening — truly no client at this point.
       session.updateClient(() => {}, true);
     };
+
+    const eventSink = options?.eventSink;
 
     void (async () => {
       try {
@@ -270,6 +388,27 @@ export class RunOrchestrator {
           // prompter (confirmation_request). Both paths must publish so SSE
           // consumers receive the full response stream.
           publishToHub(msg);
+
+          // Forward voice-relevant events to the real-time event sink when
+          // provided. This runs in addition to (not instead of) the hub
+          // publication above so both paths remain active.
+          if (eventSink) {
+            if (msg.type === 'assistant_text_delta') {
+              eventSink.onTextDelta(msg.text);
+            } else if (msg.type === 'message_complete') {
+              eventSink.onMessageComplete();
+            } else if (msg.type === 'generation_cancelled') {
+              // Treat cancellation as a completed turn so the voice
+              // turnComplete promise settles instead of hanging forever.
+              eventSink.onMessageComplete();
+            } else if (msg.type === 'error') {
+              eventSink.onError(msg.message);
+            } else if (msg.type === 'session_error') {
+              eventSink.onError(msg.userMessage);
+            } else if (msg.type === 'tool_use_start') {
+              eventSink.onToolUse(msg.toolName, msg.input);
+            }
+          }
         });
         if (lastError) {
           log.error({ runId: run.id, error: lastError }, 'Run failed (error event from agent loop)');
@@ -281,12 +420,28 @@ export class RunOrchestrator {
         const message = err instanceof Error ? err.message : String(err);
         log.error({ err, runId: run.id }, 'Run failed');
         runsStore.failRun(run.id, message);
+        // Notify the voice event sink so the caller's turnComplete
+        // promise settles instead of hanging on unhandled exceptions.
+        if (eventSink) {
+          eventSink.onError(message);
+        }
       } finally {
         cleanup();
       }
     })();
 
-    return run;
+    return {
+      run,
+      // Scope the abort to this specific run by capturing the requestId.
+      // If the session has moved on to a new turn (different currentRequestId),
+      // this abort is stale and becomes a no-op — preventing voice barge-in
+      // from cancelling unrelated turns.
+      abort: () => {
+        if (session.currentRequestId === requestId) {
+          session.abort();
+        }
+      },
+    };
   }
 
   /** Read current run state from the store. */

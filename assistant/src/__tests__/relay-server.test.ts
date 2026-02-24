@@ -263,8 +263,8 @@ describe('relay-server', () => {
     const connectedEvents = events.filter(e => e.eventType === 'call_connected');
     expect(connectedEvents.length).toBe(1);
 
-    // Verify orchestrator was created
-    expect(relay.getOrchestrator()).not.toBeNull();
+    // Verify controller was created
+    expect(relay.getController()).not.toBeNull();
 
     relay.destroy();
   });
@@ -815,11 +815,11 @@ describe('relay-server', () => {
       to: '+15552222222',
     }));
 
-    expect(relay.getOrchestrator()).not.toBeNull();
+    expect(relay.getController()).not.toBeNull();
 
     relay.destroy();
 
-    expect(relay.getOrchestrator()).toBeNull();
+    expect(relay.getController()).toBeNull();
   });
 
   test('destroy: can be called multiple times without error', () => {
@@ -1145,7 +1145,7 @@ describe('relay-server', () => {
       to: '+15551111111',
     }));
 
-    const runtimeContext = (relay.getOrchestrator() as unknown as { guardianContext?: { sourceChannel?: string; actorRole?: string; guardianExternalUserId?: string } })?.guardianContext;
+    const runtimeContext = (relay.getController() as unknown as { guardianContext?: { sourceChannel?: string; actorRole?: string; guardianExternalUserId?: string } })?.guardianContext;
     expect(runtimeContext?.sourceChannel).toBe('voice');
     expect(runtimeContext?.actorRole).toBe('guardian');
     expect(runtimeContext?.guardianExternalUserId).toBe('+15550001111');
@@ -1181,7 +1181,7 @@ describe('relay-server', () => {
       to: '+15551111111',
     }));
 
-    const runtimeContext = (relay.getOrchestrator() as unknown as {
+    const runtimeContext = (relay.getController() as unknown as {
       guardianContext?: {
         sourceChannel?: string;
         actorRole?: string;
@@ -1197,7 +1197,7 @@ describe('relay-server', () => {
     relay.destroy();
   });
 
-  test('inbound guardian verification updates orchestrator context to guardian', async () => {
+  test('inbound guardian verification updates controller context to guardian', async () => {
     ensureConversation('conv-guardian-context-upgrade');
     const session = createCallSession({
       conversationId: 'conv-guardian-context-upgrade',
@@ -1219,7 +1219,7 @@ describe('relay-server', () => {
       to: session.toNumber,
     }));
 
-    const preVerify = (relay.getOrchestrator() as unknown as {
+    const preVerify = (relay.getController() as unknown as {
       guardianContext?: { actorRole?: string };
     })?.guardianContext;
     expect(preVerify?.actorRole).toBe('unverified_channel');
@@ -1233,7 +1233,7 @@ describe('relay-server', () => {
 
     await new Promise((resolve) => setTimeout(resolve, 10));
 
-    const postVerify = (relay.getOrchestrator() as unknown as {
+    const postVerify = (relay.getController() as unknown as {
       guardianContext?: { sourceChannel?: string; actorRole?: string; guardianExternalUserId?: string };
     })?.guardianContext;
     expect(postVerify?.sourceChannel).toBe('voice');
