@@ -59,6 +59,7 @@ public final class SettingsStore: ObservableObject {
 
     @Published var maxSteps: Double
     @Published var activityNotificationsEnabled: Bool
+    @Published var quickChatShortcut: String
 
     // MARK: - Media Embed Settings
 
@@ -243,6 +244,8 @@ public final class SettingsStore: ObservableObject {
         // Default to enabled for notifications
         self.activityNotificationsEnabled = UserDefaults.standard.object(forKey: "activityNotificationsEnabled") as? Bool ?? true
 
+        self.quickChatShortcut = UserDefaults.standard.string(forKey: "quickChatShortcut") ?? "cmd+shift+space"
+
         // Load media embed settings from workspace config
         let mediaSettings = Self.loadMediaEmbedSettings(from: configPath)
         self.mediaEmbedsEnabled = mediaSettings.enabled
@@ -278,6 +281,12 @@ public final class SettingsStore: ObservableObject {
             .dropFirst()
             .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
             .sink { value in UserDefaults.standard.set(value, forKey: "activityNotificationsEnabled") }
+            .store(in: &cancellables)
+
+        // Persist shortcut changes immediately so the hotkey re-registers without delay
+        $quickChatShortcut
+            .dropFirst()
+            .sink { value in UserDefaults.standard.set(value, forKey: "quickChatShortcut") }
             .store(in: &cancellables)
 
         // Mirror DaemonClient's trust-rules-open flag so views can disable their buttons
