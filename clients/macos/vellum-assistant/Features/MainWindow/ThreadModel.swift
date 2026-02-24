@@ -38,6 +38,6 @@ struct ThreadModel: Identifiable, Hashable {
         if let source = source {
             return source == "schedule" || source == "reminder"
         }
-        return title.hasPrefix("[Schedule]") || title.hasPrefix("[Reminder]")
+        return title.hasPrefix("Schedule: ") || title.hasPrefix("Schedule (manual): ") || title.hasPrefix("Reminder: ")
     }
 }
