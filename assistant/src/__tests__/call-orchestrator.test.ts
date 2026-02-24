@@ -878,11 +878,12 @@ describe('call-orchestrator', () => {
 
   // ── Model override from config ──────────────────────────────────────
 
-  test('uses default model when calls.model is not set', async () => {
+  test('does not override model when calls.model is not set (preserves cross-provider failover)', async () => {
     mockCallModel = undefined;
-    mockSendMessage.mockImplementation(async (_messages: unknown[], _tools: unknown[], _systemPrompt: unknown, options?: { config?: { model: string }; onEvent?: (event: { type: string; text?: string }) => void }) => {
-      // Default model is derived from the active provider (anthropic → claude-opus-4-6)
-      expect(options?.config?.model).toBe('claude-opus-4-6');
+    mockSendMessage.mockImplementation(async (_messages: unknown[], _tools: unknown[], _systemPrompt: unknown, options?: { config?: { model?: string }; onEvent?: (event: { type: string; text?: string }) => void }) => {
+      // When calls.model is unset, no model override should be passed so each
+      // provider in the failover chain uses its own default model.
+      expect(options?.config?.model).toBeUndefined();
       const tokens = ['Default model response.'];
       for (const token of tokens) {
         options?.onEvent?.({ type: 'text_delta', text: token });
@@ -921,11 +922,11 @@ describe('call-orchestrator', () => {
     orchestrator.destroy();
   });
 
-  test('treats empty string calls.model as unset and falls back to default', async () => {
+  test('treats empty string calls.model as unset and omits model override', async () => {
     mockCallModel = '';
-    mockSendMessage.mockImplementation(async (_messages: unknown[], _tools: unknown[], _systemPrompt: unknown, options?: { config?: { model: string }; onEvent?: (event: { type: string; text?: string }) => void }) => {
-      // Empty string falls back to provider default (anthropic → claude-opus-4-6)
-      expect(options?.config?.model).toBe('claude-opus-4-6');
+    mockSendMessage.mockImplementation(async (_messages: unknown[], _tools: unknown[], _systemPrompt: unknown, options?: { config?: { model?: string }; onEvent?: (event: { type: string; text?: string }) => void }) => {
+      // Empty string is treated as unset — no model override
+      expect(options?.config?.model).toBeUndefined();
       const tokens = ['Fallback model response.'];
       for (const token of tokens) {
         options?.onEvent?.({ type: 'text_delta', text: token });
@@ -943,11 +944,11 @@ describe('call-orchestrator', () => {
     orchestrator.destroy();
   });
 
-  test('treats whitespace-only calls.model as unset and falls back to default', async () => {
+  test('treats whitespace-only calls.model as unset and omits model override', async () => {
     mockCallModel = '   ';
-    mockSendMessage.mockImplementation(async (_messages: unknown[], _tools: unknown[], _systemPrompt: unknown, options?: { config?: { model: string }; onEvent?: (event: { type: string; text?: string }) => void }) => {
-      // Whitespace-only falls back to provider default (anthropic → claude-opus-4-6)
-      expect(options?.config?.model).toBe('claude-opus-4-6');
+    mockSendMessage.mockImplementation(async (_messages: unknown[], _tools: unknown[], _systemPrompt: unknown, options?: { config?: { model?: string }; onEvent?: (event: { type: string; text?: string }) => void }) => {
+      // Whitespace-only is treated as unset — no model override
+      expect(options?.config?.model).toBeUndefined();
       const tokens = ['Fallback model response.'];
       for (const token of tokens) {
         options?.onEvent?.({ type: 'text_delta', text: token });
