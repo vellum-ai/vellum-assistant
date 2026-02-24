@@ -57,7 +57,8 @@ let package = Package(
                 .process("Resources/Onboarding"),
                 .process("Resources/vellum-design-system.css"),
                 .process("Resources/vellum-widgets.js"),
-                .process("Resources/vellum-edit-animator.js")
+                .process("Resources/vellum-edit-animator.js"),
+                .copy("Resources/editor")
             ],
             linkerSettings: [
                 .linkedFramework("ApplicationServices"),

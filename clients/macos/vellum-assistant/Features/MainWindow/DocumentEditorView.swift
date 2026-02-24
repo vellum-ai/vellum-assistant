@@ -194,11 +194,31 @@ struct DocumentEditorView: NSViewRepresentable {
 
 // MARK: - HTML Generation
 
+/// Loads a bundled editor asset from Resources/editor/ as a String.
+/// Falls back to an empty string if the file cannot be read.
+private func loadEditorAsset(_ filename: String) -> String {
+    let name = (filename as NSString).deletingPathExtension
+    let ext = (filename as NSString).pathExtension
+    guard let url = Bundle.main.url(forResource: name, withExtension: ext, subdirectory: "editor"),
+          let contents = try? String(contentsOf: url, encoding: .utf8) else {
+        log.error("Failed to load bundled editor asset: \(filename)")
+        return ""
+    }
+    return contents
+}
+
 /// Generates the Toast UI Editor HTML template.
 /// Reuses the same editor from document-tool.ts editor-template.ts
 private func generateEditorHTML(title: String, initialContent: String) -> String {
     let escapedTitle = escapeHTML(title)
     let escapedContent = escapeJSON(initialContent)
+
+    // Load bundled editor assets
+    let editorCSS = loadEditorAsset("toastui-editor.min.css")
+    let editorDarkCSS = loadEditorAsset("toastui-editor-dark.min.css")
+    let githubDarkCSS = loadEditorAsset("github-dark.min.css")
+    let githubCSS = loadEditorAsset("github.min.css")
+    let editorJS = loadEditorAsset("toastui-editor-all.min.js")
 
     return """
 <!DOCTYPE html>
@@ -208,22 +228,11 @@ private func generateEditorHTML(title: String, initialContent: String) -> String
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>\(escapedTitle)</title>
 
-  <!-- Toast UI Editor CSS -->
-  <link rel="stylesheet" href="https://uicdn.toast.com/editor/3.2.2/toastui-editor.min.css"
-        integrity="sha384-Uw+ry/KtbmFNRGJd+U+hpfJou1QMHCAQc8k8OdZkclgUySjn8aJJcVTkkCeSwP6H"
-        crossorigin="anonymous" />
-  <link rel="stylesheet" href="https://uicdn.toast.com/editor/3.2.2/theme/toastui-editor-dark.min.css"
-        integrity="sha384-sVw6WIm9J/uQN297I6pVzNTIZf44KjU+hr4aeWw7/a6jmwjHKJHyaqawLS4LUIq0"
-        crossorigin="anonymous"
-        media="(prefers-color-scheme: dark)" />
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css"
-        integrity="sha384-wH75j6z1lH97ZOpMOInqhgKzFkAInZPPSPlZpYKYTOqsaizPvhQZmAtLcPKXpLyH"
-        crossorigin="anonymous"
-        media="(prefers-color-scheme: dark)" />
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css"
-        integrity="sha384-eFTL69TLRZTkNfYZOLM+G04821K1qZao/4QLJbet1pP4tcF+fdXq/9CdqAbWRl/L"
-        crossorigin="anonymous"
-        media="(prefers-color-scheme: light)" />
+  <!-- Toast UI Editor CSS (bundled) -->
+  <style>\(editorCSS)</style>
+  <style media="(prefers-color-scheme: dark)">\(editorDarkCSS)</style>
+  <style media="(prefers-color-scheme: dark)">\(githubDarkCSS)</style>
+  <style media="(prefers-color-scheme: light)">\(githubCSS)</style>
 
   <style>
     :root {
@@ -340,10 +349,8 @@ private func generateEditorHTML(title: String, initialContent: String) -> String
     <div id="editor"></div>
   </div>
 
-  <!-- Toast UI Editor JS -->
-  <script src="https://uicdn.toast.com/editor/3.2.2/toastui-editor-all.min.js"
-          integrity="sha384-FF8a/n4tsDcp0oRDFHNNygVDoaTZfIGmaSzvbL8wMqj/8R5sD+JKKKqfQmwJQAQY"
-          crossorigin="anonymous"></script>
+  <!-- Toast UI Editor JS (bundled) -->
+  <script>\(editorJS)</script>
 
   <script>
     try {
