@@ -236,7 +236,6 @@ export async function processMessage(
   if (guardianDelivery) {
     const guardianRequest = getGuardianActionRequest(guardianDelivery.requestId);
     if (guardianRequest && guardianRequest.status === 'pending') {
-      const resolved = resolveGuardianActionRequest(guardianRequest.id, content, 'mac');
       const userMsg = createUserMessage(content, attachments);
       const persisted = conversationStore.addMessage(
         session.conversationId,
@@ -245,25 +244,36 @@ export async function processMessage(
       );
       session.messages.push(userMsg);
 
-      if (resolved) {
-        void answerCall({ callSessionId: guardianRequest.callSessionId, answer: content });
-        const confirmMsg = createAssistantMessage('Your answer has been relayed to the call.');
+      // Attempt to deliver the answer to the call first. Only resolve
+      // the guardian action request if answerCall succeeds, so that a
+      // failed delivery leaves the request pending for retry from
+      // another channel.
+      const answerResult = await answerCall({ callSessionId: guardianRequest.callSessionId, answer: content });
+
+      if ('ok' in answerResult && answerResult.ok) {
+        const resolved = resolveGuardianActionRequest(guardianRequest.id, content, 'mac');
+        const replyText = resolved
+          ? 'Your answer has been relayed to the call.'
+          : 'This question has already been answered from another channel.';
+        const replyMsg = createAssistantMessage(replyText);
         conversationStore.addMessage(
           session.conversationId,
           'assistant',
-          JSON.stringify(confirmMsg.content),
+          JSON.stringify(replyMsg.content),
         );
-        session.messages.push(confirmMsg);
-        onEvent({ type: 'assistant_text_delta', text: 'Your answer has been relayed to the call.' });
+        session.messages.push(replyMsg);
+        onEvent({ type: 'assistant_text_delta', text: replyText });
       } else {
-        const staleMsg = createAssistantMessage('This question has already been answered from another channel.');
+        const errorDetail = 'error' in answerResult ? answerResult.error : 'Unknown error';
+        log.warn({ callSessionId: guardianRequest.callSessionId, error: errorDetail }, 'answerCall failed for mac guardian answer');
+        const failMsg = createAssistantMessage('Failed to deliver your answer to the call. Please try again.');
         conversationStore.addMessage(
           session.conversationId,
           'assistant',
-          JSON.stringify(staleMsg.content),
+          JSON.stringify(failMsg.content),
         );
-        session.messages.push(staleMsg);
-        onEvent({ type: 'assistant_text_delta', text: 'This question has already been answered from another channel.' });
+        session.messages.push(failMsg);
+        onEvent({ type: 'assistant_text_delta', text: 'Failed to deliver your answer to the call. Please try again.' });
       }
       onEvent({ type: 'message_complete', sessionId: session.conversationId });
       return persisted.id;

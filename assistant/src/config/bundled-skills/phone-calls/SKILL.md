@@ -198,7 +198,7 @@ An optional verification step where the callee must enter a numeric code via the
 | Setting | Description | Default |
 |---|---|---|
 | `calls.verification.enabled` | Enable DTMF callee verification | `false` |
-| `calls.verification.codeLength` | Number of digits in the verification code | `4` |
+| `calls.verification.codeLength` | Number of digits in the verification code | `6` |
 
 ## Optional: Higher Quality Voice with ElevenLabs
 

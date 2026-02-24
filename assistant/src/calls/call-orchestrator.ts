@@ -22,6 +22,7 @@ import type { RelayConnection } from './relay-server.js';
 import { registerCallOrchestrator, unregisterCallOrchestrator, fireCallQuestionNotifier, fireCallCompletionNotifier, fireCallTranscriptNotifier } from './call-state.js';
 import type { PromptSpeakerContext } from './speaker-identification.js';
 import { addPointerMessage, formatDuration } from './call-pointer-messages.js';
+import * as conversationStore from '../memory/conversation-store.js';
 import { dispatchGuardianQuestion } from './guardian-dispatch.js';
 import type { ServerMessage } from '../daemon/ipc-contract.js';
 
@@ -452,6 +453,13 @@ export class CallOrchestrator {
       if (spokenText.length > 0) {
         const session = getCallSession(this.callSessionId);
         if (session) {
+          // Persist assistant transcript to the voice conversation so it
+          // survives even when no live daemon Session is listening.
+          conversationStore.addMessage(
+            session.conversationId,
+            'assistant',
+            JSON.stringify([{ type: 'text', text: spokenText }]),
+          );
           fireCallTranscriptNotifier(session.conversationId, this.callSessionId, 'assistant', spokenText);
         }
       }
