@@ -132,10 +132,12 @@ export async function runMemoryJobsOnce(
     for (const result of groupResults) {
       if (result.status === 'fulfilled') {
         processed += result.value;
+      } else {
+        // This branch is only reached by an unexpected error in the group
+        // runner itself (not per-job errors, which handleJobError already covers).
+        // Log it so dropped job batches are never silently swallowed.
+        log.error({ err: result.reason }, 'Memory job group rejected unexpectedly — jobs in this batch may have been dropped');
       }
-      // Errors within groups are already handled per-job above;
-      // a rejected group promise would only come from an unexpected
-      // error in the loop itself, which is unlikely.
     }
   }
   if (enableScheduledCleanup) {
