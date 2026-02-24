@@ -308,7 +308,7 @@ struct QRPairingSheet: View {
                 return
             }
             if !devLocalPairingEnabled {
-                errorMessage = "Enable Developer Local Pairing in connection settings to use local HTTP gateways."
+                errorMessage = "Enable 'Allow Local HTTP Connections' under Developer Options in connection settings."
                 phase = .error
                 return
             }

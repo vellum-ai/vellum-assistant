@@ -57,6 +57,7 @@ struct DaemonConnectionSection: View {
     @State private var isConnecting = false
 
     @AppStorage(PairingConfiguration.devLocalPairingKey) private var devLocalPairingEnabled: Bool = false
+    @State private var devOptionsExpanded: Bool = false
 
     /// The currently configured gateway URL, shown as read-only status.
     private var gatewayURL: String? {
@@ -174,7 +175,7 @@ struct DaemonConnectionSection: View {
 
             // Developer options
             Section {
-                DisclosureGroup("Developer Options") {
+                DisclosureGroup("Developer Options", isExpanded: $devOptionsExpanded) {
                     VStack(alignment: .leading, spacing: 8) {
                         Toggle("Allow Local HTTP Connections", isOn: $devLocalPairingEnabled)
                             .font(VFont.body)
@@ -199,6 +200,21 @@ struct DaemonConnectionSection: View {
                         }
                     }
                 }
+
+                // Show a brief warning when dev mode is on but section is collapsed
+                if devLocalPairingEnabled && !devOptionsExpanded {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(VColor.warning)
+                            .font(.system(size: 12))
+                        Text("Local HTTP connections enabled")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.warning)
+                    }
+                }
+            }
+            .onAppear {
+                devOptionsExpanded = devLocalPairingEnabled
             }
 
         }
