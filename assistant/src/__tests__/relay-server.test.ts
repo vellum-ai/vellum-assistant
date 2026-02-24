@@ -201,7 +201,7 @@ function getLatestAssistantText(conversationId: string): string | null {
     const parsed = JSON.parse(latest.content) as unknown;
     if (Array.isArray(parsed)) {
       return parsed
-        .filter((block): block is { type: string; text?: string } => typeof block === 'object' && block !== null)
+        .filter((block): block is { type: string; text?: string } => typeof block === 'object' && block != null)
         .filter((block) => block.type === 'text')
         .map((block) => block.text ?? '')
         .join('');

@@ -15,7 +15,7 @@ import {
   type ProcessingStage,
 } from '../../../../memory/media-store.js';
 
-const VLM_PROMPT = `Analyze this image frame extracted from a video. Return a JSON object with the following fields:
+const _VLM_PROMPT = `Analyze this image frame extracted from a video. Return a JSON object with the following fields:
 
 {
   "sceneDescription": "A concise description of the overall scene",

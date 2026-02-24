@@ -327,7 +327,7 @@ export function deleteLastExchange(conversationId: string): number {
       .where(inArray(messageAttachments.messageId, messageIds))
       .all()
       .map((r) => r.attachmentId)
-      .filter((id): id is string => id !== null)
+      .filter((id): id is string => id !== undefined)
     : [];
 
   db.transaction((tx) => {
@@ -419,7 +419,7 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
     .where(eq(messageAttachments.messageId, messageId))
     .all()
     .map((r) => r.attachmentId)
-    .filter((id): id is string => id !== null);
+    .filter((id): id is string => id !== undefined);
 
   db.transaction((tx) => {
     // Collect memory segment IDs linked to this message before cascade.
@@ -614,7 +614,7 @@ function buildExcerpt(rawContent: string, query: string): string {
     if (Array.isArray(parsed)) {
       const parts: string[] = [];
       for (const block of parsed) {
-        if (typeof block === 'object' && block !== null) {
+        if (typeof block === 'object' && block != null) {
           if (block.type === 'text' && typeof block.text === 'string') {
             parts.push(block.text);
           } else if (block.type === 'tool_result') {

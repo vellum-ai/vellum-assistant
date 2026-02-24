@@ -244,7 +244,7 @@ export class QdrantManager {
 
   private cleanupStaleProcess(): void {
     const pid = this.readPid();
-    if (pid === null) return;
+    if (pid == null) return;
 
     try {
       process.kill(pid, 0); // Check if process exists

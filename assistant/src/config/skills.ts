@@ -173,7 +173,7 @@ export function checkSkillRequirements(
 
   // anyBins: at least one must exist
   if (requires.anyBins && requires.anyBins.length > 0) {
-    const hasAny = requires.anyBins.some((bin) => Bun.which(bin) !== null);
+    const hasAny = requires.anyBins.some((bin) => Bun.which(bin) !== undefined);
     if (!hasAny) {
       missingBins.push(`(one of: ${requires.anyBins.join(', ')})`);
     }

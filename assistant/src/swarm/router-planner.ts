@@ -62,7 +62,7 @@ export function parsePlanJSON(raw: string): { tasks: Array<{ id: string; role: s
   // Try all fenced code blocks — LLMs sometimes emit non-JSON blocks before the plan
   const fencedRegex = /```(?:json)?\s*\n?([\s\S]*?)\n?```/g;
   let match;
-  while ((match = fencedRegex.exec(raw)) !== null) {
+  while ((match = fencedRegex.exec(raw)) != null) {
     const result = tryParsePlan(match[1]);
     if (result) return result;
   }

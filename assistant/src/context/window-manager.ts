@@ -112,7 +112,7 @@ export class ContextWindowManager {
       };
     }
 
-    const summaryOffset = existingSummary !== null ? 1 : 0;
+    const summaryOffset = existingSummary !== undefined ? 1 : 0;
     const userTurnStarts = collectUserTurnStartIndexes(messages);
     if (userTurnStarts.length === 0) {
       return {
@@ -372,7 +372,7 @@ function collectUserTurnStartIndexes(messages: Message[]): number[] {
   for (let i = 0; i < messages.length; i++) {
     const message = messages[i];
     if (message.role !== 'user') continue;
-    if (getSummaryFromContextMessage(message) !== null) continue;
+    if (getSummaryFromContextMessage(message) !== undefined) continue;
     if (isToolResultOnly(message)) continue;
     starts.push(i);
   }
@@ -387,7 +387,7 @@ function collectUserTurnStartIndexes(messages: Message[]): number[] {
  */
 function countPersistedMessages(messages: Message[]): number {
   return messages.filter((message) => {
-    return getSummaryFromContextMessage(message) === null;
+    return getSummaryFromContextMessage(message) === undefined;
   }).length;
 }
 

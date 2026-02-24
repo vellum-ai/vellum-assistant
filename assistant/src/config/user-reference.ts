@@ -13,7 +13,7 @@ const DEFAULT_USER_REFERENCE = 'my human';
  */
 export function resolveUserReference(): string {
   const content = readTextFileSync(getWorkspacePromptPath('USER.md'));
-  if (content !== null) {
+  if (content != null) {
     const match = content.match(/Preferred name\/reference:[ \t]*(.*)/);
     if (match && match[1].trim()) {
       return match[1].trim();

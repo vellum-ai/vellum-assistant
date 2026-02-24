@@ -48,7 +48,7 @@ export function stripDynamicProfileMessages(messages: Message[], profileText: st
     changed = true;
     const stripped = nextText.replace(/\n{3,}/g, '\n\n').trimEnd();
     return stripped.length > 0 ? { ...block, text: stripped } : null;
-  }).filter((block): block is NonNullable<typeof block> => block !== null);
+  }).filter((block): block is NonNullable<typeof block> => block !== undefined);
   if (!changed) return messages;
   // If stripping removed all content blocks, drop the message entirely
   // to avoid sending an empty content array to the provider.

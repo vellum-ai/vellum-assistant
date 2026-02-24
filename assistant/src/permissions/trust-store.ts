@@ -326,7 +326,7 @@ function saveToDisk(rules: TrustRule[]): void {
 }
 
 function getRules(): TrustRule[] {
-  if (cachedRules === null) {
+  if (cachedRules == null) {
     cachedRules = loadFromDisk();
     rebuildPatternCache(cachedRules);
   }

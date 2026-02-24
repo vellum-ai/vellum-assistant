@@ -21,7 +21,7 @@ export function resolveSkillStates(
 
   for (const skill of catalog) {
     // Filter bundled skills by allowlist
-    if (skill.source === 'bundled' && allowBundled !== null && !allowBundled.includes(skill.id)) {
+    if (skill.source === 'bundled' && allowBundled != null && !allowBundled.includes(skill.id)) {
       continue;
     }
 

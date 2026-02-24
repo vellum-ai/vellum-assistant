@@ -120,11 +120,11 @@ export async function run(
       let endAdjCount = 0;
 
       for (const fb of boundaryFeedback) {
-        if (fb.originalStartTime !== null && fb.correctedStartTime !== null) {
+        if (fb.originalStartTime != null && fb.correctedStartTime != null) {
           startAdjTotal += fb.correctedStartTime - fb.originalStartTime;
           startAdjCount++;
         }
-        if (fb.originalEndTime !== null && fb.correctedEndTime !== null) {
+        if (fb.originalEndTime != null && fb.correctedEndTime != null) {
           endAdjTotal += fb.correctedEndTime - fb.originalEndTime;
           endAdjCount++;
         }

@@ -357,7 +357,7 @@ export class DaemonServer {
       const parseDurationMs = Number(process.hrtime.bigint() - parseStartNs) / 1_000_000;
       for (const entry of parsed) {
         const msg = entry.msg;
-        if (typeof msg === 'object' && msg !== null && (msg as { type?: unknown }).type === 'cu_observation') {
+        if (typeof msg === 'object' && msg != null && (msg as { type?: unknown }).type === 'cu_observation') {
           const maybeSessionId = (msg as { sessionId?: unknown }).sessionId;
           const sessionId = typeof maybeSessionId === 'string' ? maybeSessionId : 'unknown';
           const previousSequence = this.cuObservationParseSequence.get(sessionId) ?? 0;

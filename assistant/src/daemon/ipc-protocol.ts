@@ -42,7 +42,7 @@ export function createMessageParser(options?: { maxLineSize?: number }) {
         try {
           const msg = JSON.parse(trimmed);
           const entry: ParsedMessage = { msg };
-          if (typeof msg === 'object' && msg !== null && msg.type === 'cu_observation') {
+          if (typeof msg === 'object' && msg != null && msg.type === 'cu_observation') {
             entry.rawByteLength = Buffer.byteLength(trimmed, 'utf8');
           }
           results.push(entry);

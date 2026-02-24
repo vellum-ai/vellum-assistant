@@ -393,7 +393,7 @@ export async function handleWorkItemRunTask(
   // Compute required tools using the same resolution logic as preflight:
   // work-item snapshot first, then task template, then all registered tools.
   let requiredTools: string[];
-  if (workItem.requiredTools !== null && workItem.requiredTools !== undefined) {
+  if (workItem.requiredTools != null) {
     requiredTools = sanitizeToolList(JSON.parse(workItem.requiredTools));
   } else {
     requiredTools = task.requiredTools
@@ -513,7 +513,7 @@ export async function handleWorkItemPreflight(
   // back to the task template (or all registered tools) when the
   // snapshot is null.
   let requiredTools: string[];
-  if (workItem.requiredTools !== null && workItem.requiredTools !== undefined) {
+  if (workItem.requiredTools != null) {
     requiredTools = sanitizeToolList(JSON.parse(workItem.requiredTools));
   } else {
     const task = getTask(workItem.taskId);

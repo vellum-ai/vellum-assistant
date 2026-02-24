@@ -191,7 +191,7 @@ const ATTR_RE = /(\w+)\s*=\s*"([^"]*)"|(\w+)\s*=\s*'([^']*)'/g;
 function parseAttributes(raw: string): Record<string, string> {
   const attrs: Record<string, string> = {};
   let m: RegExpExecArray | null;
-  while ((m = ATTR_RE.exec(raw)) !== null) {
+  while ((m = ATTR_RE.exec(raw)) != null) {
     const key = m[1] ?? m[3];
     const value = m[2] ?? m[4];
     attrs[key] = value;

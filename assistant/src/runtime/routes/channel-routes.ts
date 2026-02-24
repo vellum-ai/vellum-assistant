@@ -391,7 +391,7 @@ export async function handleChannelInbound(
   }
 
   // Reject non-string content regardless of whether attachments are present.
-  if (content !== undefined && content !== null && typeof content !== 'string') {
+  if (content != null && typeof content !== 'string') {
     return Response.json({ error: 'content must be a string' }, { status: 400 });
   }
 

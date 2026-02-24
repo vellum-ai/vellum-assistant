@@ -64,7 +64,7 @@ function cloneSession(s: ProxySession): ProxySession {
 }
 
 function resetIdleTimer(managed: ManagedSession): void {
-  if (managed.idleTimer !== null) {
+  if (managed.idleTimer != null) {
     clearTimeout(managed.idleTimer);
   }
   managed.idleTimer = setTimeout(() => {
@@ -344,7 +344,7 @@ export async function stopSession(sessionId: ProxySessionId): Promise<void> {
   managed.session.status = 'stopping';
 
   const doStop = async () => {
-    if (managed.idleTimer !== null) {
+    if (managed.idleTimer != null) {
       clearTimeout(managed.idleTimer);
       managed.idleTimer = null;
     }
@@ -376,7 +376,7 @@ export function getSessionEnv(
 ): ProxyEnvVars {
   const managed = sessions.get(sessionId);
   if (!managed) throw new Error(`Session not found: ${sessionId}`);
-  if (managed.session.status !== 'active' || managed.session.port === null) {
+  if (managed.session.status !== 'active' || managed.session.port == null) {
     throw new Error(`Session ${sessionId} is not active`);
   }
 

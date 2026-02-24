@@ -21,7 +21,7 @@ function redactString(value: string): string {
 function redactObject(obj: unknown): unknown {
   if (typeof obj === "string") return redactString(obj);
   if (Array.isArray(obj)) return obj.map(redactObject);
-  if (obj !== null && typeof obj === "object") {
+  if (obj != null && typeof obj === "object") {
     const out: Record<string, unknown> = {};
     for (const [key, val] of Object.entries(obj)) {
       out[key] = redactObject(val);

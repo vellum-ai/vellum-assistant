@@ -109,7 +109,7 @@ function cleanupPidFile(): void {
 
 export function isDaemonRunning(): boolean {
   const pid = readPid();
-  if (pid === null) return false;
+  if (pid == null) return false;
   if (!isProcessRunning(pid)) {
     // Stale PID file
     cleanupPidFile();
@@ -120,7 +120,7 @@ export function isDaemonRunning(): boolean {
 
 export function getDaemonStatus(): { running: boolean; pid?: number } {
   const pid = readPid();
-  if (pid === null) return { running: false };
+  if (pid == null) return { running: false };
   if (!isProcessRunning(pid)) {
     cleanupPidFile();
     return { running: false };
@@ -221,7 +221,7 @@ export type StopResult =
 
 export async function stopDaemon(): Promise<StopResult> {
   const pid = readPid();
-  if (pid === null || !isProcessRunning(pid)) {
+  if (pid == null || !isProcessRunning(pid)) {
     cleanupPidFile();
     return { stopped: false, reason: 'not_running' };
   }
