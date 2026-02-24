@@ -46,6 +46,7 @@ import { registerWatcherProvider } from '../watcher/provider-registry.js';
 import { gmailProvider } from '../watcher/providers/gmail.js';
 import { googleCalendarProvider } from '../watcher/providers/google-calendar.js';
 import { slackProvider as slackWatcherProvider } from '../watcher/providers/slack.js';
+import { githubProvider } from '../watcher/providers/github.js';
 import { registerMessagingProvider } from '../messaging/registry.js';
 import { slackProvider as slackMessagingProvider } from '../messaging/providers/slack/adapter.js';
 import { gmailMessagingProvider } from '../messaging/providers/gmail/adapter.js';
@@ -442,6 +443,7 @@ export async function runDaemon(): Promise<void> {
   registerWatcherProvider(gmailProvider);
   registerWatcherProvider(googleCalendarProvider);
   registerWatcherProvider(slackWatcherProvider);
+  registerWatcherProvider(githubProvider);
   initWatcherEngine();
 
   // Register messaging providers
