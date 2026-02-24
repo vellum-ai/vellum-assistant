@@ -31,7 +31,8 @@ export function initializeDb(): void {
       total_estimated_cost REAL NOT NULL DEFAULT 0,
       context_summary TEXT,
       context_compacted_message_count INTEGER NOT NULL DEFAULT 0,
-      context_compacted_at INTEGER
+      context_compacted_at INTEGER,
+      source TEXT NOT NULL DEFAULT 'user'
     )
   `);
 
@@ -524,6 +525,7 @@ export function initializeDb(): void {
   try { database.run(/*sql*/ `ALTER TABLE channel_inbound_events ADD COLUMN retry_after INTEGER`); } catch { /* already exists */ }
   try { database.run(/*sql*/ `ALTER TABLE channel_inbound_events ADD COLUMN raw_payload TEXT`); } catch { /* already exists */ }
   try { database.run(/*sql*/ `ALTER TABLE conversations ADD COLUMN thread_type TEXT NOT NULL DEFAULT 'standard'`); } catch { /* already exists */ }
+  try { database.run(/*sql*/ `ALTER TABLE conversations ADD COLUMN source TEXT NOT NULL DEFAULT 'user'`); } catch { /* already exists */ }
   try { database.run(/*sql*/ `ALTER TABLE conversations ADD COLUMN memory_scope_id TEXT NOT NULL DEFAULT 'default'`); } catch { /* already exists */ }
   try { database.run(/*sql*/ `ALTER TABLE attachments ADD COLUMN thumbnail_base64 TEXT`); } catch { /* already exists */ }
   try { database.run(/*sql*/ `ALTER TABLE cron_jobs ADD COLUMN schedule_syntax TEXT NOT NULL DEFAULT 'cron'`); } catch { /* already exists */ }
