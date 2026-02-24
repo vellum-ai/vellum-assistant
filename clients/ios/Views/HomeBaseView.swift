@@ -200,6 +200,11 @@ struct HomeBaseView: View {
     /// Callback to navigate to the Chats tab and open a new thread.
     var onNewConversation: (() -> Void)?
 
+    @State private var showAddPinSheet = false
+    @State private var newPinName = ""
+    @State private var newPinURL = ""
+    @State private var newPinIcon = ""
+
     var body: some View {
         NavigationStack {
             Group {
@@ -245,10 +250,8 @@ struct HomeBaseView: View {
                 // Widget row: recent conversations + reminders
                 widgetRowSection
 
-                // Pinned app links
-                if !pinnedAppsStore.pins.isEmpty {
-                    pinnedAppsSection
-                }
+                // Pinned app links — always visible so users can add their first pin
+                pinnedAppsSection
 
                 // Starter / onboarding task lists
                 if let homeBase {
@@ -515,16 +518,48 @@ struct HomeBaseView: View {
 
     private var pinnedAppsSection: some View {
         VStack(spacing: 0) {
-            sectionHeader(icon: "pin.fill", title: "Pinned Apps")
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: VSpacing.md) {
-                    ForEach(pinnedAppsStore.pins) { pin in
-                        pinnedAppCard(pin)
-                    }
+            HStack {
+                Image(systemName: "pin.fill")
+                    .foregroundColor(VColor.accent)
+                    .accessibilityHidden(true)
+                Text("Pinned Apps")
+                    .font(VFont.headline)
+                    .foregroundColor(VColor.textPrimary)
+                Spacer()
+                Button {
+                    newPinName = ""
+                    newPinURL = ""
+                    newPinIcon = ""
+                    showAddPinSheet = true
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(VColor.accent)
                 }
-                .padding(.horizontal, VSpacing.lg)
-                .padding(.vertical, VSpacing.md)
+                .accessibilityLabel("Add Pinned App")
+            }
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.md)
+            .background(VColor.backgroundSubtle)
+
+            if pinnedAppsStore.pins.isEmpty {
+                HStack {
+                    Text("No pinned apps yet. Tap + to add one.")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textMuted)
+                    Spacer()
+                }
+                .padding(VSpacing.lg)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: VSpacing.md) {
+                        ForEach(pinnedAppsStore.pins) { pin in
+                            pinnedAppCard(pin)
+                        }
+                    }
+                    .padding(.horizontal, VSpacing.lg)
+                    .padding(.vertical, VSpacing.md)
+                }
             }
         }
         .background(VColor.surface)
@@ -535,34 +570,95 @@ struct HomeBaseView: View {
         )
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Pinned Apps")
+        .sheet(isPresented: $showAddPinSheet) {
+            addPinSheet
+        }
+    }
+
+    private var addPinSheet: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("App name", text: $newPinName)
+                        .autocorrectionDisabled()
+                    TextField("URL (e.g. https://example.com)", text: $newPinURL)
+                        .keyboardType(.URL)
+                        .autocapitalization(.none)
+                        .autocorrectionDisabled()
+                    TextField("Icon emoji (optional)", text: $newPinIcon)
+                }
+            }
+            .navigationTitle("Add Pinned App")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        showAddPinSheet = false
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Add") {
+                        let trimmedName = newPinName.trimmingCharacters(in: .whitespaces)
+                        let trimmedURL = newPinURL.trimmingCharacters(in: .whitespaces)
+                        guard !trimmedName.isEmpty else { return }
+                        pinnedAppsStore.pin(PinnedAppLink(
+                            id: UUID().uuidString,
+                            name: trimmedName,
+                            icon: newPinIcon.isEmpty ? nil : newPinIcon,
+                            url: trimmedURL.isEmpty ? nil : trimmedURL,
+                            appType: nil,
+                            pinnedOrder: pinnedAppsStore.pins.count
+                        ))
+                        showAddPinSheet = false
+                    }
+                    .disabled(newPinName.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+        }
+        .presentationDetents([.medium])
     }
 
     private func pinnedAppCard(_ pin: PinnedAppLink) -> some View {
-        VStack(spacing: VSpacing.xs) {
-            ZStack {
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(VColor.backgroundSubtle)
-                    .frame(width: 56, height: 56)
-
-                if let icon = pin.icon, !icon.isEmpty {
-                    Text(icon)
-                        .font(.system(size: 28))
-                } else {
-                    Image(systemName: "square.fill")
-                        .font(.system(size: 24))
-                        .foregroundColor(VColor.textMuted)
-                }
+        Button {
+            // Open the pinned URL in Safari if available; otherwise no-op.
+            if let urlString = pin.url, !urlString.isEmpty, let url = URL(string: urlString) {
+                UIApplication.shared.open(url)
             }
+        } label: {
+            VStack(spacing: VSpacing.xs) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .fill(VColor.backgroundSubtle)
+                        .frame(width: 56, height: 56)
 
-            Text(pin.name)
-                .font(VFont.caption)
-                .foregroundColor(VColor.textPrimary)
-                .lineLimit(1)
-                .frame(width: 64)
+                    if let icon = pin.icon, !icon.isEmpty {
+                        Text(icon)
+                            .font(.system(size: 28))
+                    } else {
+                        Image(systemName: "square.fill")
+                            .font(.system(size: 24))
+                            .foregroundColor(VColor.textMuted)
+                    }
+                }
+
+                Text(pin.name)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textPrimary)
+                    .lineLimit(1)
+                    .frame(width: 64)
+            }
+            .frame(width: 72)
         }
-        .frame(width: 72)
+        .buttonStyle(.plain)
         .accessibilityLabel("Pinned app: \(pin.name)")
         .contextMenu {
+            if let urlString = pin.url, !urlString.isEmpty, let url = URL(string: urlString) {
+                Button {
+                    UIApplication.shared.open(url)
+                } label: {
+                    Label("Open", systemImage: "arrow.up.right.square")
+                }
+            }
             Button(role: .destructive) {
                 withAnimation(VAnimation.standard) {
                     pinnedAppsStore.unpin(id: pin.id)
