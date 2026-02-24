@@ -14,7 +14,7 @@ public actor ImageCache {
     private var inFlight: [URL: Task<Data, Error>] = [:]
 
     private init() {
-        dataCache.countLimit = 50
+        dataCache.countLimit = 250
     }
 
     /// Returns raw `Data` for the URL (needed for GIF animation frames).
