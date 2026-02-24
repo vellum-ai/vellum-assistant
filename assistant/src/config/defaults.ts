@@ -8,7 +8,7 @@ export const DEFAULT_CONFIG: AssistantConfig = {
   apiKeys: {},
   webSearchProvider: 'perplexity',
   providerOrder: [],
-  maxTokens: 64000,
+  maxTokens: 16000,
   thinking: {
     enabled: false,
     budgetTokens: 10000,

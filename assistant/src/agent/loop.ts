@@ -35,7 +35,7 @@ export type AgentEvent =
   | { type: 'usage'; inputTokens: number; outputTokens: number; cacheCreationInputTokens?: number; cacheReadInputTokens?: number; model: string; providerDurationMs: number; rawRequest?: unknown; rawResponse?: unknown };
 
 const DEFAULT_CONFIG: AgentLoopConfig = {
-  maxTokens: 64000,
+  maxTokens: 16000,
   maxToolUseTurns: 30,
 };
 
