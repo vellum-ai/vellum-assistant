@@ -124,9 +124,8 @@ function parseGeneratedCopy(text: string): GuardianCopy | null {
     return null;
   }
 
-  // Reject titles that don't start with an emoji or that use the old "Guardian question:" prefix
-  const firstCodePoint = title.codePointAt(0) ?? 0;
-  if (firstCodePoint < 127 || /^guardian question:/i.test(title)) {
+  // Reject the old static prefix — the model is guided towards better titles but has final say
+  if (/^guardian question:/i.test(title)) {
     return null;
   }
 
