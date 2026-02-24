@@ -676,7 +676,6 @@ struct ChatView: View {
     }
 
     @ViewBuilder
-    @ViewBuilder
     private var memoryDegradedBanner: some View {
         if isMemoryDegraded {
             HStack(spacing: VSpacing.sm) {
@@ -709,6 +708,7 @@ struct ChatView: View {
         }
     }
 
+    @ViewBuilder
     private var apiKeyBanner: some View {
         if !hasAPIKey {
             HStack(spacing: VSpacing.sm) {
