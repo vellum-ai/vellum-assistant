@@ -60,7 +60,7 @@ class IOSThreadStore: ObservableObject {
 
     /// ViewModels keyed by thread ID, created lazily on first access.
     private var viewModels: [UUID: ChatViewModel] = [:]
-    private let daemonClient: any DaemonClientProtocol
+    private var daemonClient: any DaemonClientProtocol
     private static let persistenceKey = "ios_threads_v1"
     private var cancellables: Set<AnyCancellable> = []
     /// Maps daemon session IDs to thread IDs for history loading.
@@ -136,6 +136,52 @@ class IOSThreadStore: ObservableObject {
                 try? daemon.sendSessionList(offset: 0, limit: Self.threadPageSize)
             }
             .store(in: &cancellables)
+    }
+
+    /// Re-point the store at a freshly constructed DaemonClient after `rebuildClient()`.
+    ///
+    /// `@StateObject` is initialised once by SwiftUI and never replaced when `ContentView`
+    /// re-initialises, so when the connection is rebuilt (QR pairing, settings change) the
+    /// store would otherwise keep sending messages to the old, disconnected client.  This
+    /// method swaps the client reference, cancels Combine subscriptions that captured the old
+    /// client, drops stale ChatViewModels (they reference the old client via `ChatViewModel`'s
+    /// own stored reference), resets pagination, and re-registers daemon callbacks on the new
+    /// client so the thread list is refreshed from the new connection.
+    func rebindDaemonClient(_ newClient: any DaemonClientProtocol) {
+        // Drop Combine subscriptions tied to the old DaemonClient so the reconnect
+        // publisher from setupDaemonCallbacks doesn't fire against the wrong daemon.
+        cancellables.removeAll()
+
+        daemonClient = newClient
+
+        // Existing ViewModels hold a reference to the old, disconnected client inside
+        // ChatViewModel.  Discard them so new ones are created with the new client.
+        viewModels.removeAll()
+        observedActivityThreadIds.removeAll()
+        pendingHistoryBySessionId.removeAll()
+
+        if let daemon = newClient as? DaemonClient {
+            // Connected mode — reset thread list and re-fetch from the new daemon.
+            isConnectedMode = true
+            threads = [IOSThread()]
+            threadListOffset = 0
+            sessionListToken += 1
+            inFlightSessionListToken = sessionListToken
+            hasMoreThreads = false
+            isLoadingMoreThreads = false
+            setupDaemonCallbacks(daemon)
+        } else {
+            // Switched back to standalone mode — reload persisted threads.
+            isConnectedMode = false
+            let loaded = Self.load()
+            if loaded.isEmpty {
+                let thread = IOSThread()
+                threads = [thread]
+                save()
+            } else {
+                threads = loaded
+            }
+        }
     }
 
     private func handleSessionListResponse(_ response: SessionListResponseMessage) {

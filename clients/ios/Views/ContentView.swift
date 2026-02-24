@@ -63,6 +63,12 @@ struct ContentView: View {
         .onChange(of: clientProvider.isConnected) { _, connected in
             if connected { connectPhase = .ready }
         }
+        // When rebuildClient() replaces the DaemonClient, re-bind the thread store
+        // to the new client so it doesn't keep targeting the old disconnected daemon.
+        // ObjectIdentifier changes whenever the client object is replaced.
+        .onChange(of: ObjectIdentifier(clientProvider.client as AnyObject)) { _, _ in
+            threadStore.rebindDaemonClient(clientProvider.client)
+        }
         // Ride Shotgun invitation sheet
         .sheet(isPresented: $ambientAgent.showInvitation) {
             RideShotgunInvitationSheet(
