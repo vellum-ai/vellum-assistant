@@ -37,6 +37,7 @@ struct VoiceModePanel: View {
                         .frame(width: 28, height: 28)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(showingInfo ? "Hide info" : "Show info")
                 Button(action: onClose) {
                     Image(systemName: "xmark")
                         .font(.system(size: 12, weight: .semibold))
@@ -46,6 +47,7 @@ struct VoiceModePanel: View {
                         .clipShape(Circle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Close voice mode")
             }
             .padding(.horizontal, VSpacing.xl)
             .padding(.top, VSpacing.xl)

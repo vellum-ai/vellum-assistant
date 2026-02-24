@@ -43,6 +43,7 @@ private struct AttachmentChip: View {
                     .symbolRenderingMode(.palette)
                     .foregroundStyle(.white, .black.opacity(0.6))
             }
+            .accessibilityLabel("Remove \(attachment.filename)")
             .offset(x: 6, y: -6)
         }
     }

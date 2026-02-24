@@ -217,6 +217,7 @@ struct ChatContentView: View {
                     .font(.system(size: 10, weight: .medium))
                     .foregroundColor(VColor.textMuted)
             }
+            .accessibilityLabel("Dismiss")
         }
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.sm)
@@ -275,6 +276,7 @@ struct ChatContentView: View {
                     .font(VFont.caption)
                     .foregroundColor(.white)
             }
+            .accessibilityLabel("Dismiss")
         }
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.sm)

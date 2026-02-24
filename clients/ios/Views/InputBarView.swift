@@ -42,6 +42,7 @@ struct InputBarView: View {
                         .font(VFont.body)
                         .foregroundColor(VColor.textSecondary)
                 }
+                .accessibilityLabel("Attach file")
                 .contextMenu {
                     Button {
                         showPhotosPicker = true
@@ -114,6 +115,7 @@ struct InputBarView: View {
                             .foregroundColor(isRecording ? .red : VColor.textMuted)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(isRecording ? "Stop voice input" : "Start voice input")
 
                     // Send button
                     Button(action: {
@@ -125,6 +127,7 @@ struct InputBarView: View {
                             .foregroundColor(canSend ? VColor.accent : VColor.textMuted)
                     }
                     .disabled(!canSend)
+                    .accessibilityLabel("Send message")
                 }
             }
             .padding(VSpacing.md)
