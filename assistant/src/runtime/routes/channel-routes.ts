@@ -1408,6 +1408,24 @@ async function handleApprovalInterception(
       const allPending = getAllPendingApprovalsByGuardianChat(sourceChannel, externalChatId, assistantId);
       if (allPending.length === 1) {
         guardianApproval = allPending[0];
+      } else if (allPending.length > 1) {
+        // The callback targeted a stale/expired run but the guardian has other
+        // pending approvals. Inform them the clicked approval is no longer valid.
+        try {
+          const staleText = await composeApprovalMessageGenerative({
+            scenario: 'guardian_disambiguation',
+            pendingCount: allPending.length,
+            channel: sourceChannel,
+          }, {}, approvalCopyGenerator);
+          await deliverChannelReply(replyCallbackUrl, {
+            chatId: externalChatId,
+            text: staleText,
+            assistantId,
+          }, bearerToken);
+        } catch (err) {
+          log.error({ err, externalChatId }, 'Failed to deliver stale callback disambiguation notice');
+        }
+        return { handled: true, type: 'stale_ignored' };
       }
     }
 
@@ -1466,14 +1484,16 @@ async function handleApprovalInterception(
           orchestrator,
         );
 
-        // Update the guardian approval request record
-        const approvalStatus = callbackDecision.action === 'reject' ? 'denied' as const : 'approved' as const;
-        updateApprovalDecision(guardianApproval.id, {
-          status: approvalStatus,
-          decidedByExternalUserId: senderExternalUserId,
-        });
-
         if (result.applied) {
+          // Update the guardian approval request record only when the decision
+          // was actually applied. If the run was already resolved (race with
+          // expiry sweep or concurrent callback), skip to avoid inconsistency.
+          const approvalStatus = callbackDecision.action === 'reject' ? 'denied' as const : 'approved' as const;
+          updateApprovalDecision(guardianApproval.id, {
+            status: approvalStatus,
+            decidedByExternalUserId: senderExternalUserId,
+          });
+
           // Notify the requester's chat about the outcome with the tool name
           const outcomeText = await composeApprovalMessageGenerative({
             scenario: 'guardian_decision_outcome',
@@ -1555,6 +1575,32 @@ async function handleApprovalInterception(
           ? allGuardianPending.find((a) => a.runId === engineResult.targetRunId) ?? guardianApproval
           : guardianApproval;
 
+        // Re-validate guardian identity against the resolved target. The
+        // engine may select a different pending approval (via targetRunId)
+        // that was assigned to a different guardian. Without this check a
+        // currently bound guardian could act on a request assigned to a
+        // previous guardian after a binding rotation.
+        if (senderExternalUserId !== targetApproval.guardianExternalUserId) {
+          log.warn(
+            { externalChatId, senderExternalUserId, expectedGuardian: targetApproval.guardianExternalUserId, targetRunId: engineResult.targetRunId },
+            'Guardian identity mismatch on engine-selected target approval',
+          );
+          try {
+            const mismatchText = await composeApprovalMessageGenerative({
+              scenario: 'guardian_identity_mismatch',
+              channel: sourceChannel,
+            }, {}, approvalCopyGenerator);
+            await deliverChannelReply(replyCallbackUrl, {
+              chatId: externalChatId,
+              text: mismatchText,
+              assistantId,
+            }, bearerToken);
+          } catch (err) {
+            log.error({ err, externalChatId }, 'Failed to deliver guardian identity mismatch notice for engine target');
+          }
+          return { handled: true, type: 'guardian_decision_applied' };
+        }
+
         const engineDecision: ApprovalDecisionResult = {
           action: decisionAction,
           source: 'plain_text',
@@ -1567,14 +1613,16 @@ async function handleApprovalInterception(
           orchestrator,
         );
 
-        // Update the guardian approval request record
-        const approvalStatus = decisionAction === 'reject' ? 'denied' as const : 'approved' as const;
-        updateApprovalDecision(targetApproval.id, {
-          status: approvalStatus,
-          decidedByExternalUserId: senderExternalUserId,
-        });
-
         if (result.applied) {
+          // Update the guardian approval request record only when the decision
+          // was actually applied. If the run was already resolved (race with
+          // expiry sweep or concurrent callback), skip to avoid inconsistency.
+          const approvalStatus = decisionAction === 'reject' ? 'denied' as const : 'approved' as const;
+          updateApprovalDecision(targetApproval.id, {
+            status: approvalStatus,
+            decidedByExternalUserId: senderExternalUserId,
+          });
+
           // Notify the requester's chat about the outcome
           const outcomeText = await composeApprovalMessageGenerative({
             scenario: 'guardian_decision_outcome',
@@ -1620,8 +1668,83 @@ async function handleApprovalInterception(
         return { handled: true, type: 'guardian_decision_applied' };
       }
 
-      // No conversational engine available or no content — fall through
-      // to standard approval interception below.
+      // ── Legacy fallback when no conversational engine is available ──
+      // Use the deterministic parser to handle guardian plain-text so that
+      // simple yes/no replies still work when the engine is not injected.
+      if (content && !approvalConversationGenerator) {
+        const legacyGuardianDecision = parseApprovalDecision(content);
+        if (legacyGuardianDecision) {
+          // Guardians cannot approve_always — downgrade to approve_once.
+          if (legacyGuardianDecision.action === 'approve_always') {
+            legacyGuardianDecision.action = 'approve_once';
+          }
+
+          const result = handleChannelDecision(
+            guardianApproval.conversationId,
+            legacyGuardianDecision,
+            orchestrator,
+          );
+
+          if (result.applied) {
+            const approvalStatus = legacyGuardianDecision.action === 'reject' ? 'denied' as const : 'approved' as const;
+            updateApprovalDecision(guardianApproval.id, {
+              status: approvalStatus,
+              decidedByExternalUserId: senderExternalUserId,
+            });
+
+            // Notify the requester's chat about the outcome
+            const outcomeText = await composeApprovalMessageGenerative({
+              scenario: 'guardian_decision_outcome',
+              decision: legacyGuardianDecision.action === 'reject' ? 'denied' : 'approved',
+              toolName: guardianApproval.toolName,
+              channel: sourceChannel,
+            }, {}, approvalCopyGenerator);
+            try {
+              await deliverChannelReply(replyCallbackUrl, {
+                chatId: guardianApproval.requesterChatId,
+                text: outcomeText,
+                assistantId,
+              }, bearerToken);
+            } catch (err) {
+              log.error({ err, conversationId: guardianApproval.conversationId }, 'Failed to notify requester of guardian decision (legacy path)');
+            }
+
+            if (result.runId) {
+              schedulePostDecisionDelivery(
+                orchestrator,
+                result.runId,
+                guardianApproval.conversationId,
+                guardianApproval.requesterChatId,
+                replyCallbackUrl,
+                bearerToken,
+                assistantId,
+              );
+            }
+          }
+
+          return { handled: true, type: 'guardian_decision_applied' };
+        }
+
+        // No decision could be parsed — send a generic reminder to the guardian
+        try {
+          const reminderText = await composeApprovalMessageGenerative({
+            scenario: 'reminder_prompt',
+            toolName: guardianApproval.toolName,
+            channel: sourceChannel,
+          }, {}, approvalCopyGenerator);
+          await deliverChannelReply(replyCallbackUrl, {
+            chatId: externalChatId,
+            text: reminderText,
+            assistantId,
+          }, bearerToken);
+        } catch (err) {
+          log.error({ err, conversationId: guardianApproval.conversationId }, 'Failed to deliver guardian reminder (legacy path)');
+        }
+        return { handled: true, type: 'assistant_turn' };
+      }
+
+      // No content and no engine — nothing to do, fall through to standard
+      // approval interception below.
     }
   }
 
