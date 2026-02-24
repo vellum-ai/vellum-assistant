@@ -75,14 +75,15 @@ final class QuickInputWindow {
             panel.animator().alphaValue = 1
         }
 
-        // Dismiss when the panel loses focus
+        // Dismiss when the panel loses focus. Don't restore the previous
+        // app — the user clicked elsewhere, so that app already has focus.
         resignObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didResignKeyNotification,
             object: panel,
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
-                self?.dismiss()
+                self?.dismiss(restorePreviousApp: false)
             }
         }
 
