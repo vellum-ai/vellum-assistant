@@ -213,7 +213,7 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
     });
   }
 
-  const twilioConfig = getTwilioConfig();
+  const twilioConfig = getTwilioConfig(session.assistantId ?? undefined);
   let relayUrl: string;
   try {
     relayUrl = getTwilioRelayUrl(loadConfig());

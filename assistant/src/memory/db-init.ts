@@ -782,6 +782,9 @@ export function initializeDb(): void {
   try { database.run(/*sql*/ `ALTER TABLE call_sessions ADD COLUMN caller_identity_mode TEXT`); } catch { /* already exists */ }
   try { database.run(/*sql*/ `ALTER TABLE call_sessions ADD COLUMN caller_identity_source TEXT`); } catch { /* already exists */ }
 
+  // Persist assistantId so the webhook path can resolve assistant-scoped Twilio numbers
+  try { database.run(/*sql*/ `ALTER TABLE call_sessions ADD COLUMN assistant_id TEXT`); } catch { /* already exists */ }
+
   // Unique constraint: at most one non-null provider_call_sid per (provider, provider_call_sid).
   // On upgraded databases that pre-date this constraint, duplicate rows may exist; deduplicate
   // them first to avoid a UNIQUE constraint failure that would prevent startup.

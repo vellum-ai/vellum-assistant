@@ -13,6 +13,7 @@ export interface CallSession {
   status: CallStatus;
   callerIdentityMode: string | null;
   callerIdentitySource: string | null;
+  assistantId: string | null;
   startedAt: number | null;
   endedAt: number | null;
   lastError: string | null;

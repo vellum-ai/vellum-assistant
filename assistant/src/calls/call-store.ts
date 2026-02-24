@@ -22,6 +22,7 @@ function parseCallSession(row: typeof callSessions.$inferSelect): CallSession {
     status: row.status as CallSession['status'],
     callerIdentityMode: row.callerIdentityMode,
     callerIdentitySource: row.callerIdentitySource,
+    assistantId: row.assistantId,
     startedAt: row.startedAt,
     endedAt: row.endedAt,
     lastError: row.lastError,
@@ -62,6 +63,7 @@ export function createCallSession(opts: {
   task?: string;
   callerIdentityMode?: string;
   callerIdentitySource?: string;
+  assistantId?: string;
 }): CallSession {
   const db = getDb();
   const now = Date.now();
@@ -76,6 +78,7 @@ export function createCallSession(opts: {
     status: 'initiated' as const,
     callerIdentityMode: opts.callerIdentityMode ?? null,
     callerIdentitySource: opts.callerIdentitySource ?? null,
+    assistantId: opts.assistantId ?? null,
     startedAt: null,
     endedAt: null,
     lastError: null,

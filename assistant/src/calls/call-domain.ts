@@ -221,6 +221,7 @@ export async function startCall(input: StartCallInput): Promise<StartCallResult 
       task: callContext ? `${task}\n\nContext: ${callContext}` : task,
       callerIdentityMode: identityResult.mode,
       callerIdentitySource: identityResult.source,
+      assistantId,
     });
     sessionId = session.id;
 
