@@ -35,6 +35,8 @@ import { QdrantManager } from '../memory/qdrant-manager.js';
 import { initQdrantClient } from '../memory/qdrant-client.js';
 import { startScheduler } from '../schedule/scheduler.js';
 import { RuntimeHttpServer } from '../runtime/http-server.js';
+import { assistantEventHub } from '../runtime/assistant-event-hub.js';
+import * as attachmentsStore from '../memory/attachments-store.js';
 import { getHookManager } from '../hooks/manager.js';
 import { installTemplates } from '../hooks/templates.js';
 import { installCliLaunchers } from './install-cli-launchers.js';
@@ -260,6 +262,18 @@ export async function runDaemon(): Promise<void> {
     interfacesDir: getInterfacesDir(),
     approvalCopyGenerator: createApprovalCopyGenerator(),
     approvalConversationGenerator: createApprovalConversationGenerator(),
+    sendMessageDeps: {
+      getOrCreateSession: (conversationId) =>
+        server.getSessionForMessages(conversationId),
+      assistantEventHub,
+      resolveAttachments: (attachmentIds) =>
+        attachmentsStore.getAttachmentsByIds(attachmentIds).map((a) => ({
+          id: a.id,
+          filename: a.originalFilename,
+          mimeType: a.mimeType,
+          data: a.dataBase64,
+        })),
+    },
   });
   try {
     await runtimeHttp.start();
