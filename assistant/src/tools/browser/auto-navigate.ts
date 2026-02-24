@@ -113,6 +113,7 @@ export async function autoNavigate(
     return [];
   }
 
+  await cdp.send('Page.bringToFront').catch(() => {});
   await cdp.send('Page.enable').catch(() => {});
 
   const rootUrl = `https://${domain}/`;

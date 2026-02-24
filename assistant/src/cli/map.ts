@@ -72,6 +72,55 @@ async function isCdpReady(): Promise<boolean> {
   }
 }
 
+/**
+ * Bring the Chrome CDP tab to the foreground so the user sees the right window.
+ * Optionally navigates to a URL first (used when Chrome was already running).
+ */
+async function bringChromeToFront(navigateUrl?: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${CDP_BASE}/json/list`);
+    if (!res.ok) return null;
+    const targets = (await res.json()) as Array<{ type: string; url: string; webSocketDebuggerUrl: string }>;
+    const pageTarget = targets.find(t => t.type === 'page');
+    if (!pageTarget?.webSocketDebuggerUrl) return null;
+
+    const ws = new WebSocket(pageTarget.webSocketDebuggerUrl);
+    await new Promise<void>((resolve, reject) => {
+      ws.onopen = () => resolve();
+      ws.onerror = (e) => reject(new Error(`CDP WebSocket error: ${e}`));
+    });
+
+    let nextId = 1;
+    const cdpSend = (method: string, params?: Record<string, unknown>): Promise<unknown> =>
+      new Promise((resolve, reject) => {
+        const id = nextId++;
+        const handler = (event: MessageEvent) => {
+          const msg = JSON.parse(String(event.data));
+          if (msg.id === id) {
+            ws.removeEventListener('message', handler);
+            if (msg.error) reject(new Error(msg.error.message));
+            else resolve(msg.result);
+          }
+        };
+        ws.addEventListener('message', handler);
+        ws.send(JSON.stringify({ id, method, params }));
+      });
+
+    if (navigateUrl) {
+      await cdpSend('Page.navigate', { url: navigateUrl });
+      // Brief wait for navigation to start
+      await new Promise(r => setTimeout(r, 500));
+    }
+
+    await cdpSend('Page.bringToFront');
+    const tabUrl = navigateUrl ?? pageTarget.url;
+    ws.close();
+    return tabUrl;
+  } catch {
+    return null;
+  }
+}
+
 async function ensureChromeWithCDP(domain: string): Promise<void> {
   // Already running with CDP?
   if (await isCdpReady()) return;
@@ -112,6 +161,12 @@ async function startLearnSession(
   durationSeconds: number,
 ): Promise<LearnResult> {
   await ensureChromeWithCDP(navigateDomain);
+
+  // Activate the Chrome window so the user knows which tab to watch
+  const tabUrl = await bringChromeToFront(`https://${navigateDomain}/`);
+  if (tabUrl) {
+    process.stderr.write(`Chrome is ready — using tab at ${tabUrl}\n`);
+  }
 
   return new Promise((resolve, reject) => {
     const socketPath = getSocketPath();
