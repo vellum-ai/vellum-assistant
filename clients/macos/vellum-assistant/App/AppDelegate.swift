@@ -66,6 +66,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var startSessionTask: Task<Void, Never>?
     var textResponseWindow: TextResponseWindow?
     private var voiceInput: VoiceInputManager?
+    private var wakeWordCoordinator: WakeWordCoordinator?
     private var voiceTranscriptionWindow: VoiceTranscriptionWindow?
     var thinkingWindow: ThinkingIndicatorWindow?
     public let services = AppServices()
@@ -227,10 +228,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                         style: .warning
                     )
                 }
+                setupWakeWordCoordinator()
                 debugStateWriter.start(appDelegate: self)
             }
         } else {
             showMainWindow()
+            setupWakeWordCoordinator()
             debugStateWriter.start(appDelegate: self)
         }
     }
@@ -1242,6 +1245,33 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         voiceInput?.start()
+    }
+
+    // MARK: - Wake Word Coordinator
+
+    private func setupWakeWordCoordinator() {
+        guard let mainWindow else {
+            log.warning("Cannot set up wake word coordinator — main window not available")
+            return
+        }
+
+        let sensitivity = UserDefaults.standard.float(forKey: "wakeWordSensitivity")
+        let engine = PorcupineWakeWordEngine(sensitivity: sensitivity > 0 ? sensitivity : 0.5)
+        let audioMonitor = AlwaysOnAudioMonitor(engine: engine)
+
+        let coordinator = WakeWordCoordinator(
+            audioMonitor: audioMonitor,
+            voiceModeManager: mainWindow.voiceModeManager,
+            threadManager: mainWindow.threadManager,
+            voiceInputManager: voiceInput
+        )
+
+        if UserDefaults.standard.bool(forKey: "wakeWordEnabled") {
+            audioMonitor.startMonitoring()
+        }
+
+        coordinator.markReady()
+        wakeWordCoordinator = coordinator
     }
 
     // MARK: - Ambient Agent

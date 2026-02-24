@@ -97,6 +97,11 @@ final class WakeWordCoordinator: ObservableObject {
 
         // 4. Activate voice mode and start listening
         voiceModeManager.activate(chatViewModel: chatViewModel)
+        guard voiceModeManager.state != .off else {
+            log.warning("Voice mode activation failed — resuming wake word listening")
+            audioMonitor.startMonitoring()
+            return
+        }
         voiceModeManager.startListening()
     }
 
