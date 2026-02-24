@@ -1,4 +1,4 @@
-import { describe, test, expect, mock, spyOn, afterEach } from "bun:test";
+import { describe, test, expect, spyOn, afterEach } from "bun:test";
 import { reconcileTelegramWebhook } from "../telegram/webhook-manager.js";
 import type { GatewayConfig } from "../config.js";
 
