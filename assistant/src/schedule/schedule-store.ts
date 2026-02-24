@@ -381,6 +381,14 @@ export function describeCronExpression(expr: string): string {
     const allDOW = p.starDOW;
     const allMonths = activeMonths.length === 12;
 
+    const fixedMinute = activeMinutes.length === 1;
+    const fixedHour = activeHours.length === 1;
+    const fixedTime = fixedMinute && fixedHour;
+    const steppedMinutes = !allMinutes && activeMinutes.length > 1;
+    const steppedHours = !allHours && activeHours.length > 1;
+    const anyDay = allDays && allDOW;
+    const anyDayAndMonth = anyDay && allMonths;
+
     // Format time as 12-hour clock
     function formatTime(hour: number, minute: number): string {
       const period = hour >= 12 ? 'PM' : 'AM';
@@ -396,14 +404,11 @@ export function describeCronExpression(expr: string): string {
       return n + (s[(v - 20) % 10] || s[v] || s[0]);
     }
 
-    // Every minute: all fields are wildcard
-    if (allMinutes && allHours && allDays && allDOW && allMonths) {
+    if (allMinutes && allHours && anyDayAndMonth) {
       return 'Every minute';
     }
 
-    // Every N minutes: multiple minutes, all hours, all days
-    if (!allMinutes && activeMinutes.length > 1 && allHours && allDays && allDOW && allMonths) {
-      // Check if it's a regular step pattern (e.g. */5)
+    if (steppedMinutes && allHours && anyDayAndMonth) {
       if (activeMinutes.length >= 2 && activeMinutes[0] === 0) {
         const step = activeMinutes[1] - activeMinutes[0];
         const isRegularStep = activeMinutes.every((v, i) => v === i * step);
@@ -413,16 +418,14 @@ export function describeCronExpression(expr: string): string {
       }
     }
 
-    // Every hour: minute is fixed at one value, all hours, all days
-    if (activeMinutes.length === 1 && allHours && allDays && allDOW && allMonths) {
+    if (fixedMinute && allHours && anyDayAndMonth) {
       if (activeMinutes[0] === 0) {
         return 'Every hour';
       }
       return `Every hour at minute ${activeMinutes[0]}`;
     }
 
-    // Every N hours: minute is fixed, multiple hours with regular stepping, all days
-    if (activeMinutes.length === 1 && !allHours && activeHours.length > 1 && allDays && allDOW && allMonths) {
+    if (fixedMinute && steppedHours && anyDayAndMonth) {
       if (activeHours.length >= 2 && activeHours[0] === 0) {
         const step = activeHours[1] - activeHours[0];
         const isRegularStep = activeHours.every((v, i) => v === i * step);
@@ -432,33 +435,26 @@ export function describeCronExpression(expr: string): string {
       }
     }
 
-    // Specific time patterns: single hour and single minute
-    if (activeMinutes.length === 1 && activeHours.length === 1 && allMonths) {
+    if (fixedTime && allMonths) {
       const timeStr = formatTime(activeHours[0], activeMinutes[0]);
 
-      // Check day-of-week constraints
       if (allDays && !allDOW) {
-        // Weekdays: Mon-Fri (1-5)
         if (activeDOW.length === 5 && activeDOW.every((d) => d >= 1 && d <= 5)) {
           return `Every weekday at ${timeStr}`;
         }
-        // Weekends: Sat, Sun (0, 6)
         if (activeDOW.length === 2 && activeDOW.includes(0) && activeDOW.includes(6)) {
           return `Every weekend at ${timeStr}`;
         }
-        // Specific days of week
         const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
         const names = activeDOW.map((d) => dayNames[d]);
         return `Every ${names.join(', ')} at ${timeStr}`;
       }
 
-      // Specific day of month
       if (!allDays && allDOW && activeDays.length === 1) {
         return `On the ${ordinal(activeDays[0])} of every month at ${timeStr}`;
       }
 
-      // Every day at specific time
-      if (allDays && allDOW) {
+      if (anyDay) {
         return `Every day at ${timeStr}`;
       }
     }
