@@ -992,14 +992,26 @@ describe('guardian service rate limiting', () => {
       );
     }
 
-    const result = validateAndConsumeChallenge(
+    // Capture rate-limited failure reason
+    const rateLimitResult = validateAndConsumeChallenge(
       'asst-1', 'telegram', 'anything', 'user-42', 'chat-42',
     );
-    expect(result.success).toBe(false);
-    // Must NOT reveal "invalid", "expired", or "rate limit" specifically
-    expect((result as { reason: string }).reason).not.toContain('Invalid');
-    expect((result as { reason: string }).reason).not.toContain('expired');
-    expect((result as { reason: string }).reason).not.toContain('rate limit');
+    expect(rateLimitResult.success).toBe(false);
+
+    // Capture a normal invalid-code failure reason (different user, not rate-limited)
+    createVerificationChallenge('asst-1', 'telegram');
+    const invalidCodeResult = validateAndConsumeChallenge(
+      'asst-1', 'telegram', 'wrong-code', 'user-99', 'chat-99',
+    );
+    expect(invalidCodeResult.success).toBe(false);
+
+    // Anti-oracle: both failure paths must return an identical message,
+    // proving that rate-limited and invalid-code responses are indistinguishable
+    expect((rateLimitResult as { reason: string }).reason).toBe(
+      (invalidCodeResult as { reason: string }).reason,
+    );
+    // The message should never mention "rate limit" explicitly
+    expect((rateLimitResult as { reason: string }).reason).not.toContain('rate limit');
   });
 
   test('rate limit does not affect different actors', () => {
