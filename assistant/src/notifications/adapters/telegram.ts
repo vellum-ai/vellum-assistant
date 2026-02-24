@@ -34,12 +34,11 @@ export class TelegramAdapter implements ChannelAdapter {
     const gatewayBase = getGatewayInternalBaseUrl();
     const deliverUrl = `${gatewayBase}/deliver/telegram`;
 
-    // Format copy for Telegram: bold title followed by body
-    const parts: string[] = [`<b>${escapeHtml(payload.copy.title)}</b>`, '', payload.copy.body];
+    // Format copy for Telegram as plain text (no parse_mode set on gateway side)
+    let messageText = payload.copy.title + '\n\n' + payload.copy.body;
     if (payload.copy.threadTitle) {
-      parts.push('', `Thread: ${payload.copy.threadTitle}`);
+      messageText += '\n\nThread: ' + payload.copy.threadTitle;
     }
-    const messageText = parts.join('\n');
 
     try {
       await deliverChannelReply(
@@ -63,12 +62,4 @@ export class TelegramAdapter implements ChannelAdapter {
       return { success: false, error: message };
     }
   }
-}
-
-/** Escape HTML special characters for Telegram's HTML parse mode. */
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
 }

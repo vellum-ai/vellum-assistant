@@ -71,4 +71,6 @@ export interface NotificationDecision {
   dedupeKey: string;
   confidence: number;
   fallbackUsed: boolean;
+  /** UUID of the persisted decision row (set after persistence in the decision engine). */
+  persistedDecisionId?: string;
 }

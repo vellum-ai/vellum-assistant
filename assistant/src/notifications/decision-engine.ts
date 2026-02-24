@@ -264,7 +264,7 @@ export async function evaluateSignal(
   if (!provider) {
     log.warn('Configured provider unavailable for notification decision, using fallback');
     const decision = buildFallbackDecision(signal, availableChannels);
-    persistDecision(signal, decision);
+    decision.persistedDecisionId = persistDecision(signal, decision);
     return decision;
   }
 
@@ -277,7 +277,7 @@ export async function evaluateSignal(
     decision = buildFallbackDecision(signal, availableChannels);
   }
 
-  persistDecision(signal, decision);
+  decision.persistedDecisionId = persistDecision(signal, decision);
 
   if (options?.shadowMode ?? config.notifications.shadowMode) {
     log.info(
@@ -349,10 +349,11 @@ async function classifyWithLLM(
 
 // ── Persistence ────────────────────────────────────────────────────────
 
-function persistDecision(signal: NotificationSignal, decision: NotificationDecision): void {
+function persistDecision(signal: NotificationSignal, decision: NotificationDecision): string | undefined {
   try {
+    const decisionId = uuid();
     createDecision({
-      id: uuid(),
+      id: decisionId,
       notificationEventId: signal.signalId,
       shouldNotify: decision.shouldNotify,
       selectedChannels: decision.selectedChannels,
@@ -366,8 +367,10 @@ function persistDecision(signal: NotificationSignal, decision: NotificationDecis
         hasCopy: Object.keys(decision.renderedCopy).length > 0,
       },
     });
+    return decisionId;
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     log.warn({ err: errMsg }, 'Failed to persist notification decision');
+    return undefined;
   }
 }

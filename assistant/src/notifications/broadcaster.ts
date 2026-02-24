@@ -99,10 +99,15 @@ export class NotificationBroadcaster {
       const deliveryId = uuid();
       const destinationLabel = destination.endpoint ?? channel;
 
+      // Use the persisted decision row ID for the FK; fall back to dedupeKey
+      // only if persistence failed (in which case the FK won't resolve, but we
+      // still record the delivery for debugging).
+      const decisionRowId = decision.persistedDecisionId ?? decision.dedupeKey;
+
       try {
         createDelivery({
           id: deliveryId,
-          notificationDecisionId: decision.dedupeKey,
+          notificationDecisionId: decisionRowId,
           assistantId: signal.assistantId,
           channel,
           destination: destinationLabel,
