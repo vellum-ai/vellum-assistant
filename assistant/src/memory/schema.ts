@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real, blob } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, real, blob, index } from 'drizzle-orm/sqlite-core';
 
 export const conversations = sqliteTable('conversations', {
   id: text('id').primaryKey(),
@@ -58,7 +58,10 @@ export const memorySegments = sqliteTable('memory_segments', {
   contentHash: text('content_hash'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
-});
+}, (table) => [
+  index('idx_memory_segments_scope_id').on(table.scopeId),
+  index('idx_memory_segments_conversation_id').on(table.conversationId),
+]);
 
 export const memoryItems = sqliteTable('memory_items', {
   id: text('id').primaryKey(),
