@@ -59,6 +59,8 @@ export type GatewayConfig = {
   smsDeliverAuthBypass: boolean;
   /** Canonical public ingress base URL, used for webhook signature reconstruction. */
   ingressPublicBaseUrl: string | undefined;
+  /** The assistant's own email address, persisted by the email setup skill. */
+  assistantEmail?: string | undefined;
   unmappedPolicy: "reject" | "default";
   /** WhatsApp Business phone number ID (numeric string, e.g. "123456789012345"). */
   whatsappPhoneNumberId: string | undefined;
@@ -351,6 +353,19 @@ export function loadConfig(): GatewayConfig {
 
   const ingressPublicBaseUrl = process.env.INGRESS_PUBLIC_BASE_URL || undefined;
 
+  // Assistant email from workspace config file
+  let assistantEmail: string | undefined;
+  try {
+    const cfgPath = join(getRootDir(), "workspace", "config.json");
+    const raw = readFileSync(cfgPath, "utf-8");
+    const data = JSON.parse(raw);
+    if (data?.email?.address && typeof data.email.address === "string") {
+      assistantEmail = data.email.address;
+    }
+  } catch {
+    // config file may not exist yet
+  }
+
   const logFileDir = process.env.GATEWAY_LOG_DIR || undefined;
 
   const logFileRetentionDays = Number(process.env.GATEWAY_LOG_RETENTION_DAYS || "30");
@@ -422,6 +437,7 @@ export function loadConfig(): GatewayConfig {
     assistantPhoneNumbers,
     smsDeliverAuthBypass,
     ingressPublicBaseUrl,
+    assistantEmail,
     unmappedPolicy,
     whatsappPhoneNumberId,
     whatsappAccessToken,

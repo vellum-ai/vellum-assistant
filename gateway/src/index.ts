@@ -174,6 +174,14 @@ function main() {
         return handleOAuthCallback(tracedReq);
       }
 
+      if (url.pathname === "/integrations/status" && req.method === "GET") {
+        return Response.json({
+          email: {
+            address: config.assistantEmail ?? null,
+          },
+        });
+      }
+
       if (handleRuntimeProxy) {
         return handleRuntimeProxy(tracedReq);
       }
@@ -259,6 +267,10 @@ function main() {
 
     if (event.assistantPhoneNumbersChanged) {
       config.assistantPhoneNumbers = event.assistantPhoneNumbers;
+    }
+
+    if (event.assistantEmailChanged) {
+      config.assistantEmail = event.assistantEmail;
     }
 
     if (event.ingressChanged) {
