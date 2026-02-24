@@ -1,6 +1,21 @@
 import Foundation
 import VellumAssistantShared
 
+/// A single message within an inbox thread.
+struct InboxMessage: Identifiable {
+    let id: String
+    let role: String
+    let content: String
+    let createdAt: Date?
+
+    init(from ipcMessage: IPCAssistantInboxResponseMessage) {
+        self.id = ipcMessage.id
+        self.role = ipcMessage.role
+        self.content = ipcMessage.content
+        self.createdAt = Date(timeIntervalSince1970: Double(ipcMessage.createdAt) / 1000.0)
+    }
+}
+
 /// A single inbox thread for display in the assistant inbox panel.
 struct InboxThread: Identifiable {
     let id: String
@@ -58,6 +73,10 @@ final class InboxViewModel: ObservableObject {
     @Published var isLoading: Bool = false
     @Published var error: String?
 
+    @Published var messages: [InboxMessage] = []
+    @Published var isLoadingMessages: Bool = false
+    @Published var messagesError: String?
+
     private let daemonClient: DaemonClient
 
     init(daemonClient: DaemonClient) {
@@ -110,5 +129,53 @@ final class InboxViewModel: ObservableObject {
         }
 
         self.threads = (response.threads ?? []).map { InboxThread(from: $0) }
+    }
+
+    func loadMessages(conversationId: String) async {
+        isLoadingMessages = true
+        messagesError = nil
+        messages = []
+
+        let stream = daemonClient.subscribe()
+
+        do {
+            try daemonClient.sendAssistantInboxGetThreadMessages(conversationId: conversationId)
+        } catch {
+            self.messagesError = error.localizedDescription
+            self.isLoadingMessages = false
+            return
+        }
+
+        let response: IPCAssistantInboxResponse? = await withTaskGroup(of: IPCAssistantInboxResponse?.self) { group in
+            group.addTask {
+                for await message in stream {
+                    if case .assistantInboxResponse(let msg) = message {
+                        return msg
+                    }
+                }
+                return nil
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 10_000_000_000)
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+
+        isLoadingMessages = false
+
+        guard let response else {
+            self.messagesError = "Request timed out"
+            return
+        }
+
+        if !response.success {
+            self.messagesError = response.error ?? "Unknown error"
+            return
+        }
+
+        self.messages = (response.messages ?? []).map { InboxMessage(from: $0) }
     }
 }
