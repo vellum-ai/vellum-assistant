@@ -29,20 +29,32 @@ export function getPreferenceSummary(assistantId: string): string | null {
   ];
 
   for (const pref of preferences) {
+    const safeText = sanitizePreferenceText(pref.preferenceText);
     const conditionStr = formatConditions(pref.appliesWhenJson);
     const priorityLabel = pref.priority >= 2 ? 'CRITICAL' : pref.priority === 1 ? 'override' : 'default';
     const prefix = `[${priorityLabel}]`;
 
     if (conditionStr) {
-      lines.push(`${prefix} "${pref.preferenceText}" (when: ${conditionStr})`);
+      lines.push(`${prefix} "${safeText}" (when: ${conditionStr})`);
     } else {
-      lines.push(`${prefix} "${pref.preferenceText}"`);
+      lines.push(`${prefix} "${safeText}"`);
     }
   }
 
   log.debug({ count: preferences.length }, 'Built preference summary');
 
   return lines.join('\n');
+}
+
+// ── Text sanitization ───────────────────────────────────────────────────
+
+/**
+ * Strip XML/HTML-like tags from preference text to prevent prompt injection.
+ * Replaces angle brackets with harmless unicode equivalents so user-authored
+ * text cannot break the `<user-preferences>` framing in the system prompt.
+ */
+function sanitizePreferenceText(text: string): string {
+  return text.replace(/</g, '\uFF1C').replace(/>/g, '\uFF1E');
 }
 
 // ── Condition formatting ────────────────────────────────────────────────
