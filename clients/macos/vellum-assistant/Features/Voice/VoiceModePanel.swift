@@ -4,12 +4,14 @@ import VellumAssistantShared
 struct VoiceModePanel: View {
     @ObservedObject var manager: VoiceModeManager
     @ObservedObject var voiceService: OpenAIVoiceService
+    @ObservedObject var settingsStore: SettingsStore
     let onClose: () -> Void
 
     @State private var showingInfo = false
     @State private var spinAngle: Double = 0
     @State private var ringJitter: [CGFloat] = [0, 0, 0]
     @State private var jitterTimer: Timer?
+    @State private var openaiKeyText: String = ""
 
     private let orbSize: CGFloat = 120
 
@@ -83,12 +85,31 @@ struct VoiceModePanel: View {
                         .font(VFont.bodyMedium)
                         .foregroundColor(VColor.textSecondary)
                         .textSelection(.enabled)
-                    Text("Add your OpenAI API key in Settings to use voice mode with Whisper and TTS.")
+                    Text("Enter your OpenAI API key to use voice mode with Whisper and TTS.")
                         .font(VFont.caption)
                         .foregroundColor(VColor.textMuted)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, VSpacing.xl)
                         .textSelection(.enabled)
+
+                    VStack(spacing: VSpacing.md) {
+                        SecureField("Your OpenAI API key", text: $openaiKeyText)
+                            .vInputStyle()
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textPrimary)
+                            .onSubmit {
+                                guard !openaiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                                settingsStore.saveOpenAIKey(openaiKeyText)
+                                openaiKeyText = ""
+                            }
+
+                        VButton(label: "Save", style: .primary) {
+                            settingsStore.saveOpenAIKey(openaiKeyText)
+                            openaiKeyText = ""
+                        }
+                        .disabled(openaiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                    .padding(.horizontal, VSpacing.xl)
                 }
             } else {
                 // Voice orb
