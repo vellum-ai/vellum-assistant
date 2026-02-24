@@ -1,4 +1,5 @@
 import AppKit
+import Carbon
 import VellumAssistantShared
 import Combine
 import CoreText
@@ -54,6 +55,35 @@ enum InteractionType {
     case textQA
 }
 
+/// Carbon event handler for the Quick Input hotkey (Cmd+/).
+/// Must be a free function because Carbon callbacks are C function pointers.
+private func quickInputHotKeyHandler(
+    _: EventHandlerCallRef?,
+    event: EventRef?,
+    _: UnsafeMutableRawPointer?
+) -> OSStatus {
+    guard let event else { return OSStatus(eventNotHandledErr) }
+
+    var hotKeyID = EventHotKeyID()
+    let status = GetEventParameter(
+        event,
+        EventParamName(kEventParamDirectObject),
+        EventParamType(typeEventHotKeyID),
+        nil,
+        MemoryLayout<EventHotKeyID>.size,
+        nil,
+        &hotKeyID
+    )
+    guard status == noErr, hotKeyID.id == 1 else { return OSStatus(eventNotHandledErr) }
+
+    Task { @MainActor in
+        guard let appDelegate = AppDelegate.shared,
+              !appDelegate.isAwaitingFirstLaunchReady else { return }
+        appDelegate.toggleQuickInput()
+    }
+    return noErr
+}
+
 @MainActor
 public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Shared reference — `NSApp.delegate as? AppDelegate` fails under
@@ -76,6 +106,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var wakeWordCoordinator: WakeWordCoordinator?
     private var voiceTranscriptionWindow: VoiceTranscriptionWindow?
     var thinkingWindow: ThinkingIndicatorWindow?
+    private var quickInputWindow: QuickInputWindow?
+    private var quickInputHotKeyRef: EventHotKeyRef?
     public let services = AppServices()
     private let assistantCli = AssistantCli()
     public let updateManager = UpdateManager()
@@ -357,6 +389,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 NSEvent.removeMonitor(hotKeyMonitor)
                 self.hotKeyMonitor = nil
             }
+            self.tearDownQuickInputMonitors()
+            quickInputWindow?.dismiss()
+            quickInputWindow = nil
             lastRegisteredGlobalHotkey = nil
             globalHotkeyObserver?.cancel()
             globalHotkeyObserver = nil
@@ -464,6 +499,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             NSEvent.removeMonitor(hotKeyMonitor)
             self.hotKeyMonitor = nil
         }
+        tearDownQuickInputMonitors()
+        quickInputWindow?.dismiss()
+        quickInputWindow = nil
         lastRegisteredGlobalHotkey = nil
         globalHotkeyObserver?.cancel()
         globalHotkeyObserver = nil
@@ -1104,6 +1142,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setupHotKey() {
         registerGlobalHotkeyMonitor()
+        registerQuickInputMonitor()
 
         globalHotkeyObserver = NotificationCenter.default
             .publisher(for: UserDefaults.didChangeNotification)
@@ -1111,6 +1150,64 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             .sink { [weak self] _ in
                 self?.registerGlobalHotkeyMonitor()
             }
+    }
+
+    /// Registers a Carbon hotkey (Cmd+/) that intercepts system-wide,
+    /// before the frontmost app's menu system can consume it.
+    private func registerQuickInputMonitor() {
+        // Install Carbon event handler for hotkey events
+        var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+        InstallEventHandler(GetApplicationEventTarget(), quickInputHotKeyHandler, 1, &eventType, nil, nil)
+
+        // Register Cmd+/ (keyCode 44) as a system-wide hotkey
+        let hotKeyID = EventHotKeyID(signature: OSType(0x564C_4D51), id: 1) // "VLMQ"
+        var hotKeyRef: EventHotKeyRef?
+        let status = RegisterEventHotKey(
+            UInt32(kVK_ANSI_Slash),
+            UInt32(cmdKey),
+            hotKeyID,
+            GetApplicationEventTarget(),
+            0,
+            &hotKeyRef
+        )
+        if status == noErr {
+            quickInputHotKeyRef = hotKeyRef
+            log.info("Quick Input: Carbon hotkey Cmd+/ registered successfully")
+        } else {
+            log.error("Quick Input: Failed to register Carbon hotkey, status: \(status)")
+        }
+    }
+
+    /// Removes the Carbon hotkey registration.
+    private func tearDownQuickInputMonitors() {
+        if let ref = quickInputHotKeyRef {
+            UnregisterEventHotKey(ref)
+            quickInputHotKeyRef = nil
+        }
+    }
+
+    func toggleQuickInput() {
+        if let window = quickInputWindow, window.isVisible {
+            window.dismiss()
+            return
+        }
+
+        let window = QuickInputWindow()
+        window.onSubmit = { [weak self] message in
+            self?.handleQuickInputSubmit(message)
+        }
+        window.show()
+        quickInputWindow = window
+    }
+
+    private func handleQuickInputSubmit(_ message: String) {
+        showMainWindow()
+        guard let mainWindow else { return }
+        mainWindow.threadManager.createThread()
+        if let viewModel = mainWindow.activeViewModel {
+            viewModel.inputText = message
+            viewModel.sendMessage()
+        }
     }
 
     /// Tears down and re-registers the global "Open Vellum" hotkey based on
@@ -1514,6 +1611,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         if let monitor = hotKeyMonitor {
             NSEvent.removeMonitor(monitor)
         }
+        tearDownQuickInputMonitors()
         globalHotkeyObserver?.cancel()
         if let monitor = escapeMonitor {
             NSEvent.removeMonitor(monitor)
