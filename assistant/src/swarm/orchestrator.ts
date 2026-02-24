@@ -144,6 +144,11 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
     let retries = 0;
     while (result.status === 'failed' && retries < limits.maxRetriesPerTask && !signal?.aborted) {
       retries++;
+      // Exponential backoff with ±25% jitter to prevent thundering herd
+      const baseDelayMs = 1000 * Math.pow(2, retries - 1);
+      const jitter = baseDelayMs * 0.25 * (2 * Math.random() - 1);
+      await new Promise((r) => setTimeout(r, baseDelayMs + jitter));
+      if (signal?.aborted) break;
       result = await runWorkerTask({
         task,
         upstreamContext: plan.objective,
