@@ -445,6 +445,8 @@ final class ComputerUseSession: ObservableObject {
         currentStepNumber = action.stepNumber
 
         guard let resolved = await resolveCoordinatesIfNeeded(for: agentAction, stepNumber: action.stepNumber) else {
+            // Coordinate resolution failures are not frontmost-guard blocks — reset the consecutive streak
+            consecutiveFrontmostBlocks = 0
             return
         }
         agentAction = resolved
@@ -470,6 +472,7 @@ final class ComputerUseSession: ObservableObject {
 
         // Handle done/respond completion actions — don't execute, wait for cu_complete
         if agentAction.type == .done || agentAction.type == .respond {
+            consecutiveFrontmostBlocks = 0
             return
         }
 
@@ -516,6 +519,8 @@ final class ComputerUseSession: ObservableObject {
 
         case .blocked(let reason):
             log.warning("[\(action.stepNumber)] BLOCKED: \(reason)")
+            // Verifier blocks are not frontmost-guard blocks — reset the consecutive streak
+            consecutiveFrontmostBlocks = 0
             verifier.recordBlock()
             if verifier.consecutiveBlockCount >= 3 {
                 isCancelled = true
@@ -546,6 +551,17 @@ final class ComputerUseSession: ObservableObject {
                 isCancelled = true
                 state = .failed(reason: "Target app could not be activated after repeated attempts.")
                 logger.finishSession(result: "failed: frontmost guard — too many blocks")
+
+                // Finalize QA recording BEFORE sending abort — the daemon's handleCuSessionAbort
+                // deletes cuSessionMetadata, so cu_session_finalized must arrive first.
+                if qaMode {
+                    await finalizeQARecording()
+                }
+                do {
+                    try daemonClient.send(CuSessionAbortMessage(sessionId: id))
+                } catch {
+                    log.error("Failed to send session abort after frontmost guard limit: \(error)")
+                }
                 return
             }
             let obs = await buildObservation(executionResult: nil, executionError: guardError)
