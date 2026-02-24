@@ -62,6 +62,8 @@ final class OfflineMessageQueue {
 
     var isEmpty: Bool { queue.isEmpty }
     var count: Int { queue.count }
+    /// Read-only snapshot of all queued messages in FIFO order.
+    var allMessages: [OfflineQueuedMessage] { queue }
 
     private init() {
         queue = Self.load()

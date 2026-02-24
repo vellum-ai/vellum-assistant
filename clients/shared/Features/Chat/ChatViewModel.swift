@@ -188,8 +188,24 @@ public final class ChatViewModel: ObservableObject {
 
     public let subagentDetailStore = SubagentDetailStore()
     let daemonClient: any DaemonClientProtocol
-    public var sessionId: String?
+    public var sessionId: String? {
+        didSet {
+            #if os(iOS)
+            // If the daemon reconnected before this VM had a session ID, a deferred
+            // flush was requested. Now that we have a session, run it.
+            if sessionId != nil && needsOfflineFlush {
+                needsOfflineFlush = false
+                flushOfflineQueue()
+            }
+            #endif
+        }
+    }
     private var reconnectObserver: NSObjectProtocol?
+    #if os(iOS)
+    /// Set to true when daemonDidReconnect fires before sessionId is populated.
+    /// Cleared and actioned in the sessionId didSet observer.
+    private var needsOfflineFlush: Bool = false
+    #endif
     var pendingUserMessage: String?
     /// Optional callback for sending notifications when tool-use messages complete
     public var onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)?
@@ -415,7 +431,14 @@ public final class ChatViewModel: ObservableObject {
                 self?.isMemoryDegraded = false
                 self?.memoryDegradedReason = nil
                 #if os(iOS)
-                self?.flushOfflineQueue()
+                // If we already have a session ID, flush immediately. Otherwise
+                // defer: sessionId's didSet will trigger flushOfflineQueue() once
+                // the session is restored from history (cold-start reconnect case).
+                if self?.sessionId != nil {
+                    self?.flushOfflineQueue()
+                } else {
+                    self?.needsOfflineFlush = true
+                }
                 #endif
             }
         }
@@ -723,27 +746,24 @@ public final class ChatViewModel: ObservableObject {
     ///
     /// Called automatically when the daemon reconnects. Only flushes messages whose
     /// sessionId matches this view model's current session, so concurrent view models
-    /// on different threads don't steal each other's queued messages.
+    /// on different sessions don't interfere with each other's queued messages.
+    ///
+    /// Messages are removed from persistent storage one at a time, immediately before
+    /// each send, so a crash mid-flush leaves unprocessed messages intact rather than
+    /// silently dropping them.
     func flushOfflineQueue() {
         let queue = OfflineMessageQueue.shared
         guard !queue.isEmpty else { return }
 
         guard let currentSessionId = sessionId else {
-            // No session yet — nothing to flush for this view model.
+            // No session yet — defer until sessionId is populated.
+            needsOfflineFlush = true
             return
         }
 
-        // Dequeue only the messages that belong to this session.
-        // Messages for other sessions are left in place for their respective VMs to flush.
-        let allQueued = queue.dequeueAll()
-        let mine = allQueued.filter { $0.sessionId == currentSessionId }
-        let others = allQueued.filter { $0.sessionId != currentSessionId }
-
-        // Re-enqueue messages belonging to other sessions.
-        for msg in others {
-            queue.enqueue(sessionId: msg.sessionId, text: msg.text, attachments: msg.ipcAttachments)
-        }
-
+        // Read the queue contents without clearing. Filter for this session only;
+        // other sessions' messages stay in the persistent store for their own VMs.
+        let mine = queue.allMessages.filter { $0.sessionId == currentSessionId }
         guard !mine.isEmpty else { return }
 
         log.info("Flushing \(mine.count) offline-queued message(s) for session \(currentSessionId)")
@@ -759,9 +779,11 @@ public final class ChatViewModel: ObservableObject {
             }
         }
 
-        // Send messages sequentially. Each send is async in the HTTP transport but
-        // the daemon processes messages in order, so fire them all immediately.
+        // Remove each message from persistent storage and send it. Removal happens
+        // before the send attempt so a successful removal + failed send is recoverable
+        // via the normal error retry path, rather than duplicating on the next flush.
         for queued in mine {
+            queue.remove(id: queued.id)
             sendUserMessage(queued.text, attachments: queued.ipcAttachments)
         }
     }
