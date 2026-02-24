@@ -81,6 +81,16 @@ export class ToolExecutor {
 
     // Reject tools blocked by parental control settings before any permission check.
     if (isToolBlocked(name)) {
+      log.warn(
+        {
+          toolName: name,
+          sessionId: context.sessionId,
+          conversationId: context.conversationId,
+          principal: context.principal,
+          reason: 'blocked_by_parental_controls',
+        },
+        'Parental control blocked tool invocation',
+      );
       const durationMs = Date.now() - startTime;
       emitLifecycleEvent(context, {
         type: 'permission_denied',
