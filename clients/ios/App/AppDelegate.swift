@@ -60,6 +60,7 @@ final class ClientProvider: ObservableObject {
 class AppDelegate: NSObject, UIApplicationDelegate {
     let clientProvider: ClientProvider
     let authManager = AuthManager()
+    let ambientAgentManager = AmbientAgentManager()
 
     override init() {
         self.clientProvider = ClientProvider(client: DaemonClient(config: .fromUserDefaults()))
@@ -84,7 +85,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             }
         }
 
-        // Register inline reply action
+        // Register inline reply action and Ride Shotgun notification category.
         let replyAction = UNTextInputNotificationAction(
             identifier: "REPLY_ACTION",
             title: "Reply",
@@ -92,13 +93,16 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             textInputButtonTitle: "Send",
             textInputPlaceholder: "Type a reply..."
         )
-        let category = UNNotificationCategory(
+        let chatCategory = UNNotificationCategory(
             identifier: "CHAT_MESSAGE",
             actions: [replyAction],
             intentIdentifiers: []
         )
-        UNUserNotificationCenter.current().setNotificationCategories([category])
+        UNUserNotificationCenter.current().setNotificationCategories([chatCategory])
         UNUserNotificationCenter.current().delegate = self
+
+        // Start the ambient agent trigger so it begins timing from launch.
+        ambientAgentManager.setup()
 
         return true
     }

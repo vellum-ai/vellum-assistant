@@ -5,6 +5,7 @@ import VellumAssistantShared
 struct ContentView: View {
     @EnvironmentObject var clientProvider: ClientProvider
     @Bindable var authManager: AuthManager
+    @ObservedObject var ambientAgent: AmbientAgentManager
     @State private var connectPhase: ConnectPhase = .initial
     @State private var selectedTab: Tab = .home
     @State private var navigateToConnect = false
@@ -50,6 +51,46 @@ struct ContentView: View {
         }
         .onChange(of: clientProvider.isConnected) { _, connected in
             if connected { connectPhase = .ready }
+        }
+        // Ride Shotgun invitation sheet
+        .sheet(isPresented: $ambientAgent.showInvitation) {
+            RideShotgunInvitationSheet(
+                onAccept: {
+                    ambientAgent.acceptInvitation(daemonClient: clientProvider.client)
+                },
+                onDecline: {
+                    ambientAgent.declineInvitation()
+                }
+            )
+        }
+        // Progress sheet while the session is running
+        .sheet(item: $ambientAgent.activeSession, onDismiss: {
+            // Sheet dragged away — treat as cancel only if still in an
+            // interruptible state (interactiveDismissDisabled prevents this
+            // for most states but we guard here for safety).
+            ambientAgent.cancelSession()
+        }) { session in
+            RideShotgunProgressSheet(
+                session: session,
+                onStop: { ambientAgent.cancelSession() },
+                onStopEarly: { ambientAgent.stopSessionEarly() }
+            )
+        }
+        // Summary sheet after session completes
+        .sheet(item: $ambientAgent.completedSummary) { summary in
+            RideShotgunSummarySheet(
+                summary: summary,
+                onDismiss: {
+                    ambientAgent.completedSummary = nil
+                },
+                onStartChat: { summaryText in
+                    ambientAgent.completedSummary = nil
+                    selectedTab = .chats
+                    // Buffer the summary text as a pending deep-link message so
+                    // the active ChatViewModel picks it up when the tab appears.
+                    DeepLinkManager.pendingMessage = summaryText
+                }
+            )
         }
     }
 
@@ -196,7 +237,7 @@ struct ContentView: View {
 }
 
 #Preview {
-    ContentView(authManager: AuthManager())
+    ContentView(authManager: AuthManager(), ambientAgent: AmbientAgentManager())
         .environmentObject(ClientProvider(client: DaemonClient(config: .default)))
 }
 #endif
