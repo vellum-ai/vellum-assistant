@@ -335,6 +335,7 @@ struct SettingsConnectTab: View {
                     icon: "checkmark.circle.fill",
                     iconColor: VColor.success,
                     value: store.telegramBotUsername.map { "@\($0)" } ?? "Configured",
+                    valueURL: store.telegramBotUsername.map { URL(string: "https://web.telegram.org/k/#@\($0)")! },
                     action: .init(label: "Clear", style: .danger, disabled: store.telegramSaveInProgress) {
                         store.clearTelegramCredentials()
                         telegramBotTokenText = ""
@@ -690,6 +691,7 @@ struct SettingsConnectTab: View {
         value: String,
         valueFont: Font = VFont.body,
         valueColor: Color = VColor.textSecondary,
+        valueURL: URL? = nil,
         action: RowAction? = nil
     ) -> some View {
         HStack(spacing: VSpacing.sm) {
@@ -702,10 +704,16 @@ struct SettingsConnectTab: View {
                 .foregroundColor(iconColor)
                 .font(.system(size: 12))
 
-            Text(value)
-                .font(valueFont)
-                .foregroundColor(valueColor)
-                .lineLimit(1)
+            if let url = valueURL {
+                Link(value, destination: url)
+                    .font(valueFont)
+                    .lineLimit(1)
+            } else {
+                Text(value)
+                    .font(valueFont)
+                    .foregroundColor(valueColor)
+                    .lineLimit(1)
+            }
 
             Spacer()
 
