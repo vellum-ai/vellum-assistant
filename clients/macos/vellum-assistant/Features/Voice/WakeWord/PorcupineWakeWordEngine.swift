@@ -83,14 +83,14 @@ final class PorcupineWakeWordEngine: WakeWordEngine {
         // 5. Keyword path
         let keywordPath: String
         let keywordDir = resourceURL.appendingPathComponent("porcupine-keywords")
-        let builtinPath = keywordDir.appendingPathComponent(keyword.lowercased() + "_mac.ppn").path
+        let builtinPath = keywordDir.appendingPathComponent(self.keyword.lowercased() + "_mac.ppn").path
         if FileManager.default.fileExists(atPath: builtinPath) {
             keywordPath = builtinPath
-        } else if keyword.hasPrefix("/") && FileManager.default.fileExists(atPath: keyword) {
+        } else if self.keyword.hasPrefix("/") && FileManager.default.fileExists(atPath: self.keyword) {
             // Treat keyword as an absolute path to a custom .ppn file
-            keywordPath = keyword
+            keywordPath = self.keyword
         } else {
-            log.error("Keyword file not found: tried \(builtinPath) and absolute path \(keyword)")
+            log.error("Keyword file not found: tried \(builtinPath) and absolute path \(self.keyword)")
             return
         }
 
@@ -100,7 +100,7 @@ final class PorcupineWakeWordEngine: WakeWordEngine {
                 accessKey: accessKey,
                 modelPath: modelPath,
                 keywordPaths: [keywordPath],
-                sensitivities: [sensitivity]
+                sensitivities: [self.sensitivity]
             )
         } catch {
             log.error("Failed to initialize Porcupine engine: \(error)")
