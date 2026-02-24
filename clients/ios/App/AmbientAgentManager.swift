@@ -35,6 +35,10 @@ final class AmbientAgentManager: ObservableObject {
     private let trigger = RideShotgunTrigger()
     private var triggerCancellable: AnyCancellable?
     private var sessionCancellable: AnyCancellable?
+    /// Tracks the delayed task that sets completedSummary so it can be cancelled
+    /// if the manager transitions to a state where showing the old summary would
+    /// be incorrect (e.g. teardown, cancel, or a new session starting).
+    private var summaryTask: Task<Void, Never>?
 
     // MARK: - Setup / Teardown
 
@@ -60,6 +64,8 @@ final class AmbientAgentManager: ObservableObject {
         sessionCancellable = nil
         activeSession?.cancel()
         activeSession = nil
+        summaryTask?.cancel()
+        summaryTask = nil
         completedSummary = nil
         showInvitation = false
         log.info("AmbientAgentManager torn down")
@@ -88,6 +94,11 @@ final class AmbientAgentManager: ObservableObject {
             log.warning("Ride shotgun session already active")
             return
         }
+        // Cancel any pending summary from a previous session before starting a
+        // new one, so a stale summary sheet cannot appear on top of the new
+        // session's progress sheet.
+        summaryTask?.cancel()
+        summaryTask = nil
 
         // iOS sends the ride_shotgun_start IPC message to the Mac daemon,
         // which owns screen capture. The daemon will send back progress and
@@ -110,6 +121,8 @@ final class AmbientAgentManager: ObservableObject {
         activeSession = nil
         sessionCancellable?.cancel()
         sessionCancellable = nil
+        summaryTask?.cancel()
+        summaryTask = nil
         log.info("Ride shotgun session cancelled by user")
     }
 
@@ -147,9 +160,10 @@ final class AmbientAgentManager: ObservableObject {
             // would be silently dropped on many iOS versions.  A short delay lets
             // the dismissal animation finish before we request the next presentation.
             let pendingSummary = CompletedSummary(text: displayText, recordingId: recordingId)
-            Task { @MainActor [weak self] in
+            summaryTask = Task { @MainActor [weak self] in
                 try? await Task.sleep(nanoseconds: 600_000_000) // 0.6 s
-                self?.completedSummary = pendingSummary
+                guard let self, !Task.isCancelled else { return }
+                self.completedSummary = pendingSummary
             }
 
         case .failed(let reason):
