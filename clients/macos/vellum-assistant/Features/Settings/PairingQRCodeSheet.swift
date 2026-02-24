@@ -222,10 +222,13 @@ struct PairingQRCodeSheet: View {
         }
     }
 
-    private struct RegistrationError: Error { let message: String }
+    /// Error wrapper for registration request results.
+    private struct RegistrationRequestError: Error {
+        let message: String
+    }
 
     /// Shared HTTP request logic for pairing registration.
-    private func performRegistrationRequest(port: Int, requestId: String, secret: String) async -> Result<Void, RegistrationError> {
+    private func performRegistrationRequest(port: Int, requestId: String, secret: String) async -> Result<Void, RegistrationRequestError> {
         let tokenPath = resolveHttpTokenPath()
         let bearerToken: String? = {
             guard let path = tokenPath else { return nil }
@@ -244,7 +247,7 @@ struct PairingQRCodeSheet: View {
         }
 
         guard let jsonData = try? JSONSerialization.data(withJSONObject: body) else {
-            return .failure(RegistrationError(message: "Failed to serialize registration payload."))
+            return .failure(RegistrationRequestError(message: "Failed to serialize registration payload."))
         }
 
         var request = URLRequest(url: url)
@@ -261,10 +264,10 @@ struct PairingQRCodeSheet: View {
                 return .success(())
             } else {
                 let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-                return .failure(RegistrationError(message: "Registration failed (HTTP \(statusCode))."))
+                return .failure(RegistrationRequestError(message: "Registration failed (HTTP \(statusCode))."))
             }
         } catch {
-            return .failure(RegistrationError(message: "Could not reach daemon: \(error.localizedDescription)"))
+            return .failure(RegistrationRequestError(message: "Could not reach daemon: \(error.localizedDescription)"))
         }
     }
 
