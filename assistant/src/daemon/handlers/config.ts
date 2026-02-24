@@ -1895,7 +1895,10 @@ export async function handleTwilioConfig(
 
       const raw = loadRawConfig();
       const smsSection = (raw?.sms ?? {}) as Record<string, unknown>;
-      const from = (smsSection.phoneNumber as string | undefined)
+      const assistantId = msg.assistantId as string | undefined;
+      const assistantMapping = (smsSection.assistantPhoneNumbers as Record<string, string> | undefined) ?? {};
+      const from = (assistantId && assistantMapping[assistantId])
+        || (smsSection.phoneNumber as string | undefined)
         || getSecureKey('credential:twilio:phone_number')
         || '';
       if (!from) {
@@ -1923,7 +1926,7 @@ export async function handleTwilioConfig(
           'Content-Type': 'application/json',
           ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
         },
-        body: JSON.stringify({ to, text }),
+        body: JSON.stringify({ to, text, ...(assistantId ? { assistantId } : {}) }),
         signal: AbortSignal.timeout(30_000),
       });
 
@@ -1995,7 +1998,7 @@ export async function handleTwilioConfig(
       const readinessIssues: string[] = [];
       try {
         const readinessService = getReadinessService();
-        const snapshot = await readinessService.getReadiness('sms', { includeRemote: false });
+        const [snapshot] = await readinessService.getReadiness('sms', false);
         readinessReady = snapshot.ready;
         for (const r of snapshot.reasons) {
           readinessIssues.push(r.text);

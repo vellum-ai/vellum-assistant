@@ -42,11 +42,12 @@ async function sendTwilioSms(
   if (!response.ok) {
     // Try to parse structured error details from the Twilio error body
     let errorText: string;
+    const rawBody = await response.text().catch(() => "<unreadable>");
     try {
-      const errBody = await response.json() as Record<string, unknown>;
+      const errBody = JSON.parse(rawBody) as Record<string, unknown>;
       errorText = `Twilio Messages API error ${response.status}: code=${errBody.code ?? "unknown"} message=${errBody.message ?? "unknown"}`;
     } catch {
-      errorText = `Twilio Messages API error ${response.status}: ${await response.text().catch(() => "<unreadable>")}`;
+      errorText = `Twilio Messages API error ${response.status}: ${rawBody}`;
     }
     throw new Error(errorText);
   }
