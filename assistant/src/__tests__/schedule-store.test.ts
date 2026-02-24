@@ -410,8 +410,12 @@ describe('claimDueSchedules', () => {
   });
 
   test('claims due RRULE schedules and advances nextRunAt', () => {
-    // Use an RRULE that fires every minute (roughly), with a DTSTART in the past
-    const rrule = 'DTSTART:20250101T000000Z\nRRULE:FREQ=MINUTELY;INTERVAL=1';
+    // Use a recent DTSTART (1 hour ago) so rrule doesn't iterate through
+    // hundreds of thousands of occurrences when computing the next run.
+    const pastDate = new Date(Date.now() - 3_600_000);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const ds = `${pastDate.getUTCFullYear()}${pad(pastDate.getUTCMonth() + 1)}${pad(pastDate.getUTCDate())}T${pad(pastDate.getUTCHours())}${pad(pastDate.getUTCMinutes())}${pad(pastDate.getUTCSeconds())}Z`;
+    const rrule = `DTSTART:${ds}\nRRULE:FREQ=MINUTELY;INTERVAL=1`;
     const job = createSchedule({
       name: 'Claim RRULE',
       cronExpression: rrule,

@@ -1,5 +1,6 @@
 import { describe, test, expect, mock, beforeEach } from 'bun:test';
 import { join } from 'node:path';
+import * as realFs from 'node:fs';
 
 const TEST_DIR = '/tmp/vellum-user-ref-test';
 
@@ -12,6 +13,7 @@ let mockFileExists = false;
 let mockFileContent = '';
 
 mock.module('node:fs', () => ({
+  ...realFs,
   existsSync: (path: string) => {
     if (path === join(TEST_DIR, 'USER.md')) return mockFileExists;
     return false;
