@@ -45,6 +45,7 @@ mock.module('../util/platform.js', () => ({
   isMacOS: () => false,
   isLinux: () => true,
   isWindows: () => false,
+  readHttpToken: () => null,
 }));
 
 mock.module('../tools/executor.js', () => ({

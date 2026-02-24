@@ -33,6 +33,7 @@ mock.module('../util/platform.js', () => ({
   getDbPath: () => join(testDir, 'test.db'),
   getLogPath: () => join(testDir, 'test.log'),
   ensureDataDir: () => {},
+  readHttpToken: () => null,
 }));
 
 mock.module('../util/logger.js', () => ({
@@ -59,6 +60,7 @@ const mockConfig = {
       codeLength: 6,
     },
   },
+  memory: { enabled: false },
 };
 
 mock.module('../config/loader.js', () => ({
@@ -170,6 +172,8 @@ function resetTables() {
   db.run('DELETE FROM call_pending_questions');
   db.run('DELETE FROM call_events');
   db.run('DELETE FROM call_sessions');
+  db.run('DELETE FROM tool_invocations');
+  db.run('DELETE FROM messages');
   db.run('DELETE FROM conversations');
   ensuredConvIds = new Set();
 }
