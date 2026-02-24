@@ -4,10 +4,10 @@ import Foundation
 /// into a resolved LooksConfig for avatar appearance.
 /// Precedence: user overrides > deterministic constraints > model-driven traits > defaults
 @MainActor
-enum AvatarEvolutionResolver {
+public enum AvatarEvolutionResolver {
 
     /// Resolve the current evolution state into a LooksConfig.
-    static func resolve(state: AvatarEvolutionState) -> LooksConfig {
+    public static func resolve(state: AvatarEvolutionState) -> LooksConfig {
         // Start with defaults
         var bodyColor = "violet"
         var cheekColor = "rose"

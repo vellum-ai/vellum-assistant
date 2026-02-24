@@ -1,27 +1,45 @@
 import Foundation
 
 /// Parses LOOKS.md from the workspace and provides a color palette and outfit for the dino avatar.
-struct LooksConfig: Equatable {
-    var bodyColor: String
-    var cheekColor: String
+public struct LooksConfig: Equatable {
+    public var bodyColor: String
+    public var cheekColor: String
 
     // Outfit
-    var hat: String
-    var hatColor: String?
-    var shirt: String
-    var shirtColor: String?
-    var accessory: String
-    var accessoryColor: String?
-    var heldItem: String
+    public var hat: String
+    public var hatColor: String?
+    public var shirt: String
+    public var shirtColor: String?
+    public var accessory: String
+    public var accessoryColor: String?
+    public var heldItem: String
 
-    static let `default` = LooksConfig(
+    public static let `default` = LooksConfig(
         bodyColor: "violet", cheekColor: "rose",
         hat: "none", shirt: "none", accessory: "none", heldItem: "none"
     )
 
+    public init(
+        bodyColor: String, cheekColor: String,
+        hat: String, hatColor: String? = nil,
+        shirt: String, shirtColor: String? = nil,
+        accessory: String, accessoryColor: String? = nil,
+        heldItem: String
+    ) {
+        self.bodyColor = bodyColor
+        self.cheekColor = cheekColor
+        self.hat = hat
+        self.hatColor = hatColor
+        self.shirt = shirt
+        self.shirtColor = shirtColor
+        self.accessory = accessory
+        self.accessoryColor = accessoryColor
+        self.heldItem = heldItem
+    }
+
     /// Parse LOOKS.md content into a LooksConfig.
     /// Looks for lines like `- **Body:** violet`, `- **Hat:** crown (gold)`, etc.
-    static func parse(from content: String) -> LooksConfig {
+    public static func parse(from content: String) -> LooksConfig {
         var body = "violet"
         var cheeks = "rose"
         var hat = "none"
@@ -93,7 +111,7 @@ struct LooksConfig: Equatable {
 
     /// Resolve to a DinoPalette using predefined color scales.
     /// Wing colors are derived from the body color since the 3D voxel dino has no wings.
-    func toPalette() -> DinoPalette {
+    public func toPalette() -> DinoPalette {
         let bodyScale = BodyColorScale.scales[bodyColor] ?? BodyColorScale.scales["violet"]!
         let cheekScale = CheekColorScale.scales[cheekColor] ?? CheekColorScale.scales["rose"]!
         // Derive wing colors from body for the 2D pixel art (3D voxel has no wings)
@@ -114,7 +132,7 @@ struct LooksConfig: Equatable {
     }
 
     /// Convert outfit fields to a DinoOutfit for the voxel generator.
-    func toOutfit() -> DinoOutfit {
+    public func toOutfit() -> DinoOutfit {
         DinoOutfit(
             hat: hat, hatColor: hatColor,
             shirt: shirt, shirtColor: shirtColor,

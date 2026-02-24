@@ -21,6 +21,18 @@ struct AppearanceSection: View {
             } footer: {
                 Text("\"System\" follows your device's Light/Dark Mode setting.")
             }
+
+            Section {
+                NavigationLink {
+                    AvatarCustomizationPanel()
+                } label: {
+                    Label("Avatar", systemImage: "face.smiling")
+                }
+            } header: {
+                Text("Avatar")
+            } footer: {
+                Text("Customize your assistant's appearance. Colors and outfit evolve based on your assistant's personality.")
+            }
         }
         .navigationTitle("Appearance")
         .navigationBarTitleDisplayMode(.inline)
