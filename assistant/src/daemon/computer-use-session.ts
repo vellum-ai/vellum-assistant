@@ -366,7 +366,7 @@ export class ComputerUseSession {
     ['vellum assistant', 'vellum'],
     ['visual studio code', 'vscode'],
     ['iterm2', 'iterm'],
-    ['gmail', 'mail'],
+    ['gmail', 'gmail'],
   ]);
 
   /**
