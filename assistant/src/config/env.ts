@@ -35,8 +35,7 @@ function int(name: string, fallback?: number): number | undefined {
   if (!raw) return fallback;
   const n = parseInt(raw, 10);
   if (isNaN(n)) {
-    log.warn(`Invalid integer for ${name}: "${raw}", using fallback ${fallback}`);
-    return fallback;
+    throw new Error(`Invalid integer for ${name}: "${raw}"${fallback !== undefined ? ` (fallback: ${fallback})` : ''}`);
   }
   return n;
 }
@@ -118,7 +117,10 @@ export function getTwilioWssBaseUrl(): string | undefined {
 }
 
 export function isTwilioWebhookValidationDisabled(): boolean {
-  return flag('TWILIO_WEBHOOK_VALIDATION_DISABLED');
+  // Intentionally strict: only exact "true" disables validation (not "1").
+  // This is a security-sensitive bypass — we don't want environments that
+  // template booleans as "1" to silently skip webhook signature checks.
+  return process.env.TWILIO_WEBHOOK_VALIDATION_DISABLED === 'true';
 }
 
 export function getCallWelcomeGreeting(): string | undefined {
