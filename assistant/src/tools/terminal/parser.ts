@@ -51,7 +51,6 @@ const STDIN_EXEC_FLAGS = new Set(['-c', '-e', '-']);
 const INTERPRETER_VALUE_FLAGS = new Set([
   '-W', '-X', '-Q',          // python
   '-r', '--require',         // node / ruby
-  '-I',                      // ruby
   '--import', '--conditions', // node
 ]);
 const OPAQUE_PROGRAMS = new Set(['eval', 'source', 'alias']);
