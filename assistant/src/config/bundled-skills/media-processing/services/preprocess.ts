@@ -201,6 +201,10 @@ export function createSegments(
   liveRanges: TimeRange[],
   segmentDuration: number,
 ): Array<{ id: string; startSeconds: number; endSeconds: number }> {
+  if (segmentDuration <= 0) {
+    throw new Error(`segmentDuration must be positive, got ${segmentDuration}`);
+  }
+
   const segments: Array<{ id: string; startSeconds: number; endSeconds: number }> = [];
   let segIndex = 0;
 
@@ -470,6 +474,11 @@ export async function preprocessForAsset(
     await rename(tempDir, framesDir);
 
     const totalFrames = segments.reduce((sum, s) => sum + s.framePaths.length, 0);
+    if (rawSegments.length > 0 && totalFrames === 0) {
+      throw new Error(
+        `All ${rawSegments.length} segment(s) failed frame extraction — zero usable frames produced.`,
+      );
+    }
     onProgress?.(`Extracted ${totalFrames} total frames across ${segments.length} segments.\n`);
 
     // Step 4: Subject registry
