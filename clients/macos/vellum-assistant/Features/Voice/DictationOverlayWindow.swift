@@ -109,8 +109,9 @@ final class DictationOverlayWindow {
     }
 
     private func updateContent(state: DictationState) {
-        // Replace icon
+        // Replace icon — stop old spinner before makeIcon overwrites self.spinner
         if let oldIcon = iconView, let container = oldIcon.superview {
+            let oldSpinner = spinner
             let newIcon = makeIcon(for: state)
             newIcon.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(newIcon)
@@ -121,7 +122,7 @@ final class DictationOverlayWindow {
             if let lbl = label {
                 lbl.leadingAnchor.constraint(equalTo: newIcon.trailingAnchor, constant: 8).isActive = true
             }
-            spinner?.stopAnimation(nil)
+            oldSpinner?.stopAnimation(nil)
             oldIcon.removeFromSuperview()
             self.iconView = newIcon
         }
