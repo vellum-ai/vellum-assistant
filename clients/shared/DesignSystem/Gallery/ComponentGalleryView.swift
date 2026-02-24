@@ -3,6 +3,7 @@ import SwiftUI
 
 enum GalleryCategory: String, CaseIterable, Identifiable {
     case buttons = "Buttons"
+    case chat = "Chat"
     case display = "Display"
     case feedback = "Feedback"
     case inputs = "Inputs"
@@ -16,6 +17,7 @@ enum GalleryCategory: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .buttons: return "hand.tap"
+        case .chat: return "bubble.left.and.bubble.right"
         case .display: return "rectangle.on.rectangle"
         case .feedback: return "bell"
         case .inputs: return "character.cursor.ibeam"
@@ -46,6 +48,7 @@ struct ComponentGalleryView: View {
                     if let category = selectedCategory {
                         switch category {
                         case .buttons: ButtonsGallerySection()
+                        case .chat: ChatGallerySection()
                         case .display: DisplayGallerySection()
                         case .feedback: FeedbackGallerySection()
                         case .inputs: InputsGallerySection()
