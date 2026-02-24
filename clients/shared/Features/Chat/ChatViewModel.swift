@@ -340,6 +340,8 @@ public final class ChatViewModel: ObservableObject {
     /// Number of messages currently revealed at the top of the conversation.
     /// The view slices `messages` to `messages.suffix(displayedMessageCount)`.
     /// Grows by `messagePageSize` each time the user scrolls to the top.
+    /// Set to `Int.max` when the user has loaded all history ("show all" mode), so that new
+    /// incoming messages don't collapse the window back to `suffix(messagePageSize)`.
     @Published public var displayedMessageCount: Int = messagePageSize
 
     /// True while a previous-page load is in progress (brief async delay for UX).
@@ -352,6 +354,7 @@ public final class ChatViewModel: ObservableObject {
     /// Whether there are more messages above the current display window.
     /// Compares against the filtered (displayed) count so the "load more" sentinel
     /// appears only when there are genuinely more visible messages to reveal.
+    /// When `displayedMessageCount == Int.max` (show-all mode), this is always false.
     public var hasMoreMessages: Bool { displayedMessageCount < displayedMessages.count }
 
     /// Load the previous page of messages by expanding the display window.
@@ -362,7 +365,12 @@ public final class ChatViewModel: ObservableObject {
         isLoadingMoreMessages = true
         // Brief delay so the loading indicator is visible before the list shifts.
         try? await Task.sleep(nanoseconds: 150_000_000)
-        displayedMessageCount = min(displayedMessageCount + Self.messagePageSize, displayedMessages.count)
+        let next = displayedMessageCount + Self.messagePageSize
+        let total = displayedMessages.count
+        // When all messages fit within the expanded window, switch to show-all mode
+        // (Int.max) so future incoming messages don't shrink the visible history back
+        // to a suffix window — the regression described in the parent PR.
+        displayedMessageCount = next >= total ? Int.max : next
         isLoadingMoreMessages = false
         return true
     }
