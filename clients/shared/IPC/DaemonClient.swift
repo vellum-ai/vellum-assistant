@@ -408,6 +408,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends an `assistant_inbox_reply_response` message.
     public var onAssistantInboxReplyResponse: ((IPCAssistantInboxReplyResponse) -> Void)?
 
+    /// Called when the daemon sends an `assistant_inbox_escalation_response` message.
+    public var onAssistantInboxEscalationResponse: ((IPCAssistantInboxEscalationResponse) -> Void)?
+
     /// Called when the daemon sends a generic `error` message (e.g. when a handler fails).
     public var onError: ((ErrorMessage) -> Void)?
 
@@ -1077,6 +1080,16 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             limit: limit.map { Double($0) },
             conversationId: conversationId,
             beforeMessageId: beforeMessageId
+        ))
+    }
+
+    /// Request the list of pending escalations from the daemon.
+    public func sendAssistantInboxListEscalations(assistantId: String? = nil, status: String? = nil) throws {
+        try send(IPCAssistantInboxEscalationRequest(
+            type: "assistant_inbox_escalation",
+            action: "list",
+            assistantId: assistantId,
+            status: status
         ))
     }
 

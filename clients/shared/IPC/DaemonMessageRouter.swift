@@ -252,6 +252,8 @@ extension DaemonClient {
             onAssistantInboxResponse?(msg)
         case .assistantInboxReplyResponse(let msg):
             onAssistantInboxReplyResponse?(msg)
+        case .assistantInboxEscalationResponse(let msg):
+            onAssistantInboxEscalationResponse?(msg)
         default:
             break
         }

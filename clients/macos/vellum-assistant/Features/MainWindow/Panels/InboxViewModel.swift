@@ -67,6 +67,52 @@ struct InboxThread: Identifiable {
     }
 }
 
+/// A pending escalation request awaiting guardian approval.
+struct InboxEscalation: Identifiable {
+    let id: String
+    let runId: String
+    let conversationId: String
+    let channel: String
+    let requesterExternalUserId: String
+    let requesterChatId: String
+    let status: String
+    let requestSummary: String?
+    let createdAt: Date?
+
+    init(from ipc: IPCAssistantInboxEscalationResponseEscalation) {
+        self.id = ipc.id
+        self.runId = ipc.runId
+        self.conversationId = ipc.conversationId
+        self.channel = ipc.channel
+        self.requesterExternalUserId = ipc.requesterExternalUserId
+        self.requesterChatId = ipc.requesterChatId
+        self.status = ipc.status
+        self.requestSummary = ipc.requestSummary
+        self.createdAt = Date(timeIntervalSince1970: Double(ipc.createdAt) / 1000.0)
+    }
+
+    /// SF Symbol name for the source channel icon.
+    var channelIcon: String {
+        switch channel.lowercased() {
+        case "telegram":
+            return "paperplane.fill"
+        case "sms", "twilio":
+            return "message.fill"
+        case "email":
+            return "envelope.fill"
+        case "web":
+            return "globe"
+        default:
+            return "bubble.left.fill"
+        }
+    }
+
+    /// Human-readable requester identifier, falling back to the chat ID.
+    var resolvedRequester: String {
+        requesterExternalUserId.isEmpty ? requesterChatId : requesterExternalUserId
+    }
+}
+
 @MainActor
 final class InboxViewModel: ObservableObject {
     @Published var threads: [InboxThread] = []
@@ -78,6 +124,10 @@ final class InboxViewModel: ObservableObject {
     @Published var messagesError: String?
     @Published var isSendingReply: Bool = false
     @Published var sendReplyError: String?
+
+    @Published var escalations: [InboxEscalation] = []
+    @Published var isLoadingEscalations: Bool = false
+    @Published var escalationsError: String?
 
     private let daemonClient: DaemonClient
 
@@ -229,5 +279,52 @@ final class InboxViewModel: ObservableObject {
         // Reload messages to show the new reply
         await loadMessages(conversationId: conversationId)
         return true
+    }
+
+    func loadEscalations() async {
+        isLoadingEscalations = true
+        escalationsError = nil
+
+        let stream = daemonClient.subscribe()
+
+        do {
+            try daemonClient.sendAssistantInboxListEscalations()
+        } catch {
+            self.escalationsError = error.localizedDescription
+            self.isLoadingEscalations = false
+            return
+        }
+
+        let response: IPCAssistantInboxEscalationResponse? = await withTaskGroup(of: IPCAssistantInboxEscalationResponse?.self) { group in
+            group.addTask {
+                for await message in stream {
+                    if case .assistantInboxEscalationResponse(let msg) = message {
+                        return msg
+                    }
+                }
+                return nil
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 10_000_000_000)
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+
+        isLoadingEscalations = false
+
+        guard let response else {
+            self.escalationsError = "Request timed out"
+            return
+        }
+
+        if !response.success {
+            self.escalationsError = response.error ?? "Unknown error"
+            return
+        }
+
+        self.escalations = (response.escalations ?? []).map { InboxEscalation(from: $0) }
     }
 }
