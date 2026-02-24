@@ -72,14 +72,25 @@ export async function runApprovalConversationTurn(
     return failClosed();
   }
 
+  // Enforce allowed-actions policy: the model must not return a disposition
+  // that the caller did not offer (keep_pending is always acceptable).
+  if (
+    result.disposition !== 'keep_pending'
+    && !context.allowedActions.includes(result.disposition)
+  ) {
+    return failClosed();
+  }
+
   // When multiple approvals are pending and the user is making a decision,
-  // targetRunId must be present so the system knows which request to act on.
+  // targetRunId must be present AND match a known pending approval so a
+  // hallucinated or stale ID cannot slip through.
   if (
     context.pendingApprovals.length > 1
     && DECISION_BEARING_DISPOSITIONS.has(result.disposition)
-    && !result.targetRunId
   ) {
-    return failClosed();
+    if (!result.targetRunId) return failClosed();
+    const validRunIds = new Set(context.pendingApprovals.map((p) => p.runId));
+    if (!validRunIds.has(result.targetRunId)) return failClosed();
   }
 
   return result;

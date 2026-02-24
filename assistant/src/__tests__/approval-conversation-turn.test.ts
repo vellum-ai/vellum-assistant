@@ -98,6 +98,61 @@ describe('runApprovalConversationTurn', () => {
     expect(result.replyText).toContain("couldn't process");
   });
 
+  test('fail-closed when disposition is not in allowedActions', async () => {
+    // Context only allows approve_once and reject (no approve_always)
+    const restrictedContext = makeContext({
+      allowedActions: ['approve_once', 'reject'],
+    });
+
+    const result = await runApprovalConversationTurn(
+      restrictedContext,
+      makeGenerator({
+        disposition: 'approve_always',
+        replyText: 'Approved permanently!',
+        targetRunId: 'run-1',
+      }),
+    );
+    expect(result.disposition).toBe('keep_pending');
+    expect(result.replyText).toContain("couldn't process");
+  });
+
+  test('keep_pending is always allowed regardless of allowedActions', async () => {
+    const restrictedContext = makeContext({
+      allowedActions: ['approve_once', 'reject'],
+    });
+
+    const result = await runApprovalConversationTurn(
+      restrictedContext,
+      makeGenerator({
+        disposition: 'keep_pending',
+        replyText: 'Can you tell me more about this request?',
+      }),
+    );
+    expect(result.disposition).toBe('keep_pending');
+    expect(result.replyText).toBe('Can you tell me more about this request?');
+  });
+
+  test('fail-closed when targetRunId does not match any pending approval', async () => {
+    const contextWithMultiple = makeContext({
+      pendingApprovals: [
+        { runId: 'run-1', toolName: 'execute_shell' },
+        { runId: 'run-2', toolName: 'file_write' },
+      ],
+    });
+
+    // Hallucinated run ID that doesn't match any pending approval
+    const result = await runApprovalConversationTurn(
+      contextWithMultiple,
+      makeGenerator({
+        disposition: 'approve_once',
+        replyText: 'Approved!',
+        targetRunId: 'run-nonexistent',
+      }),
+    );
+    expect(result.disposition).toBe('keep_pending');
+    expect(result.replyText).toContain("couldn't process");
+  });
+
   test('targetRunId validation when multiple pending approvals', async () => {
     const contextWithMultiple = makeContext({
       pendingApprovals: [
