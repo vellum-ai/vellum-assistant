@@ -10,17 +10,21 @@ export function getRetiredDir(): string {
   return dir;
 }
 
-function safeName(assistantId: string): string {
-  // Reject path separators and traversal segments
+/** Throws if the name contains path separators or traversal segments. */
+export function validateAssistantName(name: string): void {
   if (
-    assistantId.includes("/") ||
-    assistantId.includes("\\") ||
-    assistantId === ".." ||
-    assistantId === "." ||
-    assistantId === ""
+    !name ||
+    name.includes("/") ||
+    name.includes("\\") ||
+    name === ".." ||
+    name === "."
   ) {
-    throw new Error(`Invalid assistant name: '${assistantId}'`);
+    throw new Error(`Invalid assistant name: '${name}'`);
   }
+}
+
+function safeName(assistantId: string): string {
+  validateAssistantName(assistantId);
   // Canonicalize and verify the result stays inside the retired directory
   const retiredDir = getRetiredDir();
   const candidate = resolve(retiredDir, basename(assistantId));
