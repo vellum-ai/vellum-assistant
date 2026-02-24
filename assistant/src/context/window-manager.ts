@@ -198,14 +198,18 @@ export class ContextWindowManager {
     const withinCooldown = typeof lastCompactedAt === 'number'
       && Date.now() - lastCompactedAt < adaptiveCooldownMs;
 
+    // The adaptive cooldown is already tuned to be shorter for fast-growing
+    // conversations (high projectedGainTokens → smaller adaptiveCooldownMs).
+    // Removing the redundant MIN_GAIN_TOKENS_DURING_COOLDOWN guard here lets
+    // that shorter cooldown actually gate compaction: high-growth conversations
+    // break out of the cooldown sooner and compact more frequently.
     if (
       withinCooldown
-      && projectedGainTokens < MIN_GAIN_TOKENS_DURING_COOLDOWN
       && !severePressure
     ) {
       log.debug(
         { projectedGainTokens, adaptiveCooldownMs, growthRateMultiplier, msSinceCompaction: typeof lastCompactedAt === 'number' ? Date.now() - lastCompactedAt : null },
-        'Compaction cooldown active with low projected gain',
+        'Compaction cooldown active',
       );
       return {
         messages,
@@ -221,7 +225,7 @@ export class ContextWindowManager {
         summaryOutputTokens: 0,
         summaryModel: '',
         summaryText: existingSummary ?? '',
-        reason: 'compaction cooldown active with low projected gain',
+        reason: 'compaction cooldown active',
       };
     }
 
