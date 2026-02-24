@@ -43,13 +43,22 @@ function startHttpTokenWatcher(cfg: GatewayConfig): FSWatcher | null {
     ?? join(process.env.BASE_DATA_DIR?.trim() || homedir(), ".vellum", "http-token");
 
   const dir = dirname(tokenPath);
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
+  try {
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+  } catch (err) {
+    log.warn({ err, path: dir }, "Cannot create token directory, skipping http-token watcher");
+    return null;
   }
 
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   function refresh(): void {
+    // Skip file-based refresh when env vars explicitly pin the tokens —
+    // respect the same precedence as loadConfig().
+    if (process.env.RUNTIME_BEARER_TOKEN) return;
+
     try {
       const token = readFileSync(tokenPath, "utf-8").trim() || undefined;
       if (token && token !== cfg.runtimeBearerToken) {
