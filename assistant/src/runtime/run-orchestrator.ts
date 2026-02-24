@@ -198,7 +198,18 @@ export class RunOrchestrator {
     const session = await this.deps.getOrCreateSession(conversationId, transport);
 
     if (session.isProcessing()) {
-      throw new Error('Session is already processing a message');
+      // Voice barge-in can race with turn teardown. Wait briefly for the
+      // previous run to finish aborting before giving up.
+      const maxWaitMs = 3000;
+      const pollIntervalMs = 50;
+      let waited = 0;
+      while (session.isProcessing() && waited < maxWaitMs) {
+        await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+        waited += pollIntervalMs;
+      }
+      if (session.isProcessing()) {
+        throw new Error('Session is already processing a message');
+      }
     }
 
     // Determine the correct strictSideEffects value for this run:

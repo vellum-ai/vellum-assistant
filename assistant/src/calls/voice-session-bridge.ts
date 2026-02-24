@@ -89,6 +89,7 @@ export interface VoiceTurnHandle {
 function buildVoiceCallControlPrompt(opts: {
   isInbound: boolean;
   task?: string | null;
+  isCallerGuardian?: boolean;
 }): string {
   const config = getConfig();
   const disclosureEnabled = config.calls?.disclosure?.enabled === true;
@@ -134,8 +135,16 @@ function buildVoiceCallControlPrompt(opts: {
   );
 
   if (opts.isInbound) {
+    if (opts.isCallerGuardian) {
+      lines.push(
+        '10. If the latest user turn is [CALL_OPENING], this is your user calling you. Answer casually and briefly, like picking up a call from someone you know well. For example: "Hey!" or "What\'s up?" Do NOT introduce yourself, do NOT say you are calling on behalf of anyone, and do NOT ask how you can help in a formal way. Keep it short and natural.',
+      );
+    } else {
+      lines.push(
+        '10. If the latest user turn is [CALL_OPENING], greet the caller warmly and ask how you can help. Vary the wording; do not use a fixed template.',
+      );
+    }
     lines.push(
-      '10. If the latest user turn is [CALL_OPENING], greet the caller warmly and ask how you can help. Vary the wording; do not use a fixed template.',
       '11. If the latest user turn includes [CALL_OPENING_ACK], treat it as the caller acknowledging your greeting and continue the conversation naturally.',
     );
   } else {
@@ -201,9 +210,12 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
 
   // Build the call-control protocol prompt so the model knows how to emit
   // control markers (ASK_GUARDIAN, END_CALL, CALL_OPENING, etc.).
+  const isCallerGuardian = opts.guardianContext?.actorRole === 'guardian';
+
   const voiceCallControlPrompt = buildVoiceCallControlPrompt({
     isInbound: opts.isInbound,
     task: opts.task,
+    isCallerGuardian,
   });
 
   const { run, abort } = await orchestrator.startRun(
