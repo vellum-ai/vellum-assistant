@@ -585,6 +585,25 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
       cursorInTextField: true,
     },
   },
+  parental_control_get: {
+    type: 'parental_control_get',
+  },
+  parental_control_verify_pin: {
+    type: 'parental_control_verify_pin',
+    pin: '123456',
+  },
+  parental_control_set_pin: {
+    type: 'parental_control_set_pin',
+    current_pin: '123456',
+    new_pin: '654321',
+  },
+  parental_control_update: {
+    type: 'parental_control_update',
+    pin: '123456',
+    enabled: true,
+    content_restrictions: ['violence', 'adult_content'],
+    blocked_tool_categories: ['shell', 'network'],
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -1681,6 +1700,29 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     text: 'Hello world',
     mode: 'dictation',
     actionPlan: undefined,
+  },
+  parental_control_get_response: {
+    type: 'parental_control_get_response',
+    enabled: true,
+    has_pin: true,
+    content_restrictions: ['violence', 'adult_content'],
+    blocked_tool_categories: ['shell', 'network'],
+  },
+  parental_control_verify_pin_response: {
+    type: 'parental_control_verify_pin_response',
+    verified: true,
+  },
+  parental_control_set_pin_response: {
+    type: 'parental_control_set_pin_response',
+    success: true,
+  },
+  parental_control_update_response: {
+    type: 'parental_control_update_response',
+    success: true,
+    enabled: true,
+    has_pin: true,
+    content_restrictions: ['violence', 'adult_content'],
+    blocked_tool_categories: ['shell', 'network'],
   },
 };
 
