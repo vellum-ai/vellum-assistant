@@ -712,7 +712,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         guard let viewModel = activeViewModel else { return }
 
         // Observe message count changes to drive the sidebar unread indicator.
-        activeViewModelCancellable = viewModel.$messages
+        activeViewModelCancellable = viewModel.messageManager.$messages
             .map { $0.count }
             .removeDuplicates()
             .sink { [weak self] _ in

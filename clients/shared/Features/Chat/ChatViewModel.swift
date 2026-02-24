@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import Network
 import os
@@ -12,67 +13,175 @@ import UIKit
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ChatViewModel")
 
+/// Facade that owns the three focused sub-managers and forwards all property
+/// accesses to them via computed properties.  Existing call sites require no
+/// changes because the public API surface is identical to the previous monolith.
 @MainActor
 public final class ChatViewModel: ObservableObject {
-    @Published public var messages: [ChatMessage] = []
-    @Published public var inputText: String = ""
-    @Published public var isThinking: Bool = false
-    @Published public var isSending: Bool = false
-    @Published public var errorText: String?
-    @Published public var sessionError: SessionError?
-    @Published public var pendingQueuedCount: Int = 0
-    @Published public var suggestion: String?
-    @Published public var pendingAttachments: [ChatAttachment] = []
-    @Published public var isRecording: Bool = false
-    @Published public var isWorkspaceRefinementInFlight: Bool = false
-    @Published public var refinementMessagePreview: String?   // user's sent text
-    @Published public var refinementStreamingText: String?     // AI response as it streams
+
+    // MARK: - Sub-managers
+
+    /// Owns message-list and send-state properties.
+    public let messageManager = ChatMessageManager()
+    /// Owns the pending-attachment list and image-processing helpers.
+    public let attachmentManager = ChatAttachmentManager()
+    /// Owns errorText, sessionError, and connection-diagnostic properties.
+    public let errorManager = ChatErrorManager()
+
+    private var cancellables: Set<AnyCancellable> = []
+
+    // MARK: - Forwarding properties — ChatMessageManager
+
+    public var messages: [ChatMessage] {
+        get { messageManager.messages }
+        set { messageManager.messages = newValue }
+    }
+    public var inputText: String {
+        get { messageManager.inputText }
+        set { messageManager.inputText = newValue }
+    }
+    public var isThinking: Bool {
+        get { messageManager.isThinking }
+        set { messageManager.isThinking = newValue }
+    }
+    public var isSending: Bool {
+        get { messageManager.isSending }
+        set { messageManager.isSending = newValue }
+    }
+    public var pendingQueuedCount: Int {
+        get { messageManager.pendingQueuedCount }
+        set { messageManager.pendingQueuedCount = newValue }
+    }
+    public var suggestion: String? {
+        get { messageManager.suggestion }
+        set { messageManager.suggestion = newValue }
+    }
+    public var isRecording: Bool {
+        get { messageManager.isRecording }
+        set { messageManager.isRecording = newValue }
+    }
+    public var isWorkspaceRefinementInFlight: Bool {
+        get { messageManager.isWorkspaceRefinementInFlight }
+        set { messageManager.isWorkspaceRefinementInFlight = newValue }
+    }
+    /// The user's sent text shown while a refinement is in progress.
+    public var refinementMessagePreview: String? {
+        get { messageManager.refinementMessagePreview }
+        set { messageManager.refinementMessagePreview = newValue }
+    }
+    /// The AI response as it streams during a refinement.
+    public var refinementStreamingText: String? {
+        get { messageManager.refinementStreamingText }
+        set { messageManager.refinementStreamingText = newValue }
+    }
     /// Tracks whether a cancel was initiated during a workspace refinement.
     /// Used by `messageComplete` to correctly suppress refinement side-effects
     /// even though `isWorkspaceRefinementInFlight` is cleared immediately for UI.
-    var cancelledDuringRefinement: Bool = false
+    var cancelledDuringRefinement: Bool {
+        get { messageManager.cancelledDuringRefinement }
+        set { messageManager.cancelledDuringRefinement = newValue }
+    }
     /// Text buffered during a workspace refinement (normally suppressed from chat).
     /// Surfaced to the user if the refinement completes without a surface update.
-    var refinementTextBuffer: String = ""
-    var refinementReceivedSurfaceUpdate: Bool = false
+    var refinementTextBuffer: String {
+        get { messageManager.refinementTextBuffer }
+        set { messageManager.refinementTextBuffer = newValue }
+    }
+    var refinementReceivedSurfaceUpdate: Bool {
+        get { messageManager.refinementReceivedSurfaceUpdate }
+        set { messageManager.refinementReceivedSurfaceUpdate = newValue }
+    }
     /// When non-nil, displays a toast in the workspace with the AI's response
     /// after a refinement that produced no surface update.
-    @Published public var refinementFailureText: String?
-    var refinementFailureDismissTask: Task<Void, Never>?
+    public var refinementFailureText: String? {
+        get { messageManager.refinementFailureText }
+        set { messageManager.refinementFailureText = newValue }
+    }
+    var refinementFailureDismissTask: Task<Void, Never>? {
+        get { messageManager.refinementFailureDismissTask }
+        set { messageManager.refinementFailureDismissTask = newValue }
+    }
     /// Number of undo steps available for the active workspace surface.
-    @Published public var surfaceUndoCount: Int = 0
-    @Published public var pendingSkillInvocation: SkillInvocationData?
-    @Published public var isWatchSessionActive: Bool = false
-    @Published public var activeSubagents: [SubagentInfo] = []
-    public let subagentDetailStore = SubagentDetailStore()
+    public var surfaceUndoCount: Int {
+        get { messageManager.surfaceUndoCount }
+        set { messageManager.surfaceUndoCount = newValue }
+    }
+    public var pendingSkillInvocation: SkillInvocationData? {
+        get { messageManager.pendingSkillInvocation }
+        set { messageManager.pendingSkillInvocation = newValue }
+    }
+    public var isWatchSessionActive: Bool {
+        get { messageManager.isWatchSessionActive }
+        set { messageManager.isWatchSessionActive = newValue }
+    }
+    public var activeSubagents: [SubagentInfo] {
+        get { messageManager.activeSubagents }
+        set { messageManager.activeSubagents = newValue }
+    }
     /// Widget IDs dismissed by the user, persisted across view recreation.
-    @Published public var dismissedDocumentSurfaceIds: Set<String> = []
-
+    public var dismissedDocumentSurfaceIds: Set<String> {
+        get { messageManager.dismissedDocumentSurfaceIds }
+        set { messageManager.dismissedDocumentSurfaceIds = newValue }
+    }
     /// The currently active model ID, updated via `model_info` IPC messages.
-    @Published public var selectedModel: String = "claude-opus-4-6"
+    public var selectedModel: String {
+        get { messageManager.selectedModel }
+        set { messageManager.selectedModel = newValue }
+    }
     /// Set of provider keys with configured API keys, updated via `model_info` IPC messages.
-    @Published public var configuredProviders: Set<String> = ["anthropic"]
-
+    public var configuredProviders: Set<String> {
+        get { messageManager.configuredProviders }
+        set { messageManager.configuredProviders = newValue }
+    }
     /// Whether the memory backend is currently degraded (e.g. embedding failures).
     /// Updated from `memory_status` IPC messages. When `true`, semantic recall is
     /// unavailable and the assistant falls back to lexical-only search.
-    @Published public var isMemoryDegraded: Bool = false
+    public var isMemoryDegraded: Bool {
+        get { messageManager.isMemoryDegraded }
+        set { messageManager.isMemoryDegraded = newValue }
+    }
     /// Human-readable reason for degradation (e.g. "memory.embedding_failure: API 401").
     /// Nil when memory is healthy or memory is disabled.
-    @Published public var memoryDegradedReason: String? = nil
+    public var memoryDegradedReason: String? {
+        get { messageManager.memoryDegradedReason }
+        set { messageManager.memoryDegradedReason = newValue }
+    }
 
+    // MARK: - Forwarding properties — ChatAttachmentManager
+
+    public var pendingAttachments: [ChatAttachment] {
+        get { attachmentManager.pendingAttachments }
+        set { attachmentManager.pendingAttachments = newValue }
+    }
+
+    // MARK: - Forwarding properties — ChatErrorManager
+
+    public var errorText: String? {
+        get { errorManager.errorText }
+        set { errorManager.errorText = newValue }
+    }
+    public var sessionError: SessionError? {
+        get { errorManager.sessionError }
+        set { errorManager.sessionError = newValue }
+    }
     /// Supplemental diagnostic hint shown alongside a daemon connection error.
     /// Nil when no connection error is active or the error has been dismissed.
-    @Published public var connectionDiagnosticHint: String? = nil
+    public var connectionDiagnosticHint: String? {
+        get { errorManager.connectionDiagnosticHint }
+        set { errorManager.connectionDiagnosticHint = newValue }
+    }
+
+    // MARK: - Static size limits (forwarded to attachment manager for use in extensions)
 
     /// Maximum file size per attachment (20 MB).
-    static let maxFileSize = 20 * 1024 * 1024
+    static let maxFileSize = ChatAttachmentManager.maxFileSize
     /// Maximum image size before compression (4 MB - leaves headroom for base64 encoding).
     /// Anthropic has a 5MB limit per image; base64 encoding adds ~33% overhead.
-    static let maxImageSize = 4 * 1024 * 1024
+    static let maxImageSize = ChatAttachmentManager.maxImageSize
     /// Maximum number of attachments per message.
-    public static let maxAttachments = 5
+    public static let maxAttachments = ChatAttachmentManager.maxAttachments
 
+    public let subagentDetailStore = SubagentDetailStore()
     let daemonClient: any DaemonClientProtocol
     public var sessionId: String?
     private var reconnectObserver: NSObjectProtocol?
@@ -259,6 +368,26 @@ public final class ChatViewModel: ObservableObject {
     public init(daemonClient: any DaemonClientProtocol, onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)? = nil) {
         self.daemonClient = daemonClient
         self.onToolCallsComplete = onToolCallsComplete
+
+        // Pipe sub-manager objectWillChange signals through this object so that
+        // SwiftUI views observing ChatViewModel are notified whenever any
+        // sub-manager @Published property changes.
+        messageManager.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+        attachmentManager.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+        errorManager.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+
+        // Surface attachment validation errors in the error manager so the UI
+        // can show them without the attachment manager needing a direct reference.
+        attachmentManager.onError = { [weak self] message in
+            self?.errorManager.errorText = message
+        }
+
         reconnectObserver = NotificationCenter.default.addObserver(
             forName: .daemonDidReconnect,
             object: nil,
@@ -1567,55 +1696,8 @@ public final class ChatViewModel: ObservableObject {
     // MARK: - Connection diagnostics
 
     /// Map a raw connection error to a short, actionable diagnostic hint.
-    ///
-    /// The hint is shown below the generic "Failed to connect" error banner so
-    /// users can understand *why* the connection failed without opening the
-    /// debug panel or contacting support.
+    /// Delegates to ChatErrorManager so the logic lives in one place.
     static func connectionDiagnosticHint(for error: Error) -> String? {
-        #if os(macOS)
-        if let nwErr = error as? NWError {
-            switch nwErr {
-            case .posix(let code):
-                switch code {
-                case .ECONNREFUSED:
-                    return "Daemon is not accepting connections — it may still be starting."
-                case .ENOENT:
-                    return "Daemon socket not found — the daemon may not be running."
-                case .ETIMEDOUT:
-                    return "Connection timed out — the daemon may be unresponsive or the socket path may be wrong."
-                default:
-                    return "POSIX error \(code.rawValue): \(nwErr.localizedDescription)"
-                }
-            default:
-                return nwErr.localizedDescription
-            }
-        }
-        if let authErr = error as? DaemonClient.AuthError {
-            switch authErr {
-            case .missingToken:
-                return "Session token not found — try restarting the daemon."
-            case .timeout:
-                return "Authentication timed out — daemon may be overloaded."
-            case .rejected:
-                return "Session token rejected — token may have changed; try restarting the daemon."
-            }
-        }
-        #endif
-        // HTTP transport / iOS
-        if let urlErr = error as? URLError {
-            switch urlErr.code {
-            case .notConnectedToInternet:
-                return "Device is not connected to the internet."
-            case .timedOut:
-                return "Gateway request timed out — check your host and port."
-            case .cannotConnectToHost:
-                return "Cannot connect to gateway host — verify the address and that the daemon is running."
-            case .networkConnectionLost:
-                return "Network connection lost."
-            default:
-                return urlErr.localizedDescription
-            }
-        }
-        return nil
+        ChatErrorManager.connectionDiagnosticHint(for: error)
     }
 }
