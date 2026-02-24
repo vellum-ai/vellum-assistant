@@ -13,9 +13,10 @@
  * }
  */
 
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getRootDir } from '../util/platform.js';
+import { pathExists } from '../util/fs.js';
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('secret-allowlist');
@@ -44,7 +45,7 @@ export function loadAllowlist(): void {
   if (loaded || fileChecked) return;
 
   const filePath = join(getRootDir(), 'protected', 'secret-allowlist.json');
-  if (!existsSync(filePath)) {
+  if (!pathExists(filePath)) {
     fileChecked = true;
     return;
   }
@@ -143,7 +144,7 @@ export function validateAllowlist(config: AllowlistConfig): AllowlistValidationE
  */
 export function validateAllowlistFile(): AllowlistValidationError[] | null {
   const filePath = join(getRootDir(), 'protected', 'secret-allowlist.json');
-  if (!existsSync(filePath)) return null;
+  if (!pathExists(filePath)) return null;
 
   const raw = readFileSync(filePath, 'utf-8');
   const config: AllowlistConfig = JSON.parse(raw);

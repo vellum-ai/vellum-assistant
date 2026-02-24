@@ -7,9 +7,10 @@
  * preferences), so it belongs on disk rather than in the SQLite database.
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { getWorkspaceDir } from '../util/platform.js';
+import { readTextFileSync } from '../util/fs.js';
 import { getLogger } from '../util/logger.js';
 import type { AutonomyConfig, AutonomyTier } from './types.js';
 import { DEFAULT_AUTONOMY_CONFIG, AUTONOMY_TIERS } from './types.js';
@@ -25,14 +26,13 @@ function getAutonomyConfigPath(): string {
  * Returns defaults if the file doesn't exist or is malformed.
  */
 export function getAutonomyConfig(): AutonomyConfig {
-  const configPath = getAutonomyConfigPath();
-  if (!existsSync(configPath)) {
+  const raw = readTextFileSync(getAutonomyConfigPath());
+  if (raw === null) {
     return structuredClone(DEFAULT_AUTONOMY_CONFIG);
   }
 
   try {
-    const raw = JSON.parse(readFileSync(configPath, 'utf-8'));
-    return validateAutonomyConfig(raw);
+    return validateAutonomyConfig(JSON.parse(raw));
   } catch (err) {
     log.warn({ err }, 'Failed to parse autonomy config; using defaults');
     return structuredClone(DEFAULT_AUTONOMY_CONFIG);

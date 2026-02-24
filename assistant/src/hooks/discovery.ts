@@ -1,5 +1,6 @@
-import { readdirSync, readFileSync, existsSync, type Dirent } from 'node:fs';
+import { readdirSync, readFileSync, type Dirent } from 'node:fs';
 import { join, resolve, relative } from 'node:path';
+import { pathExists } from '../util/fs.js';
 import { getHooksDir } from '../util/platform.js';
 import { loadHooksConfig } from './config.js';
 import { getLogger } from '../util/logger.js';
@@ -50,7 +51,7 @@ export function isValidInstallManifest(manifest: unknown): manifest is HookManif
 
 export function discoverHooks(hooksDir?: string): DiscoveredHook[] {
   const dir = hooksDir ?? getHooksDir();
-  if (!existsSync(dir)) return [];
+  if (!pathExists(dir)) return [];
 
   const config = loadHooksConfig();
   const hooks: DiscoveredHook[] = [];
@@ -68,7 +69,7 @@ export function discoverHooks(hooksDir?: string): DiscoveredHook[] {
 
     const hookDir = join(dir, entry.name);
     const manifestPath = join(hookDir, 'hook.json');
-    if (!existsSync(manifestPath)) continue;
+    if (!pathExists(manifestPath)) continue;
 
     let manifest: unknown;
     try {
@@ -92,7 +93,7 @@ export function discoverHooks(hooksDir?: string): DiscoveredHook[] {
       log.warn({ hookDir, script: manifest.script }, 'Hook script path traversal detected, skipping');
       continue;
     }
-    if (!existsSync(scriptPath)) {
+    if (!pathExists(scriptPath)) {
       log.warn({ hookDir, script: manifest.script }, 'Hook script not found, skipping');
       continue;
     }

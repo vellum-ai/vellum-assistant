@@ -1,4 +1,5 @@
-import { watch, existsSync, type FSWatcher } from 'node:fs';
+import { watch, type FSWatcher } from 'node:fs';
+import { pathExists } from '../util/fs.js';
 import { discoverHooks } from './discovery.js';
 import { runHookScript } from './runner.js';
 import { getLogger, isDebug } from '../util/logger.js';
@@ -77,7 +78,7 @@ export class HookManager {
 
   watch(): void {
     const hooksDir = getHooksDir();
-    if (!existsSync(hooksDir)) return;
+    if (!pathExists(hooksDir)) return;
 
     this.stopWatching();
 

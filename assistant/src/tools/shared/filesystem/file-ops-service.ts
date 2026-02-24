@@ -1,6 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
+import { pathExists, ensureDir } from '../../../util/fs.js';
 import type { PathResult, PathFailureReason } from './path-policy.js';
 import { checkFileSizeOnDisk, checkContentSize } from './size-guard.js';
 import { applyEdit } from './edit-engine.js';
@@ -55,7 +56,7 @@ export class FileSystemOps {
     }
     const filePath = pathCheck.resolved;
 
-    if (!existsSync(filePath)) {
+    if (!pathExists(filePath)) {
       return { ok: false, error: Err.notFound(filePath) };
     }
 
@@ -108,13 +109,10 @@ export class FileSystemOps {
     }
 
     try {
-      const dir = dirname(filePath);
-      if (!existsSync(dir)) {
-        mkdirSync(dir, { recursive: true });
-      }
+      ensureDir(dirname(filePath));
 
       let oldContent = '';
-      const isNewFile = !existsSync(filePath);
+      const isNewFile = !pathExists(filePath);
       if (!isNewFile) {
         try {
           oldContent = readFileSync(filePath, 'utf-8');

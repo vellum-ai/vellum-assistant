@@ -1,5 +1,5 @@
-import { readFileSync, existsSync } from 'node:fs';
 import { getWorkspacePromptPath } from '../util/platform.js';
+import { readTextFileSync } from '../util/fs.js';
 
 const DEFAULT_USER_REFERENCE = 'my human';
 
@@ -12,17 +12,12 @@ const DEFAULT_USER_REFERENCE = 'my human';
  * file is missing, unreadable, or the field is empty.
  */
 export function resolveUserReference(): string {
-  const userPath = getWorkspacePromptPath('USER.md');
-  if (!existsSync(userPath)) return DEFAULT_USER_REFERENCE;
-
-  try {
-    const content = readFileSync(userPath, 'utf-8');
+  const content = readTextFileSync(getWorkspacePromptPath('USER.md'));
+  if (content !== null) {
     const match = content.match(/Preferred name\/reference:[ \t]*(.*)/);
     if (match && match[1].trim()) {
       return match[1].trim();
     }
-  } catch {
-    // Fallback on any read error
   }
 
   return DEFAULT_USER_REFERENCE;
