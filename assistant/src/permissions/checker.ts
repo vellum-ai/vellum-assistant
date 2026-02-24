@@ -304,7 +304,9 @@ async function buildCommandCandidates(toolName: string, input: Record<string, un
   return [...new Set(candidates)];
 }
 
-export async function classifyRisk(toolName: string, input: Record<string, unknown>, workingDir?: string, preParsed?: ParsedCommand, manifestOverride?: ManifestOverride): Promise<RiskLevel> {
+export async function classifyRisk(toolName: string, input: Record<string, unknown>, workingDir?: string, preParsed?: ParsedCommand, manifestOverride?: ManifestOverride, signal?: AbortSignal): Promise<RiskLevel> {
+  if (signal?.aborted) throw new Error('Cancelled');
+
   // Check cache first (skip when preParsed is provided since caller already
   // parsed and we'd just be duplicating the key computation cost).
   const cacheKey = preParsed ? null : riskCacheKey(toolName, input);
@@ -462,7 +464,10 @@ export async function check(
   workingDir: string,
   policyContext?: PolicyContext,
   manifestOverride?: ManifestOverride,
+  signal?: AbortSignal,
 ): Promise<PermissionCheckResult> {
+  if (signal?.aborted) throw new Error('Cancelled');
+
   // For shell tools, parse once and share the result to avoid duplicate tree-sitter work.
   let shellParsed: ParsedCommand | undefined;
   if (toolName === 'bash' || toolName === 'host_bash') {
@@ -472,7 +477,7 @@ export async function check(
     }
   }
 
-  const risk = await classifyRisk(toolName, input, workingDir, shellParsed, manifestOverride);
+  const risk = await classifyRisk(toolName, input, workingDir, shellParsed, manifestOverride, signal);
 
   // Build command string candidates for rule matching
   const commandCandidates = await buildCommandCandidates(toolName, input, workingDir, shellParsed);
@@ -602,7 +607,8 @@ function friendlyHostname(url: URL): string {
   return url.hostname.replace(/^www\./, '');
 }
 
-export async function generateAllowlistOptions(toolName: string, input: Record<string, unknown>): Promise<AllowlistOption[]> {
+export async function generateAllowlistOptions(toolName: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<AllowlistOption[]> {
+  if (signal?.aborted) throw new Error('Cancelled');
   if (toolName === 'bash' || toolName === 'host_bash') {
     const command = ((input.command as string) ?? '').trim();
     return buildShellAllowlistOptions(command);
