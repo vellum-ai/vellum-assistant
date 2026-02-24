@@ -334,6 +334,22 @@ export class ComputerUseSession {
   }
 
   /**
+   * Maps variant / long-form app names to a canonical short form so that
+   * e.g. "google chrome" and "chrome" are counted as the same app in
+   * {@link taskExplicitlyRequestsCrossApp}.  Keys must be lowercase.
+   */
+  private static readonly APP_CANONICAL_MAP: ReadonlyMap<string, string> = new Map([
+    ['google chrome', 'chrome'],
+    ['microsoft teams', 'teams'],
+    ['apple notes', 'notes'],
+    ['apple music', 'music'],
+    ['vellum assistant', 'vellum'],
+    ['visual studio code', 'vscode'],
+    ['iterm2', 'iterm'],
+    ['gmail', 'mail'],
+  ]);
+
+  /**
    * Well-known app names used to detect cross-app intent in task text.
    * Only needs to cover apps commonly referenced in cross-app workflows;
    * the list does not need to be exhaustive.
@@ -379,8 +395,11 @@ export class ComputerUseSession {
       const escaped = appName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       if (new RegExp(`\\b${escaped}\\b`).test(t)) {
         // Normalize to a canonical form so e.g. "google chrome" and "chrome"
-        // are counted as the same app.
-        const canonical = ComputerUseSession.normalizeAppLabel(appName);
+        // are counted as the same app.  Check the canonical map first so
+        // variant names like "google chrome" collapse to the same key as
+        // "chrome" instead of normalizing to distinct strings.
+        const canonical = ComputerUseSession.APP_CANONICAL_MAP.get(appName)
+          ?? ComputerUseSession.normalizeAppLabel(appName);
         mentionedApps.add(canonical);
       }
       // Early exit once we confirm at least two distinct apps.
