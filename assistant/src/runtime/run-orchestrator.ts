@@ -141,8 +141,11 @@ export class RunOrchestrator {
 
     const session = await this.deps.getOrCreateSession(conversationId, transport);
 
+    // When the session is busy, enqueue the message and return a queued run
+    // instead of rejecting with a 409. The message will be processed when the
+    // current agent loop completes and drains the queue.
     if (session.isProcessing()) {
-      throw new Error('Session is already processing a message');
+      return this.enqueueRun(session, conversationId, content, attachmentIds, options);
     }
 
     // Determine the correct strictSideEffects value for this run:
@@ -285,6 +288,94 @@ export class RunOrchestrator {
         cleanup();
       }
     })();
+
+    return run;
+  }
+
+  /**
+   * Enqueue a message on a busy session and return a run with `queued` status.
+   * When the queue drains, the onEvent callback transitions the run through
+   * its lifecycle (queued → running → completed/failed).
+   */
+  private enqueueRun(
+    session: Session,
+    conversationId: string,
+    content: string,
+    attachmentIds?: string[],
+    options?: RunStartOptions,
+  ): Run {
+    const run = runsStore.createRun(conversationId, undefined, 'queued');
+    const requestId = crypto.randomUUID();
+
+    const attachments = attachmentIds
+      ? this.deps.resolveAttachments(attachmentIds)
+      : [];
+
+    const sourceChannel = options?.sourceChannel ?? 'macos';
+
+    // Serialized publish chain so hub subscribers observe events in order.
+    let hubChain: Promise<void> = Promise.resolve();
+    const publishToHub = (msg: ServerMessage): void => {
+      const msgRecord = msg as unknown as Record<string, unknown>;
+      const msgSessionId =
+        'sessionId' in msg && typeof msgRecord.sessionId === 'string'
+          ? (msgRecord.sessionId as string)
+          : undefined;
+      const resolvedSessionId = msgSessionId ?? conversationId;
+      const event = buildAssistantEvent('self', msg, resolvedSessionId);
+      hubChain = (async () => {
+        await hubChain;
+        try {
+          await assistantEventHub.publish(event);
+        } catch (err) {
+          log.warn({ err }, 'assistant-events hub subscriber threw during queued run');
+        }
+      })();
+    };
+
+    let lastError: string | null = null;
+    const onEvent = (msg: ServerMessage) => {
+      if (msg.type === 'message_dequeued') {
+        runsStore.startRun(run.id);
+      } else if (msg.type === 'error') {
+        lastError = msg.message;
+      } else if (msg.type === 'session_error') {
+        lastError = msg.userMessage;
+      } else if (msg.type === 'message_complete') {
+        if (lastError) {
+          runsStore.failRun(run.id, lastError);
+        } else {
+          runsStore.completeRun(run.id);
+        }
+      }
+      publishToHub(msg);
+    };
+
+    const channelMetadata = {
+      userMessageChannel: sourceChannel,
+      assistantMessageChannel: sourceChannel,
+    };
+
+    const result = session.enqueueMessage(
+      content,
+      attachments,
+      onEvent,
+      requestId,
+      undefined,
+      undefined,
+      channelMetadata,
+    );
+
+    if (result.rejected) {
+      // Queue is full — fail the run immediately
+      runsStore.failRun(run.id, 'Message queue is full');
+      log.warn({ runId: run.id, conversationId }, 'Queued run rejected — queue full');
+    } else {
+      log.info(
+        { runId: run.id, conversationId, queuePosition: session.getQueueDepth() },
+        'Run queued (session busy)',
+      );
+    }
 
     return run;
   }

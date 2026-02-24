@@ -15,7 +15,7 @@ import { messageRuns } from './schema.js';
 // Types
 // ---------------------------------------------------------------------------
 
-export type RunStatus = 'running' | 'needs_confirmation' | 'needs_secret' | 'completed' | 'failed';
+export type RunStatus = 'queued' | 'running' | 'needs_confirmation' | 'needs_secret' | 'completed' | 'failed';
 
 export interface PendingConfirmation {
   toolName: string;
@@ -97,6 +97,7 @@ function rowToRun(row: typeof messageRuns.$inferSelect): Run {
 export function createRun(
   conversationId: string,
   messageId?: string,
+  initialStatus: 'running' | 'queued' = 'running',
 ): Run {
   const db = getDb();
   const now = Date.now();
@@ -106,7 +107,7 @@ export function createRun(
     id,
     conversationId,
     messageId: messageId ?? null,
-    status: 'running' as const,
+    status: initialStatus,
     pendingConfirmation: null,
     pendingSecret: null,
     inputTokens: 0,
@@ -182,6 +183,15 @@ export function clearRunSecret(runId: string): void {
       pendingSecret: null,
       updatedAt: now,
     })
+    .where(eq(messageRuns.id, runId))
+    .run();
+}
+
+export function startRun(runId: string): void {
+  const db = getDb();
+  const now = Date.now();
+  db.update(messageRuns)
+    .set({ status: 'running', updatedAt: now })
     .where(eq(messageRuns.id, runId))
     .run();
 }
@@ -281,7 +291,7 @@ export function getPendingConfirmationsByConversation(conversationId: string): P
 export function failOrphanedRuns(): number {
   const db = getDb();
   const now = Date.now();
-  const activeStatuses = ['running', 'needs_confirmation', 'needs_secret'];
+  const activeStatuses = ['queued', 'running', 'needs_confirmation', 'needs_secret'];
 
   // Count first so we can report how many were recovered.
   const active = db.select({ id: messageRuns.id })

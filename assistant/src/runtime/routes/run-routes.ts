@@ -21,29 +21,18 @@ export async function handleCreateRun(
 
   log.info({ endpoint: 'POST /v1/runs', conversationKey }, 'Send attempt');
 
-  try {
-    const run = await runOrchestrator.startRun(
-      conversationId,
-      content,
-      attachmentIds,
-      { sourceChannel },
-    );
-    return Response.json({
-      id: run.id,
-      status: run.status,
-      messageId: run.messageId,
-      createdAt: new Date(run.createdAt).toISOString(),
-    }, { status: 201 });
-  } catch (err) {
-    if (err instanceof Error && err.message === 'Session is already processing a message') {
-      log.warn({ endpoint: 'POST /v1/runs', conversationKey }, 'Send rejected — session busy');
-      return Response.json(
-        { error: 'Session is busy processing another message. Please retry.' },
-        { status: 409 },
-      );
-    }
-    throw err;
-  }
+  const run = await runOrchestrator.startRun(
+    conversationId,
+    content,
+    attachmentIds,
+    { sourceChannel },
+  );
+  return Response.json({
+    id: run.id,
+    status: run.status,
+    messageId: run.messageId,
+    createdAt: new Date(run.createdAt).toISOString(),
+  }, { status: 201 });
 }
 
 export function handleGetRun(

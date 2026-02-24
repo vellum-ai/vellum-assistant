@@ -60,6 +60,7 @@ afterAll(() => {
 
 function makeHangingSession(): Session {
   let processing = false;
+  const queuedMessages: Array<{ onEvent: (msg: unknown) => void }> = [];
   return {
     isProcessing: () => processing,
     persistUserMessage: () => undefined as unknown as string,
@@ -74,6 +75,12 @@ function makeHangingSession(): Session {
       processing = true;
       await new Promise<void>(() => {}); // hangs forever
     },
+    enqueueMessage: (_content: string, _attachments: unknown[], onEvent: (msg: unknown) => void) => {
+      if (!processing) return { queued: false, requestId: 'req-1' };
+      queuedMessages.push({ onEvent });
+      return { queued: true, requestId: 'req-1' };
+    },
+    getQueueDepth: () => queuedMessages.length,
     handleConfirmationResponse: () => {},
     handleSecretResponse: () => {},
   } as unknown as Session;
@@ -96,6 +103,8 @@ function makeCompletingSession(): Session {
       await new Promise((r) => setTimeout(r, 20));
       processing = false;
     },
+    enqueueMessage: () => ({ queued: false, requestId: 'req-1' }),
+    getQueueDepth: () => 0,
     handleConfirmationResponse: () => {},
     handleSecretResponse: () => {},
   } as unknown as Session;
@@ -152,7 +161,7 @@ describe('send endpoint busy behavior — POST /v1/runs', () => {
     return `http://127.0.0.1:${port}/v1/runs`;
   }
 
-  test('returns 409 with descriptive error when session is busy', async () => {
+  test('returns 201 with queued status when session is busy', async () => {
     const session = makeHangingSession();
     await startServer(() => session);
 
@@ -163,18 +172,21 @@ describe('send endpoint busy behavior — POST /v1/runs', () => {
       body: JSON.stringify({ conversationKey: 'conv-busy-run', content: 'First', sourceChannel: 'macos' }),
     });
     expect(res1.status).toBe(201);
+    const body1 = await res1.json() as { status: string };
+    expect(body1.status).toBe('running');
 
     await new Promise((r) => setTimeout(r, 30));
 
-    // Second run should get 409
+    // Second run should be queued (not rejected)
     const res2 = await fetch(runsUrl(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
       body: JSON.stringify({ conversationKey: 'conv-busy-run', content: 'Second', sourceChannel: 'macos' }),
     });
-    expect(res2.status).toBe(409);
-    const body = await res2.json() as { error: string };
-    expect(body.error).toContain('busy');
+    expect(res2.status).toBe(201);
+    const body2 = await res2.json() as { id: string; status: string };
+    expect(body2.status).toBe('queued');
+    expect(body2.id).toBeDefined();
 
     await stopServer();
   });
