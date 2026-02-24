@@ -66,7 +66,7 @@ function buildRotatingLogger(config: LogFileConfig): pino.Logger {
 
   const today = formatDate(new Date());
   const filePath = logFilePathForDate(config.dir, new Date());
-  const fileStream = pino.destination({ dest: filePath, sync: false, mkdir: true });
+  const fileStream = pino.destination({ dest: filePath, sync: false, mkdir: true, mode: 0o600 });
 
   activeLogDate = today;
   activeLogFileConfig = config;
@@ -130,7 +130,7 @@ function getRootLogger(): pino.Logger {
     }
 
     try {
-      const fileStream = pino.destination({ dest: getLogPath(), sync: false, mkdir: true });
+      const fileStream = pino.destination({ dest: getLogPath(), sync: false, mkdir: true, mode: 0o600 });
 
       if (getDebugMode()) {
         const prettyStream = pinoPretty({ destination: 2 });
