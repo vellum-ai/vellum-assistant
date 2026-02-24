@@ -329,9 +329,11 @@ public final class ChatAttachmentManager: ObservableObject {
         let scale = min(maxDimension / size.width, maxDimension / size.height, 1.0)
         let newSize = NSSize(width: size.width * scale, height: size.height * scale)
         // NSImage.lockFocus()/draw()/unlockFocus() must run on the main thread.
-        // This helper may be called from a Task.detached context, so we hop to
-        // MainActor explicitly before touching the AppKit drawing APIs.
-        let tiffData: Data? = DispatchQueue.main.sync {
+        // This helper is called from two contexts:
+        //   1. Task.detached (background) — must hop to main via DispatchQueue.main.sync.
+        //   2. @MainActor callers (e.g. ChatViewModel.mapIPCAttachments) — already on the
+        //      main thread, so DispatchQueue.main.sync would deadlock. Execute inline.
+        let drawBlock = {
             let resized = NSImage(size: newSize)
             resized.lockFocus()
             image.draw(in: NSRect(origin: .zero, size: newSize),
@@ -340,6 +342,7 @@ public final class ChatAttachmentManager: ObservableObject {
             resized.unlockFocus()
             return resized.tiffRepresentation
         }
+        let tiffData: Data? = Thread.isMainThread ? drawBlock() : DispatchQueue.main.sync(execute: drawBlock)
         guard let tiffData,
               let bitmap = NSBitmapImageRep(data: tiffData),
               let png = bitmap.representation(using: .png, properties: [:]) else { return nil }
