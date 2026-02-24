@@ -1,13 +1,14 @@
 import { spawn } from "child_process";
-import { rmSync } from "fs";
+import { rmSync, writeFileSync } from "fs";
 import { homedir } from "os";
-import { join } from "path";
+import { basename, dirname, join } from "path";
 
 import { findAssistantByName, removeAssistantEntry } from "../lib/assistant-config";
 import type { AssistantEntry } from "../lib/assistant-config";
 import { retireInstance as retireAwsInstance } from "../lib/aws";
 import { retireInstance as retireGcpInstance } from "../lib/gcp";
 import { stopProcessByPidFile } from "../lib/process";
+import { getArchivePath, getMetadataPath } from "../lib/retire-archive";
 import { exec } from "../lib/step-runner";
 
 function resolveCloud(entry: AssistantEntry): string {
@@ -32,7 +33,7 @@ function extractHostFromUrl(url: string): string {
   }
 }
 
-async function retireLocal(): Promise<void> {
+async function retireLocal(name: string, entry: AssistantEntry): Promise<void> {
   console.log("\u{1F5D1}\ufe0f  Stopping local daemon...\n");
 
   const vellumDir = join(homedir(), ".vellum");
@@ -59,6 +60,18 @@ async function retireLocal(): Promise<void> {
         child.on("error", () => resolve());
       });
     } catch {}
+  }
+
+  // Archive ~/.vellum before deleting
+  try {
+    const archivePath = getArchivePath(name);
+    const metadataPath = getMetadataPath(name);
+    await exec("tar", ["czf", archivePath, "-C", dirname(vellumDir), basename(vellumDir)]);
+    writeFileSync(metadataPath, JSON.stringify(entry, null, 2) + "\n");
+    console.log(`📦 Archived to ${archivePath}`);
+  } catch (err) {
+    console.warn(`⚠️  Failed to archive: ${err instanceof Error ? err.message : err}`);
+    console.warn("Proceeding with permanent deletion.");
   }
 
   rmSync(vellumDir, { recursive: true, force: true });
@@ -142,7 +155,7 @@ export async function retire(): Promise<void> {
     }
     await retireAwsInstance(name, region, source);
   } else if (cloud === "local") {
-    await retireLocal();
+    await retireLocal(name, entry);
   } else if (cloud === "custom") {
     await retireCustom(entry);
   } else {
