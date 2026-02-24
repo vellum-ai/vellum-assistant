@@ -418,31 +418,34 @@ export async function handleChannelInbound(
 
   // ── Ingress ACL enforcement ──
   const inboxConfig = getConfig().assistantInbox;
+  // Track the resolved member so the escalate branch can reference it after
+  // recordInbound (where we have a conversationId).
+  let resolvedMember: ReturnType<typeof findMember> = null;
 
   if (inboxConfig.enabled && inboxConfig.memberAclEnabled && body.senderExternalUserId) {
-    const member = findMember({
+    resolvedMember = findMember({
       sourceChannel,
       externalUserId: body.senderExternalUserId,
       externalChatId,
     });
 
-    if (!member) {
+    if (!resolvedMember) {
       log.info({ sourceChannel, externalUserId: body.senderExternalUserId }, 'Ingress ACL: no member record, denying');
       return Response.json({ accepted: true, denied: true, reason: 'not_a_member' });
     }
 
-    if (member.status !== 'active') {
-      log.info({ sourceChannel, memberId: member.id, status: member.status }, 'Ingress ACL: member not active, denying');
-      return Response.json({ accepted: true, denied: true, reason: `member_${member.status}` });
+    if (resolvedMember.status !== 'active') {
+      log.info({ sourceChannel, memberId: resolvedMember.id, status: resolvedMember.status }, 'Ingress ACL: member not active, denying');
+      return Response.json({ accepted: true, denied: true, reason: `member_${resolvedMember.status}` });
     }
 
-    if (member.policy === 'deny') {
-      log.info({ sourceChannel, memberId: member.id }, 'Ingress ACL: member policy deny');
+    if (resolvedMember.policy === 'deny') {
+      log.info({ sourceChannel, memberId: resolvedMember.id }, 'Ingress ACL: member policy deny');
       return Response.json({ accepted: true, denied: true, reason: 'policy_deny' });
     }
 
     // 'allow' or 'escalate' — update last seen and continue
-    updateLastSeen(member.id);
+    updateLastSeen(resolvedMember.id);
   }
 
   if (hasAttachments) {
@@ -546,6 +549,36 @@ export async function handleChannelInbound(
       displayName: body.senderName ?? null,
       username: body.senderUsername ?? null,
     });
+  }
+
+  // ── Ingress escalation ──
+  // When the member's policy is 'escalate', create a pending guardian
+  // approval request and halt the run. This check runs after recordInbound
+  // so we have a conversationId for the approval record.
+  if (resolvedMember?.policy === 'escalate') {
+    const binding = getGuardianBinding(assistantId, sourceChannel);
+    if (!binding) {
+      // Fail-closed: can't escalate without a guardian to route to
+      log.info({ sourceChannel, memberId: resolvedMember.id }, 'Ingress ACL: escalate policy but no guardian binding, denying');
+      return Response.json({ accepted: true, denied: true, reason: 'escalate_no_guardian' });
+    }
+
+    createApprovalRequest({
+      runId: `ingress-escalation-${Date.now()}`,
+      conversationId: result.conversationId,
+      assistantId,
+      channel: sourceChannel,
+      requesterExternalUserId: body.senderExternalUserId ?? '',
+      requesterChatId: externalChatId,
+      guardianExternalUserId: binding.guardianExternalUserId,
+      guardianChatId: binding.guardianDeliveryChatId,
+      toolName: 'ingress_message',
+      riskLevel: 'escalated_ingress',
+      reason: 'Ingress policy requires guardian approval',
+      expiresAt: Date.now() + GUARDIAN_APPROVAL_TTL_MS,
+    });
+
+    return Response.json({ accepted: true, escalated: true, reason: 'policy_escalate' });
   }
 
   const metadataHintsRaw = sourceMetadata?.hints;
