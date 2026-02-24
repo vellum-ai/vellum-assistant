@@ -11,6 +11,11 @@ struct WatchProgressView: View {
     @State private var isPulsing = false
 
     private var progress: Double {
+        if isLearnMode {
+            // In learn mode the capture loop is skipped, so use time-based progress
+            guard session.durationSeconds > 0 else { return 0 }
+            return min(session.elapsedSeconds / Double(session.durationSeconds), 1.0)
+        }
         guard session.totalExpected > 0 else { return 0 }
         return Double(session.captureCount) / Double(session.totalExpected)
     }

@@ -64,12 +64,21 @@ const WELL_KNOWN_OAUTH: Record<string, WellKnownOAuthConfig> = {
       user_scope: 'channels:read,channels:history,groups:read,groups:history,im:read,im:history,mpim:read,mpim:history,users:read,chat:write,search:read,reactions:write',
     },
   },
+  // Notion uses a simple OAuth2 flow with client_secret_basic auth at the token endpoint.
+  // The access token is long-lived (no expiry) and scopes are configured per-integration in Notion.
+  'integration:notion': {
+    authUrl: 'https://api.notion.com/v1/oauth/authorize',
+    tokenUrl: 'https://api.notion.com/v1/oauth/token',
+    scopes: [],
+    extraParams: { owner: 'user' },
+  },
 };
 
 /** Map shorthand aliases to canonical service names. */
 const SERVICE_ALIASES: Record<string, string> = {
   gmail: 'integration:gmail',
   slack: 'integration:slack',
+  notion: 'integration:notion',
 };
 
 /** Resolve a service name through aliases. */

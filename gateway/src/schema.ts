@@ -440,6 +440,197 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/webhooks/whatsapp": {
+        get: {
+          summary: "WhatsApp webhook verification",
+          description:
+            "Handles the Meta webhook subscription verification handshake (hub.mode=subscribe). Returns the hub.challenge value as plain text to complete verification.",
+          operationId: "whatsappWebhookVerify",
+          parameters: [
+            {
+              name: "hub.mode",
+              in: "query",
+              required: true,
+              schema: { type: "string" },
+            },
+            {
+              name: "hub.verify_token",
+              in: "query",
+              required: true,
+              schema: { type: "string" },
+            },
+            {
+              name: "hub.challenge",
+              in: "query",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            "200": {
+              description: "Verification successful — challenge echoed as plain text",
+              content: {
+                "text/plain": { schema: { type: "string" } },
+              },
+            },
+            "400": {
+              description: "Missing parameters",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "403": {
+              description: "Verify token mismatch",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+          },
+        },
+        post: {
+          summary: "WhatsApp webhook",
+          description:
+            "Receives inbound WhatsApp Cloud API webhook events, verifies the X-Hub-Signature-256 signature, normalizes text messages, and forwards them to the assistant runtime.",
+          operationId: "whatsappWebhook",
+          security: [{ WhatsAppHubSignature: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/WhatsAppWebhookPayload" },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "Webhook accepted",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/WhatsAppOk" },
+                },
+              },
+            },
+            "400": {
+              description: "Invalid JSON or unreadable body",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "403": {
+              description: "Signature verification failed",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "405": {
+              description: "Method not allowed",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "413": {
+              description: "Payload too large",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "500": {
+              description: "Internal error",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "503": {
+              description: "WhatsApp integration not configured",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+          },
+        },
+      },
+      "/deliver/whatsapp": {
+        post: {
+          summary: "WhatsApp delivery (internal)",
+          description:
+            "Internal endpoint called by the assistant runtime to deliver outbound WhatsApp messages. Not intended for external use.",
+          operationId: "whatsappDeliver",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/WhatsAppDeliverRequest" },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "Message delivered",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/WhatsAppOk" },
+                },
+              },
+            },
+            "400": {
+              description: "Invalid JSON or missing required fields",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "401": {
+              description: "Unauthorized",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "405": {
+              description: "Method not allowed",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "502": {
+              description: "Failed to deliver via WhatsApp API",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "503": {
+              description: "WhatsApp integration not configured",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+          },
+        },
+      },
       "/webhooks/twilio/relay": {
         get: {
           summary: "Twilio ConversationRelay WebSocket",
@@ -836,6 +1027,53 @@ export function buildSchema(): Record<string, unknown> {
             file_size: { type: "integer" },
           },
         },
+        WhatsAppOk: {
+          type: "object",
+          required: ["ok"],
+          properties: {
+            ok: { type: "boolean" },
+          },
+        },
+        WhatsAppWebhookPayload: {
+          type: "object",
+          description: "WhatsApp Cloud API webhook notification payload",
+          properties: {
+            object: { type: "string", enum: ["whatsapp_business_account"] },
+            entry: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  id: { type: "string" },
+                  changes: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        field: { type: "string" },
+                        value: { type: "object", additionalProperties: true },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        WhatsAppDeliverRequest: {
+          type: "object",
+          description: "Request to deliver a WhatsApp text message. Accepts either `to` or `chatId` (alias).",
+          properties: {
+            to: { type: "string", description: "Recipient WhatsApp phone number in E.164 format" },
+            chatId: { type: "string", description: "Alias for `to` — used by runtime channel callback payloads" },
+            text: { type: "string", description: "Text content to send", minLength: 1 },
+            assistantId: { type: "string", description: "Optional assistant ID" },
+            attachments: { type: "array", items: { type: "object" }, description: "Attachments (not yet supported — a fallback text is sent instead)" },
+          },
+          allOf: [
+            { anyOf: [{ required: ["to"] }, { required: ["chatId"] }] },
+          ],
+        },
         TelegramDeliverRequest: {
           type: "object",
           required: ["chatId"],
@@ -885,6 +1123,12 @@ export function buildSchema(): Record<string, unknown> {
           in: "header",
           name: "X-Twilio-Signature",
           description: "HMAC-SHA1 signature computed by Twilio over the request URL and form parameters.",
+        },
+        WhatsAppHubSignature: {
+          type: "apiKey",
+          in: "header",
+          name: "X-Hub-Signature-256",
+          description: "HMAC-SHA256 signature computed by Meta over the raw request body using the app secret.",
         },
       },
     },

@@ -107,3 +107,27 @@ export function userMessageWithImage(
     ],
   };
 }
+
+/**
+ * Build a single user message with multiple images followed by a text block.
+ * Each image becomes its own content block; the text block comes last.
+ */
+export function userMessageWithImages(
+  images: Array<{ base64: string; mediaType: string }>,
+  text: string,
+): Message {
+  return {
+    role: 'user',
+    content: [
+      ...images.map((img) => ({
+        type: 'image' as const,
+        source: {
+          type: 'base64' as const,
+          media_type: img.mediaType,
+          data: img.base64,
+        },
+      })),
+      { type: 'text' as const, text },
+    ],
+  };
+}

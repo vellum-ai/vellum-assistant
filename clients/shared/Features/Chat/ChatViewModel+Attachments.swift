@@ -35,78 +35,18 @@ extension ChatViewModel {
             return
         }
 
-        let data: Data
-        do {
-            data = try Data(contentsOf: url)
-        } catch {
-            log.error("Failed to read attachment: \(error.localizedDescription)")
-            errorText = "Could not read file."
-            return
-        }
-
-        // Belt-and-suspenders: the pre-read metadata check above may report
-        // nil (e.g. symlinks, certain file systems) so always validate the
-        // actual byte count after reading.
-        guard data.count <= Self.maxFileSize else {
-            errorText = "File exceeds 20 MB limit."
-            return
-        }
-
-        let filename = url.lastPathComponent
-        var mimeType = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
-
-        // Compress images if needed
-        var finalData = data
-        var wasCompressed = false
-        if let utType = UTType(filenameExtension: url.pathExtension), utType.conforms(to: .image) {
-            let (compressedData, didCompress) = Self.compressImageIfNeeded(data: data, maxSize: Self.maxImageSize)
-            finalData = compressedData
-            wasCompressed = didCompress
-
-            // Update MIME type if compression changed format
-            if wasCompressed && finalData.count < data.count {
-                // Detect format from magic bytes
-                let header = [UInt8](finalData.prefix(4))
-                if header[0] == 0xFF && header[1] == 0xD8 {
-                    mimeType = "image/jpeg"
-                } else if header == [0x89, 0x50, 0x4E, 0x47] {
-                    mimeType = "image/png"
-                }
+        // Move file reading, compression, and thumbnail generation off the main
+        // thread — Data(contentsOf:) is a blocking syscall that can stall the UI
+        // for up to 20 MB worth of I/O before we even begin image processing.
+        Task {
+            let result = await Self.loadAttachment(url: url)
+            switch result {
+            case .failure(let attachmentError):
+                self.errorText = attachmentError.message
+            case .success(let attachment):
+                self.pendingAttachments.append(attachment)
             }
         }
-
-        let base64 = finalData.base64EncodedString()
-
-        var thumbnail: Data?
-        if let utType = UTType(filenameExtension: url.pathExtension), utType.conforms(to: .image) {
-            thumbnail = Self.generateThumbnail(from: finalData, maxDimension: 120)
-        }
-
-        // Inform user if image was compressed
-        if wasCompressed {
-            let originalMB = Double(data.count) / (1024 * 1024)
-            let compressedMB = Double(finalData.count) / (1024 * 1024)
-            log.info("Image compressed: \(String(format: "%.1f", originalMB))MB → \(String(format: "%.1f", compressedMB))MB")
-        }
-
-        #if os(macOS)
-        let thumbnailImage = thumbnail.flatMap { NSImage(data: $0) }
-        #elseif os(iOS)
-        let thumbnailImage = thumbnail.flatMap { UIImage(data: $0) }
-        #else
-        #error("Unsupported platform")
-        #endif
-
-        let attachment = ChatAttachment(
-            id: UUID().uuidString,
-            filename: filename,
-            mimeType: mimeType,
-            data: base64,
-            thumbnailData: thumbnail,
-            dataLength: base64.count,
-            thumbnailImage: thumbnailImage
-        )
-        pendingAttachments.append(attachment)
     }
 
     public func removeAttachment(id: String) {
@@ -151,97 +91,202 @@ extension ChatViewModel {
             return
         }
 
-        // Convert to PNG if needed — raw image data may be TIFF
-        let pngData: Data
-        #if os(macOS)
-        if let _ = NSImage(data: imageData) {
-            // Check if already PNG by looking at magic bytes
-            let pngMagic: [UInt8] = [0x89, 0x50, 0x4E, 0x47]
-            let headerBytes = [UInt8](imageData.prefix(4))
-            if headerBytes == pngMagic {
-                pngData = imageData
-            } else if let bitmapRep = NSBitmapImageRep(data: imageData),
-                      let converted = bitmapRep.representation(using: .png, properties: [:]) {
-                pngData = converted
-            } else {
-                log.error("Failed to convert dropped image to PNG")
-                errorText = "Could not process image."
-                return
-            }
-        } else {
-            log.error("Dropped data is not a valid image")
-            errorText = "Could not process image."
-            return
-        }
-        #elseif os(iOS)
-        if let image = UIImage(data: imageData) {
-            // Check if already PNG by looking at magic bytes
-            let pngMagic: [UInt8] = [0x89, 0x50, 0x4E, 0x47]
-            let headerBytes = [UInt8](imageData.prefix(4))
-            if headerBytes == pngMagic {
-                pngData = imageData
-            } else if let converted = image.pngData() {
-                pngData = converted
-            } else {
-                log.error("Failed to convert dropped image to PNG")
-                errorText = "Could not process image."
-                return
-            }
-        } else {
-            log.error("Dropped data is not a valid image")
-            errorText = "Could not process image."
-            return
-        }
-        #else
-        #error("Unsupported platform")
-        #endif
-
-        guard pngData.count <= Self.maxFileSize else {
-            errorText = "Image exceeds 20 MB limit."
-            return
-        }
-
-        // Compress image if needed
-        let (finalData, wasCompressed) = Self.compressImageIfNeeded(data: pngData, maxSize: Self.maxImageSize)
-
-        // Inform user if image was compressed
-        if wasCompressed {
-            let originalMB = Double(pngData.count) / (1024 * 1024)
-            let compressedMB = Double(finalData.count) / (1024 * 1024)
-            log.info("Image compressed: \(String(format: "%.1f", originalMB))MB → \(String(format: "%.1f", compressedMB))MB")
-        }
-
-        let base64 = finalData.base64EncodedString()
-        let thumbnail = Self.generateThumbnail(from: finalData, maxDimension: 120)
-
-        // Detect MIME type from compressed data
-        var mimeType = "image/png"
-        if wasCompressed {
-            let header = [UInt8](finalData.prefix(4))
-            if header[0] == 0xFF && header[1] == 0xD8 {
-                mimeType = "image/jpeg"
+        // Move image conversion, compression, and thumbnail generation off the
+        // main thread — these are CPU-bound and can take tens of milliseconds
+        // for large images.
+        Task {
+            let result = await Self.loadAttachment(imageData: imageData, filename: filename)
+            switch result {
+            case .failure(let attachmentError):
+                self.errorText = attachmentError.message
+            case .success(let attachment):
+                self.pendingAttachments.append(attachment)
             }
         }
-
-        #if os(macOS)
-        let thumbnailImage = thumbnail.flatMap { NSImage(data: $0) }
-        #elseif os(iOS)
-        let thumbnailImage = thumbnail.flatMap { UIImage(data: $0) }
-        #else
-        #error("Unsupported platform")
-        #endif
-
-        let attachment = ChatAttachment(
-            id: UUID().uuidString,
-            filename: filename,
-            mimeType: mimeType,
-            data: base64,
-            thumbnailData: thumbnail,
-            dataLength: base64.count,
-            thumbnailImage: thumbnailImage
-        )
-        pendingAttachments.append(attachment)
     }
+
+    // MARK: - Private background helpers
+
+    private enum AttachmentError: Error {
+        case message(String)
+        var message: String {
+            if case .message(let m) = self { return m }
+            return "Unknown error."
+        }
+    }
+
+    /// Reads, validates, compresses, and thumbnails an attachment from a file URL.
+    /// All blocking work runs off the main actor; callers receive a ready-to-use
+    /// ChatAttachment (or an error message) and can update UI state directly.
+    private static func loadAttachment(url: URL) async -> Result<ChatAttachment, AttachmentError> {
+        // Hop off the main actor for all blocking I/O and CPU work.
+        return await Task.detached(priority: .userInitiated) {
+            let data: Data
+            do {
+                data = try Data(contentsOf: url)
+            } catch {
+                log.error("Failed to read attachment: \(error.localizedDescription)")
+                return .failure(.message("Could not read file."))
+            }
+
+            // Belt-and-suspenders: the pre-read metadata check above may report
+            // nil (e.g. symlinks, certain file systems) so always validate the
+            // actual byte count after reading.
+            guard data.count <= Self.maxFileSize else {
+                return .failure(.message("File exceeds 20 MB limit."))
+            }
+
+            let filename = url.lastPathComponent
+            var mimeType = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+
+            // Compress images if needed
+            var finalData = data
+            var wasCompressed = false
+            if let utType = UTType(filenameExtension: url.pathExtension), utType.conforms(to: .image) {
+                let (compressedData, didCompress) = Self.compressImageIfNeeded(data: data, maxSize: Self.maxImageSize)
+                finalData = compressedData
+                wasCompressed = didCompress
+
+                // Update MIME type if compression changed format
+                if wasCompressed && finalData.count < data.count {
+                    // Detect format from magic bytes
+                    let header = [UInt8](finalData.prefix(4))
+                    if header[0] == 0xFF && header[1] == 0xD8 {
+                        mimeType = "image/jpeg"
+                    } else if header == [0x89, 0x50, 0x4E, 0x47] {
+                        mimeType = "image/png"
+                    }
+                }
+            }
+
+            let base64 = finalData.base64EncodedString()
+
+            var thumbnail: Data?
+            if let utType = UTType(filenameExtension: url.pathExtension), utType.conforms(to: .image) {
+                thumbnail = Self.generateThumbnail(from: finalData, maxDimension: 120)
+            }
+
+            // Inform user if image was compressed
+            if wasCompressed {
+                let originalMB = Double(data.count) / (1024 * 1024)
+                let compressedMB = Double(finalData.count) / (1024 * 1024)
+                log.info("Image compressed: \(String(format: "%.1f", originalMB))MB → \(String(format: "%.1f", compressedMB))MB")
+            }
+
+            #if os(macOS)
+            let thumbnailImage = thumbnail.flatMap { NSImage(data: $0) }
+            #elseif os(iOS)
+            let thumbnailImage = thumbnail.flatMap { UIImage(data: $0) }
+            #else
+            #error("Unsupported platform")
+            #endif
+
+            let attachment = ChatAttachment(
+                id: UUID().uuidString,
+                filename: filename,
+                mimeType: mimeType,
+                data: base64,
+                thumbnailData: thumbnail,
+                dataLength: base64.count,
+                thumbnailImage: thumbnailImage
+            )
+            return .success(attachment)
+        }.value
+    }
+
+    /// Converts, validates, compresses, and thumbnails an attachment from raw image data.
+    /// All blocking work runs off the main actor.
+    private static func loadAttachment(imageData: Data, filename: String) async -> Result<ChatAttachment, AttachmentError> {
+        return await Task.detached(priority: .userInitiated) {
+            // Convert to PNG if needed — raw image data may be TIFF
+            let pngData: Data
+            #if os(macOS)
+            if let _ = NSImage(data: imageData) {
+                // Check if already PNG by looking at magic bytes
+                let pngMagic: [UInt8] = [0x89, 0x50, 0x4E, 0x47]
+                let headerBytes = [UInt8](imageData.prefix(4))
+                if headerBytes == pngMagic {
+                    pngData = imageData
+                } else if let bitmapRep = NSBitmapImageRep(data: imageData),
+                          let converted = bitmapRep.representation(using: .png, properties: [:]) {
+                    pngData = converted
+                } else {
+                    log.error("Failed to convert dropped image to PNG")
+                    return .failure(.message("Could not process image."))
+                }
+            } else {
+                log.error("Dropped data is not a valid image")
+                return .failure(.message("Could not process image."))
+            }
+            #elseif os(iOS)
+            if let image = UIImage(data: imageData) {
+                // Check if already PNG by looking at magic bytes
+                let pngMagic: [UInt8] = [0x89, 0x50, 0x4E, 0x47]
+                let headerBytes = [UInt8](imageData.prefix(4))
+                if headerBytes == pngMagic {
+                    pngData = imageData
+                } else if let converted = image.pngData() {
+                    pngData = converted
+                } else {
+                    log.error("Failed to convert dropped image to PNG")
+                    return .failure(.message("Could not process image."))
+                }
+            } else {
+                log.error("Dropped data is not a valid image")
+                return .failure(.message("Could not process image."))
+            }
+            #else
+            #error("Unsupported platform")
+            #endif
+
+            guard pngData.count <= Self.maxFileSize else {
+                return .failure(.message("Image exceeds 20 MB limit."))
+            }
+
+            // Compress image if needed
+            let (finalData, wasCompressed) = Self.compressImageIfNeeded(data: pngData, maxSize: Self.maxImageSize)
+
+            // Inform user if image was compressed
+            if wasCompressed {
+                let originalMB = Double(pngData.count) / (1024 * 1024)
+                let compressedMB = Double(finalData.count) / (1024 * 1024)
+                log.info("Image compressed: \(String(format: "%.1f", originalMB))MB → \(String(format: "%.1f", compressedMB))MB")
+            }
+
+            let base64 = finalData.base64EncodedString()
+            let thumbnail = Self.generateThumbnail(from: finalData, maxDimension: 120)
+
+            // Detect MIME type from compressed data
+            var mimeType = "image/png"
+            if wasCompressed {
+                let header = [UInt8](finalData.prefix(4))
+                if header[0] == 0xFF && header[1] == 0xD8 {
+                    mimeType = "image/jpeg"
+                }
+            }
+
+            #if os(macOS)
+            let thumbnailImage = thumbnail.flatMap { NSImage(data: $0) }
+            #elseif os(iOS)
+            let thumbnailImage = thumbnail.flatMap { UIImage(data: $0) }
+            #else
+            #error("Unsupported platform")
+            #endif
+
+            let attachment = ChatAttachment(
+                id: UUID().uuidString,
+                filename: filename,
+                mimeType: mimeType,
+                data: base64,
+                thumbnailData: thumbnail,
+                dataLength: base64.count,
+                thumbnailImage: thumbnailImage
+            )
+            return .success(attachment)
+        }.value
+    }
+
+    // MARK: - Image processing utilities
 
     /// Resize image data to fit within `maxDimension` and return PNG data.
     static func generateThumbnail(from data: Data, maxDimension: CGFloat) -> Data? {

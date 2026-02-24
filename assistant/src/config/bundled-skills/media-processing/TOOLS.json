@@ -77,7 +77,7 @@
     },
     {
       "name": "analyze_keyframes",
-      "description": "Analyze extracted keyframes using Claude VLM (vision language model). Produces structured scene descriptions with subjects, actions, and context for each frame. Supports resumability — skips already-analyzed frames.",
+      "description": "Analyze extracted keyframes using Claude VLM (vision language model). Groups frames into overlapping chunks and analyzes each chunk in a single multi-image API call, providing temporal context for better event detection. Supports resumability — skips already-analyzed frames.",
       "category": "media",
       "risk": "medium",
       "input_schema": {
@@ -94,6 +94,14 @@
           "batch_size": {
             "type": "number",
             "description": "Number of keyframes to process per batch. Default: 10"
+          },
+          "chunk_size": {
+            "type": "number",
+            "description": "Number of frames per analysis chunk. Default: 10"
+          },
+          "overlap": {
+            "type": "number",
+            "description": "Number of overlapping frames between adjacent chunks to avoid missing boundary events. Default: 2"
           }
         },
         "required": ["asset_id"]

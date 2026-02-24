@@ -187,6 +187,8 @@ graph TB
         GW_TWILIO_RELAY["Twilio Relay WS<br/>/webhooks/twilio/relay<br/>(bidirectional proxy)"]
         GW_SMS_WEBHOOK["Twilio SMS Webhook<br/>/webhooks/twilio/sms<br/>(HMAC-SHA1 validated)"]
         GW_SMS_DELIVER["SMS Deliver<br/>/deliver/sms<br/>(internal, from runtime)"]
+        GW_WA_WEBHOOK["WhatsApp Webhook<br/>/webhooks/whatsapp<br/>(HMAC-SHA256 validated)"]
+        GW_WA_DELIVER["WhatsApp Deliver<br/>/deliver/whatsapp<br/>(internal, from runtime)"]
         GW_OAUTH["OAuth Callback<br/>/webhooks/oauth/callback"]
         GW_PROXY["Runtime Proxy<br/>(optional, bearer auth)"]
         GW_PROBES["/healthz + /readyz<br/>k8s liveness/readiness"]
@@ -329,6 +331,11 @@ graph TB
     HTTP_SERVER -->|"POST /deliver/sms<br/>(via gatewayInternalBaseUrl)"| GW_SMS_DELIVER
     GW_SMS_DELIVER -->|"Twilio Messages API<br/>(text-only, no MMS in v1)"| GW_SMS_WEBHOOK
 
+    %% Gateway flow — WhatsApp channel (Meta Cloud API)
+    GW_WA_WEBHOOK -->|"HMAC-SHA256 verify<br/>+ normalize + dedup<br/>+ route resolver"| GW_FORWARD
+    HTTP_SERVER -->|"POST /deliver/whatsapp<br/>(via gatewayInternalBaseUrl)"| GW_WA_DELIVER
+    GW_WA_DELIVER -->|"Meta Cloud API<br/>/{phoneNumberId}/messages"| GW_WA_WEBHOOK
+
     %% Gateway flow — OAuth callback
     GW_OAUTH -->|"forward code + state"| HTTP_SERVER
 
@@ -450,6 +457,37 @@ The SMS channel provides text-only messaging via Twilio, sharing the same teleph
 All three paths are best-effort: webhook sync failures do not prevent the primary operation from succeeding.
 
 **Limitations (v1)**: Text-only — MMS payloads are explicitly rejected with a user-facing notice rather than silently dropped.
+
+### WhatsApp Channel (Meta Cloud API)
+
+The WhatsApp channel enables inbound and outbound messaging via the Meta WhatsApp Business Cloud API. It follows the same ingress/egress pattern as SMS but uses Meta's HMAC-SHA256 signature validation (`X-Hub-Signature-256`) instead of Twilio's HMAC-SHA1.
+
+**Ingress** (`GET /webhooks/whatsapp` — verification, `POST /webhooks/whatsapp` — messages):
+
+1. **Webhook verification**: Meta sends a `GET` with `hub.mode=subscribe`, `hub.verify_token`, and `hub.challenge`. The gateway compares `hub.verify_token` against `WHATSAPP_WEBHOOK_VERIFY_TOKEN` and echoes `hub.challenge` as plain text.
+2. On `POST`, the gateway verifies the `X-Hub-Signature-256` header (HMAC-SHA256 of the raw request body using `WHATSAPP_APP_SECRET`) when the app secret is configured. Fail-closed: requests are rejected when the secret is set but the signature fails.
+3. **Normalization**: Only `type=text` messages from `messages` change fields are forwarded. Delivery receipts, read receipts, and non-text message types (image, audio, video, document, sticker) are silently acknowledged with `{ ok: true }`.
+4. **`/new` command**: When the message body is `/new` (case-insensitive), the gateway resolves routing, resets the conversation, and sends a confirmation message without forwarding to the runtime.
+5. The payload is normalized into a `GatewayInboundEventV1` with `sourceChannel: "whatsapp"` and `externalChatId` set to the sender's WhatsApp phone number (E.164).
+6. WhatsApp message IDs are deduplicated via `StringDedupCache` (24-hour TTL).
+7. The gateway marks each inbound message as read (best-effort, fire-and-forget).
+8. The event is forwarded to the runtime via `POST /channels/inbound` with WhatsApp-specific transport hints and a `replyCallbackUrl` pointing to `/deliver/whatsapp`.
+
+**Egress** (`POST /deliver/whatsapp`):
+1. The runtime calls the gateway's `/deliver/whatsapp` endpoint with `{ to, text }` or `{ chatId, text }` (alias).
+2. The gateway authenticates the request via bearer token (same fail-closed model as other deliver endpoints).
+3. The gateway sends the message via the WhatsApp Cloud API `/{phoneNumberId}/messages` endpoint using the configured access token.
+4. Text is split at 4096 characters if needed.
+
+**Required credentials**:
+- `WHATSAPP_PHONE_NUMBER_ID` — the numeric WhatsApp Business phone number ID from Meta
+- `WHATSAPP_ACCESS_TOKEN` — System User or temporary access token
+- `WHATSAPP_APP_SECRET` — App secret for webhook signature verification
+- `WHATSAPP_WEBHOOK_VERIFY_TOKEN` — Token for the Meta webhook subscription handshake
+
+These can be set via environment variables or stored in the credential vault (keychain / encrypted store) under the `whatsapp` service prefix.
+
+**Limitations (v1)**: Text-only — non-text message types are acknowledged but not forwarded; rich approval UI (inline buttons) is not supported.
 
 **Channel Readiness**: The `channel_readiness` IPC contract (`ChannelReadinessService` in `src/runtime/channel-readiness-service.ts`) provides a unified readiness subsystem for all channels. Each channel registers a `ChannelProbe` that runs synchronous local checks (credential presence, phone number, ingress config) and optional async remote checks with a 5-minute TTL cache. Built-in probes: SMS (Twilio credentials, phone number, ingress; remote checks query Twilio toll-free verification status for toll-free numbers) and Telegram (bot token, webhook secret, ingress). The `get` action returns cached snapshots; `refresh` invalidates the cache first. Unknown channels return `unsupported_channel`.
 
@@ -1350,6 +1388,7 @@ graph LR
         C10["ipc_blob_probe<br/>probeId, nonceSha256"]
         C11["work_items_list / work_item_get<br/>work_item_create / work_item_update<br/>work_item_complete / work_item_run_task<br/>(planned)"]
         C12["tool_permission_simulate<br/>toolName, input, workingDir?,<br/>isInteractive?, forcePromptSideEffects?,<br/>executionTarget?"]
+        C13["conversation_search<br/>query, limit?,<br/>maxMessagesPerConversation?"]
     end
 
     SOCKET["Unix Socket<br/>~/.vellum/vellum.sock<br/>───────────────<br/>Newline-delimited JSON<br/>Max 96MB per message<br/>Ping/pong every 30s<br/>Auto-reconnect<br/>1s → 30s backoff"]
@@ -1378,6 +1417,7 @@ graph LR
         S19["session_list_response<br/>sessions[]: id, title,<br/>updatedAt, threadType?"]
         S20["work_item_status_changed<br/>workItemId, newStatus<br/>(planned push)"]
         S21["tool_permission_simulate_response<br/>decision, riskLevel, reason?,<br/>promptPayload?, matchedRuleId?"]
+        S22["conversation_search_response<br/>query, results[]: conversationId,<br/>title, updatedAt, matchingMessages[]"]
     end
 
     C0 --> SOCKET
@@ -1393,6 +1433,7 @@ graph LR
     C10 --> SOCKET
     C11 --> SOCKET
     C12 --> SOCKET
+    C13 --> SOCKET
 
     SOCKET --> S0
     SOCKET --> S1
@@ -1416,6 +1457,7 @@ graph LR
     SOCKET --> S19
     SOCKET --> S20
     SOCKET --> S21
+    SOCKET --> S22
 ```
 
 ---
@@ -2690,6 +2732,8 @@ Note: OAuth2 scopes (`tweet.read`, `tweet.write`, `users.read`, `offline.access`
 | `assistant/src/config/bundled-skills/messaging/` | Unified messaging skill (SKILL.md, TOOLS.json, tools/) |
 | `assistant/src/watcher/providers/slack.ts` | Slack watcher for DMs, mentions, thread replies |
 | `assistant/src/watcher/providers/gmail.ts` | Gmail watcher using History API |
+| `assistant/src/watcher/providers/github.ts` | GitHub watcher for PRs, issues, review requests, and mentions |
+| `assistant/src/watcher/providers/linear.ts` | Linear watcher for assigned issues, status changes, and @mentions |
 | `assistant/src/daemon/handlers/twitter-auth.ts` | Twitter OAuth2 flow handlers (`twitter_auth_start`, `twitter_auth_status`) |
 | `assistant/src/twitter/client.ts` | Twitter CDP client: GraphQL mutations/queries via Chrome DevTools Protocol |
 | `assistant/src/twitter/oauth-client.ts` | OAuth-backed Twitter client: X API v2 post/reply via stored tokens using `withValidToken()` |
@@ -3280,6 +3324,8 @@ graph TD
         GMAIL["Gmail Provider"]
         SLACK_W["Slack Provider"]
         GCAL["Google Calendar Provider"]
+        GH_W["GitHub Provider"]
+        LINEAR_W["Linear Provider"]
         FUTURE["Future Providers..."]
     end
 
@@ -3297,6 +3343,8 @@ graph TD
     POLL --> GMAIL
     POLL --> SLACK_W
     POLL --> GCAL
+    POLL --> GH_W
+    POLL --> LINEAR_W
     POLL --> FUTURE
     POLL --> DEDUP
     DEDUP --> PROCESS
@@ -3549,6 +3597,19 @@ iOS App  --HTTPS-->  Ingress (tunnel/public URL)  -->  Gateway  -->  Runtime
 | `clients/macos/vellum-assistant/Features/Settings/PairingQRCodeSheet.swift` | macOS QR generation + manual pairing info display |
 | `clients/shared/IPC/DaemonConfig.swift` | Transport config; iOS uses `.http` exclusively |
 | `clients/shared/IPC/HTTPDaemonClient.swift` | HTTP+SSE client implementation |
+
+### Offline Message Queue (iOS)
+
+When the daemon is unreachable, outgoing user messages are buffered in `OfflineMessageQueue` (a persistent FIFO stored in UserDefaults) instead of surfacing an error. The message bubble shows a "Pending" indicator (`ChatMessageStatus.pendingOffline`) while offline. On reconnect (`daemonDidReconnect`), `ChatViewModel.flushOfflineQueue()` drains the queue and sends messages in order, clearing the pending indicator.
+
+| Component | Role |
+|-----------|------|
+| `clients/ios/App/OfflineMessageQueue.swift` | Persistent FIFO queue; serialized to `offline_message_queue_v1` in UserDefaults |
+| `ChatMessageStatus.pendingOffline` | Message status for locally buffered, unsent messages |
+| `ChatViewModel.flushOfflineQueue()` | Drains the queue on reconnect, sending messages in FIFO order |
+| `MessageBubbleView` | Renders a clock icon + "Pending" label for `.pendingOffline` messages |
+
+Storage key: `offline_message_queue_v1` (UserDefaults).
 
 ---
 

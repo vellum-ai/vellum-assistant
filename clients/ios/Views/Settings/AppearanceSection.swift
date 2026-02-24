@@ -1,0 +1,47 @@
+#if canImport(UIKit)
+import SwiftUI
+import VellumAssistantShared
+
+/// Appearance settings screen — theme selection and display preferences.
+/// Mirrors the macOS SettingsAppearanceTab, adapted for iOS Form-based navigation.
+struct AppearanceSection: View {
+    @AppStorage(UserDefaultsKeys.appearanceMode) private var appearanceMode: String = "system"
+
+    var body: some View {
+        Form {
+            Section {
+                Picker("Theme", selection: $appearanceMode) {
+                    Text("System").tag("system")
+                    Text("Light").tag("light")
+                    Text("Dark").tag("dark")
+                }
+                .pickerStyle(.segmented)
+            } header: {
+                Text("Color Scheme")
+            } footer: {
+                Text("\"System\" follows your device's Light/Dark Mode setting.")
+            }
+
+            Section {
+                NavigationLink {
+                    AvatarCustomizationPanel()
+                } label: {
+                    Label("Avatar", systemImage: "face.smiling")
+                }
+            } header: {
+                Text("Avatar")
+            } footer: {
+                Text("Customize your assistant's appearance. Colors and outfit evolve based on your assistant's personality.")
+            }
+        }
+        .navigationTitle("Appearance")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+#Preview {
+    NavigationStack {
+        AppearanceSection()
+    }
+}
+#endif

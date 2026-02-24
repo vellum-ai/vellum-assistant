@@ -6,18 +6,11 @@ import { getDb } from './db.js';
 import { getQdrantClient } from './qdrant-client.js';
 import { memoryEmbeddings } from './schema.js';
 import type { AssistantConfig } from '../config/types.js';
+import { BackendUnavailableError } from '../util/errors.js';
+
+export { BackendUnavailableError };
 
 const log = getLogger('memory-jobs-worker');
-
-// ── Sentinel error ─────────────────────────────────────────────────
-
-/** Sentinel error: the embedding backend is not configured yet. */
-export class BackendUnavailableError extends Error {
-  constructor(reason: string) {
-    super(reason);
-    this.name = 'BackendUnavailableError';
-  }
-}
 
 // ── Error classification for LLM / API errors ─────────────────────
 

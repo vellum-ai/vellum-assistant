@@ -14,8 +14,10 @@ import {
   getMetadataPath,
   readTelegramCredentials,
   readTwilioCredentials,
+  readWhatsAppCredentials,
   type TelegramCredentials,
   type TwilioCredentials,
+  type WhatsAppCredentials,
 } from "./credential-reader.js";
 
 const log = getLogger("credential-watcher");
@@ -27,6 +29,8 @@ export type CredentialChangeEvent = {
   telegramChanged: boolean;
   twilioCredentials: TwilioCredentials | null;
   twilioChanged: boolean;
+  whatsappCredentials: WhatsAppCredentials | null;
+  whatsappChanged: boolean;
 };
 
 export type CredentialChangeCallback = (event: CredentialChangeEvent) => void;
@@ -39,6 +43,10 @@ export class CredentialWatcher {
   private lastWebhookSecret: string | undefined;
   private lastTwilioAccountSid: string | undefined;
   private lastTwilioAuthToken: string | undefined;
+  private lastWhatsAppPhoneNumberId: string | undefined;
+  private lastWhatsAppAccessToken: string | undefined;
+  private lastWhatsAppAppSecret: string | undefined;
+  private lastWhatsAppWebhookVerifyToken: string | undefined;
   private callback: CredentialChangeCallback;
   private metadataPath: string;
 
@@ -123,11 +131,16 @@ export class CredentialWatcher {
   private pollOnce(): void {
     const telegramCredentials = readTelegramCredentials();
     const twilioCredentials = readTwilioCredentials();
+    const whatsappCredentials = readWhatsAppCredentials();
 
     const newBotToken = telegramCredentials?.botToken;
     const newWebhookSecret = telegramCredentials?.webhookSecret;
     const newTwilioAccountSid = twilioCredentials?.accountSid;
     const newTwilioAuthToken = twilioCredentials?.authToken;
+    const newWhatsAppPhoneNumberId = whatsappCredentials?.phoneNumberId;
+    const newWhatsAppAccessToken = whatsappCredentials?.accessToken;
+    const newWhatsAppAppSecret = whatsappCredentials?.appSecret;
+    const newWhatsAppWebhookVerifyToken = whatsappCredentials?.webhookVerifyToken;
 
     const telegramChanged =
       newBotToken !== this.lastBotToken ||
@@ -137,7 +150,13 @@ export class CredentialWatcher {
       newTwilioAccountSid !== this.lastTwilioAccountSid ||
       newTwilioAuthToken !== this.lastTwilioAuthToken;
 
-    if (!telegramChanged && !twilioChanged) {
+    const whatsappChanged =
+      newWhatsAppPhoneNumberId !== this.lastWhatsAppPhoneNumberId ||
+      newWhatsAppAccessToken !== this.lastWhatsAppAccessToken ||
+      newWhatsAppAppSecret !== this.lastWhatsAppAppSecret ||
+      newWhatsAppWebhookVerifyToken !== this.lastWhatsAppWebhookVerifyToken;
+
+    if (!telegramChanged && !twilioChanged && !whatsappChanged) {
       return;
     }
 
@@ -145,6 +164,10 @@ export class CredentialWatcher {
     this.lastWebhookSecret = newWebhookSecret;
     this.lastTwilioAccountSid = newTwilioAccountSid;
     this.lastTwilioAuthToken = newTwilioAuthToken;
+    this.lastWhatsAppPhoneNumberId = newWhatsAppPhoneNumberId;
+    this.lastWhatsAppAccessToken = newWhatsAppAccessToken;
+    this.lastWhatsAppAppSecret = newWhatsAppAppSecret;
+    this.lastWhatsAppWebhookVerifyToken = newWhatsAppWebhookVerifyToken;
 
     if (telegramChanged) {
       log.info(
@@ -158,12 +181,20 @@ export class CredentialWatcher {
         "Twilio credentials changed",
       );
     }
+    if (whatsappChanged) {
+      log.info(
+        { hasCredentials: !!whatsappCredentials },
+        "WhatsApp credentials changed",
+      );
+    }
 
     this.callback({
       telegramCredentials,
       telegramChanged,
       twilioCredentials,
       twilioChanged,
+      whatsappCredentials,
+      whatsappChanged,
     });
   }
 }

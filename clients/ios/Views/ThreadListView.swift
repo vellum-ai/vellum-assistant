@@ -153,6 +153,25 @@ struct ThreadListView: View {
                     }
                 }
             }
+
+            // Load-more trigger: appears when the daemon has additional sessions beyond
+            // the current page. Becomes visible as the user scrolls toward the bottom.
+            if store.hasMoreThreads || store.isLoadingMoreThreads {
+                HStack {
+                    Spacer()
+                    if store.isLoadingMoreThreads {
+                        VLoadingIndicator(size: 18)
+                    } else {
+                        // Invisible sentinel: triggers the next page fetch on appear.
+                        Color.clear.frame(height: 1)
+                    }
+                    Spacer()
+                }
+                .listRowSeparator(.hidden)
+                .onAppear {
+                    store.loadMoreThreads()
+                }
+            }
         }
         .searchable(text: $searchText, prompt: "Search chats")
         .navigationTitle("Chats")
@@ -223,21 +242,41 @@ struct ThreadChatView: View {
     @ObservedObject var viewModel: ChatViewModel
     var threadTitle: String?
 
+    @EnvironmentObject var clientProvider: ClientProvider
+    @AppStorage(UserDefaultsKeys.developerModeEnabled) private var developerModeEnabled: Bool = false
     @State private var showCopiedConfirmation = false
     @State private var showShareSheet = false
     @State private var shareMarkdown: String = ""
+    @State private var showDebugPanel = false
 
     var body: some View {
         ChatContentView(viewModel: viewModel)
             .navigationTitle("Chat")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                if developerModeEnabled {
+                    ToolbarItem(placement: .navigationBarLeading) {
+                        Button {
+                            showDebugPanel = true
+                        } label: {
+                            Image(systemName: "ladybug")
+                                .foregroundColor(VColor.textMuted)
+                        }
+                    }
+                }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     exportMenu
                 }
             }
             .sheet(isPresented: $showShareSheet) {
                 ActivityViewController(activityItems: [shareMarkdown])
+            }
+            .sheet(isPresented: $showDebugPanel) {
+                DebugPanelView(
+                    traceStore: clientProvider.traceStore,
+                    sessionId: viewModel.sessionId,
+                    onClose: { showDebugPanel = false }
+                )
             }
     }
 

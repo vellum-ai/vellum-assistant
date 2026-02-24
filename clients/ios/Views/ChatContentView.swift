@@ -23,6 +23,14 @@ struct ChatContentView: View {
     @State private var emptyStateVisible = false
     @State private var greeting: String = greetingChoices.randomElement()!
 
+    /// The slice of messages shown in the view, honoring the pagination window.
+    private var visibleMessages: [ChatMessage] {
+        let all = viewModel.messages.filter { !$0.isSubagentNotification }
+        // displayedMessageCount tracks how many of the most-recent messages to show.
+        let count = min(viewModel.displayedMessageCount, all.count)
+        return Array(all.suffix(count))
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Messages area — empty state when no messages, otherwise scrollable list
@@ -32,7 +40,37 @@ struct ChatContentView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: VSpacing.md) {
-                        let messages = viewModel.messages.filter { !$0.isSubagentNotification }
+                        // Loading indicator shown at the very top when fetching an older page.
+                        if viewModel.isLoadingMoreMessages {
+                            HStack {
+                                Spacer()
+                                VLoadingIndicator(size: 18)
+                                Spacer()
+                            }
+                            .padding(.vertical, VSpacing.sm)
+                            .id("page-loading-indicator")
+                        } else if viewModel.hasMoreMessages {
+                            // Invisible sentinel: fires when the user scrolls to the top,
+                            // triggering the next-older page of messages to be revealed.
+                            Color.clear
+                                .frame(height: 1)
+                                .id("page-load-trigger")
+                                .onAppear {
+                                    // Capture the current first-visible message ID before the
+                                    // pagination window expands so we can restore scroll position.
+                                    let anchorId = visibleMessages.first?.id
+                                    Task {
+                                        let hadMore = await viewModel.loadPreviousMessagePage()
+                                        // Restore position to the message that was previously at
+                                        // the top so the content doesn't jump unexpectedly.
+                                        if hadMore, let id = anchorId {
+                                            proxy.scrollTo(id, anchor: .top)
+                                        }
+                                    }
+                                }
+                        }
+
+                        let messages = visibleMessages
                         ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
                             if message.modelPicker != nil {
                                 ModelPickerBubble(
