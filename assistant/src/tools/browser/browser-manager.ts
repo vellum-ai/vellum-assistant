@@ -754,17 +754,16 @@ class BrowserManager {
         await dl.saveAs(destPath);
         const info: DownloadInfo = { path: destPath, filename };
 
-        // Store in session download history
-        const list = this.downloads.get(sessionId) ?? [];
-        list.push(info);
-        this.downloads.set(sessionId, list);
-
-        // Resolve any pending waitForDownload calls
+        // Resolve a pending waiter if one exists, otherwise store for later retrieval
         const pending = this.pendingDownloads.get(sessionId);
         if (pending && pending.length > 0) {
           const waiter = pending.shift()!;
           waiter.resolve(info);
           if (pending.length === 0) this.pendingDownloads.delete(sessionId);
+        } else {
+          const list = this.downloads.get(sessionId) ?? [];
+          list.push(info);
+          this.downloads.set(sessionId, list);
         }
 
         log.info({ sessionId, filename, path: destPath }, 'Download completed');
@@ -790,10 +789,12 @@ class BrowserManager {
   }
 
   waitForDownload(sessionId: string, timeoutMs: number = 30_000): Promise<DownloadInfo> {
-    // Check if a download already completed for this session before enqueuing a waiter
+    // Check if an unconsumed download already completed for this session
     const existing = this.downloads.get(sessionId);
     if (existing && existing.length > 0) {
-      return Promise.resolve(existing[existing.length - 1]);
+      const info = existing.pop()!;
+      if (existing.length === 0) this.downloads.delete(sessionId);
+      return Promise.resolve(info);
     }
 
     return new Promise<DownloadInfo>((resolve, reject) => {
