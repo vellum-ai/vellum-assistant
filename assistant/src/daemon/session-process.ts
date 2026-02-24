@@ -235,6 +235,29 @@ export function drainQueue(session: ProcessSessionContext, reason: QueueDrainRea
   session.currentActiveSurfaceId = next.activeSurfaceId;
   session.currentPage = next.currentPage;
 
+  // Fire-and-forget: detect notification preferences in the queued message
+  // and persist any that are found, mirroring the logic in processMessage.
+  if (session.assistantId) {
+    const aid = session.assistantId;
+    extractPreferences(resolvedContent)
+      .then((result) => {
+        if (!result.detected) return;
+        for (const pref of result.preferences) {
+          createPreference({
+            assistantId: aid,
+            preferenceText: pref.preferenceText,
+            appliesWhen: pref.appliesWhen,
+            priority: pref.priority,
+          });
+        }
+        log.info({ count: result.preferences.length, conversationId: session.conversationId }, 'Persisted extracted notification preferences (queued)');
+      })
+      .catch((err) => {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        log.warn({ err: errMsg, conversationId: session.conversationId }, 'Background preference extraction failed (queued)');
+      });
+  }
+
   // Fire-and-forget: persistUserMessage set session.processing = true
   // so subsequent messages will still be enqueued.
   // runAgentLoop's finally block will call drainQueue when this run completes.
