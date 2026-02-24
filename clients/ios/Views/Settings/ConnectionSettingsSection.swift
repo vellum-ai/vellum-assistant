@@ -181,6 +181,39 @@ struct DaemonConnectionSection: View {
         }
     }
 
+    // MARK: - Local Host Detection
+
+    /// Checks whether a host string refers to a local or private-network address.
+    /// Used to allow plain HTTP for LAN/loopback endpoints while requiring HTTPS
+    /// for public hosts (ATS policy). Comparison is case-insensitive.
+    static func isLocalHost(_ rawHost: String) -> Bool {
+        let host = rawHost.lowercased()
+
+        // Loopback & mDNS
+        if host == "localhost" || host == "::1" || host.hasSuffix(".local") {
+            return true
+        }
+
+        // IPv6 link-local (fe80::…)
+        if host.hasPrefix("fe80:") {
+            return true
+        }
+
+        let octets = host.split(separator: ".").compactMap { UInt8($0) }
+        if octets.count == 4 {
+            // 127.0.0.0/8 — full loopback range
+            if octets[0] == 127 { return true }
+            // 10.0.0.0/8 — private
+            if octets[0] == 10 { return true }
+            // 172.16.0.0/12 — private (172.16.x.x through 172.31.x.x)
+            if octets[0] == 172 && (16...31).contains(octets[1]) { return true }
+            // 192.168.0.0/16 — private
+            if octets[0] == 192 && octets[1] == 168 { return true }
+        }
+
+        return false
+    }
+
     // MARK: - Manual Connection
 
     private func connectManually() {
@@ -196,9 +229,7 @@ struct DaemonConnectionSection: View {
 
         // Require HTTPS for non-local connections (ATS policy)
         if url.scheme == "http" {
-            let host = url.host ?? ""
-            let isLocal = host == "localhost" || host == "127.0.0.1" || host.hasSuffix(".local")
-            if !isLocal {
+            if !Self.isLocalHost(url.host ?? "") {
                 alertMessage = "HTTPS is required for non-local connections."
                 showingAlert = true
                 return
