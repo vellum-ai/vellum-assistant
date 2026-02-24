@@ -24,13 +24,14 @@ async function sendTwilioSms(
   from: string,
   to: string,
   body: string,
+  fetchFn: typeof globalThis.fetch = globalThis.fetch,
 ): Promise<TwilioSmsResult> {
   const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
   const params = new URLSearchParams({ From: from, To: to, Body: body });
   const authHeader =
     "Basic " + Buffer.from(`${accountSid}:${authToken}`).toString("base64");
 
-  const response = await globalThis.fetch(url, {
+  const response = await fetchFn(url, {
     method: "POST",
     headers: {
       Authorization: authHeader,
@@ -171,6 +172,7 @@ export function createSmsDeliverHandler(config: GatewayConfig) {
         from,
         to,
         effectiveText,
+        config.fetch,
       );
     } catch (err) {
       tlog.error({ err, to }, "Failed to send SMS via Twilio");

@@ -1,10 +1,6 @@
-import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
+import { describe, test, expect, mock } from "bun:test";
 import { createTelegramReconcileHandler } from "../http/routes/telegram-reconcile.js";
 import type { GatewayConfig } from "../config.js";
-
-// Use mock() + direct globalThis.fetch assignment instead of spyOn(globalThis, "fetch")
-// because spyOn doesn't reliably intercept fetch on Linux in Bun 1.3.9.
-const originalFetch = globalThis.fetch;
 
 function makeTelegramResponse(result: unknown) {
   return new Response(JSON.stringify({ ok: true, result }), {
@@ -72,18 +68,9 @@ function makeRequest(
   });
 }
 
-function mockFetch(fn: (...args: Parameters<typeof fetch>) => Promise<Response>) {
-  const m = mock(fn);
-  Object.assign(m, { preconnect: () => {} });
-  globalThis.fetch = m as unknown as typeof fetch;
-  return m;
-}
-
-let fetchMock: ReturnType<typeof mock<(...args: Parameters<typeof fetch>) => Promise<Response>>> | null = null;
-
-/** Default fetch mock that handles Telegram API calls with success responses. */
-function installDefaultFetchMock() {
-  fetchMock = mockFetch(async (input: string | URL | Request) => {
+/** Creates a default fetch mock that handles Telegram API calls with success responses. */
+function makeDefaultFetchMock() {
+  const fn = mock(async (input: string | URL | Request) => {
     const url =
       typeof input === "string"
         ? input
@@ -102,20 +89,14 @@ function installDefaultFetchMock() {
     }
     return new Response("Not found", { status: 404 });
   });
+  Object.assign(fn, { preconnect: () => {} });
+  return fn as unknown as typeof fetch & ReturnType<typeof mock>;
 }
 
 describe("POST /internal/telegram/reconcile", () => {
-  beforeEach(() => {
-    installDefaultFetchMock();
-  });
-
-  afterEach(() => {
-    globalThis.fetch = originalFetch;
-    fetchMock = null;
-  });
-
   test("rejects non-POST methods", async () => {
-    const config = makeConfig();
+    const fetchMock = makeDefaultFetchMock();
+    const config = makeConfig({ fetch: fetchMock });
     const handler = createTelegramReconcileHandler(config);
     const res = await handler(
       new Request("http://localhost:7830/internal/telegram/reconcile", {
@@ -126,7 +107,8 @@ describe("POST /internal/telegram/reconcile", () => {
   });
 
   test("returns 503 when no bearer token is configured", async () => {
-    const config = makeConfig({ runtimeProxyBearerToken: undefined });
+    const fetchMock = makeDefaultFetchMock();
+    const config = makeConfig({ fetch: fetchMock, runtimeProxyBearerToken: undefined });
     const handler = createTelegramReconcileHandler(config);
     const res = await handler(makeRequest("POST", "any-token"));
     expect(res.status).toBe(503);
@@ -135,21 +117,24 @@ describe("POST /internal/telegram/reconcile", () => {
   });
 
   test("returns 401 for missing auth header", async () => {
-    const config = makeConfig();
+    const fetchMock = makeDefaultFetchMock();
+    const config = makeConfig({ fetch: fetchMock });
     const handler = createTelegramReconcileHandler(config);
     const res = await handler(makeRequest("POST"));
     expect(res.status).toBe(401);
   });
 
   test("returns 401 for wrong token", async () => {
-    const config = makeConfig();
+    const fetchMock = makeDefaultFetchMock();
+    const config = makeConfig({ fetch: fetchMock });
     const handler = createTelegramReconcileHandler(config);
     const res = await handler(makeRequest("POST", "wrong-token"));
     expect(res.status).toBe(401);
   });
 
   test("triggers reconcile with correct auth", async () => {
-    const config = makeConfig();
+    const fetchMock = makeDefaultFetchMock();
+    const config = makeConfig({ fetch: fetchMock });
     const handler = createTelegramReconcileHandler(config);
     const res = await handler(makeRequest("POST", "test-token"));
     expect(res.status).toBe(200);
@@ -160,7 +145,8 @@ describe("POST /internal/telegram/reconcile", () => {
   });
 
   test("updates ingressPublicBaseUrl when provided", async () => {
-    const config = makeConfig({ ingressPublicBaseUrl: "https://old.example.com" });
+    const fetchMock = makeDefaultFetchMock();
+    const config = makeConfig({ fetch: fetchMock, ingressPublicBaseUrl: "https://old.example.com" });
     const handler = createTelegramReconcileHandler(config);
     const res = await handler(
       makeRequest("POST", "test-token", {
@@ -173,7 +159,8 @@ describe("POST /internal/telegram/reconcile", () => {
   });
 
   test("clears ingressPublicBaseUrl when empty string is provided", async () => {
-    const config = makeConfig({ ingressPublicBaseUrl: "https://old.example.com" });
+    const fetchMock = makeDefaultFetchMock();
+    const config = makeConfig({ fetch: fetchMock, ingressPublicBaseUrl: "https://old.example.com" });
     const handler = createTelegramReconcileHandler(config);
     const res = await handler(
       makeRequest("POST", "test-token", {
@@ -185,7 +172,8 @@ describe("POST /internal/telegram/reconcile", () => {
   });
 
   test("works with empty body (no URL update)", async () => {
-    const config = makeConfig();
+    const fetchMock = makeDefaultFetchMock();
+    const config = makeConfig({ fetch: fetchMock });
     const handler = createTelegramReconcileHandler(config);
     const req = new Request("http://localhost:7830/internal/telegram/reconcile", {
       method: "POST",
@@ -199,10 +187,11 @@ describe("POST /internal/telegram/reconcile", () => {
   });
 
   test("returns 502 when reconcile throws", async () => {
-    fetchMock = mockFetch(async () => {
+    const fetchMock = mock(async () => {
       throw new Error("Telegram API error");
     });
-    const config = makeConfig();
+    Object.assign(fetchMock, { preconnect: () => {} });
+    const config = makeConfig({ fetch: fetchMock as unknown as typeof fetch });
     const handler = createTelegramReconcileHandler(config);
     const res = await handler(makeRequest("POST", "test-token"));
     expect(res.status).toBe(502);
@@ -211,7 +200,8 @@ describe("POST /internal/telegram/reconcile", () => {
   });
 
   test("returns 400 for invalid JSON body", async () => {
-    const config = makeConfig();
+    const fetchMock = makeDefaultFetchMock();
+    const config = makeConfig({ fetch: fetchMock });
     const handler = createTelegramReconcileHandler(config);
     const req = new Request("http://localhost:7830/internal/telegram/reconcile", {
       method: "POST",
@@ -230,7 +220,7 @@ describe("POST /internal/telegram/reconcile", () => {
 
     // Make reconcile slow enough that the first call is still in-flight
     // when the second one arrives.
-    fetchMock = mockFetch(
+    const fetchMock = mock(
       async (input: string | URL | Request, init?: RequestInit) => {
         const url =
           typeof input === "string"
@@ -254,8 +244,9 @@ describe("POST /internal/telegram/reconcile", () => {
         return new Response("Not found", { status: 404 });
       },
     );
+    Object.assign(fetchMock, { preconnect: () => {} });
 
-    const config = makeConfig({ ingressPublicBaseUrl: "https://original.com" });
+    const config = makeConfig({ fetch: fetchMock as unknown as typeof fetch, ingressPublicBaseUrl: "https://original.com" });
     const handler = createTelegramReconcileHandler(config);
 
     // Fire two requests concurrently — without serialization the second

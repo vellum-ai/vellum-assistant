@@ -153,8 +153,9 @@ export async function callTelegramApi<T>(
   method: string,
   body: Record<string, unknown>,
 ): Promise<T> {
+  const doFetch = config.fetch ?? globalThis.fetch;
   return retryableFetch<T>(config, method, () =>
-    globalThis.fetch(
+    doFetch(
       `${config.telegramApiBaseUrl}/bot${config.telegramBotToken}/${method}`,
       {
         method: "POST",
@@ -171,8 +172,9 @@ export async function callTelegramApiMultipart<T>(
   method: string,
   form: FormData,
 ): Promise<T> {
+  const doFetch = config.fetch ?? globalThis.fetch;
   return retryableFetch<T>(config, method, () =>
-    globalThis.fetch(
+    doFetch(
       `${config.telegramApiBaseUrl}/bot${config.telegramBotToken}/${method}`,
       {
         method: "POST",

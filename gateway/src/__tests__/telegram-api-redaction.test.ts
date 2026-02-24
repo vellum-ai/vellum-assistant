@@ -1,10 +1,6 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 import type { GatewayConfig } from "../config.js";
 import { callTelegramApi } from "../telegram/api.js";
-
-// Use mock() + direct globalThis.fetch assignment instead of spyOn(globalThis, "fetch")
-// because spyOn doesn't reliably intercept fetch on Linux in Bun 1.3.9.
-const originalFetch = globalThis.fetch;
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
@@ -47,22 +43,11 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   return merged;
 }
 
-function mockFetch(fn: (...args: Parameters<typeof fetch>) => Promise<Response>) {
-  const m = mock(fn);
-  Object.assign(m, { preconnect: () => {} });
-  globalThis.fetch = m as unknown as typeof fetch;
-  return m;
-}
-
 describe("callTelegramApi transport error redaction", () => {
-  afterEach(() => {
-    globalThis.fetch = originalFetch;
-  });
-
   test("redacts bot token from warning logs and thrown error", async () => {
     const tgToken = ["123456789", ":", "ABCDefGHIJklmnopQRSTuvwxyz012345678"].join("");
 
-    mockFetch(async () => {
+    const fetchMock = mock(async () => {
       const err = new Error("Unable to connect. Is the computer able to access the url?") as Error & {
         path?: string;
         code?: string;
@@ -72,7 +57,7 @@ describe("callTelegramApi transport error redaction", () => {
       throw err;
     });
 
-    const config = makeConfig({ telegramBotToken: tgToken, telegramMaxRetries: 0 });
+    const config = makeConfig({ telegramBotToken: tgToken, telegramMaxRetries: 0, fetch: fetchMock as any });
 
     let thrown: Error | null = null;
     try {
@@ -87,22 +72,19 @@ describe("callTelegramApi transport error redaction", () => {
   });
 
   test("redacts bot token preceded by hyphen delimiter", async () => {
-    // Tokens embedded after a hyphen (e.g., diagnostic strings like
-    // "error-123456789:...") must still be redacted.
     const tgToken = ["123456789", ":", "ABCDefGHIJklmnopQRSTuvwxyz012345678"].join("");
 
-    mockFetch(async () => {
+    const fetchMock = mock(async () => {
       const err = new Error("Connection refused") as Error & {
         path?: string;
         code?: string;
       };
-      // Simulate a diagnostic string where the token is preceded by a hyphen
       err.path = `prefix-${tgToken}/sendMessage`;
       err.code = "ConnectionRefused";
       throw err;
     });
 
-    const config = makeConfig({ telegramBotToken: tgToken, telegramMaxRetries: 0 });
+    const config = makeConfig({ telegramBotToken: tgToken, telegramMaxRetries: 0, fetch: fetchMock as any });
 
     let thrown: Error | null = null;
     try {
@@ -117,11 +99,9 @@ describe("callTelegramApi transport error redaction", () => {
   });
 
   test("redacts bot token ending with hyphen", async () => {
-    // Tokens can end with `-` which is a non-word character; \b boundaries
-    // would fail to match the trailing `-`, leaking part of the token.
     const tgToken = ["123456789", ":", "ABCDefGHIJklmnopQRSTuvwxyz01234567-"].join("");
 
-    mockFetch(async () => {
+    const fetchMock = mock(async () => {
       const err = new Error("Connection refused") as Error & {
         path?: string;
         code?: string;
@@ -131,7 +111,7 @@ describe("callTelegramApi transport error redaction", () => {
       throw err;
     });
 
-    const config = makeConfig({ telegramBotToken: tgToken, telegramMaxRetries: 0 });
+    const config = makeConfig({ telegramBotToken: tgToken, telegramMaxRetries: 0, fetch: fetchMock as any });
 
     let thrown: Error | null = null;
     try {

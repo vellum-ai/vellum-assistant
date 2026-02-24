@@ -33,7 +33,8 @@ export async function downloadTelegramFile(
   }
 
   const downloadUrl = `${config.telegramApiBaseUrl}/file/bot${config.telegramBotToken}/${file.file_path}`;
-  const response = await globalThis.fetch(downloadUrl, {
+  const doFetch = config.fetch ?? globalThis.fetch;
+  const response = await doFetch(downloadUrl, {
     signal: AbortSignal.timeout(config.telegramTimeoutMs),
   });
 

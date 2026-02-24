@@ -60,6 +60,8 @@ export type GatewayConfig = {
   /** Canonical public ingress base URL, used for webhook signature reconstruction. */
   ingressPublicBaseUrl: string | undefined;
   unmappedPolicy: "reject" | "default";
+  /** Optional fetch override for testing. Defaults to globalThis.fetch. */
+  fetch?: typeof globalThis.fetch;
 };
 
 function parseRoutingJson(raw: string): RoutingEntry[] {

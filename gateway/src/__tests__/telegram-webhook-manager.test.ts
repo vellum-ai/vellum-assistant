@@ -1,10 +1,6 @@
-import { describe, test, expect, mock, afterEach } from "bun:test";
+import { describe, test, expect, mock } from "bun:test";
 import { reconcileTelegramWebhook } from "../telegram/webhook-manager.js";
 import type { GatewayConfig } from "../config.js";
-
-// Use mock() + direct globalThis.fetch assignment instead of spyOn(globalThis, "fetch")
-// because spyOn doesn't reliably intercept fetch on Linux in Bun 1.3.9.
-const originalFetch = globalThis.fetch;
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
@@ -47,20 +43,6 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   return merged;
 }
 
-function mockFetch(fn: (...args: Parameters<typeof fetch>) => Promise<Response>) {
-  const m = mock(fn);
-  Object.assign(m, { preconnect: () => {} });
-  globalThis.fetch = m as unknown as typeof fetch;
-  return m;
-}
-
-let fetchMock: ReturnType<typeof mockFetch> | null = null;
-
-afterEach(() => {
-  globalThis.fetch = originalFetch;
-  fetchMock = null;
-});
-
 function makeTelegramResponse(result: unknown) {
   return new Response(JSON.stringify({ ok: true, result }), {
     status: 200,
@@ -72,7 +54,7 @@ describe("reconcileTelegramWebhook", () => {
   test("calls setWebhook when URL does not match", async () => {
     const calls: { method: string; body: unknown }[] = [];
 
-    fetchMock = mockFetch(async (input: string | URL | Request, init?: RequestInit) => {
+    const fetchMock = mock(async (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       if (url.includes("/getWebhookInfo")) {
         calls.push({ method: "getWebhookInfo", body: null });
@@ -90,7 +72,7 @@ describe("reconcileTelegramWebhook", () => {
       return new Response("Not found", { status: 404 });
     });
 
-    const config = makeConfig();
+    const config = makeConfig({ fetch: fetchMock as any });
     await reconcileTelegramWebhook(config);
 
     expect(calls).toHaveLength(2);
@@ -104,7 +86,7 @@ describe("reconcileTelegramWebhook", () => {
   test("always calls setWebhook even when URL already matches (secret may have rotated)", async () => {
     const calls: string[] = [];
 
-    fetchMock = mockFetch(async (input: string | URL | Request) => {
+    const fetchMock = mock(async (input: string | URL | Request) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       if (url.includes("/getWebhookInfo")) {
         calls.push("getWebhookInfo");
@@ -121,7 +103,7 @@ describe("reconcileTelegramWebhook", () => {
       return new Response("Not found", { status: 404 });
     });
 
-    const config = makeConfig();
+    const config = makeConfig({ fetch: fetchMock as any });
     await reconcileTelegramWebhook(config);
 
     expect(calls).toEqual(["getWebhookInfo", "setWebhook"]);
@@ -130,7 +112,7 @@ describe("reconcileTelegramWebhook", () => {
   test("normalizes trailing slash on ingress base URL", async () => {
     const calls: { method: string; body: unknown }[] = [];
 
-    fetchMock = mockFetch(async (input: string | URL | Request, init?: RequestInit) => {
+    const fetchMock = mock(async (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       if (url.includes("/getWebhookInfo")) {
         calls.push({ method: "getWebhookInfo", body: null });
@@ -148,7 +130,7 @@ describe("reconcileTelegramWebhook", () => {
       return new Response("Not found", { status: 404 });
     });
 
-    const config = makeConfig({ ingressPublicBaseUrl: "https://example.ngrok.io/" });
+    const config = makeConfig({ ingressPublicBaseUrl: "https://example.ngrok.io/", fetch: fetchMock as any });
     await reconcileTelegramWebhook(config);
 
     expect(calls).toHaveLength(2);
@@ -156,27 +138,27 @@ describe("reconcileTelegramWebhook", () => {
   });
 
   test("skips reconciliation when bot token is not configured", async () => {
-    fetchMock = mockFetch(async () => new Response("", { status: 200 }));
+    const fetchMock = mock(async () => new Response("", { status: 200 }));
 
-    const config = makeConfig({ telegramBotToken: undefined });
+    const config = makeConfig({ telegramBotToken: undefined, fetch: fetchMock as any });
     await reconcileTelegramWebhook(config);
 
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
   test("skips reconciliation when webhook secret is not configured", async () => {
-    fetchMock = mockFetch(async () => new Response("", { status: 200 }));
+    const fetchMock = mock(async () => new Response("", { status: 200 }));
 
-    const config = makeConfig({ telegramWebhookSecret: undefined });
+    const config = makeConfig({ telegramWebhookSecret: undefined, fetch: fetchMock as any });
     await reconcileTelegramWebhook(config);
 
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
   test("skips reconciliation when ingress URL is not configured", async () => {
-    fetchMock = mockFetch(async () => new Response("", { status: 200 }));
+    const fetchMock = mock(async () => new Response("", { status: 200 }));
 
-    const config = makeConfig({ ingressPublicBaseUrl: undefined });
+    const config = makeConfig({ ingressPublicBaseUrl: undefined, fetch: fetchMock as any });
     await reconcileTelegramWebhook(config);
 
     expect(fetchMock).not.toHaveBeenCalled();
@@ -185,7 +167,7 @@ describe("reconcileTelegramWebhook", () => {
   test("calls setWebhook when current URL is empty", async () => {
     const calls: string[] = [];
 
-    fetchMock = mockFetch(async (input: string | URL | Request) => {
+    const fetchMock = mock(async (input: string | URL | Request) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       if (url.includes("/getWebhookInfo")) {
         calls.push("getWebhookInfo");
@@ -202,7 +184,7 @@ describe("reconcileTelegramWebhook", () => {
       return new Response("Not found", { status: 404 });
     });
 
-    const config = makeConfig();
+    const config = makeConfig({ fetch: fetchMock as any });
     await reconcileTelegramWebhook(config);
 
     expect(calls).toEqual(["getWebhookInfo", "setWebhook"]);

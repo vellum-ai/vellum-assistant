@@ -37,7 +37,8 @@ export async function sendSmsReply(
   const authHeader =
     "Basic " + Buffer.from(`${config.twilioAccountSid}:${config.twilioAuthToken}`).toString("base64");
 
-  const response = await globalThis.fetch(url, {
+  const doFetch = config.fetch ?? globalThis.fetch;
+  const response = await doFetch(url, {
     method: "POST",
     headers: {
       Authorization: authHeader,

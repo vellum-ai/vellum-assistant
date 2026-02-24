@@ -1,10 +1,6 @@
-import { describe, test, expect, mock, afterEach, beforeEach } from "bun:test";
+import { describe, test, expect, mock, beforeEach } from "bun:test";
 import type { GatewayConfig } from "../config.js";
 import { createTelegramWebhookHandler } from "../http/routes/telegram-webhook.js";
-
-// Use mock() + direct globalThis.fetch assignment instead of spyOn(globalThis, "fetch")
-// because spyOn doesn't reliably intercept fetch on Linux in Bun 1.3.9.
-const originalFetch = globalThis.fetch;
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
@@ -72,19 +68,8 @@ function makeWebhookRequest(payload: unknown, secret = "test-webhook-secret"): R
 
 let fetchCalls: { url: string; method: string; body?: unknown; headers?: Record<string, string> }[];
 
-function mockFetchFn(fn: (...args: Parameters<typeof fetch>) => Promise<Response>) {
-  const m = mock(fn);
-  Object.assign(m, { preconnect: () => {} });
-  globalThis.fetch = m as unknown as typeof fetch;
-  return m;
-}
-
 beforeEach(() => {
   fetchCalls = [];
-});
-
-afterEach(() => {
-  globalThis.fetch = originalFetch;
 });
 
 /** Extract headers from a fetch call into a plain object. */
@@ -107,11 +92,11 @@ function extractHeaders(input: string | URL | Request, init?: RequestInit): Reco
 }
 
 /**
- * Install a mock fetch that records calls and returns a 200 JSON response.
+ * Create a mock fetch that records calls and returns a 200 JSON response.
  * Runtime forward calls get an eventId response; Telegram API calls get { ok: true }.
  */
-function installFetchMock() {
-  mockFetchFn(async (input: string | URL | Request, init?: RequestInit) => {
+function createFetchMock() {
+  return mock(async (input: string | URL | Request, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     const method = init?.method ?? (typeof input === "object" && "method" in input ? input.method : "GET");
     let body: unknown;
@@ -147,16 +132,16 @@ function installFetchMock() {
     }
 
     return new Response("Not found", { status: 404 });
-  });
+  }) as unknown as typeof fetch;
 }
 
 describe("telegram webhook handler: gatewayInternalBaseUrl", () => {
   test("uses configured gatewayInternalBaseUrl in replyCallbackUrl", async () => {
     const config = makeConfig({
+      fetch: createFetchMock(),
       gatewayInternalBaseUrl: "http://gateway.internal:9000",
       routingEntries: [{ type: "chat_id", key: "12345", assistantId: "assistant-a" }],
     });
-    installFetchMock();
     const handler = createTelegramWebhookHandler(config);
 
     const payload = makeTelegramPayload("hello");
@@ -175,10 +160,10 @@ describe("telegram webhook handler: gatewayInternalBaseUrl", () => {
 
   test("falls back to localhost URL when gatewayInternalBaseUrl uses default", async () => {
     const config = makeConfig({
+      fetch: createFetchMock(),
       gatewayInternalBaseUrl: "http://127.0.0.1:7830",
       routingEntries: [{ type: "chat_id", key: "12345", assistantId: "assistant-a" }],
     });
-    installFetchMock();
     const handler = createTelegramWebhookHandler(config);
 
     const payload = makeTelegramPayload("hello", 2001);
@@ -198,9 +183,9 @@ describe("telegram webhook handler: gatewayInternalBaseUrl", () => {
 describe("telegram webhook handler: /new rejection", () => {
   test("/start forwards command intent metadata, does not reset conversation, and sends start acknowledgement", async () => {
     const config = makeConfig({
+      fetch: createFetchMock(),
       routingEntries: [{ type: "chat_id", key: "12345", assistantId: "assistant-a" }],
     });
-    installFetchMock();
     const handler = createTelegramWebhookHandler(config);
 
     const payload = makeTelegramPayload("/start deep-link-token", 2501);
@@ -227,8 +212,10 @@ describe("telegram webhook handler: /new rejection", () => {
   });
 
   test("/start with routing rejection sends setup notice and does not forward", async () => {
-    const config = makeConfig({ unmappedPolicy: "reject" });
-    installFetchMock();
+    const config = makeConfig({
+      fetch: createFetchMock(),
+      unmappedPolicy: "reject",
+    });
     const handler = createTelegramWebhookHandler(config);
 
     const payload = makeTelegramPayload("/start", 2502);
@@ -250,8 +237,10 @@ describe("telegram webhook handler: /new rejection", () => {
 
   test("sends rejection notice when /new command routing is rejected", async () => {
     // No routing entries and unmappedPolicy is "reject" — routing will fail
-    const config = makeConfig({ unmappedPolicy: "reject" });
-    installFetchMock();
+    const config = makeConfig({
+      fetch: createFetchMock(),
+      unmappedPolicy: "reject",
+    });
     const handler = createTelegramWebhookHandler(config);
 
     const payload = makeTelegramPayload("/new", 3001);
@@ -273,9 +262,9 @@ describe("telegram webhook handler: /new rejection", () => {
 
   test("/new succeeds and sends confirmation when routing matches", async () => {
     const config = makeConfig({
+      fetch: createFetchMock(),
       routingEntries: [{ type: "chat_id", key: "12345", assistantId: "assistant-a" }],
     });
-    installFetchMock();
     const handler = createTelegramWebhookHandler(config);
 
     const payload = makeTelegramPayload("/new", 4001);
@@ -301,8 +290,10 @@ describe("telegram webhook handler: /new rejection", () => {
   });
 
   test("/new rejection does not call resetConversation", async () => {
-    const config = makeConfig({ unmappedPolicy: "reject" });
-    installFetchMock();
+    const config = makeConfig({
+      fetch: createFetchMock(),
+      unmappedPolicy: "reject",
+    });
     const handler = createTelegramWebhookHandler(config);
 
     const payload = makeTelegramPayload("/new", 5001);
@@ -321,14 +312,10 @@ describe("telegram webhook handler: in-flight dedup", () => {
     let resolveFirst!: () => void;
     const firstBlocks = new Promise<void>((r) => { resolveFirst = r; });
 
-    const config = makeConfig({
-      routingEntries: [{ type: "chat_id", key: "12345", assistantId: "assistant-a" }],
-    });
-
     // Install a fetch mock where the runtime inbound call blocks on the first
     // invocation and responds immediately on subsequent ones.
     let inboundCallCount = 0;
-    mockFetchFn(async (input: string | URL | Request, init?: RequestInit) => {
+    const fetchMock = mock(async (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       const method = init?.method ?? (typeof input === "object" && "method" in input ? input.method : "GET");
       let body: unknown;
@@ -355,6 +342,11 @@ describe("telegram webhook handler: in-flight dedup", () => {
         });
       }
       return new Response("Not found", { status: 404 });
+    }) as unknown as typeof fetch;
+
+    const config = makeConfig({
+      fetch: fetchMock,
+      routingEntries: [{ type: "chat_id", key: "12345", assistantId: "assistant-a" }],
     });
 
     const handler = createTelegramWebhookHandler(config);
@@ -381,13 +373,8 @@ describe("telegram webhook handler: in-flight dedup", () => {
   });
 
   test("failed processing unreserves, allowing retry to be processed normally", async () => {
-    const config = makeConfig({
-      routingEntries: [{ type: "chat_id", key: "12345", assistantId: "assistant-a" }],
-      runtimeMaxRetries: 0,
-    });
-
     let callCount = 0;
-    mockFetchFn(async (input: string | URL | Request, init?: RequestInit) => {
+    const fetchMock = mock(async (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       const method = init?.method ?? (typeof input === "object" && "method" in input ? input.method : "GET");
       let body: unknown;
@@ -416,6 +403,12 @@ describe("telegram webhook handler: in-flight dedup", () => {
         });
       }
       return new Response("Not found", { status: 404 });
+    }) as unknown as typeof fetch;
+
+    const config = makeConfig({
+      fetch: fetchMock,
+      routingEntries: [{ type: "chat_id", key: "12345", assistantId: "assistant-a" }],
+      runtimeMaxRetries: 0,
     });
 
     const handler = createTelegramWebhookHandler(config);
@@ -434,9 +427,9 @@ describe("telegram webhook handler: in-flight dedup", () => {
 
   test("after successful processing, duplicates return cached success", async () => {
     const config = makeConfig({
+      fetch: createFetchMock(),
       routingEntries: [{ type: "chat_id", key: "12345", assistantId: "assistant-a" }],
     });
-    installFetchMock();
     const handler = createTelegramWebhookHandler(config);
     const payload = makeTelegramPayload("hello", 9003);
 
@@ -474,9 +467,9 @@ function makeCallbackQueryPayload(data: string, updateId = 7001) {
 describe("telegram webhook handler: callback_query forwarding", () => {
   test("forwards callback_query data to the runtime with callback metadata", async () => {
     const config = makeConfig({
+      fetch: createFetchMock(),
       routingEntries: [{ type: "chat_id", key: "12345", assistantId: "assistant-a" }],
     });
-    installFetchMock();
     const handler = createTelegramWebhookHandler(config);
 
     const payload = makeCallbackQueryPayload("apr:run-abc:approve", 7001);
@@ -498,9 +491,9 @@ describe("telegram webhook handler: callback_query forwarding", () => {
 
   test("acknowledges the callback query via answerCallbackQuery after forwarding", async () => {
     const config = makeConfig({
+      fetch: createFetchMock(),
       routingEntries: [{ type: "chat_id", key: "12345", assistantId: "assistant-a" }],
     });
-    installFetchMock();
     const handler = createTelegramWebhookHandler(config);
 
     const payload = makeCallbackQueryPayload("apr:run-xyz:reject", 7002);
@@ -518,9 +511,9 @@ describe("telegram webhook handler: callback_query forwarding", () => {
 
   test("does not call answerCallbackQuery for regular text messages", async () => {
     const config = makeConfig({
+      fetch: createFetchMock(),
       routingEntries: [{ type: "chat_id", key: "12345", assistantId: "assistant-a" }],
     });
-    installFetchMock();
     const handler = createTelegramWebhookHandler(config);
 
     const payload = makeTelegramPayload("hello", 7003);
@@ -537,9 +530,9 @@ describe("telegram webhook handler: callback_query forwarding", () => {
 
   test("regular text messages do not include callback metadata in runtime payload", async () => {
     const config = makeConfig({
+      fetch: createFetchMock(),
       routingEntries: [{ type: "chat_id", key: "12345", assistantId: "assistant-a" }],
     });
-    installFetchMock();
     const handler = createTelegramWebhookHandler(config);
 
     const payload = makeTelegramPayload("hello", 7004);
@@ -558,10 +551,10 @@ describe("telegram webhook handler: gateway-origin marker", () => {
   test("forwards X-Gateway-Origin header when runtimeBearerToken is configured", async () => {
     const bearerToken = "secret-runtime-token";
     const config = makeConfig({
+      fetch: createFetchMock(),
       routingEntries: [{ type: "chat_id", key: "12345", assistantId: "assistant-a" }],
       runtimeBearerToken: bearerToken,
     });
-    installFetchMock();
     const handler = createTelegramWebhookHandler(config);
 
     const payload = makeTelegramPayload("hello", 8001);
@@ -577,10 +570,10 @@ describe("telegram webhook handler: gateway-origin marker", () => {
 
   test("does not include X-Gateway-Origin header when no runtimeBearerToken", async () => {
     const config = makeConfig({
+      fetch: createFetchMock(),
       routingEntries: [{ type: "chat_id", key: "12345", assistantId: "assistant-a" }],
       runtimeBearerToken: undefined,
     });
-    installFetchMock();
     const handler = createTelegramWebhookHandler(config);
 
     const payload = makeTelegramPayload("hello", 8002);

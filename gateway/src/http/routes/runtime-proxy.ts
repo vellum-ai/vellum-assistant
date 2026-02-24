@@ -129,7 +129,8 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
 
     let response: Response;
     try {
-      response = await globalThis.fetch(upstream, {
+      const doFetch = config.fetch ?? globalThis.fetch;
+      response = await doFetch(upstream, {
         method: req.method,
         headers: reqHeaders,
         body: bodyBuffer,
