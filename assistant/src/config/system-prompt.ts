@@ -689,6 +689,7 @@ function escapeXml(str: string): string {
 function formatSkillsCatalog(skills: SkillSummary[]): string {
   // Filter out skills with disableModelInvocation or unsupported OS
   const visible = skills.filter(s => {
+    if (s.source !== 'bundled') return false;
     if (s.disableModelInvocation) return false;
     const os = s.metadata?.os;
     if (os && os.length > 0 && !os.includes(process.platform)) return false;
