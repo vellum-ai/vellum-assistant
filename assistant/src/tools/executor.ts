@@ -53,6 +53,31 @@ export class ToolExecutor {
       startedAtMs: startTime,
     });
 
+    // Bail out immediately if the session was aborted before this tool started.
+    // Individual tool implementations check the signal themselves for mid-run
+    // cancellation, but a pre-execution check prevents expensive permission
+    // lookups and prompter interactions after the user has already cancelled.
+    if (context.signal?.aborted) {
+      const durationMs = Date.now() - startTime;
+      emitLifecycleEvent(context, {
+        type: 'error',
+        toolName: name,
+        executionTarget,
+        input,
+        workingDir: context.workingDir,
+        sessionId: context.sessionId,
+        conversationId: context.conversationId,
+        requestId: context.requestId,
+        riskLevel,
+        decision: 'error',
+        durationMs,
+        errorMessage: 'Cancelled',
+        isExpected: true,
+        errorCategory: 'tool_failure',
+      });
+      return { content: 'Cancelled', isError: true };
+    }
+
     // Gate tools not active for the current turn
     if (context.allowedToolNames && !context.allowedToolNames.has(name)) {
       const msg = `Tool "${name}" is not currently active. Load the skill that provides this tool first.`;
