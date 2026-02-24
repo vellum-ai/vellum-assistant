@@ -65,15 +65,172 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   return merged;
 }
 
-function makeRequest(body: unknown): Request {
+const TOKEN = "test-deliver-token";
+
+function makeRequest(body: unknown, headers?: Record<string, string>): Request {
   return new Request("http://localhost:7830/deliver/telegram", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...headers },
     body: JSON.stringify(body),
   });
 }
 
 // ---- Tests ----
+
+describe("telegram-deliver endpoint basics", () => {
+  beforeEach(() => {
+    sendTelegramReplyCalls = [];
+  });
+
+  it("rejects GET requests with 405", async () => {
+    const handler = createTelegramDeliverHandler(makeConfig());
+    const req = new Request("http://localhost:7830/deliver/telegram", {
+      method: "GET",
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(405);
+    const body = await res.json();
+    expect(body.error).toBe("Method not allowed");
+  });
+
+  it("rejects when no bearer token and bypass not set with 503", async () => {
+    const handler = createTelegramDeliverHandler(
+      makeConfig({ runtimeProxyBearerToken: undefined, telegramDeliverAuthBypass: false }),
+    );
+    const req = makeRequest({ chatId: "123", text: "hello" });
+    const res = await handler(req);
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.error).toBe("Service not configured: bearer token required");
+  });
+
+  it("rejects request without Authorization header with 401", async () => {
+    const handler = createTelegramDeliverHandler(
+      makeConfig({ runtimeProxyBearerToken: TOKEN, telegramDeliverAuthBypass: false }),
+    );
+    const req = makeRequest({ chatId: "123", text: "hello" });
+    const res = await handler(req);
+    expect(res.status).toBe(401);
+    const body = await res.json();
+    expect(body.error).toBe("Unauthorized");
+  });
+
+  it("rejects request with wrong bearer token with 401", async () => {
+    const handler = createTelegramDeliverHandler(
+      makeConfig({ runtimeProxyBearerToken: TOKEN, telegramDeliverAuthBypass: false }),
+    );
+    const req = makeRequest({ chatId: "123", text: "hello" }, {
+      authorization: "Bearer wrong-token",
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(401);
+    const body = await res.json();
+    expect(body.error).toBe("Unauthorized");
+  });
+
+  it("accepts request with correct bearer token", async () => {
+    const handler = createTelegramDeliverHandler(
+      makeConfig({ runtimeProxyBearerToken: TOKEN, telegramDeliverAuthBypass: false }),
+    );
+    const req = makeRequest({ chatId: "123", text: "hello" }, {
+      authorization: `Bearer ${TOKEN}`,
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+  });
+
+  it("allows unauthenticated access when bypass flag is set", async () => {
+    const handler = createTelegramDeliverHandler(
+      makeConfig({ runtimeProxyBearerToken: undefined, telegramDeliverAuthBypass: true }),
+    );
+    const req = makeRequest({ chatId: "123", text: "hello" });
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+  });
+
+  it("returns 400 when chatId is missing", async () => {
+    const handler = createTelegramDeliverHandler(makeConfig());
+    const req = makeRequest({ text: "hello" });
+    const res = await handler(req);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe("chatId is required");
+  });
+
+  it("returns 400 when text and attachments are both missing", async () => {
+    const handler = createTelegramDeliverHandler(makeConfig());
+    const req = makeRequest({ chatId: "123" });
+    const res = await handler(req);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe("text or attachments required");
+  });
+
+  it("returns 400 when JSON is invalid", async () => {
+    const handler = createTelegramDeliverHandler(makeConfig());
+    const req = new Request("http://localhost:7830/deliver/telegram", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "not-json",
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe("Invalid JSON");
+  });
+
+  it("returns 400 when attachments is not an array", async () => {
+    const handler = createTelegramDeliverHandler(makeConfig());
+    const req = makeRequest({ chatId: "123", attachments: "not-array" });
+    const res = await handler(req);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe("attachments must be an array");
+  });
+
+  it("returns 502 when sendTelegramReply throws", async () => {
+    mock.module("../../telegram/send.js", () => ({
+      sendTelegramReply: async () => {
+        throw new Error("Telegram API failure");
+      },
+      sendTelegramAttachments: async () => {},
+    }));
+
+    const { createTelegramDeliverHandler: createHandler } = await import(
+      "./telegram-deliver.js"
+    );
+    const handler = createHandler(makeConfig());
+    const req = makeRequest({ chatId: "123", text: "hello" });
+    const res = await handler(req);
+    expect(res.status).toBe(502);
+    const body = await res.json();
+    expect(body.error).toBe("Delivery failed");
+
+    // Restore non-throwing mock
+    mock.module("../../telegram/send.js", () => ({
+      sendTelegramReply: async (...args: unknown[]) => {
+        sendTelegramReplyCalls.push(args);
+      },
+      sendTelegramAttachments: async () => {},
+    }));
+  });
+
+  it("sends text to the correct chat and passes config", async () => {
+    const handler = createTelegramDeliverHandler(makeConfig());
+    const req = makeRequest({ chatId: "42", text: "Test message" });
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+
+    expect(sendTelegramReplyCalls).toHaveLength(1);
+    const [, chatId, text] = sendTelegramReplyCalls[0] as [unknown, string, string];
+    expect(chatId).toBe("42");
+    expect(text).toBe("Test message");
+  });
+});
 
 describe("telegram-deliver attachment validation", () => {
   const config = makeConfig();
