@@ -413,11 +413,136 @@ struct ChatGallerySection: View {
             // MARK: - Tool Confirmations
             GallerySectionHeader(
                 title: "Tool Confirmations",
-                description: "ToolConfirmationBubble"
+                description: "ToolConfirmationBubble — inline permission prompts with risk badges and collapsed decided states."
             )
-            Text("Coming soon")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+
+            VCard {
+                VStack(alignment: .leading, spacing: VSpacing.lg) {
+                    Text("Collapsed — approved")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                    ToolConfirmationBubble(
+                        confirmation: ToolConfirmationData(
+                            requestId: "gallery-approved",
+                            toolName: "host_bash",
+                            input: ["command": AnyCodable("npm install")],
+                            riskLevel: "medium",
+                            state: .approved
+                        ),
+                        isKeyboardActive: false,
+                        onAllow: {},
+                        onDeny: {},
+                        onAlwaysAllow: { _, _, _, _ in }
+                    )
+
+                    Divider().background(VColor.surfaceBorder)
+
+                    Text("Collapsed — denied")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                    ToolConfirmationBubble(
+                        confirmation: ToolConfirmationData(
+                            requestId: "gallery-denied",
+                            toolName: "host_file_write",
+                            input: ["path": AnyCodable("/etc/hosts")],
+                            riskLevel: "high",
+                            state: .denied
+                        ),
+                        isKeyboardActive: false,
+                        onAllow: {},
+                        onDeny: {},
+                        onAlwaysAllow: { _, _, _, _ in }
+                    )
+
+                    Divider().background(VColor.surfaceBorder)
+
+                    Text("Collapsed — timed out")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                    ToolConfirmationBubble(
+                        confirmation: ToolConfirmationData(
+                            requestId: "gallery-timeout",
+                            toolName: "host_bash",
+                            input: ["command": AnyCodable("rm -rf /tmp/cache")],
+                            riskLevel: "medium",
+                            state: .timedOut
+                        ),
+                        isKeyboardActive: false,
+                        onAllow: {},
+                        onDeny: {},
+                        onAlwaysAllow: { _, _, _, _ in }
+                    )
+                }
+            }
+
+            VCard {
+                VStack(alignment: .leading, spacing: VSpacing.lg) {
+                    Text("Pending — low risk")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                    ToolConfirmationBubble(
+                        confirmation: ToolConfirmationData(
+                            requestId: "gallery-low",
+                            toolName: "host_bash",
+                            input: ["command": AnyCodable("ls -la ~/Documents")],
+                            riskLevel: "low",
+                            executionTarget: "host"
+                        ),
+                        isKeyboardActive: false,
+                        onAllow: {},
+                        onDeny: {},
+                        onAlwaysAllow: { _, _, _, _ in }
+                    )
+
+                    Divider().background(VColor.surfaceBorder)
+
+                    Text("Pending — medium risk with always-allow")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                    ToolConfirmationBubble(
+                        confirmation: ToolConfirmationData(
+                            requestId: "gallery-medium",
+                            toolName: "host_bash",
+                            input: ["command": AnyCodable("npm install express")],
+                            riskLevel: "medium",
+                            allowlistOptions: [
+                                ConfirmationRequestMessage.ConfirmationAllowlistOption(
+                                    label: "exact", description: "This exact command", pattern: "npm install express"
+                                ),
+                            ],
+                            scopeOptions: [
+                                ConfirmationRequestMessage.ConfirmationScopeOption(
+                                    label: "This project", scope: "project"
+                                ),
+                            ],
+                            executionTarget: "host"
+                        ),
+                        isKeyboardActive: false,
+                        onAllow: {},
+                        onDeny: {},
+                        onAlwaysAllow: { _, _, _, _ in }
+                    )
+
+                    Divider().background(VColor.surfaceBorder)
+
+                    Text("Pending — high risk")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                    ToolConfirmationBubble(
+                        confirmation: ToolConfirmationData(
+                            requestId: "gallery-high",
+                            toolName: "host_file_write",
+                            input: ["path": AnyCodable("/Users/me/project/main.swift")],
+                            riskLevel: "high",
+                            executionTarget: "host"
+                        ),
+                        isKeyboardActive: false,
+                        onAllow: {},
+                        onDeny: {},
+                        onAlwaysAllow: { _, _, _, _ in }
+                    )
+                }
+            }
         }
     }
 }
