@@ -294,7 +294,7 @@ describe('scheduler RRULE execution', () => {
     const pad = (n: number) => String(n).padStart(2, '0');
     const ds = `${pastDate.getUTCFullYear()}${pad(pastDate.getUTCMonth() + 1)}${pad(pastDate.getUTCDate())}T${pad(pastDate.getUTCHours())}${pad(pastDate.getUTCMinutes())}${pad(pastDate.getUTCSeconds())}Z`;
     const exMinute = new Date(pastDate.getTime() + 60_000);
-    const exDs = `${exMinute.getUTCFullYear()}${pad(exMinute.getUTCMonth() + 1)}${pad(exMinute.getUTCDate())}T${pad(exMinute.getUTCHours())}${pad(exMinute.getUTCMinutes())}00Z`;
+    const exDs = `${exMinute.getUTCFullYear()}${pad(exMinute.getUTCMonth() + 1)}${pad(exMinute.getUTCDate())}T${pad(exMinute.getUTCHours())}${pad(exMinute.getUTCMinutes())}${pad(exMinute.getUTCSeconds())}Z`;
     const expression = [
       `DTSTART:${ds}`,
       'RRULE:FREQ=MINUTELY;INTERVAL=1',
