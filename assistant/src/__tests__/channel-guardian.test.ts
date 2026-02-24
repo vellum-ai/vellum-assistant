@@ -999,10 +999,11 @@ describe('guardian service rate limiting', () => {
       );
     }
 
-    // Verify lockout is actually active before making the rate-limited call
+    // Verify lockout is actually active before testing the rate-limited response
     const rl = getRateLimit('asst-1', 'telegram', 'user-42', 'chat-42');
     expect(rl).not.toBeNull();
     expect(rl!.lockedUntil).not.toBeNull();
+    expect(rl!.lockedUntil!).toBeGreaterThan(Date.now());
 
     // The rate-limited response should be indistinguishable from normal failure
     const rateLimitedResult = validateAndConsumeChallenge(
