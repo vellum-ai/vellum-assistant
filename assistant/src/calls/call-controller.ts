@@ -58,6 +58,7 @@ export class CallController {
   private state: ControllerState = 'idle';
   private abortController: AbortController = new AbortController();
   private currentTurnHandle: VoiceTurnHandle | null = null;
+  private currentTurnPromise: Promise<void> | null = null;
   private silenceTimer: ReturnType<typeof setTimeout> | null = null;
   private durationTimer: ReturnType<typeof setTimeout> | null = null;
   private durationWarningTimer: ReturnType<typeof setTimeout> | null = null;
@@ -154,6 +155,17 @@ export class CallController {
       this.abortCurrentTurn();
     }
 
+    // Wait for the aborted turn to finish unwinding before starting a new
+    // one, so RunOrchestrator's `isProcessing()` guard doesn't reject us.
+    if (interruptedInFlight && this.currentTurnPromise) {
+      const teardownPromise = this.currentTurnPromise;
+      this.currentTurnPromise = null;
+      await Promise.race([
+        teardownPromise.catch(() => {}),
+        new Promise<void>(resolve => setTimeout(resolve, 2000)),
+      ]);
+    }
+
     this.state = 'processing';
     this.resetSilenceTimer();
     const callerContent = this.formatCallerUtterance(transcript, speaker);
@@ -187,6 +199,16 @@ export class CallController {
     if (this.consultationTimer) {
       clearTimeout(this.consultationTimer);
       this.consultationTimer = null;
+    }
+
+    // Defensive: await any lingering turn promise before starting a new one.
+    if (this.currentTurnPromise) {
+      const teardownPromise = this.currentTurnPromise;
+      this.currentTurnPromise = null;
+      await Promise.race([
+        teardownPromise.catch(() => {}),
+        new Promise<void>(resolve => setTimeout(resolve, 2000)),
+      ]);
     }
 
     this.state = 'processing';
@@ -265,6 +287,7 @@ export class CallController {
     if (this.durationEndTimer) { clearTimeout(this.durationEndTimer); this.durationEndTimer = null; }
     this.llmRunVersion++;
     this.abortCurrentTurn();
+    this.currentTurnPromise = null;
     unregisterCallController(this.callSessionId);
     log.info({ callSessionId: this.callSessionId }, 'CallController destroyed');
   }
@@ -296,7 +319,13 @@ export class CallController {
    * Execute a single voice turn through the session pipeline and stream
    * the response back through the relay.
    */
-  private async runTurn(content: string): Promise<void> {
+  private runTurn(content: string): Promise<void> {
+    const promise = this.runTurnInner(content);
+    this.currentTurnPromise = promise;
+    return promise;
+  }
+
+  private async runTurnInner(content: string): Promise<void> {
     const runVersion = ++this.llmRunVersion;
     const runSignal = this.abortController.signal;
 
@@ -385,6 +414,8 @@ export class CallController {
           content,
           assistantId: this.assistantId,
           guardianContext: this.guardianContext ?? undefined,
+          isInbound: this.isInbound,
+          task: this.task,
           onTextDelta,
           onComplete,
           onError,
