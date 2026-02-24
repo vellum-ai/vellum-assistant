@@ -80,7 +80,10 @@ export const memoryItems = sqliteTable('memory_items', {
   lastUsedAt: integer('last_used_at'),
   validFrom: integer('valid_from'),
   invalidAt: integer('invalid_at'),
-});
+}, (table) => [
+  index('idx_memory_items_scope_id').on(table.scopeId),
+  index('idx_memory_items_fingerprint').on(table.fingerprint),
+]);
 
 export const memoryItemSources = sqliteTable('memory_item_sources', {
   memoryItemId: text('memory_item_id')
