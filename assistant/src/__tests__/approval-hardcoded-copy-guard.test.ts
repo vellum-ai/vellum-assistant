@@ -32,7 +32,7 @@ describe('approval hardcoded copy guard', () => {
   for (const file of SCANNED_FILES) {
     test(`${file} does not contain banned approval copy literals`, () => {
       const content = readFileSync(join(__dirname, '..', file), 'utf-8');
-      for (const { pattern, description } of BANNED_PATTERNS) {
+      for (const { pattern, description: _description } of BANNED_PATTERNS) {
         const match = content.match(pattern);
         expect(match).toBeNull();
       }
