@@ -1,5 +1,6 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
+import { ensureDir, readTextFileSync } from '../util/fs.js';
 import { getHooksDir } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
 import type { HookConfig, HookConfigEntry, HookManifest } from './types.js';
@@ -14,12 +15,12 @@ function getConfigPath(): string {
 
 export function loadHooksConfig(): HookConfig {
   const configPath = getConfigPath();
-  if (!existsSync(configPath)) {
+  const raw = readTextFileSync(configPath);
+  if (raw === null) {
     return { version: HOOKS_CONFIG_VERSION, hooks: {} };
   }
 
   try {
-    const raw = readFileSync(configPath, 'utf-8');
     const parsed = JSON.parse(raw) as HookConfig;
     if (typeof parsed.version !== 'number' || typeof parsed.hooks !== 'object' || parsed.hooks === null) {
       log.warn({ configPath }, 'Invalid hooks config, using defaults');
@@ -34,10 +35,7 @@ export function loadHooksConfig(): HookConfig {
 
 export function saveHooksConfig(config: HookConfig): void {
   const configPath = getConfigPath();
-  const dir = dirname(configPath);
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
+  ensureDir(dirname(configPath));
   writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
 }
 

@@ -1,6 +1,7 @@
 import * as net from 'node:net';
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
+import { pathExists } from '../../util/fs.js';
 import { getWorkspaceDir } from '../../util/platform.js';
 import { log, defineHandlers, type HandlerContext } from './shared.js';
 import type { WorkspaceFileReadRequest } from '../ipc-protocol.js';
@@ -13,7 +14,7 @@ function handleWorkspaceFilesList(socket: net.Socket, ctx: HandlerContext): void
   const files = WORKSPACE_FILES.map((name) => ({
     path: name,
     name,
-    exists: existsSync(join(base, name)),
+    exists: pathExists(join(base, name)),
   }));
   ctx.send(socket, { type: 'workspace_files_list_response', files });
 }
@@ -42,7 +43,7 @@ function handleWorkspaceFileRead(
   }
 
   try {
-    if (!existsSync(resolved)) {
+    if (!pathExists(resolved)) {
       ctx.send(socket, {
         type: 'workspace_file_read_response',
         path: requested,

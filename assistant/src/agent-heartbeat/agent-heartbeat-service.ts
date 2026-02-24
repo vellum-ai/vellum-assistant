@@ -1,4 +1,4 @@
-import { readFileSync, existsSync } from 'node:fs';
+import { readTextFileSync } from '../util/fs.js';
 import { getLogger } from '../util/logger.js';
 import { getWorkspacePromptPath } from '../util/platform.js';
 import { getConfig } from '../config/loader.js';
@@ -115,15 +115,7 @@ export class AgentHeartbeatService {
   }
 
   private readChecklist(): string {
-    const heartbeatPath = getWorkspacePromptPath('HEARTBEAT.md');
-    if (existsSync(heartbeatPath)) {
-      try {
-        return readFileSync(heartbeatPath, 'utf-8');
-      } catch (err) {
-        log.warn({ err, heartbeatPath }, 'Failed to read HEARTBEAT.md, using default checklist');
-      }
-    }
-    return DEFAULT_CHECKLIST;
+    return readTextFileSync(getWorkspacePromptPath('HEARTBEAT.md')) ?? DEFAULT_CHECKLIST;
   }
 
   /** @internal Exposed for testing. */
