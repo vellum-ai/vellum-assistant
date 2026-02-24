@@ -1,17 +1,40 @@
 import { eq, desc, asc, and, count, sql, inArray, or, isNull } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
+import { z } from 'zod';
 import { getDb, rawGet, rawExec } from './db.js';
 import { conversations, messages, toolInvocations, messageRuns, channelInboundEvents, memoryItemSources, memoryItems, memoryEmbeddings, memoryItemEntities, memorySegments, messageAttachments, llmRequestLogs } from './schema.js';
 import { getConfig } from '../config/loader.js';
 import { indexMessageNow } from './indexer.js';
 import { parseChannelId } from '../channels/types.js';
 import type { ChannelId } from '../channels/types.js';
-import { isChannelId } from '../channels/types.js';
+import { isChannelId, CHANNEL_IDS } from '../channels/types.js';
 import { getLogger } from '../util/logger.js';
 import { deleteOrphanAttachments } from './attachments-store.js';
 import { createRowMapper } from '../util/row-mapper.js';
 
 const log = getLogger('conversation-store');
+
+// ── Message metadata Zod schema ──────────────────────────────────────
+// Validates the JSON stored in messages.metadata. Known fields are typed;
+// extra keys are allowed via passthrough so callers can attach ad-hoc data.
+
+const channelIdSchema = z.enum(CHANNEL_IDS);
+
+const subagentNotificationSchema = z.object({
+  subagentId: z.string(),
+  label: z.string(),
+  status: z.enum(['completed', 'failed', 'aborted']),
+  error: z.string().optional(),
+  conversationId: z.string().optional(),
+});
+
+export const messageMetadataSchema = z.object({
+  userMessageChannel: channelIdSchema.optional(),
+  assistantMessageChannel: channelIdSchema.optional(),
+  subagentNotification: subagentNotificationSchema.optional(),
+}).passthrough();
+
+export type MessageMetadata = z.infer<typeof messageMetadataSchema>;
 
 export interface ConversationRow {
   id: string;
@@ -181,6 +204,14 @@ export function getLatestConversation(): ConversationRow | null {
 export function addMessage(conversationId: string, role: string, content: string, metadata?: Record<string, unknown>) {
   const db = getDb();
   const messageId = uuid();
+
+  if (metadata) {
+    const result = messageMetadataSchema.safeParse(metadata);
+    if (!result.success) {
+      log.warn({ conversationId, messageId, issues: result.error.issues }, 'Invalid message metadata, storing as-is');
+    }
+  }
+
   const metadataStr = metadata ? JSON.stringify(metadata) : undefined;
   const originChannelCandidate =
     metadata && isChannelId(metadata.userMessageChannel)
