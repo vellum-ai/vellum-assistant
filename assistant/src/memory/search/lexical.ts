@@ -133,8 +133,12 @@ export function directItemSearch(query: string, limit: number, scopeIds?: string
 
   const raw = (db as unknown as { $client: { query: (q: string) => { all: (...params: unknown[]) => unknown[] } } }).$client;
   const likeClauses = tokens.map(
-    (t) => `(LOWER(subject) LIKE '%${escapeSqlLike(t)}%' OR LOWER(statement) LIKE '%${escapeSqlLike(t)}%')`,
+    () => `(LOWER(subject) LIKE ? OR LOWER(statement) LIKE ?)`,
   );
+  const likeParams = tokens.flatMap((t) => {
+    const pattern = `%${escapeLikeWildcards(t)}%`;
+    return [pattern, pattern];
+  });
   const scopeClause = scopeIds
     ? ` AND scope_id IN (${scopeIds.map(() => '?').join(',')})`
     : '';
@@ -145,7 +149,7 @@ export function directItemSearch(query: string, limit: number, scopeIds?: string
     ORDER BY last_seen_at DESC
     LIMIT ?
   `;
-  const params: unknown[] = [...(scopeIds ?? []), limit];
+  const params: unknown[] = [...likeParams, ...(scopeIds ?? []), limit];
 
   let rows: Array<{
     id: string;
@@ -212,11 +216,6 @@ export function buildFtsMatchQuery(text: string): string | null {
     .join(' OR ');
 }
 
-export function escapeSqlLike(s: string): string {
-  return s.replace(/'/g, "''").replace(/%/g, '').replace(/_/g, '');
-}
-
-/** Escape only LIKE wildcards (% and _) for use with parameterized queries where the driver handles quoting. */
 export function escapeLikeWildcards(s: string): string {
   return s.replace(/%/g, '').replace(/_/g, '');
 }
