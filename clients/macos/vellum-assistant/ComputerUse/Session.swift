@@ -18,6 +18,18 @@ enum SessionState: Equatable {
     case cancelled
 }
 
+/// Tracks the lifecycle of the screen recorder for a session.
+enum RecordingState: Equatable {
+    /// Recording has not started yet (waiting for recorder to produce first frame).
+    case pending
+    /// Recording is actively capturing.
+    case started
+    /// Recording has been stopped normally.
+    case stopped
+    /// Recording failed to start or encountered an error.
+    case failed(reason: String)
+}
+
 @MainActor
 final class ComputerUseSession: ObservableObject {
     @Published var state: SessionState = .idle
@@ -33,6 +45,13 @@ final class ComputerUseSession: ObservableObject {
     private let interactionType: InteractionType
     private let skipSessionCreate: Bool
     private let notificationService: ActivityNotificationServiceProtocol?
+
+    /// Whether this session requires screen recording before executing destructive actions.
+    let requiresRecording: Bool
+    /// Recording source/options selected by the user (e.g., display, window, audio).
+    let recordingOptions: IPCRecordingOptions?
+    /// Current recording lifecycle state.
+    @Published private(set) var recordingState: RecordingState = .pending
 
     /// Weak reference to the chat view model for extracting tool calls for notifications.
     weak var relatedViewModel: ChatViewModel?
@@ -74,7 +93,9 @@ final class ComputerUseSession: ObservableObject {
         adaptiveDelay: Bool = true,
         sessionId: String? = nil,
         skipSessionCreate: Bool = false,
-        notificationService: ActivityNotificationServiceProtocol? = nil
+        notificationService: ActivityNotificationServiceProtocol? = nil,
+        requiresRecording: Bool = false,
+        recordingOptions: IPCRecordingOptions? = nil
     ) {
         self.id = sessionId ?? UUID().uuidString
         self.task = task
@@ -89,6 +110,8 @@ final class ComputerUseSession: ObservableObject {
         self.adaptiveDelayEnabled = adaptiveDelay
         self.skipSessionCreate = skipSessionCreate
         self.notificationService = notificationService
+        self.requiresRecording = requiresRecording
+        self.recordingOptions = recordingOptions
         self.verifier = ActionVerifier(maxSteps: maxSteps)
         self.logger = SessionLogger(task: task, attachments: attachments)
     }
@@ -105,6 +128,14 @@ final class ComputerUseSession: ObservableObject {
         state = .running(step: 0, maxSteps: maxSteps, lastAction: "Starting...", reasoning: "")
 
         log.info("Session starting — task: \(self.task, privacy: .public)")
+
+        // Start recording if required — must succeed before destructive actions are allowed.
+        // When a real ScreenRecorder is wired up, its start() call goes here and
+        // updateRecordingState(.started) should only be called after it confirms recording.
+        if requiresRecording {
+            // TODO: call screenRecorder.start() and only transition on success
+            updateRecordingState(.started)
+        }
 
         let screenSize = screenCapture.screenSize()
         log.info("Screen size: \(Int(screenSize.width))x\(Int(screenSize.height))")
@@ -243,6 +274,11 @@ final class ComputerUseSession: ObservableObject {
                 logger.finishSession(result: "failed: stream ended unexpectedly")
             }
         }
+
+        // Stop recording if it was started
+        if requiresRecording && recordingState == .started {
+            updateRecordingState(.stopped)
+        }
     }
 
     // MARK: - Action Handler
@@ -278,6 +314,25 @@ final class ComputerUseSession: ObservableObject {
         // Handle done/respond completion actions — don't execute, wait for cu_complete
         if agentAction.type == .done || agentAction.type == .respond {
             return
+        }
+
+        // RECORDING GATE — block destructive actions until recording is confirmed started
+        if requiresRecording && isDestructiveAction(agentAction.type) {
+            let gateResult = await waitForRecordingReady()
+            if !gateResult {
+                // Recording failed to start within timeout — abort the session
+                let reason = "Session stopped: screen recording failed to start within timeout"
+                isCancelled = true
+                state = .failed(reason: reason)
+                // Notify the daemon so it stops waiting for observations
+                do {
+                    try daemonClient.send(CuSessionAbortMessage(sessionId: id))
+                } catch {
+                    log.error("Failed to send session abort after recording gate failure: \(error)")
+                }
+                logger.finishSession(result: "failed: recording gate timeout")
+                return
+            }
         }
 
         // VERIFY (local safety check)
@@ -908,6 +963,110 @@ final class ComputerUseSession: ObservableObject {
         return viewModel.messages
             .filter { $0.role == .assistant }
             .flatMap { $0.toolCalls }
+    }
+
+    // MARK: - Recording Lifecycle
+
+    /// Whether an action type modifies system state (clicks, keys, typing, drag).
+    /// Non-destructive actions (scroll, wait, openApp, done, respond, runAppleScript) are allowed
+    /// before recording starts.
+    private func isDestructiveAction(_ type: ActionType) -> Bool {
+        switch type {
+        case .click, .doubleClick, .rightClick, .type, .key, .drag:
+            return true
+        case .scroll, .wait, .openApp, .runAppleScript, .done, .respond:
+            return false
+        }
+    }
+
+    /// Wait for the recording to reach `.started` state, polling every 100ms.
+    /// Returns `true` if recording started, `false` if timeout (5s) expired or recording failed.
+    private func waitForRecordingReady() async -> Bool {
+        // Already started — pass through immediately
+        if recordingState == .started { return true }
+
+        let timeoutMs: UInt64 = 5_000
+        let pollMs: UInt64 = 100
+        var elapsed: UInt64 = 0
+
+        log.info("Recording gate: waiting for recording to start (timeout: \(timeoutMs)ms)")
+
+        while elapsed < timeoutMs && !isCancelled {
+            try? await Task.sleep(nanoseconds: pollMs * 1_000_000)
+            elapsed += pollMs
+
+            switch recordingState {
+            case .started:
+                log.info("Recording gate: recording started after \(elapsed)ms")
+                return true
+            case .failed(let reason):
+                log.error("Recording gate: recording failed — \(reason)")
+                return false
+            case .pending:
+                continue
+            case .stopped:
+                log.warning("Recording gate: recording stopped unexpectedly")
+                return false
+            }
+        }
+
+        log.error("Recording gate: timed out after \(elapsed)ms")
+        return false
+    }
+
+    /// Called by the session owner (e.g., AppDelegate) to update the recording state.
+    /// Sends a `recording_status` IPC message to the daemon.
+    func updateRecordingState(_ newState: RecordingState) {
+        recordingState = newState
+
+        let statusString: String
+        var filePath: String?
+        var durationMs: Double?
+        var errorString: String?
+
+        switch newState {
+        case .pending:
+            return // Don't send IPC for pending state
+        case .started:
+            statusString = "started"
+        case .stopped:
+            statusString = "stopped"
+        case .failed(let reason):
+            statusString = "failed"
+            errorString = reason
+        }
+
+        do {
+            try daemonClient.send(RecordingStatusMessage(
+                sessionId: id,
+                status: statusString,
+                filePath: filePath,
+                durationMs: durationMs,
+                error: errorString
+            ))
+        } catch {
+            log.error("Failed to send recording status '\(statusString)': \(error)")
+        }
+
+        log.info("Recording state updated to \(statusString) for session \(self.id)")
+    }
+
+    /// Called by the session owner when recording stops with file metadata.
+    func updateRecordingStopped(filePath: String?, durationMs: Double?) {
+        recordingState = .stopped
+
+        do {
+            try daemonClient.send(RecordingStatusMessage(
+                sessionId: id,
+                status: "stopped",
+                filePath: filePath,
+                durationMs: durationMs
+            ))
+        } catch {
+            log.error("Failed to send recording stopped status: \(error)")
+        }
+
+        log.info("Recording stopped for session \(self.id) — file: \(filePath ?? "none"), duration: \(durationMs ?? 0)ms")
     }
 
     // MARK: - Control

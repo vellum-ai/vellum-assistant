@@ -51,6 +51,11 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'session_switch',
     sessionId: 'sess-002',
   },
+  session_rename: {
+    type: 'session_rename',
+    sessionId: 'sess-001',
+    title: 'Renamed session',
+  },
   ping: {
     type: 'ping',
   },
@@ -109,6 +114,11 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
   cu_session_abort: {
     type: 'cu_session_abort',
     sessionId: 'cu-sess-001',
+  },
+  recording_status: {
+    type: 'recording_status',
+    sessionId: 'cu-sess-001',
+    status: 'started',
   },
   cu_observation: {
     type: 'cu_observation',

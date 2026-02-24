@@ -335,6 +335,16 @@ extension IPCCuSessionAbort {
     }
 }
 
+/// Reports recording lifecycle state changes to the daemon.
+/// Backed by generated `IPCRecordingStatus`.
+public typealias RecordingStatusMessage = IPCRecordingStatus
+
+extension IPCRecordingStatus {
+    public init(sessionId: String, status: String, filePath: String? = nil, durationMs: Double? = nil, error: String? = nil) {
+        self.init(type: "recording_status", sessionId: sessionId, status: status, filePath: filePath, durationMs: durationMs, error: error)
+    }
+}
+
 /// Authenticate to the daemon on initial socket connect.
 /// Backed by generated `IPCAuthMessage`.
 public typealias AuthMessage = IPCAuthMessage

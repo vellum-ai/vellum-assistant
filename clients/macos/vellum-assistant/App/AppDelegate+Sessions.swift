@@ -87,6 +87,28 @@ extension AppDelegate {
                 return
             }
 
+            // Resolve recording options if escalated session requires recording
+            var resolvedRecordingOptions: IPCRecordingOptions?
+            let escalationRequiresRecording = routed.requiresRecording == true
+            if escalationRequiresRecording {
+                if let pickerResult = await self.resolveRecordingOptions(for: routed) {
+                    log.info("Escalation recording options resolved — scope: \(pickerResult.captureScope ?? "default"), audio: \(pickerResult.includeAudio ?? false)")
+                    resolvedRecordingOptions = pickerResult
+                } else {
+                    log.info("User cancelled recording picker during escalation — aborting session \(routed.sessionId)")
+                    do {
+                        try self.daemonClient.send(CuSessionAbortMessage(sessionId: routed.sessionId))
+                    } catch {
+                        log.error("Failed to send CU session abort after escalation picker cancel: \(error)")
+                    }
+                    self.recordingPickerWindow?.close()
+                    self.recordingPickerWindow = nil
+                    return
+                }
+                self.recordingPickerWindow?.close()
+                self.recordingPickerWindow = nil
+            }
+
             let storedMaxSteps = UserDefaults.standard.integer(forKey: "maxStepsPerSession")
             let maxSteps = storedMaxSteps > 0 ? storedMaxSteps : 50
             let session = ComputerUseSession(
@@ -95,7 +117,9 @@ extension AppDelegate {
                 maxSteps: maxSteps,
                 sessionId: routed.sessionId,
                 skipSessionCreate: true,
-                notificationService: self.services.activityNotificationService
+                notificationService: self.services.activityNotificationService,
+                requiresRecording: escalationRequiresRecording,
+                recordingOptions: resolvedRecordingOptions
             )
             // Don't bind relatedViewModel for escalated sessions — the active view model
             // may be unrelated if the user switched threads. Tool calls for escalated
@@ -228,11 +252,12 @@ extension AppDelegate {
                 }
 
                 // Resolve recording options if the session requires recording.
-                // The resolved options are logged here; a subsequent milestone will
-                // pass them to the session/recorder init.
-                if routed.requiresRecording == true {
+                var resolvedRecordingOptions: IPCRecordingOptions?
+                let sessionRequiresRecording = routed.requiresRecording == true
+                if sessionRequiresRecording {
                     if let pickerResult = await self.resolveRecordingOptions(for: routed) {
                         log.info("Recording options resolved — scope: \(pickerResult.captureScope ?? "default"), audio: \(pickerResult.includeAudio ?? false)")
+                        resolvedRecordingOptions = pickerResult
                     } else {
                         // User cancelled the picker — abort the session
                         log.info("User cancelled recording source picker — aborting session \(routed.sessionId)")
@@ -258,7 +283,9 @@ extension AppDelegate {
                     attachments: submission.attachments,
                     sessionId: routed.sessionId,
                     skipSessionCreate: true,
-                    notificationService: self.services.activityNotificationService
+                    notificationService: self.services.activityNotificationService,
+                    requiresRecording: sessionRequiresRecording,
+                    recordingOptions: resolvedRecordingOptions
                 )
                 // Don't bind relatedViewModel — sessions started via startSession() don't
                 // originate from a chat thread, so there's no ChatViewModel to extract
@@ -268,6 +295,7 @@ extension AppDelegate {
                 overlay.show()
                 self.overlayWindow = overlay
                 self.ambientAgent.pause()
+
                 await session.run()
                 try? await Task.sleep(nanoseconds: 10_000_000_000)
                 overlay.close()

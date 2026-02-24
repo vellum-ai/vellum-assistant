@@ -54,6 +54,14 @@ exports[`IPC message snapshots ClientMessage types session_switch serializes to 
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types session_rename serializes to expected JSON 1`] = `
+{
+  "sessionId": "sess-001",
+  "title": "Renamed session",
+  "type": "session_rename",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types ping serializes to expected JSON 1`] = `
 {
   "type": "ping",
@@ -149,6 +157,14 @@ exports[`IPC message snapshots ClientMessage types cu_session_abort serializes t
 {
   "sessionId": "cu-sess-001",
   "type": "cu_session_abort",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types recording_status serializes to expected JSON 1`] = `
+{
+  "sessionId": "cu-sess-001",
+  "status": "started",
+  "type": "recording_status",
 }
 `;
 

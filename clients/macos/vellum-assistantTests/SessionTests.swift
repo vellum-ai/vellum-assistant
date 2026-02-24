@@ -186,7 +186,9 @@ private func makeDefaultEnumerator() -> MockAccessibilityTreeEnumerator {
     enumerator: AccessibilityTreeProviding? = nil,
     screenCapture: MockScreenCapture? = nil,
     executor: MockActionExecutor? = nil,
-    maxSteps: Int = 50
+    maxSteps: Int = 50,
+    requiresRecording: Bool = false,
+    recordingOptions: IPCRecordingOptions? = nil
 ) -> ComputerUseSession {
     ComputerUseSession(
         task: task,
@@ -196,7 +198,9 @@ private func makeDefaultEnumerator() -> MockAccessibilityTreeEnumerator {
         executor: executor ?? MockActionExecutor(),
         maxSteps: maxSteps,
         initialDelayMs: 0,
-        adaptiveDelay: false
+        adaptiveDelay: false,
+        requiresRecording: requiresRecording,
+        recordingOptions: recordingOptions
     )
 }
 
@@ -1671,6 +1675,233 @@ final class SessionTests: XCTestCase {
         // Large scenario: inline >400KB (300KB screenshot → 400KB base64 + 12KB AX tree), blob <1KB
         XCTAssertGreaterThan(inlineLargeJSON.count, 400_000)
         XCTAssertLessThan(blobLargeJSON.count, 1_000)
+    }
+
+    // MARK: - Recording Gate
+
+    @MainActor
+    func testRecordingGate_blocksDestructiveActionUntilStarted() async {
+        let daemonClient = MockDaemonClient()
+        let continuation = daemonClient.setupTestStream()
+        let executor = MockActionExecutor()
+        let session = makeSession(daemonClient: daemonClient, executor: executor, requiresRecording: true)
+
+        let runTask = Task { @MainActor in
+            await session.run()
+        }
+
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        // Send a destructive action (click) while recording is still pending
+        continuation.yield(.cuAction(makeActionMessage(
+            sessionId: session.id,
+            toolName: "cu_click",
+            input: ["x": AnyCodable(100), "y": AnyCodable(200)],
+            reasoning: "click button",
+            stepNumber: 1
+        )))
+
+        // Allow time for the gate to start waiting
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        // Recording hasn't started yet — action should NOT have been executed
+        XCTAssertEqual(executor.executedActions.count, 0, "Destructive action should be blocked by recording gate")
+
+        // Now signal recording started
+        session.updateRecordingState(.started)
+
+        // Allow time for the gate to pass and action to execute
+        try? await Task.sleep(nanoseconds: 200_000_000)
+
+        // Action should now have been executed
+        XCTAssertEqual(executor.executedActions.count, 1, "Action should execute after recording starts")
+        XCTAssertEqual(executor.executedActions.first?.type, .click)
+
+        // Verify recording_status IPC was sent
+        let statusMessages = daemonClient.sentMessages.compactMap { $0 as? RecordingStatusMessage }
+        XCTAssertEqual(statusMessages.count, 1)
+        XCTAssertEqual(statusMessages.first?.status, "started")
+        XCTAssertEqual(statusMessages.first?.sessionId, session.id)
+
+        session.cancel()
+        continuation.finish()
+        await runTask.value
+    }
+
+    @MainActor
+    func testRecordingGate_allowsNonDestructiveActionBeforeRecording() async {
+        let daemonClient = MockDaemonClient()
+        let continuation = daemonClient.setupTestStream()
+        let executor = MockActionExecutor()
+        let session = makeSession(daemonClient: daemonClient, executor: executor, requiresRecording: true)
+
+        let runTask = Task { @MainActor in
+            await session.run()
+        }
+
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        // Send a non-destructive action (scroll) while recording is pending — should NOT be gated
+        continuation.yield(.cuAction(makeActionMessage(
+            sessionId: session.id,
+            toolName: "cu_scroll",
+            input: ["x": AnyCodable(100), "y": AnyCodable(200), "direction": AnyCodable("down"), "amount": AnyCodable(3)],
+            reasoning: "scroll down",
+            stepNumber: 1
+        )))
+
+        // Allow time for action processing
+        try? await Task.sleep(nanoseconds: 200_000_000)
+
+        // Scroll is non-destructive — should have executed without waiting for recording
+        XCTAssertEqual(executor.executedActions.count, 1, "Non-destructive action should not be blocked by recording gate")
+        XCTAssertEqual(executor.executedActions.first?.type, .scroll)
+
+        session.cancel()
+        continuation.finish()
+        await runTask.value
+    }
+
+    @MainActor
+    func testRecordingGate_noGateWhenRecordingNotRequired() async {
+        let daemonClient = MockDaemonClient()
+        let continuation = daemonClient.setupTestStream()
+        let executor = MockActionExecutor()
+        // requiresRecording defaults to false
+        let session = makeSession(daemonClient: daemonClient, executor: executor)
+
+        let runTask = Task { @MainActor in
+            await session.run()
+        }
+
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        // Send a destructive action — should execute immediately since recording not required
+        continuation.yield(.cuAction(makeActionMessage(
+            sessionId: session.id,
+            toolName: "cu_click",
+            input: ["x": AnyCodable(100), "y": AnyCodable(200)],
+            reasoning: "click",
+            stepNumber: 1
+        )))
+
+        try? await Task.sleep(nanoseconds: 200_000_000)
+
+        XCTAssertEqual(executor.executedActions.count, 1, "Action should execute immediately when recording not required")
+
+        session.cancel()
+        continuation.finish()
+        await runTask.value
+    }
+
+    @MainActor
+    func testRecordingGate_failsSessionOnRecordingFailure() async {
+        let daemonClient = MockDaemonClient()
+        let continuation = daemonClient.setupTestStream()
+        let executor = MockActionExecutor()
+        let session = makeSession(daemonClient: daemonClient, executor: executor, requiresRecording: true)
+
+        let runTask = Task { @MainActor in
+            await session.run()
+        }
+
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        // Send a destructive action while recording is pending
+        continuation.yield(.cuAction(makeActionMessage(
+            sessionId: session.id,
+            toolName: "cu_type_text",
+            input: ["text": AnyCodable("hello")],
+            reasoning: "type text",
+            stepNumber: 1
+        )))
+
+        // Allow time for the gate to start waiting
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        // Signal recording failure
+        session.updateRecordingState(.failed(reason: "No capture permission"))
+
+        // Allow time for failure to propagate
+        try? await Task.sleep(nanoseconds: 200_000_000)
+
+        // Action should NOT have executed
+        XCTAssertEqual(executor.executedActions.count, 0, "Action should not execute when recording fails")
+
+        // Session should be in failed state
+        if case .failed(let reason) = session.state {
+            XCTAssertTrue(reason.contains("recording"), "Failure reason should mention recording: \(reason)")
+        } else {
+            XCTFail("Expected failed state, got \(session.state)")
+        }
+
+        // Verify recording_status IPC for failure was sent
+        let statusMessages = daemonClient.sentMessages.compactMap { $0 as? RecordingStatusMessage }
+        XCTAssertTrue(statusMessages.contains(where: { $0.status == "failed" }), "Should have sent recording_status failed IPC")
+
+        continuation.finish()
+        await runTask.value
+    }
+
+    @MainActor
+    func testRecordingState_sendsIPCOnUpdate() async {
+        let daemonClient = MockDaemonClient()
+        let session = makeSession(daemonClient: daemonClient, requiresRecording: true)
+
+        // Initial state should be pending
+        XCTAssertEqual(session.recordingState, .pending)
+
+        // Update to started
+        session.updateRecordingState(.started)
+        XCTAssertEqual(session.recordingState, .started)
+
+        // Update to stopped with file metadata
+        session.updateRecordingStopped(filePath: "/tmp/recording.mov", durationMs: 5000)
+        XCTAssertEqual(session.recordingState, .stopped)
+
+        // Verify IPC messages were sent
+        let statusMessages = daemonClient.sentMessages.compactMap { $0 as? RecordingStatusMessage }
+        XCTAssertEqual(statusMessages.count, 2) // started + stopped (pending doesn't send IPC)
+
+        XCTAssertEqual(statusMessages[0].status, "started")
+        XCTAssertEqual(statusMessages[0].sessionId, session.id)
+
+        XCTAssertEqual(statusMessages[1].status, "stopped")
+        XCTAssertEqual(statusMessages[1].filePath, "/tmp/recording.mov")
+        XCTAssertEqual(statusMessages[1].durationMs, 5000)
+    }
+
+    @MainActor
+    func testRecordingState_stoppedOnSessionComplete() async {
+        let daemonClient = MockDaemonClient()
+        let continuation = daemonClient.setupTestStream()
+        let session = makeSession(daemonClient: daemonClient, requiresRecording: true)
+
+        // Simulate recording already started
+        session.updateRecordingState(.started)
+
+        let runTask = Task { @MainActor in
+            await session.run()
+        }
+
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        // Complete the session
+        continuation.yield(.cuComplete(makeCompleteMessage(
+            sessionId: session.id,
+            summary: "Done",
+            stepCount: 1
+        )))
+
+        await runTask.value
+
+        // Recording should have been stopped
+        XCTAssertEqual(session.recordingState, .stopped, "Recording should be stopped when session completes")
+
+        // Verify both started and stopped IPC messages were sent
+        let statusMessages = daemonClient.sentMessages.compactMap { $0 as? RecordingStatusMessage }
+        XCTAssertTrue(statusMessages.contains(where: { $0.status == "started" }))
+        XCTAssertTrue(statusMessages.contains(where: { $0.status == "stopped" }))
     }
 }
 
