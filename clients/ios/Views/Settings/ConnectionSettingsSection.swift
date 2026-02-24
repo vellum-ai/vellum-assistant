@@ -199,8 +199,9 @@ struct DaemonConnectionSection: View {
             return true
         }
 
-        let octets = host.split(separator: ".").compactMap { UInt8($0) }
-        if octets.count == 4 {
+        let parts = host.split(separator: ".")
+        let octets = parts.compactMap { UInt8($0) }
+        if parts.count == 4 && octets.count == 4 {
             // 127.0.0.0/8 — full loopback range
             if octets[0] == 127 { return true }
             // 10.0.0.0/8 — private
