@@ -1,6 +1,5 @@
 import * as net from 'node:net';
-import { getConfig } from '../../config/loader.js';
-import { getFailoverProvider, listProviders } from '../../providers/registry.js';
+import { getConfiguredProvider } from '../../providers/provider-send-message.js';
 import type { DictationRequest } from '../ipc-protocol.js';
 import { log, defineHandlers, type HandlerContext } from './shared.js';
 
@@ -147,15 +146,14 @@ export async function handleDictationRequest(
     : msg.transcription; // command prompt already embeds the selected text and instruction
 
   try {
-    const config = getConfig();
-    if (!listProviders().includes(config.provider)) {
-      log.warn({ provider: config.provider }, 'Dictation: no provider available, returning raw transcription');
+    const provider = getConfiguredProvider();
+    if (!provider) {
+      log.warn('Dictation: no provider available, returning raw transcription');
       const fallbackText = mode === 'command' ? (msg.context.selectedText ?? msg.transcription) : msg.transcription;
       ctx.send(socket, { type: 'dictation_response', text: fallbackText, mode });
       return;
     }
 
-    const provider = getFailoverProvider(config.provider, config.providerOrder);
     const response = await provider.sendMessage(
       [{ role: 'user', content: [{ type: 'text', text: userText }] }],
       [], // no tools

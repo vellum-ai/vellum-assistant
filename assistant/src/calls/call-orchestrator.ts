@@ -7,7 +7,7 @@
  */
 
 import { getConfig } from '../config/loader.js';
-import { getFailoverProvider, listProviders } from '../providers/registry.js';
+import { resolveConfiguredProvider } from '../providers/provider-send-message.js';
 import type { ProviderEvent } from '../providers/types.js';
 import { resolveUserReference } from '../config/user-reference.js';
 import { getLogger } from '../util/logger.js';
@@ -380,14 +380,14 @@ export class CallOrchestrator {
    */
   private async runLlm(): Promise<void> {
     const config = getConfig();
-    const providerName = config.provider;
-    if (!listProviders().includes(providerName)) {
+    const resolved = resolveConfiguredProvider();
+    if (!resolved) {
       log.error({ callSessionId: this.callSessionId }, 'No provider available');
       this.relay.sendTextToken('I\'m sorry, I\'m having a technical issue. Please try again later.', true);
       this.state = 'idle';
       return;
     }
-    const provider = getFailoverProvider(providerName, config.providerOrder);
+    const { provider } = resolved;
 
     const runVersion = ++this.llmRunVersion;
     const runSignal = this.abortController.signal;
@@ -395,12 +395,13 @@ export class CallOrchestrator {
     try {
       this.state = 'speaking';
 
-      // Only override the model when the user has explicitly configured one.
-      // When unset, each provider in the failover chain uses its own default
-      // model (set at initialization). Forwarding the primary provider's
-      // default to fallback providers would cause cross-provider 4xx errors
-      // (e.g., sending "gpt-5.2" to Anthropic).
-      const callModel = config.calls.model?.trim() || undefined;
+      // Only override the model when the user has explicitly configured one
+      // AND the selected provider matches the configured provider. Forwarding
+      // a provider-specific model to a fallback provider would cause
+      // cross-provider 4xx errors (e.g., sending "gpt-5.2" to Anthropic).
+      const callModel = !resolved.usedFallbackPrimary
+        ? (config.calls.model?.trim() || undefined)
+        : undefined;
 
       // Buffer incoming tokens so we can strip control markers ([ASK_GUARDIAN:...], [END_CALL])
       // before they reach TTS. We hold text whenever an unmatched '[' appears, since it
