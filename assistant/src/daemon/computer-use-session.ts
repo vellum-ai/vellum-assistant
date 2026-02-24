@@ -684,6 +684,11 @@ export class ComputerUseSession {
             isError: true,
           };
         }
+
+        // Inject targetAppBundleId when the LLM didn't provide one
+        if (!input.app_bundle_id && this.targetAppBundleId) {
+          input = { ...input, app_bundle_id: this.targetAppBundleId };
+        }
       }
 
       if (toolName === 'computer_use_run_applescript') {

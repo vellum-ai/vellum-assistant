@@ -918,6 +918,8 @@ final class ComputerUseSession: ObservableObject {
             ?? extractInt(from: msg.input, key: "wait_duration")
         let appName = msg.input["app_name"]?.value as? String
             ?? msg.input["appName"]?.value as? String
+        let appBundleId = msg.input["app_bundle_id"]?.value as? String
+            ?? msg.input["appBundleId"]?.value as? String
         let script = msg.input["script"]?.value as? String
         let elementId = extractInt(from: msg.input, key: "element_id")
             ?? extractInt(from: msg.input, key: "elementId")
@@ -940,6 +942,7 @@ final class ComputerUseSession: ObservableObject {
             summary: summary,
             waitDuration: waitDuration,
             appName: appName,
+            appBundleId: appBundleId,
             script: script,
             resolvedFromElementId: elementId,
             resolvedToElementId: toElementId,

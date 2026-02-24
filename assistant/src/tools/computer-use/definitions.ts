@@ -302,6 +302,10 @@ export const computerUseOpenAppTool: Tool = {
             type: 'string',
             description: 'The name of the application to open (e.g. "Slack", "Safari", "Google Chrome", "VS Code")',
           },
+          app_bundle_id: {
+            type: 'string',
+            description: 'Bundle identifier of the app (e.g. com.apple.Safari). If provided, used for precise app activation.',
+          },
           reasoning: {
             type: 'string',
             description: 'Explanation of why you need to open or switch to this app',
