@@ -188,6 +188,13 @@ class TasksViewModel: ObservableObject {
             // the next work-items-list response arrives, then clears itself.
             pendingRefreshContinuation = continuation
             fetchItems()
+            // If fetchItems() failed synchronously (e.g. send threw), the daemon
+            // callback will never fire — resume immediately to avoid a leaked
+            // continuation and an indefinitely-spinning refresh indicator.
+            if errorMessage != nil, let cont = pendingRefreshContinuation {
+                pendingRefreshContinuation = nil
+                cont.resume()
+            }
         }
     }
 
