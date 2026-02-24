@@ -808,9 +808,13 @@ export async function runAgentLoopImpl(
     }
 
     if (isFirstMessage) {
-      generateTitle(ctx, content, firstAssistantText).catch((err) => {
-        log.warn({ err, conversationId: ctx.conversationId }, 'Failed to generate conversation title (non-fatal, using default title)');
-      });
+      void (async () => {
+        try {
+          await generateTitle(ctx, content, firstAssistantText);
+        } catch (err) {
+          log.warn({ err, conversationId: ctx.conversationId }, 'Failed to generate conversation title (non-fatal, using default title)');
+        }
+      })();
     }
   } catch (err) {
     const errorCtx = { phase: 'agent_loop' as const, aborted: abortController.signal.aborted };
