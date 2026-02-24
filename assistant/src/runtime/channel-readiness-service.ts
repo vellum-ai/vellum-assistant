@@ -80,10 +80,13 @@ const smsProbe: ChannelProbe = {
     const authToken = getSecureKey('credential:twilio:auth_token');
     if (!accountSid || !authToken) return [];
 
-    // Resolve the assigned phone number
+    // Resolve the assigned phone number using fallback chain
     const raw = loadRawConfig();
     const smsConfig = (raw?.sms ?? {}) as Record<string, unknown>;
-    const phoneNumber = (smsConfig.phoneNumber as string) ?? '';
+    const phoneNumber = (smsConfig.phoneNumber as string)
+      || getSecureKey('credential:twilio:phone_number')
+      || process.env.TWILIO_PHONE_NUMBER
+      || '';
     if (!phoneNumber) return [];
 
     // Only toll-free numbers need verification checks
