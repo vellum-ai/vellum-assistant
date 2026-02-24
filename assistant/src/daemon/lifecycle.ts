@@ -46,7 +46,7 @@ import { telegramBotMessagingProvider } from '../messaging/providers/telegram-bo
 import { smsMessagingProvider } from '../messaging/providers/sms/adapter.js';
 import { browserManager } from '../tools/browser/browser-manager.js';
 import { RuntimeHttpServer } from '../runtime/http-server.js';
-import type { ApprovalCopyGenerator } from '../runtime/http-types.js';
+import type { ApprovalCopyGenerator, ApprovalConversationGenerator, ApprovalConversationResult, ApprovalConversationDisposition } from '../runtime/http-types.js';
 import {
   buildGenerationPrompt,
   includesRequiredKeywords,
@@ -313,6 +313,136 @@ function createApprovalCopyGenerator(): ApprovalCopyGenerator {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Approval conversation generator constants
+// ---------------------------------------------------------------------------
+
+const APPROVAL_CONVERSATION_TIMEOUT_MS = 8_000;
+const APPROVAL_CONVERSATION_MAX_TOKENS = 300;
+
+const APPROVAL_CONVERSATION_SYSTEM_PROMPT =
+  'You are an assistant helping a user manage a pending tool approval request. '
+  + 'Analyze the user\'s message to determine if they are making a decision '
+  + '(approve, reject, or cancel) or just asking a question / making conversation. '
+  + 'When uncertain, default to keep_pending — never approve or reject without clear intent. '
+  + 'For guardians: explain what tool is requesting approval and from whom. '
+  + 'Always provide a natural, helpful reply along with your decision.';
+
+const APPROVAL_CONVERSATION_TOOL_NAME = 'approval_decision';
+
+const APPROVAL_CONVERSATION_TOOL_SCHEMA = {
+  name: APPROVAL_CONVERSATION_TOOL_NAME,
+  description:
+    'Record the disposition of the approval conversation turn. '
+    + 'Call this tool with the determined disposition and a natural reply to the user.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      disposition: {
+        type: 'string',
+        enum: ['keep_pending', 'approve_once', 'approve_always', 'reject'],
+        description:
+          'The decision: keep_pending if the user is asking questions or unclear, '
+          + 'approve_once to approve this single request, approve_always to approve '
+          + 'this tool permanently, reject to deny the request.',
+      },
+      replyText: {
+        type: 'string',
+        description: 'A natural language reply to send back to the user.',
+      },
+      targetRunId: {
+        type: 'string',
+        description:
+          'The run ID of the specific pending approval being acted on. '
+          + 'Required when there are multiple pending approvals and the disposition is decision-bearing.',
+      },
+    },
+    required: ['disposition', 'replyText'],
+  },
+};
+
+const VALID_DISPOSITIONS: ReadonlySet<string> = new Set([
+  'keep_pending',
+  'approve_once',
+  'approve_always',
+  'reject',
+]);
+
+/**
+ * Create the daemon-owned approval conversation generator that resolves
+ * providers and uses tool_use / function calling for structured output.
+ * Follows the same provider-aware pattern as createApprovalCopyGenerator().
+ */
+function createApprovalConversationGenerator(): ApprovalConversationGenerator {
+  return async (context) => {
+    const config = loadConfig();
+    if (!listProviders().includes(config.provider)) {
+      throw new Error('No provider available for approval conversation');
+    }
+    const provider = getFailoverProvider(config.provider, config.providerOrder);
+
+    const pendingDescription = context.pendingApprovals
+      .map((p) => `- Run ${p.runId}: tool "${p.toolName}"`)
+      .join('\n');
+
+    const userPrompt = [
+      `Role: ${context.role}`,
+      `Tool requesting approval: "${context.toolName}"`,
+      `Allowed actions: ${context.allowedActions.join(', ')}`,
+      `Pending approvals:\n${pendingDescription}`,
+      `\nUser message: ${context.userMessage}`,
+    ].join('\n');
+
+    const response = await provider.sendMessage(
+      [{ role: 'user', content: [{ type: 'text', text: userPrompt }] }],
+      [APPROVAL_CONVERSATION_TOOL_SCHEMA],
+      APPROVAL_CONVERSATION_SYSTEM_PROMPT,
+      {
+        config: {
+          max_tokens: APPROVAL_CONVERSATION_MAX_TOKENS,
+        },
+        signal: AbortSignal.timeout(APPROVAL_CONVERSATION_TIMEOUT_MS),
+      },
+    );
+
+    // Extract the tool_use block from the response
+    const toolUseBlock = response.content.find(
+      (block) => block.type === 'tool_use' && block.name === APPROVAL_CONVERSATION_TOOL_NAME,
+    );
+
+    if (!toolUseBlock || toolUseBlock.type !== 'tool_use') {
+      throw new Error('Provider did not return a tool_use block for approval decision');
+    }
+
+    const input = toolUseBlock.input as Record<string, unknown>;
+
+    // Strict validation of the structured output
+    const disposition = input.disposition;
+    if (typeof disposition !== 'string' || !VALID_DISPOSITIONS.has(disposition)) {
+      throw new Error(`Invalid disposition: ${String(disposition)}`);
+    }
+
+    const replyText = input.replyText;
+    if (typeof replyText !== 'string' || replyText.trim().length === 0) {
+      throw new Error('Missing or empty replyText in tool_use response');
+    }
+
+    const targetRunId = input.targetRunId;
+    if (targetRunId !== undefined && typeof targetRunId !== 'string') {
+      throw new Error('Invalid targetRunId in tool_use response');
+    }
+
+    const result: ApprovalConversationResult = {
+      disposition: disposition as ApprovalConversationDisposition,
+      replyText: replyText.trim(),
+    };
+    if (typeof targetRunId === 'string' && targetRunId.length > 0) {
+      result.targetRunId = targetRunId;
+    }
+    return result;
+  };
+}
+
 // Entry point for the daemon process itself
 export async function runDaemon(): Promise<void> {
   loadDotEnv();
@@ -517,6 +647,7 @@ export async function runDaemon(): Promise<void> {
         runOrchestrator: server.createRunOrchestrator(),
         interfacesDir: getInterfacesDir(),
         approvalCopyGenerator: createApprovalCopyGenerator(),
+        approvalConversationGenerator: createApprovalConversationGenerator(),
       });
       try {
         log.info({ port, hostname }, 'Daemon startup: starting runtime HTTP server');
