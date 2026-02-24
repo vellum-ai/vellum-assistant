@@ -1241,6 +1241,12 @@ public final class SettingsStore: ObservableObject {
         PairingConfiguration.resolvedBearerToken(fallback: readHttpToken() ?? "")
     }
 
+    /// LAN pairing URL for the gateway (port 7830), or nil if no LAN IP available.
+    var lanPairingUrl: String? {
+        guard let ip = LANIPHelper.currentLANAddress() else { return nil }
+        return "http://\(ip):7830"
+    }
+
     // MARK: - Model Actions
 
     func setModel(_ model: String) {
