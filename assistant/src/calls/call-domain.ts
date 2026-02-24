@@ -402,7 +402,7 @@ export function getCallStatus(
 }
 
 /**
- * Cancel an active call. Cleans up relay connections and orchestrators.
+ * Cancel an active call. Cleans up relay connections and controllers.
  */
 export async function cancelCall(input: CancelCallInput): Promise<{ ok: true; session: CallSession } | CallError> {
   const { callSessionId, reason } = input;
@@ -501,9 +501,9 @@ export async function answerCall(input: AnswerCallInput): Promise<{ ok: true; qu
 }
 
 /**
- * Relay a user instruction to an active call's orchestrator.
+ * Relay a user instruction to an active call's controller.
  * Validates that the call is active and the instruction is non-empty
- * before injecting it into the orchestrator's conversation history.
+ * before injecting it into the controller's conversation.
  */
 export async function relayInstruction(input: RelayInstructionInput): Promise<{ ok: true } | CallError> {
   const { callSessionId, instructionText } = input;
