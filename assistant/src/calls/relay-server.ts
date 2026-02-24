@@ -27,6 +27,10 @@ import {
   type PromptSpeakerContext,
 } from './speaker-identification.js';
 import { isTerminalState } from './call-state-machine.js';
+import {
+  getPendingChallenge,
+  validateAndConsumeChallenge,
+} from '../runtime/channel-guardian-service.js';
 
 const log = getLogger('relay-server');
 
@@ -138,13 +142,18 @@ export class RelayConnection {
   private orchestrator: CallOrchestrator | null = null;
   private speakerIdentityTracker: SpeakerIdentityTracker;
 
-  // Verification state
+  // Verification state (outbound callee verification)
   private connectionState: RelayConnectionState = 'connected';
   private verificationCode: string | null = null;
   private verificationAttempts = 0;
   private verificationMaxAttempts = 3;
   private verificationCodeLength = 6;
   private dtmfBuffer = '';
+
+  // Inbound voice guardian verification state
+  private guardianVerificationActive = false;
+  private guardianChallengeAssistantId: string | null = null;
+  private guardianVerificationFromNumber: string | null = null;
 
   constructor(ws: ServerWebSocket<RelayWebSocketData>, callSessionId: string) {
     this.ws = ws;
@@ -159,6 +168,20 @@ export class RelayConnection {
    */
   getVerificationCode(): string | null {
     return this.verificationCode;
+  }
+
+  /**
+   * Whether inbound guardian voice verification is currently active.
+   */
+  isGuardianVerificationActive(): boolean {
+    return this.guardianVerificationActive;
+  }
+
+  /**
+   * Get the current connection state.
+   */
+  getConnectionState(): RelayConnectionState {
+    return this.connectionState;
   }
 
   /**
@@ -360,17 +383,19 @@ export class RelayConnection {
     const verificationConfig = config.calls.verification;
     if (!isInbound && verificationConfig.enabled) {
       this.startVerification(session, verificationConfig);
-    } else {
-      // Skip the LLM-driven opener when a static welcome greeting is already
-      // configured via CALL_WELCOME_GREETING — Twilio's ConversationRelay will
-      // speak it at the transport level, so firing the orchestrator opener too
-      // would cause a double greeting.
-      const hasStaticGreeting = !!process.env.CALL_WELCOME_GREETING?.trim();
-      if (!hasStaticGreeting) {
-        orchestrator.startInitialGreeting().catch((err) =>
-          log.error({ err, callSessionId: this.callSessionId }, `Failed to start initial ${isInbound ? 'inbound' : 'outbound'} greeting`),
-        );
+    } else if (isInbound) {
+      // For inbound calls, check if there's a pending voice guardian
+      // challenge that the caller needs to complete before proceeding.
+      const assistantId = session?.assistantId ?? 'self';
+      const pendingChallenge = getPendingChallenge(assistantId, 'voice');
+
+      if (pendingChallenge) {
+        this.startInboundGuardianVerification(assistantId, msg.from);
+      } else {
+        this.startNormalCallFlow(orchestrator, true);
       }
+    } else {
+      this.startNormalCallFlow(orchestrator, false);
     }
   }
 
@@ -418,16 +443,197 @@ export class RelayConnection {
     );
   }
 
+  /**
+   * Start normal call flow — fire the orchestrator greeting unless a
+   * static welcome greeting is configured.
+   */
+  private startNormalCallFlow(orchestrator: CallOrchestrator, isInbound: boolean): void {
+    const hasStaticGreeting = !!process.env.CALL_WELCOME_GREETING?.trim();
+    if (!hasStaticGreeting) {
+      orchestrator.startInitialGreeting().catch((err) =>
+        log.error({ err, callSessionId: this.callSessionId }, `Failed to start initial ${isInbound ? 'inbound' : 'outbound'} greeting`),
+      );
+    }
+  }
+
+  /**
+   * Enter verification-pending state for an inbound call with a pending
+   * voice guardian challenge. Prompts the caller to enter their six-digit
+   * verification code via DTMF or by speaking it.
+   */
+  private startInboundGuardianVerification(assistantId: string, fromNumber: string): void {
+    this.guardianVerificationActive = true;
+    this.guardianChallengeAssistantId = assistantId;
+    this.guardianVerificationFromNumber = fromNumber;
+    this.connectionState = 'verification_pending';
+    this.verificationAttempts = 0;
+    this.verificationMaxAttempts = 3;
+    this.verificationCodeLength = 6;
+    this.dtmfBuffer = '';
+
+    recordCallEvent(this.callSessionId, 'guardian_voice_verification_started', {
+      assistantId,
+      maxAttempts: this.verificationMaxAttempts,
+    });
+
+    this.sendTextToken(
+      'Welcome. Please enter your six-digit verification code using your keypad, or speak the digits now.',
+      true,
+    );
+
+    log.info(
+      { callSessionId: this.callSessionId, assistantId },
+      'Inbound guardian voice verification started',
+    );
+  }
+
+  /**
+   * Extract digit characters from a speech transcript. Recognizes both
+   * raw digit characters ("1 2 3") and spoken number words ("one two three").
+   */
+  private static parseDigitsFromSpeech(transcript: string): string {
+    const wordToDigit: Record<string, string> = {
+      zero: '0', oh: '0', o: '0',
+      one: '1', won: '1',
+      two: '2', too: '2', to: '2',
+      three: '3',
+      four: '4', for: '4', fore: '4',
+      five: '5',
+      six: '6',
+      seven: '7',
+      eight: '8', ate: '8',
+      nine: '9',
+    };
+
+    const digits: string[] = [];
+    const lower = transcript.toLowerCase();
+
+    // Split on whitespace and non-alphanumeric boundaries
+    const tokens = lower.split(/[\s,.\-;:!?]+/);
+    for (const token of tokens) {
+      if (/^\d$/.test(token)) {
+        digits.push(token);
+      } else if (wordToDigit[token]) {
+        digits.push(wordToDigit[token]);
+      } else if (/^\d+$/.test(token)) {
+        // Multi-digit number like "123456" — split into individual digits
+        digits.push(...token.split(''));
+      }
+    }
+
+    return digits.join('');
+  }
+
+  /**
+   * Attempt to validate an entered code against the pending voice guardian
+   * challenge via validateAndConsumeChallenge. On success, binds the
+   * guardian and transitions to normal call flow. On failure, enforces
+   * max attempts and terminates the call if exhausted.
+   */
+  private attemptGuardianCodeVerification(enteredCode: string): void {
+    if (!this.guardianChallengeAssistantId || !this.guardianVerificationFromNumber) {
+      return;
+    }
+
+    const result = validateAndConsumeChallenge(
+      this.guardianChallengeAssistantId,
+      'voice',
+      enteredCode,
+      this.guardianVerificationFromNumber,
+      this.guardianVerificationFromNumber,
+    );
+
+    if (result.success) {
+      // Guardian binding was created by validateAndConsumeChallenge
+      this.connectionState = 'connected';
+      this.guardianVerificationActive = false;
+      this.verificationAttempts = 0;
+      this.dtmfBuffer = '';
+
+      recordCallEvent(this.callSessionId, 'guardian_voice_verification_succeeded', {
+        bindingId: result.bindingId,
+      });
+      log.info({ callSessionId: this.callSessionId }, 'Inbound guardian voice verification succeeded');
+
+      // Proceed to normal call flow (use startNormalCallFlow to respect
+      // the CALL_WELCOME_GREETING static greeting guard)
+      if (this.orchestrator) {
+        this.startNormalCallFlow(this.orchestrator, true);
+      }
+    } else {
+      this.verificationAttempts++;
+
+      if (this.verificationAttempts >= this.verificationMaxAttempts) {
+        // Immediately deactivate verification so DTMF/speech input during
+        // the goodbye window doesn't trigger more verification attempts.
+        this.guardianVerificationActive = false;
+
+        recordCallEvent(this.callSessionId, 'guardian_voice_verification_failed', {
+          attempts: this.verificationAttempts,
+        });
+        log.warn(
+          { callSessionId: this.callSessionId, attempts: this.verificationAttempts },
+          'Inbound guardian voice verification failed — max attempts reached',
+        );
+
+        this.sendTextToken('Verification failed. Goodbye.', true);
+
+        updateCallSession(this.callSessionId, {
+          status: 'failed',
+          endedAt: Date.now(),
+          lastError: 'Guardian voice verification failed — max attempts exceeded',
+        });
+
+        const session = getCallSession(this.callSessionId);
+        if (session) {
+          expirePendingQuestions(this.callSessionId);
+          persistCallCompletionMessage(session.conversationId, this.callSessionId);
+          fireCallCompletionNotifier(session.conversationId, this.callSessionId);
+        }
+
+        setTimeout(() => {
+          this.endSession('Guardian verification failed');
+        }, 2000);
+      } else {
+        log.info(
+          { callSessionId: this.callSessionId, attempt: this.verificationAttempts, maxAttempts: this.verificationMaxAttempts },
+          'Inbound guardian voice verification attempt failed — retrying',
+        );
+        this.sendTextToken('That code was incorrect. Please try again.', true);
+      }
+    }
+  }
+
   private async handlePrompt(msg: RelayPromptMessage): Promise<void> {
     if (!msg.last) {
       // Partial transcript, wait for final
       return;
     }
 
-    // During verification, ignore voice prompts — the callee should be
-    // entering DTMF digits, not speaking.
+    // During inbound guardian verification, attempt to parse spoken digits
+    // from the transcript and validate them.
+    if (this.connectionState === 'verification_pending' && this.guardianVerificationActive) {
+      const spokenDigits = RelayConnection.parseDigitsFromSpeech(msg.voicePrompt);
+      log.info(
+        { callSessionId: this.callSessionId, transcript: msg.voicePrompt, spokenDigits },
+        'Speech received during guardian voice verification',
+      );
+      if (spokenDigits.length >= this.verificationCodeLength) {
+        const enteredCode = spokenDigits.slice(0, this.verificationCodeLength);
+        this.attemptGuardianCodeVerification(enteredCode);
+      } else if (spokenDigits.length > 0) {
+        this.sendTextToken(
+          `I heard ${spokenDigits.length} digits. Please enter all ${this.verificationCodeLength} digits of your code.`,
+          true,
+        );
+      }
+      return;
+    }
+
+    // During outbound callee verification, ignore voice prompts — the callee
+    // should be entering DTMF digits, not speaking.
     if (this.connectionState === 'verification_pending') {
-      log.debug({ callSessionId: this.callSessionId }, 'Ignoring voice prompt during verification');
+      log.debug({ callSessionId: this.callSessionId }, 'Ignoring voice prompt during callee verification');
       return;
     }
 
@@ -504,7 +710,20 @@ export class RelayConnection {
       dtmfDigit: msg.digit,
     });
 
-    // If verification is pending, accumulate digits and check the code
+    // If inbound guardian verification is pending, accumulate digits and
+    // validate against the challenge via the guardian service.
+    if (this.connectionState === 'verification_pending' && this.guardianVerificationActive) {
+      this.dtmfBuffer += msg.digit;
+
+      if (this.dtmfBuffer.length >= this.verificationCodeLength) {
+        const enteredCode = this.dtmfBuffer.slice(0, this.verificationCodeLength);
+        this.dtmfBuffer = '';
+        this.attemptGuardianCodeVerification(enteredCode);
+      }
+      return;
+    }
+
+    // If outbound callee verification is pending, accumulate digits and check the code
     if (this.connectionState === 'verification_pending' && this.verificationCode) {
       this.dtmfBuffer += msg.digit;
 
