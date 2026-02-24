@@ -106,10 +106,22 @@ public struct ToolConfirmationData: Equatable {
     /// Structured preview of ALL input parameters, formatted as key: value lines.
     /// Used in the "More details" section so the user can see exactly what will happen.
     public var fullInputPreview: String {
-        // For bash, the command itself is the full picture
         switch toolName {
         case "bash", "host_bash":
-            return (input["command"]?.value as? String) ?? ""
+            let command = (input["command"]?.value as? String) ?? ""
+            var extras: [String] = []
+            if let networkMode = input["network_mode"]?.value as? String, !networkMode.isEmpty {
+                extras.append("network_mode: \(networkMode)")
+            }
+            if let credentialIds = input["credential_ids"]?.value as? [Any], !credentialIds.isEmpty {
+                let ids = credentialIds.compactMap { $0 as? String }
+                if !ids.isEmpty { extras.append("credential_ids: \(ids.joined(separator: ", "))") }
+            }
+            if let timeout = input["timeout_seconds"]?.value {
+                extras.append("timeout_seconds: \(timeout)")
+            }
+            if extras.isEmpty { return command }
+            return command + "\n\n" + extras.joined(separator: "\n")
         default:
             break
         }
