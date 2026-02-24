@@ -128,8 +128,7 @@ class IOSThreadStore: ObservableObject {
         if daemon.isConnected {
             threadListOffset = 0
             sessionListGeneration += 1
-            expectedSessionListGeneration = sessionListGeneration
-            try? daemon.sendSessionList(offset: 0, limit: Self.threadPageSize)
+            sendPageOneSessionList(daemon: daemon)
         }
 
         NotificationCenter.default.publisher(for: .daemonDidReconnect)
@@ -138,16 +137,35 @@ class IOSThreadStore: ObservableObject {
                 // Reset pagination state so the list refreshes from page 1.
                 self.threadListOffset = 0
                 self.hasMoreThreads = false
-                // Bump the generation so any in-flight response from the old connection
-                // carries a stale expectedSessionListGeneration and is discarded by the
-                // handler.  Within a single connection responses cannot be individually
-                // correlated (the daemon doesn't echo a request ID), so only reconnect-era
-                // staleness is detectable — and this is exactly what the generation guards.
+                // Bump the generation counter WITHOUT touching expectedSessionListGeneration.
+                // There is now a gap where sessionListGeneration = N but
+                // expectedSessionListGeneration = N-1.  Any in-flight response from the
+                // old connection that arrives in this window fails the
+                // expectedSessionListGeneration == sessionListGeneration guard in
+                // handleSessionListResponse and is correctly discarded.
+                //
+                // expectedSessionListGeneration is updated to N only when the new page-1
+                // request is actually sent (inside sendPageOneSessionList), so if the send
+                // throws the guard stays closed.
+                //
+                // Limitation: responses that arrive after the new page-1 has been sent
+                // cannot be distinguished from the new page-1 response because the daemon
+                // does not echo a request ID. Only reconnect-era staleness is detectable.
                 self.sessionListGeneration += 1
-                self.expectedSessionListGeneration = self.sessionListGeneration
-                try? daemon.sendSessionList(offset: 0, limit: Self.threadPageSize)
+                self.sendPageOneSessionList(daemon: daemon)
             }
             .store(in: &cancellables)
+    }
+
+    /// Capture the current generation as expected and send a page-1 session-list request.
+    ///
+    /// `expectedSessionListGeneration` is updated here — not in the reconnect handler — so
+    /// the guard window (sessionListGeneration != expectedSessionListGeneration) remains open
+    /// for any response that arrives between the generation bump and this send.  If the send
+    /// throws, the expected generation is not advanced and the guard stays closed.
+    private func sendPageOneSessionList(daemon: DaemonClient) {
+        expectedSessionListGeneration = sessionListGeneration
+        try? daemon.sendSessionList(offset: 0, limit: Self.threadPageSize)
     }
 
     /// Re-point the store at a freshly constructed DaemonClient after `rebuildClient()`.
