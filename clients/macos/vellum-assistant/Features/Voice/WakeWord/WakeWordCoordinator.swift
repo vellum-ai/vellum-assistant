@@ -22,6 +22,7 @@ final class WakeWordCoordinator: ObservableObject {
     private var pendingWakeWord = false
     private var isReady = false
 
+    private let activationWindow = WakeWordActivationWindow()
     private var stateCancellable: AnyCancellable?
 
     init(
@@ -84,13 +85,17 @@ final class WakeWordCoordinator: ObservableObject {
 
         log.info("Wake word detected — activating voice mode")
 
-        // 1. Pause the audio monitor (stop keyword listening to free the mic)
+        // 1. Play activation chime and show visual indicator
+        WakeWordFeedback.playActivationChime()
+        activationWindow.show(state: .activated)
+
+        // 2. Pause the audio monitor (stop keyword listening to free the mic)
         audioMonitor.stopMonitoring()
 
-        // 2. Ensure we have an active ChatViewModel (create a new thread if needed)
+        // 3. Ensure we have an active ChatViewModel (create a new thread if needed)
         let chatViewModel = ensureChatViewModel()
 
-        // 3. Activate voice mode and start listening
+        // 4. Activate voice mode and start listening
         voiceModeManager.activate(chatViewModel: chatViewModel)
         voiceModeManager.startListening()
     }
@@ -117,6 +122,8 @@ final class WakeWordCoordinator: ObservableObject {
                 guard let self else { return }
                 if newState == .off {
                     log.info("Voice mode deactivated — resuming wake word listening")
+                    WakeWordFeedback.playDeactivationChime()
+                    self.activationWindow.show(state: .listening)
                     self.audioMonitor.startMonitoring()
                 }
             }
