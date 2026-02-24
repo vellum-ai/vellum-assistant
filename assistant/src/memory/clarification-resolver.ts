@@ -1,4 +1,4 @@
-import { getConfiguredProvider, createTimeout, extractToolUse, userMessage } from '../providers/anthropic-send-message.js';
+import { getConfiguredProvider, createTimeout, extractToolUse, userMessage } from '../providers/provider-send-message.js';
 import type { ModelIntent } from '../providers/types.js';
 import { truncate } from '../util/truncate.js';
 

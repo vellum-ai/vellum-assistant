@@ -6,7 +6,7 @@ import { stripCommentLines } from './system-prompt.js';
 import { parseFrontmatterFields } from '../skills/frontmatter.js';
 import { parseToolManifestFile } from '../skills/tool-manifest.js';
 import { computeSkillVersionHash } from '../skills/version-hash.js';
-import { getConfiguredProvider, extractAllText, userMessage } from '../providers/anthropic-send-message.js';
+import { getConfiguredProvider, extractAllText, userMessage } from '../providers/provider-send-message.js';
 
 const log = getLogger('skills');
 

@@ -5,7 +5,7 @@
  */
 
 import type { Provider, ProviderResponse, Message, ContentBlock, ToolUseContent } from './types.js';
-import { getFailoverProvider, getProvider, listProviders, initializeProviders } from './registry.js';
+import { getFailoverProvider, listProviders, initializeProviders } from './registry.js';
 import { getConfig } from '../config/loader.js';
 
 /**
@@ -33,26 +33,6 @@ export function getConfiguredProvider(): Provider | null {
   try {
     const providerOrder = Array.isArray(config.providerOrder) ? config.providerOrder : [];
     return getFailoverProvider(config.provider, providerOrder);
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Legacy Anthropic-only resolver kept for compatibility while callsites
- * migrate to `getConfiguredProvider`.
- */
-export function getAnthropicProvider(): Provider | null {
-  if (listProviders().length === 0) {
-    try {
-      initializeProviders(getConfig());
-    } catch {
-      return null;
-    }
-  }
-
-  try {
-    return getProvider('anthropic');
   } catch {
     return null;
   }

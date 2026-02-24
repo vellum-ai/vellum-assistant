@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import { getConfiguredProvider, extractText, userMessageWithImages } from '../../../../providers/anthropic-send-message.js';
+import { getConfiguredProvider, extractText, userMessageWithImages } from '../../../../providers/provider-send-message.js';
 import { initializeProviders } from '../../../../providers/registry.js';
 import { loadConfig, invalidateConfigCache } from '../../../../config/loader.js';
 import {

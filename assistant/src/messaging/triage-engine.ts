@@ -7,7 +7,7 @@
  * table for accuracy review.
  */
 
-import { getConfiguredProvider, createTimeout, extractToolUse, userMessage } from '../providers/anthropic-send-message.js';
+import { getConfiguredProvider, createTimeout, extractToolUse, userMessage } from '../providers/provider-send-message.js';
 import { truncate } from '../util/truncate.js';
 import { v4 as uuid } from 'uuid';
 import { and, eq, isNull, desc } from 'drizzle-orm';

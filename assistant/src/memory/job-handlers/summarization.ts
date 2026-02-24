@@ -3,7 +3,7 @@ import { v4 as uuid } from 'uuid';
 import type { AssistantConfig } from '../../config/types.js';
 import { estimateTextTokens } from '../../context/token-estimator.js';
 import { getLogger } from '../../util/logger.js';
-import { getConfiguredProvider, createTimeout, extractText, userMessage } from '../../providers/anthropic-send-message.js';
+import { getConfiguredProvider, createTimeout, extractText, userMessage } from '../../providers/provider-send-message.js';
 import { getConversationMemoryScopeId } from '../conversation-store.js';
 import { getDb } from '../db.js';
 import { enqueueMemoryJob, type MemoryJob } from '../jobs-store.js';

@@ -6,7 +6,7 @@ let llmResolution: 'keep_existing' | 'keep_candidate' | 'merge' | 'still_unclear
 let llmResolvedStatement = '';
 let llmExplanation = 'Unclear response from user.';
 
-mock.module('../providers/anthropic-send-message.js', () => ({
+mock.module('../providers/provider-send-message.js', () => ({
   getConfiguredProvider: () => ({
     sendMessage: async (
       _messages: unknown,

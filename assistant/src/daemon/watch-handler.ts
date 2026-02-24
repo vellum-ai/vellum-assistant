@@ -1,5 +1,5 @@
 import type * as net from 'node:net';
-import { getConfiguredProvider, extractText, userMessage } from '../providers/anthropic-send-message.js';
+import { getConfiguredProvider, extractText, userMessage } from '../providers/provider-send-message.js';
 import { getLogger } from '../util/logger.js';
 import type { WatchObservation } from './ipc-protocol.js';
 import type { HandlerContext } from './handlers.js';
