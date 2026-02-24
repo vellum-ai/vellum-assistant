@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { inArray } from 'drizzle-orm';
 import type { AssistantConfig } from '../config/types.js';
 import { estimateTextTokens } from '../context/token-estimator.js';
 import { getLogger } from '../util/logger.js';
@@ -120,13 +120,27 @@ async function collectAndMergeCandidates(
   // comes from excluded messages should not leak back into recall.
   if (excludeMessageIds.length > 0 && directItems.length > 0) {
     const db = getDb();
-    directItems = directItems.filter((candidate) => {
-      const sources = db.select().from(memoryItemSources)
-        .where(eq(memoryItemSources.memoryItemId, candidate.id)).all();
-      if (sources.length === 0) return true;
-      const nonExcluded = sources.filter((s) => !excludeMessageIds.includes(s.messageId));
-      return nonExcluded.length > 0;
-    });
+    const excludedSet = new Set(excludeMessageIds);
+    const allSources = db.select({
+      memoryItemId: memoryItemSources.memoryItemId,
+      messageId: memoryItemSources.messageId,
+    }).from(memoryItemSources)
+      .where(inArray(memoryItemSources.memoryItemId, directItems.map((c) => c.id)))
+      .all();
+
+    // Track which items have at least one non-excluded source
+    const hasNonExcluded = new Set<string>();
+    const hasSources = new Set<string>();
+    for (const s of allSources) {
+      hasSources.add(s.memoryItemId);
+      if (!excludedSet.has(s.messageId)) {
+        hasNonExcluded.add(s.memoryItemId);
+      }
+    }
+
+    directItems = directItems.filter((c) =>
+      !hasSources.has(c.id) || hasNonExcluded.has(c.id),
+    );
     directItems = directItems.slice(0, directLimit);
   }
 
