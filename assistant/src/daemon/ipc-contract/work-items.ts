@@ -221,4 +221,5 @@ export interface GuardianRequestThreadCreated {
   requestId: string;
   callSessionId: string;
   title: string;
+  questionText: string;
 }
