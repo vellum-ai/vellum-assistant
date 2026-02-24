@@ -372,70 +372,76 @@ public final class ChatAttachmentManager: ObservableObject {
         }
 
         #if os(macOS)
-        guard let image = NSImage(data: data),
-              let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
-            return (data, false)
-        }
-
-        let originalWidth = CGFloat(cgImage.width)
-        let originalHeight = CGFloat(cgImage.height)
-        guard originalWidth > 0 && originalHeight > 0 else {
-            return (data, false)
-        }
-
-        // Calculate scale factor needed to reduce file size
-        // Rough heuristic: file size scales roughly with pixel count
-        let sizeReduction = Double(maxSize) / Double(data.count)
-        let pixelReduction = sqrt(sizeReduction * 0.85) // Target 85% of max for safety margin
-        let scale = min(CGFloat(pixelReduction), 1.0)
-
-        let newWidth = Int(originalWidth * scale)
-        let newHeight = Int(originalHeight * scale)
-
-        guard let colorSpace = cgImage.colorSpace,
-              let context = CGContext(
-                data: nil,
-                width: newWidth,
-                height: newHeight,
-                bitsPerComponent: 8,
-                bytesPerRow: 0,
-                space: colorSpace,
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-              ) else {
-            return (data, false)
-        }
-
-        context.interpolationQuality = .high
-        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: newWidth, height: newHeight))
-
-        guard let scaledCGImage = context.makeImage() else {
-            return (data, false)
-        }
-
-        let scaledImage = NSImage(cgImage: scaledCGImage, size: NSSize(width: newWidth, height: newHeight))
-
-        // Try JPEG compression first (better for photos)
-        if let tiffData = scaledImage.tiffRepresentation,
-           let bitmap = NSBitmapImageRep(data: tiffData),
-           let jpeg = bitmap.representation(using: .jpeg, properties: [.compressionFactor: 0.75]) {
-            if jpeg.count <= maxSize {
-                log.info("Compressed image from \(data.count) to \(jpeg.count) bytes (JPEG, \(newWidth)×\(newHeight))")
-                return (jpeg, true)
+        // NSImage, tiffRepresentation, and NSBitmapImageRep are not thread-safe
+        // off the main thread. This method is nonisolated and called from
+        // Task.detached, so we must hop AppKit work onto the main thread.
+        let compressBlock = { () -> (Data, Bool) in
+            guard let image = NSImage(data: data),
+                  let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+                return (data, false)
             }
-        }
 
-        // Fallback: try PNG
-        if let tiffData = scaledImage.tiffRepresentation,
-           let bitmap = NSBitmapImageRep(data: tiffData),
-           let png = bitmap.representation(using: .png, properties: [:]) {
-            if png.count <= maxSize {
-                log.info("Compressed image from \(data.count) to \(png.count) bytes (PNG, \(newWidth)×\(newHeight))")
-                return (png, true)
+            let originalWidth = CGFloat(cgImage.width)
+            let originalHeight = CGFloat(cgImage.height)
+            guard originalWidth > 0 && originalHeight > 0 else {
+                return (data, false)
             }
-        }
 
-        log.warning("Failed to compress image to \(maxSize) bytes, final size: \(data.count)")
-        return (data, false)
+            // Calculate scale factor needed to reduce file size
+            // Rough heuristic: file size scales roughly with pixel count
+            let sizeReduction = Double(maxSize) / Double(data.count)
+            let pixelReduction = sqrt(sizeReduction * 0.85) // Target 85% of max for safety margin
+            let scale = min(CGFloat(pixelReduction), 1.0)
+
+            let newWidth = Int(originalWidth * scale)
+            let newHeight = Int(originalHeight * scale)
+
+            guard let colorSpace = cgImage.colorSpace,
+                  let context = CGContext(
+                    data: nil,
+                    width: newWidth,
+                    height: newHeight,
+                    bitsPerComponent: 8,
+                    bytesPerRow: 0,
+                    space: colorSpace,
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                  ) else {
+                return (data, false)
+            }
+
+            context.interpolationQuality = .high
+            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: newWidth, height: newHeight))
+
+            guard let scaledCGImage = context.makeImage() else {
+                return (data, false)
+            }
+
+            let scaledImage = NSImage(cgImage: scaledCGImage, size: NSSize(width: newWidth, height: newHeight))
+
+            // Try JPEG compression first (better for photos)
+            if let tiffData = scaledImage.tiffRepresentation,
+               let bitmap = NSBitmapImageRep(data: tiffData),
+               let jpeg = bitmap.representation(using: .jpeg, properties: [.compressionFactor: 0.75]) {
+                if jpeg.count <= maxSize {
+                    log.info("Compressed image from \(data.count) to \(jpeg.count) bytes (JPEG, \(newWidth)×\(newHeight))")
+                    return (jpeg, true)
+                }
+            }
+
+            // Fallback: try PNG
+            if let tiffData = scaledImage.tiffRepresentation,
+               let bitmap = NSBitmapImageRep(data: tiffData),
+               let png = bitmap.representation(using: .png, properties: [:]) {
+                if png.count <= maxSize {
+                    log.info("Compressed image from \(data.count) to \(png.count) bytes (PNG, \(newWidth)×\(newHeight))")
+                    return (png, true)
+                }
+            }
+
+            log.warning("Failed to compress image to \(maxSize) bytes, final size: \(data.count)")
+            return (data, false)
+        }
+        return Thread.isMainThread ? compressBlock() : DispatchQueue.main.sync(execute: compressBlock)
 
         #elseif os(iOS)
         guard let image = UIImage(data: data) else {

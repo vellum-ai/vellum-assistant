@@ -15,17 +15,6 @@ import {
   type ProcessingStage,
 } from '../../../../memory/media-store.js';
 
-const _VLM_PROMPT = `Analyze this image frame extracted from a video. Return a JSON object with the following fields:
-
-{
-  "sceneDescription": "A concise description of the overall scene",
-  "subjects": ["List of identifiable subjects/objects/people in the frame"],
-  "actions": ["List of actions or activities occurring"],
-  "context": "Environmental or situational context (setting, conditions, etc.)"
-}
-
-Return ONLY the JSON object, no additional text.`;
-
 const CHUNKED_VLM_PROMPT = `You are analyzing a sequence of {N} consecutive video frames extracted at regular intervals from a video. The frames are in chronological order.
 
 For EACH frame, provide a JSON object with:
