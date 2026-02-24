@@ -2,7 +2,7 @@ import { eq, sql } from 'drizzle-orm';
 import type { MemoryEntityConfig } from '../config/types.js';
 import { getLogger } from '../util/logger.js';
 import { truncate } from '../util/truncate.js';
-import { getAnthropicProvider, createTimeout, extractToolUse, userMessage } from '../providers/anthropic-send-message.js';
+import { getConfiguredProvider, createTimeout, extractToolUse, userMessage } from '../providers/anthropic-send-message.js';
 import { getDb } from './db.js';
 import { memoryEntities, memoryEntityRelations, memoryItemEntities } from './schema.js';
 
@@ -122,9 +122,9 @@ export async function extractEntitiesWithLLM(
   text: string,
   entityConfig: MemoryEntityConfig,
 ): Promise<ExtractedEntityGraph> {
-  const provider = getAnthropicProvider();
+  const provider = getConfiguredProvider();
   if (!provider) {
-    log.debug('No Anthropic API key available for entity extraction');
+    log.debug('Configured provider unavailable for entity extraction');
     return { entities: [], relations: [] };
   }
 

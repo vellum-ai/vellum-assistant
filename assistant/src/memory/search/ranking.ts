@@ -2,7 +2,7 @@ import { inArray, sql } from 'drizzle-orm';
 import type { AssistantConfig, MemoryRerankingConfig } from '../../config/types.js';
 import { estimateTextTokens } from '../../context/token-estimator.js';
 import { getLogger } from '../../util/logger.js';
-import { getAnthropicProvider, extractText, userMessage } from '../../providers/anthropic-send-message.js';
+import { getConfiguredProvider, extractText, userMessage } from '../../providers/anthropic-send-message.js';
 import { getDb } from '../db.js';
 import { memoryItems } from '../schema.js';
 import type { Candidate, CandidateSource, ItemMetadata } from './types.js';
@@ -295,9 +295,9 @@ export async function rerankWithLLM(
   candidates: Candidate[],
   rerankingConfig: MemoryRerankingConfig,
 ): Promise<Candidate[]> {
-  const provider = getAnthropicProvider();
+  const provider = getConfiguredProvider();
   if (!provider) {
-    log.debug('No Anthropic API key available for LLM re-ranking, skipping');
+    log.debug('Configured provider unavailable for LLM re-ranking, skipping');
     return candidates;
   }
 

@@ -7,7 +7,7 @@ let llmResolvedStatement = '';
 let llmExplanation = 'Unclear response from user.';
 
 mock.module('../providers/anthropic-send-message.js', () => ({
-  getAnthropicProvider: () => ({
+  getConfiguredProvider: () => ({
     sendMessage: async (
       _messages: unknown,
       _tools: unknown,

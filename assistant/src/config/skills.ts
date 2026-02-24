@@ -6,7 +6,7 @@ import { stripCommentLines } from './system-prompt.js';
 import { parseFrontmatterFields } from '../skills/frontmatter.js';
 import { parseToolManifestFile } from '../skills/tool-manifest.js';
 import { computeSkillVersionHash } from '../skills/version-hash.js';
-import { getAnthropicProvider, extractAllText, userMessage } from '../providers/anthropic-send-message.js';
+import { getConfiguredProvider, extractAllText, userMessage } from '../providers/anthropic-send-message.js';
 
 const log = getLogger('skills');
 
@@ -886,9 +886,9 @@ export function loadSkillBySelector(selector: string, workspaceSkillsDir?: strin
 // ─── Icon generation ─────────────────────────────────────────────────────────
 
 async function generateSkillIcon(name: string, description: string): Promise<string> {
-  const provider = getAnthropicProvider();
+  const provider = getConfiguredProvider();
   if (!provider) {
-    throw new Error('No Anthropic API key available for icon generation');
+    throw new Error('Configured provider unavailable for icon generation');
   }
 
   const response = await provider.sendMessage(

@@ -7,7 +7,7 @@
  * table for accuracy review.
  */
 
-import { getAnthropicProvider, createTimeout, extractToolUse, userMessage } from '../providers/anthropic-send-message.js';
+import { getConfiguredProvider, createTimeout, extractToolUse, userMessage } from '../providers/anthropic-send-message.js';
 import { truncate } from '../util/truncate.js';
 import { v4 as uuid } from 'uuid';
 import { and, eq, isNull, desc } from 'drizzle-orm';
@@ -188,9 +188,9 @@ export async function triageMessage(
   const playbookMatches = fetchMatchingPlaybooks(message.channel, scopeId);
 
   // Step 3: Classify with LLM
-  const provider = getAnthropicProvider();
+  const provider = getConfiguredProvider();
   if (!provider) {
-    log.warn('No Anthropic API key available for triage classification, returning fallback');
+    log.warn('Configured provider unavailable for triage classification, returning fallback');
     const result = buildFallbackResult();
     persistTriageResult(message, result, playbookMatches);
     return result;
@@ -216,7 +216,7 @@ async function classifyWithLLM(
   contact: ContactWithChannels | null,
   playbookMatches: PlaybookMatch[],
 ): Promise<TriageResult> {
-  const provider = getAnthropicProvider()!;
+  const provider = getConfiguredProvider()!;
   const { signal, cleanup } = createTimeout(TRIAGE_CLASSIFICATION_TIMEOUT_MS);
 
   const systemPrompt = buildSystemPrompt(contact, playbookMatches);
