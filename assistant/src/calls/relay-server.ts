@@ -11,7 +11,6 @@ import { randomInt } from 'node:crypto';
 import { getLogger } from '../util/logger.js';
 import { parseJsonSafe } from '../util/json.js';
 import { getConfig } from '../config/loader.js';
-import { getCallWelcomeGreeting } from '../config/env.js';
 import {
   getCallSession,
   updateCallSession,
