@@ -282,6 +282,33 @@ export function findPendingChallengeByHash(
   return row ? rowToChallenge(row) : null;
 }
 
+/**
+ * Find any pending (non-expired) challenge for a given (assistantId, channel).
+ * Used by relay setup to detect whether a voice verification session is active.
+ */
+export function findPendingChallengeForChannel(
+  assistantId: string,
+  channel: string,
+): VerificationChallenge | null {
+  const db = getDb();
+  const now = Date.now();
+
+  const row = db
+    .select()
+    .from(channelGuardianVerificationChallenges)
+    .where(
+      and(
+        eq(channelGuardianVerificationChallenges.assistantId, assistantId),
+        eq(channelGuardianVerificationChallenges.channel, channel),
+        eq(channelGuardianVerificationChallenges.status, 'pending'),
+        gt(channelGuardianVerificationChallenges.expiresAt, now),
+      ),
+    )
+    .get();
+
+  return row ? rowToChallenge(row) : null;
+}
+
 export function consumeChallenge(
   id: string,
   consumedByExternalUserId: string,

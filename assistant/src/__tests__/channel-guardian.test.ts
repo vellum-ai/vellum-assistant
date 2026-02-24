@@ -36,6 +36,7 @@ import {
   revokeBinding,
   createChallenge,
   findPendingChallengeByHash,
+  findPendingChallengeForChannel,
   consumeChallenge,
   createApprovalRequest,
   getPendingApprovalForRun,
@@ -51,6 +52,7 @@ import {
   getGuardianBinding,
   isGuardian,
   revokeBinding as serviceRevokeBinding,
+  getPendingChallenge,
 } from '../runtime/channel-guardian-service.js';
 import { handleGuardianVerification } from '../daemon/handlers/config.js';
 import type { GuardianVerificationRequest, GuardianVerificationResponse } from '../daemon/ipc-contract.js';
@@ -1423,5 +1425,559 @@ describe('IPC handler channel-aware guardian status', () => {
     expect(resp!.bound).toBe(false);
     expect(resp!.guardianDeliveryChatId).toBeUndefined();
     expect(resp!.guardianExternalUserId).toBeUndefined();
+  });
+
+  test('status action includes hasPendingChallenge when challenge exists', () => {
+    createVerificationChallenge('self', 'voice');
+
+    const { ctx, lastResponse } = createMockCtx();
+    const msg: GuardianVerificationRequest = {
+      type: 'guardian_verification',
+      action: 'status',
+      channel: 'voice',
+      assistantId: 'self',
+    };
+
+    handleGuardianVerification(msg, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(true);
+    expect(resp!.hasPendingChallenge).toBe(true);
+  });
+
+  test('status action hasPendingChallenge is false when no challenge exists', () => {
+    const { ctx, lastResponse } = createMockCtx();
+    const msg: GuardianVerificationRequest = {
+      type: 'guardian_verification',
+      action: 'status',
+      channel: 'voice',
+      assistantId: 'self',
+    };
+
+    handleGuardianVerification(msg, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(true);
+    expect(resp!.hasPendingChallenge).toBe(false);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 11. Voice Guardian Challenge — Six-Digit Secret Generation
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('voice guardian challenge generation', () => {
+  beforeEach(() => {
+    resetTables();
+  });
+
+  test('createVerificationChallenge for voice returns a six-digit numeric secret', () => {
+    const result = createVerificationChallenge('asst-1', 'voice');
+
+    expect(result.challengeId).toBeDefined();
+    expect(result.secret).toBeDefined();
+    expect(result.secret).toMatch(/^\d{6}$/);
+    const num = parseInt(result.secret, 10);
+    expect(num).toBeGreaterThanOrEqual(100000);
+    expect(num).toBeLessThanOrEqual(999999);
+  });
+
+  test('createVerificationChallenge for non-voice returns 64-char hex secret', () => {
+    const result = createVerificationChallenge('asst-1', 'telegram');
+
+    expect(result.secret.length).toBe(64);
+    expect(result.secret).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  test('voice challenge verifyCommand contains the six-digit secret', () => {
+    const result = createVerificationChallenge('asst-1', 'voice');
+
+    expect(result.verifyCommand).toBe(`/guardian_verify ${result.secret}`);
+  });
+
+  test('voice challenge instruction contains voice-specific copy', () => {
+    const result = createVerificationChallenge('asst-1', 'voice');
+
+    expect(result.instruction).toContain('six-digit code');
+    expect(result.instruction).toContain(result.secret);
+    expect(result.instruction).toContain('minutes');
+  });
+
+  test('voice challenge secrets are different across calls', () => {
+    const result1 = createVerificationChallenge('asst-1', 'voice');
+    const result2 = createVerificationChallenge('asst-2', 'voice');
+
+    // While technically they could collide, the probability is ~1/900000
+    // so this is a reasonable smoke test for randomness
+    expect(result1.secret).toMatch(/^\d{6}$/);
+    expect(result2.secret).toMatch(/^\d{6}$/);
+  });
+
+  test('voice ttlSeconds is 600 (10 minutes)', () => {
+    const result = createVerificationChallenge('asst-1', 'voice');
+    expect(result.ttlSeconds).toBe(600);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 12. Voice Guardian Challenge Validation
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('voice guardian challenge validation', () => {
+  beforeEach(() => {
+    resetTables();
+  });
+
+  test('validateAndConsumeChallenge succeeds with correct voice secret', () => {
+    const { secret } = createVerificationChallenge('asst-1', 'voice');
+
+    const result = validateAndConsumeChallenge(
+      'asst-1',
+      'voice',
+      secret,
+      'voice-user-1',
+      'voice-chat-1',
+    );
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.bindingId).toBeDefined();
+    }
+  });
+
+  test('validateAndConsumeChallenge creates a guardian binding for voice', () => {
+    const { secret } = createVerificationChallenge('asst-1', 'voice');
+
+    validateAndConsumeChallenge('asst-1', 'voice', secret, 'voice-user-1', 'voice-chat-1');
+
+    const binding = getActiveBinding('asst-1', 'voice');
+    expect(binding).not.toBeNull();
+    expect(binding!.guardianExternalUserId).toBe('voice-user-1');
+    expect(binding!.guardianDeliveryChatId).toBe('voice-chat-1');
+    expect(binding!.channel).toBe('voice');
+    expect(binding!.verifiedVia).toBe('challenge');
+  });
+
+  test('validateAndConsumeChallenge fails with wrong voice secret', () => {
+    createVerificationChallenge('asst-1', 'voice');
+
+    const result = validateAndConsumeChallenge(
+      'asst-1',
+      'voice',
+      '000000',
+      'voice-user-1',
+      'voice-chat-1',
+    );
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.reason).toBeDefined();
+      expect(result.reason.length).toBeGreaterThan(0);
+      expect(result.reason.toLowerCase()).toContain('failed');
+    }
+  });
+
+  test('voice and telegram guardian challenges are independent', () => {
+    const voiceChallenge = createVerificationChallenge('asst-1', 'voice');
+    const telegramChallenge = createVerificationChallenge('asst-1', 'telegram');
+
+    // Voice secret against telegram channel should fail
+    const crossResult = validateAndConsumeChallenge(
+      'asst-1',
+      'telegram',
+      voiceChallenge.secret,
+      'user-1',
+      'chat-1',
+    );
+    expect(crossResult.success).toBe(false);
+
+    // Voice secret against correct channel should succeed
+    const voiceResult = validateAndConsumeChallenge(
+      'asst-1',
+      'voice',
+      voiceChallenge.secret,
+      'voice-user-1',
+      'voice-chat-1',
+    );
+    expect(voiceResult.success).toBe(true);
+
+    // Telegram challenge should still be valid
+    const telegramResult = validateAndConsumeChallenge(
+      'asst-1',
+      'telegram',
+      telegramChallenge.secret,
+      'user-2',
+      'chat-2',
+    );
+    expect(telegramResult.success).toBe(true);
+  });
+
+  test('consumed voice challenge cannot be reused', () => {
+    const { secret } = createVerificationChallenge('asst-1', 'voice');
+
+    const result1 = validateAndConsumeChallenge(
+      'asst-1', 'voice', secret, 'voice-user-1', 'voice-chat-1',
+    );
+    expect(result1.success).toBe(true);
+
+    const result2 = validateAndConsumeChallenge(
+      'asst-1', 'voice', secret, 'voice-user-2', 'voice-chat-2',
+    );
+    expect(result2.success).toBe(false);
+  });
+
+  test('validateAndConsumeChallenge revokes existing voice binding before creating new one', () => {
+    createBinding({
+      assistantId: 'asst-1',
+      channel: 'voice',
+      guardianExternalUserId: 'old-voice-user',
+      guardianDeliveryChatId: 'old-voice-chat',
+    });
+
+    const oldBinding = getActiveBinding('asst-1', 'voice');
+    expect(oldBinding).not.toBeNull();
+    expect(oldBinding!.guardianExternalUserId).toBe('old-voice-user');
+
+    const { secret } = createVerificationChallenge('asst-1', 'voice');
+    validateAndConsumeChallenge('asst-1', 'voice', secret, 'new-voice-user', 'new-voice-chat');
+
+    const newBinding = getActiveBinding('asst-1', 'voice');
+    expect(newBinding).not.toBeNull();
+    expect(newBinding!.guardianExternalUserId).toBe('new-voice-user');
+    expect(newBinding!.guardianDeliveryChatId).toBe('new-voice-chat');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 13. Voice Guardian Identity and Revocation
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('voice guardian identity and revocation', () => {
+  beforeEach(() => {
+    resetTables();
+  });
+
+  test('isGuardian works for voice channel', () => {
+    createBinding({
+      assistantId: 'asst-1',
+      channel: 'voice',
+      guardianExternalUserId: 'voice-user-1',
+      guardianDeliveryChatId: 'voice-chat-1',
+    });
+
+    expect(isGuardian('asst-1', 'voice', 'voice-user-1')).toBe(true);
+    expect(isGuardian('asst-1', 'voice', 'voice-user-2')).toBe(false);
+    // Voice guardian should not match telegram channel
+    expect(isGuardian('asst-1', 'telegram', 'voice-user-1')).toBe(false);
+  });
+
+  test('getGuardianBinding returns voice binding', () => {
+    createBinding({
+      assistantId: 'asst-1',
+      channel: 'voice',
+      guardianExternalUserId: 'voice-user-1',
+      guardianDeliveryChatId: 'voice-chat-1',
+    });
+
+    const binding = getGuardianBinding('asst-1', 'voice');
+    expect(binding).not.toBeNull();
+    expect(binding!.channel).toBe('voice');
+    expect(binding!.guardianExternalUserId).toBe('voice-user-1');
+  });
+
+  test('revokeBinding clears active voice guardian binding', () => {
+    createBinding({
+      assistantId: 'asst-1',
+      channel: 'voice',
+      guardianExternalUserId: 'voice-user-1',
+      guardianDeliveryChatId: 'voice-chat-1',
+    });
+
+    const result = serviceRevokeBinding('asst-1', 'voice');
+    expect(result).toBe(true);
+    expect(getGuardianBinding('asst-1', 'voice')).toBeNull();
+  });
+
+  test('revokeBinding for voice does not affect telegram binding', () => {
+    createBinding({
+      assistantId: 'asst-1',
+      channel: 'voice',
+      guardianExternalUserId: 'voice-user-1',
+      guardianDeliveryChatId: 'voice-chat-1',
+    });
+    createBinding({
+      assistantId: 'asst-1',
+      channel: 'telegram',
+      guardianExternalUserId: 'tg-user-1',
+      guardianDeliveryChatId: 'tg-chat-1',
+    });
+
+    serviceRevokeBinding('asst-1', 'voice');
+
+    expect(getGuardianBinding('asst-1', 'voice')).toBeNull();
+    expect(getGuardianBinding('asst-1', 'telegram')).not.toBeNull();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 14. Voice Guardian Rate Limiting
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('voice guardian rate limiting', () => {
+  beforeEach(() => {
+    resetTables();
+  });
+
+  test('repeated invalid voice submissions hit rate limit', () => {
+    createVerificationChallenge('asst-1', 'voice');
+
+    for (let i = 0; i < 5; i++) {
+      const result = validateAndConsumeChallenge(
+        'asst-1', 'voice', `${100000 + i}`, 'voice-user-1', 'voice-chat-1',
+      );
+      expect(result.success).toBe(false);
+    }
+
+    // The 6th attempt should be rate-limited
+    const result = validateAndConsumeChallenge(
+      'asst-1', 'voice', '999999', 'voice-user-1', 'voice-chat-1',
+    );
+    expect(result.success).toBe(false);
+
+    const rl = getRateLimit('asst-1', 'voice', 'voice-user-1', 'voice-chat-1');
+    expect(rl).not.toBeNull();
+    expect(rl!.lockedUntil).not.toBeNull();
+  });
+
+  test('voice rate limit does not affect telegram rate limit', () => {
+    createVerificationChallenge('asst-1', 'voice');
+    for (let i = 0; i < 5; i++) {
+      validateAndConsumeChallenge('asst-1', 'voice', `${100000 + i}`, 'user-1', 'chat-1');
+    }
+
+    const voiceRl = getRateLimit('asst-1', 'voice', 'user-1', 'chat-1');
+    expect(voiceRl).not.toBeNull();
+    expect(voiceRl!.lockedUntil).not.toBeNull();
+
+    // Telegram should be unaffected
+    const telegramRl = getRateLimit('asst-1', 'telegram', 'user-1', 'chat-1');
+    expect(telegramRl).toBeNull();
+  });
+
+  test('successful voice verification resets rate limit', () => {
+    const { secret: _s } = createVerificationChallenge('asst-1', 'voice');
+    validateAndConsumeChallenge('asst-1', 'voice', '000000', 'voice-user-1', 'voice-chat-1');
+    validateAndConsumeChallenge('asst-1', 'voice', '111111', 'voice-user-1', 'voice-chat-1');
+
+    // Valid attempt should succeed (under the 5-attempt threshold)
+    const { secret } = createVerificationChallenge('asst-1', 'voice');
+    const result = validateAndConsumeChallenge(
+      'asst-1', 'voice', secret, 'voice-user-1', 'voice-chat-1',
+    );
+    expect(result.success).toBe(true);
+
+    const rl = getRateLimit('asst-1', 'voice', 'voice-user-1', 'voice-chat-1');
+    expect(rl).not.toBeNull();
+    expect(rl!.invalidAttempts).toBe(0);
+    expect(rl!.lockedUntil).toBeNull();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 15. Pending Challenge Lookup (Store + Service)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('pending challenge lookup', () => {
+  beforeEach(() => {
+    resetTables();
+  });
+
+  test('findPendingChallengeForChannel returns pending challenge', () => {
+    createVerificationChallenge('asst-1', 'voice');
+
+    const pending = findPendingChallengeForChannel('asst-1', 'voice');
+    expect(pending).not.toBeNull();
+    expect(pending!.channel).toBe('voice');
+    expect(pending!.status).toBe('pending');
+  });
+
+  test('findPendingChallengeForChannel returns null when no challenge exists', () => {
+    const pending = findPendingChallengeForChannel('asst-1', 'voice');
+    expect(pending).toBeNull();
+  });
+
+  test('findPendingChallengeForChannel returns null for different channel', () => {
+    createVerificationChallenge('asst-1', 'telegram');
+
+    const pending = findPendingChallengeForChannel('asst-1', 'voice');
+    expect(pending).toBeNull();
+  });
+
+  test('findPendingChallengeForChannel returns null after challenge is consumed', () => {
+    const { secret } = createVerificationChallenge('asst-1', 'voice');
+    validateAndConsumeChallenge('asst-1', 'voice', secret, 'voice-user-1', 'voice-chat-1');
+
+    const pending = findPendingChallengeForChannel('asst-1', 'voice');
+    expect(pending).toBeNull();
+  });
+
+  test('getPendingChallenge service helper returns pending voice challenge', () => {
+    createVerificationChallenge('asst-1', 'voice');
+
+    const pending = getPendingChallenge('asst-1', 'voice');
+    expect(pending).not.toBeNull();
+    expect(pending!.channel).toBe('voice');
+  });
+
+  test('getPendingChallenge returns null when no challenge exists', () => {
+    const pending = getPendingChallenge('asst-1', 'voice');
+    expect(pending).toBeNull();
+  });
+
+  test('creating a new challenge revokes prior pending challenges', () => {
+    createVerificationChallenge('asst-1', 'voice');
+    const pending1 = findPendingChallengeForChannel('asst-1', 'voice');
+    expect(pending1).not.toBeNull();
+    const firstId = pending1!.id;
+
+    // Creating a second challenge should revoke the first
+    createVerificationChallenge('asst-1', 'voice');
+    const pending2 = findPendingChallengeForChannel('asst-1', 'voice');
+    expect(pending2).not.toBeNull();
+    expect(pending2!.id).not.toBe(firstId);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 16. IPC handler — voice guardian verification
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('IPC handler voice guardian verification', () => {
+  beforeEach(() => {
+    resetTables();
+  });
+
+  test('create_challenge for voice returns a six-digit secret', () => {
+    const { ctx, lastResponse } = createMockCtx();
+    const msg: GuardianVerificationRequest = {
+      type: 'guardian_verification',
+      action: 'create_challenge',
+      channel: 'voice',
+      assistantId: 'self',
+    };
+
+    handleGuardianVerification(msg, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(true);
+    expect(resp!.secret).toBeDefined();
+    expect(resp!.secret).toMatch(/^\d{6}$/);
+    expect(resp!.instruction).toBeDefined();
+    expect(resp!.instruction).toContain('six-digit code');
+    expect(resp!.channel).toBe('voice');
+  });
+
+  test('status for voice reflects unbound state', () => {
+    const { ctx, lastResponse } = createMockCtx();
+    const msg: GuardianVerificationRequest = {
+      type: 'guardian_verification',
+      action: 'status',
+      channel: 'voice',
+      assistantId: 'self',
+    };
+
+    handleGuardianVerification(msg, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(true);
+    expect(resp!.channel).toBe('voice');
+    expect(resp!.bound).toBe(false);
+    expect(resp!.guardianExternalUserId).toBeUndefined();
+  });
+
+  test('status for voice reflects bound state', () => {
+    createBinding({
+      assistantId: 'self',
+      channel: 'voice',
+      guardianExternalUserId: 'voice-user-1',
+      guardianDeliveryChatId: 'voice-chat-1',
+    });
+
+    const { ctx, lastResponse } = createMockCtx();
+    const msg: GuardianVerificationRequest = {
+      type: 'guardian_verification',
+      action: 'status',
+      channel: 'voice',
+      assistantId: 'self',
+    };
+
+    handleGuardianVerification(msg, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(true);
+    expect(resp!.bound).toBe(true);
+    expect(resp!.guardianExternalUserId).toBe('voice-user-1');
+    expect(resp!.guardianDeliveryChatId).toBe('voice-chat-1');
+    expect(resp!.channel).toBe('voice');
+  });
+
+  test('revoke for voice clears active binding', () => {
+    createBinding({
+      assistantId: 'self',
+      channel: 'voice',
+      guardianExternalUserId: 'voice-user-1',
+      guardianDeliveryChatId: 'voice-chat-1',
+    });
+
+    const { ctx, lastResponse } = createMockCtx();
+    const msg: GuardianVerificationRequest = {
+      type: 'guardian_verification',
+      action: 'revoke',
+      channel: 'voice',
+      assistantId: 'self',
+    };
+
+    handleGuardianVerification(msg, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(true);
+    expect(resp!.bound).toBe(false);
+
+    // Verify binding is actually revoked
+    expect(getGuardianBinding('self', 'voice')).toBeNull();
+  });
+
+  test('revoke for voice does not affect telegram binding', () => {
+    createBinding({
+      assistantId: 'self',
+      channel: 'voice',
+      guardianExternalUserId: 'voice-user-1',
+      guardianDeliveryChatId: 'voice-chat-1',
+    });
+    createBinding({
+      assistantId: 'self',
+      channel: 'telegram',
+      guardianExternalUserId: 'tg-user-1',
+      guardianDeliveryChatId: 'tg-chat-1',
+    });
+
+    const { ctx } = createMockCtx();
+    const msg: GuardianVerificationRequest = {
+      type: 'guardian_verification',
+      action: 'revoke',
+      channel: 'voice',
+      assistantId: 'self',
+    };
+
+    handleGuardianVerification(msg, mockSocket, ctx);
+
+    expect(getGuardianBinding('self', 'voice')).toBeNull();
+    expect(getGuardianBinding('self', 'telegram')).not.toBeNull();
   });
 });

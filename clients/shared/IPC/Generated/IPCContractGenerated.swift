@@ -1647,9 +1647,11 @@ public struct IPCGuardianVerificationResponse: Codable, Sendable {
     public let guardianUsername: String?
     /// Optional display name for the bound guardian (for UI display).
     public let guardianDisplayName: String?
+    /// Whether a pending verification challenge exists for this (assistantId, channel). Used by relay setup to detect active voice verification sessions.
+    public let hasPendingChallenge: Bool?
     public let error: String?
 
-    public init(type: String, success: Bool, secret: String? = nil, instruction: String? = nil, bound: Bool? = nil, guardianExternalUserId: String? = nil, channel: String? = nil, assistantId: String? = nil, guardianDeliveryChatId: String? = nil, guardianUsername: String? = nil, guardianDisplayName: String? = nil, error: String? = nil) {
+    public init(type: String, success: Bool, secret: String? = nil, instruction: String? = nil, bound: Bool? = nil, guardianExternalUserId: String? = nil, channel: String? = nil, assistantId: String? = nil, guardianDeliveryChatId: String? = nil, guardianUsername: String? = nil, guardianDisplayName: String? = nil, hasPendingChallenge: Bool? = nil, error: String? = nil) {
         self.type = type
         self.success = success
         self.secret = secret
@@ -1661,6 +1663,7 @@ public struct IPCGuardianVerificationResponse: Codable, Sendable {
         self.guardianDeliveryChatId = guardianDeliveryChatId
         self.guardianUsername = guardianUsername
         self.guardianDisplayName = guardianDisplayName
+        self.hasPendingChallenge = hasPendingChallenge
         self.error = error
     }
 }

@@ -14,12 +14,13 @@ import {
   revokeBinding as storeRevokeBinding,
   createChallenge,
   findPendingChallengeByHash,
+  findPendingChallengeForChannel,
   consumeChallenge,
   getRateLimit,
   recordInvalidAttempt,
   resetRateLimit,
 } from '../memory/channel-guardian-store.js';
-import type { GuardianBinding } from '../memory/channel-guardian-store.js';
+import type { GuardianBinding, VerificationChallenge } from '../memory/channel-guardian-store.js';
 import { composeApprovalMessage } from './approval-message-composer.js';
 
 // ---------------------------------------------------------------------------
@@ -67,18 +68,32 @@ function hashSecret(secret: string): string {
 // ---------------------------------------------------------------------------
 
 /**
+ * Generate a six-digit numeric secret for voice channel challenges.
+ * Uses cryptographic randomness to pick a number in [100000, 999999].
+ */
+function generateVoiceSecret(): string {
+  const buf = randomBytes(4);
+  const num = buf.readUInt32BE(0);
+  // Map to the range [100000, 999999] (900000 possible values)
+  return String(100000 + (num % 900000));
+}
+
+/**
  * Create a new verification challenge for a guardian candidate.
  *
- * Generates a random secret, hashes it (SHA-256), and stores the
- * challenge record with a 10-minute TTL. The raw secret is returned
- * so it can be displayed to the user; only the hash is persisted.
+ * For voice channels, generates a six-digit numeric secret that can be
+ * spoken aloud. For all other channels, generates a 32-byte hex secret.
+ *
+ * Hashes the secret (SHA-256) and stores the challenge record with a
+ * 10-minute TTL. The raw secret is returned so it can be displayed to
+ * the user; only the hash is persisted.
  */
 export function createVerificationChallenge(
   assistantId: string,
   channel: string,
   sessionId?: string,
 ): CreateChallengeResult {
-  const secret = randomBytes(32).toString('hex');
+  const secret = channel === 'voice' ? generateVoiceSecret() : randomBytes(32).toString('hex');
   const challengeHash = hashSecret(secret);
   const challengeId = uuid();
   const expiresAt = Date.now() + CHALLENGE_TTL_MS;
@@ -102,6 +117,7 @@ export function createVerificationChallenge(
     ttlSeconds,
     instruction: composeApprovalMessage({
       scenario: 'guardian_verify_challenge_setup',
+      channel,
       verifyCommand,
       ttlSeconds,
     }),
@@ -235,4 +251,16 @@ export function revokeBinding(
   channel: string,
 ): boolean {
   return storeRevokeBinding(assistantId, channel);
+}
+
+/**
+ * Look up a pending (non-expired) verification challenge for a given
+ * assistant and channel. Used by relay setup to detect whether an active
+ * voice verification session exists.
+ */
+export function getPendingChallenge(
+  assistantId: string,
+  channel: string,
+): VerificationChallenge | null {
+  return findPendingChallengeForChannel(assistantId, channel);
 }

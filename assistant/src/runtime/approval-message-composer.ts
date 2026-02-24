@@ -242,6 +242,11 @@ export function getFallbackMessage(context: ApprovalMessageContext): string {
       return `Verification failed. ${context.failureReason ?? 'Please try again.'}`;
 
     case 'guardian_verify_challenge_setup':
+      if (context.channel === 'voice') {
+        // Voice challenges use a six-digit numeric code that can be spoken aloud
+        const code = context.verifyCommand?.replace('/guardian_verify ', '') ?? 'the verification code';
+        return `To complete guardian verification, speak or enter the six-digit code: ${code}. This code expires in ${Math.round((context.ttlSeconds ?? 600) / 60)} minutes.`;
+      }
       return `To complete guardian verification, send ${context.verifyCommand ?? 'the verification command'} within ${context.ttlSeconds ?? 60} seconds.`;
 
     case 'guardian_verify_status_bound':
