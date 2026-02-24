@@ -1249,6 +1249,11 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     success: true,
     hasCredentials: true,
     phoneNumber: '+15551234567',
+    compliance: {
+      numberType: 'toll_free',
+      verificationSid: 'TF_VER_001',
+      verificationStatus: 'TWILIO_APPROVED',
+    },
   },
   channel_readiness_response: {
     type: 'channel_readiness_response',
