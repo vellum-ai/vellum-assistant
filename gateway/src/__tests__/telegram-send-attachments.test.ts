@@ -1,11 +1,15 @@
 import { describe, test, expect, mock, afterEach } from "bun:test";
-import { sendTelegramAttachments } from "../telegram/send.js";
 import type { RuntimeAttachmentMeta } from "../runtime/client.js";
 import type { GatewayConfig } from "../config.js";
 
-// Use mock() + direct globalThis.fetch assignment instead of spyOn(globalThis, "fetch")
-// because spyOn doesn't reliably intercept fetch on Linux in Bun 1.3.9.
-const originalFetch = globalThis.fetch;
+type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(async () => new Response());
+
+mock.module("../fetch.js", () => ({
+  fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
+}));
+
+const { sendTelegramAttachments } = await import("../telegram/send.js");
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
@@ -50,22 +54,15 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
 
 const telegramOk = { ok: true, result: { message_id: 1 } };
 
-function mockFetch(fn: (...args: Parameters<typeof fetch>) => Promise<Response>) {
-  const m = mock(fn);
-  Object.assign(m, { preconnect: () => {} });
-  globalThis.fetch = m as unknown as typeof fetch;
-  return m;
-}
-
 describe("sendTelegramAttachments", () => {
   afterEach(() => {
-    globalThis.fetch = originalFetch;
+    fetchMock = mock(async () => new Response());
   });
 
   test("sends image attachment via sendPhoto", async () => {
     const calls: string[] = [];
 
-    mockFetch(async (input: string | URL | Request) => {
+    fetchMock = mock(async (input: string | URL | Request) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       calls.push(url);
       // Runtime download endpoint
@@ -105,7 +102,7 @@ describe("sendTelegramAttachments", () => {
   test("sends non-image attachment via sendDocument", async () => {
     const calls: string[] = [];
 
-    mockFetch(async (input: string | URL | Request) => {
+    fetchMock = mock(async (input: string | URL | Request) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       calls.push(url);
       if (url.includes("/attachments/att-2")) {
@@ -142,7 +139,7 @@ describe("sendTelegramAttachments", () => {
   test("skips oversized attachments and sends failure notice", async () => {
     const calls: string[] = [];
 
-    mockFetch(async (input: string | URL | Request) => {
+    fetchMock = mock(async (input: string | URL | Request) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       calls.push(url);
       return new Response(JSON.stringify(telegramOk));
@@ -167,7 +164,7 @@ describe("sendTelegramAttachments", () => {
   test("downloads via assistant-less path when assistantId is undefined", async () => {
     const calls: string[] = [];
 
-    mockFetch(async (input: string | URL | Request) => {
+    fetchMock = mock(async (input: string | URL | Request) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       calls.push(url);
       if (url.includes("/attachments/att-no-assist")) {
@@ -207,7 +204,7 @@ describe("sendTelegramAttachments", () => {
   test("ID-only attachment hydrates metadata from downloaded payload", async () => {
     const calls: string[] = [];
 
-    mockFetch(async (input: string | URL | Request) => {
+    fetchMock = mock(async (input: string | URL | Request) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       calls.push(url);
       if (url.includes("/attachments/att-id-only")) {
@@ -240,7 +237,7 @@ describe("sendTelegramAttachments", () => {
   test("ID-only attachment falls back to defaults when download payload also lacks metadata", async () => {
     const calls: string[] = [];
 
-    mockFetch(async (input: string | URL | Request) => {
+    fetchMock = mock(async (input: string | URL | Request) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       calls.push(url);
       if (url.includes("/attachments/att-bare")) {
@@ -268,7 +265,7 @@ describe("sendTelegramAttachments", () => {
   test("ID-only attachment skipped when hydrated size exceeds limit", async () => {
     const calls: string[] = [];
 
-    mockFetch(async (input: string | URL | Request) => {
+    fetchMock = mock(async (input: string | URL | Request) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       calls.push(url);
       if (url.includes("/attachments/att-big")) {
@@ -302,7 +299,7 @@ describe("sendTelegramAttachments", () => {
   test("ID-only attachment uses id as filename fallback", async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
 
-    mockFetch(async (input: string | URL | Request, init?: RequestInit) => {
+    fetchMock = mock(async (input: string | URL | Request, init?: RequestInit) => {
       const urlStr = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       calls.push({ url: urlStr, init });
       if (urlStr.includes("/attachments/my-attachment-id")) {
@@ -332,7 +329,7 @@ describe("sendTelegramAttachments", () => {
   test("full-metadata payload still works (backward compatibility)", async () => {
     const calls: string[] = [];
 
-    mockFetch(async (input: string | URL | Request) => {
+    fetchMock = mock(async (input: string | URL | Request) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       calls.push(url);
       if (url.includes("/attachments/att-full")) {
@@ -369,7 +366,7 @@ describe("sendTelegramAttachments", () => {
   test("continues sending remaining attachments on individual failure", async () => {
     const calls: string[] = [];
 
-    mockFetch(async (input: string | URL | Request) => {
+    fetchMock = mock(async (input: string | URL | Request) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       calls.push(url);
       // First attachment download fails

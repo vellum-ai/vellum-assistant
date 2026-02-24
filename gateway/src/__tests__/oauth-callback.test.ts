@@ -1,6 +1,14 @@
 import { describe, test, expect, mock, afterEach } from "bun:test";
 import type { GatewayConfig } from "../config.js";
-import { createOAuthCallbackHandler } from "../http/routes/oauth-callback.js";
+
+type FetchFn = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(async () => new Response());
+
+mock.module("../fetch.js", () => ({
+  fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
+}));
+
+const { createOAuthCallbackHandler } = await import("../http/routes/oauth-callback.js");
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
@@ -43,23 +51,14 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   return merged;
 }
 
-function mockFetch(fn: () => Promise<Response>) {
-  const m = mock(fn);
-  Object.assign(m, { preconnect: () => {} });
-  globalThis.fetch = m as unknown as typeof fetch;
-  return m;
-}
-
 describe("OAuth callback handler", () => {
-  const originalFetch = globalThis.fetch;
-
   afterEach(() => {
-    globalThis.fetch = originalFetch;
+    fetchMock = mock(async () => new Response());
   });
 
   test("forwards valid state+code to runtime and returns success page", async () => {
-    const fetchMock = mockFetch(() =>
-      Promise.resolve(Response.json({ ok: true }, { status: 200 })),
+    fetchMock = mock(async () =>
+      Response.json({ ok: true }, { status: 200 }),
     );
 
     const handler = createOAuthCallbackHandler(makeConfig());
@@ -105,8 +104,8 @@ describe("OAuth callback handler", () => {
   });
 
   test("error param is forwarded to runtime", async () => {
-    const fetchMock = mockFetch(() =>
-      Promise.resolve(Response.json({ ok: true }, { status: 200 })),
+    fetchMock = mock(async () =>
+      Response.json({ ok: true }, { status: 200 }),
     );
 
     const handler = createOAuthCallbackHandler(makeConfig());
@@ -126,10 +125,8 @@ describe("OAuth callback handler", () => {
   });
 
   test("runtime returning 404 (unknown state) shows error page", async () => {
-    mockFetch(() =>
-      Promise.resolve(
-        Response.json({ error: "Unknown state" }, { status: 404 }),
-      ),
+    fetchMock = mock(async () =>
+      Response.json({ error: "Unknown state" }, { status: 404 }),
     );
 
     const handler = createOAuthCallbackHandler(makeConfig());
@@ -146,7 +143,7 @@ describe("OAuth callback handler", () => {
   });
 
   test("runtime unreachable returns 502 error page", async () => {
-    mockFetch(() => Promise.reject(new Error("Connection refused")));
+    fetchMock = mock(async () => { throw new Error("Connection refused"); });
 
     const handler = createOAuthCallbackHandler(makeConfig());
     const req = new Request(
@@ -162,8 +159,8 @@ describe("OAuth callback handler", () => {
   });
 
   test("omits Authorization header when runtimeBearerToken is undefined", async () => {
-    const fetchMock = mockFetch(() =>
-      Promise.resolve(Response.json({ ok: true }, { status: 200 })),
+    fetchMock = mock(async () =>
+      Response.json({ ok: true }, { status: 200 }),
     );
 
     const handler = createOAuthCallbackHandler(

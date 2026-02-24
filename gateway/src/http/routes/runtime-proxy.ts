@@ -1,4 +1,5 @@
 import type { GatewayConfig } from "../../config.js";
+import { fetchImpl } from "../../fetch.js";
 import { getLogger } from "../../logger.js";
 import { validateBearerToken } from "../auth/bearer.js";
 import { GATEWAY_ORIGIN_HEADER } from "../../runtime/client.js";
@@ -129,7 +130,7 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
 
     let response: Response;
     try {
-      response = await globalThis.fetch(upstream, {
+      response = await fetchImpl(upstream, {
         method: req.method,
         headers: reqHeaders,
         body: bodyBuffer,

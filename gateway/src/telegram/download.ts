@@ -1,5 +1,6 @@
 import { fileTypeFromBuffer } from "file-type";
 import type { GatewayConfig } from "../config.js";
+import { fetchImpl } from "../fetch.js";
 import { callTelegramApi } from "./api.js";
 
 interface TelegramFile {
@@ -33,7 +34,7 @@ export async function downloadTelegramFile(
   }
 
   const downloadUrl = `${config.telegramApiBaseUrl}/file/bot${config.telegramBotToken}/${file.file_path}`;
-  const response = await globalThis.fetch(downloadUrl, {
+  const response = await fetchImpl(downloadUrl, {
     signal: AbortSignal.timeout(config.telegramTimeoutMs),
   });
 

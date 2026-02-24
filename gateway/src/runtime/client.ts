@@ -1,4 +1,5 @@
 import type { GatewayConfig } from "../config.js";
+import { fetchImpl } from "../fetch.js";
 import { getLogger } from "../logger.js";
 
 const log = getLogger("runtime-client");
@@ -107,7 +108,7 @@ export async function forwardToRuntime(
     }
 
     try {
-      const response = await globalThis.fetch(url, {
+      const response = await fetchImpl(url, {
         method: "POST",
         headers: runtimeHeaders(config, extraHeaders),
         body: JSON.stringify(payload),
@@ -165,7 +166,7 @@ export async function resetConversation(
 ): Promise<void> {
   const url = `${config.assistantRuntimeBaseUrl}/v1/assistants/${encodeURIComponent(assistantId)}/channels/conversation`;
 
-  const response = await globalThis.fetch(url, {
+  const response = await fetchImpl(url, {
     method: "DELETE",
     headers: runtimeHeaders(config, { "Content-Type": "application/json" }),
     body: JSON.stringify({ sourceChannel, externalChatId }),
@@ -195,7 +196,7 @@ export async function downloadAttachment(
 ): Promise<RuntimeAttachmentPayload> {
   const url = `${config.assistantRuntimeBaseUrl}/v1/assistants/${encodeURIComponent(assistantId)}/attachments/${encodeURIComponent(attachmentId)}`;
 
-  const response = await globalThis.fetch(url, {
+  const response = await fetchImpl(url, {
     method: "GET",
     headers: runtimeHeaders(config),
     signal: AbortSignal.timeout(config.runtimeTimeoutMs),
@@ -219,7 +220,7 @@ export async function downloadAttachmentById(
 ): Promise<RuntimeAttachmentPayload> {
   const url = `${config.assistantRuntimeBaseUrl}/v1/attachments/${encodeURIComponent(attachmentId)}`;
 
-  const response = await globalThis.fetch(url, {
+  const response = await fetchImpl(url, {
     method: "GET",
     headers: runtimeHeaders(config),
     signal: AbortSignal.timeout(config.runtimeTimeoutMs),
@@ -253,7 +254,7 @@ export async function forwardTwilioVoiceWebhook(
 ): Promise<TwilioForwardResponse> {
   const url = `${config.assistantRuntimeBaseUrl}/v1/internal/twilio/voice-webhook`;
 
-  const response = await globalThis.fetch(url, {
+  const response = await fetchImpl(url, {
     method: "POST",
     headers: runtimeHeaders(config, { "Content-Type": "application/json" }),
     body: JSON.stringify({ params, originalUrl }),
@@ -277,7 +278,7 @@ export async function forwardTwilioStatusWebhook(
 ): Promise<TwilioForwardResponse> {
   const url = `${config.assistantRuntimeBaseUrl}/v1/internal/twilio/status`;
 
-  const response = await globalThis.fetch(url, {
+  const response = await fetchImpl(url, {
     method: "POST",
     headers: runtimeHeaders(config, { "Content-Type": "application/json" }),
     body: JSON.stringify({ params }),
@@ -301,7 +302,7 @@ export async function forwardTwilioConnectActionWebhook(
 ): Promise<TwilioForwardResponse> {
   const url = `${config.assistantRuntimeBaseUrl}/v1/internal/twilio/connect-action`;
 
-  const response = await globalThis.fetch(url, {
+  const response = await fetchImpl(url, {
     method: "POST",
     headers: runtimeHeaders(config, { "Content-Type": "application/json" }),
     body: JSON.stringify({ params }),
@@ -323,7 +324,7 @@ export async function uploadAttachment(
 ): Promise<UploadAttachmentResponse> {
   const url = `${config.assistantRuntimeBaseUrl}/v1/assistants/${encodeURIComponent(assistantId)}/attachments`;
 
-  const response = await globalThis.fetch(url, {
+  const response = await fetchImpl(url, {
     method: "POST",
     headers: runtimeHeaders(config, { "Content-Type": "application/json" }),
     body: JSON.stringify(input),
@@ -366,7 +367,7 @@ export async function forwardOAuthCallback(
 ): Promise<OAuthCallbackResponse> {
   const url = `${config.assistantRuntimeBaseUrl}/v1/internal/oauth/callback`;
 
-  const response = await globalThis.fetch(url, {
+  const response = await fetchImpl(url, {
     method: "POST",
     headers: runtimeHeaders(config, { "Content-Type": "application/json" }),
     body: JSON.stringify({ state, code, error }),
