@@ -1,5 +1,7 @@
 import * as net from 'node:net';
 import type { IngressInviteRequest, IngressMemberRequest, AssistantInboxEscalationRequest, AssistantInboxReplyRequest } from '../ipc-protocol.js';
+import type { ChannelId } from '../../channels/types.js';
+import { isChannelId } from '../../channels/types.js';
 import { log, defineHandlers, type HandlerContext } from './shared.js';
 import {
   createInvite,
@@ -21,9 +23,14 @@ import {
   type ApprovalRequestStatus,
 } from '../../memory/channel-guardian-store.js';
 import { refreshThreadEscalation } from '../../memory/inbox-escalation-projection.js';
-import { addMessage } from '../../memory/conversation-store.js';
+import { addMessage, getMessages } from '../../memory/conversation-store.js';
 import { getBindingByConversation } from '../../memory/external-conversation-store.js';
 import { updateThreadActivity } from '../../memory/inbox-thread-store.js';
+import { getLatestStoredPayload } from '../../memory/channel-delivery-store.js';
+import { deliverChannelReply } from '../../runtime/gateway-client.js';
+import { getGatewayInternalBaseUrl, getRuntimeProxyBearerToken } from '../../config/env.js';
+import { renderHistoryContent } from './shared.js';
+import type { GuardianApprovalRequest } from '../../memory/channel-guardian-store.js';
 
 export function handleIngressInvite(
   msg: IngressInviteRequest,
@@ -317,6 +324,7 @@ export function handleInboxEscalation(
         // Update thread escalation state so inbox badges stay accurate
         refreshThreadEscalation(resolved.conversationId, resolved.assistantId);
 
+        // Respond immediately — decision execution happens in the background
         ctx.send(socket, {
           type: 'assistant_inbox_escalation_response',
           success: true,
@@ -326,6 +334,12 @@ export function handleInboxEscalation(
             decidedAt: resolved.updatedAt,
           },
         });
+
+        // Fire-and-forget: execute the decision asynchronously
+        executeEscalationDecision(resolved, msg.decision, msg.reason, ctx).catch((err) => {
+          log.error({ err, approvalRequestId: resolved.id, decision: msg.decision }, 'Escalation decision execution failed');
+        });
+
         return;
       }
 
@@ -338,6 +352,135 @@ export function handleInboxEscalation(
     log.error({ err }, 'assistant_inbox_escalation handler error');
     ctx.send(socket, { type: 'assistant_inbox_escalation_response', success: false, error: message });
   }
+}
+
+/**
+ * Execute the post-decision logic for an ingress escalation.
+ *
+ * On approve: process the blocked inbound message through the session
+ * pipeline and deliver the assistant's reply via the gateway.
+ *
+ * On deny: send a refusal message to the sender via the channel.
+ */
+async function executeEscalationDecision(
+  approval: GuardianApprovalRequest,
+  decision: 'approve' | 'deny',
+  reason: string | undefined,
+  ctx: HandlerContext,
+): Promise<void> {
+  if (decision === 'approve') {
+    await executeApprove(approval, ctx);
+  } else {
+    await executeDeny(approval, reason);
+  }
+}
+
+async function executeApprove(
+  approval: GuardianApprovalRequest,
+  ctx: HandlerContext,
+): Promise<void> {
+  const { conversationId, assistantId, channel } = approval;
+
+  // Recover the original message content from the stored payload
+  const payload = getLatestStoredPayload(conversationId);
+  const messageContent = typeof payload?.content === 'string' ? payload.content : '';
+
+  if (!messageContent) {
+    log.warn({ conversationId, approvalId: approval.id }, 'No message content found for approved escalation; skipping processing');
+    return;
+  }
+
+  const sourceChannel: ChannelId | undefined = isChannelId(channel) ? channel : undefined;
+
+  // Get or create a session for the conversation and process the message
+  const session = await ctx.getOrCreateSession(conversationId);
+
+  if (sourceChannel) {
+    session.setTurnChannelContext({
+      userMessageChannel: sourceChannel,
+      assistantMessageChannel: sourceChannel,
+    });
+  }
+  session.setAssistantId(assistantId);
+  session.setGuardianContext(null);
+  session.setCommandIntent(null);
+
+  // Process the message through the agent loop (no IPC event callback
+  // since this is a background execution without a connected client)
+  const noop = () => {};
+  await session.processMessage(messageContent, [], noop);
+
+  // Deliver the assistant's reply to the external user via the gateway
+  const replyCallbackUrl = typeof payload?.replyCallbackUrl === 'string'
+    ? payload.replyCallbackUrl
+    : null;
+  const bearerToken = getRuntimeProxyBearerToken();
+
+  if (replyCallbackUrl) {
+    const binding = getBindingByConversation(conversationId);
+    const externalChatId = binding?.externalChatId ?? approval.requesterChatId;
+
+    const msgs = getMessages(conversationId);
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].role === 'assistant') {
+        let parsed: unknown;
+        try { parsed = JSON.parse(msgs[i].content); } catch { parsed = msgs[i].content; }
+        const rendered = renderHistoryContent(parsed);
+        if (rendered.text) {
+          await deliverChannelReply(replyCallbackUrl, {
+            chatId: externalChatId,
+            text: rendered.text,
+            assistantId,
+          }, bearerToken);
+        }
+        break;
+      }
+    }
+  }
+
+  // Update thread activity to reflect the outbound reply
+  updateThreadActivity(conversationId, 'outbound');
+
+  log.info({ conversationId, approvalId: approval.id }, 'Approved escalation processed successfully');
+}
+
+async function executeDeny(
+  approval: GuardianApprovalRequest,
+  reason: string | undefined,
+): Promise<void> {
+  const { conversationId, assistantId, channel } = approval;
+
+  const binding = getBindingByConversation(conversationId);
+  if (!binding) {
+    log.warn({ conversationId, approvalId: approval.id }, 'No external binding found for denied escalation; cannot send refusal');
+    return;
+  }
+
+  const sourceChannel: ChannelId | undefined = isChannelId(channel) ? channel : undefined;
+  if (!sourceChannel) {
+    log.warn({ conversationId, channel, approvalId: approval.id }, 'Invalid channel for denied escalation; cannot send refusal');
+    return;
+  }
+
+  const gatewayBaseUrl = getGatewayInternalBaseUrl();
+  const deliverUrl = `${gatewayBaseUrl}/deliver/${sourceChannel}`;
+  const bearerToken = getRuntimeProxyBearerToken();
+
+  const denialText = reason
+    ? `Your message was reviewed and declined. Reason: ${reason}`
+    : 'Your message was reviewed and declined.';
+
+  await deliverChannelReply(deliverUrl, {
+    chatId: binding.externalChatId,
+    text: denialText,
+    assistantId,
+  }, bearerToken);
+
+  // Store a system note about the denial in the conversation
+  addMessage(conversationId, 'assistant', denialText);
+  updateThreadActivity(conversationId, 'outbound');
+
+  log.info({ conversationId, approvalId: approval.id }, 'Denied escalation refusal sent');
 }
 
 export function handleAssistantInboxReply(

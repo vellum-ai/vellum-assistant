@@ -564,6 +564,18 @@ export async function handleChannelInbound(
       return Response.json({ accepted: true, denied: true, reason: 'escalate_no_guardian' });
     }
 
+    // Persist the raw payload so the decide handler can recover the original
+    // message content when the escalation is approved.
+    channelDeliveryStore.storePayload(result.eventId, {
+      sourceChannel, externalChatId, externalMessageId, content,
+      attachmentIds, sourceMetadata: body.sourceMetadata,
+      senderName: body.senderName,
+      senderExternalUserId: body.senderExternalUserId,
+      senderUsername: body.senderUsername,
+      replyCallbackUrl: body.replyCallbackUrl,
+      assistantId,
+    });
+
     createApprovalRequest({
       runId: `ingress-escalation-${Date.now()}`,
       conversationId: result.conversationId,
