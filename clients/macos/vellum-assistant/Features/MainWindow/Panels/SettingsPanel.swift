@@ -1129,8 +1129,13 @@ struct SettingsPanel: View {
     }
 
     /// Collapsed override section for per-integration gateway URL customization.
+    @State private var ingressOverrideExpanded: Bool = false
+
     private var ingressOverrideSection: some View {
-        DisclosureGroup("Override") {
+        VDisclosureSection(
+            title: "Override",
+            isExpanded: $ingressOverrideExpanded
+        ) {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 Toggle("Use custom gateway URL", isOn: $ingressUseOverride)
                     .toggleStyle(.switch)
@@ -1156,10 +1161,7 @@ struct SettingsPanel: View {
                     }
                 }
             }
-            .padding(.top, VSpacing.sm)
         }
-        .font(VFont.caption)
-        .foregroundColor(VColor.textSecondary)
     }
 
     // MARK: - Permission Row

@@ -96,90 +96,76 @@ struct SettingsConnectTab: View {
     // MARK: - Gateway Section
 
     private var gatewaySection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            DisclosureGroup(isExpanded: $gatewayExpanded) {
-                VStack(alignment: .leading, spacing: VSpacing.md) {
-                    // Gateway URL field
-                    HStack(spacing: VSpacing.xs) {
-                        Text("Gateway URL")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
-                    }
-
-                    TextField("https://your-tunnel.example.com", text: $gatewayUrlText)
-                        .focused($isGatewayUrlFocused)
-                        .vInputStyle()
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
-
-                    VButton(label: "Save", style: .primary) {
-                        store.saveIngressPublicBaseUrl(gatewayUrlText)
-                    }
-
-                    Divider()
-                        .background(VColor.surfaceBorder)
-
-                    // Local Gateway Target (read-only)
-                    HStack(spacing: VSpacing.xs) {
-                        Text("Local Gateway Target")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
-                    }
-
-                    HStack(spacing: VSpacing.sm) {
-                        Text(store.localGatewayTarget)
-                            .font(VFont.mono)
-                            .foregroundColor(VColor.textPrimary)
-                            .textSelection(.enabled)
-                            .padding(VSpacing.md)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(VColor.surface.opacity(0.5))
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: VRadius.md)
-                                    .stroke(VColor.surfaceBorder.opacity(0.3), lineWidth: 1)
-                            )
-
-                        Button {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(store.localGatewayTarget, forType: .string)
-                            gatewayTargetCopied = true
-                            Task {
-                                try? await Task.sleep(nanoseconds: 2_000_000_000)
-                                gatewayTargetCopied = false
-                            }
-                        } label: {
-                            Image(systemName: gatewayTargetCopied ? "checkmark" : "doc.on.doc")
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(gatewayTargetCopied ? VColor.success : VColor.textSecondary)
-                                .frame(width: 28, height: 28)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Copy gateway address")
-                        .help("Copy address")
-                    }
-
-                    Text("Point your tunnel (ngrok, Cloudflare, etc.) to this address.")
+        VDisclosureSection(
+            title: "Gateway",
+            subtitle: !gatewayExpanded && !store.ingressPublicBaseUrl.isEmpty ? store.ingressPublicBaseUrl : nil,
+            isExpanded: $gatewayExpanded
+        ) {
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                // Gateway URL field
+                HStack(spacing: VSpacing.xs) {
+                    Text("Gateway URL")
                         .font(VFont.caption)
                         .foregroundColor(VColor.textSecondary)
                 }
-                .padding(.top, VSpacing.sm)
-            } label: {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Gateway")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.textPrimary)
-                    if !gatewayExpanded && !store.ingressPublicBaseUrl.isEmpty {
-                        Text(store.ingressPublicBaseUrl)
-                            .font(VFont.mono)
-                            .foregroundColor(VColor.textMuted)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
+
+                TextField("https://your-tunnel.example.com", text: $gatewayUrlText)
+                    .focused($isGatewayUrlFocused)
+                    .vInputStyle()
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+
+                VButton(label: "Save", style: .primary) {
+                    store.saveIngressPublicBaseUrl(gatewayUrlText)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
+
+                Divider()
+                    .background(VColor.surfaceBorder)
+
+                // Local Gateway Target (read-only)
+                HStack(spacing: VSpacing.xs) {
+                    Text("Local Gateway Target")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                }
+
+                HStack(spacing: VSpacing.sm) {
+                    Text(store.localGatewayTarget)
+                        .font(VFont.mono)
+                        .foregroundColor(VColor.textPrimary)
+                        .textSelection(.enabled)
+                        .padding(VSpacing.md)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(VColor.surface.opacity(0.5))
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .stroke(VColor.surfaceBorder.opacity(0.3), lineWidth: 1)
+                        )
+
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(store.localGatewayTarget, forType: .string)
+                        gatewayTargetCopied = true
+                        Task {
+                            try? await Task.sleep(nanoseconds: 2_000_000_000)
+                            gatewayTargetCopied = false
+                        }
+                    } label: {
+                        Image(systemName: gatewayTargetCopied ? "checkmark" : "doc.on.doc")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(gatewayTargetCopied ? VColor.success : VColor.textSecondary)
+                            .frame(width: 28, height: 28)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Copy gateway address")
+                    .help("Copy address")
+                }
+
+                Text("Point your tunnel (ngrok, Cloudflare, etc.) to this address.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
             }
         }
         .padding(VSpacing.lg)
@@ -288,27 +274,17 @@ struct SettingsConnectTab: View {
     // MARK: - Advanced Section
 
     private var advancedSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            DisclosureGroup(isExpanded: $advancedExpanded) {
-                VStack(alignment: .leading, spacing: VSpacing.md) {
-                    bearerTokenContent
+        VDisclosureSection(
+            title: "Advanced",
+            subtitle: "Bearer token, developer options",
+            isExpanded: $advancedExpanded
+        ) {
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                bearerTokenContent
 
-                    Divider().background(VColor.surfaceBorder)
+                Divider().background(VColor.surfaceBorder)
 
-                    developerLocalPairingContent
-                }
-                .padding(.top, VSpacing.sm)
-            } label: {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Advanced")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.textPrimary)
-                    Text("Bearer token, developer options")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
+                developerLocalPairingContent
             }
         }
         .padding(VSpacing.lg)
@@ -1030,22 +1006,16 @@ struct SettingsConnectTab: View {
     // MARK: - Diagnostics Section (merged Status + Test Connection)
 
     private var diagnosticsSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            DisclosureGroup(isExpanded: $diagnosticsExpanded) {
-                VStack(alignment: .leading, spacing: VSpacing.md) {
-                    statusContent
+        VDisclosureSection(
+            title: "Diagnostics",
+            isExpanded: $diagnosticsExpanded
+        ) {
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                statusContent
 
-                    Divider().background(VColor.surfaceBorder)
+                Divider().background(VColor.surfaceBorder)
 
-                    testConnectionContent
-                }
-                .padding(.top, VSpacing.sm)
-            } label: {
-                Text("Diagnostics")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
+                testConnectionContent
             }
         }
         .padding(VSpacing.lg)
