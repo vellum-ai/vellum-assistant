@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { getLogger } from '../../util/logger.js';
-import { getDb } from '../db.js';
+import { getDb, rawExec } from '../db.js';
 import { enqueueMemoryJob, type MemoryJob } from '../jobs-store.js';
 import { asString, BackendUnavailableError } from '../job-utils.js';
 import { getQdrantClient } from '../qdrant-client.js';
@@ -10,8 +10,8 @@ const log = getLogger('memory-jobs-worker');
 
 export function rebuildIndexJob(): void {
   const db = getDb();
-  db.run(/*sql*/ `DELETE FROM memory_segment_fts`);
-  db.run(/*sql*/ `
+  rawExec(/*sql*/ `DELETE FROM memory_segment_fts`);
+  rawExec(/*sql*/ `
     INSERT INTO memory_segment_fts(segment_id, text)
     SELECT id, text FROM memory_segments
   `);

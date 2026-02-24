@@ -9,7 +9,7 @@
 
 import { and, eq, lt, inArray } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
-import { getDb } from './db.js';
+import { getDb, rawChanges } from './db.js';
 import {
   guardianActionRequests,
   guardianActionDeliveries,
@@ -203,9 +203,7 @@ export function resolveGuardianActionRequest(
     .run();
 
   // Check if the update took effect
-  const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
-  const changes = raw.query('SELECT changes() as c').get() as { c: number };
-  if (changes.c === 0) return null;
+  if (rawChanges() === 0) return null;
 
   // Mark all deliveries as 'answered'
   db.update(guardianActionDeliveries)

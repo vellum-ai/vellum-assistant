@@ -1,6 +1,6 @@
 import { and, asc, eq, lte, notInArray, inArray } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
-import { getDb } from './db.js';
+import { getDb, rawGet, rawAll } from './db.js';
 import { memoryJobs } from './schema.js';
 import { truncate } from '../util/truncate.js';
 
@@ -110,9 +110,8 @@ export function enqueueResolvePendingConflictsForMessageJob(
     throw new Error('enqueueResolvePendingConflictsForMessageJob requires a non-empty messageId');
   }
   const normalizedScopeId = scopeId.trim() || 'default';
-  // Dedup check always uses root db since tx doesn't expose $client
-  const raw = (getDb() as unknown as { $client: { query: (q: string) => { get: (...params: unknown[]) => unknown } } }).$client;
-  const existing = raw.query(`
+  // Dedup check always uses root db since tx doesn't expose raw client
+  const existing = rawGet<{ id: string }>(`
     SELECT id
     FROM memory_jobs
     WHERE type = 'resolve_pending_conflicts_for_message'
@@ -121,7 +120,7 @@ export function enqueueResolvePendingConflictsForMessageJob(
       AND COALESCE(json_extract(payload, '$.scopeId'), 'default') = ?
     ORDER BY created_at ASC
     LIMIT 1
-  `).get(normalizedMessageId, normalizedScopeId) as { id: string } | null;
+  `, normalizedMessageId, normalizedScopeId);
   if (existing?.id) return existing.id;
 
   return enqueueMemoryJob('resolve_pending_conflicts_for_message', {
@@ -366,13 +365,11 @@ export function resetRunningJobsToPending(): number {
 }
 
 export function getMemoryJobCounts(): Record<string, number> {
-  const db = getDb();
-  const raw = (db as unknown as { $client: { query: (q: string) => { all: () => unknown[] } } }).$client;
-  const rows = raw.query(`
+  const rows = rawAll<{ status: string; c: number }>(`
     SELECT status, COUNT(*) AS c
     FROM memory_jobs
     GROUP BY status
-  `).all() as Array<{ status: string; c: number }>;
+  `);
   const counts: Record<string, number> = { pending: 0, running: 0, completed: 0, failed: 0 };
   for (const row of rows) {
     counts[row.status] = row.c;

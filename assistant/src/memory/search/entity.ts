@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray, isNull, or } from 'drizzle-orm';
 import type { MemoryEntityConfig } from '../../config/types.js';
 import { getLogger } from '../../util/logger.js';
-import { getDb } from '../db.js';
+import { getDb, rawAll } from '../db.js';
 import {
   memoryEntityRelations,
   memoryItemEntities,
@@ -130,8 +130,6 @@ export function findMatchedEntities(query: string, maxMatches: number): MatchedE
   const trimmed = query.trim();
   if (trimmed.length === 0) return [];
 
-  const db = getDb();
-  const raw = (db as unknown as { $client: { query: (q: string) => { all: (...params: unknown[]) => unknown[] } } }).$client;
   const safeLimit = Math.max(1, Math.floor(maxMatches));
 
   // Tokenize query into words for entity matching (min length 3 to reduce false positives)
@@ -173,14 +171,12 @@ export function findMatchedEntities(query: string, maxMatches: number): MatchedE
     queryParams = [fullQuery, fullQuery];
   }
 
-  let matchedEntities: MatchedEntityRow[] = [];
   try {
-    matchedEntities = raw.query(entityQuery).all(...queryParams) as MatchedEntityRow[];
+    return rawAll<MatchedEntityRow>(entityQuery, ...queryParams);
   } catch (err) {
     log.warn({ err }, 'Entity search query failed');
     return [];
   }
-  return matchedEntities;
 }
 
 /**
@@ -225,8 +221,9 @@ export function findNeighborEntities(
       const frontierPlaceholders = frontier.map(() => '?').join(',');
       const limit = Math.max(1, edgeBudget);
 
-      const raw = (db as unknown as { $client: { query: (q: string) => { all: (...params: unknown[]) => unknown[] } } }).$client;
       const relationParams = relationTypes && relationTypes.length > 0 ? relationTypes : [];
+
+      type EdgeRow = { sourceEntityId: string; targetEntityId: string };
 
       if (directed) {
         // GROUP BY deduplicates entity pairs that have multiple relation rows
@@ -240,8 +237,7 @@ export function findNeighborEntities(
           ORDER BY MAX(r.last_seen_at) DESC
           LIMIT ?
         `;
-        const params1 = [...frontier, ...relationParams, ...entityTypes, limit];
-        rows = raw.query(q1).all(...params1) as Array<{ sourceEntityId: string; targetEntityId: string }>;
+        rows = rawAll<EdgeRow>(q1, ...frontier, ...relationParams, ...entityTypes, limit);
       } else {
         // Combine both directions in a single query with global recency
         // ordering so the edge budget isn't direction-biased.
@@ -263,17 +259,12 @@ export function findNeighborEntities(
           ORDER BY MAX(last_seen_at) DESC
           LIMIT ?
         `;
-        const params = [
-          ...frontier,
-          ...relationParams,
-          ...entityTypes,
-          ...frontier,
-          ...relationParams,
-          ...entityTypes,
+        rows = rawAll<EdgeRow>(
+          q,
+          ...frontier, ...relationParams, ...entityTypes,
+          ...frontier, ...relationParams, ...entityTypes,
           limit,
-        ];
-
-        rows = raw.query(q).all(...params) as Array<{ sourceEntityId: string; targetEntityId: string }>;
+        );
       }
     } else {
       const frontierCondition = directed

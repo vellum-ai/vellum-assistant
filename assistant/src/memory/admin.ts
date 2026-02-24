@@ -1,7 +1,7 @@
 import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
 import { getMemoryBackendStatus } from './embedding-backend.js';
-import { getDb } from './db.js';
+import { rawGet } from './db.js';
 import { enqueueBackfillJob, enqueueRebuildIndexJob } from './indexer.js';
 import {
   enqueueCleanupResolvedConflictsJob,
@@ -43,28 +43,35 @@ export interface MemoryConflictAndCleanupStats {
   cleanup: MemorySystemStatus['cleanup'];
 }
 
+interface ConflictStatsRow {
+  pending_count: number | null;
+  resolved_count: number | null;
+  oldest_pending_created_at: number | null;
+}
+
+interface CleanupStatsRow {
+  resolved_backlog: number | null;
+  superseded_backlog: number | null;
+  resolved_completed_24h: number | null;
+  superseded_completed_24h: number | null;
+}
+
 /** Lightweight query for conflict/cleanup metrics only — no table counts or job totals. */
 export function getMemoryConflictAndCleanupStats(): MemoryConflictAndCleanupStats {
-  const db = getDb();
-  const raw = (db as unknown as { $client: { query: (q: string) => { get: (...args: unknown[]) => unknown } } }).$client;
-  const conflictStats = raw.query(`
+  const conflictStats = rawGet<ConflictStatsRow>(`
     SELECT
       SUM(CASE WHEN status = 'pending_clarification' THEN 1 ELSE 0 END) AS pending_count,
       SUM(CASE WHEN status != 'pending_clarification' THEN 1 ELSE 0 END) AS resolved_count,
       MIN(CASE WHEN status = 'pending_clarification' THEN created_at END) AS oldest_pending_created_at
     FROM memory_item_conflicts
-  `).get() as {
-    pending_count: number | null;
-    resolved_count: number | null;
-    oldest_pending_created_at: number | null;
-  } | null;
+  `);
   const pending = conflictStats?.pending_count ?? 0;
   const oldestPendingCreatedAt = conflictStats?.oldest_pending_created_at ?? null;
   const oldestPendingAgeMs = oldestPendingCreatedAt === null
     ? null
     : Math.max(0, Date.now() - oldestPendingCreatedAt);
   const throughputWindowStartMs = Date.now() - (24 * 60 * 60 * 1000);
-  const cleanupStats = raw.query(`
+  const cleanupStats = rawGet<CleanupStatsRow>(`
     SELECT
       SUM(CASE
         WHEN type = 'cleanup_resolved_conflicts' AND status IN ('pending', 'running')
@@ -83,12 +90,7 @@ export function getMemoryConflictAndCleanupStats(): MemoryConflictAndCleanupStat
         THEN 1 ELSE 0 END
       ) AS superseded_completed_24h
     FROM memory_jobs
-  `).get(throughputWindowStartMs, throughputWindowStartMs) as {
-    resolved_backlog: number | null;
-    superseded_backlog: number | null;
-    resolved_completed_24h: number | null;
-    superseded_completed_24h: number | null;
-  } | null;
+  `, throughputWindowStartMs, throughputWindowStartMs);
   return {
     conflicts: {
       pending,
@@ -107,32 +109,26 @@ export function getMemoryConflictAndCleanupStats(): MemoryConflictAndCleanupStat
 export function getMemorySystemStatus(): MemorySystemStatus {
   const config = getConfig();
   const backend = getMemoryBackendStatus(config);
-  const db = getDb();
-  const raw = (db as unknown as { $client: { query: (q: string) => { get: (...args: unknown[]) => unknown } } }).$client;
   const counts = {
     segments: countTable('memory_segments'),
     items: countTable('memory_items'),
     summaries: countTable('memory_summaries'),
     embeddings: countTable('memory_embeddings'),
   };
-  const conflictStats = raw.query(`
+  const conflictStats = rawGet<ConflictStatsRow>(`
     SELECT
       SUM(CASE WHEN status = 'pending_clarification' THEN 1 ELSE 0 END) AS pending_count,
       SUM(CASE WHEN status != 'pending_clarification' THEN 1 ELSE 0 END) AS resolved_count,
       MIN(CASE WHEN status = 'pending_clarification' THEN created_at END) AS oldest_pending_created_at
     FROM memory_item_conflicts
-  `).get() as {
-    pending_count: number | null;
-    resolved_count: number | null;
-    oldest_pending_created_at: number | null;
-  } | null;
+  `);
   const pending = conflictStats?.pending_count ?? 0;
   const oldestPendingCreatedAt = conflictStats?.oldest_pending_created_at ?? null;
   const oldestPendingAgeMs = oldestPendingCreatedAt === null
     ? null
     : Math.max(0, Date.now() - oldestPendingCreatedAt);
   const throughputWindowStartMs = Date.now() - (24 * 60 * 60 * 1000);
-  const cleanupStats = raw.query(`
+  const cleanupStats = rawGet<CleanupStatsRow>(`
     SELECT
       SUM(CASE
         WHEN type = 'cleanup_resolved_conflicts' AND status IN ('pending', 'running')
@@ -151,12 +147,7 @@ export function getMemorySystemStatus(): MemorySystemStatus {
         THEN 1 ELSE 0 END
       ) AS superseded_completed_24h
     FROM memory_jobs
-  `).get(throughputWindowStartMs, throughputWindowStartMs) as {
-    resolved_backlog: number | null;
-    superseded_backlog: number | null;
-    resolved_completed_24h: number | null;
-    superseded_completed_24h: number | null;
-  } | null;
+  `, throughputWindowStartMs, throughputWindowStartMs);
   return {
     enabled: backend.enabled,
     degraded: backend.degraded,
@@ -179,8 +170,7 @@ export function getMemorySystemStatus(): MemorySystemStatus {
   };
 
   function countTable(table: string): number {
-    const row = raw.query(`SELECT COUNT(*) AS c FROM ${table}`).get() as { c: number } | null;
-    return row?.c ?? 0;
+    return rawGet<{ c: number }>(`SELECT COUNT(*) AS c FROM ${table}`)?.c ?? 0;
   }
 }
 

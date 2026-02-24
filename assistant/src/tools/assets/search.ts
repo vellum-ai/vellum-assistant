@@ -12,7 +12,7 @@ import { RiskLevel } from '../../permissions/types.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
-import { getDb } from '../../memory/db.js';
+import { getDb, rawAll } from '../../memory/db.js';
 import { attachments, messageAttachments, messages, conversations } from '../../memory/schema.js';
 import type { StoredAttachment } from '../../memory/attachments-store.js';
 import { isAttachmentVisible, type AttachmentContext } from '../../daemon/media-visibility-policy.js';
@@ -157,11 +157,10 @@ export function searchAttachments(params: AssetSearchParams): StoredAttachment[]
       return [];
     }
 
-    // Use raw SQL IN clause for the attachment ID set
-    const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
     const placeholders = linkedIds.map(() => '?').join(', ');
 
-    // Build WHERE clauses for raw query
+    // Build WHERE clauses for raw query (FTS5 virtual table not involved,
+    // but dynamic IN-list with optional filters is simpler in raw SQL)
     const whereParts: string[] = [`a.id IN (${placeholders})`];
     const bindValues: (string | number)[] = [...linkedIds];
 
@@ -182,15 +181,8 @@ export function searchAttachments(params: AssetSearchParams): StoredAttachment[]
       }
     }
     const limit = Math.min(params.limit ?? DEFAULT_LIMIT, MAX_RESULTS);
-    const stmt = raw.prepare(
-      `SELECT a.id, a.original_filename, a.mime_type, a.size_bytes, a.kind, a.thumbnail_base64, a.created_at
-       FROM attachments a
-       WHERE ${whereParts.join(' AND ')}
-       ORDER BY a.created_at DESC
-       LIMIT ?`,
-    );
 
-    const rows = stmt.all(...bindValues, limit) as Array<{
+    interface AttachmentRow {
       id: string;
       original_filename: string;
       mime_type: string;
@@ -198,7 +190,16 @@ export function searchAttachments(params: AssetSearchParams): StoredAttachment[]
       kind: string;
       thumbnail_base64: string | null;
       created_at: number;
-    }>;
+    }
+
+    const rows = rawAll<AttachmentRow>(
+      `SELECT a.id, a.original_filename, a.mime_type, a.size_bytes, a.kind, a.thumbnail_base64, a.created_at
+       FROM attachments a
+       WHERE ${whereParts.join(' AND ')}
+       ORDER BY a.created_at DESC
+       LIMIT ?`,
+      ...bindValues, limit,
+    );
 
     return rows.map((r) => ({
       id: r.id,

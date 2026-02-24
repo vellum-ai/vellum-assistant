@@ -6,7 +6,7 @@ import { getAnthropicProvider, createTimeout, extractToolUse, userMessage } from
 import { areStatementsCoherent } from './conflict-intent.js';
 import { isConflictKindEligible, isStatementConflictEligible } from './conflict-policy.js';
 import { createOrUpdatePendingConflict } from './conflict-store.js';
-import { getDb } from './db.js';
+import { getDb, rawAll } from './db.js';
 import { enqueueMemoryJob } from './jobs-store.js';
 import { memoryItems } from './schema.js';
 
@@ -124,8 +124,6 @@ interface MemoryItemRow {
  * Uses LIKE queries on subject and keyword overlap on statement.
  */
 function findSimilarItems(item: MemoryItemRow): MemoryItemRow[] {
-  const db = getDb();
-  const raw = (db as unknown as { $client: { query: (q: string) => { all: (...params: unknown[]) => unknown[] } } }).$client;
 
   // Extract significant words from subject for LIKE matching
   const subjectWords = item.subject
@@ -173,7 +171,7 @@ function findSimilarItems(item: MemoryItemRow): MemoryItemRow[] {
   `;
 
   try {
-    const rows = raw.query(sqlQuery).all(item.kind, item.id, item.scopeId) as Array<{
+    interface SimilarItemRow {
       id: string;
       kind: string;
       subject: string;
@@ -183,7 +181,8 @@ function findSimilarItems(item: MemoryItemRow): MemoryItemRow[] {
       importance: number | null;
       scope_id: string;
       last_seen_at: number;
-    }>;
+    }
+    const rows = rawAll<SimilarItemRow>(sqlQuery, item.kind, item.id, item.scopeId);
 
     return rows.map((row) => ({
       id: row.id,

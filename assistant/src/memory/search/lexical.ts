@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray, notInArray } from 'drizzle-orm';
 import { getLogger } from '../../util/logger.js';
-import { getDb } from '../db.js';
+import { getDb, rawAll } from '../db.js';
 import { memorySegments } from '../schema.js';
 import type { Candidate, CandidateType } from './types.js';
 import { computeRecencyScore } from './ranking.js';
@@ -25,31 +25,30 @@ function timedRawQuery<T>(label: string, fn: () => T[]): T[] {
   return result;
 }
 
+interface FtsRow {
+  segment_id: string;
+  message_id: string;
+  text: string;
+  created_at: number;
+  rank: number;
+}
+
 export function lexicalSearch(query: string, limit: number, excludedMessageIds: string[] = [], scopeIds?: string[]): Candidate[] {
   const trimmed = query.trim();
   if (trimmed.length === 0 || limit <= 0) return [];
   const matchQuery = buildFtsMatchQuery(trimmed);
   if (!matchQuery) return [];
   const excluded = new Set(excludedMessageIds);
-  const db = getDb();
-  const raw = (db as unknown as { $client: { query: (q: string) => { all: (...params: unknown[]) => unknown[] } } }).$client;
-  let rows: Array<{
-    segment_id: string;
-    message_id: string;
-    text: string;
-    created_at: number;
-    rank: number;
-  }> = [];
+  let rows: FtsRow[] = [];
   const queryLimit = excluded.size > 0
     ? Math.max(limit + 24, limit * 2)
     : limit;
   const scopeClause = scopeIds
     ? ` AND s.scope_id IN (${scopeIds.map(() => '?').join(',')})`
     : '';
-  const params: unknown[] = [matchQuery, ...(scopeIds ?? []), queryLimit];
   try {
     rows = timedRawQuery('lexicalSearch', () =>
-      raw.query(`
+      rawAll<FtsRow>(`
         SELECT
           f.segment_id AS segment_id,
           s.message_id AS message_id,
@@ -61,14 +60,8 @@ export function lexicalSearch(query: string, limit: number, excludedMessageIds: 
         WHERE memory_segment_fts MATCH ?${scopeClause}
         ORDER BY rank
         LIMIT ?
-      `).all(...params),
-    ) as Array<{
-      segment_id: string;
-      message_id: string;
-      text: string;
-      created_at: number;
-      rank: number;
-    }>;
+      `, matchQuery, ...(scopeIds ?? []), queryLimit),
+    );
   } catch (err) {
     log.warn({ err, query: truncate(trimmed, 80) }, 'Memory lexical search query parse failed');
     return [];
@@ -144,14 +137,12 @@ export function recencySearch(conversationId: string, limit: number, excludedMes
  * Supplements FTS-based lexical search with LIKE-based matching on items.
  */
 export function directItemSearch(query: string, limit: number, scopeIds?: string[]): Candidate[] {
-  const db = getDb();
   const tokens = [...new Set(query
     .toLowerCase()
     .split(/[^a-z0-9_.-]+/g)
     .filter((t) => t.length >= 2))];
   if (tokens.length === 0) return [];
 
-  const raw = (db as unknown as { $client: { query: (q: string) => { all: (...params: unknown[]) => unknown[] } } }).$client;
   const likeClauses = tokens.map(
     () => `(LOWER(subject) LIKE ? OR LOWER(statement) LIKE ?)`,
   );
@@ -169,9 +160,8 @@ export function directItemSearch(query: string, limit: number, scopeIds?: string
     ORDER BY last_seen_at DESC
     LIMIT ?
   `;
-  const params: unknown[] = [...likeParams, ...(scopeIds ?? []), limit];
 
-  let rows: Array<{
+  interface ItemRow {
     id: string;
     kind: string;
     subject: string;
@@ -180,11 +170,13 @@ export function directItemSearch(query: string, limit: number, scopeIds?: string
     importance: number | null;
     first_seen_at: number;
     last_seen_at: number;
-  }> = [];
+  }
+
+  let rows: ItemRow[] = [];
   try {
     rows = timedRawQuery('directItemSearch', () =>
-      raw.query(sqlQuery).all(...params),
-    ) as typeof rows;
+      rawAll<ItemRow>(sqlQuery, ...likeParams, ...(scopeIds ?? []), limit),
+    );
   } catch {
     return [];
   }

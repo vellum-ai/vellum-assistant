@@ -1,12 +1,10 @@
-import { Database } from 'bun:sqlite';
-import { drizzle } from 'drizzle-orm/bun-sqlite';
 import { computeMemoryFingerprint } from './fingerprint.js';
-import type * as schema from './schema.js';
+import { getSqliteFrom, type DrizzleDb } from './db-connection.js';
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('memory-db');
 
-type Db = ReturnType<typeof drizzle<typeof schema>>;
+type Db = DrizzleDb;
 
 /**
  * One-shot migration: reconcile old deferral history into the new `deferrals` column.
@@ -24,7 +22,7 @@ type Db = ReturnType<typeof drizzle<typeof schema>>;
  * We use a `memory_checkpoints` row to ensure the migration runs exactly once.
  */
 export function migrateJobDeferrals(database: Db): void {
-  const raw = (database as unknown as { $client: Database }).$client;
+  const raw = getSqliteFrom(database);
   const checkpoint = raw.query(
     `SELECT 1 FROM memory_checkpoints WHERE key = 'migration_job_deferrals'`
   ).get();
@@ -58,7 +56,7 @@ export function migrateJobDeferrals(database: Db): void {
  * This is idempotent: it checks whether the FK already exists before migrating.
  */
 export function migrateToolInvocationsFk(database: Db): void {
-  const raw = (database as unknown as { $client: Database }).$client;
+  const raw = getSqliteFrom(database);
   const row = raw.query(`SELECT sql FROM sqlite_master WHERE type='table' AND name='tool_invocations'`).get() as { sql: string } | null;
   if (!row) return; // table doesn't exist yet (will be created above)
 
@@ -99,7 +97,7 @@ export function migrateToolInvocationsFk(database: Db): void {
  * version that may not have had trigger-managed FTS.
  */
 export function migrateMemoryFtsBackfill(database: Db): void {
-  const raw = (database as unknown as { $client: Database }).$client;
+  const raw = getSqliteFrom(database);
   const ftsCountRow = raw.query(`SELECT COUNT(*) AS c FROM memory_segment_fts`).get() as { c: number } | null;
   const ftsCount = ftsCountRow?.c ?? 0;
   if (ftsCount > 0) return;
@@ -115,7 +113,7 @@ export function migrateMemoryFtsBackfill(database: Db): void {
  * enforced on (source_entity_id, target_entity_id, relation).
  */
 export function migrateMemoryEntityRelationDedup(database: Db): void {
-  const raw = (database as unknown as { $client: Database }).$client;
+  const raw = getSqliteFrom(database);
   const checkpointKey = 'migration_memory_entity_relations_dedup_v1';
   const checkpoint = raw.query(
     `SELECT 1 FROM memory_checkpoints WHERE key = ?`,
@@ -194,7 +192,7 @@ export function migrateMemoryEntityRelationDedup(database: Db): void {
  * different scopes independently.
  */
 export function migrateMemoryItemsFingerprintScopeUnique(database: Db): void {
-  const raw = (database as unknown as { $client: Database }).$client;
+  const raw = getSqliteFrom(database);
   const checkpointKey = 'migration_memory_items_fingerprint_scope_unique_v1';
   const checkpoint = raw.query(
     `SELECT 1 FROM memory_checkpoints WHERE key = ?`,
@@ -278,7 +276,7 @@ export function migrateMemoryItemsFingerprintScopeUnique(database: Db): void {
  * causing duplicates and broken deduplication.
  */
 export function migrateMemoryItemsScopeSaltedFingerprints(database: Db): void {
-  const raw = (database as unknown as { $client: Database }).$client;
+  const raw = getSqliteFrom(database);
   const checkpointKey = 'migration_memory_items_scope_salted_fingerprints_v1';
   const checkpoint = raw.query(
     `SELECT 1 FROM memory_checkpoints WHERE key = ?`,
@@ -355,7 +353,7 @@ export function migrateMemoryItemsScopeSaltedFingerprints(database: Db): void {
  *     and key-lookup rows are modified.
  */
 export function migrateAssistantIdToSelf(database: Db): void {
-  const raw = (database as unknown as { $client: Database }).$client;
+  const raw = getSqliteFrom(database);
   const checkpointKey = 'migration_normalize_assistant_id_to_self_v1';
   const checkpoint = raw.query(
     `SELECT 1 FROM memory_checkpoints WHERE key = ?`,
@@ -599,7 +597,7 @@ export function migrateAssistantIdToSelf(database: Db): void {
  *   - llm_usage_events        nullable column with no constraint
  */
 export function migrateRemoveAssistantIdColumns(database: Db): void {
-  const raw = (database as unknown as { $client: Database }).$client;
+  const raw = getSqliteFrom(database);
   const checkpointKey = 'migration_remove_assistant_id_columns_v1';
   const checkpoint = raw.query(
     `SELECT 1 FROM memory_checkpoints WHERE key = ?`,
@@ -798,7 +796,7 @@ export function migrateRemoveAssistantIdColumns(database: Db): void {
  * Safe on fresh installs (DDL guard exits early) and idempotent via checkpoint.
  */
 export function migrateLlmUsageEventsDropAssistantId(database: Db): void {
-  const raw = (database as unknown as { $client: Database }).$client;
+  const raw = getSqliteFrom(database);
   const checkpointKey = 'migration_remove_assistant_id_lue_v1';
   const checkpoint = raw.query(
     `SELECT 1 FROM memory_checkpoints WHERE key = ?`,
@@ -878,7 +876,7 @@ export function migrateLlmUsageEventsDropAssistantId(database: Db): void {
  * createdAt) is kept; older duplicates are deleted.
  */
 export function migrateExtConvBindingsChannelChatUnique(database: Db): void {
-  const raw = (database as unknown as { $client: Database }).$client;
+  const raw = getSqliteFrom(database);
 
   // If the unique index already exists, nothing to do.
   const idxExists = raw.query(
@@ -932,7 +930,7 @@ export function migrateExtConvBindingsChannelChatUnique(database: Db): void {
  * For each set of duplicates, the most recently updated row is kept.
  */
 export function migrateCallSessionsProviderSidDedup(database: Db): void {
-  const raw = (database as unknown as { $client: Database }).$client;
+  const raw = getSqliteFrom(database);
 
   // Quick check: if the unique index already exists, no dedup is needed.
   const idxExists = raw.query(
@@ -993,7 +991,7 @@ export function migrateCallSessionsProviderSidDedup(database: Db): void {
  * db-init.ts for similar additive columns).
  */
 export function migrateCallSessionsAddInitiatedFrom(database: Db): void {
-  const raw = (database as unknown as { $client: Database }).$client;
+  const raw = getSqliteFrom(database);
   try {
     raw.exec(/*sql*/ `ALTER TABLE call_sessions ADD COLUMN initiated_from_conversation_id TEXT`);
   } catch {
@@ -1009,7 +1007,7 @@ export function migrateCallSessionsAddInitiatedFrom(database: Db): void {
  * idempotency across restarts.
  */
 export function migrateGuardianActionTables(database: Db): void {
-  const raw = (database as unknown as { $client: Database }).$client;
+  const raw = getSqliteFrom(database);
 
   raw.exec(/*sql*/ `
     CREATE TABLE IF NOT EXISTS guardian_action_requests (

@@ -1,6 +1,6 @@
 import { and, asc, eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
-import { getDb } from './db.js';
+import { getDb, rawAll } from './db.js';
 import { enqueueMemoryJob } from './jobs-store.js';
 import { memoryItemConflicts, memoryItems } from './schema.js';
 
@@ -155,9 +155,25 @@ export function listPendingConflicts(scopeId: string, limit = 100): MemoryItemCo
 
 export function listPendingConflictDetails(scopeId: string, limit = 100): PendingConflictDetail[] {
   if (limit <= 0) return [];
-  const db = getDb();
-  const raw = (db as unknown as { $client: { query: (q: string) => { all: (...params: unknown[]) => unknown[] } } }).$client;
-  const rows = raw.query(`
+  interface ConflictDetailRow {
+    id: string;
+    scope_id: string;
+    existing_item_id: string;
+    candidate_item_id: string;
+    relationship: string;
+    status: MemoryConflictStatus;
+    clarification_question: string | null;
+    resolution_note: string | null;
+    last_asked_at: number | null;
+    resolved_at: number | null;
+    created_at: number;
+    updated_at: number;
+    existing_statement: string;
+    candidate_statement: string;
+    existing_kind: string;
+    candidate_kind: string;
+  }
+  const rows = rawAll<ConflictDetailRow>(`
     SELECT
       c.id,
       c.scope_id,
@@ -182,24 +198,7 @@ export function listPendingConflictDetails(scopeId: string, limit = 100): Pendin
       AND c.status = 'pending_clarification'
     ORDER BY c.created_at ASC
     LIMIT ?
-  `).all(scopeId, limit) as Array<{
-    id: string;
-    scope_id: string;
-    existing_item_id: string;
-    candidate_item_id: string;
-    relationship: string;
-    status: MemoryConflictStatus;
-    clarification_question: string | null;
-    resolution_note: string | null;
-    last_asked_at: number | null;
-    resolved_at: number | null;
-    created_at: number;
-    updated_at: number;
-    existing_statement: string;
-    candidate_statement: string;
-    existing_kind: string;
-    candidate_kind: string;
-  }>;
+  `, scopeId, limit);
 
   return rows.map((row) => ({
     id: row.id,

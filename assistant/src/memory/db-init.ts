@@ -1,5 +1,4 @@
-import { Database } from 'bun:sqlite';
-import { getDb } from './db-connection.js';
+import { getDb, getSqliteFrom } from './db-connection.js';
 import { getLogger } from '../util/logger.js';
 import {
   migrateJobDeferrals,
@@ -595,7 +594,7 @@ export function initializeDb(): void {
   // Deduplicate before creating unique index — existing DBs may have duplicate content_hash values.
   // Re-point message_attachments to the survivor (MIN rowid per content_hash), then delete dupes.
   {
-    const raw = (database as unknown as { $client: Database }).$client;
+    const raw = getSqliteFrom(database);
     raw.exec(/*sql*/ `
       UPDATE message_attachments
       SET attachment_id = (

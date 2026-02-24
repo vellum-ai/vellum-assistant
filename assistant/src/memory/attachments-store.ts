@@ -7,7 +7,7 @@
 
 import { eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
-import { getDb } from './db.js';
+import { getDb, rawRun } from './db.js';
 import { attachments, messageAttachments } from './schema.js';
 
 export interface StoredAttachment {
@@ -386,12 +386,9 @@ export function getAttachmentById(
  */
 export function deleteOrphanAttachments(candidateIds: string[]): number {
   if (candidateIds.length === 0) return 0;
-  const db = getDb();
-  const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
   const placeholders = candidateIds.map(() => '?').join(', ');
-  const stmt = raw.prepare(
+  return rawRun(
     `DELETE FROM attachments WHERE id IN (${placeholders}) AND id NOT IN (SELECT attachment_id FROM message_attachments)`,
+    ...candidateIds,
   );
-  const result = stmt.run(...candidateIds);
-  return result.changes;
 }

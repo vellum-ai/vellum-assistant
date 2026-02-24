@@ -6,7 +6,7 @@
 
 import { eq, lte, or, and, isNull } from 'drizzle-orm';
 import { randomUUID, randomBytes } from 'node:crypto';
-import { getDb } from './db.js';
+import { getDb, rawRun } from './db.js';
 import { sharedAppLinks } from './schema.js';
 import type { AppManifest } from '../bundler/manifest.js';
 
@@ -130,9 +130,8 @@ export function deleteSharedAppLinkByToken(shareToken: string): boolean {
 }
 
 export function incrementDownloadCount(shareToken: string): void {
-  const db = getDb();
-  const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
-  raw.prepare(
+  rawRun(
     `UPDATE shared_app_links SET download_count = download_count + 1 WHERE share_token = ?`,
-  ).run(shareToken);
+    shareToken,
+  );
 }
