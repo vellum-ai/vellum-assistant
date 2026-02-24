@@ -5,7 +5,7 @@ import { handleInbound } from "../../handlers/handle-inbound.js";
 import { getLogger } from "../../logger.js";
 import { RejectionRateLimiter } from "../../rejection-rate-limiter.js";
 import { resolveAssistant, isRejection } from "../../routing/resolve-assistant.js";
-import { resetConversation } from "../../runtime/client.js";
+import { CircuitBreakerOpenError, resetConversation } from "../../runtime/client.js";
 import { markWhatsAppMessageRead } from "../../whatsapp/api.js";
 import { normalizeWhatsAppWebhook } from "../../whatsapp/normalize.js";
 import { sendWhatsAppReply } from "../../whatsapp/send.js";
@@ -207,6 +207,13 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
         dedupCache.mark(whatsappMessageId);
         tlog.info({ status: "forwarded", whatsappMessageId }, "WhatsApp message forwarded to runtime");
       } catch (err) {
+        if (err instanceof CircuitBreakerOpenError) {
+          tlog.warn({ retryAfterSecs: err.retryAfterSecs }, "Circuit breaker open — returning 503");
+          return Response.json(
+            { error: "Service temporarily unavailable" },
+            { status: 503, headers: { "Retry-After": String(err.retryAfterSecs) } },
+          );
+        }
         tlog.error({ err, whatsappMessageId }, "Failed to process inbound WhatsApp message");
         dedupCache.unreserve(whatsappMessageId);
         hasFailure = true;

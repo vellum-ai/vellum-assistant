@@ -180,7 +180,7 @@ export async function forwardToRuntime(
   payload: RuntimeInboundPayload,
   options?: ForwardOptions,
 ): Promise<RuntimeInboundResponse> {
-  cbBeforeRequest();
+  const isHalfOpenProbe = cbBeforeRequest();
 
   const url = `${config.assistantRuntimeBaseUrl}/v1/assistants/${encodeURIComponent(assistantId)}/channels/inbound`;
 
@@ -191,7 +191,11 @@ export async function forwardToRuntime(
 
   let lastError: Error | null = null;
 
-  for (let attempt = 0; attempt <= config.runtimeMaxRetries; attempt++) {
+  // Half-open probes get a single attempt — retries would defeat the
+  // purpose of cautiously testing whether the runtime has recovered.
+  const maxRetries = isHalfOpenProbe ? 0 : config.runtimeMaxRetries;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
     if (attempt > 0) {
       const delay = config.runtimeInitialBackoffMs * Math.pow(2, attempt - 1);
       log.debug({ attempt, delay, assistantId }, "Retrying runtime forward");
