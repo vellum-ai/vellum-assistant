@@ -632,6 +632,32 @@ export async function handleChannelInbound(
         if (matchedDelivery) {
           const request = getGuardianActionRequest(matchedDelivery.requestId);
           if (request) {
+            // Attempt to deliver the answer to the call first. Only resolve
+            // the guardian action request if answerCall succeeds, so that a
+            // failed delivery (e.g. pending question timed out) leaves the
+            // request pending for retry from another channel.
+            const answerResult = await answerCall({ callSessionId: request.callSessionId, answer: answerText });
+
+            if (!('ok' in answerResult) || !answerResult.ok) {
+              const errorMsg = 'error' in answerResult ? answerResult.error : 'Unknown error';
+              log.warn({ callSessionId: request.callSessionId, error: errorMsg }, 'answerCall failed for guardian answer');
+              try {
+                await deliverChannelReply(replyCallbackUrl, {
+                  chatId: externalChatId,
+                  text: 'Failed to deliver your answer to the call. Please try again.',
+                  assistantId,
+                }, bearerToken);
+              } catch (deliverErr) {
+                log.error({ err: deliverErr, externalChatId }, 'Failed to deliver guardian answer failure notice');
+              }
+              return Response.json({
+                accepted: true,
+                duplicate: false,
+                eventId: result.eventId,
+                guardianAnswer: 'answer_failed',
+              });
+            }
+
             const resolved = resolveGuardianActionRequest(
               request.id,
               answerText,
@@ -640,8 +666,6 @@ export async function handleChannelInbound(
             );
 
             if (resolved) {
-              // Route the answer to the voice call
-              void answerCall({ callSessionId: request.callSessionId, answer: answerText });
               return Response.json({
                 accepted: true,
                 duplicate: false,

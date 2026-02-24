@@ -58,7 +58,7 @@ export function sweepExpiredGuardianActions(
         addMessage(
           delivery.destinationConversationId,
           'assistant',
-          JSON.stringify('This guardian question has expired without a response.'),
+          JSON.stringify([{ type: 'text', text: 'This guardian question has expired without a response.' }]),
         );
       } else if (delivery.destinationChatId) {
         // External channel — send expiry notice

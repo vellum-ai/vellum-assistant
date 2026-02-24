@@ -109,6 +109,14 @@ export interface RelayWebSocketData {
 /** Active relay connections keyed by callSessionId. */
 export const activeRelayConnections = new Map<string, RelayConnection>();
 
+/** Module-level broadcast function, set by the HTTP server during startup. */
+let globalBroadcast: ((msg: import('../daemon/ipc-contract.js').ServerMessage) => void) | undefined;
+
+/** Register a broadcast function so RelayConnection can forward IPC events. */
+export function setRelayBroadcast(fn: (msg: import('../daemon/ipc-contract.js').ServerMessage) => void): void {
+  globalBroadcast = fn;
+}
+
 // ── RelayConnection ──────────────────────────────────────────────────
 
 /**
@@ -336,7 +344,10 @@ export class RelayConnection {
     });
 
     // Create and attach the LLM-driven orchestrator
-    const orchestrator = new CallOrchestrator(this.callSessionId, this, session?.task ?? null);
+    const orchestrator = new CallOrchestrator(this.callSessionId, this, session?.task ?? null, {
+      broadcast: globalBroadcast,
+      assistantId: session?.assistantId ?? 'self',
+    });
     this.setOrchestrator(orchestrator);
 
     // Check if callee verification is enabled
