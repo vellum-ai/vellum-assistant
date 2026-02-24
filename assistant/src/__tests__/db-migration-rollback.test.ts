@@ -20,6 +20,7 @@ import {
   migrateMemoryItemsFingerprintScopeUnique,
   validateMigrationState,
   MIGRATION_REGISTRY,
+  type MigrationValidationResult,
 } from '../memory/schema-migration.js';
 import { getSqliteFrom } from '../memory/db-connection.js';
 
@@ -302,8 +303,13 @@ describe('crash-between-migrations: consistent state on re-run', () => {
   });
 
   test('crash in transaction: rolled-back migration leaves DB in pre-migration state', () => {
-    // Verify that a transaction that fails mid-way rolls back cleanly — the DB
-    // remains in the pre-migration state and the checkpoint is NOT written.
+    // Verify that when migrateMemoryEntityRelationDedup fails mid-transaction, it
+    // rolls back cleanly — the DB remains in the pre-migration state and the
+    // checkpoint is NOT written.
+    //
+    // We force the migration to fail by installing a trigger that raises an error
+    // on the first INSERT into memory_entity_relations (which happens after the
+    // DELETE). The migration's catch block calls ROLLBACK, restoring the deleted rows.
     const db = createTestDb();
     const raw = getRaw(db);
 
@@ -317,23 +323,32 @@ describe('crash-between-migrations: consistent state on re-run', () => {
     const countBefore = (raw.query(`SELECT COUNT(*) AS c FROM memory_entity_relations`).get() as { c: number }).c;
     expect(countBefore).toBe(2);
 
-    // Simulate a failed transaction manually to verify rollback semantics.
-    try {
-      raw.exec('BEGIN');
-      raw.exec(`DELETE FROM memory_entity_relations`);
-      // Force a constraint violation to trigger rollback.
-      raw.exec(`INSERT INTO memory_entity_relations VALUES ('r1', 'e1', 'e2', 'knows', NULL, ${now}, ${now})`);
-      raw.exec(`INSERT INTO memory_entity_relations VALUES ('r1', 'e1', 'e2', 'knows', NULL, ${now}, ${now})`); // duplicate PK
-      raw.exec('COMMIT');
-    } catch {
-      try { raw.exec('ROLLBACK'); } catch { /* ignore */ }
-    }
+    // Install a trigger that raises an error on the first INSERT, causing the
+    // migration's transaction to abort partway through.
+    raw.exec(`
+      CREATE TRIGGER fail_on_insert AFTER INSERT ON memory_entity_relations
+      BEGIN
+        SELECT RAISE(ABORT, 'simulated failure for rollback test');
+      END
+    `);
 
-    // After rollback: row count should be unchanged.
+    // Run the actual migration function — it should fail and roll back.
+    let threw = false;
+    try {
+      migrateMemoryEntityRelationDedup(db);
+    } catch {
+      threw = true;
+    }
+    expect(threw).toBe(true);
+
+    // Remove the trigger so subsequent assertions can query freely.
+    raw.exec(`DROP TRIGGER IF EXISTS fail_on_insert`);
+
+    // After rollback: row count must be unchanged (DELETE was rolled back).
     const countAfter = (raw.query(`SELECT COUNT(*) AS c FROM memory_entity_relations`).get() as { c: number }).c;
     expect(countAfter).toBe(2);
 
-    // No checkpoint should have been written.
+    // No checkpoint should have been written (COMMIT never executed).
     const cp = raw.query(
       `SELECT 1 FROM memory_checkpoints WHERE key = 'migration_memory_entity_relations_dedup_v1'`
     ).get();
@@ -402,15 +417,13 @@ describe('schema-drift recovery: migration handles unexpected schema state', () 
     // A completed checkpoint should not be flagged.
     raw.exec(`INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('migration_memory_entity_relations_dedup_v1', '1', ${now})`);
 
-    // validateMigrationState logs warnings for crashed migrations but does not throw.
-    // We verify it completes without throwing (the warnings go to the logger).
-    expect(() => validateMigrationState(db)).not.toThrow();
-
-    // Verify the raw logic: 'started' rows are the ones that would be flagged.
-    const rows = raw.query(`SELECT key, value FROM memory_checkpoints`).all() as Array<{ key: string; value: string }>;
-    const crashed = rows.filter((r) => r.value === 'started').map((r) => r.key);
-    expect(crashed).toContain('migration_job_deferrals');
-    expect(crashed).not.toContain('migration_memory_entity_relations_dedup_v1');
+    // validateMigrationState logs warnings for crashed migrations and returns
+    // structured diagnostic data. Assert directly on the returned result rather
+    // than re-deriving the crashed list from the raw DB — this verifies the
+    // function itself detects the crash, not just that the data is present.
+    const result: MigrationValidationResult = validateMigrationState(db);
+    expect(result.crashed).toContain('migration_job_deferrals');
+    expect(result.crashed).not.toContain('migration_memory_entity_relations_dedup_v1');
   });
 
   test('validateMigrationState: detects dependency violation (child complete, parent missing)', () => {
@@ -432,20 +445,20 @@ describe('schema-drift recovery: migration handles unexpected schema state', () 
     `);
 
     // validateMigrationState should not throw — it logs errors but continues.
-    expect(() => validateMigrationState(db)).not.toThrow();
+    // Assert directly on the returned result to verify the function itself reports
+    // the dependency violation (not just that the registry declares a dependency).
+    const result: MigrationValidationResult = validateMigrationState(db);
+    expect(result.dependencyViolations).toHaveLength(1);
+    expect(result.dependencyViolations[0].migration).toBe('migration_memory_items_scope_salted_fingerprints_v1');
+    expect(result.dependencyViolations[0].missingDependency).toBe('migration_memory_items_fingerprint_scope_unique_v1');
 
-    // Verify the dependency violation is detectable by inspecting the registry.
+    // Sanity-check: confirm the registry also declares this dependency, so the
+    // violation detection is grounded in real schema intent.
     const saltedEntry = MIGRATION_REGISTRY.find(
       (e) => e.key === 'migration_memory_items_scope_salted_fingerprints_v1',
     );
     expect(saltedEntry).toBeTruthy();
     expect(saltedEntry!.dependsOn).toContain('migration_memory_items_fingerprint_scope_unique_v1');
-
-    // The prerequisite has no checkpoint — this is the schema drift scenario.
-    const parentCheckpoint = raw.query(
-      `SELECT 1 FROM memory_checkpoints WHERE key = 'migration_memory_items_fingerprint_scope_unique_v1'`
-    ).get();
-    expect(parentCheckpoint).toBeNull();
   });
 
   test('validateMigrationState: no checkpoints table is handled gracefully', () => {
