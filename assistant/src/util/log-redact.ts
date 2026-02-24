@@ -107,15 +107,56 @@ function redactValue(value: unknown, depth: number): unknown {
 }
 
 // ---------------------------------------------------------------------------
+// Error serialization — extracts non-enumerable Error fields and cause chain
+// ---------------------------------------------------------------------------
+
+function serializeError(err: unknown, depth: number): unknown {
+  if (depth > 8 || err === null || err === undefined) return err;
+
+  if (!(err instanceof Error)) {
+    return err;
+  }
+
+  const serialized: Record<string, unknown> = {
+    name: err.name,
+    message: err.message,
+  };
+
+  // AssistantError and subclasses carry a structured ErrorCode
+  if ('code' in err && typeof (err as { code: unknown }).code === 'string') {
+    serialized.code = (err as { code: string }).code;
+  }
+
+  if (err.stack) {
+    serialized.stack = err.stack;
+  }
+
+  // Walk the cause chain recursively
+  if (err.cause !== undefined) {
+    serialized.cause = serializeError(err.cause, depth + 1);
+  }
+
+  // Preserve any additional enumerable properties (e.g. provider, statusCode, toolName)
+  for (const [key, val] of Object.entries(err)) {
+    if (!(key in serialized)) {
+      serialized[key] = val;
+    }
+  }
+
+  return serialized;
+}
+
+// ---------------------------------------------------------------------------
 // Pino serializers
 // ---------------------------------------------------------------------------
 
 /**
- * Pino serializer for the `err` binding — redacts secrets from error messages,
- * stacks, and any attached properties.
+ * Pino serializer for the `err` binding — extracts non-enumerable Error fields
+ * (name, message, stack), structured codes, and cause chains, then redacts
+ * secrets from the result.
  */
 function errSerializer(err: unknown): unknown {
-  return redactValue(err, 0);
+  return redactValue(serializeError(err, 0), 0);
 }
 
 /**
