@@ -266,13 +266,13 @@ struct QRPairingSheet: View {
     private func handleScannedCode(_ code: String) {
         guard let data = code.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            errorMessage = "Invalid QR code. Please scan the QR code from the Vellum Mac app."
+            errorMessage = "This doesn't look like a Vellum QR code. Open Vellum on your Mac \u{2192} Settings \u{2192} Connect \u{2192} Show QR Code."
             phase = .error
             return
         }
 
         guard json["type"] as? String == "vellum-daemon" else {
-            errorMessage = "This QR code is not from Vellum. Open Vellum on your Mac and scan the QR code from Settings \u{2192} Connect."
+            errorMessage = "This QR code isn't from Vellum. Open Vellum on your Mac \u{2192} Settings \u{2192} Connect \u{2192} Show QR Code."
             phase = .error
             return
         }
@@ -281,7 +281,7 @@ struct QRPairingSheet: View {
 
         // Reject v1 and older payloads — require v2 with gateway URL
         guard version >= 2, json["g"] != nil else {
-            errorMessage = "This QR code is from an older version of Vellum. Please update Vellum on your Mac to pair."
+            errorMessage = "This QR code is from an older version of Vellum. Update Vellum on your Mac and scan again."
             phase = .error
             return
         }
@@ -289,7 +289,7 @@ struct QRPairingSheet: View {
         guard let gatewayURL = json["g"] as? String,
               let bearerToken = json["bt"] as? String,
               let hostId = json["id"] as? String else {
-            errorMessage = "QR code is missing required fields. Please regenerate the QR code on your Mac."
+            errorMessage = "QR code is missing required fields. Open Settings \u{2192} Connect on your Mac and tap Show QR Code to regenerate."
             phase = .error
             return
         }
@@ -313,7 +313,7 @@ struct QRPairingSheet: View {
             // v3: QR payload carries the permission
             // v2 fallback: check iOS developer toggle
             if !allowLocalHttp && !devLocalPairingEnabled {
-                errorMessage = "Enable 'Allow Local HTTP Connections' under Developer Options in connection settings."
+                errorMessage = "This QR code uses a local network connection. Enable Developer Local Pairing on your Mac and rescan."
                 phase = .error
                 return
             }
@@ -397,7 +397,7 @@ struct QRPairingSheet: View {
                 }
             } catch {
                 await MainActor.run {
-                    errorMessage = "Connection failed: \(error.localizedDescription)"
+                    errorMessage = "Couldn't reach your Mac: \(error.localizedDescription). Make sure both devices are on the same network and the Vellum daemon is running."
                     phase = .error
                 }
             }
