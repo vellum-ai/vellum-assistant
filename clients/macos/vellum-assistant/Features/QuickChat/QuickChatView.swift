@@ -6,6 +6,7 @@ struct QuickChatView: View {
     let onDismiss: () -> Void
 
     @State private var text = ""
+    @State private var isPresented = false
     @FocusState private var isFocused: Bool
 
     private let panelWidth: CGFloat = 400
@@ -51,8 +52,12 @@ struct QuickChatView: View {
             VisualEffectBlur(material: .hudWindow, blendingMode: .behindWindow)
         )
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        .scaleEffect(isPresented ? 1.0 : 0.95)
         .onAppear {
             isFocused = true
+            withAnimation(VAnimation.fast) {
+                isPresented = true
+            }
         }
     }
 
