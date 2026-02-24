@@ -12,10 +12,33 @@ import { startCall, getCallStatus, cancelCall, answerCall, relayInstruction } fr
 import { getConfig } from '../../config/loader.js';
 import { VALID_CALLER_IDENTITY_MODES } from '../../config/schema.js';
 
+// ── Idempotency cache ─────────────────────────────────────────────────────────
+// Stores serialized 201 responses keyed by idempotencyKey for 5 minutes so
+// that network-retry duplicates from the client don't start a second call.
+
+const IDEMPOTENCY_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+interface IdempotencyEntry {
+  body: unknown;
+  expiresAt: number;
+}
+
+const idempotencyCache = new Map<string, IdempotencyEntry>();
+
+function pruneIdempotencyCache(): void {
+  const now = Date.now();
+  for (const [key, entry] of idempotencyCache) {
+    if (entry.expiresAt <= now) idempotencyCache.delete(key);
+  }
+}
+
 /**
  * POST /v1/calls/start
  *
- * Body: { phoneNumber: string; task: string; context?: string; conversationId: string; callerIdentityMode?: 'assistant_number' | 'user_number' }
+ * Body: { phoneNumber: string; task: string; context?: string; conversationId: string; callerIdentityMode?: 'assistant_number' | 'user_number'; idempotencyKey?: string }
+ *
+ * Optional `idempotencyKey`: if supplied, duplicate requests with the same key
+ * within 5 minutes return the cached 201 response without starting a second call.
  */
 export async function handleStartCall(req: Request, assistantId: string = 'self'): Promise<Response> {
   if (!getConfig().calls.enabled) {
@@ -31,6 +54,7 @@ export async function handleStartCall(req: Request, assistantId: string = 'self'
     context?: string;
     conversationId?: string;
     callerIdentityMode?: 'assistant_number' | 'user_number';
+    idempotencyKey?: string;
   };
   try {
     body = await req.json() as typeof body;
@@ -54,6 +78,19 @@ export async function handleStartCall(req: Request, assistantId: string = 'self'
     );
   }
 
+  // Idempotency check: return cached response for duplicate requests
+  const idempotencyKey = typeof body.idempotencyKey === 'string' && body.idempotencyKey
+    ? body.idempotencyKey
+    : null;
+
+  if (idempotencyKey) {
+    pruneIdempotencyCache();
+    const cached = idempotencyCache.get(idempotencyKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return Response.json(cached.body, { status: 201 });
+    }
+  }
+
   const result = await startCall({
     phoneNumber: body.phoneNumber ?? '',
     task: body.task ?? '',
@@ -67,14 +104,20 @@ export async function handleStartCall(req: Request, assistantId: string = 'self'
     return Response.json({ error: result.error }, { status: result.status ?? 500 });
   }
 
-  return Response.json({
+  const responseBody = {
     callSessionId: result.session.id,
     callSid: result.callSid,
     status: result.session.status,
     toNumber: result.session.toNumber,
     fromNumber: result.session.fromNumber,
     callerIdentityMode: result.callerIdentityMode,
-  }, { status: 201 });
+  };
+
+  if (idempotencyKey) {
+    idempotencyCache.set(idempotencyKey, { body: responseBody, expiresAt: Date.now() + IDEMPOTENCY_TTL_MS });
+  }
+
+  return Response.json(responseBody, { status: 201 });
 }
 
 /**
