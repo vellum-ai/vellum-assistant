@@ -84,16 +84,23 @@ async function exchangeCodeForTokens(
     grant_type: 'authorization_code',
     code,
     redirect_uri: redirectUri,
-    client_id: config.clientId,
     code_verifier: codeVerifier,
   };
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/x-www-form-urlencoded',
+  };
+
   if (config.clientSecret) {
-    tokenBody.client_secret = config.clientSecret;
+    const credentials = Buffer.from(`${config.clientId}:${config.clientSecret}`).toString('base64');
+    headers['Authorization'] = `Basic ${credentials}`;
+  } else {
+    tokenBody.client_id = config.clientId;
   }
 
   const tokenResp = await fetch(config.tokenUrl, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    headers,
     body: new URLSearchParams(tokenBody),
   });
 
