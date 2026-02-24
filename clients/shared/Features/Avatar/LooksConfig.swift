@@ -140,4 +140,20 @@ public struct LooksConfig: Equatable {
             heldItem: heldItem
         )
     }
+
+    /// Look up the resolved String value for a given AppearanceField.
+    /// Returns nil for optional color fields that are not set.
+    public func value(for field: AvatarEvolutionState.AppearanceField) -> String? {
+        switch field {
+        case .bodyColor:      return bodyColor
+        case .cheekColor:     return cheekColor
+        case .hat:            return hat
+        case .hatColor:       return hatColor
+        case .shirt:          return shirt
+        case .shirtColor:     return shirtColor
+        case .accessory:      return accessory
+        case .accessoryColor: return accessoryColor
+        case .heldItem:       return heldItem
+        }
+    }
 }

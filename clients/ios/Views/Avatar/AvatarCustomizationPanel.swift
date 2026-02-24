@@ -379,11 +379,18 @@ struct AvatarCustomizationPanel: View {
 
     /// Toggle lock on a field. Unlocking removes the override so the resolver
     /// falls back to trait-based values and auto-evolution can control the field.
+    /// Locking captures the current resolved value as an override so the displayed
+    /// appearance is preserved — without this, locked fields would fall back to defaults.
     private func toggleLock(field: AvatarEvolutionState.AppearanceField) {
         if evolutionState.lockedFields.contains(field) {
             evolutionState.lockedFields.remove(field)
             evolutionState.userOverrides.removeValue(forKey: field)
         } else {
+            // Resolve without the lock so we can snapshot the current effective value
+            let currentResolved = AvatarEvolutionResolver.resolve(state: evolutionState)
+            if let currentValue = currentResolved.value(for: field) {
+                evolutionState.userOverrides[field] = currentValue
+            }
             evolutionState.lockedFields.insert(field)
         }
         resolveAndApply()

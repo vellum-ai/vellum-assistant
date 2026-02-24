@@ -36,7 +36,6 @@ struct EvolvingAvatarView: View {
             avatarImageView
                 .scaleEffect(x: breatheScaleX, y: breatheScaleY, anchor: .bottom)
                 .scaleEffect(appeared ? 1.0 : 0.0, anchor: .bottom)
-                .opacity(evolutionState.unlockedFeatures.contains(.blob) ? 1.0 : 0.0)
         }
         .onChange(of: evolutionState.unlockedFeatures.count) { oldCount, newCount in
             if newCount > oldCount {
@@ -77,15 +76,17 @@ struct EvolvingAvatarView: View {
         return .violet
     }
 
-    /// Progressive opacity based on unlock level
+    /// Progressive opacity based on unlock level.
+    /// Falls back to a visible baseline so the avatar preview renders even before onboarding
+    /// milestones have been recorded (e.g. when opened directly from Settings on iOS).
     private var avatarOpacity: Double {
         let features = evolutionState.unlockedFeatures
         if features.contains(.fullExpression) { return 1.0 }
         if features.contains(.baseBody) { return 0.95 }
         if features.contains(.coreFace) { return 0.85 }
         if features.contains(.eyes) { return 0.75 }
-        if features.contains(.blob) { return 0.6 }
-        return 0.0
+        // Baseline: show at blob-level opacity so the customization panel is never blank
+        return 0.6
     }
 
     private func startBreathing() {
@@ -108,7 +109,8 @@ struct EvolvingAvatarView: View {
 // MARK: - Blob Avatar Shape
 
 /// Draws the blob avatar using SwiftUI Canvas — works cross-platform without AppKit.
-/// Renders the same warm-tan organic blob with eyes as the macOS NSImage-based version.
+/// Colors are driven entirely by the supplied DinoPalette so body/cheek customization
+/// is reflected in the live preview.
 private struct BlobAvatarShape: View {
     let palette: DinoPalette
 
@@ -143,13 +145,13 @@ private struct BlobAvatarShape: View {
         }
         path.closeSubpath()
 
-        // Fill: warm tan (#E3DCB6) — the fixed neutral that reads in both light and dark
-        context.fill(path, with: .color(Color(red: 0xE3/255.0, green: 0xDC/255.0, blue: 0xB6/255.0)))
+        // Fill with palette mid shade — mirrors PixelSpriteBuilder.buildBlobNSImage on macOS
+        context.fill(path, with: .color(Color(hex: UInt(palette.mid))))
 
-        // Outline stroke: dark (#1C1917)
+        // Outline stroke using palette outline (darkest body shade)
         context.stroke(
             path,
-            with: .color(Color(red: 0x1C/255.0, green: 0x19/255.0, blue: 0x17/255.0)),
+            with: .color(Color(hex: UInt(palette.outline))),
             lineWidth: max(1.5, nominalRadius * 0.06)
         )
 
@@ -163,7 +165,7 @@ private struct BlobAvatarShape: View {
         for sign: CGFloat in [-1.0, 1.0] {
             let ex = centerX + sign * eyeSpacing
 
-            // White sclera
+            // White sclera (eyeWhite is always 0xFFFFFF per DinoPalette)
             let scleraRect = CGRect(
                 x: ex - eyeOuterRadius,
                 y: eyeY - eyeOuterRadius,
@@ -173,18 +175,18 @@ private struct BlobAvatarShape: View {
             context.fill(Path(ellipseIn: scleraRect), with: .color(.white))
             context.stroke(
                 Path(ellipseIn: scleraRect),
-                with: .color(Color(red: 0x1C/255.0, green: 0x19/255.0, blue: 0x17/255.0)),
+                with: .color(Color(hex: UInt(palette.pupil))),
                 lineWidth: max(0.8, nominalRadius * 0.03)
             )
 
-            // Dark pupil
+            // Pupil using palette pupil color
             let pupilRect = CGRect(
                 x: ex - pupilRadius,
                 y: eyeY - pupilRadius,
                 width: pupilRadius * 2,
                 height: pupilRadius * 2
             )
-            context.fill(Path(ellipseIn: pupilRect), with: .color(Color(red: 0x1C/255.0, green: 0x19/255.0, blue: 0x17/255.0)))
+            context.fill(Path(ellipseIn: pupilRect), with: .color(Color(hex: UInt(palette.pupil))))
         }
     }
 }
