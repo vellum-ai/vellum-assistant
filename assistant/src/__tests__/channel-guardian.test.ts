@@ -985,33 +985,33 @@ describe('guardian service rate limiting', () => {
   test('rate-limit uses generic failure message (no oracle leakage)', () => {
     createVerificationChallenge('asst-1', 'telegram');
 
-    // Trigger rate limit
-    for (let i = 0; i < 5; i++) {
+    // Capture a normal invalid-code failure response
+    const normalFailure = validateAndConsumeChallenge(
+      'asst-1', 'telegram', 'wrong-first', 'user-42', 'chat-42',
+    );
+    expect(normalFailure.success).toBe(false);
+    const normalReason = (normalFailure as { reason: string }).reason;
+
+    // Trigger rate limit (4 more attempts to reach 5 total)
+    for (let i = 0; i < 4; i++) {
       validateAndConsumeChallenge(
         'asst-1', 'telegram', `wrong-${i}`, 'user-42', 'chat-42',
       );
     }
 
-    // Capture rate-limited failure reason
-    const rateLimitResult = validateAndConsumeChallenge(
+    // The rate-limited response should be indistinguishable from normal failure
+    const rateLimitedResult = validateAndConsumeChallenge(
       'asst-1', 'telegram', 'anything', 'user-42', 'chat-42',
     );
-    expect(rateLimitResult.success).toBe(false);
+    expect(rateLimitedResult.success).toBe(false);
+    const rateLimitedReason = (rateLimitedResult as { reason: string }).reason;
 
-    // Capture a normal invalid-code failure reason (different user, not rate-limited)
-    createVerificationChallenge('asst-1', 'telegram');
-    const invalidCodeResult = validateAndConsumeChallenge(
-      'asst-1', 'telegram', 'wrong-code', 'user-99', 'chat-99',
-    );
-    expect(invalidCodeResult.success).toBe(false);
+    // Anti-oracle: both responses must be identical
+    expect(rateLimitedReason).toBe(normalReason);
 
-    // Anti-oracle: both failure paths must return an identical message,
-    // proving that rate-limited and invalid-code responses are indistinguishable
-    expect((rateLimitResult as { reason: string }).reason).toBe(
-      (invalidCodeResult as { reason: string }).reason,
-    );
-    // The message should never mention "rate limit" explicitly
-    expect((rateLimitResult as { reason: string }).reason).not.toContain('rate limit');
+    // Neither should reveal rate-limiting info
+    expect(rateLimitedReason).not.toContain('rate limit');
+    expect(normalReason).not.toContain('rate limit');
   });
 
   test('rate limit does not affect different actors', () => {
