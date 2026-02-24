@@ -250,6 +250,7 @@ export function wireEscalationHandler(
       interactionType: 'computer_use',
       task,
       escalatedFrom: sourceSessionId,
+      requiresRecording: isRecordingRequested || undefined,
     });
 
     return true;

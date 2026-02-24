@@ -117,6 +117,8 @@ export interface TaskRouted {
   task?: string;
   /** Set when a text_qa session escalates to computer_use via computer_use_request_control. */
   escalatedFrom?: string;
+  /** When true, the client should start screen recording for this session. */
+  requiresRecording?: boolean;
 }
 
 export interface RideShotgunProgress {

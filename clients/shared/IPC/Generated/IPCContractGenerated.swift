@@ -4196,13 +4196,16 @@ public struct IPCTaskRouted: Codable, Sendable {
     public let task: String?
     /// Set when a text_qa session escalates to computer_use via computer_use_request_control.
     public let escalatedFrom: String?
+    /// When true, the client should start screen recording for this session.
+    public let requiresRecording: Bool?
 
-    public init(type: String, sessionId: String, interactionType: String, task: String? = nil, escalatedFrom: String? = nil) {
+    public init(type: String, sessionId: String, interactionType: String, task: String? = nil, escalatedFrom: String? = nil, requiresRecording: Bool? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.interactionType = interactionType
         self.task = task
         self.escalatedFrom = escalatedFrom
+        self.requiresRecording = requiresRecording
     }
 }
 

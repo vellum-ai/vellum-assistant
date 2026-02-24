@@ -72,8 +72,9 @@ export async function handleTaskSubmit(
     const isRecordingRequested = detectRecordingIntent(msg.task);
     rlog.info({ interactionType, isRecordingRequested, slashBypass: slashCandidate.kind === 'candidate', taskLength: msg.task.length }, 'Task classified');
 
-    // Recording always requires computer_use — override text_qa when recording is requested
-    const effectiveType = (interactionType === 'text_qa' && isRecordingRequested)
+    // Recording requires computer_use — but only override when this is NOT a slash candidate,
+    // so that slash-command routing (e.g. "/do record my screen ...") is preserved.
+    const effectiveType = (isRecordingRequested && slashCandidate.kind !== 'candidate')
       ? 'computer_use' as const
       : interactionType;
 
@@ -96,6 +97,7 @@ export async function handleTaskSubmit(
         type: 'task_routed',
         sessionId,
         interactionType: 'computer_use',
+        requiresRecording: isRecordingRequested || undefined,
       });
     } else {
       // Create text QA session and immediately start processing
