@@ -36,11 +36,21 @@ public struct ConfirmationSurfaceView: View {
         return "confirm"
     }
 
+    /// Composite identity for detecting data changes from surface updates.
+    private var dataIdentity: String {
+        "\(data.message)|\(data.detail ?? "")|\(data.confirmLabel ?? "")|\(data.cancelLabel ?? "")|\(data.destructive)"
+    }
+
     public var body: some View {
-        if let selectedAction {
-            selectedActionFeedback(selectedAction)
-        } else {
-            pendingContent
+        Group {
+            if let selectedAction {
+                selectedActionFeedback(selectedAction)
+            } else {
+                pendingContent
+            }
+        }
+        .onChange(of: dataIdentity) { _, _ in
+            selectedAction = nil
         }
     }
 
