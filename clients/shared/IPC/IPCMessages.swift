@@ -2159,6 +2159,7 @@ public enum ServerMessage: Decodable, Sendable {
     case workspaceFilesListResponse(WorkspaceFilesListResponseMessage)
     case workspaceFileReadResponse(WorkspaceFileReadResponseMessage)
     case identityGetResponse(IdentityGetResponseMessage)
+    case channelReadinessResponse(IPCChannelReadinessResponse)
     case pong
     case unknown(String)
 
@@ -2522,6 +2523,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "identity_get_response":
             let message = try IdentityGetResponseMessage(from: decoder)
             self = .identityGetResponse(message)
+        case "channel_readiness_response":
+            let message = try IPCChannelReadinessResponse(from: decoder)
+            self = .channelReadinessResponse(message)
         case "pong":
             self = .pong
         default:
