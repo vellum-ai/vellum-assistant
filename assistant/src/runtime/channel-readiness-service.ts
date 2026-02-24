@@ -167,6 +167,30 @@ const smsProbe: ChannelProbe = {
 
 // ── Voice Probe ─────────────────────────────────────────────────────────────
 
+/**
+ * Resolve voice from-number with the same precedence as SMS:
+ * assistant mapping -> env override -> config sms.phoneNumber -> secure key fallback.
+ *
+ * Voice and SMS share the same Twilio phone number infrastructure, so the
+ * resolution logic is identical to resolveSmsPhoneNumber.
+ */
+function resolveVoicePhoneNumber(assistantId?: string): string {
+  try {
+    const raw = loadRawConfig();
+    const smsConfig = (raw?.sms ?? {}) as Record<string, unknown>;
+    const mapped = getAssistantMappedPhoneNumber(smsConfig, assistantId);
+    return mapped
+      || process.env.TWILIO_PHONE_NUMBER
+      || (smsConfig.phoneNumber as string)
+      || getSecureKey('credential:twilio:phone_number')
+      || '';
+  } catch {
+    return process.env.TWILIO_PHONE_NUMBER
+      || getSecureKey('credential:twilio:phone_number')
+      || '';
+  }
+}
+
 const voiceProbe: ChannelProbe = {
   channel: 'voice',
   runLocalChecks(context?: ChannelProbeContext): ReadinessCheckResult[] {
@@ -181,16 +205,18 @@ const voiceProbe: ChannelProbe = {
         : 'Twilio Account SID and Auth Token are not configured',
     });
 
-    const phoneNumber = process.env.TWILIO_PHONE_NUMBER
-      || getSecureKey('credential:twilio:phone_number')
-      || '';
-    const hasPhone = !!phoneNumber;
+    const resolvedNumber = resolveVoicePhoneNumber(context?.assistantId);
+    const hasPhone = !!resolvedNumber || (!context?.assistantId && hasAnyAssistantMappedPhoneNumberSafe());
     results.push({
       name: 'phone_number',
       passed: hasPhone,
       message: hasPhone
-        ? 'Phone number is assigned for voice calls'
-        : 'No phone number assigned for voice calls',
+        ? (context?.assistantId && !resolvedNumber
+          ? `Assistant ${context.assistantId} has no direct mapping, but phone numbers are assigned`
+          : 'Phone number is assigned for voice calls')
+        : (context?.assistantId
+          ? `No phone number assigned for assistant ${context.assistantId}`
+          : 'No phone number assigned for voice calls'),
     });
 
     const hasIngress = hasIngressConfigured();
