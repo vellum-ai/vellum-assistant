@@ -46,6 +46,9 @@ struct InputBarView: View {
     @State private var micAmplitude: Float = 0
     /// Tracks whether the orb panel is expanded (voice orb replaces the normal input row).
     @State private var isVoiceOrbExpanded = false
+    /// Set to true when Cancel is tapped before recording has started; checked by beginRecording()
+    /// so that a cancel during the mic-permission or setup window aborts the session.
+    @State private var isCancelledBeforeRecording = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -79,9 +82,12 @@ struct InputBarView: View {
                 listeningAmplitude: micAmplitude
             )
 
-            // Dismiss / stop button — tapping cancels recording and collapses the orb
+            // Dismiss / stop button — tapping cancels recording and collapses the orb.
+            // If tapped before recording has started (e.g. during the mic-permission dialog),
+            // isCancelledBeforeRecording signals beginRecording() to abort setup immediately.
             Button(action: {
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                isCancelledBeforeRecording = true
                 stopRecording()
                 isVoiceOrbExpanded = false
             }) {
@@ -258,7 +264,9 @@ struct InputBarView: View {
             stopRecording()
             isVoiceOrbExpanded = false
         } else {
-            // Expand the orb panel immediately so the user sees it before permissions are checked
+            // Expand the orb panel immediately so the user sees it before permissions are checked.
+            // Reset the cancel flag for this new session before the async permission flow begins.
+            isCancelledBeforeRecording = false
             isVoiceOrbExpanded = true
             requestPermissionsAndRecord()
         }
@@ -291,6 +299,13 @@ struct InputBarView: View {
     }
 
     private func beginRecording() {
+        // If the user tapped Cancel while permissions were being requested, abort here
+        // rather than starting a session they've already dismissed.
+        guard !isCancelledBeforeRecording else {
+            log.info("Recording cancelled before it started — aborting setup")
+            return
+        }
+
         guard let recognizer = SFSpeechRecognizer(), recognizer.isAvailable else {
             log.error("Speech recognizer not available")
             isVoiceOrbExpanded = false

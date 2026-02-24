@@ -29,6 +29,12 @@ struct VoiceOrbView: View {
     @State private var spinAngle: Double = 0
     @State private var ringJitter: [CGFloat] = [0, 0, 0]
     @State private var jitterTimer: Timer?
+    // Mutable @State copies of the incoming amplitudes so the timer closure can read
+    // the current value on every tick. SwiftUI struct properties are copied by value
+    // into closures at capture time; @State provides stable heap-allocated storage that
+    // the timer sees fresh on each fire.
+    @State private var currentListeningAmplitude: Float = 0
+    @State private var currentSpeakingAmplitude: Float = 0
 
     private let orbSize: CGFloat = 72
 
@@ -43,6 +49,14 @@ struct VoiceOrbView: View {
             } else {
                 stopRingJitter()
             }
+        }
+        // Keep the @State amplitude mirrors in sync so the timer closure always reads
+        // the live value rather than a stale copy from the last struct update.
+        .onChange(of: listeningAmplitude) { _, newValue in
+            currentListeningAmplitude = newValue
+        }
+        .onChange(of: speakingAmplitude) { _, newValue in
+            currentSpeakingAmplitude = newValue
         }
         .onDisappear {
             stopRingJitter()
@@ -203,7 +217,11 @@ struct VoiceOrbView: View {
         jitterTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { _ in
             Task { @MainActor in
                 if isListening {
-                    let amp = CGFloat(listeningAmplitude)
+                    // Read currentListeningAmplitude — the @State mirror updated by onChange —
+                    // so the intensity reflects the live audio level on every tick.
+                    // @State uses heap-allocated storage, so the closure captures a reference
+                    // to the same box even though VoiceOrbView is a struct.
+                    let amp = CGFloat(currentListeningAmplitude)
                     let intensity: CGFloat = 3 + amp * 12
                     withAnimation(.easeInOut(duration: 0.07)) {
                         ringJitter = (0..<3).map { _ in CGFloat.random(in: -intensity...intensity) }
