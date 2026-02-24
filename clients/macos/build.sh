@@ -92,8 +92,11 @@ case "$CMD" in
         # swift test may exit non-zero due to a WebKit SIGTRAP (signal 5) in
         # headless CI even when every test assertion passes.  Tolerate that
         # specific case so flaky WebKit process cleanup doesn't fail the build.
-        if echo "$TEST_OUTPUT" | grep -q "unexpected signal code 5" && \
-           ! echo "$TEST_OUTPUT" | grep -qE "with [1-9][0-9]* failure"; then
+        # Use grep with here-strings instead of piping from echo to avoid
+        # broken-pipe errors (SIGPIPE) when pipefail is set and the test
+        # output is very large — grep -q exits early, killing echo mid-write.
+        if grep -q "unexpected signal code 5" <<< "$TEST_OUTPUT" && \
+           ! grep -qE "with [1-9][0-9]* failure" <<< "$TEST_OUTPUT"; then
             echo "warning: swift test exited with signal code 5 (WebKit headless crash) but all test assertions passed."
             exit 0
         fi
