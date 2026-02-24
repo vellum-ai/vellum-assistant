@@ -1596,6 +1596,23 @@ public struct IPCGetSigningIdentityResponse: Codable, Sendable {
     }
 }
 
+/// Server push — broadcast when a guardian action request creates a thread for the mac channel.
+public struct IPCGuardianRequestThreadCreated: Codable, Sendable {
+    public let type: String
+    public let conversationId: String
+    public let requestId: String
+    public let callSessionId: String
+    public let title: String
+
+    public init(type: String, conversationId: String, requestId: String, callSessionId: String, title: String) {
+        self.type = type
+        self.conversationId = conversationId
+        self.requestId = requestId
+        self.callSessionId = callSessionId
+        self.title = title
+    }
+}
+
 public struct IPCGuardianVerificationRequest: Codable, Sendable {
     public let type: String
     public let action: String

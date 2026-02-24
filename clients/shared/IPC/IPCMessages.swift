@@ -2151,6 +2151,7 @@ public enum ServerMessage: Decodable, Sendable {
     case workItemApprovePermissionsResponse(IPCWorkItemApprovePermissionsResponse)
     case workItemCancelResponse(IPCWorkItemCancelResponse)
     case taskRunThreadCreated(IPCTaskRunThreadCreated)
+    case guardianRequestThreadCreated(IPCGuardianRequestThreadCreated)
     case openTasksWindow(OpenTasksWindowMessage)
     case subagentSpawned(IPCSubagentSpawned)
     case subagentStatusChanged(IPCSubagentStatusChanged)
@@ -2499,6 +2500,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "task_run_thread_created":
             let message = try IPCTaskRunThreadCreated(from: decoder)
             self = .taskRunThreadCreated(message)
+        case "guardian_request_thread_created":
+            let message = try IPCGuardianRequestThreadCreated(from: decoder)
+            self = .guardianRequestThreadCreated(message)
         case "open_tasks_window":
             let message = try OpenTasksWindowMessage(from: decoder)
             self = .openTasksWindow(message)

@@ -22,6 +22,8 @@ import type { RelayConnection } from './relay-server.js';
 import { registerCallOrchestrator, unregisterCallOrchestrator, fireCallQuestionNotifier, fireCallCompletionNotifier, fireCallTranscriptNotifier } from './call-state.js';
 import type { PromptSpeakerContext } from './speaker-identification.js';
 import { addPointerMessage, formatDuration } from './call-pointer-messages.js';
+import { dispatchGuardianQuestion } from './guardian-dispatch.js';
+import type { ServerMessage } from '../daemon/ipc-contract.js';
 
 const log = getLogger('call-orchestrator');
 
@@ -64,11 +66,17 @@ export class CallOrchestrator {
   private initialGreetingStarted = false;
   /** Monotonic run id used to suppress stale turn side effects after interruption. */
   private llmRunVersion = 0;
+  /** Optional broadcast function for emitting IPC events to connected clients. */
+  private broadcast?: (msg: ServerMessage) => void;
+  /** Assistant identity for scoping guardian bindings. */
+  private assistantId: string;
 
-  constructor(callSessionId: string, relay: RelayConnection, task: string | null) {
+  constructor(callSessionId: string, relay: RelayConnection, task: string | null, opts?: { broadcast?: (msg: ServerMessage) => void; assistantId?: string }) {
     this.callSessionId = callSessionId;
     this.relay = relay;
     this.task = task;
+    this.broadcast = opts?.broadcast;
+    this.assistantId = opts?.assistantId ?? 'self';
     this.startDurationTimer();
     this.resetSilenceTimer();
     registerCallOrchestrator(callSessionId, this);
@@ -417,7 +425,7 @@ export class CallOrchestrator {
       const askMatch = responseText.match(ASK_GUARDIAN_CAPTURE_REGEX);
       if (askMatch) {
         const questionText = askMatch[1];
-        createPendingQuestion(this.callSessionId, questionText);
+        const pendingQuestion = createPendingQuestion(this.callSessionId, questionText);
         this.state = 'waiting_on_user';
         updateCallSession(this.callSessionId, { status: 'waiting_on_user' });
         recordCallEvent(this.callSessionId, 'user_question_asked', { question: questionText });
@@ -426,6 +434,15 @@ export class CallOrchestrator {
         const session = getCallSession(this.callSessionId);
         if (session) {
           fireCallQuestionNotifier(session.conversationId, this.callSessionId, questionText);
+
+          // Dispatch guardian action request to all configured channels
+          void dispatchGuardianQuestion({
+            callSessionId: this.callSessionId,
+            conversationId: session.conversationId,
+            assistantId: this.assistantId,
+            pendingQuestion,
+            broadcast: this.broadcast,
+          });
         }
 
         // Set a consultation timeout
