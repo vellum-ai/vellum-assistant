@@ -55,6 +55,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem!
     private var hotKeyMonitor: Any?
     private var escapeMonitor: Any?
+    private var quickChatPanel: QuickChatPanel?
+    private var quickChatMonitor: Any?
     var overlayWindow: SessionOverlayWindow?
     var currentSession: ComputerUseSession?
     var currentTextSession: TextSession?
@@ -191,6 +193,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         setupFileMenu()
         setupViewMenu()
         setupHotKey()
+        setupQuickChatHotKey()
         setupEscapeMonitor()
         setupVoiceInput()
         setupAmbientAgent()
@@ -337,6 +340,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 NSEvent.removeMonitor(escapeMonitor)
                 self.escapeMonitor = nil
             }
+            if let quickChatMonitor {
+                NSEvent.removeMonitor(quickChatMonitor)
+                self.quickChatMonitor = nil
+            }
+            quickChatPanel?.dismiss()
+            quickChatPanel = nil
             voiceInput?.stop()
             voiceInput = nil
             ambientAgent.teardown()
@@ -436,6 +445,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             NSEvent.removeMonitor(escapeMonitor)
             self.escapeMonitor = nil
         }
+        if let quickChatMonitor {
+            NSEvent.removeMonitor(quickChatMonitor)
+            self.quickChatMonitor = nil
+        }
+        quickChatPanel?.dismiss()
+        quickChatPanel = nil
         voiceInput?.stop()
         voiceInput = nil
         ambientAgent.teardown()
@@ -1029,6 +1044,30 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func setupQuickChatHotKey() {
+        quickChatMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard event.modifierFlags.intersection(.deviceIndependentFlagsMask) == [.command, .shift],
+                  event.charactersIgnoringModifiers == " " else { return }
+            Task { @MainActor in
+                self?.showQuickChat()
+            }
+        }
+    }
+
+    func showQuickChat() {
+        if let existing = quickChatPanel, existing.isVisible {
+            existing.dismiss()
+            return
+        }
+
+        let panel = QuickChatPanel()
+        panel.onSubmit = { message in
+            print("[QuickChat] \(message)")
+        }
+        panel.show()
+        quickChatPanel = panel
+    }
+
     private func setupEscapeMonitor() {
         escapeMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
             if event.keyCode == 53 { // Escape
@@ -1375,6 +1414,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         if let monitor = escapeMonitor {
             NSEvent.removeMonitor(monitor)
         }
+        if let monitor = quickChatMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
+        quickChatPanel?.dismiss()
+        quickChatPanel = nil
         if let observer = windowObserver {
             NotificationCenter.default.removeObserver(observer)
         }
