@@ -250,7 +250,11 @@ public final class SettingsStore: ObservableObject {
 
         self.quickChatShortcut = UserDefaults.standard.string(forKey: "quickChatShortcut") ?? "cmd+shift+space"
 
+        #if DEBUG
+        self.isDevMode = UserDefaults.standard.object(forKey: "devModeEnabled") as? Bool ?? true
+        #else
         self.isDevMode = UserDefaults.standard.bool(forKey: "devModeEnabled")
+        #endif
 
         // Load media embed settings from workspace config
         let mediaSettings = Self.loadMediaEmbedSettings(from: configPath)
