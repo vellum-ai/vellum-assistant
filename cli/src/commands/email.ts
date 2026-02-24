@@ -55,7 +55,12 @@ export async function email(): Promise<void> {
   const assistantFlagIdx = args.indexOf("--assistant");
   let assistantId: string | undefined;
   if (assistantFlagIdx !== -1) {
-    assistantId = args[assistantFlagIdx + 1];
+    const value = args[assistantFlagIdx + 1];
+    if (!value || value.startsWith("-")) {
+      exitError("--assistant requires a value.");
+      return;
+    }
+    assistantId = value;
     args.splice(assistantFlagIdx, 2);
   }
   if (!assistantId) {
@@ -74,12 +79,8 @@ export async function email(): Promise<void> {
     case "status": {
       try {
         const client = new VellumEmailClient(assistantId);
-        const status = await client.status();
-        output({
-          ok: true,
-          provider: status.provider,
-          inboxes: status.inboxes,
-        });
+        const addresses = await client.status();
+        output({ ok: true, addresses });
       } catch (err) {
         exitError(err instanceof Error ? err.message : String(err));
       }

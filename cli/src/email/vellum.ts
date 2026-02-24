@@ -9,16 +9,10 @@ const DEFAULT_VELLUM_API_URL = "https://api.vellum.ai";
 // Types
 // ---------------------------------------------------------------------------
 
-export interface EmailInbox {
+export interface AssistantEmailAddress {
   id: string;
   address: string;
   created_at: string;
-}
-
-export interface EmailStatus {
-  provider: string;
-  ok: boolean;
-  inboxes: EmailInbox[];
 }
 
 // ---------------------------------------------------------------------------
@@ -78,18 +72,17 @@ export class VellumEmailClient {
   }
 
   /** List existing email addresses and check connectivity. */
-  async status(): Promise<EmailStatus> {
+  async status(): Promise<AssistantEmailAddress[]> {
     const result = await vellumFetch(
       this.apiKey,
       this.baseUrl,
       `/v1/assistants/${this.assistantId}/email-addresses/`,
     );
-    const inboxes = result as EmailInbox[];
-    return { provider: "vellum", ok: true, inboxes };
+    return result as AssistantEmailAddress[];
   }
 
   /** Provision a new email address for the given username. */
-  async createInbox(username: string): Promise<EmailInbox> {
+  async createInbox(username: string): Promise<AssistantEmailAddress> {
     const result = await vellumFetch(
       this.apiKey,
       this.baseUrl,
@@ -99,6 +92,6 @@ export class VellumEmailClient {
         body: { username },
       },
     );
-    return result as EmailInbox;
+    return result as AssistantEmailAddress;
   }
 }
