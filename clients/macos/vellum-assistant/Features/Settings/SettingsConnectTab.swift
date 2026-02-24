@@ -686,6 +686,9 @@ struct SettingsConnectTab: View {
                 Link(value, destination: url)
                     .font(valueFont)
                     .lineLimit(1)
+                    .onHover { hovering in
+                        if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                    }
             } else {
                 Text(value)
                     .font(valueFont)
@@ -758,6 +761,9 @@ struct SettingsConnectTab: View {
         let error: String? = channel == "telegram" ? store.telegramGuardianError : store.smsGuardianError
         let primaryIdentity = guardianPrimaryIdentity(channel: channel, identity: identity)
         let secondaryIdentity = guardianSecondaryIdentity(primary: primaryIdentity, identity: identity)
+        let telegramProfileURL: URL? = channel == "telegram"
+            ? identity.flatMap { URL(string: "https://web.telegram.org/a/#\($0)") }
+            : nil
 
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             if verified {
@@ -767,15 +773,33 @@ struct SettingsConnectTab: View {
                         .foregroundColor(VColor.success)
                         .font(.system(size: 12))
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(primaryIdentity ?? "Verified")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
-                            .lineLimit(1)
-                        if let secondaryIdentity {
-                            Text(secondaryIdentity)
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
+                        if let telegramProfileURL {
+                            Link(primaryIdentity ?? "Verified", destination: telegramProfileURL)
+                                .font(VFont.body)
                                 .lineLimit(1)
+                                .onHover { hovering in
+                                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                                }
+                        } else {
+                            Text(primaryIdentity ?? "Verified")
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textSecondary)
+                                .lineLimit(1)
+                        }
+                        if let secondaryIdentity {
+                            if let telegramProfileURL {
+                                Link(secondaryIdentity, destination: telegramProfileURL)
+                                    .font(VFont.caption)
+                                    .lineLimit(1)
+                                    .onHover { hovering in
+                                        if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                                    }
+                            } else {
+                                Text(secondaryIdentity)
+                                    .font(VFont.caption)
+                                    .foregroundColor(VColor.textMuted)
+                                    .lineLimit(1)
+                            }
                         }
                     }
                     Spacer()
