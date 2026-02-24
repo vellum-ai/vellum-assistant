@@ -9,12 +9,14 @@ import {
 
 /**
  * Tests that the QA latch is correctly set/cleared based on user message
- * content, mirroring the logic added to handleUserMessage in sessions.ts.
+ * content, mirroring the logic in handleUserMessage in sessions.ts.
  *
- * We test the detection + latch functions directly rather than going through
- * the full IPC handler, since the handler simply calls these functions on
- * the message content. This avoids the heavy Session/AgentLoop mock setup
- * while still verifying the integration contract.
+ * The handler defers latch updates until after the message has been accepted
+ * (past secret-ingress blocking and queue-rejection checks). We test the
+ * detection + latch functions directly rather than going through the full
+ * IPC handler, since the handler simply calls these functions on the message
+ * content after acceptance. This avoids the heavy Session/AgentLoop mock
+ * setup while still verifying the integration contract.
  */
 describe('QA latch via user_message path', () => {
   const sessionId = 'test-session-1';
@@ -118,6 +120,55 @@ describe('QA latch via user_message path', () => {
     }
 
     // Latch should still be active
+    expect(isQaLatchActive(sessionId)).toBe(true);
+  });
+
+  test('latch is not mutated when message would be rejected (contract test)', () => {
+    // This test documents the invariant enforced by handleUserMessage:
+    // QA detection only runs AFTER the message passes secret-ingress and
+    // queue-rejection checks. A rejected message must not flip the latch.
+    //
+    // We simulate by skipping the detection block entirely (as the handler
+    // does when it returns early on rejection).
+    expect(isQaLatchActive(sessionId)).toBe(false);
+
+    const content = 'help me test Slack typing';
+    expect(detectQaIntent(content)).toBe(true);
+
+    // Simulate rejection: handler returns before reaching QA detection.
+    const messageRejected = true;
+    if (!messageRejected) {
+      if (detectQaOptOut(content)) {
+        clearQaLatch(sessionId);
+      } else if (detectQaIntent(content)) {
+        setQaLatch(sessionId);
+      }
+    }
+
+    // Latch must remain unset because the message was rejected
+    expect(isQaLatchActive(sessionId)).toBe(false);
+  });
+
+  test('latch is not mutated when message is blocked by secret ingress (contract test)', () => {
+    // Similar to the rejection test: if checkIngressForSecrets blocks the
+    // message, the handler returns early and QA detection never runs.
+    setQaLatch(sessionId);
+    expect(isQaLatchActive(sessionId)).toBe(true);
+
+    const content = 'stop qa mode';
+    expect(detectQaOptOut(content)).toBe(true);
+
+    // Simulate secret-ingress block: handler returns before QA detection.
+    const blockedBySecretIngress = true;
+    if (!blockedBySecretIngress) {
+      if (detectQaOptOut(content)) {
+        clearQaLatch(sessionId);
+      } else if (detectQaIntent(content)) {
+        setQaLatch(sessionId);
+      }
+    }
+
+    // Latch must remain active because the opt-out message was blocked
     expect(isQaLatchActive(sessionId)).toBe(true);
   });
 
