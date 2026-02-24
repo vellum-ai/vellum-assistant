@@ -59,17 +59,6 @@ export async function handleUserMessage(
       wireEscalationHandler(session, socket, ctx);
     }
 
-    // Detect QA intent / opt-out in the user message so the latch is active
-    // before any subsequent CU escalation within this conversation.
-    const messageContent = msg.content ?? '';
-    if (messageContent) {
-      if (detectQaOptOut(messageContent)) {
-        clearQaLatch(msg.sessionId);
-      } else if (detectQaIntent(messageContent)) {
-        setQaLatch(msg.sessionId);
-      }
-    }
-
     const sendEvent = (event: ServerMessage) => ctx.send(socket, event);
 
     // Block inbound messages that contain secrets and redirect to secure prompt
@@ -110,6 +99,19 @@ export async function handleUserMessage(
       }));
       return;
     }
+
+    // Detect QA intent / opt-out only after the message has been accepted
+    // (not blocked by secret ingress and not rejected by queue). This prevents
+    // rejected messages from incorrectly mutating the latch.
+    const messageContent = msg.content ?? '';
+    if (messageContent) {
+      if (detectQaOptOut(messageContent)) {
+        clearQaLatch(msg.sessionId);
+      } else if (detectQaIntent(messageContent)) {
+        setQaLatch(msg.sessionId);
+      }
+    }
+
     if (result.queued) {
       const position = session.getQueueDepth();
       rlog.info({ position }, 'Message queued (session busy)');
