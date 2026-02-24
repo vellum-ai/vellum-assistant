@@ -31,12 +31,15 @@ import {
   renderHistoryContent,
   mergeToolResults,
   pendingStandaloneSecrets,
+  setQaLatch,
+  clearQaLatch,
   type HandlerContext,
   defineHandlers,
   type HistoryToolCall,
   type HistorySurface,
   type ParsedHistoryMessage,
 } from './shared.js';
+import { detectQaIntent, detectQaOptOut } from '../qa-intent.js';
 import { truncate } from '../../util/truncate.js';
 
 export async function handleUserMessage(
@@ -54,6 +57,17 @@ export async function handleUserMessage(
     // here would replace those dimensions with the daemon's defaults.
     if (!session.hasEscalationHandler()) {
       wireEscalationHandler(session, socket, ctx);
+    }
+
+    // Detect QA intent / opt-out in the user message so the latch is active
+    // before any subsequent CU escalation within this conversation.
+    const messageContent = msg.content ?? '';
+    if (messageContent) {
+      if (detectQaOptOut(messageContent)) {
+        clearQaLatch(msg.sessionId);
+      } else if (detectQaIntent(messageContent)) {
+        setQaLatch(msg.sessionId);
+      }
     }
 
     const sendEvent = (event: ServerMessage) => ctx.send(socket, event);
