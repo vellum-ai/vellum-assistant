@@ -209,6 +209,7 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
       } catch (err) {
         if (err instanceof CircuitBreakerOpenError) {
           tlog.warn({ retryAfterSecs: err.retryAfterSecs }, "Circuit breaker open — returning 503");
+          dedupCache.unreserve(whatsappMessageId);
           return Response.json(
             { error: "Service temporarily unavailable" },
             { status: 503, headers: { "Retry-After": String(err.retryAfterSecs) } },

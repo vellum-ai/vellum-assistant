@@ -292,6 +292,7 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
       } catch (err) {
         if (err instanceof CircuitBreakerOpenError) {
           acknowledgeCallbackQuery(normalized.message.callbackQueryId, "start_command_circuit_open");
+          if (updateId !== undefined) dedupCache.unreserve(updateId);
           return Response.json(
             { error: "Service temporarily unavailable" },
             { status: 503, headers: { "Retry-After": String(err.retryAfterSecs) } },
@@ -490,6 +491,7 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
       if (err instanceof CircuitBreakerOpenError) {
         tlog.warn({ retryAfterSecs: err.retryAfterSecs }, "Circuit breaker open — returning 503");
         if (isCallback) acknowledgeCallbackQuery(normalized.message.callbackQueryId, "circuit_open");
+        if (updateId !== undefined) dedupCache.unreserve(updateId);
         return Response.json(
           { error: "Service temporarily unavailable" },
           { status: 503, headers: { "Retry-After": String(err.retryAfterSecs) } },
