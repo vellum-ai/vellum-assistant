@@ -1159,6 +1159,24 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(IdentityGetRequestMessage())
     }
 
+    // MARK: - Local Daemon HTTP Helpers
+
+    /// Resolves the base URL and bearer token for the daemon's local HTTP server.
+    /// Returns `nil` when no local HTTP port is configured.
+    private func resolveLocalDaemonHTTPEndpoint() -> (baseURL: String, bearerToken: String?)? {
+        guard let port = httpPort else { return nil }
+        let baseURL = "http://localhost:\(port)"
+        let tokenPath = resolveHttpTokenPath()
+        let bearerToken: String?
+        do {
+            bearerToken = try String(contentsOfFile: tokenPath, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch {
+            log.error("Failed to read HTTP bearer token from \(tokenPath, privacy: .private): \(error)")
+            bearerToken = nil
+        }
+        return (baseURL, bearerToken)
+    }
+
     // MARK: - Integrations Status
 
     public struct IntegrationsStatusResponse: Decodable {
@@ -1169,23 +1187,20 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     }
 
     /// Fetches integration status (e.g. assigned email) from the gateway via HTTP.
+    /// For remote connections, uses `httpTransport` (which points at the gateway).
+    /// For local connections, uses the provided `gatewayBaseURL` since
+    /// `/integrations/status` is served by the gateway, not the daemon HTTP server.
     /// Returns `nil` when the gateway is unreachable or the request fails.
-    public func fetchIntegrationsStatus() async -> IntegrationsStatusResponse? {
+    public func fetchIntegrationsStatus(gatewayBaseURL: String? = nil) async -> IntegrationsStatusResponse? {
         let baseURL: String
         let bearerToken: String?
 
         if let httpTransport {
             baseURL = httpTransport.baseURL
             bearerToken = httpTransport.bearerToken
-        } else if let port = httpPort {
-            baseURL = "http://localhost:\(port)"
-            let tokenPath = resolveHttpTokenPath()
-            do {
-                bearerToken = try String(contentsOfFile: tokenPath, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
-            } catch {
-                log.error("Failed to read HTTP bearer token from \(tokenPath, privacy: .private): \(error)")
-                bearerToken = nil
-            }
+        } else if let gatewayBaseURL {
+            baseURL = gatewayBaseURL
+            bearerToken = nil
         } else {
             return nil
         }
@@ -1218,16 +1233,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         if let httpTransport {
             baseURL = httpTransport.baseURL
             bearerToken = httpTransport.bearerToken
-        } else if let port = httpPort {
-            baseURL = "http://localhost:\(port)"
-            // Read local bearer token from disk
-            let tokenPath = resolveHttpTokenPath()
-            do {
-                bearerToken = try String(contentsOfFile: tokenPath, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
-            } catch {
-                log.error("Failed to read HTTP bearer token from \(tokenPath, privacy: .private): \(error)")
-                bearerToken = nil
-            }
+        } else if let local = resolveLocalDaemonHTTPEndpoint() {
+            baseURL = local.baseURL
+            bearerToken = local.bearerToken
         } else {
             return nil
         }

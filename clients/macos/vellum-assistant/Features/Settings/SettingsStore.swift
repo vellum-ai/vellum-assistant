@@ -1058,8 +1058,9 @@ public final class SettingsStore: ObservableObject {
 
     func refreshAssistantEmail() {
         guard let daemonClient else { return }
+        let gatewayURL = localGatewayTarget
         Task {
-            let status = await daemonClient.fetchIntegrationsStatus()
+            let status = await daemonClient.fetchIntegrationsStatus(gatewayBaseURL: gatewayURL)
             self.assistantEmail = status?.email.address
         }
     }
