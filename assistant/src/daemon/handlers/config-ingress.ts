@@ -1,0 +1,231 @@
+import * as net from 'node:net';
+import { loadRawConfig, saveRawConfig } from '../../config/loader.js';
+import { getSecureKey } from '../../security/secure-keys.js';
+import { readHttpToken } from '../../util/platform.js';
+import {
+  hasTwilioCredentials,
+  updatePhoneNumberWebhooks,
+} from '../../calls/twilio-rest.js';
+import {
+  getTwilioVoiceWebhookUrl,
+  getTwilioStatusCallbackUrl,
+  getTwilioSmsWebhookUrl,
+  type IngressConfig,
+} from '../../inbound/public-ingress-urls.js';
+import type { IngressConfigRequest } from '../ipc-protocol.js';
+import { log, CONFIG_RELOAD_DEBOUNCE_MS, defineHandlers, type HandlerContext } from './shared.js';
+
+// Lazily capture the env-provided INGRESS_PUBLIC_BASE_URL on first access
+// rather than at module load time. The daemon loads ~/.vellum/.env inside
+// runDaemon() (see lifecycle.ts), which runs AFTER static ES module imports
+// resolve. A module-level snapshot would miss dotenv-provided values.
+let _originalIngressEnvCaptured = false;
+let _originalIngressEnv: string | undefined;
+function getOriginalIngressEnv(): string | undefined {
+  if (!_originalIngressEnvCaptured) {
+    _originalIngressEnv = process.env.INGRESS_PUBLIC_BASE_URL;
+    _originalIngressEnvCaptured = true;
+  }
+  return _originalIngressEnv;
+}
+
+export function computeGatewayTarget(): string {
+  if (process.env.GATEWAY_INTERNAL_BASE_URL) {
+    return process.env.GATEWAY_INTERNAL_BASE_URL.replace(/\/+$/, '');
+  }
+  const portRaw = process.env.GATEWAY_PORT || '7830';
+  const port = Number(portRaw) || 7830;
+  return `http://127.0.0.1:${port}`;
+}
+
+/**
+ * Best-effort call to the gateway's internal reconcile endpoint so that
+ * Telegram webhook registration is updated immediately when the ingress
+ * URL changes, without requiring a gateway restart.
+ */
+export function triggerGatewayReconcile(ingressPublicBaseUrl: string | undefined): void {
+  const gatewayBase = computeGatewayTarget();
+  const token = readHttpToken();
+  if (!token) {
+    log.debug('Skipping gateway reconcile trigger: no HTTP bearer token available');
+    return;
+  }
+
+  const url = `${gatewayBase}/internal/telegram/reconcile`;
+  const body = JSON.stringify({ ingressPublicBaseUrl: ingressPublicBaseUrl ?? '' });
+
+  fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    },
+    body,
+    signal: AbortSignal.timeout(5_000),
+  }).then((res) => {
+    if (res.ok) {
+      log.info('Gateway Telegram webhook reconcile triggered successfully');
+    } else {
+      log.warn({ status: res.status }, 'Gateway Telegram webhook reconcile returned non-OK status');
+    }
+  }).catch((err) => {
+    log.debug({ err }, 'Gateway Telegram webhook reconcile failed (gateway may not be running)');
+  });
+}
+
+/**
+ * Best-effort Twilio webhook sync helper.
+ *
+ * Computes the voice, status-callback, and SMS webhook URLs from the current
+ * ingress config and pushes them to the Twilio IncomingPhoneNumber API.
+ *
+ * Returns `{ success, warning }`. When the update fails, `success` is false
+ * and `warning` contains a human-readable message. Callers should treat
+ * failure as non-fatal so that the primary operation (provision, assign,
+ * ingress save) still succeeds.
+ */
+export async function syncTwilioWebhooks(
+  phoneNumber: string,
+  accountSid: string,
+  authToken: string,
+  ingressConfig: IngressConfig,
+): Promise<{ success: boolean; warning?: string }> {
+  try {
+    const voiceUrl = getTwilioVoiceWebhookUrl(ingressConfig);
+    const statusCallbackUrl = getTwilioStatusCallbackUrl(ingressConfig);
+    const smsUrl = getTwilioSmsWebhookUrl(ingressConfig);
+    await updatePhoneNumberWebhooks(accountSid, authToken, phoneNumber, {
+      voiceUrl,
+      statusCallbackUrl,
+      smsUrl,
+    });
+    log.info({ phoneNumber }, 'Twilio webhooks configured successfully');
+    return { success: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.warn({ err, phoneNumber }, `Webhook configuration skipped: ${message}`);
+    return { success: false, warning: `Webhook configuration skipped: ${message}` };
+  }
+}
+
+export async function handleIngressConfig(
+  msg: IngressConfigRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): Promise<void> {
+  const localGatewayTarget = computeGatewayTarget();
+  try {
+    if (msg.action === 'get') {
+      const raw = loadRawConfig();
+      const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
+      const publicBaseUrl = (ingress.publicBaseUrl as string) ?? '';
+      // Backward compatibility: if `enabled` was never explicitly set,
+      // infer from whether a publicBaseUrl is configured so existing users
+      // who predate the toggle aren't silently disabled.
+      const enabled = (ingress.enabled as boolean | undefined) ?? (publicBaseUrl ? true : false);
+      ctx.send(socket, { type: 'ingress_config_response', enabled, publicBaseUrl, localGatewayTarget, success: true });
+    } else if (msg.action === 'set') {
+      const value = (msg.publicBaseUrl ?? '').trim().replace(/\/+$/, '');
+      // Ensure we capture the original env value before any mutation below
+      getOriginalIngressEnv();
+      const raw = loadRawConfig();
+
+      // Update ingress.publicBaseUrl — this is the single source of truth for
+      // the canonical public ingress URL. The gateway receives this value via
+      // the INGRESS_PUBLIC_BASE_URL env var at spawn time (see hatch.ts).
+      // The gateway also validates Twilio signatures against forwarded public
+      // URL headers, so local tunnel updates generally apply without restarts.
+      const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
+      ingress.publicBaseUrl = value || undefined;
+      if (msg.enabled !== undefined) {
+        ingress.enabled = msg.enabled;
+      }
+
+      const wasSuppressed = ctx.suppressConfigReload;
+      ctx.setSuppressConfigReload(true);
+      try {
+        saveRawConfig({ ...raw, ingress });
+      } catch (err) {
+        ctx.setSuppressConfigReload(wasSuppressed);
+        throw err;
+      }
+      ctx.debounceTimers.schedule('__suppress_reset__', () => { ctx.setSuppressConfigReload(false); }, CONFIG_RELOAD_DEBOUNCE_MS);
+
+      // Propagate to the gateway's process environment so it picks up the
+      // new URL when it is restarted. For the local-deployment path the
+      // gateway runs as a child process that inherited the assistant's env,
+      // so updating process.env here ensures the value is visible when the
+      // gateway is restarted (e.g. by the self-upgrade skill or a manual
+      // `pkill -f gateway`).
+      // Only export the URL when ingress is enabled; clearing it when
+      // disabled ensures the gateway stops accepting inbound webhooks.
+      const isEnabled = (ingress.enabled as boolean | undefined) ?? (value ? true : false);
+      if (value && isEnabled) {
+        process.env.INGRESS_PUBLIC_BASE_URL = value;
+      } else if (isEnabled && getOriginalIngressEnv() !== undefined) {
+        // Ingress is enabled but the user cleared the URL — fall back to the
+        // env var that was present when the process started.
+        process.env.INGRESS_PUBLIC_BASE_URL = getOriginalIngressEnv()!;
+      } else {
+        // Ingress is disabled or no URL is configured and no startup env var
+        // exists — remove the env var so the gateway stops accepting webhooks.
+        delete process.env.INGRESS_PUBLIC_BASE_URL;
+      }
+
+      ctx.send(socket, { type: 'ingress_config_response', enabled: isEnabled, publicBaseUrl: value, localGatewayTarget, success: true });
+
+      // Trigger immediate Telegram webhook reconcile on the gateway so
+      // that changing the ingress URL takes effect without a restart.
+      // Called unconditionally so the gateway clears its in-memory URL
+      // when ingress is disabled, preventing stale re-registration on
+      // credential rotation.
+      // Use the effective URL from process.env (which accounts for the
+      // fallback branch above) rather than the raw `value` from the UI.
+      const effectiveUrl = isEnabled ? process.env.INGRESS_PUBLIC_BASE_URL : undefined;
+      triggerGatewayReconcile(effectiveUrl);
+
+      // Best-effort Twilio webhook reconciliation: when ingress is being
+      // enabled/updated and Twilio numbers are assigned with valid credentials,
+      // push the new webhook URLs to Twilio so calls and SMS route correctly.
+      if (isEnabled && hasTwilioCredentials()) {
+        const currentConfig = loadRawConfig();
+        const smsConfig = (currentConfig?.sms ?? {}) as Record<string, unknown>;
+        const assignedNumbers = new Set<string>();
+        const legacyNumber = (smsConfig.phoneNumber as string) ?? '';
+        if (legacyNumber) assignedNumbers.add(legacyNumber);
+
+        const assistantPhoneNumbers = smsConfig.assistantPhoneNumbers;
+        if (assistantPhoneNumbers && typeof assistantPhoneNumbers === 'object' && !Array.isArray(assistantPhoneNumbers)) {
+          for (const number of Object.values(assistantPhoneNumbers as Record<string, unknown>)) {
+            if (typeof number === 'string' && number) {
+              assignedNumbers.add(number);
+            }
+          }
+        }
+
+        if (assignedNumbers.size > 0) {
+          const acctSid = getSecureKey('credential:twilio:account_sid')!;
+          const acctToken = getSecureKey('credential:twilio:auth_token')!;
+          // Fire-and-forget: webhook sync failure must not block the ingress save.
+          // Reconcile every assigned number so assistant-scoped mappings do not
+          // retain stale Twilio webhook URLs after ingress URL changes.
+          for (const assignedNumber of assignedNumbers) {
+            syncTwilioWebhooks(assignedNumber, acctSid, acctToken, currentConfig as IngressConfig)
+              .catch(() => {
+                // Already logged inside syncTwilioWebhooks
+              });
+          }
+        }
+      }
+    } else {
+      ctx.send(socket, { type: 'ingress_config_response', enabled: false, publicBaseUrl: '', localGatewayTarget, success: false, error: `Unknown action: ${String((msg as unknown as Record<string, unknown>).action)}` });
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    ctx.send(socket, { type: 'ingress_config_response', enabled: false, publicBaseUrl: '', localGatewayTarget, success: false, error: message });
+  }
+}
+
+export const ingressHandlers = defineHandlers({
+  ingress_config: handleIngressConfig,
+});

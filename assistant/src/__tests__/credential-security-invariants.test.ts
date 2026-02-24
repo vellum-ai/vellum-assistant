@@ -180,7 +180,10 @@ describe('Invariant 2: no generic plaintext secret read API', () => {
       'tools/credentials/broker.ts',   // brokered credential access
       'tools/network/web-search.ts',   // web search API key lookup
       'daemon/handlers.ts',            // Vercel API token + integration OAuth
-      'daemon/handlers/config.ts',     // Vercel API token + integration OAuth (split handler)
+      'daemon/handlers/config-integrations.ts', // Vercel API token + Twitter integration OAuth
+      'daemon/handlers/config-telegram.ts',     // Telegram bot token management
+      'daemon/handlers/config-twilio.ts',       // Twilio credential management
+      'daemon/handlers/config-ingress.ts',      // Ingress config (reads Twilio credentials for webhook sync)
       'security/token-manager.ts',     // OAuth token refresh flow
       'email/providers/index.ts',      // email provider API key lookup
       'tools/network/script-proxy/session-manager.ts', // proxy credential injection at runtime
