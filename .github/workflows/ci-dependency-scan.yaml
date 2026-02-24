@@ -6,11 +6,13 @@ on:
     paths:
       - '**/bun.lock'
       - '**/package.json'
+      - '**/Package.resolved'
       - '.github/workflows/ci-dependency-scan.yaml'
   pull_request:
     paths:
       - '**/bun.lock'
       - '**/package.json'
+      - '**/Package.resolved'
       - '.github/workflows/ci-dependency-scan.yaml'
   schedule:
     # Run weekly on Monday at 08:00 UTC to catch newly disclosed vulnerabilities
