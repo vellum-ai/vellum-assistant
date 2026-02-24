@@ -161,6 +161,7 @@ final class AlwaysOnAudioMonitor: ObservableObject {
             log.info("Audio monitoring restarted after configuration change")
         } catch {
             log.error("Failed to restart audio monitoring: \(error.localizedDescription)")
+            engine.stop()
             isListening = false
         }
     }
