@@ -897,7 +897,7 @@ struct SettingsConnectTab: View {
             let hasToken = !bearerToken.isEmpty || (iosPairingUseOverride && !iosPairingTokenOverride.isEmpty)
 
             if hasGateway && hasToken {
-                // "Ready to pair" — green checkmark
+                // "Ready to pair" — green checkmark + subtle regenerate
                 HStack(spacing: VSpacing.sm) {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundColor(VColor.success)
@@ -905,6 +905,13 @@ struct SettingsConnectTab: View {
                     Text("Ready to pair")
                         .font(VFont.body)
                         .foregroundColor(VColor.success)
+                    Spacer()
+                    Button("Regenerate Token") {
+                        showingRegenerateConfirmation = true
+                    }
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+                    .help("Replace the current token. Paired devices will need to reconnect.")
                 }
             } else if !hasGateway {
                 // "Configure a gateway URL below" — amber warning
@@ -917,14 +924,19 @@ struct SettingsConnectTab: View {
                         .foregroundColor(VColor.warning)
                 }
             } else {
-                // "Bearer token required" — amber warning
-                HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(VColor.warning)
-                        .font(.system(size: 14))
-                    Text("Bearer token required \u{2014} check Advanced settings")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.warning)
+                // "Bearer token required" — amber warning + Generate button
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    HStack(spacing: VSpacing.sm) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(VColor.warning)
+                            .font(.system(size: 14))
+                        Text("Bearer token required")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.warning)
+                    }
+                    VButton(label: "Generate Token", leftIcon: "key", style: .secondary) {
+                        regenerateHttpToken()
+                    }
                 }
             }
         }
