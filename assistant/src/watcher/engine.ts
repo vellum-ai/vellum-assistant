@@ -85,7 +85,7 @@ export async function runWatchersOnce(
         log.info({ watcherId: watcher.id, watermark }, 'Initialized watermark');
       }
 
-      const result = await provider.fetchNew(watcher.credentialService, watermark, config);
+      const result = await provider.fetchNew(watcher.credentialService, watermark, config, watcher.id);
 
       // Store new events with dedup
       let newEvents = 0;

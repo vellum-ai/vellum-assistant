@@ -34,11 +34,18 @@ export interface WatcherProvider {
   /**
    * Fetch new events since the given watermark.
    * Returns new items and an updated watermark.
+   *
+   * `watcherKey` is the unique watcher instance ID (e.g. the DB row UUID).
+   * Providers that maintain per-watcher in-process state (like the Linear
+   * issue-state cache) must key that state by `watcherKey` — not just
+   * `credentialService` — so that multiple watchers sharing the same
+   * credential maintain independent baselines.
    */
   fetchNew(
     credentialService: string,
     watermark: string | null,
     config: Record<string, unknown>,
+    watcherKey: string,
   ): Promise<FetchResult>;
 
   /**

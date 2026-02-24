@@ -278,22 +278,27 @@ async function fetchAssignedIssueUpdates(
 // ── Issue state tracking ──────────────────────────────────────────────────────
 
 /**
- * Tracks the last known state ID per issue, scoped by credentialService so
- * multiple Linear watchers in the same process (e.g. different accounts or
- * credential keys) maintain independent baselines and can't corrupt each
- * other's state. Outer key: credentialService; inner key: issue ID.
+ * Tracks the last known state ID per issue, scoped by watcher instance key
+ * (the watcher's DB UUID) so that multiple Linear watchers in the same process
+ * — even when they share the same `credentialService` string — maintain
+ * completely independent baselines.
+ *
+ * Keying by `credentialService` alone is insufficient: `runWatchersOnce` polls
+ * watchers sequentially, so watcher-1 would write its post-poll state into the
+ * shared map, and watcher-2 would then see already-updated IDs and silently
+ * skip emitting valid transitions. Outer key: watcherKey; inner key: issue ID.
  *
  * In-memory only; resets on daemon restart, which is acceptable — the first
  * poll after restart will seed the map without emitting false-positive events.
  */
-const knownIssueStateIdsByCredential = new Map<string, Map<string, string>>();
+const knownIssueStateIdsByWatcher = new Map<string, Map<string, string>>();
 
-/** Get (or lazily create) the per-credential state map. */
-function getStateCache(credentialService: string): Map<string, string> {
-  let cache = knownIssueStateIdsByCredential.get(credentialService);
+/** Get (or lazily create) the per-watcher state map. */
+function getStateCache(watcherKey: string): Map<string, string> {
+  let cache = knownIssueStateIdsByWatcher.get(watcherKey);
   if (!cache) {
     cache = new Map<string, string>();
-    knownIssueStateIdsByCredential.set(credentialService, cache);
+    knownIssueStateIdsByWatcher.set(watcherKey, cache);
   }
   return cache;
 }
@@ -384,6 +389,7 @@ export const linearProvider: WatcherProvider = {
     credentialService: string,
     watermark: string | null,
     _config: Record<string, unknown>,
+    watcherKey: string,
   ): Promise<FetchResult> {
     return withValidToken(credentialService, async (token) => {
       const since = watermark ?? new Date().toISOString();
@@ -416,9 +422,10 @@ export const linearProvider: WatcherProvider = {
       // On first sight of an issue we seed the map without emitting, so we don't
       // fire false-positive events after a daemon restart.
       const assignedIssues = await fetchAssignedIssueUpdates(token, viewer.id, since);
-      // Use a per-credential state cache so multiple Linear watchers in the same
-      // process don't overwrite each other's baselines and silently drop events.
-      const stateCache = getStateCache(credentialService);
+      // Scope the state cache by watcherKey (the watcher's DB UUID) rather than
+      // credentialService so that multiple Linear watchers sharing the same credential
+      // maintain independent baselines and cannot clobber each other's state.
+      const stateCache = getStateCache(watcherKey);
       for (const issue of assignedIssues) {
         const previousStateId = stateCache.get(issue.id);
         if (previousStateId !== undefined && previousStateId !== issue.state.id) {
