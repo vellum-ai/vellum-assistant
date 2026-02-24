@@ -25,6 +25,7 @@ import { registerEmailCommand } from './cli/email.js';
 import { registerContactsCommand } from './cli/contacts.js';
 import { registerAutonomyCommand } from './cli/autonomy.js';
 import { registerDoordashCommand } from './cli/doordash.js';
+import { registerAmazonCommand } from './cli/amazon.js';
 import { registerTwitterCommand } from './cli/twitter.js';
 import { registerMapCommand } from './cli/map.js';
 
@@ -49,6 +50,7 @@ registerEmailCommand(program);
 registerContactsCommand(program);
 registerAutonomyCommand(program);
 registerDoordashCommand(program);
+registerAmazonCommand(program);
 registerCompletionsCommand(program);
 
 registerTwitterCommand(program);

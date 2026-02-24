@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "Vellum Assistant Browser Relay",
+  "version": "1.0.0",
+  "description": "Bridges the Vellum assistant to your live browser session — no CDP, no spoofing.",
+
+  "permissions": [
+    "tabs",
+    "activeTab",
+    "scripting",
+    "cookies",
+    "storage"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+
+  "background": {
+    "service_worker": "background/worker.js",
+    "type": "module"
+  },
+
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "Vellum Relay"
+  },
+
+  "icons": {
+    "16":  "icons/icon16.png",
+    "48":  "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
