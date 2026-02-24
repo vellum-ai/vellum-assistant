@@ -256,11 +256,13 @@ public final class SettingsStore: ObservableObject {
             .store(in: &cancellables)
 
         // Debounce UserDefaults writes so rapid toggle changes don't thrash disk I/O.
-        // dropFirst comes after debounce so the first user-changed value is not dropped before
-        // it has a chance to be coalesced.
+        // dropFirst must come before debounce: it consumes the synchronous initial emission so that
+        // only genuine user-driven changes flow into debounce and are eventually persisted.
+        // Placing dropFirst after debounce would cause the first real user change to be silently
+        // dropped whenever it arrives within the 300ms debounce window of the initial value.
         $activityNotificationsEnabled
-            .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
             .dropFirst()
+            .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
             .sink { value in UserDefaults.standard.set(value, forKey: "activityNotificationsEnabled") }
             .store(in: &cancellables)
 
