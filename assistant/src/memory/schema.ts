@@ -552,6 +552,7 @@ export const callSessions = sqliteTable('call_sessions', {
   callerIdentityMode: text('caller_identity_mode'),
   callerIdentitySource: text('caller_identity_source'),
   assistantId: text('assistant_id'),
+  initiatedFromConversationId: text('initiated_from_conversation_id'),
   startedAt: integer('started_at'),
   endedAt: integer('ended_at'),
   lastError: text('last_error'),

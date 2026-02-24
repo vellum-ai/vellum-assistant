@@ -26,6 +26,8 @@ import { getSecureKey } from '../security/secure-keys.js';
 import type { CallSession } from './types.js';
 import { VALID_CALLER_IDENTITY_MODES } from '../config/schema.js';
 import type { AssistantConfig } from '../config/types.js';
+import { getOrCreateConversation } from '../memory/conversation-key-store.js';
+import { upsertBinding } from '../memory/external-conversation-store.js';
 
 const log = getLogger('call-domain');
 
@@ -222,10 +224,32 @@ export async function startCall(input: StartCallInput): Promise<StartCallResult 
       callerIdentityMode: identityResult.mode,
       callerIdentitySource: identityResult.source,
       assistantId,
+      initiatedFromConversationId: conversationId,
     });
     sessionId = session.id;
 
-    log.info({ callSessionId: session.id, to: phoneNumber, from: fromNumber, task }, 'Initiating outbound call');
+    // Create a dedicated voice conversation for this call so that voice
+    // transcripts live in their own thread, separate from the chat that
+    // triggered the call.
+    const voiceConvKey = assistantId
+      ? `asst:${assistantId}:voice:call:${session.id}`
+      : `voice:call:${session.id}`;
+    const { conversationId: voiceConversationId } = getOrCreateConversation(voiceConvKey);
+
+    upsertBinding({
+      conversationId: voiceConversationId,
+      sourceChannel: 'voice',
+      externalChatId: session.id,
+    });
+
+    // Point the call session at the new voice conversation; the original
+    // chat is preserved in initiatedFromConversationId.
+    updateCallSession(session.id, {
+      conversationId: voiceConversationId,
+    });
+    session.conversationId = voiceConversationId;
+
+    log.info({ callSessionId: session.id, voiceConversationId, initiatedFrom: conversationId, to: phoneNumber, from: fromNumber, task }, 'Initiating outbound call');
 
     const { callSid } = await provider.initiateCall({
       from: fromNumber,
