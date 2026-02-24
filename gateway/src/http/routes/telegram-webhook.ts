@@ -1,3 +1,4 @@
+import { buildTelegramTransportMetadata } from "../../channels/transport-hints.js";
 import type { GatewayConfig } from "../../config.js";
 import { DedupCache } from "../../dedup-cache.js";
 import { handleInbound } from "../../handlers/handle-inbound.js";
@@ -11,21 +12,6 @@ import { sendTelegramReply } from "../../telegram/send.js";
 import { verifyWebhookSecret } from "../../telegram/verify.js";
 
 const log = getLogger("telegram-webhook");
-
-export const TELEGRAM_CHANNEL_TRANSPORT_HINTS = [
-  "chat-first-medium",
-  "channel-safe-onboarding",
-  "defer-dashboard-only-tasks",
-] as const;
-export const TELEGRAM_CHANNEL_TRANSPORT_UX_BRIEF =
-  "Telegram is chat-only. Complete channel-safe steps in-channel and defer dashboard-only Home Base tasks to desktop.";
-
-export function buildTelegramTransportMetadata(): { hints: string[]; uxBrief: string } {
-  return {
-    hints: [...TELEGRAM_CHANNEL_TRANSPORT_HINTS],
-    uxBrief: TELEGRAM_CHANNEL_TRANSPORT_UX_BRIEF,
-  };
-}
 
 /**
  * Parse `/start` or `/start <payload>` from Telegram message content.

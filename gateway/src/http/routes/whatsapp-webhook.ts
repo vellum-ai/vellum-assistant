@@ -1,3 +1,4 @@
+import { buildWhatsAppTransportMetadata } from "../../channels/transport-hints.js";
 import type { GatewayConfig } from "../../config.js";
 import { StringDedupCache } from "../../dedup-cache.js";
 import { handleInbound } from "../../handlers/handle-inbound.js";
@@ -47,23 +48,6 @@ function shouldSendRejectionNotice(senderId: string): boolean {
   }
   rejectionNoticeTimestamps.set(senderId, now);
   return true;
-}
-
-export const WHATSAPP_CHANNEL_TRANSPORT_HINTS = [
-  "chat-first-medium",
-  "channel-safe-onboarding",
-  "defer-dashboard-only-tasks",
-  "whatsapp-formatting",
-] as const;
-
-export const WHATSAPP_CHANNEL_TRANSPORT_UX_BRIEF =
-  "WhatsApp is a mobile messaging channel. Keep responses concise and use plain text; avoid markdown tables and complex formatting.";
-
-export function buildWhatsAppTransportMetadata(): { hints: string[]; uxBrief: string } {
-  return {
-    hints: [...WHATSAPP_CHANNEL_TRANSPORT_HINTS],
-    uxBrief: WHATSAPP_CHANNEL_TRANSPORT_UX_BRIEF,
-  };
 }
 
 export function createWhatsAppWebhookHandler(config: GatewayConfig) {
