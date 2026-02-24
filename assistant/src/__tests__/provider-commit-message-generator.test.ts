@@ -55,18 +55,21 @@ const mockProvider: Provider = {
   name: 'mock-provider',
   sendMessage: mockSendMessage,
 };
-let getProviderShouldThrow = false;
 
-mock.module('../providers/registry.js', () => ({
-  getProvider: (_name: string) => {
-    if (getProviderShouldThrow) {
-      throw new Error('Provider not initialized');
-    }
-    return mockProvider;
-  },
-  registerProvider: () => {},
-  listProviders: () => ['mock-provider'],
-  initializeProviders: () => {},
+let resolvedProvider: {
+  provider: Provider;
+  configuredProviderName: string;
+  selectedProviderName: string;
+  usedFallbackPrimary: boolean;
+} | null = {
+  provider: mockProvider,
+  configuredProviderName: 'anthropic',
+  selectedProviderName: 'anthropic',
+  usedFallbackPrimary: false,
+};
+
+mock.module('../providers/provider-send-message.js', () => ({
+  resolveConfiguredProvider: () => resolvedProvider,
 }));
 
 // ---------------------------------------------------------------------------
@@ -113,7 +116,12 @@ describe('ProviderCommitMessageGenerator', () => {
     _resetCommitMessageGenerator();
     currentConfig = cloneConfig();
     mockSendMessage.mockReset();
-    getProviderShouldThrow = false;
+    resolvedProvider = {
+      provider: mockProvider,
+      configuredProviderName: 'anthropic',
+      selectedProviderName: 'anthropic',
+      usedFallbackPrimary: false,
+    };
   });
 
   // 1. disabled
@@ -147,6 +155,32 @@ describe('ProviderCommitMessageGenerator', () => {
     });
     expect(result.source).toBe('deterministic');
     expect(result.reason).toBe('missing_provider_api_key');
+    expect(mockSendMessage).not.toHaveBeenCalled();
+  });
+
+  // 3b. No resolvable provider and no keys
+  test('no resolvable provider + no keys → returns deterministic, reason "missing_provider_api_key"', async () => {
+    currentConfig.apiKeys = {} as Record<string, string>;
+    resolvedProvider = null;
+    const gen = getCommitMessageGenerator();
+    const result = await gen.generateCommitMessage(baseContext, {
+      changedFiles: baseContext.changedFiles,
+    });
+    expect(result.source).toBe('deterministic');
+    expect(result.reason).toBe('missing_provider_api_key');
+    expect(mockSendMessage).not.toHaveBeenCalled();
+  });
+
+  // 3c. No resolvable provider despite keys
+  test('no resolvable provider with keys present → returns deterministic, reason "provider_not_initialized"', async () => {
+    currentConfig.apiKeys = { anthropic: 'sk-test-key' } as Record<string, string>;
+    resolvedProvider = null;
+    const gen = getCommitMessageGenerator();
+    const result = await gen.generateCommitMessage(baseContext, {
+      changedFiles: baseContext.changedFiles,
+    });
+    expect(result.source).toBe('deterministic');
+    expect(result.reason).toBe('provider_not_initialized');
     expect(mockSendMessage).not.toHaveBeenCalled();
   });
 
@@ -295,6 +329,12 @@ describe('ProviderCommitMessageGenerator', () => {
   test('Ollama without API key or fast model → returns deterministic, reason "missing_fast_model"', async () => {
     (currentConfig as Record<string, unknown>).provider = 'ollama';
     currentConfig.apiKeys = {} as Record<string, string>;
+    resolvedProvider = {
+      provider: mockProvider,
+      configuredProviderName: 'ollama',
+      selectedProviderName: 'ollama',
+      usedFallbackPrimary: false,
+    };
     const gen = getCommitMessageGenerator();
     const result = await gen.generateCommitMessage(baseContext, {
       changedFiles: baseContext.changedFiles,
@@ -309,6 +349,12 @@ describe('ProviderCommitMessageGenerator', () => {
   test('Unknown provider without fast model default → returns deterministic, reason "missing_fast_model"', async () => {
     (currentConfig as Record<string, unknown>).provider = 'exotic-provider';
     currentConfig.apiKeys = { 'exotic-provider': 'sk-exotic' } as Record<string, string>;
+    resolvedProvider = {
+      provider: mockProvider,
+      configuredProviderName: 'exotic-provider',
+      selectedProviderName: 'exotic-provider',
+      usedFallbackPrimary: false,
+    };
     const gen = getCommitMessageGenerator();
     const result = await gen.generateCommitMessage(baseContext, {
       changedFiles: baseContext.changedFiles,
@@ -322,6 +368,12 @@ describe('ProviderCommitMessageGenerator', () => {
   test('fast-model override enables LLM path for provider without built-in default', async () => {
     (currentConfig as Record<string, unknown>).provider = 'ollama';
     currentConfig.apiKeys = {} as Record<string, string>; // Ollama is keyless
+    resolvedProvider = {
+      provider: mockProvider,
+      configuredProviderName: 'ollama',
+      selectedProviderName: 'ollama',
+      usedFallbackPrimary: false,
+    };
     currentConfig.workspaceGit.commitMessageLLM.providerFastModelOverrides = {
       ollama: 'llama3.2:3b',
     };
@@ -338,5 +390,29 @@ describe('ProviderCommitMessageGenerator', () => {
     const callArgs = mockSendMessage.mock.calls[0];
     const options = callArgs[3] as { config: { model: string } };
     expect(options.config.model).toBe('llama3.2:3b');
+  });
+
+  // 15. Fail-open fallback provider uses fallback provider's fast-model mapping
+  test('configured provider unavailable -> selected fallback provider model mapping is used', async () => {
+    currentConfig.provider = 'anthropic';
+    currentConfig.providerOrder = ['openai'];
+    currentConfig.apiKeys = { openai: 'sk-openai' } as Record<string, string>;
+    resolvedProvider = {
+      provider: mockProvider,
+      configuredProviderName: 'anthropic',
+      selectedProviderName: 'openai',
+      usedFallbackPrimary: true,
+    };
+    mockSendMessage.mockResolvedValueOnce(makeSuccessResponse('fix: fail-open commit'));
+
+    const gen = getCommitMessageGenerator();
+    const result = await gen.generateCommitMessage(baseContext, {
+      changedFiles: baseContext.changedFiles,
+    });
+
+    expect(result.source).toBe('llm');
+    const callArgs = mockSendMessage.mock.calls[0];
+    const options = callArgs[3] as { config: { model: string } };
+    expect(options.config.model).toBe('gpt-4o-mini');
   });
 });
