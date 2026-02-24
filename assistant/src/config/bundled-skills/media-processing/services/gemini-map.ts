@@ -91,6 +91,7 @@ function computeConfigHash(options: GeminiMapOptions): string {
     systemPrompt: options.systemPrompt,
     outputSchema: options.outputSchema,
     model: options.model ?? 'gemini-2.5-flash',
+    context: options.context,
   });
   return createHash('sha256').update(payload).digest('hex').slice(0, 8);
 }
