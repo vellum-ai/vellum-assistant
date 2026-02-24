@@ -8,6 +8,7 @@
 
 import type { Message } from '../providers/types.js';
 import type { TurnChannelContext } from '../channels/types.js';
+import { parseChannelId } from '../channels/types.js';
 import type { ServerMessage, UserMessageAttachment } from './ipc-protocol.js';
 import type { UsageStats } from './ipc-contract.js';
 import type { MessageQueue } from './session-queue-manager.js';
@@ -75,6 +76,23 @@ export interface ProcessSessionContext {
     options?: { skipPreMessageRollback?: boolean },
   ): Promise<void>;
   getTurnChannelContext(): TurnChannelContext | null;
+  setTurnChannelContext(ctx: TurnChannelContext): void;
+}
+
+function resolveQueuedTurnContext(
+  queued: { turnChannelContext?: TurnChannelContext; metadata?: Record<string, unknown> },
+  fallback: TurnChannelContext | null,
+): TurnChannelContext | null {
+  if (queued.turnChannelContext) return queued.turnChannelContext;
+  const metadata = queued.metadata;
+  if (metadata) {
+    const userMessageChannel = parseChannelId(metadata.userMessageChannel);
+    const assistantMessageChannel = parseChannelId(metadata.assistantMessageChannel);
+    if (userMessageChannel && assistantMessageChannel) {
+      return { userMessageChannel, assistantMessageChannel };
+    }
+  }
+  return fallback;
 }
 
 /** Build a SlashContext from the current session state and config. */
@@ -119,6 +137,11 @@ export function drainQueue(session: ProcessSessionContext, reason: QueueDrainRea
     requestId: next.requestId,
   });
 
+  const queuedTurnCtx = resolveQueuedTurnContext(next, session.getTurnChannelContext());
+  if (queuedTurnCtx) {
+    session.setTurnChannelContext(queuedTurnCtx);
+  }
+
   // Resolve slash commands for queued messages
   const slashResult = resolveSlash(next.content, buildSlashContext(session));
 
@@ -127,9 +150,8 @@ export function drainQueue(session: ProcessSessionContext, reason: QueueDrainRea
   // failed write never leaves an unpersisted message in memory.
   if (slashResult.kind === 'unknown') {
     try {
-      const drainTurnCtx = session.getTurnChannelContext();
-      const drainChannelMeta = drainTurnCtx
-        ? { userMessageChannel: drainTurnCtx.userMessageChannel, assistantMessageChannel: drainTurnCtx.assistantMessageChannel }
+      const drainChannelMeta = queuedTurnCtx
+        ? { userMessageChannel: queuedTurnCtx.userMessageChannel, assistantMessageChannel: queuedTurnCtx.assistantMessageChannel }
         : undefined;
       const userMsg = createUserMessage(next.content, next.attachments);
       conversationStore.addMessage(
