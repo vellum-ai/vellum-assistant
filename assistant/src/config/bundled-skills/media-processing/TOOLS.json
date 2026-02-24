@@ -210,7 +210,7 @@
     },
     {
       "name": "media_diagnostics",
-      "description": "Get a diagnostic report for a media asset including processing stats, per-stage timing, failure reasons, cost estimation, and feedback summary.",
+      "description": "Get a diagnostic report for a media asset including processing stats, per-stage timing (preprocess/map/reduce), failure reasons, and Gemini-based cost estimation.",
       "category": "media",
       "risk": "low",
       "input_schema": {

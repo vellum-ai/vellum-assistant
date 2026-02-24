@@ -27,8 +27,8 @@ import type { MapOutput } from './gemini-map.js';
 // ---------------------------------------------------------------------------
 
 export interface ReduceOptions {
-  /** Natural language query about the video data. */
-  query: string;
+  /** Natural language query about the video data. Optional for one-shot merge mode. */
+  query?: string;
   /** Optional system prompt for Claude. */
   systemPrompt?: string;
   /** Model override. Defaults to claude-sonnet-4-6. */
@@ -182,7 +182,8 @@ export async function reduceForAsset(
   }
 
   const mapText = formatMapOutputAsText(mapOutput);
-  return sendToClaude(mapText, options.query, options.systemPrompt, options.model, onProgress);
+  const effectiveQuery = options.query ?? 'Summarize the video content.';
+  return sendToClaude(mapText, effectiveQuery, options.systemPrompt, options.model, onProgress);
 }
 
 /**

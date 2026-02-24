@@ -2,7 +2,7 @@
  * Media diagnostics tool.
  *
  * Surfaces processing stats, per-stage timing, failure reasons,
- * cost estimation, and feedback summary for a media asset.
+ * and cost estimation for a media asset.
  * All metrics are generic media-processing infrastructure.
  */
 
@@ -11,17 +11,14 @@ import {
   getMediaAssetById,
   getProcessingStagesForAsset,
   getKeyframesForAsset,
-  getVisionOutputsForAsset,
-  getTimelineForAsset,
-  getEventsForAsset,
   type ProcessingStage,
 } from '../../../../memory/media-store.js';
 // ---------------------------------------------------------------------------
-// Cost estimation constants
+// Cost estimation constants (Gemini 2.5 Flash pricing)
 // ---------------------------------------------------------------------------
 
-/** Estimated cost per vision API call (one keyframe analysis). */
-const ESTIMATED_COST_PER_FRAME_USD = 0.003;
+/** Estimated cost per segment Map call (Gemini 2.5 Flash with ~10 frames). */
+const ESTIMATED_COST_PER_SEGMENT_USD = 0.001;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -43,29 +40,15 @@ interface DiagnosticReport {
   durationSeconds: number | null;
   processingStats: {
     totalKeyframes: number;
-    totalVisionOutputs: number;
-    totalTimelineSegments: number;
-    totalEventsDetected: number;
   };
   stages: StageDiagnostic[];
   costEstimate: {
     keyframeCount: number;
-    estimatedCostPerFrame: number;
+    estimatedSegments: number;
+    estimatedCostPerSegment: number;
     estimatedTotalCost: number;
     currency: string;
-  };
-  feedbackSummary: {
-    totalFeedbackEntries: number;
-    statsByEventType: Array<{
-      eventType: string;
-      totalEvents: number;
-      correct: number;
-      incorrect: number;
-      boundaryEdit: number;
-      missed: number;
-      precision: number | null;
-      recall: number | null;
-    }>;
+    note: string;
   };
 }
 
@@ -102,11 +85,8 @@ export async function run(
 
   // Gather processing stats
   const keyframes = getKeyframesForAsset(assetId);
-  const visionOutputs = getVisionOutputsForAsset(assetId);
-  const timelineSegments = getTimelineForAsset(assetId);
-  const events = getEventsForAsset(assetId);
 
-  // Per-stage diagnostics
+  // Per-stage diagnostics (new pipeline: preprocess, map, reduce)
   const stages = getProcessingStagesForAsset(assetId);
   const stageDiagnostics: StageDiagnostic[] = stages.map((s) => ({
     stage: s.stage,
@@ -116,9 +96,10 @@ export async function run(
     lastError: s.lastError,
   }));
 
-  // Cost estimation based on keyframe count
+  // Cost estimation: Gemini 2.5 Flash is ~$0.001 per segment (~10 frames each)
   const keyframeCount = keyframes.length;
-  const estimatedTotalCost = keyframeCount * ESTIMATED_COST_PER_FRAME_USD;
+  const estimatedSegments = Math.ceil(keyframeCount / 10);
+  const estimatedTotalCost = estimatedSegments * ESTIMATED_COST_PER_SEGMENT_USD;
 
   const report: DiagnosticReport = {
     assetId: asset.id,
@@ -128,20 +109,15 @@ export async function run(
     durationSeconds: asset.durationSeconds,
     processingStats: {
       totalKeyframes: keyframeCount,
-      totalVisionOutputs: visionOutputs.length,
-      totalTimelineSegments: timelineSegments.length,
-      totalEventsDetected: events.length,
     },
     stages: stageDiagnostics,
     costEstimate: {
       keyframeCount,
-      estimatedCostPerFrame: ESTIMATED_COST_PER_FRAME_USD,
+      estimatedSegments,
+      estimatedCostPerSegment: ESTIMATED_COST_PER_SEGMENT_USD,
       estimatedTotalCost: Math.round(estimatedTotalCost * 1000) / 1000,
       currency: 'USD',
-    },
-    feedbackSummary: {
-      totalFeedbackEntries: 0,
-      statsByEventType: [],
+      note: 'Gemini 2.5 Flash for Map phase; Claude for Reduce phase (additional cost).',
     },
   };
 
