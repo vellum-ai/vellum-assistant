@@ -40,7 +40,7 @@ Return a JSON array of these objects, one per frame. Return ONLY the JSON array,
 
 function buildChunks(keyframes: MediaKeyframe[], chunkSize: number, overlap: number): MediaKeyframe[][] {
   const chunks: MediaKeyframe[][] = [];
-  const step = chunkSize - overlap;
+  const step = Math.max(1, chunkSize - overlap);
   for (let i = 0; i < keyframes.length; i += step) {
     chunks.push(keyframes.slice(i, i + chunkSize));
   }
@@ -275,9 +275,9 @@ export async function run(
   }
 
   const analysisType = (input.analysis_type as string) || 'scene_description';
-  const batchSize = (input.batch_size as number) || 10;
-  const chunkSizeInput = (input.chunk_size as number) || 10;
-  const overlapInput = (input.overlap as number) || 2;
+  const batchSize = (input.batch_size as number) ?? 10;
+  const chunkSizeInput = (input.chunk_size as number) ?? 10;
+  const overlapInput = (input.overlap as number) ?? 2;
 
   try {
     // Check if all keyframes are already analyzed before calling the core function
