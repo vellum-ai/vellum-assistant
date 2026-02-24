@@ -1,6 +1,5 @@
 import * as net from 'node:net';
 import { isChannelId, parseChannelId } from '../../channels/types.js';
-import type { ChannelId } from '../../channels/types.js';
 import { silentlyWithLog } from '../../util/silently.js';
 import { v4 as uuid } from 'uuid';
 import * as conversationStore from '../../memory/conversation-store.js';
