@@ -891,8 +891,13 @@ struct SettingsConnectTab: View {
                 showingPairingQR = true
             }
 
-            // Status line
-            if !store.resolvedIosGatewayUrl.isEmpty && !store.resolvedIosBearerToken.isEmpty {
+            // Status line — use resolvedIosGatewayUrl for gateway (no I/O) and
+            // cached bearerToken + override for token (avoids synchronous disk read).
+            let hasGateway = !store.resolvedIosGatewayUrl.isEmpty
+            let hasToken = !bearerToken.isEmpty || (iosPairingUseOverride && !iosPairingTokenOverride.isEmpty)
+
+            if hasGateway && hasToken {
+                // "Ready to pair" — green checkmark
                 HStack(spacing: VSpacing.sm) {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundColor(VColor.success)
@@ -901,7 +906,8 @@ struct SettingsConnectTab: View {
                         .font(VFont.body)
                         .foregroundColor(VColor.success)
                 }
-            } else if store.resolvedIosGatewayUrl.isEmpty {
+            } else if !hasGateway {
+                // "Configure a gateway URL below" — amber warning
                 HStack(spacing: VSpacing.sm) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundColor(VColor.warning)
@@ -911,6 +917,7 @@ struct SettingsConnectTab: View {
                         .foregroundColor(VColor.warning)
                 }
             } else {
+                // "Bearer token required" — amber warning
                 HStack(spacing: VSpacing.sm) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundColor(VColor.warning)
