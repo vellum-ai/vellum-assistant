@@ -19,3 +19,4 @@ export { migrateCallSessionsAddInitiatedFrom } from './012-call-sessions-add-ini
 export { migrateGuardianActionTables } from './013-guardian-action-tables.js';
 export { migrateBackfillInboxThreadStateFromBindings } from './014-backfill-inbox-thread-state.js';
 export { migrateDropActiveSearchIndex } from './015-drop-active-search-index.js';
+export { migrateNotificationTablesSchema } from './016-notification-tables-schema-migration.js';

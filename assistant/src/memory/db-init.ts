@@ -16,6 +16,7 @@ import {
   migrateGuardianActionTables,
   migrateBackfillInboxThreadStateFromBindings,
   migrateDropActiveSearchIndex,
+  migrateNotificationTablesSchema,
   validateMigrationState,
 } from './schema-migration.js';
 
@@ -1269,12 +1270,9 @@ export function initializeDb(): void {
 
   // ── Notification System ──────────────────────────────────────────────
 
-  // Migration: drop legacy tables from the old enum-based notification model.
-  // notification_deliveries must be dropped first (FK to notification_events).
-  // notification_preferences is fully removed (replaced by decision engine).
-  database.run(/*sql*/ `DROP TABLE IF EXISTS notification_deliveries`);
-  database.run(/*sql*/ `DROP TABLE IF EXISTS notification_events`);
-  database.run(/*sql*/ `DROP TABLE IF EXISTS notification_preferences`);
+  // Migration: drop legacy enum-based notification tables if old schema detected.
+  // Guarded behind a one-time check for the old `notification_type` column.
+  migrateNotificationTablesSchema(database);
 
   database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS notification_events (

@@ -19,4 +19,5 @@ export {
   migrateGuardianActionTables,
   migrateBackfillInboxThreadStateFromBindings,
   migrateDropActiveSearchIndex,
+  migrateNotificationTablesSchema,
 } from './migrations/index.js';
