@@ -21,6 +21,7 @@ import type {
   ApprovalUIMetadata,
   ApprovalDecisionResult,
 } from './channel-approval-types.js';
+import { composeApprovalMessage } from './approval-message-composer.js';
 
 // ---------------------------------------------------------------------------
 // 1. Detect pending confirmations and build prompt
@@ -47,13 +48,17 @@ export function getChannelApprovalPrompt(
  * Internal helper: turn a PendingRunInfo into a ChannelApprovalPrompt.
  */
 function buildPromptFromRunInfo(info: PendingRunInfo): ChannelApprovalPrompt {
-  const promptText = `The assistant wants to use the tool "${info.toolName}". Do you want to allow this?`;
+  const promptText = composeApprovalMessage({
+    scenario: 'standard_prompt',
+    toolName: info.toolName,
+  });
 
   // Hide "approve always" when persistent trust rules are disallowed for this invocation.
   const actions = info.persistentDecisionsAllowed === false
     ? DEFAULT_APPROVAL_ACTIONS.filter((a) => a.id !== 'approve_always')
     : [...DEFAULT_APPROVAL_ACTIONS];
 
+  // Plain-text fallback must remain parser-compatible (contains "yes"/"always"/"no" keywords).
   const plainTextFallback = info.persistentDecisionsAllowed === false
     ? `${promptText}\n\nReply "yes" to approve or "no" to reject.`
     : `${promptText}\n\nReply "yes" to approve once, "always" to approve always, or "no" to reject.`;
@@ -166,8 +171,11 @@ export function buildGuardianApprovalPrompt(
   info: PendingRunInfo,
   requesterIdentifier: string,
 ): ChannelApprovalPrompt {
-  const promptText =
-    `User ${requesterIdentifier} is requesting to run "${info.toolName}". Approve or deny?`;
+  const promptText = composeApprovalMessage({
+    scenario: 'guardian_prompt',
+    toolName: info.toolName,
+    requesterIdentifier,
+  });
 
   // Guardian approvals are always one-time decisions — "approve always"
   // doesn't make sense when the guardian is approving on behalf of someone else.
@@ -211,7 +219,7 @@ export function channelSupportsRichApprovalUI(channel: string): boolean {
 export function buildReminderPrompt(
   pendingPrompt: ChannelApprovalPrompt,
 ): ChannelApprovalPrompt {
-  const reminderPrefix = "I'm still waiting for your decision on the previous request.";
+  const reminderPrefix = composeApprovalMessage({ scenario: 'reminder_prompt' });
   return {
     promptText: `${reminderPrefix}\n\n${pendingPrompt.promptText}`,
     actions: pendingPrompt.actions,
