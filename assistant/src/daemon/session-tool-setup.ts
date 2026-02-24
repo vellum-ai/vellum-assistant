@@ -84,15 +84,18 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 interface DoordashStep { label: string; status: string; detail?: string }
 
 /**
- * Map a `vellum doordash <subcommand>` to the step label it corresponds to.
+ * Map a `doordash <subcommand>` (or `vellum doordash <subcommand>`) to the
+ * step label it corresponds to.
  */
 function doordashCommandToStep(cmd: string): string | null {
-  if (/vellum doordash status\b/.test(cmd) || /vellum doordash refresh\b/.test(cmd) || /vellum doordash login\b/.test(cmd)) return 'Check session';
-  if (/vellum doordash search\b/.test(cmd) || /vellum doordash search-items\b/.test(cmd)) return 'Search restaurants';
-  if (/vellum doordash menu\b/.test(cmd) || /vellum doordash item\b/.test(cmd) || /vellum doordash store-search\b/.test(cmd)) return 'Browse menu';
-  if (/vellum doordash cart\b/.test(cmd)) return 'Add to cart';
-  if (/vellum doordash checkout\b/.test(cmd) || /vellum doordash payment-methods\b/.test(cmd)) return 'Add to cart';
-  if (/vellum doordash order\b/.test(cmd)) return 'Place order';
+  // Match both standalone `doordash` and legacy `vellum doordash` prefixes
+  const dd = /(?:vellum )?doordash /;
+  if (new RegExp(dd.source + 'status\\b').test(cmd) || new RegExp(dd.source + 'refresh\\b').test(cmd) || new RegExp(dd.source + 'login\\b').test(cmd)) return 'Check session';
+  if (new RegExp(dd.source + 'search\\b').test(cmd) || new RegExp(dd.source + 'search-items\\b').test(cmd)) return 'Search restaurants';
+  if (new RegExp(dd.source + 'menu\\b').test(cmd) || new RegExp(dd.source + 'item\\b').test(cmd) || new RegExp(dd.source + 'store-search\\b').test(cmd)) return 'Browse menu';
+  if (new RegExp(dd.source + 'cart\\b').test(cmd)) return 'Add to cart';
+  if (new RegExp(dd.source + 'checkout\\b').test(cmd) || new RegExp(dd.source + 'payment-methods\\b').test(cmd)) return 'Add to cart';
+  if (new RegExp(dd.source + 'order\\b').test(cmd)) return 'Place order';
   return null;
 }
 
@@ -151,7 +154,7 @@ export function createToolExecutor(
     // Pre-execution: mark the current DoorDash step as in_progress when command starts
     if (name === 'bash' || name === 'host_bash') {
       const preCmd = input.command as string | undefined;
-      if (preCmd?.includes('vellum doordash')) {
+      if (preCmd && (preCmd.includes('vellum doordash') || preCmd.includes('doordash '))) {
         const surfaceId = 'doordash-progress';
         const stored = ctx.surfaceState.get(surfaceId);
         if (stored && stored.surfaceType === 'card') {
@@ -312,7 +315,7 @@ export function createToolExecutor(
     // Auto-emit task_progress card on first DoorDash CLI command
     if (name === 'bash' || name === 'host_bash') {
       const cmd = input.command as string | undefined;
-      if (cmd?.includes('vellum doordash')) {
+      if (cmd && (cmd.includes('vellum doordash') || cmd.includes('doordash '))) {
         const surfaceId = 'doordash-progress';
 
         if (!ctx.surfaceState.has(surfaceId)) {
