@@ -422,10 +422,27 @@ describe('twilio webhook routes', () => {
       expect(greeting).toBe('Hello, I am calling about check store hours for tomorrow. Is now a good time to talk?');
     });
 
+    test('strips Task prefix from task line', () => {
+      const greeting = buildWelcomeGreeting('Task: check store hours for tomorrow');
+      expect(greeting).toBe('Hello, I am calling about check store hours for tomorrow. Is now a good time to talk?');
+    });
+
     test('ignores appended Context block when building opener', () => {
       const greeting = buildWelcomeGreeting('check store hours\n\nContext: Caller asked by email');
       expect(greeting).toBe('Hello, I am calling about check store hours. Is now a good time to talk?');
       expect(greeting).not.toContain('Context:');
+    });
+
+    test('falls back to default opener for prompt-like task text', () => {
+      const greeting = buildWelcomeGreeting('You are on a live phone call on behalf of my human. IMPORTANT RULES: ...');
+      expect(greeting).toBe('Hello, this is an assistant calling. Is now a good time to talk?');
+    });
+
+    test('falls back to default opener for overly long multi-step task text', () => {
+      const greeting = buildWelcomeGreeting(
+        'Check store hours, ask about holiday closures, ask about parking validation, ask about wheelchair access, and ask to transfer to the manager.',
+      );
+      expect(greeting).toBe('Hello, this is an assistant calling. Is now a good time to talk?');
     });
 
     test('uses configured greeting override when provided', () => {
@@ -481,6 +498,25 @@ describe('twilio webhook routes', () => {
         'welcomeGreeting="Hello, I am calling about confirm appointment time. Is now a good time to talk?"',
       );
       expect(twiml).not.toContain('Hello, how can I help you today?');
+    });
+
+    test('TwiML welcome greeting does not leak prompt-like task text', async () => {
+      const session = createTestSession(
+        'conv-twiml-4',
+        'CA_twiml_4',
+        'You are on a live phone call on behalf of my human. IMPORTANT RULES: respond naturally and include [ASK_USER: ...]',
+      );
+      const req = makeVoiceRequest(session.id, { CallSid: 'CA_twiml_4' });
+
+      const res = await handleVoiceWebhook(req);
+
+      expect(res.status).toBe(200);
+      const twiml = await res.text();
+      expect(twiml).toContain(
+        'welcomeGreeting="Hello, this is an assistant calling. Is now a good time to talk?"',
+      );
+      expect(twiml).not.toContain('IMPORTANT RULES');
+      expect(twiml).not.toContain('ASK_USER');
     });
   });
 
