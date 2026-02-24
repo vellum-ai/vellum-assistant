@@ -90,6 +90,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var mainWindow: MainWindow?
     var bundleConfirmationWindow: BundleConfirmationWindow?
     private var tasksWindow: TasksWindow?
+    private var pairingApprovalWindow: PairingApprovalWindow?
     /// Tracks file paths of .vellumapp bundles awaiting daemon responses (FIFO).
     /// Each call to sendOpenBundle appends a path; handleOpenBundleResponse
     /// pops the first entry so concurrent opens are correctly paired.
@@ -660,6 +661,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
         daemonClient.onOpenTasksWindow = { [weak self] in
             self?.showTasksWindow()
+        }
+
+        daemonClient.onPairingApprovalRequest = { [weak self] msg in
+            guard let self else { return }
+            if self.pairingApprovalWindow == nil {
+                self.pairingApprovalWindow = PairingApprovalWindow(daemonClient: self.daemonClient)
+            }
+            self.pairingApprovalWindow?.show(
+                pairingRequestId: msg.pairingRequestId,
+                deviceName: msg.deviceName
+            )
         }
 
         // Automatically surface threads created by scheduled task runs so

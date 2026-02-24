@@ -423,6 +423,15 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon wants us to open/focus the tasks window.
     public var onOpenTasksWindow: (() -> Void)?
 
+    /// Called when the daemon requests pairing approval from macOS.
+    public var onPairingApprovalRequest: ((PairingApprovalRequestMessage) -> Void)?
+
+    /// Called when the daemon sends the approved devices list.
+    public var onApprovedDevicesListResponse: ((ApprovedDevicesListResponseMessage) -> Void)?
+
+    /// Called when the daemon confirms a device removal.
+    public var onApprovedDeviceRemoveResponse: ((ApprovedDeviceRemoveResponseMessage) -> Void)?
+
     /// Called when a subagent is spawned.
     public var onSubagentSpawned: ((IPCSubagentSpawned) -> Void)?
 
@@ -1401,6 +1410,28 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             contentRestrictions: contentRestrictions,
             blockedToolCategories: blockedToolCategories
         ))
+    }
+
+    // MARK: - Pairing
+
+    /// Send the user's pairing approval decision.
+    public func sendPairingApprovalResponse(pairingRequestId: String, decision: String) throws {
+        try send(PairingApprovalResponseMessage(pairingRequestId: pairingRequestId, decision: decision))
+    }
+
+    /// Request the list of always-allowed devices.
+    public func sendApprovedDevicesList() throws {
+        try send(ApprovedDevicesListMessage())
+    }
+
+    /// Remove a device from the always-allow list.
+    public func sendApprovedDeviceRemove(hashedDeviceId: String) throws {
+        try send(ApprovedDeviceRemoveMessage(hashedDeviceId: hashedDeviceId))
+    }
+
+    /// Clear all approved devices.
+    public func sendApprovedDevicesClear() throws {
+        try send(ApprovedDevicesClearMessage())
     }
 
 }
