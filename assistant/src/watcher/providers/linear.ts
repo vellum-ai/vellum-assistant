@@ -278,12 +278,25 @@ async function fetchAssignedIssueUpdates(
 // ── Issue state tracking ──────────────────────────────────────────────────────
 
 /**
- * Tracks the last known state ID per issue (keyed by issue ID).
- * Populated on every poll so we can detect transitions across consecutive polls.
+ * Tracks the last known state ID per issue, scoped by credentialService so
+ * multiple Linear watchers in the same process (e.g. different accounts or
+ * credential keys) maintain independent baselines and can't corrupt each
+ * other's state. Outer key: credentialService; inner key: issue ID.
+ *
  * In-memory only; resets on daemon restart, which is acceptable — the first
  * poll after restart will seed the map without emitting false-positive events.
  */
-const knownIssueStateIds = new Map<string, string>();
+const knownIssueStateIdsByCredential = new Map<string, Map<string, string>>();
+
+/** Get (or lazily create) the per-credential state map. */
+function getStateCache(credentialService: string): Map<string, string> {
+  let cache = knownIssueStateIdsByCredential.get(credentialService);
+  if (!cache) {
+    cache = new Map<string, string>();
+    knownIssueStateIdsByCredential.set(credentialService, cache);
+  }
+  return cache;
+}
 
 // ── Event type mapping ────────────────────────────────────────────────────────
 
@@ -403,13 +416,16 @@ export const linearProvider: WatcherProvider = {
       // On first sight of an issue we seed the map without emitting, so we don't
       // fire false-positive events after a daemon restart.
       const assignedIssues = await fetchAssignedIssueUpdates(token, viewer.id, since);
+      // Use a per-credential state cache so multiple Linear watchers in the same
+      // process don't overwrite each other's baselines and silently drop events.
+      const stateCache = getStateCache(credentialService);
       for (const issue of assignedIssues) {
-        const previousStateId = knownIssueStateIds.get(issue.id);
+        const previousStateId = stateCache.get(issue.id);
         if (previousStateId !== undefined && previousStateId !== issue.state.id) {
           items.push(issueToStatusChangeItem(issue, previousStateId));
         }
         // Always update the map so the next poll has an accurate baseline.
-        knownIssueStateIds.set(issue.id, issue.state.id);
+        stateCache.set(issue.id, issue.state.id);
       }
 
       const newWatermark = new Date().toISOString();
