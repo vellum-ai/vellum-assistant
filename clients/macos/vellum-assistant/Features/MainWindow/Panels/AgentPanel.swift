@@ -53,6 +53,9 @@ struct AgentPanelContent: View {
         .onAppear {
             skillsManager.fetchSkills()
         }
+        .onDisappear {
+            installTimeoutTask?.cancel()
+        }
         .onChange(of: skillsManager.skills.map(\.id)) {
             onSkillsChanged?()
             if let selectedId = selectedInstalledSkillId,
@@ -274,6 +277,7 @@ struct AgentPanelContent: View {
 
     @State private var installingSlug: String?
     @State private var installAttemptId: UUID?
+    @State private var installTimeoutTask: Task<Void, Never>?
     @State private var skillSearchQuery = ""
     @State private var skillSortOrder: SkillSortOrder = .installs
 
@@ -374,7 +378,10 @@ struct AgentPanelContent: View {
                     installingSlug = skill.slug
                     installAttemptId = attemptId
                     skillsManager.installSkill(slug: skill.slug)
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
+                    installTimeoutTask?.cancel()
+                    installTimeoutTask = Task {
+                        try? await Task.sleep(nanoseconds: 10_000_000_000)
+                        guard !Task.isCancelled else { return }
                         if installingSlug == skill.slug && installAttemptId == attemptId {
                             installingSlug = nil
                             installAttemptId = nil
@@ -709,7 +716,10 @@ struct AgentPanelContent: View {
                 installingSlug = slug
                 installAttemptId = attemptId
                 skillsManager.installSkill(slug: slug)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
+                installTimeoutTask?.cancel()
+                installTimeoutTask = Task {
+                    try? await Task.sleep(nanoseconds: 10_000_000_000)
+                    guard !Task.isCancelled else { return }
                     if installingSlug == slug && installAttemptId == attemptId {
                         installingSlug = nil
                         installAttemptId = nil
