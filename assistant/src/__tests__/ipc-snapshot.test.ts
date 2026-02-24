@@ -248,6 +248,10 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'schedule_remove',
     id: 'sched-001',
   },
+  schedule_run_now: {
+    type: 'schedule_run_now',
+    id: 'sched-001',
+  },
   reminders_list: {
     type: 'reminders_list',
   },
