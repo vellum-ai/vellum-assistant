@@ -38,17 +38,14 @@ struct AppDirectoryView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                // Header row: title (left) + centered search + space for close button
-                ZStack {
-                    // Title pinned to the leading edge
-                    HStack {
-                        Text("Directory")
-                            .font(VFont.panelTitle)
-                            .foregroundColor(VColor.textPrimary)
-                        Spacer()
-                    }
+                // Header row: title (left) + centered search + trailing space for close button
+                HStack(spacing: 0) {
+                    Text("Directory")
+                        .font(VFont.panelTitle)
+                        .foregroundColor(VColor.textPrimary)
 
-                    // Centered search bar
+                    Spacer(minLength: VSpacing.lg)
+
                     if !displayItems.isEmpty || !searchText.isEmpty {
                         HStack(spacing: VSpacing.xs) {
                             Image(systemName: "magnifyingglass")
@@ -79,10 +76,11 @@ struct AppDirectoryView: View {
                         )
                         .frame(maxWidth: 280)
                     }
+
+                    Spacer(minLength: VSpacing.lg)
                 }
                 .padding(.top, VSpacing.xxl)
                 .padding(.bottom, VSpacing.xl)
-                // Extra trailing padding so the search bar doesn't crowd the close button
                 .padding(.trailing, VSpacing.xxl)
 
                 Divider().background(VColor.surfaceBorder)
