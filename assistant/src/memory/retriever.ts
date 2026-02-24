@@ -136,17 +136,30 @@ async function collectAndMergeCandidates(
 
   let directItems: Candidate[];
   if (excludeMessageIds.length > 0) {
-    // Adaptive loop: double fetch size on each iteration until quota met or DB exhausted.
-    const MAX_FETCH_MULTIPLIER = 8;
-    let fetchSize = Math.max(directLimit * 2, directLimit + 24);
-    directItems = [];
-    while (true) {
+    const MAX_FETCH = directLimit * 8;
+
+    // Probe: fetch directLimit items and measure how many survive filtering.
+    const probe = directItemSearch(query, directLimit, scopeIds);
+    const probeFiltered = filterDirectItems(probe);
+    const probeExhausted = probe.length < directLimit;
+
+    if (probeFiltered.length >= directLimit || probeExhausted) {
+      directItems = probeFiltered.slice(0, directLimit);
+    } else {
+      // Compute exclusion ratio from probe and extrapolate the fetch size
+      // needed to yield directLimit surviving items in a single query.
+      const exclusionRatio = probe.length > 0
+        ? 1 - probeFiltered.length / probe.length
+        : 0;
+      // Fetch enough to compensate for the observed exclusion rate, with
+      // a 1.5x safety margin to avoid a second round in most cases.
+      const estimatedFetch = exclusionRatio < 1
+        ? Math.ceil((directLimit / (1 - exclusionRatio)) * 1.5)
+        : MAX_FETCH;
+      const fetchSize = Math.min(Math.max(estimatedFetch, directLimit + 24), MAX_FETCH);
+
       const fetched = directItemSearch(query, fetchSize, scopeIds);
       directItems = filterDirectItems(fetched).slice(0, directLimit);
-      if (directItems.length >= directLimit || fetched.length < fetchSize || fetchSize >= directLimit * MAX_FETCH_MULTIPLIER) {
-        break;
-      }
-      fetchSize = Math.min(fetchSize * 2, directLimit * MAX_FETCH_MULTIPLIER);
     }
   } else {
     directItems = directItemSearch(query, directLimit, scopeIds);
