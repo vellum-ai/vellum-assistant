@@ -20,9 +20,26 @@ struct ChatGallerySection: View {
                 title: "Skill Invocation",
                 description: "SkillInvocationChip"
             )
-            Text("Coming soon")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
+
+            VCard {
+                VStack(alignment: .leading, spacing: VSpacing.lg) {
+                    SkillInvocationChip(
+                        data: SkillInvocationData(
+                            name: "Summarize",
+                            emoji: "\u{1F4DD}",
+                            description: "Condense long text into key points and takeaways."
+                        )
+                    )
+
+                    SkillInvocationChip(
+                        data: SkillInvocationData(
+                            name: "Web Search",
+                            emoji: "\u{1F50D}",
+                            description: "Search the web for up-to-date information."
+                        )
+                    )
+                }
+            }
 
             Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
 
