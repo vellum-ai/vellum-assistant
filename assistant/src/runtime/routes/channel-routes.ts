@@ -45,6 +45,7 @@ import type {
   RuntimeAttachmentMetadata,
 } from '../http-types.js';
 import type { GuardianRuntimeContext } from '../../daemon/session-runtime-assembly.js';
+import { composeApprovalMessage } from '../approval-message-composer.js';
 
 const log = getLogger('runtime-http');
 
@@ -152,10 +153,10 @@ function buildGuardianDenyContext(
   sourceChannel: string,
 ): string {
   if (denialReason === 'no_identity') {
-    return `Permission denied: the action "${toolName}" requires guardian approval, but your identity could not be verified on ${sourceChannel}. Do not retry yet. Explain this clearly, ask the user to message from a verifiable direct account/chat, and then retry after identity is available.`;
+    return `Permission denied: ${composeApprovalMessage({ scenario: 'guardian_deny_no_identity', toolName, channel: sourceChannel })} Do not retry yet. Ask the user to message from a verifiable direct account/chat, and then retry after identity is available.`;
   }
 
-  return `Permission denied: the action "${toolName}" requires guardian approval, but no guardian is configured for this ${sourceChannel} channel. Do not retry yet. Explain that a guardian must be set up first. Offer to set up guardian verification right here in the chat — the setup flow will provide a verification token to send as /guardian_verify <token> in the ${sourceChannel} chat. The guardian can also manage this later from the Settings page.`;
+  return `Permission denied: ${composeApprovalMessage({ scenario: 'guardian_deny_no_binding', toolName, channel: sourceChannel })} Do not retry yet. Offer to set up guardian verification. The setup flow will provide a verification token to send as /guardian_verify <token>.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -870,7 +871,7 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
               try {
                 await deliverChannelReply(replyCallbackUrl, {
                   chatId: guardianCtx.requesterChatId ?? externalChatId,
-                  text: `Your request to run "${pending[0].toolName}" could not be sent to the guardian for approval. The action has been denied.`,
+                  text: composeApprovalMessage({ scenario: 'guardian_delivery_failed', toolName: pending[0].toolName }),
                   assistantId,
                 }, bearerToken);
               } catch (notifyErr) {
@@ -883,7 +884,7 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
               try {
                 await deliverChannelReply(replyCallbackUrl, {
                   chatId: guardianCtx.requesterChatId ?? externalChatId,
-                  text: `Your request to run "${pending[0].toolName}" has been sent to the guardian for approval.`,
+                  text: composeApprovalMessage({ scenario: 'guardian_request_forwarded', toolName: pending[0].toolName }),
                   assistantId,
                 }, bearerToken);
               } catch (err) {
@@ -1110,7 +1111,7 @@ async function handleApprovalInterception(
         try {
           await deliverChannelReply(replyCallbackUrl, {
             chatId: externalChatId,
-            text: `You have ${allPending.length} pending approval requests. Please use the approval buttons to respond to a specific request.`,
+            text: composeApprovalMessage({ scenario: 'guardian_disambiguation', pendingCount: allPending.length }),
             assistantId,
           }, bearerToken);
         } catch (err) {
@@ -1143,7 +1144,7 @@ async function handleApprovalInterception(
         try {
           await deliverChannelReply(replyCallbackUrl, {
             chatId: externalChatId,
-            text: 'Only the verified guardian can approve or deny this request.',
+            text: composeApprovalMessage({ scenario: 'guardian_identity_mismatch' }),
             assistantId,
           }, bearerToken);
         } catch (err) {
@@ -1177,10 +1178,11 @@ async function handleApprovalInterception(
 
         if (result.applied) {
           // Notify the requester's chat about the outcome with the tool name
-          const toolLabel = guardianApproval.toolName;
-          const outcomeText = decision.action === 'reject'
-            ? `Your request to run "${toolLabel}" was denied by the guardian.`
-            : `Your request to run "${toolLabel}" was approved by the guardian.`;
+          const outcomeText = composeApprovalMessage({
+            scenario: 'guardian_decision_outcome',
+            decision: decision.action === 'reject' ? 'denied' : 'approved',
+            toolName: guardianApproval.toolName,
+          });
           try {
             await deliverChannelReply(replyCallbackUrl, {
               chatId: guardianApproval.requesterChatId,
@@ -1286,7 +1288,7 @@ async function handleApprovalInterception(
         try {
           await deliverChannelReply(replyCallbackUrl, {
             chatId: externalChatId,
-            text: 'Your request is pending guardian approval. Only the verified guardian can approve or deny this request.',
+            text: composeApprovalMessage({ scenario: 'request_pending_guardian' }),
             assistantId,
           }, bearerToken);
         } catch (err) {
@@ -1313,7 +1315,7 @@ async function handleApprovalInterception(
         try {
           await deliverChannelReply(replyCallbackUrl, {
             chatId: externalChatId,
-            text: 'Your guardian approval request has expired and the action has been denied. Please try again.',
+            text: composeApprovalMessage({ scenario: 'guardian_expired_requester', toolName: pending[0].toolName }),
             assistantId,
           }, bearerToken);
         } catch (err) {
