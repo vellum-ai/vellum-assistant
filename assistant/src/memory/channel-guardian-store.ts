@@ -257,6 +257,20 @@ export function createChallenge(params: {
   return rowToChallenge(row);
 }
 
+export function revokePendingChallenges(assistantId: string, channel: string): void {
+  const db = getDb();
+  db.update(channelGuardianVerificationChallenges)
+    .set({ status: 'revoked', updatedAt: Date.now() })
+    .where(
+      and(
+        eq(channelGuardianVerificationChallenges.assistantId, assistantId),
+        eq(channelGuardianVerificationChallenges.channel, channel),
+        eq(channelGuardianVerificationChallenges.status, 'pending'),
+      ),
+    )
+    .run();
+}
+
 export function findPendingChallengeByHash(
   assistantId: string,
   channel: string,
