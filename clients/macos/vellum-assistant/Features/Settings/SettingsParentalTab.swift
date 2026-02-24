@@ -72,6 +72,10 @@ struct SettingsParentalTab: View {
                             hasPIN = true
                             successMessage = "PIN set."
                         case .change:
+                            // The old PIN is now invalid; clear the cache so subsequent
+                            // updates don't silently send a stale credential.
+                            isUnlocked = false
+                            unlockedPIN = nil
                             successMessage = "PIN changed."
                         case .clear:
                             hasPIN = false

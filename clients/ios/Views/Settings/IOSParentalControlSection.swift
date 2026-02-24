@@ -301,7 +301,9 @@ struct IOSParentalControlSection: View {
         case .success(let mode):
             switch mode {
             case .set: hasPIN = true; successMessage = "PIN set."
-            case .change: successMessage = "PIN changed."
+            // The old PIN is now invalid; clear the cache so subsequent
+            // updates don't silently send a stale credential.
+            case .change: isUnlocked = false; unlockedPIN = nil; successMessage = "PIN changed."
             case .clear: hasPIN = false; isUnlocked = false; unlockedPIN = nil; successMessage = "PIN cleared."
             }
         case .failure(let msg):
