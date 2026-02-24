@@ -132,6 +132,7 @@ struct SettingsParentalTab: View {
                 ))
                 .toggleStyle(.switch)
                 .labelsHidden()
+                .accessibilityLabel("Enable Parental Controls")
                 .disabled(isLoading)
             }
 
@@ -221,6 +222,7 @@ struct SettingsParentalTab: View {
                     ))
                     .toggleStyle(.switch)
                     .labelsHidden()
+                    .accessibilityLabel(topic.displayName)
                     .disabled(isLoading)
                 }
             }
@@ -257,6 +259,7 @@ struct SettingsParentalTab: View {
                         ))
                         .toggleStyle(.switch)
                         .labelsHidden()
+                        .accessibilityLabel(category.displayName)
                         .disabled(isLoading)
                     }
                     Text(category.description)
