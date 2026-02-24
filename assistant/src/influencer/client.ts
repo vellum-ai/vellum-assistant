@@ -46,7 +46,7 @@
  */
 
 import { extensionRelayServer } from '../browser-extension-relay/server.js';
-import type { ExtensionResponse } from '../browser-extension-relay/protocol.js';
+import type { ExtensionCommand, ExtensionResponse } from '../browser-extension-relay/protocol.js';
 import { readHttpToken } from '../util/platform.js';
 
 // ---------------------------------------------------------------------------
@@ -82,23 +82,23 @@ export interface InfluencerProfile {
   /** Bio/description */
   bio: string;
   /** Follower count (numeric) */
-  followers: number | null;
+  followers: number | undefined;
   /** Follower count (display string, e.g. "1.2M") */
   followersDisplay: string;
   /** Following count */
-  following: number | null;
+  following: number | undefined;
   /** Post/video count */
-  postCount: number | null;
+  postCount: number | undefined;
   /** Whether the account is verified */
   isVerified: boolean;
   /** Profile picture URL */
-  avatarUrl: string | null;
+  avatarUrl: string | undefined;
   /** Engagement rate estimate (if available) */
-  engagementRate: number | null;
+  engagementRate: number | undefined;
   /** Average likes per post (if available from recent posts) */
-  avgLikes: number | null;
+  avgLikes: number | undefined;
   /** Average comments per post (if available from recent posts) */
-  avgComments: number | null;
+  avgComments: number | undefined;
   /** Content categories/themes detected from bio and recent posts */
   contentThemes: string[];
   /** Recent post captions/snippets for context */
@@ -122,7 +122,7 @@ export interface InfluencerSearchResult {
 async function sendRelayCommand(command: Record<string, unknown>): Promise<ExtensionResponse> {
   const status = extensionRelayServer.getStatus();
   if (status.connected) {
-    return extensionRelayServer.sendCommand(command as any);
+    return extensionRelayServer.sendCommand(command as Omit<ExtensionCommand, 'id'>);
   }
 
   // Fall back to HTTP relay endpoint on the daemon
@@ -197,11 +197,11 @@ function sleep(ms: number): Promise<void> {
 // Follower count parser
 // ---------------------------------------------------------------------------
 
-function parseFollowerCount(text: string): number | null {
-  if (!text) return null;
+function parseFollowerCount(text: string): number | undefined {
+  if (!text) return undefined;
   const cleaned = text.toLowerCase().replace(/,/g, '').replace(/\s+/g, '').trim();
   const match = cleaned.match(/([\d.]+)\s*([kmbt]?)/);
-  if (!match) return null;
+  if (!match) return undefined;
 
   const num = parseFloat(match[1]);
   const suffix = match[2];
@@ -457,10 +457,10 @@ async function scrapeInstagramProfile(
     following: followingNum,
     postCount,
     isVerified: Boolean(data.isVerified),
-    avatarUrl: data.avatarUrl ? String(data.avatarUrl) : null,
-    engagementRate: null,
-    avgLikes: null,
-    avgComments: null,
+    avatarUrl: data.avatarUrl ? String(data.avatarUrl) : undefined,
+    engagementRate: undefined,
+    avgLikes: undefined,
+    avgComments: undefined,
     contentThemes: extractThemes(String(data.bio || '') + ' ' + String(data.meta || ''), criteria.query),
     recentPosts: [],
     relevanceScore: 0,
@@ -549,13 +549,13 @@ async function searchTikTok(
     bio: '',
     followers: parseFollowerCount(p.followers),
     followersDisplay: p.followers || 'unknown',
-    following: null,
-    postCount: null,
+    following: undefined,
+    postCount: undefined,
     isVerified: false,
-    avatarUrl: null,
-    engagementRate: null,
-    avgLikes: null,
-    avgComments: null,
+    avatarUrl: undefined,
+    engagementRate: undefined,
+    avgLikes: undefined,
+    avgComments: undefined,
     contentThemes: extractThemes(p.displayName, criteria.query),
     recentPosts: [],
     relevanceScore: 0,
@@ -671,12 +671,12 @@ async function scrapeTikTokProfile(
     followers: parseFollowerCount(String(data.followers || '')),
     followersDisplay: String(data.followers || 'unknown'),
     following: parseFollowerCount(String(data.following || '')),
-    postCount: null,
+    postCount: undefined,
     isVerified: Boolean(data.isVerified),
-    avatarUrl: data.avatarUrl ? String(data.avatarUrl) : null,
-    engagementRate: null,
-    avgLikes: null,
-    avgComments: null,
+    avatarUrl: data.avatarUrl ? String(data.avatarUrl) : undefined,
+    engagementRate: undefined,
+    avgLikes: undefined,
+    avgComments: undefined,
     contentThemes: extractThemes(bio, criteria.query),
     recentPosts: [],
     relevanceScore: 0,
@@ -811,15 +811,15 @@ async function searchTwitter(
         displayName: sr.displayName,
         profileUrl: `https://x.com/${sr.username}`,
         bio: sr.bio,
-        followers: null,
+        followers: undefined,
         followersDisplay: 'unknown',
-        following: null,
-        postCount: null,
+        following: undefined,
+        postCount: undefined,
         isVerified: sr.isVerified,
-        avatarUrl: sr.avatarUrl,
-        engagementRate: null,
-        avgLikes: null,
-        avgComments: null,
+        avatarUrl: sr.avatarUrl ?? undefined,
+        engagementRate: undefined,
+        avgLikes: undefined,
+        avgComments: undefined,
         contentThemes: extractThemes(sr.bio, criteria.query),
         recentPosts: [],
         relevanceScore: 0,
@@ -895,12 +895,12 @@ async function scrapeTwitterProfile(
     followers: parseFollowerCount(String(data.followers || '')),
     followersDisplay: String(data.followers || 'unknown'),
     following: parseFollowerCount(String(data.following || '')),
-    postCount: null,
+    postCount: undefined,
     isVerified: Boolean(data.isVerified),
-    avatarUrl: data.avatarUrl ? String(data.avatarUrl) : null,
-    engagementRate: null,
-    avgLikes: null,
-    avgComments: null,
+    avatarUrl: data.avatarUrl ? String(data.avatarUrl) : undefined,
+    engagementRate: undefined,
+    avgLikes: undefined,
+    avgComments: undefined,
     contentThemes: extractThemes(String(data.bio || ''), ''),
     recentPosts: [],
     relevanceScore: 0,
@@ -915,10 +915,10 @@ function matchesCriteria(
   profile: InfluencerProfile,
   criteria: InfluencerSearchCriteria,
 ): boolean {
-  if (criteria.minFollowers && profile.followers !== null) {
+  if (criteria.minFollowers && profile.followers !== undefined) {
     if (profile.followers < criteria.minFollowers) return false;
   }
-  if (criteria.maxFollowers && profile.followers !== null) {
+  if (criteria.maxFollowers && profile.followers !== undefined) {
     if (profile.followers > criteria.maxFollowers) return false;
   }
   if (criteria.verifiedOnly && !profile.isVerified) {
@@ -934,7 +934,7 @@ function scoreProfile(
   let score = 0;
 
   // Follower count scoring
-  if (profile.followers !== null) {
+  if (profile.followers !== undefined) {
     if (profile.followers >= 1_000) score += 10;
     if (profile.followers >= 10_000) score += 20;
     if (profile.followers >= 100_000) score += 30;
