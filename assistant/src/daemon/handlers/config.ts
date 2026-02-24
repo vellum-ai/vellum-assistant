@@ -387,6 +387,40 @@ export async function handleScheduleRunNow(
     return;
   }
 
+  // Check if message is a task invocation (run_task:<task_id>)
+  const taskMatch = schedule.message.match(/^run_task:(\S+)$/);
+  if (taskMatch) {
+    const taskId = taskMatch[1];
+    try {
+      log.info({ jobId: schedule.id, name: schedule.name, taskId }, 'Executing scheduled task manually (run now)');
+      const { runTask } = await import('../../tasks/task-runner.js');
+      const result = await runTask(
+        { taskId, workingDir: process.cwd() },
+        async (conversationId: string, message: string) => {
+          const session = await ctx.getOrCreateSession(conversationId, socket, true);
+          await session.processMessage(message, [], (event) => {
+            ctx.send(socket, event);
+          });
+        },
+      );
+
+      const runId = createScheduleRun(schedule.id, result.conversationId);
+      if (result.status === 'failed') {
+        completeScheduleRun(runId, { status: 'error', error: result.error ?? 'Task run failed' });
+      } else {
+        completeScheduleRun(runId, { status: 'ok' });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.warn({ err, jobId: schedule.id, name: schedule.name, taskId }, 'Manual scheduled task execution failed');
+      const fallbackConversation = createConversation({ title: `Schedule (manual): ${schedule.name}`, source: 'schedule' });
+      const runId = createScheduleRun(schedule.id, fallbackConversation.id);
+      completeScheduleRun(runId, { status: 'error', error: message });
+    }
+    handleSchedulesList(socket, ctx);
+    return;
+  }
+
   const conversation = createConversation({ title: `Schedule (manual): ${schedule.name}`, source: 'schedule' });
   const runId = createScheduleRun(schedule.id, conversation.id);
 
