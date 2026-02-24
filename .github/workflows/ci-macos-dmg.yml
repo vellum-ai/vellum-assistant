@@ -142,7 +142,6 @@ jobs:
         working-directory: clients/macos
         run: |
           rm -rf .build daemon-bin cli-bin
-          rm -rf ../../assistant/node_modules ../../cli/node_modules
           rm -rf ~/Library/Developer/Xcode/DerivedData 2>/dev/null || true
           rm -rf ~/Library/Caches/org.swift.swiftpm 2>/dev/null || true
           df -h .
