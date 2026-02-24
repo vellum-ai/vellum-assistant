@@ -152,6 +152,19 @@ export async function handleRideShotgunStart(
             if (currentCount !== lastNetworkEntryCount) {
               lastNetworkEntryCount = currentCount;
               lastActivityTimestamp = Date.now();
+              // If we previously sent an idle hint, clear it now that activity resumed
+              if (idleHintSent) {
+                idleHintSent = false;
+                log.info({ watchId, currentCount }, 'Activity resumed — clearing idleHint');
+                ctx.send(socket, {
+                  type: 'ride_shotgun_progress',
+                  watchId,
+                  message: `Recording network traffic...`,
+                  networkEntryCount: currentCount,
+                  statusMessage: 'Recording network traffic...',
+                  idleHint: false,
+                });
+              }
             }
 
             // Idle detection: if some initial activity happened and no new entries for 15s, hint once

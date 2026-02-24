@@ -74,8 +74,8 @@ public final class RideShotgunSession: ObservableObject {
                     if let msg = progress.statusMessage, !msg.isEmpty {
                         self.statusMessage = msg
                     }
-                    if let idle = progress.idleHint, idle {
-                        self.idleHint = true
+                    if let idle = progress.idleHint {
+                        self.idleHint = idle
                     }
                 case .rideShotgunResult(let result):
                     self.handleRideShotgunResult(result)
