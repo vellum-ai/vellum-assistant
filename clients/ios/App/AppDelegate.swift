@@ -184,7 +184,6 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 
         // Clear dev pairing keys
         defaults.removeObject(forKey: "devLocalPairingEnabled")
-        defaults.removeObject(forKey: "iosPairingUseOverride")
 
         // Mark migration as done
         defaults.set(true, forKey: Self.pairingV4MigrationKey)
