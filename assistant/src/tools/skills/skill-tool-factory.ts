@@ -45,6 +45,7 @@ export function createSkillTool(
       return runSkillToolScript(skillDir, entry.executor, input, context, {
         target: entry.execution_target,
         expectedSkillVersionHash: versionHash,
+        bundled,
       });
     },
   };
