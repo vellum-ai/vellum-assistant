@@ -185,6 +185,15 @@ export interface CuSessionCreate {
   targetAppName?: string;
   /** Optional target app bundle identifier for disambiguation. */
   targetAppBundleId?: string;
+  /** When true, recording MUST start before any destructive action. */
+  requiresRecording?: boolean;
+}
+
+export interface CuRecordingStatus {
+  type: 'cu_recording_status';
+  sessionId: string;
+  status: 'started' | 'failed' | 'stopped';
+  reason?: string;
 }
 
 export interface CuSessionAbort {
@@ -1085,6 +1094,7 @@ export type ClientMessage =
   | CuSessionCreate
   | CuSessionAbort
   | CuAutoApproveUpdate
+  | CuRecordingStatus
   | CuSessionFinalized
   | CuObservation
   | RideShotgunStart
@@ -1593,6 +1603,8 @@ export interface TaskRouted {
   targetAppName?: string;
   /** Target app bundle ID for frontmost-app guard (from target-app-hints). */
   targetAppBundleId?: string;
+  /** When true, recording MUST start before any destructive action. */
+  requiresRecording?: boolean;
 }
 
 export interface RideShotgunProgress {
