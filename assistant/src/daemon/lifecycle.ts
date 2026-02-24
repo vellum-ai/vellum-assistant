@@ -18,7 +18,7 @@ import {
 } from '../util/platform.js';
 import { initializeDb } from '../memory/db.js';
 import { rotateToolInvocations } from '../memory/tool-usage-store.js';
-import { initializeProviders } from '../providers/registry.js';
+import { initializeProviders, getFailoverProvider, listProviders } from '../providers/registry.js';
 import { initializeTools } from '../tools/registry.js';
 import { loadConfig } from '../config/loader.js';
 import { ensurePromptFiles } from '../config/system-prompt.js';
@@ -46,6 +46,15 @@ import { telegramBotMessagingProvider } from '../messaging/providers/telegram-bo
 import { smsMessagingProvider } from '../messaging/providers/sms/adapter.js';
 import { browserManager } from '../tools/browser/browser-manager.js';
 import { RuntimeHttpServer } from '../runtime/http-server.js';
+import type { ApprovalCopyGenerator } from '../runtime/http-types.js';
+import {
+  buildGenerationPrompt,
+  includesRequiredKeywords,
+  getFallbackMessage,
+  APPROVAL_COPY_TIMEOUT_MS,
+  APPROVAL_COPY_MAX_TOKENS,
+  APPROVAL_COPY_SYSTEM_PROMPT,
+} from '../runtime/approval-message-composer.js';
 import { getHookManager } from '../hooks/manager.js';
 import { installTemplates } from '../hooks/templates.js';
 import { HeartbeatService } from '../workspace/heartbeat-service.js';
@@ -261,6 +270,49 @@ function loadDotEnv(): void {
   dotenvConfig({ path: join(getRootDir(), '.env'), quiet: true });
 }
 
+/**
+ * Create the daemon-owned approval copy generator that resolves providers
+ * and calls `provider.sendMessage` to generate approval copy text.
+ * This keeps all provider awareness in the daemon lifecycle, away from
+ * the runtime composer.
+ */
+function createApprovalCopyGenerator(): ApprovalCopyGenerator {
+  return async (context, options = {}) => {
+    const config = loadConfig();
+    if (!listProviders().includes(config.provider)) {
+      return null;
+    }
+    const provider = getFailoverProvider(config.provider, config.providerOrder);
+
+    const fallbackText = options.fallbackText?.trim() || getFallbackMessage(context);
+    const requiredKeywords = options.requiredKeywords?.map((kw) => kw.trim()).filter((kw) => kw.length > 0);
+    const prompt = buildGenerationPrompt(context, fallbackText, requiredKeywords);
+
+    const response = await provider.sendMessage(
+      [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
+      [],
+      APPROVAL_COPY_SYSTEM_PROMPT,
+      {
+        config: {
+          max_tokens: options.maxTokens ?? APPROVAL_COPY_MAX_TOKENS,
+        },
+        signal: AbortSignal.timeout(options.timeoutMs ?? APPROVAL_COPY_TIMEOUT_MS),
+      },
+    );
+
+    const block = response.content.find((entry) => entry.type === 'text');
+    const text = block && 'text' in block ? block.text.trim() : '';
+    if (!text) return null;
+    const cleaned = text
+      .replace(/^["'`]+/, '')
+      .replace(/["'`]+$/, '')
+      .trim();
+    if (!cleaned) return null;
+    if (!includesRequiredKeywords(cleaned, requiredKeywords)) return null;
+    return cleaned;
+  };
+}
+
 // Entry point for the daemon process itself
 export async function runDaemon(): Promise<void> {
   loadDotEnv();
@@ -464,6 +516,7 @@ export async function runDaemon(): Promise<void> {
           server.persistAndProcessMessage(conversationId, content, attachmentIds, options, sourceChannel),
         runOrchestrator: server.createRunOrchestrator(),
         interfacesDir: getInterfacesDir(),
+        approvalCopyGenerator: createApprovalCopyGenerator(),
       });
       try {
         log.info({ port, hostname }, 'Daemon startup: starting runtime HTTP server');
