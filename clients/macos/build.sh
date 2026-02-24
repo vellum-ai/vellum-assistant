@@ -191,10 +191,14 @@ if [ "$DAEMON_BIN_NEEDS_BUILD" = true ]; then
     # Copy WASM assets next to daemon binary (not bundled by bun --compile)
     cp "$ASSISTANT_SRC_DIR/node_modules/web-tree-sitter/web-tree-sitter.wasm" "$SCRIPT_DIR/daemon-bin/"
     cp "$ASSISTANT_SRC_DIR/node_modules/tree-sitter-bash/tree-sitter-bash.wasm" "$SCRIPT_DIR/daemon-bin/"
-    # Copy bundled skills (not embedded by bun --compile)
+    echo "Daemon binary built: $SCRIPT_DIR/daemon-bin/vellum-daemon"
+fi
+
+# Always refresh bundled skills from source (skill assets like SKILL.md aren't
+# tracked by the daemon binary staleness check, so copy unconditionally)
+if [ -d "$ASSISTANT_SRC_DIR/src/config/bundled-skills" ]; then
     rm -rf "$SCRIPT_DIR/daemon-bin/bundled-skills"
     cp -R "$ASSISTANT_SRC_DIR/src/config/bundled-skills" "$SCRIPT_DIR/daemon-bin/bundled-skills"
-    echo "Daemon binary built: $SCRIPT_DIR/daemon-bin/vellum-daemon"
 fi
 
 # Also rebuild if daemon binary changed or newly added
@@ -283,11 +287,6 @@ if [ "$NEEDS_REBUILD" = true ]; then
         for wasm in "$SCRIPT_DIR/daemon-bin/"*.wasm; do
             [ -f "$wasm" ] && cp "$wasm" "$RESOURCES_DIR/"
         done
-        # Bundle skills into Resources (not embedded by bun --compile)
-        if [ -d "$SCRIPT_DIR/daemon-bin/bundled-skills" ]; then
-            rm -rf "$RESOURCES_DIR/bundled-skills"
-            cp -R "$SCRIPT_DIR/daemon-bin/bundled-skills" "$RESOURCES_DIR/bundled-skills"
-        fi
     else
         echo "No daemon binary at $DAEMON_BIN — skipping (dev mode)"
     fi
@@ -332,6 +331,12 @@ if [ -d "$SPARKLE_FW" ]; then
     fi
 else
     echo "WARNING: Sparkle.framework not found at $SPARKLE_FW"
+fi
+
+# Always refresh bundled skills in app bundle (skill assets change independently of binaries)
+if [ -d "$SCRIPT_DIR/daemon-bin/bundled-skills" ]; then
+    rm -rf "$RESOURCES_DIR/bundled-skills"
+    cp -R "$SCRIPT_DIR/daemon-bin/bundled-skills" "$RESOURCES_DIR/bundled-skills"
 fi
 
 # Always check resource bundles (they change independently of binaries)
