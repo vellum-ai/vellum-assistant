@@ -41,6 +41,9 @@ const SHELL_PROGRAMS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish']);
 const SCRIPT_INTERPRETERS = new Set([
   'python', 'python3', 'ruby', 'perl', 'node', 'deno', 'bun',
 ]);
+// Flags that make an interpreter execute code from an inline argument or stdin
+// rather than from a file (e.g. `python -c 'code'`, `node -e 'code'`).
+const STDIN_EXEC_FLAGS = new Set(['-c', '-e', '-']);
 const OPAQUE_PROGRAMS = new Set(['eval', 'source', 'alias']);
 const DANGEROUS_ENV_VARS = new Set([
   'LD_PRELOAD', 'LD_LIBRARY_PATH',
@@ -244,13 +247,37 @@ function extractSegments(node: TSNode): CommandSegment[] {
   return segments;
 }
 
+/**
+ * Returns true when the interpreter args indicate stdin-exec mode — i.e. the
+ * interpreter will read code from stdin (or from an inline -c/-e argument)
+ * rather than from a file.  Concretely:
+ *   - Any STDIN_EXEC_FLAGS present → stdin-exec
+ *   - No positional (non-flag) arguments at all → stdin-exec (bare `python`)
+ *   - Otherwise the first positional arg is a filename → NOT stdin-exec
+ */
+function isStdinExecMode(args: string[]): boolean {
+  for (const arg of args) {
+    if (STDIN_EXEC_FLAGS.has(arg)) return true;
+    // First non-flag argument is a filename/module → file mode
+    if (!arg.startsWith('-')) return false;
+  }
+  // No positional arguments at all → interpreter reads from stdin
+  return true;
+}
+
 function detectDangerousPatterns(node: TSNode, segments: CommandSegment[]): DangerousPattern[] {
   const patterns: DangerousPattern[] = [];
 
   for (let i = 1; i < segments.length; i++) {
     if (segments[i].operator === '|') {
       const prog = segments[i].program;
-      if (SHELL_PROGRAMS.has(prog) || prog === 'eval' || prog === 'xargs' || SCRIPT_INTERPRETERS.has(prog)) {
+      if (SHELL_PROGRAMS.has(prog) || prog === 'eval' || prog === 'xargs') {
+        patterns.push({
+          type: 'pipe_to_shell',
+          description: `Pipeline into ${prog}`,
+          text: segments[i].command,
+        });
+      } else if (SCRIPT_INTERPRETERS.has(prog) && isStdinExecMode(segments[i].args)) {
         patterns.push({
           type: 'pipe_to_shell',
           description: `Pipeline into ${prog}`,
