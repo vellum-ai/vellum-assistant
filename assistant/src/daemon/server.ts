@@ -763,7 +763,11 @@ export class DaemonServer {
       session.getMessages().push(userMsg);
 
       if (serverTurnCtx) {
-        conversationStore.setConversationOriginChannelIfUnset(conversationId, serverTurnCtx.userMessageChannel);
+        try {
+          conversationStore.setConversationOriginChannelIfUnset(conversationId, serverTurnCtx.userMessageChannel);
+        } catch (err) {
+          log.warn({ err, conversationId }, 'Failed to set origin channel (best-effort)');
+        }
       }
 
       const assistantMsg = createAssistantMessage(slashResult.message);
