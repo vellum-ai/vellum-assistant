@@ -317,7 +317,7 @@ export function migrateMemoryEntityRelationDedup(database: Db): void {
       FROM memory_entity_relation_merge
     `);
 
-    raw.exec(/*sql*/ `DROP TABLE memory_entity_relation_merge`);
+    raw.exec(/*sql*/ `DROP TABLE temp.memory_entity_relation_merge`);
 
     raw.query(
       `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
