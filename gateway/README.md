@@ -97,6 +97,30 @@ The `/deliver/telegram` endpoint requires bearer auth by default (fail-closed). 
 
 This ensures that misconfiguration cannot expose an unauthenticated public message-send surface. In production, always configure `RUNTIME_PROXY_BEARER_TOKEN`. The `GATEWAY_TELEGRAM_DELIVER_AUTH_BYPASS` flag is intended for local development only.
 
+## Voice Ingress — Inbound Calls (Twilio)
+
+The `/webhooks/twilio/voice` endpoint handles both outbound and inbound voice calls. For **outbound** calls (initiated by the assistant via `call_start`), the voice webhook URL includes a `callSessionId` query parameter that identifies the pre-created session. For **inbound** calls (someone dialing the assistant's Twilio phone number), no `callSessionId` is present — the gateway resolves the target assistant and the runtime creates a session on the fly.
+
+### Inbound voice routing
+
+When the voice webhook is called without a `callSessionId` query parameter, the gateway treats it as an inbound call and resolves the assistant using the same routing chain as SMS:
+
+1. **`resolveAssistantByPhoneNumber(config, To)`** — Reverse lookup of the inbound `To` number against `assistantPhoneNumbers`. If the dialed number matches an assistant's configured phone number, that assistant handles the call.
+2. **Fallback to `resolveAssistant(From, From)`** — If no phone number match is found, the standard routing chain is used: `chat_id` match, `user_id` match, then the unmapped policy.
+3. **TwiML Reject for unmapped** — When the unmapped policy is `reject` (and no route matches), the gateway returns `<Reject reason="rejected"/>` TwiML directly to Twilio. Twilio plays a busy signal and hangs up. The call is never forwarded to the runtime.
+4. **Forward with assistantId** — When routing succeeds, the gateway forwards the voice webhook to the runtime at `POST /v1/calls/voice-webhook` with the resolved `assistantId`. The runtime calls `createInboundVoiceSession()` to bootstrap a session keyed by CallSid, then returns TwiML pointing Twilio to the ConversationRelay WebSocket.
+
+### Inbound call lifecycle (gateway perspective)
+
+```
+Caller → Twilio → Gateway /webhooks/twilio/voice (no callSessionId)
+  → resolveAssistantByPhoneNumber(To) || resolveAssistant(From) || TwiML Reject
+  → forward to runtime /v1/calls/voice-webhook (+ assistantId query param)
+  → runtime returns TwiML (ConversationRelay connect)
+  → Twilio opens WebSocket → Gateway /webhooks/twilio/relay → Runtime /v1/calls/relay
+  → RelayConnection detects inbound (task=null), optional guardian verification gate, then receptionist-style LLM greeting
+```
+
 ## SMS Ingress (Twilio)
 
 The `/webhooks/twilio/sms` endpoint receives inbound SMS messages from Twilio. On each request:

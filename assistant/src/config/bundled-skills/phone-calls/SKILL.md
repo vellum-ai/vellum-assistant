@@ -1,12 +1,12 @@
 ---
 name: "Phone Calls"
-description: "Set up Twilio for outgoing phone calls and place AI-powered voice calls on behalf of the user"
+description: "Set up Twilio for AI-powered voice calls — both outgoing calls on behalf of the user and incoming calls where the assistant answers as a receptionist"
 user-invocable: true
 metadata: {"vellum": {"emoji": "📞", "requires": {"config": ["calls.enabled"]}}}
 includes: ["public-ingress"]
 ---
 
-You are helping the user set up and make outgoing phone calls via Twilio. This skill covers the full lifecycle: Twilio account setup, credential storage, public ingress configuration, enabling the calls feature, placing calls, and monitoring live transcripts.
+You are helping the user set up and manage phone calls via Twilio. This skill covers the full lifecycle: Twilio account setup, credential storage, public ingress configuration, enabling the calls feature, placing outbound calls, receiving inbound calls, and monitoring live transcripts.
 
 ## Prerequisites — Shared Twilio Setup
 
@@ -21,7 +21,9 @@ If Twilio is already configured (check `twilio_config` with `action: "get"`), sk
 
 ## Overview
 
-The calling system uses Twilio's ConversationRelay to place outbound phone calls. Twilio works out of the box as the default voice provider. Optionally, you can enable ElevenLabs integration for higher-quality, more natural-sounding voices — but this is entirely optional.
+The calling system uses Twilio's ConversationRelay for both **outbound** and **inbound** voice calls. Twilio works out of the box as the default voice provider. Optionally, you can enable ElevenLabs integration for higher-quality, more natural-sounding voices — but this is entirely optional.
+
+### Outbound calls
 
 When a call is placed:
 
@@ -30,6 +32,17 @@ When a call is placed:
 3. Twilio opens a ConversationRelay WebSocket for real-time voice streaming
 4. An LLM-driven orchestrator manages the conversation — receiving caller speech (transcribed by Deepgram), generating responses via Claude, and streaming text back for TTS playback
 5. The transcript is relayed live to the user's conversation thread
+
+### Inbound calls
+
+When someone dials the assistant's Twilio phone number:
+
+1. Twilio sends a voice webhook to the gateway at `/webhooks/twilio/voice` (no `callSessionId` in the URL)
+2. The gateway resolves which assistant owns the dialed number via `resolveAssistantByPhoneNumber`, falling back to the standard routing chain (chat_id, user_id, default/reject). Unmapped numbers are rejected with TwiML `<Reject>`.
+3. The runtime creates a new session keyed by the Twilio CallSid (`createInboundVoiceSession`)
+4. Twilio opens a ConversationRelay WebSocket. The relay detects the call is inbound (no task) and optionally gates the call behind **guardian voice verification** if a pending challenge exists.
+5. Once verified (or if no challenge is pending), the LLM orchestrator greets the caller in a receptionist style: "Hello, this is [user]'s assistant. How can I help you today?"
+6. The assistant converses naturally, using ASK_GUARDIAN to consult the user when needed, just like outbound calls.
 
 Three voice quality modes are available:
 - **`twilio_standard`** (default) — Fully supported. Standard Twilio TTS with Google voices. No extra setup required.
@@ -283,7 +296,7 @@ To go back to the default voice at any time:
 vellum config set calls.voice.mode twilio_standard
 ```
 
-## Making Calls
+## Making Outbound Calls
 
 Use the `call_start` tool to place outbound calls. Every call requires:
 - **phone_number**: The number to call in E.164 format (e.g. `+14155551234`)
@@ -337,6 +350,30 @@ If the user provides a number in a different format, convert it to E.164 before 
 On Twilio trial accounts, outbound calls can ONLY be made to **verified numbers**. If a call fails with a "not verified" error:
 1. Tell the user they need to verify the number at https://console.twilio.com/us1/develop/phone-numbers/manage/verified
 2. Or upgrade to a paid Twilio account to call any number
+
+## Receiving Inbound Calls
+
+Once Twilio is configured and the assistant has a phone number, inbound calls work automatically. When someone dials the assistant's number:
+
+1. The gateway resolves the assistant by phone number and forwards to the runtime
+2. A new voice session is created, keyed by the Twilio CallSid
+3. The LLM-driven orchestrator answers in receptionist mode — greeting the caller warmly and asking how it can help
+4. The conversation proceeds naturally, with ASK_GUARDIAN dispatches to consult the user when needed
+
+No additional configuration is needed beyond the standard Twilio setup (Steps 1-5 above). As long as `calls.enabled` is `true` and the phone number has been provisioned/assigned, inbound calls are handled automatically.
+
+### Guardian voice verification for inbound calls
+
+Optionally, the user can require callers to verify themselves by entering a six-digit code before the call proceeds. This is managed through the **channel guardian verification** system:
+
+1. The user initiates a verification challenge from the desktop UI for the `voice` channel
+2. A six-digit code is generated and shown to the user
+3. When the next inbound call arrives, the relay server detects the pending challenge and prompts the caller: "Please enter your six-digit verification code using your keypad, or speak the digits now."
+4. The caller enters the code via DTMF (keypad) or by speaking the digits
+5. If the code matches, a guardian binding is created and the call proceeds normally
+6. If verification fails after 3 attempts, the call ends with "Verification failed. Goodbye."
+
+This feature is separate from the outbound DTMF callee verification. It uses the `ChannelGuardianService` challenge system rather than the per-call verification config.
 
 ## Live Call Monitoring
 
@@ -427,12 +464,19 @@ The `context` field is powerful — use it to give the agent background that hel
 
 ### Things the AI voice agent handles well
 
+**Outbound calls:**
 - Making reservations and appointments
 - Checking business hours, availability, or pricing
 - Confirming or rescheduling existing appointments
 - Gathering information (store policies, product availability)
 - Simple customer service interactions
 - Leaving voicemails (it will speak the message if voicemail picks up)
+
+**Inbound calls:**
+- Answering as a receptionist and routing caller requests to the user via ASK_GUARDIAN
+- Taking messages when the user is unavailable
+- Answering questions the assistant already knows from memory/context
+- Screening calls with guardian voice verification
 
 ### Things to be aware of
 

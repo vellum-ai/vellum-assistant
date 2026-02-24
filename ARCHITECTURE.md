@@ -3857,11 +3857,11 @@ In multi-assistant mode, the operator must configure `GATEWAY_ASSISTANT_ROUTING_
 
 ---
 
-## Outgoing AI Phone Calls — Twilio ConversationRelay
+## AI Phone Calls — Twilio ConversationRelay
 
-The Calls subsystem enables the assistant to place outgoing phone calls on behalf of the user via Twilio's ConversationRelay protocol. The assistant uses an LLM-driven conversation loop to speak with the callee in real time. Voice is a first-class channel with its own per-call conversation (key pattern: `asst:${assistantId}:voice:call:${callSessionId}`). When the AI needs guardian input during a call, it dispatches ASK_GUARDIAN requests cross-channel to mac/telegram/sms via the guardian dispatch engine. Answer resolution uses first-writer-wins semantics -- the first channel to respond provides the answer, and remaining channels receive a "already answered" notice.
+The Calls subsystem supports both **outbound** and **inbound** voice calls via Twilio's ConversationRelay protocol. The assistant uses an LLM-driven conversation loop to speak in real time. Voice is a first-class channel with its own per-call conversation (outbound key: `asst:${assistantId}:voice:call:${callSessionId}`, inbound key: `asst:${assistantId}:voice:inbound:${callSid}`). When the AI needs guardian input during a call, it dispatches ASK_GUARDIAN requests cross-channel to mac/telegram/sms via the guardian dispatch engine. Answer resolution uses first-writer-wins semantics -- the first channel to respond provides the answer, and remaining channels receive a "already answered" notice.
 
-### Call Flow
+### Outbound Call Flow
 
 ```mermaid
 sequenceDiagram
@@ -3935,6 +3935,94 @@ sequenceDiagram
     Routes->>CallStore: updateCallSession(status)
 ```
 
+### Inbound Call Flow
+
+Inbound calls are triggered when someone dials the assistant's Twilio phone number. The gateway resolves which assistant owns the number, the runtime bootstraps a session keyed by CallSid, and the relay connection optionally gates the call behind guardian voice verification before handing off to the LLM orchestrator.
+
+```mermaid
+sequenceDiagram
+    participant Caller as External Caller
+    participant TwilioAPI as Twilio
+    participant Gateway as Gateway (public)
+    participant Routes as twilio-routes.ts (runtime)
+    participant CallDomain as CallDomain
+    participant CallStore as CallStore (SQLite)
+    participant WS as RelayConnection (WebSocket)
+    participant GuardianSvc as ChannelGuardianService
+    participant Orch as CallOrchestrator
+    participant LLM as Anthropic Claude
+
+    Caller->>TwilioAPI: Dials assistant phone number
+    TwilioAPI->>Gateway: POST /webhooks/twilio/voice (no callSessionId)
+    Gateway->>Gateway: validateTwilioWebhookRequest()
+    Gateway->>Gateway: resolveAssistantByPhoneNumber(config, To)
+    alt Phone number matches an assistant
+        Gateway->>Gateway: assistantId resolved
+    else No phone number match
+        Gateway->>Gateway: resolveAssistant(From, From) — fallback routing chain
+        alt Unmapped policy = reject
+            Gateway-->>TwilioAPI: TwiML <Reject reason="rejected"/>
+        else Unmapped policy = default
+            Gateway->>Gateway: use defaultAssistantId
+        end
+    end
+
+    Gateway->>Routes: forward to runtime /v1/calls/voice-webhook (+ assistantId)
+    Routes->>CallDomain: createInboundVoiceSession(callSid, from, to, assistantId)
+    CallDomain->>CallStore: getOrCreateConversation(voice:inbound:${callSid})
+    CallDomain->>CallStore: createCallSession() — task=null for inbound
+    Routes-->>Gateway: TwiML (ConversationRelay connect)
+    Gateway-->>TwilioAPI: TwiML response
+
+    TwilioAPI->>Gateway: WebSocket /webhooks/twilio/relay
+    Gateway->>WS: proxy WS to runtime /v1/calls/relay
+    WS->>WS: setup message (callSid)
+    WS->>WS: detect isInbound (session.task == null)
+
+    alt Pending voice guardian challenge exists
+        WS->>GuardianSvc: getPendingChallenge(assistantId, 'voice')
+        WS->>WS: enter verification_pending state
+        WS->>Caller: TTS "Please enter your six-digit verification code"
+        loop DTMF / spoken digit attempts (max 3)
+            Caller->>WS: DTMF digits or spoken digits
+            WS->>GuardianSvc: validateAndConsumeChallenge(code)
+            alt Code matches
+                GuardianSvc-->>WS: success + guardian binding created
+                WS->>Orch: startNormalCallFlow(isInbound=true)
+            else Code incorrect + attempts remaining
+                WS->>Caller: TTS "That code was incorrect. Please try again."
+            else Max attempts exceeded
+                WS->>Caller: TTS "Verification failed. Goodbye."
+                WS->>CallStore: updateCallSession(failed)
+                WS->>WS: endSession()
+            end
+        end
+    else No pending guardian challenge
+        WS->>Orch: startNormalCallFlow(isInbound=true)
+    end
+
+    Orch->>Orch: buildInboundSystemPrompt()
+    Note over Orch: "You are answering an incoming call<br/>on behalf of [user]. Greet warmly,<br/>find out what they need."
+    Orch->>LLM: initial greeting turn
+    LLM-->>Orch: receptionist-style greeting
+    Orch->>WS: sendTextToken() (TTS to caller)
+
+    loop Conversation turns
+        Caller->>WS: prompt (caller utterance)
+        WS->>Orch: handleCallerUtterance(transcript, speakerContext)
+        Orch->>LLM: messages.stream()
+        LLM-->>Orch: text tokens (streaming)
+        Orch->>WS: sendTextToken() (for TTS)
+        Orch->>CallStore: recordCallEvent()
+    end
+```
+
+**Inbound vs. outbound detection**: The relay server determines call direction by checking `session.task`. Outbound calls always have a task (the user-provided objective). Inbound calls have `task == null` because the caller dialed in — the assistant's role is to greet and assist rather than execute a specific task.
+
+**Inbound system prompt**: The `CallOrchestrator.buildInboundSystemPrompt()` generates a receptionist-style prompt: "You are on a live phone call, answering an incoming call on behalf of [user]. The caller dialed in to reach you. You do not have a specific task -- your role is to greet them warmly, find out what they need, and assist them."
+
+**Guardian voice verification gate**: When a pending voice guardian challenge exists (created via the desktop UI), inbound callers must enter a six-digit code via DTMF or by speaking the digits before the call proceeds. Up to 3 attempts are allowed. On success, a guardian binding is created and the call transitions to normal flow. On failure, the call ends with a "Verification failed" message. This allows guardians to verify their identity over voice before being granted channel access.
+
 ### Key Components
 
 | File | Role |
@@ -3944,6 +4032,8 @@ sequenceDiagram
 | `assistant/src/calls/guardian-dispatch.ts` | Cross-channel dispatch engine: fans out ASK_GUARDIAN questions to mac/telegram/sms, creates server-side guardian conversations, manages deliveries |
 | `assistant/src/memory/guardian-action-store.ts` | CRUD for guardian action requests and deliveries; first-writer-wins resolution via atomic status check |
 | `assistant/src/calls/guardian-action-sweep.ts` | Periodic 60s sweep for expired guardian action requests; sends expiry notices to all delivery channels |
+| `assistant/src/calls/call-domain.ts:createInboundVoiceSession()` | Creates or reuses a voice session for an inbound call keyed by CallSid (idempotent replay protection) |
+| `assistant/src/runtime/channel-guardian-service.ts` | Guardian verification challenge lifecycle: create challenge with six-digit code, find pending challenges, validate and consume on match |
 | `assistant/src/calls/call-state-machine.ts` | Deterministic state transition validator with allowed-transition table and terminal-state enforcement |
 | `assistant/src/calls/call-recovery.ts` | Startup reconciliation of non-terminal calls: fetches provider status and transitions stale sessions |
 | `assistant/src/calls/twilio-provider.ts` | Twilio Voice REST API integration (initiateCall, endCall, getCallStatus) using direct fetch — no Twilio SDK dependency |
@@ -4010,7 +4100,7 @@ When the LLM emits `[ASK_GUARDIAN: question]` during a voice call, the orchestra
 
 All five tables live in `~/.vellum/workspace/data/db/assistant.db` alongside existing tables:
 
-- **`call_sessions`** — One row per outgoing call. Tracks conversation association, provider info (Twilio CallSid), phone numbers, task description, status lifecycle (`initiated` -> `ringing` -> `in_progress` -> `waiting_on_user` -> `completed`/`failed`), and timestamps. Foreign key to `conversations(id)` with cascade delete.
+- **`call_sessions`** — One row per call (inbound or outbound). Tracks conversation association, provider info (Twilio CallSid), phone numbers, task description (null for inbound calls), status lifecycle (`initiated` -> `ringing` -> `in_progress` -> `waiting_on_user` -> `completed`/`failed`), and timestamps. For inbound calls, the session is keyed by CallSid via `createInboundVoiceSession()` with idempotent replay protection. Foreign key to `conversations(id)` with cascade delete.
 
 - **`call_events`** — Append-only event log for each call session. Event types include `call_started`, `call_connected`, `caller_spoke`, `assistant_spoke`, `user_question_asked`, `user_answered`, `call_ended`, `call_failed`. For voice prompts, `caller_spoke` payloads include speaker context (`speakerId`, `speakerLabel`, `speakerConfidence`, `speakerSource`) when available. Foreign key to `call_sessions(id)` with cascade delete. Includes a unique index on `(call_session_id, dedupe_key)` for callback idempotency.
 
@@ -4055,6 +4145,7 @@ This makes ingress URL updates smoother in local tunnel workflows because Twilio
 | Method | Path | Description |
 |--------|------|-------------|
 | POST | `/v1/calls/start` | Initiate a new outgoing call (gated by `calls.enabled` config) |
+| POST | `/v1/calls/voice-webhook` (no callSessionId) | Inbound voice webhook; creates session by CallSid and returns TwiML |
 | GET | `/v1/calls/:callSessionId` | Get call status, including any pending question |
 | POST | `/v1/calls/:callSessionId/cancel` | Cancel an active call |
 | POST | `/v1/calls/:callSessionId/answer` | Answer a pending question via HTTP (alternative to in-thread bridge) |
@@ -4072,7 +4163,7 @@ This makes ingress URL updates smoother in local tunnel workflows because Twilio
 | `call_status` | Retrieves the current status of a call session |
 | `call_end` | Terminates an active call |
 
-Both tools and HTTP routes delegate to the same domain functions in `call-domain.ts` (`startCall`, `getCallStatus`, `cancelCall`, `answerCall`, `relayInstruction`), ensuring consistent validation and behavior.
+Both tools and HTTP routes delegate to the same domain functions in `call-domain.ts` (`startCall`, `getCallStatus`, `cancelCall`, `answerCall`, `relayInstruction`), ensuring consistent validation and behavior. Inbound calls do not use tools — they are initiated by the external caller and bootstrapped automatically by the voice webhook and relay server.
 
 ### Control Markers
 
