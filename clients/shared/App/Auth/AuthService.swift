@@ -147,6 +147,11 @@ public final class AuthService {
 
         log.debug("Auth request \(method) \(path) -> \(statusCode)")
 
+        if statusCode == 410 {
+            await SessionTokenManager.invalidateTokenAsync()
+            throw AuthServiceError.invalidSessionToken
+        }
+
         let decoded: AllauthResponse<T>
         do {
             decoded = try JSONDecoder().decode(AllauthResponse<T>.self, from: data)

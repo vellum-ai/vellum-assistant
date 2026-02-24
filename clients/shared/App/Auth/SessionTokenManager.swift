@@ -57,4 +57,9 @@ public enum SessionTokenManager {
             }
         }
     }
+
+    /// Invalidate a stale/expired session token from secure storage.
+    public static func invalidateTokenAsync() async {
+        await deleteTokenAsync()
+    }
 }

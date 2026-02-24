@@ -91,6 +91,7 @@ public enum AuthServiceError: LocalizedError {
     case networkError(Error)
     case decodingError(Error)
     case serverError(Int, [AllauthError])
+    case invalidSessionToken
     case noSessionToken
     case oidcDiscoveryFailed
     case oidcTokenExchangeFailed(String)
@@ -102,6 +103,7 @@ public enum AuthServiceError: LocalizedError {
         case .decodingError(let error): return "Failed to decode response: \(error.localizedDescription)"
         case .serverError(_, let errors):
             return errors.first?.message ?? "Server error"
+        case .invalidSessionToken: return "Session expired. Please sign in again."
         case .noSessionToken: return "No session token received"
         case .oidcDiscoveryFailed: return "Unable to fetch OIDC discovery document"
         case .oidcTokenExchangeFailed(let msg): return msg
