@@ -54,7 +54,7 @@ afterEach(() => {
 
 function mockTelegramApi() {
   fetchSpy?.mockRestore();
-  fetchSpy = spyOn(globalThis, "fetch").mockImplementation(async () => {
+  fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(async () => {
     return new Response(JSON.stringify({ ok: true, result: {} }), {
       status: 200,
       headers: { "content-type": "application/json" },
@@ -66,7 +66,7 @@ describe("/deliver/telegram attachment delivery without assistantId", () => {
   test("delivers attachments without assistantId using assistant-less download path", async () => {
     const calls: string[] = [];
     fetchSpy?.mockRestore();
-    fetchSpy = spyOn(globalThis, "fetch").mockImplementation(async (url: string | URL | Request) => {
+    fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(async (url: string | URL | Request) => {
       const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
       calls.push(urlStr);
       // Runtime attachment download (assistant-less path)
@@ -121,7 +121,7 @@ describe("/deliver/telegram attachment delivery without assistantId", () => {
   test("delivers attachments with assistantId using legacy download path", async () => {
     const calls: string[] = [];
     fetchSpy?.mockRestore();
-    fetchSpy = spyOn(globalThis, "fetch").mockImplementation(async (url: string | URL | Request) => {
+    fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(async (url: string | URL | Request) => {
       const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
       calls.push(urlStr);
       // Runtime attachment download (legacy path)
@@ -174,7 +174,7 @@ describe("/deliver/telegram ID-only attachment validation", () => {
   test("accepts ID-only attachments (no filename, mimeType, sizeBytes)", async () => {
     const calls: string[] = [];
     fetchSpy?.mockRestore();
-    fetchSpy = spyOn(globalThis, "fetch").mockImplementation(async (url: string | URL | Request) => {
+    fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(async (url: string | URL | Request) => {
       const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
       calls.push(urlStr);
       if (urlStr.includes("/v1/attachments/att-id-only")) {
@@ -241,7 +241,7 @@ describe("/deliver/telegram ID-only attachment validation", () => {
   test("full-metadata attachments still accepted (backward compatibility)", async () => {
     const calls: string[] = [];
     fetchSpy?.mockRestore();
-    fetchSpy = spyOn(globalThis, "fetch").mockImplementation(async (url: string | URL | Request) => {
+    fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(async (url: string | URL | Request) => {
       const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
       calls.push(urlStr);
       if (urlStr.includes("/v1/attachments/att-compat")) {
