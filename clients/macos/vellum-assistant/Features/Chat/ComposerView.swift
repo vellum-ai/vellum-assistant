@@ -577,9 +577,8 @@ private struct ComposerTextView: NSViewRepresentable {
         let scrollView = NSScrollView()
         scrollView.drawsBackground = false
         scrollView.borderType = .noBorder
-        scrollView.hasVerticalScroller = true
+        scrollView.hasVerticalScroller = false
         scrollView.hasHorizontalScroller = false
-        scrollView.autohidesScrollers = true
         // Ensure text content is clipped to the scroll view frame so it
         // never renders outside the composer box.
         scrollView.wantsLayer = true
