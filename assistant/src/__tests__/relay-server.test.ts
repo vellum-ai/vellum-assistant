@@ -920,7 +920,7 @@ describe('relay-server', () => {
       return createMockStream(['Your appointment is confirmed.']);
     });
 
-    const { ws, relay } = createMockWs(session.id);
+    const { ws: _ws, relay } = createMockWs(session.id);
 
     // Setup
     await relay.handleMessage(JSON.stringify({
