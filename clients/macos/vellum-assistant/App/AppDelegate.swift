@@ -379,6 +379,22 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         authWindow = window
     }
 
+    @objc func performRestart() {
+        let bundleURL = Bundle.main.bundleURL
+        let config = NSWorkspace.OpenConfiguration()
+        config.createsNewApplicationInstance = true
+        NSWorkspace.shared.openApplication(at: bundleURL, configuration: config) { [weak self] _, error in
+            if let error {
+                log.error("Restart failed — could not launch new instance: \(error.localizedDescription)")
+                return
+            }
+            DispatchQueue.main.async {
+                self?.assistantCli.stop()
+                NSApp.terminate(nil)
+            }
+        }
+    }
+
     @objc func performLogout() {
         Task {
             await authManager.logout()
