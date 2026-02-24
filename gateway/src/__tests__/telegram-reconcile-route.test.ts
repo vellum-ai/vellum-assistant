@@ -76,7 +76,7 @@ let fetchSpy: ReturnType<typeof spyOn<typeof globalThis, "fetch">> | null = null
 
 /** Default fetch spy that handles Telegram API calls with success responses. */
 function installDefaultFetchSpy() {
-  fetchSpy = spyOn(globalThis, "fetch").mockImplementation(async (input: string | URL | Request) => {
+  fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(async (input: string | URL | Request) => {
     const url =
       typeof input === "string"
         ? input
@@ -193,7 +193,7 @@ describe("POST /internal/telegram/reconcile", () => {
 
   test("returns 502 when reconcile throws", async () => {
     fetchSpy?.mockRestore();
-    fetchSpy = spyOn(globalThis, "fetch").mockImplementation(async () => {
+    fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(async () => {
       throw new Error("Telegram API error");
     });
     const config = makeConfig();
@@ -225,7 +225,7 @@ describe("POST /internal/telegram/reconcile", () => {
     // Make reconcile slow enough that the first call is still in-flight
     // when the second one arrives.
     fetchSpy?.mockRestore();
-    fetchSpy = spyOn(globalThis, "fetch").mockImplementation(
+    fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(
       async (input: string | URL | Request, init?: RequestInit) => {
         const url =
           typeof input === "string"

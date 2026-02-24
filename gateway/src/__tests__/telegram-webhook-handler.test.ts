@@ -103,7 +103,7 @@ function extractHeaders(input: string | URL | Request, init?: RequestInit): Reco
  */
 function installFetchMock() {
   fetchSpy?.mockRestore();
-  fetchSpy = spyOn(globalThis, "fetch").mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
+  fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     const method = init?.method ?? (typeof input === "object" && "method" in input ? input.method : "GET");
     let body: unknown;
@@ -321,7 +321,7 @@ describe("telegram webhook handler: in-flight dedup", () => {
     // invocation and responds immediately on subsequent ones.
     let inboundCallCount = 0;
     fetchSpy?.mockRestore();
-    fetchSpy = spyOn(globalThis, "fetch").mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
+    fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       const method = init?.method ?? (typeof input === "object" && "method" in input ? input.method : "GET");
       let body: unknown;
@@ -381,7 +381,7 @@ describe("telegram webhook handler: in-flight dedup", () => {
 
     let callCount = 0;
     fetchSpy?.mockRestore();
-    fetchSpy = spyOn(globalThis, "fetch").mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
+    fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       const method = init?.method ?? (typeof input === "object" && "method" in input ? input.method : "GET");
       let body: unknown;

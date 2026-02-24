@@ -50,7 +50,7 @@ let fetchSpy: ReturnType<typeof spyOn<typeof globalThis, "fetch">> | null = null
 
 function mockFetch(fn: (url: string, init?: RequestInit) => Promise<Response>) {
   fetchSpy?.mockRestore();
-  fetchSpy = spyOn(globalThis, "fetch").mockImplementation(fn as any);
+  fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(fn as any);
   return fetchSpy;
 }
 
@@ -294,7 +294,7 @@ describe("sendTelegramAttachments", () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
 
     fetchSpy?.mockRestore();
-    fetchSpy = spyOn(globalThis, "fetch").mockImplementation(async (url: string | URL | Request, init?: RequestInit) => {
+    fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(async (url: string | URL | Request, init?: RequestInit) => {
       const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
       calls.push({ url: urlStr, init });
       if (urlStr.includes("/attachments/my-attachment-id")) {

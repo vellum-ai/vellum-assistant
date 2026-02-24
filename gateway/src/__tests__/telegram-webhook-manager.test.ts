@@ -61,7 +61,7 @@ describe("reconcileTelegramWebhook", () => {
   test("calls setWebhook when URL does not match", async () => {
     const calls: { method: string; body: unknown }[] = [];
 
-    fetchSpy = spyOn(globalThis, "fetch").mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
+    fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       if (url.includes("/getWebhookInfo")) {
         calls.push({ method: "getWebhookInfo", body: null });
@@ -93,7 +93,7 @@ describe("reconcileTelegramWebhook", () => {
   test("always calls setWebhook even when URL already matches (secret may have rotated)", async () => {
     const calls: string[] = [];
 
-    fetchSpy = spyOn(globalThis, "fetch").mockImplementation(async (input: string | URL | Request) => {
+    fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(async (input: string | URL | Request) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       if (url.includes("/getWebhookInfo")) {
         calls.push("getWebhookInfo");
@@ -119,7 +119,7 @@ describe("reconcileTelegramWebhook", () => {
   test("normalizes trailing slash on ingress base URL", async () => {
     const calls: { method: string; body: unknown }[] = [];
 
-    fetchSpy = spyOn(globalThis, "fetch").mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
+    fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       if (url.includes("/getWebhookInfo")) {
         calls.push({ method: "getWebhookInfo", body: null });
@@ -145,7 +145,7 @@ describe("reconcileTelegramWebhook", () => {
   });
 
   test("skips reconciliation when bot token is not configured", async () => {
-    fetchSpy = spyOn(globalThis, "fetch").mockImplementation(async () => new Response("", { status: 200 }));
+    fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(async () => new Response("", { status: 200 }));
 
     const config = makeConfig({ telegramBotToken: undefined });
     await reconcileTelegramWebhook(config);
@@ -154,7 +154,7 @@ describe("reconcileTelegramWebhook", () => {
   });
 
   test("skips reconciliation when webhook secret is not configured", async () => {
-    fetchSpy = spyOn(globalThis, "fetch").mockImplementation(async () => new Response("", { status: 200 }));
+    fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(async () => new Response("", { status: 200 }));
 
     const config = makeConfig({ telegramWebhookSecret: undefined });
     await reconcileTelegramWebhook(config);
@@ -163,7 +163,7 @@ describe("reconcileTelegramWebhook", () => {
   });
 
   test("skips reconciliation when ingress URL is not configured", async () => {
-    fetchSpy = spyOn(globalThis, "fetch").mockImplementation(async () => new Response("", { status: 200 }));
+    fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(async () => new Response("", { status: 200 }));
 
     const config = makeConfig({ ingressPublicBaseUrl: undefined });
     await reconcileTelegramWebhook(config);
@@ -174,7 +174,7 @@ describe("reconcileTelegramWebhook", () => {
   test("calls setWebhook when current URL is empty", async () => {
     const calls: string[] = [];
 
-    fetchSpy = spyOn(globalThis, "fetch").mockImplementation(async (input: string | URL | Request) => {
+    fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(async (input: string | URL | Request) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       if (url.includes("/getWebhookInfo")) {
         calls.push("getWebhookInfo");

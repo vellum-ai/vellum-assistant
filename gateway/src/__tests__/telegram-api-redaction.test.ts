@@ -54,7 +54,7 @@ describe("callTelegramApi transport error redaction", () => {
   test("redacts bot token from warning logs and thrown error", async () => {
     const tgToken = ["123456789", ":", "ABCDefGHIJklmnopQRSTuvwxyz012345678"].join("");
 
-    fetchSpy = spyOn(globalThis, "fetch").mockImplementation(async () => {
+    fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(async () => {
       const err = new Error("Unable to connect. Is the computer able to access the url?") as Error & {
         path?: string;
         code?: string;
@@ -83,7 +83,7 @@ describe("callTelegramApi transport error redaction", () => {
     // "error-123456789:...") must still be redacted.
     const tgToken = ["123456789", ":", "ABCDefGHIJklmnopQRSTuvwxyz012345678"].join("");
 
-    fetchSpy = spyOn(globalThis, "fetch").mockImplementation(async () => {
+    fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(async () => {
       const err = new Error("Connection refused") as Error & {
         path?: string;
         code?: string;
@@ -113,7 +113,7 @@ describe("callTelegramApi transport error redaction", () => {
     // would fail to match the trailing `-`, leaking part of the token.
     const tgToken = ["123456789", ":", "ABCDefGHIJklmnopQRSTuvwxyz01234567-"].join("");
 
-    fetchSpy = spyOn(globalThis, "fetch").mockImplementation(async () => {
+    fetchSpy = (spyOn(globalThis, "fetch") as any).mockImplementation(async () => {
       const err = new Error("Connection refused") as Error & {
         path?: string;
         code?: string;
