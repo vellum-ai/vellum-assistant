@@ -654,7 +654,6 @@ export async function runDaemon(): Promise<void> {
           scheduleId: schedule.id,
           name: schedule.name,
         },
-        dedupeKey: `schedule:${schedule.id}`,
       });
     },
     (notification) => {
