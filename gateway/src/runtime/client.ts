@@ -72,7 +72,7 @@ export type RuntimeInboundResponse = {
   accepted: boolean;
   duplicate: boolean;
   eventId: string;
-  approval?: "decision_applied" | "reminder_sent" | "guardian_decision_applied" | "stale_ignored";
+  approval?: "decision_applied" | "assistant_turn" | "guardian_decision_applied" | "stale_ignored";
   assistantMessage?: {
     id: string;
     role: "assistant";

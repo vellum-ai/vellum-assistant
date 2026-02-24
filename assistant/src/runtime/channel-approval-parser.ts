@@ -4,6 +4,11 @@
  * Parses inbound user text to determine whether it matches an approval,
  * rejection, or "approve always" intent. This module is transport-agnostic
  * and can be used by any channel adapter (Telegram, SMS, etc.).
+ *
+ * Both the standard and guardian approval flows now use the conversational
+ * approval engine as the primary classifier. This deterministic parser is
+ * retained only as a legacy fallback for when the conversational engine is
+ * not injected (i.e. approvalConversationGenerator is undefined).
  */
 
 import type { ApprovalAction, ApprovalDecisionResult } from './channel-approval-types.js';

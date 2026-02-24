@@ -40,7 +40,6 @@ import {
   getChannelApprovalPrompt,
   buildApprovalUIMetadata,
   handleChannelDecision,
-  buildReminderPrompt,
   buildGuardianApprovalPrompt,
   channelSupportsRichApprovalUI,
 } from '../runtime/channel-approvals.js';
@@ -488,67 +487,7 @@ describe('handleChannelDecision', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 4. buildReminderPrompt
-// ═══════════════════════════════════════════════════════════════════════════
-
-describe('buildReminderPrompt', () => {
-  test('prefixes promptText with a reminder', () => {
-    const original: ChannelApprovalPrompt = {
-      promptText: 'Allow shell?',
-      actions: [
-        { id: 'approve_once', label: 'Approve once' },
-        { id: 'reject', label: 'Reject' },
-      ],
-      plainTextFallback: 'Reply yes or no.',
-    };
-
-    const reminder = buildReminderPrompt(original);
-    expect(reminder.promptText).toContain("I'm still waiting");
-    expect(reminder.promptText).toContain('Allow shell?');
-  });
-
-  test('preserves the original actions', () => {
-    const original: ChannelApprovalPrompt = {
-      promptText: 'Approve file_edit?',
-      actions: [
-        { id: 'approve_once', label: 'Approve once' },
-        { id: 'approve_always', label: 'Approve always' },
-        { id: 'reject', label: 'Reject' },
-      ],
-      plainTextFallback: 'Reply yes, always, or no.',
-    };
-
-    const reminder = buildReminderPrompt(original);
-    expect(reminder.actions).toEqual(original.actions);
-  });
-
-  test('prefixes plainTextFallback with a reminder', () => {
-    const original: ChannelApprovalPrompt = {
-      promptText: 'Allow bash?',
-      actions: [],
-      plainTextFallback: 'Reply yes or no.',
-    };
-
-    const reminder = buildReminderPrompt(original);
-    expect(reminder.plainTextFallback).toContain("I'm still waiting");
-    expect(reminder.plainTextFallback).toContain('Reply yes or no.');
-  });
-
-  test('does not mutate the original prompt', () => {
-    const original: ChannelApprovalPrompt = {
-      promptText: 'Allow grep?',
-      actions: [{ id: 'approve_once', label: 'Approve once' }],
-      plainTextFallback: 'Reply yes.',
-    };
-
-    const originalText = original.promptText;
-    buildReminderPrompt(original);
-    expect(original.promptText).toBe(originalText);
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════════════
-// 5. buildGuardianApprovalPrompt
+// 4. buildGuardianApprovalPrompt
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('buildGuardianApprovalPrompt', () => {
@@ -594,7 +533,7 @@ describe('buildGuardianApprovalPrompt', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 6. channelSupportsRichApprovalUI
+// 5. channelSupportsRichApprovalUI
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('channelSupportsRichApprovalUI', () => {

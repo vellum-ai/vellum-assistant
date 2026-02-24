@@ -96,6 +96,7 @@ export type {
   RuntimeHttpServerOptions,
   RuntimeAttachmentMetadata,
   ApprovalCopyGenerator,
+  ApprovalConversationGenerator,
 } from './http-types.js';
 
 import type {
@@ -103,6 +104,7 @@ import type {
   NonBlockingMessageProcessor,
   RuntimeHttpServerOptions,
   ApprovalCopyGenerator,
+  ApprovalConversationGenerator,
 } from './http-types.js';
 
 const log = getLogger('runtime-http');
@@ -392,6 +394,7 @@ export class RuntimeHttpServer {
   private persistAndProcessMessage?: NonBlockingMessageProcessor;
   private runOrchestrator?: RunOrchestrator;
   private approvalCopyGenerator?: ApprovalCopyGenerator;
+  private approvalConversationGenerator?: ApprovalConversationGenerator;
   private interfacesDir: string | null;
   private suggestionCache = new Map<string, string>();
   private suggestionInFlight = new Map<string, Promise<string | null>>();
@@ -406,6 +409,7 @@ export class RuntimeHttpServer {
     this.persistAndProcessMessage = options.persistAndProcessMessage;
     this.runOrchestrator = options.runOrchestrator;
     this.approvalCopyGenerator = options.approvalCopyGenerator;
+    this.approvalConversationGenerator = options.approvalConversationGenerator;
     this.interfacesDir = options.interfacesDir ?? null;
   }
 
@@ -801,7 +805,7 @@ export class RuntimeHttpServer {
 
       if (endpoint === 'channels/inbound' && req.method === 'POST') {
         const gatewayOriginSecret = getRuntimeGatewayOriginSecret();
-        return await handleChannelInbound(req, this.processMessage, this.bearerToken, this.runOrchestrator, assistantId, gatewayOriginSecret, this.approvalCopyGenerator);
+        return await handleChannelInbound(req, this.processMessage, this.bearerToken, this.runOrchestrator, assistantId, gatewayOriginSecret, this.approvalCopyGenerator, this.approvalConversationGenerator);
       }
 
       if (endpoint === 'channels/delivery-ack' && req.method === 'POST') {
