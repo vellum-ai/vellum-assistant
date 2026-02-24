@@ -381,11 +381,12 @@ final class ActionExecutor: ActionExecuting {
     private func mdfindApp(name: String, timeout: UInt64 = 2_000_000_000) async -> URL? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/mdfind")
-        // Use double quotes for the display-name value so we only need to escape
-        // double quotes. Process.arguments bypasses the shell, so shell-style
+        // Use double quotes for the display-name value. Escape backslashes first
+        // (Spotlight treats \ as an escape character inside double-quoted strings),
+        // then double quotes. Process.arguments bypasses the shell, so shell-style
         // single-quote escaping (e.g. '\'') would be passed raw to mdfind and
         // break Spotlight query parsing.
-        let sanitizedName = name.replacingOccurrences(of: "\"", with: "\\\"")
+        let sanitizedName = name.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
         process.arguments = [
             "kMDItemKind == 'Application' && kMDItemDisplayName == \"\(sanitizedName)\""
         ]
