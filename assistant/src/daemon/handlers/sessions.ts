@@ -16,6 +16,7 @@ import type {
   SecretResponse,
   SessionCreateRequest,
   SessionSwitchRequest,
+  SessionRenameRequest,
   CancelRequest,
   DeleteQueuedMessage,
   HistoryRequest,
@@ -352,6 +353,19 @@ export async function handleSessionSwitch(
   });
 }
 
+export function handleSessionRename(
+  msg: SessionRenameRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  conversationStore.updateConversationTitle(msg.sessionId, msg.title);
+  ctx.send(socket, {
+    type: 'session_title_updated',
+    sessionId: msg.sessionId,
+    title: msg.title,
+  });
+}
+
 export function handleCancel(msg: CancelRequest, socket: net.Socket, ctx: HandlerContext): void {
   const sessionId = msg.sessionId || ctx.socketToSession.get(socket);
   if (sessionId) {
@@ -597,6 +611,7 @@ export const sessionHandlers = defineHandlers({
   session_create: handleSessionCreate,
   sessions_clear: (_msg, socket, ctx) => handleSessionsClear(socket, ctx),
   session_switch: handleSessionSwitch,
+  session_rename: handleSessionRename,
   cancel: handleCancel,
   delete_queued_message: handleDeleteQueuedMessage,
   history_request: handleHistoryRequest,
