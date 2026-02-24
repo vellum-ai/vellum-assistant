@@ -351,13 +351,19 @@ public final class SettingsStore: ObservableObject {
             self.twilioListInProgress = false
             if response.success {
                 self.twilioHasCredentials = response.hasCredentials
-                if self.twilioPhoneRefreshPending || response.phoneNumber != nil {
+                if !response.hasCredentials {
+                    // Credentials were confirmed removed — clear derived state
+                    self.twilioPhoneNumber = nil
+                    self.twilioNumbers = []
+                } else if self.twilioPhoneRefreshPending || response.phoneNumber != nil {
                     self.twilioPhoneNumber = response.phoneNumber
                 }
-                if self.twilioNumbersRefreshPending {
-                    self.twilioNumbers = response.numbers ?? []
-                } else if let numbers = response.numbers {
-                    self.twilioNumbers = numbers
+                if response.hasCredentials {
+                    if self.twilioNumbersRefreshPending {
+                        self.twilioNumbers = response.numbers ?? []
+                    } else if let numbers = response.numbers {
+                        self.twilioNumbers = numbers
+                    }
                 }
                 self.twilioWarning = response.warning
                 self.twilioError = nil
