@@ -56,6 +56,8 @@ struct DaemonConnectionSection: View {
     @State private var manualAuthValue: String = ""
     @State private var isConnecting = false
 
+    @AppStorage("devLocalPairingEnabled") private var devLocalPairingEnabled: Bool = false
+
     /// The currently configured gateway URL, shown as read-only status.
     private var gatewayURL: String? {
         UserDefaults.standard.string(forKey: UserDefaultsKeys.gatewayBaseURL).flatMap { $0.isEmpty ? nil : $0 }
@@ -166,6 +168,19 @@ struct DaemonConnectionSection: View {
                 Text("Manual Setup")
             } footer: {
                 Text("Enter the gateway URL and bearer token shown in your Mac's Settings.")
+            }
+
+            // Developer options
+            Section {
+                Toggle("Developer Local Pairing", isOn: $devLocalPairingEnabled)
+                    .font(VFont.body)
+                if devLocalPairingEnabled {
+                    Text("Debug only. Allows connecting to local HTTP gateways scanned via QR code.")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.warning)
+                }
+            } header: {
+                Text("Developer")
             }
 
         }

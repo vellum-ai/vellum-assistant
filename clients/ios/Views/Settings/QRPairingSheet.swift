@@ -11,6 +11,7 @@ struct QRPairingSheet: View {
     @State private var scannedPayload: DaemonQRPayload?
     @State private var errorMessage: String?
     @State private var showGatewayChangedAlert = false
+    @AppStorage("devLocalPairingEnabled") private var devLocalPairingEnabled: Bool = false
 
     enum PairingPhase {
         case scanning
@@ -275,6 +276,23 @@ struct QRPairingSheet: View {
             errorMessage = "QR code is missing required fields. Please regenerate the QR code on your Mac."
             phase = .error
             return
+        }
+
+        // Validate HTTP scheme — require HTTPS for non-local, or devLocalPairingEnabled for local HTTP
+        if let url = URL(string: gatewayURL), url.scheme == "http" {
+            if let host = url.host {
+                let isLocal = DaemonConnectionSection.isLocalHost(host)
+                if !isLocal {
+                    errorMessage = "HTTPS is required for non-local connections."
+                    phase = .error
+                    return
+                }
+                if !devLocalPairingEnabled {
+                    errorMessage = "Enable Developer Local Pairing in connection settings to use local HTTP gateways."
+                    phase = .error
+                    return
+                }
+            }
         }
 
         let payload = DaemonQRPayload(
