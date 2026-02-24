@@ -685,10 +685,20 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 callSessionId: msg.callSessionId,
                 title: msg.title
             )
-            if let thread = self.mainWindow?.threadManager.threads.first(where: { $0.sessionId == msg.conversationId }) {
-                self.mainWindow?.threadManager.activeThreadId = thread.id
+            if NSApp.isActive {
+                // App is in foreground — select thread and show window immediately
+                if let thread = self.mainWindow?.threadManager.threads.first(where: { $0.sessionId == msg.conversationId }) {
+                    self.mainWindow?.threadManager.activeThreadId = thread.id
+                }
+                self.showMainWindow()
+            } else {
+                // App is backgrounded — post native notification
+                self.deliverGuardianRequestNotification(
+                    title: msg.title,
+                    questionText: msg.title,
+                    conversationId: msg.conversationId
+                )
             }
-            self.showMainWindow()
         }
 
         // Handle escalation: text_qa -> computer_use via computer_use_request_control
