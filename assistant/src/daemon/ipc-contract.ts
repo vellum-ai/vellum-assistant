@@ -1378,7 +1378,7 @@ export interface ChannelBinding {
 
 export interface SessionListResponse {
   type: 'session_list_response';
-  sessions: Array<{ id: string; title: string; updatedAt: number; threadType?: ThreadType; channelBinding?: ChannelBinding }>;
+  sessions: Array<{ id: string; title: string; updatedAt: number; threadType?: ThreadType; source?: string; channelBinding?: ChannelBinding }>;
   /** Whether more sessions exist beyond the returned page. */
   hasMore?: boolean;
 }
