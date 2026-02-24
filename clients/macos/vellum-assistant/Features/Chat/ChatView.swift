@@ -791,6 +791,7 @@ private struct ScrollWheelPassthrough: NSViewRepresentable {
 
             if let scrollView = coordinator.findScrollView(for: event) {
                 scrollView.scrollWheel(with: event)
+                return nil // consume — we already forwarded it; prevents double-delivery
             }
             return event
         }
