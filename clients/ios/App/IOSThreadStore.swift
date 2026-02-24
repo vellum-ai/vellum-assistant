@@ -15,14 +15,18 @@ struct IOSThread: Identifiable {
     /// When non-nil, this thread is backed by a daemon session (Connected mode).
     var sessionId: String?
     var isArchived: Bool
+    /// Private threads are excluded from the normal thread list and persist only
+    /// for the current session. They match the macOS "temporary chat" behavior.
+    var isPrivate: Bool
 
-    init(id: UUID = UUID(), title: String = "New Chat", createdAt: Date = Date(), lastActivityAt: Date? = nil, sessionId: String? = nil, isArchived: Bool = false) {
+    init(id: UUID = UUID(), title: String = "New Chat", createdAt: Date = Date(), lastActivityAt: Date? = nil, sessionId: String? = nil, isArchived: Bool = false, isPrivate: Bool = false) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
         self.lastActivityAt = lastActivityAt ?? createdAt
         self.sessionId = sessionId
         self.isArchived = isArchived
+        self.isPrivate = isPrivate
     }
 }
 
@@ -35,6 +39,7 @@ private struct PersistedThread: Codable {
     var createdAt: Date
     var lastActivityAt: Date?
     var isArchived: Bool?
+    var isPrivate: Bool?
 }
 
 // MARK: - IOSThreadStore
@@ -78,6 +83,28 @@ class IOSThreadStore: ObservableObject {
             } else {
                 threads = loaded
             }
+        }
+    }
+
+    /// Initializer for secondary stores (e.g. the Private Threads settings panel)
+    /// that need access to the daemon client for sending messages but should not
+    /// register global session-list callbacks that would clobber the main store's
+    /// handlers. In standalone mode, loads persisted threads from UserDefaults.
+    init(daemonClient: any DaemonClientProtocol, registerDaemonCallbacks: Bool) {
+        self.daemonClient = daemonClient
+
+        if daemonClient is DaemonClient {
+            isConnectedMode = true
+            // No default thread — secondary stores start empty and show only
+            // what has been created within the current session.
+            threads = []
+        } else {
+            let loaded = Self.load()
+            threads = loaded
+        }
+
+        if registerDaemonCallbacks, let daemon = daemonClient as? DaemonClient {
+            setupDaemonCallbacks(daemon)
         }
     }
 
@@ -249,6 +276,12 @@ class IOSThreadStore: ObservableObject {
             .store(in: &cancellables)
     }
 
+    /// Private threads are excluded from the session list response filter, so they
+    /// won't appear in the normal active thread list.
+    var privateThreads: [IOSThread] {
+        threads.filter { $0.isPrivate }
+    }
+
     @discardableResult
     func newThread() -> IOSThread {
         let thread = IOSThread()
@@ -257,11 +290,28 @@ class IOSThreadStore: ObservableObject {
         return thread
     }
 
+    /// Create a new private thread with the given name. The thread is immediately
+    /// backed by a daemon session with threadType "private" so it is persisted on
+    /// the daemon side and excluded from normal thread restoration.
+    @discardableResult
+    func newPrivateThread(name: String = "Private Thread") -> IOSThread {
+        let thread = IOSThread(title: name, isPrivate: true)
+        threads.append(thread)
+        // Get or create the view model after appending so activity tracking
+        // can find the thread in self.threads.
+        let vm = viewModel(for: thread.id)
+        vm.createSessionIfNeeded(threadType: "private")
+        save()
+        return thread
+    }
+
     func deleteThread(_ thread: IOSThread) {
         viewModels.removeValue(forKey: thread.id)
         threads.removeAll { $0.id == thread.id }
-        // Always keep at least one active (non-archived) thread.
-        if threads.filter({ !$0.isArchived }).isEmpty {
+        // Always keep at least one active (non-archived) non-private thread.
+        // Private threads are managed separately and should not prevent the
+        // regular thread list from being empty.
+        if threads.filter({ !$0.isArchived && !$0.isPrivate }).isEmpty {
             newThread()
         } else {
             save()
@@ -307,7 +357,7 @@ class IOSThreadStore: ObservableObject {
     private func save() {
         // Don't persist daemon-synced threads — they're loaded on connect.
         guard !isConnectedMode else { return }
-        let persisted = threads.map { PersistedThread(id: $0.id, title: $0.title, createdAt: $0.createdAt, lastActivityAt: $0.lastActivityAt, isArchived: $0.isArchived) }
+        let persisted = threads.map { PersistedThread(id: $0.id, title: $0.title, createdAt: $0.createdAt, lastActivityAt: $0.lastActivityAt, isArchived: $0.isArchived, isPrivate: $0.isPrivate) }
         if let data = try? JSONEncoder().encode(persisted) {
             UserDefaults.standard.set(data, forKey: Self.persistenceKey)
         }
@@ -318,7 +368,7 @@ class IOSThreadStore: ObservableObject {
               let persisted = try? JSONDecoder().decode([PersistedThread].self, from: data) else {
             return []
         }
-        return persisted.map { IOSThread(id: $0.id, title: $0.title, createdAt: $0.createdAt, lastActivityAt: $0.lastActivityAt, isArchived: $0.isArchived ?? false) }
+        return persisted.map { IOSThread(id: $0.id, title: $0.title, createdAt: $0.createdAt, lastActivityAt: $0.lastActivityAt, isArchived: $0.isArchived ?? false, isPrivate: $0.isPrivate ?? false) }
     }
 }
 #endif
