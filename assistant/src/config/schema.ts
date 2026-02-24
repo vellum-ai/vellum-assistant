@@ -108,8 +108,10 @@ export {
   ContextWindowConfigSchema,
   ModelPricingOverrideSchema,
   SmsConfigSchema,
+  IngressWebhookConfigSchema,
+  IngressRateLimitConfigSchema,
   IngressConfigSchema,
-  AssistantInboxConfigSchema,
+  DaemonConfigSchema,
 } from './core-schema.js';
 export type {
   TimeoutConfig,
@@ -122,8 +124,10 @@ export type {
   ContextWindowConfig,
   ModelPricingOverride,
   SmsConfig,
+  IngressWebhookConfig,
+  IngressRateLimitConfig,
   IngressConfig,
-  AssistantInboxConfig,
+  DaemonConfig,
 } from './core-schema.js';
 
 // Imports for AssistantConfigSchema composition
@@ -145,7 +149,7 @@ import {
   ModelPricingOverrideSchema,
   SmsConfigSchema,
   IngressConfigSchema,
-  AssistantInboxConfigSchema,
+  DaemonConfigSchema,
 } from './core-schema.js';
 
 const VALID_PROVIDERS = ['anthropic', 'openai', 'gemini', 'ollama', 'fireworks', 'openrouter'] as const;
@@ -180,10 +184,11 @@ export const AssistantConfigSchema = z.object({
     .number({ error: 'maxTokens must be a number' })
     .int('maxTokens must be an integer')
     .positive('maxTokens must be a positive integer')
-    .default(64000),
+    .default(16000),
   thinking: ThinkingConfigSchema.default({
     enabled: false,
     budgetTokens: 10000,
+    streamThinking: false,
   }),
   contextWindow: ContextWindowConfigSchema.default({
     enabled: true,
@@ -218,7 +223,7 @@ export const AssistantConfigSchema = z.object({
       injectionFormat: 'markdown',
       injectionStrategy: 'prepend_user_block',
       reranking: {
-        enabled: true,
+        enabled: false,
         model: 'claude-haiku-4-5-20251001',
         topK: 20,
       },
@@ -434,11 +439,11 @@ export const AssistantConfigSchema = z.object({
     phoneNumber: '',
   }),
   ingress: IngressConfigSchema,
-  assistantInbox: AssistantInboxConfigSchema.default({
-    enabled: false,
-    invitesEnabled: false,
-    memberAclEnabled: false,
-    policyEnabled: false,
+  daemon: DaemonConfigSchema.default({
+    startupSocketWaitMs: 5000,
+    stopTimeoutMs: 5000,
+    sigkillGracePeriodMs: 2000,
+    titleGenerationMaxTokens: 30,
   }),
   notifications: NotificationsConfigSchema.default({
     enabled: false,

@@ -17,6 +17,9 @@ import {
   migrateBackfillInboxThreadStateFromBindings,
   migrateDropActiveSearchIndex,
   migrateNotificationTablesSchema,
+  migrateMemorySegmentsIndexes,
+  migrateMemoryItemsIndexes,
+  migrateRemainingTableIndexes,
   validateMigrationState,
 } from './schema-migration.js';
 
@@ -1268,6 +1271,12 @@ export function initializeDb(): void {
 
   migrateMemoryFtsBackfill(database);
 
+  migrateMemorySegmentsIndexes(database);
+
+  migrateMemoryItemsIndexes(database);
+
+  migrateRemainingTableIndexes(database);
+
   // ── Notification System ──────────────────────────────────────────────
 
   // Migration: drop legacy enum-based notification tables if old schema detected.
@@ -1345,7 +1354,7 @@ export function initializeDb(): void {
 
   database.run(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_deliveries_unique ON notification_deliveries(notification_decision_id, channel, destination, attempt)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_notification_deliveries_decision_id ON notification_deliveries(notification_decision_id)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_notification_deliveries_assistant_status ON notification_deliveries(assistant_id, status)`);
+  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_notification_deliveries_assistant_status ON notification_deliveries(assistant_id, status)`)
 
   validateMigrationState(database);
 }

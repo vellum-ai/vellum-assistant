@@ -1,6 +1,6 @@
 import type { GatewayConfig } from "../../config.js";
 import { getLogger } from "../../logger.js";
-import { forwardTwilioConnectActionWebhook } from "../../runtime/client.js";
+import { CircuitBreakerOpenError, forwardTwilioConnectActionWebhook } from "../../runtime/client.js";
 import { validateTwilioWebhookRequest } from "../../twilio/validate-webhook.js";
 
 const log = getLogger("twilio-connect-action-webhook");
@@ -20,6 +20,12 @@ export function createTwilioConnectActionWebhookHandler(config: GatewayConfig) {
         headers: runtimeResponse.headers,
       });
     } catch (err) {
+      if (err instanceof CircuitBreakerOpenError) {
+        return Response.json(
+          { error: "Service temporarily unavailable" },
+          { status: 503, headers: { "Retry-After": String(err.retryAfterSecs) } },
+        );
+      }
       log.error({ err }, "Failed to forward Twilio connect-action webhook to runtime");
       return Response.json({ error: "Internal server error" }, { status: 502 });
     }

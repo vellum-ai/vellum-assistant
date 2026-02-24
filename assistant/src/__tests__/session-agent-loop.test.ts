@@ -1,6 +1,6 @@
 import { describe, expect, mock, test, beforeEach } from 'bun:test';
 import type { Message, ContentBlock } from '../providers/types.js';
-import type { AgentEvent, CheckpointDecision } from '../agent/loop.js';
+import type { AgentEvent, CheckpointDecision, CheckpointInfo } from '../agent/loop.js';
 import type { ServerMessage } from '../daemon/ipc-protocol.js';
 
 // ── Module mocks (must precede imports of the module under test) ─────
@@ -212,7 +212,7 @@ type AgentLoopRun = (
   onEvent: (event: AgentEvent) => void,
   signal?: AbortSignal,
   requestId?: string,
-  onCheckpoint?: () => CheckpointDecision,
+  onCheckpoint?: (checkpoint: CheckpointInfo) => CheckpointDecision,
 ) => Promise<Message[]>;
 
 function makeCtx(overrides?: Partial<AgentLoopSessionContext> & { agentLoopRun?: AgentLoopRun }): AgentLoopSessionContext {
@@ -811,7 +811,7 @@ describe('session-agent-loop', () => {
     test('drains queue after completion', async () => {
       let drainReason: string | undefined;
       const ctx = makeCtx({
-        agentLoopRun: async (messages, onEvent) => {
+        agentLoopRun: async (messages: Message[], onEvent: (event: AgentEvent) => void) => {
           onEvent({
             type: 'message_complete',
             message: { role: 'assistant', content: [{ type: 'text', text: 'ok' }] },

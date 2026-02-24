@@ -217,7 +217,7 @@ export class RelayConnection {
         this.handleError(parsed);
         break;
       default:
-        log.warn({ callSessionId: this.callSessionId, type: (parsed as Record<string, unknown>).type }, 'Unknown relay message type');
+        log.warn({ callSessionId: this.callSessionId, type: (parsed as { type: unknown }).type }, 'Unknown relay message type');
     }
   }
 
@@ -678,7 +678,9 @@ export class RelayConnection {
       'Caller transcript received (final)',
     );
 
-    const speakerMetadata = extractPromptSpeakerMetadata(msg as unknown as Record<string, unknown>);
+    // Spread to widen the typed message into a plain record — extractPromptSpeakerMetadata
+    // probes for snake_case and nested property variants not on RelayPromptMessage.
+    const speakerMetadata = extractPromptSpeakerMetadata({ ...msg });
     const speaker = this.speakerIdentityTracker.identifySpeaker(speakerMetadata);
 
     // Record in conversation history

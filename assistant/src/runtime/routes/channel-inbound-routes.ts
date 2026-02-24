@@ -12,7 +12,6 @@ import * as externalConversationStore from '../../memory/external-conversation-s
 import { getPendingConfirmationsByConversation } from '../../memory/runs-store.js';
 import { checkIngressForSecrets } from '../../security/secret-ingress.js';
 import { IngressBlockedError } from '../../util/errors.js';
-import { getConfig } from '../../config/loader.js';
 import { getLogger } from '../../util/logger.js';
 import { findMember, updateLastSeen } from '../../memory/ingress-member-store.js';
 import {
@@ -44,7 +43,6 @@ import type {
   ApprovalCopyGenerator,
   ApprovalConversationGenerator,
 } from '../http-types.js';
-import type { GuardianRuntimeContext } from '../../daemon/session-runtime-assembly.js';
 import { composeApprovalMessageGenerative } from '../approval-message-composer.js';
 import { refreshThreadEscalation } from '../../memory/inbox-escalation-projection.js';
 import { emitNotificationSignal } from '../../notifications/emit-signal.js';
@@ -59,7 +57,7 @@ import {
   RUN_POLL_INTERVAL_MS,
   getEffectivePollMaxWait,
 } from './channel-route-shared.js';
-import { deliverReplyViaCallback, schedulePostDecisionDelivery } from './channel-delivery-routes.js';
+import { deliverReplyViaCallback } from './channel-delivery-routes.js';
 import { handleApprovalInterception, deliverGeneratedApprovalPrompt } from './channel-guardian-routes.js';
 
 const log = getLogger('runtime-http');
@@ -188,12 +186,11 @@ export async function handleChannelInbound(
   }
 
   // ── Ingress ACL enforcement ──
-  const inboxConfig = getConfig().assistantInbox;
   // Track the resolved member so the escalate branch can reference it after
   // recordInbound (where we have a conversationId).
   let resolvedMember: ReturnType<typeof findMember> = null;
 
-  if (inboxConfig.enabled && inboxConfig.memberAclEnabled && body.senderExternalUserId) {
+  if (body.senderExternalUserId) {
     resolvedMember = findMember({
       sourceChannel,
       externalUserId: body.senderExternalUserId,

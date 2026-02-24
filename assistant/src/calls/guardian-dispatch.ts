@@ -25,6 +25,7 @@ import { addMessage } from '../memory/conversation-store.js';
 import type { CallPendingQuestion } from './types.js';
 import { readHttpToken } from '../util/platform.js';
 import type { ServerMessage } from '../daemon/ipc-contract.js';
+import { generateGuardianCopy } from './guardian-question-copy.js';
 
 const log = getLogger('guardian-dispatch');
 
@@ -132,10 +133,19 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
     // Mac (internal) delivery — always created
     destinations.push({ channel: 'macos' });
 
+    // Start LLM copy generation concurrently — only awaited in the macOS branch
+    // so external channels (Telegram, SMS) dispatch without LLM latency.
+    const guardianCopyPromise = generateGuardianCopy(
+      pendingQuestion.questionText,
+      request.requestCode,
+    );
+
     // Create delivery rows and dispatch
     for (const dest of destinations) {
       if (dest.channel === 'macos') {
-        // Create a dedicated server-side conversation for the mac guardian thread
+        // Create conversation and delivery row synchronously so they exist
+        // before awaiting LLM copy — prevents a race where an external channel
+        // reply resolves the request before the macOS delivery is created.
         const macConvKey = `asst:${assistantId}:guardian:request:${request.id}`;
         const { conversationId: macConversationId } = getOrCreateConversation(macConvKey);
 
@@ -145,11 +155,14 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
           destinationConversationId: macConversationId,
         });
 
+        // Now await LLM-generated copy for the message content and thread title
+        const guardianCopy = await guardianCopyPromise;
+
         // Add the guardian question as the initial message in the thread
         addMessage(
           macConversationId,
           'assistant',
-          JSON.stringify([{ type: 'text', text: `Your assistant needs your input during a phone call.\n\nQuestion: ${request.questionText}\n\nReply to this message with your answer.` }]),
+          JSON.stringify([{ type: 'text', text: guardianCopy.initialMessage }]),
           { userMessageChannel: 'voice', assistantMessageChannel: 'macos' },
         );
 
@@ -160,7 +173,8 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
             conversationId: macConversationId,
             requestId: request.id,
             callSessionId,
-            title: `Guardian question: ${pendingQuestion.questionText.slice(0, 80)}`,
+            title: guardianCopy.threadTitle,
+            questionText: request.questionText,
           } as ServerMessage);
         }
         updateDeliveryStatus(delivery.id, 'sent');

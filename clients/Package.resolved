@@ -1,24 +1,6 @@
 {
   "pins" : [
     {
-      "identity" : "ios-voice-processor",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/Picovoice/ios-voice-processor.git",
-      "state" : {
-        "revision" : "083c02aed9a890400d647fd357f8a505bf672f58",
-        "version" : "1.2.0"
-      }
-    },
-    {
-      "identity" : "porcupine",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/Picovoice/porcupine",
-      "state" : {
-        "revision" : "08829fb824adee8aec1eb96c235c59f6cabc144a",
-        "version" : "3.0.4"
-      }
-    },
-    {
       "identity" : "sparkle",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/sparkle-project/Sparkle",

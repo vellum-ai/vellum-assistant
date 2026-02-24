@@ -292,13 +292,13 @@ The assistant inbox provides secure cross-user messaging, allowing external user
 
 ### Ingress Membership
 
-External users join through **invite tokens** — the owner creates an invite via the desktop UI or IPC, and the external user redeems the token by sending it as a channel message. Redemption auto-creates a **member** record with a configurable access policy:
+External users join through **invite tokens** — the owner creates an invite via the desktop UI or IPC, and the external user redeems the token by sending it as a channel message. Redemption auto-creates a **member** record with an access policy:
 
 - **`allow`** — Messages are processed normally through the agent pipeline.
 - **`deny`** — Messages are rejected with a refusal notice.
 - **`escalate`** — Messages are held for guardian (owner) approval before processing.
 
-The default policy for new members is controlled by the `inbox_default_policy` config. Members can be listed, updated, revoked, or blocked via the `ingress_member` IPC contract.
+Non-members (senders with no invite redemption) are denied by default. Members can be listed, updated, revoked, or blocked via the `ingress_member` IPC contract.
 
 ### Escalation Flow (Dual-Surface)
 

@@ -5,7 +5,7 @@ import { handleInbound } from "../../handlers/handle-inbound.js";
 import { getLogger } from "../../logger.js";
 import { RejectionRateLimiter } from "../../rejection-rate-limiter.js";
 import { resolveAssistant, isRejection } from "../../routing/resolve-assistant.js";
-import { AttachmentValidationError, resetConversation, uploadAttachment } from "../../runtime/client.js";
+import { AttachmentValidationError, CircuitBreakerOpenError, resetConversation, uploadAttachment } from "../../runtime/client.js";
 import { callTelegramApi } from "../../telegram/api.js";
 import { downloadTelegramFile } from "../../telegram/download.js";
 import { normalizeTelegramUpdate } from "../../telegram/normalize.js";
@@ -290,6 +290,14 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
           tlog.info({ status: "forwarded" }, "Forwarded /start to runtime");
         }
       } catch (err) {
+        if (err instanceof CircuitBreakerOpenError) {
+          acknowledgeCallbackQuery(normalized.message.callbackQueryId, "start_command_circuit_open");
+          if (updateId !== undefined) dedupCache.unreserve(updateId);
+          return Response.json(
+            { error: "Service temporarily unavailable" },
+            { status: 503, headers: { "Retry-After": String(err.retryAfterSecs) } },
+          );
+        }
         tlog.error({ err, updateId: payload.update_id }, "Failed to process /start command");
         sendTelegramReply(
           config,
@@ -480,6 +488,15 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
         );
       }
     } catch (err) {
+      if (err instanceof CircuitBreakerOpenError) {
+        tlog.warn({ retryAfterSecs: err.retryAfterSecs }, "Circuit breaker open — returning 503");
+        if (isCallback) acknowledgeCallbackQuery(normalized.message.callbackQueryId, "circuit_open");
+        if (updateId !== undefined) dedupCache.unreserve(updateId);
+        return Response.json(
+          { error: "Service temporarily unavailable" },
+          { status: 503, headers: { "Retry-After": String(err.retryAfterSecs) } },
+        );
+      }
       tlog.error({ err, updateId: payload.update_id }, "Failed to process inbound event");
       if (isCallback) acknowledgeCallbackQuery(normalized.message.callbackQueryId, "forward_exception");
       if (updateId !== undefined) dedupCache.unreserve(updateId);

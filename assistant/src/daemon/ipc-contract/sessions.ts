@@ -43,6 +43,12 @@ export interface SessionSwitchRequest {
   sessionId: string;
 }
 
+export interface SessionRenameRequest {
+  type: 'session_rename';
+  sessionId: string;
+  title: string;
+}
+
 export interface AuthMessage {
   type: 'auth';
   token: string;

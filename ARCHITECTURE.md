@@ -3939,11 +3939,11 @@ The assistant inbox extends the guardian security model to support controlled cr
 
 The channel inbound handler (`channel-routes.ts`) enforces an access control layer between message receipt and agent processing:
 
-1. When `inbox_enabled` is true and the sender is not the guardian, the handler looks up the sender in `assistant_ingress_members` by `(sourceChannel, externalUserId)`.
-2. If no member record exists, the `inbox_default_policy` config determines behavior (allow, deny, or escalate).
-3. If a member exists, their individual `policy` field takes precedence.
+1. When `senderExternalUserId` is present and the sender is not the guardian, the handler looks up the sender in `assistant_ingress_members` by `(sourceChannel, externalUserId)`.
+2. If no member record exists, the message is denied (`not_a_member`).
+3. If a member exists, their individual `policy` field determines behavior (allow, deny, or escalate).
 
-Invite tokens are created via the `ingress_invite` IPC contract. Each token is SHA-256 hashed before storage — the raw token is returned exactly once at creation time. External users redeem invites by sending the token as a channel message, which creates a member record with the default policy.
+Invite tokens are created via the `ingress_invite` IPC contract. Each token is SHA-256 hashed before storage — the raw token is returned exactly once at creation time. External users redeem invites by sending the token as a channel message, which creates a member record with `allow` policy.
 
 #### Escalation Data Flow
 
@@ -4320,6 +4320,14 @@ When the LLM emits `[ASK_GUARDIAN: question]` during a voice call, the orchestra
 6. **Expiry sweep**: The `guardian-action-sweep.ts` module runs a periodic 60-second interval sweep. It finds requests that have passed their expiry timestamp and transitions them to `expired` status. Expiry notices are sent to all delivery channels associated with the expired request.
 
 7. **Separation from channel guardian approvals**: Guardian action requests are SEPARATE from `channelGuardianApprovalRequests` (the existing channel tool-approval system). The channel guardian approval system handles tool-use permission grants (approve/deny a specific tool invocation). Guardian action requests handle free-form questions from voice calls that require human input to continue the conversation.
+
+#### Guardian Request Copy Generation Pipeline
+
+Thread titles and initial messages for guardian question threads are generated via `guardian-question-copy.ts`. The module calls the configured LLM provider (with `modelIntent: 'latency-optimized'`) to produce an emoji-prefixed, attention-oriented title and a richer initial message that explains the live-call context. A 5-second timeout guards the generation call. When no provider is configured, generation times out, or parsing fails, the module falls back to deterministic copy (`buildFallbackCopy`) that uses a warning emoji prefix and a simple template containing the question text. The generative copy is awaited only in the macOS delivery branch so that Telegram/SMS deliveries dispatch without LLM latency.
+
+#### macOS Notification + Deep-Link Flow
+
+When a guardian question is dispatched while the macOS app is backgrounded, the Swift client posts a native `UNUserNotificationCenter` notification under the `GUARDIAN_REQUEST` category. The notification title mirrors the emoji-prefixed thread title from the copy generation pipeline. Tapping the notification triggers the `openConversationThread` deep-link handler, which switches the main window to the guardian question thread so the user can reply immediately.
 
 ### SQLite Tables
 

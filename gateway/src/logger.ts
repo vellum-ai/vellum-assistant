@@ -1,7 +1,8 @@
-import { existsSync, mkdirSync, readdirSync, unlinkSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import pino from "pino";
 import pinoPretty from "pino-pretty";
+import { logSerializers } from "./log-redact.js";
 
 export type LogFileConfig = {
   dir: string | undefined;
@@ -53,7 +54,7 @@ let activeConfig: LogFileConfig | null = null;
 
 function buildLogger(config: LogFileConfig | null): pino.Logger {
   if (!config?.dir) {
-    return pino({ name: "gateway" }, pinoPretty({ destination: 1 }));
+    return pino({ name: "gateway", serializers: logSerializers }, pinoPretty({ destination: 1 }));
   }
 
   if (!existsSync(config.dir)) {
@@ -62,13 +63,15 @@ function buildLogger(config: LogFileConfig | null): pino.Logger {
 
   const today = formatDate(new Date());
   const filePath = logFilePathForDate(config.dir, new Date());
-  const fileStream = pino.destination({ dest: filePath, sync: false, mkdir: true });
+  const fileStream = pino.destination({ dest: filePath, sync: false, mkdir: true, mode: 0o600 });
+  // Tighten permissions on pre-existing log files that may have been created with looser modes
+  try { chmodSync(filePath, 0o600); } catch { /* best-effort */ }
 
   activeLogDate = today;
   activeConfig = config;
 
   return pino(
-    { name: "gateway" },
+    { name: "gateway", serializers: logSerializers },
     pino.multistream([
       { stream: fileStream, level: "info" as const },
       { stream: pinoPretty({ destination: 1 }), level: "info" as const },

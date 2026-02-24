@@ -64,6 +64,7 @@ export function enqueueMessage(
     currentPage,
     metadata,
     turnChannelContext,
+    queuedAt: Date.now(),
   });
   if (!pushed) {
     return { queued: false, rejected: true, requestId };

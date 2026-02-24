@@ -1700,6 +1700,7 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     requestId: 'req-guardian-001',
     callSessionId: 'call-001',
     title: 'Guardian action request',
+    questionText: 'What is the gate code?',
   },
   subagent_spawned: {
     type: 'subagent_spawned',

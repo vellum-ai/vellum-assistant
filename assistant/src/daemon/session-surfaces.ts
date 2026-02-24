@@ -17,15 +17,12 @@ import {
   getPrebuiltHomeBasePreview,
   findSeededHomeBaseApp,
 } from '../home-base/prebuilt/seed.js';
+import { isPlainObject } from '../util/object.js';
 
 const log = getLogger('session-surfaces');
 
 const MAX_UNDO_DEPTH = 10;
 const TASK_PROGRESS_TEMPLATE_FIELDS = ['title', 'status', 'steps'] as const;
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value != null && !Array.isArray(value);
-}
 
 function normalizeCardShowData(input: Record<string, unknown>, rawData: Record<string, unknown>): CardSurfaceData {
   const normalized: Record<string, unknown> = { ...rawData };
@@ -128,6 +125,31 @@ export interface SurfaceSessionContext {
     onEvent: (msg: ServerMessage) => void,
     requestId?: string,
   ): Promise<string>;
+  /** Serialize operations on a given surface to prevent read-modify-write races. */
+  withSurface<T>(surfaceId: string, fn: () => T | Promise<T>): Promise<T>;
+}
+
+/**
+ * Per-surface async mutex using Promise chaining.
+ * Operations on the same surfaceId are serialized; different surfaces run concurrently.
+ */
+export function createSurfaceMutex(): <T>(surfaceId: string, fn: () => T | Promise<T>) => Promise<T> {
+  const chains = new Map<string, Promise<void>>();
+
+  return <T>(surfaceId: string, fn: () => T | Promise<T>): Promise<T> => {
+    const prev = chains.get(surfaceId) ?? Promise.resolve();
+    const next = prev.then(fn, fn);
+    // Keep the chain alive but swallow errors so one failure doesn't block subsequent ops
+    const tail = next.then(() => {}, () => {});
+    chains.set(surfaceId, tail);
+    // Clean up the map entry once the queue settles to prevent unbounded growth
+    tail.then(() => {
+      if (chains.get(surfaceId) === tail) {
+        chains.delete(surfaceId);
+      }
+    });
+    return next;
+  };
 }
 
 /**

@@ -300,7 +300,10 @@ struct QRPairingSheet: View {
                     handlePairingResponse(result, payload: payload, effectiveBaseURL: lanUrl)
                     return
                 }
-                // LAN failed, fall through to cloud gateway
+                // LAN failed — but if we were cancelled while waiting, stop here
+                // instead of falling through to the gateway path.
+                guard !Task.isCancelled else { return }
+                // Fall through to cloud gateway
             }
 
             // Cloud gateway
@@ -311,7 +314,7 @@ struct QRPairingSheet: View {
             )
             if let result = result {
                 handlePairingResponse(result, payload: payload, effectiveBaseURL: payload.gatewayURL)
-            } else {
+            } else if !Task.isCancelled {
                 await MainActor.run {
                     errorMessage = "Could not reach your Mac. Make sure the Vellum daemon is running."
                     phase = .error

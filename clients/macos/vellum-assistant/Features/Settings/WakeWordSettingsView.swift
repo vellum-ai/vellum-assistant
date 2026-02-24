@@ -1,4 +1,5 @@
 import SwiftUI
+import VellumAssistantShared
 
 /// Wake word settings tab — enable/disable wake word listening,
 /// configure Picovoice access key, sensitivity, and conversation timeout.
@@ -6,6 +7,7 @@ struct WakeWordSettingsView: View {
     @AppStorage("wakeWordEnabled") private var wakeWordEnabled: Bool = false
     @AppStorage("wakeWordSensitivity") private var wakeWordSensitivity: Double = 0.5
     @AppStorage("wakeWordTimeoutSeconds") private var wakeWordTimeoutSeconds: Int = 30
+    @AppStorage("wakeWordKeyword") private var wakeWordKeyword: String = "computer"
 
     @State private var picovoiceKeyText: String = ""
 
@@ -13,6 +15,7 @@ struct WakeWordSettingsView: View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
             statusSection
             enableSection
+            keywordSection
             accessKeySection
             sensitivitySection
             timeoutSection
@@ -30,7 +33,7 @@ struct WakeWordSettingsView: View {
                 .font(.system(size: 14))
                 .foregroundColor(wakeWordEnabled ? VColor.success : VColor.textMuted)
 
-            Text(wakeWordEnabled ? "Listening for \"hey vellum\"" : "Wake word disabled")
+            Text(wakeWordEnabled ? "Listening for \"\(wakeWordKeyword)\"" : "Wake word disabled")
                 .font(VFont.body)
                 .foregroundColor(wakeWordEnabled ? VColor.textPrimary : VColor.textSecondary)
 
@@ -53,7 +56,7 @@ struct WakeWordSettingsView: View {
                     Text("Enable wake word listening")
                         .font(VFont.body)
                         .foregroundColor(VColor.textSecondary)
-                    Text("Activate the assistant by saying \"hey vellum\" instead of using a keyboard shortcut.")
+                    Text("Activate the assistant by saying the wake word instead of using a keyboard shortcut.")
                         .font(VFont.caption)
                         .foregroundColor(VColor.textMuted)
                 }
@@ -63,6 +66,45 @@ struct WakeWordSettingsView: View {
                     .labelsHidden()
                     .accessibilityLabel("Enable wake word listening")
             }
+        }
+        .padding(VSpacing.lg)
+        .vCard(background: VColor.surfaceSubtle)
+    }
+
+    // MARK: - Keyword
+
+    private var keywordSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            Text("Keyword")
+                .font(VFont.sectionTitle)
+                .foregroundColor(VColor.textPrimary)
+
+            HStack {
+                Text("Keyword")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textSecondary)
+                Spacer()
+                Picker("", selection: $wakeWordKeyword) {
+                    Text("Computer").tag("computer")
+                    Text("Jarvis").tag("jarvis")
+                    Text("Alexa").tag("alexa")
+                    Text("Hey Siri").tag("hey siri")
+                    Text("Picovoice").tag("picovoice")
+                    Text("Porcupine").tag("porcupine")
+                    Text("Terminator").tag("terminator")
+                    Text("Bumblebee").tag("bumblebee")
+                    Text("Blueberry").tag("blueberry")
+                    Text("Grapefruit").tag("grapefruit")
+                    Text("Grasshopper").tag("grasshopper")
+                }
+                .pickerStyle(.menu)
+                .frame(width: 160)
+                .accessibilityLabel("Wake word keyword")
+            }
+
+            Text("The keyword that triggers voice activation. Requires restart of wake word listening to take effect.")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textMuted)
         }
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)

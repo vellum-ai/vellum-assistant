@@ -59,7 +59,7 @@ public final class SettingsStore: ObservableObject {
 
     @Published var maxSteps: Double
     @Published var activityNotificationsEnabled: Bool
-    @Published var quickChatShortcut: String
+    @Published var globalHotkeyShortcut: String
 
     // MARK: - Media Embed Settings
 
@@ -143,6 +143,14 @@ public final class SettingsStore: ObservableObject {
     @Published var ingressReachable: Bool?
     @Published var gatewayLastChecked: Date?
     @Published var isCheckingGateway: Bool = false
+
+    @Published var vellumPlatformReachable: Bool?
+    @Published var vellumPlatformError: String?
+    @Published var isCheckingVellumPlatform: Bool = false
+
+    // MARK: - Dev Mode
+
+    @Published var isDevMode: Bool
 
     // MARK: - Trust Rules Coordination
 
@@ -244,7 +252,13 @@ public final class SettingsStore: ObservableObject {
         // Default to enabled for notifications
         self.activityNotificationsEnabled = UserDefaults.standard.object(forKey: "activityNotificationsEnabled") as? Bool ?? true
 
-        self.quickChatShortcut = UserDefaults.standard.string(forKey: "quickChatShortcut") ?? "cmd+shift+space"
+        self.globalHotkeyShortcut = UserDefaults.standard.string(forKey: "globalHotkeyShortcut") ?? "cmd+shift+g"
+
+        #if DEBUG
+        self.isDevMode = UserDefaults.standard.object(forKey: "devModeEnabled") as? Bool ?? true
+        #else
+        self.isDevMode = UserDefaults.standard.bool(forKey: "devModeEnabled")
+        #endif
 
         // Load media embed settings from workspace config
         let mediaSettings = Self.loadMediaEmbedSettings(from: configPath)
@@ -284,9 +298,14 @@ public final class SettingsStore: ObservableObject {
             .store(in: &cancellables)
 
         // Persist shortcut changes immediately so the hotkey re-registers without delay
-        $quickChatShortcut
+        $globalHotkeyShortcut
             .dropFirst()
-            .sink { value in UserDefaults.standard.set(value, forKey: "quickChatShortcut") }
+            .sink { value in UserDefaults.standard.set(value, forKey: "globalHotkeyShortcut") }
+            .store(in: &cancellables)
+
+        $isDevMode
+            .dropFirst()
+            .sink { value in UserDefaults.standard.set(value, forKey: "devModeEnabled") }
             .store(in: &cancellables)
 
         // Mirror DaemonClient's trust-rules-open flag so views can disable their buttons
@@ -1229,6 +1248,37 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
+    // MARK: - Platform Health Check
+
+    func checkVellumPlatform() async {
+        isCheckingVellumPlatform = true
+        defer { isCheckingVellumPlatform = false }
+
+        let baseUrl = AuthService.shared.baseURL
+        let normalized = baseUrl.hasSuffix("/") ? String(baseUrl.dropLast()) : baseUrl
+        guard let url = URL(string: "\(normalized)/healthz") else {
+            vellumPlatformReachable = false
+            vellumPlatformError = "Invalid URL"
+            return
+        }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 5
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) {
+                vellumPlatformReachable = true
+                vellumPlatformError = nil
+            } else {
+                let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+                vellumPlatformReachable = false
+                vellumPlatformError = "HTTP \(code)"
+            }
+        } catch {
+            vellumPlatformReachable = false
+            vellumPlatformError = error.localizedDescription
+        }
+    }
+
     // MARK: - Approved Devices
 
     @Published var approvedDevices: [ApprovedDevicesListResponseMessage.Device] = []
@@ -1243,8 +1293,14 @@ public final class SettingsStore: ObservableObject {
 
     func removeApprovedDevice(hashedDeviceId: String) {
         guard let daemonClient else { return }
+        let removed = approvedDevices.filter { $0.hashedDeviceId == hashedDeviceId }
         approvedDevices.removeAll { $0.hashedDeviceId == hashedDeviceId }
-        try? daemonClient.sendApprovedDeviceRemove(hashedDeviceId: hashedDeviceId)
+        do {
+            try daemonClient.sendApprovedDeviceRemove(hashedDeviceId: hashedDeviceId)
+        } catch {
+            // IPC failed — restore optimistically removed devices
+            approvedDevices.append(contentsOf: removed)
+        }
     }
 
     func clearAllApprovedDevices() {
@@ -1273,6 +1329,12 @@ public final class SettingsStore: ObservableObject {
     var lanPairingUrl: String? {
         guard let ip = LANIPHelper.currentLANAddress() else { return nil }
         return "http://\(ip):7830"
+    }
+
+    // MARK: - Dev Mode Actions
+
+    func toggleDevMode() {
+        isDevMode.toggle()
     }
 
     // MARK: - Model Actions

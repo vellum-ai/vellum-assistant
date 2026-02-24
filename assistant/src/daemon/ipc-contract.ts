@@ -30,7 +30,7 @@ export * from './ipc-contract/pairing.js';
 export * from './ipc-contract/notifications.js';
 
 // Import types needed for aggregate unions and SubagentEvent
-import type { AuthMessage, PingMessage, CancelRequest, DeleteQueuedMessage, ModelGetRequest, ModelSetRequest, ImageGenModelSetRequest, HistoryRequest, UndoRequest, RegenerateRequest, UsageRequest, SandboxSetRequest, SessionListRequest, SessionCreateRequest, SessionSwitchRequest, SessionsClearRequest, ConversationSearchRequest } from './ipc-contract/sessions.js';
+import type { AuthMessage, PingMessage, CancelRequest, DeleteQueuedMessage, ModelGetRequest, ModelSetRequest, ImageGenModelSetRequest, HistoryRequest, UndoRequest, RegenerateRequest, UsageRequest, SandboxSetRequest, SessionListRequest, SessionCreateRequest, SessionSwitchRequest, SessionRenameRequest, SessionsClearRequest, ConversationSearchRequest } from './ipc-contract/sessions.js';
 import type { UserMessage, ConfirmationResponse, SecretResponse, SuggestionRequest } from './ipc-contract/messages.js';
 import type { UiSurfaceAction, UiSurfaceUndoRequest } from './ipc-contract/surfaces.js';
 import type { SkillsListRequest, SkillDetailRequest, SkillsEnableRequest, SkillsDisableRequest, SkillsConfigureRequest, SkillsInstallRequest, SkillsUninstallRequest, SkillsUpdateRequest, SkillsCheckUpdatesRequest, SkillsSearchRequest, SkillsInspectRequest } from './ipc-contract/skills.js';
@@ -86,6 +86,7 @@ export type ClientMessage =
   | SessionListRequest
   | SessionCreateRequest
   | SessionSwitchRequest
+  | SessionRenameRequest
   | PingMessage
   | CancelRequest
   | DeleteQueuedMessage

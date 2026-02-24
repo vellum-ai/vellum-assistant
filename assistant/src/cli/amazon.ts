@@ -17,12 +17,9 @@ import {
   extractRequests,
   saveRequests,
 } from '../amazon/request-extractor.js';
-import { NetworkRecorder } from '../tools/browser/network-recorder.js';
 import {
-  saveRecording,
   loadRecording,
 } from '../tools/browser/recording-store.js';
-import type { SessionRecording } from '../tools/browser/network-recording-types.js';
 import {
   search,
   getProductDetails,

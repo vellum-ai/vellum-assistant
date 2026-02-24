@@ -8,8 +8,16 @@ public extension Notification.Name {
 /// Replaces the macOS-only `/usr/bin/security` CLI approach.
 /// Uses provider "session-token" to match the old keychain account name
 /// so existing macOS users' stored sessions are preserved after upgrade.
+///
+/// Also writes the token to `~/.vellum/platform-token` so the daemon can
+/// read it for authenticated platform API calls without IPC round-trips.
 public enum SessionTokenManager {
     private static let provider = "session-token"
+
+    /// Path to the platform token file the daemon reads.
+    private static var platformTokenPath: String {
+        resolveVellumDir() + "/platform-token"
+    }
 
     public static func getToken() -> String? {
         APIKeyManager.shared.getAPIKey(provider: provider)
@@ -17,12 +25,34 @@ public enum SessionTokenManager {
 
     public static func setToken(_ token: String) {
         _ = APIKeyManager.shared.setAPIKey(token, provider: provider)
+        writePlatformTokenFile(token)
         NotificationCenter.default.post(name: .sessionTokenDidChange, object: nil)
     }
 
     public static func deleteToken() {
         _ = APIKeyManager.shared.deleteAPIKey(provider: provider)
+        removePlatformTokenFile()
         NotificationCenter.default.post(name: .sessionTokenDidChange, object: nil)
+    }
+
+    // MARK: - Platform token file bridge
+
+    private static func writePlatformTokenFile(_ token: String) {
+        let path = platformTokenPath
+        do {
+            try token.write(toFile: path, atomically: true, encoding: .utf8)
+            // Restrict permissions to owner-only (0600)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o600],
+                ofItemAtPath: path
+            )
+        } catch {
+            // Best-effort; daemon falls back to bundled catalog if token is unavailable
+        }
+    }
+
+    private static func removePlatformTokenFile() {
+        try? FileManager.default.removeItem(atPath: platformTokenPath)
     }
 
     public static func getTokenAsync() async -> String? {

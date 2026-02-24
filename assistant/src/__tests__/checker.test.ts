@@ -1,7 +1,6 @@
 // Smoke command (run all security test files together):
 // bun test src/__tests__/checker.test.ts src/__tests__/trust-store.test.ts src/__tests__/session-skill-tools.test.ts src/__tests__/skill-script-runner-host.test.ts
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, test, expect, beforeAll, beforeEach, afterEach, mock } from 'bun:test';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, symlinkSync, realpathSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
@@ -39,9 +38,16 @@ mock.module('../util/logger.js', () => ({
 
 // Mutable config object so tests can switch permissions.mode between
 // 'legacy', 'strict', and 'workspace' without re-registering the mock.
-const testConfig: Record<string, any> = {
-  permissions: { mode: 'legacy' as 'legacy' | 'strict' | 'workspace' },
-  skills: { load: { extraDirs: [] as string[] } },
+interface TestConfig {
+  permissions: { mode: 'legacy' | 'strict' | 'workspace' };
+  skills: { load: { extraDirs: string[] } };
+  sandbox: { enabled: boolean };
+  [key: string]: unknown;
+}
+
+const testConfig: TestConfig = {
+  permissions: { mode: 'legacy' },
+  skills: { load: { extraDirs: [] } },
   sandbox: { enabled: true },
 };
 
@@ -58,6 +64,7 @@ mock.module('../config/loader.js', () => ({
 
 import { classifyRisk, check, generateAllowlistOptions, generateScopeOptions, _resetLegacyDeprecationWarning } from '../permissions/checker.js';
 import { RiskLevel } from '../permissions/types.js';
+import type { TrustRule } from '../permissions/types.js';
 import { addRule, clearCache, findHighestPriorityRule } from '../permissions/trust-store.js';
 import { getDefaultRuleTemplates } from '../permissions/defaults.js';
 import { registerTool, getTool } from '../tools/registry.js';
@@ -2353,13 +2360,13 @@ describe('Permission Checker', () => {
       const trustDir = dirnameFn(trustPath);
       if (!existsSync(trustDir)) mkdirSyncFs(trustDir, { recursive: true });
 
-      let currentRules: any[] = [];
+      let currentRules: TrustRule[] = [];
       try {
         const raw = readFileSync(trustPath, 'utf-8');
         currentRules = JSON.parse(raw).rules ?? [];
       } catch { /* first run */ }
 
-      currentRules = currentRules.filter((r: any) => r.id !== opts.id);
+      currentRules = currentRules.filter((r: TrustRule) => r.id !== opts.id);
       currentRules.push({
         ...opts,
         createdAt: Date.now(),
@@ -2486,7 +2493,7 @@ describe('Permission Checker', () => {
         // Write the executionTarget field directly (addVersionBoundRule doesn't support it)
         const trustPath = join(checkerTestDir, 'protected', 'trust.json');
         const raw = JSON.parse((await import('node:fs')).readFileSync(trustPath, 'utf-8'));
-        const rule = raw.rules.find((r: any) => r.id === 'inv4-target-scoped');
+        const rule = raw.rules.find((r: TrustRule) => r.id === 'inv4-target-scoped');
         rule.executionTarget = '/usr/local/bin/node';
         (await import('node:fs')).writeFileSync(trustPath, JSON.stringify(raw, null, 2));
         clearCache();

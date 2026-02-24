@@ -121,6 +121,7 @@ export function handleThinkingDelta(
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: 'thinking_delta' }>,
 ): void {
+  if (!deps.ctx.streamThinking) return;
   emitLlmCallStartedIfNeeded(state, deps);
   deps.onEvent({ type: 'assistant_thinking_delta', thinking: event.thinking });
 }

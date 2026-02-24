@@ -186,14 +186,14 @@ export class ToolExecutor {
 
     try {
       // Check permissions
-      const risk = await classifyRisk(name, input, context.workingDir);
+      const risk = await classifyRisk(name, input, context.workingDir, undefined, undefined, context.signal);
       riskLevel = risk;
 
       // Build principal context from tool metadata so policy rules can
       // distinguish skill-provided tools from core built-ins. Also includes
       // ephemeral rules when executing within a task run.
       const policyContext = buildPolicyContext(tool, context);
-      const result = await check(name, input, context.workingDir, policyContext);
+      const result = await check(name, input, context.workingDir, policyContext, undefined, context.signal);
 
       // Private threads force prompting for side-effect tools even when a
       // trust/allow rule would auto-allow. Deny decisions are preserved —
@@ -255,7 +255,7 @@ export class ToolExecutor {
         }
 
         // Need user approval
-        const allowlistOptions = await generateAllowlistOptions(name, input);
+        const allowlistOptions = await generateAllowlistOptions(name, input, context.signal);
         const scopeOptions = generateScopeOptions(context.workingDir, name);
 
         // Compute preview diff for file tools so the user sees what will change
@@ -313,6 +313,7 @@ export class ToolExecutor {
           context.conversationId,
           executionTarget,
           persistentDecisionsAllowed,
+          context.signal,
         );
 
         decision = response.decision;
@@ -632,6 +633,7 @@ export class ToolExecutor {
               context.conversationId,
               executionTarget,
               false, // no persistent decisions
+              context.signal,
             );
 
             if (response.decision === 'deny' || response.decision === 'always_deny') {
@@ -697,15 +699,18 @@ export class ToolExecutor {
     } catch (err) {
       const durationMs = Date.now() - startTime;
       const msg = err instanceof Error ? err.message : String(err);
-      const isExpected = err instanceof PermissionDeniedError || err instanceof ToolError || err instanceof TokenExpiredError;
+      const isAbort = err instanceof Error && err.name === 'AbortError';
+      const isExpected = isAbort || err instanceof PermissionDeniedError || err instanceof ToolError || err instanceof TokenExpiredError;
 
-      const errorCategory = err instanceof PermissionDeniedError
-        ? 'permission_denied' as const
-        : err instanceof TokenExpiredError
-          ? 'auth' as const
-          : err instanceof ToolError
-            ? 'tool_failure' as const
-            : 'unexpected' as const;
+      const errorCategory = isAbort
+        ? 'tool_failure' as const
+        : err instanceof PermissionDeniedError
+          ? 'permission_denied' as const
+          : err instanceof TokenExpiredError
+            ? 'auth' as const
+            : err instanceof ToolError
+              ? 'tool_failure' as const
+              : 'unexpected' as const;
 
       emitLifecycleEvent(context, {
         type: 'error',

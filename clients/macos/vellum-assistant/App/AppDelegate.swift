@@ -1,4 +1,5 @@
 import AppKit
+import Carbon
 import VellumAssistantShared
 import Combine
 import CoreText
@@ -12,12 +13,14 @@ enum AssistantStatus {
     case idle
     case thinking
     case error(String)
+    case disconnected
 
     var menuTitle: String {
         switch self {
         case .idle: return "Assistant is idle"
         case .thinking: return "Assistant is thinking..."
         case .error(let msg): return "Error: \(msg)"
+        case .disconnected: return "Disconnected from daemon"
         }
     }
 
@@ -26,6 +29,7 @@ enum AssistantStatus {
         case .idle: return .systemGray
         case .thinking: return .systemGreen
         case .error: return .systemRed
+        case .disconnected: return .systemOrange
         }
     }
 
@@ -38,11 +42,46 @@ enum AssistantStatus {
         image.unlockFocus()
         return image
     }
+
+    /// Whether the dot should pulse (animate opacity)
+    var shouldPulse: Bool {
+        if case .thinking = self { return true }
+        return false
+    }
 }
 
 enum InteractionType {
     case computerUse
     case textQA
+}
+
+/// Carbon event handler for the Quick Input hotkey (Cmd+/).
+/// Must be a free function because Carbon callbacks are C function pointers.
+private func quickInputHotKeyHandler(
+    _: EventHandlerCallRef?,
+    event: EventRef?,
+    _: UnsafeMutableRawPointer?
+) -> OSStatus {
+    guard let event else { return OSStatus(eventNotHandledErr) }
+
+    var hotKeyID = EventHotKeyID()
+    let status = GetEventParameter(
+        event,
+        EventParamName(kEventParamDirectObject),
+        EventParamType(typeEventHotKeyID),
+        nil,
+        MemoryLayout<EventHotKeyID>.size,
+        nil,
+        &hotKeyID
+    )
+    guard status == noErr, hotKeyID.id == 1 else { return OSStatus(eventNotHandledErr) }
+
+    Task { @MainActor in
+        guard let appDelegate = AppDelegate.shared,
+              !appDelegate.isAwaitingFirstLaunchReady else { return }
+        appDelegate.toggleQuickInput()
+    }
+    return noErr
 }
 
 @MainActor
@@ -54,11 +93,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     var statusItem: NSStatusItem!
     private var hotKeyMonitor: Any?
+    private var lastRegisteredGlobalHotkey: String?
+    private var globalHotkeyObserver: AnyCancellable?
     private var escapeMonitor: Any?
-    private var quickChatPanel: QuickChatPanel?
-    private var quickChatMonitor: Any?
-    private var quickChatLocalMonitor: Any?
-    private var lastRegisteredShortcut: String?
     var overlayWindow: SessionOverlayWindow?
     var currentSession: ComputerUseSession?
     var currentTextSession: TextSession?
@@ -69,6 +106,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var wakeWordCoordinator: WakeWordCoordinator?
     private var voiceTranscriptionWindow: VoiceTranscriptionWindow?
     var thinkingWindow: ThinkingIndicatorWindow?
+    private var quickInputWindow: QuickInputWindow?
+    private var quickInputHotKeyRef: EventHotKeyRef?
+    private var quickInputEventHandlerRef: EventHandlerRef?
     public let services = AppServices()
     private let assistantCli = AssistantCli()
     public let updateManager = UpdateManager()
@@ -100,9 +140,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var galleryWindow: ComponentGalleryWindow?
     #endif
     private var windowObserver: Any?
-    private var quickChatShortcutObserver: AnyCancellable?
     private weak var recordingViewModel: ChatViewModel?
-    private var statusIconCancellable: AnyCancellable?
+    var statusIconCancellable: AnyCancellable?
+    var connectionStatusCancellable: AnyCancellable?
+    var pulseTimer: Timer?
+    var pulsePhase: CGFloat = 1.0
+    var pulseDirection: CGFloat = -1.0
     var cachedSkills: [SkillInfo] = []
     var refreshSkillsTask: Task<Void, Never>?
     var cachedApps: [AppItem] = []
@@ -204,7 +247,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         setupFileMenu()
         setupViewMenu()
         setupHotKey()
-        setupQuickChatHotKey()
         setupEscapeMonitor()
         setupVoiceInput()
         setupAmbientAgent()
@@ -338,6 +380,22 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         authWindow = window
     }
 
+    @objc func performRestart() {
+        let bundleURL = Bundle.main.bundleURL
+        let config = NSWorkspace.OpenConfiguration()
+        config.createsNewApplicationInstance = true
+        NSWorkspace.shared.openApplication(at: bundleURL, configuration: config) { [weak self] _, error in
+            if let error {
+                log.error("Restart failed — could not launch new instance: \(error.localizedDescription)")
+                return
+            }
+            DispatchQueue.main.async {
+                self?.assistantCli.stop()
+                NSApp.terminate(nil)
+            }
+        }
+    }
+
     @objc func performLogout() {
         Task {
             await authManager.logout()
@@ -349,23 +407,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 NSEvent.removeMonitor(hotKeyMonitor)
                 self.hotKeyMonitor = nil
             }
+            self.tearDownQuickInputMonitors()
+            quickInputWindow?.dismiss()
+            quickInputWindow = nil
+            lastRegisteredGlobalHotkey = nil
+            globalHotkeyObserver?.cancel()
+            globalHotkeyObserver = nil
             if let escapeMonitor {
                 NSEvent.removeMonitor(escapeMonitor)
                 self.escapeMonitor = nil
             }
-            if let quickChatMonitor {
-                NSEvent.removeMonitor(quickChatMonitor)
-                self.quickChatMonitor = nil
-            }
-            if let quickChatLocalMonitor {
-                NSEvent.removeMonitor(quickChatLocalMonitor)
-                self.quickChatLocalMonitor = nil
-            }
-            lastRegisteredShortcut = nil
-            quickChatShortcutObserver?.cancel()
-            quickChatShortcutObserver = nil
-            quickChatPanel?.dismiss()
-            quickChatPanel = nil
             voiceInput?.stop()
             voiceInput = nil
             wakeWordCoordinator = nil
@@ -377,6 +428,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             statusIconCancellable?.cancel()
             statusIconCancellable = nil
+            connectionStatusCancellable?.cancel()
+            connectionStatusCancellable = nil
+            pulseTimer?.invalidate()
+            pulseTimer = nil
 
             if let item = statusItem {
                 NSStatusBar.system.removeStatusItem(item)
@@ -462,23 +517,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             NSEvent.removeMonitor(hotKeyMonitor)
             self.hotKeyMonitor = nil
         }
+        tearDownQuickInputMonitors()
+        quickInputWindow?.dismiss()
+        quickInputWindow = nil
+        lastRegisteredGlobalHotkey = nil
+        globalHotkeyObserver?.cancel()
+        globalHotkeyObserver = nil
         if let escapeMonitor {
             NSEvent.removeMonitor(escapeMonitor)
             self.escapeMonitor = nil
         }
-        if let quickChatMonitor {
-            NSEvent.removeMonitor(quickChatMonitor)
-            self.quickChatMonitor = nil
-        }
-        if let quickChatLocalMonitor {
-            NSEvent.removeMonitor(quickChatLocalMonitor)
-            self.quickChatLocalMonitor = nil
-        }
-        lastRegisteredShortcut = nil
-        quickChatShortcutObserver?.cancel()
-        quickChatShortcutObserver = nil
-        quickChatPanel?.dismiss()
-        quickChatPanel = nil
         voiceInput?.stop()
         voiceInput = nil
         wakeWordCoordinator = nil
@@ -490,6 +538,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         statusIconCancellable?.cancel()
         statusIconCancellable = nil
+        connectionStatusCancellable?.cancel()
+        connectionStatusCancellable = nil
+        pulseTimer?.invalidate()
+        pulseTimer = nil
 
         if let item = statusItem {
             NSStatusBar.system.removeStatusItem(item)
@@ -600,23 +652,28 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Key that tracks whether the pairing override migration has run.
     private static let pairingOverrideMigrationKey = "pairing_override_migration_done"
 
-    /// Clears stale gateway/token override values when the old toggle was OFF
-    /// (or absent). Runs once; the flag persists across future launches.
+    /// Clears stale gateway/token override values when the old toggle was OFF.
+    /// Runs once; the flag persists across future launches.
+    ///
+    /// Only acts when the legacy `iosPairingUseOverride` key is actually present.
+    /// After M9 the toggle is no longer persisted, so absence means the user
+    /// may have intentionally set overrides post-M9 — skip cleanup to preserve them.
     private func migratePairingOverridesIfNeeded() {
         let defaults = UserDefaults.standard
         guard !defaults.bool(forKey: Self.pairingOverrideMigrationKey) else { return }
 
-        // If the legacy toggle was off (false or absent), the user did not
-        // intend for overrides to be active. Clear them so they don't
-        // silently take effect now that the gate is removed.
-        let overrideWasEnabled = defaults.bool(forKey: "iosPairingUseOverride")
-        if !overrideWasEnabled {
-            defaults.removeObject(forKey: PairingConfiguration.gatewayOverrideKey)
-            defaults.removeObject(forKey: PairingConfiguration.tokenOverrideKey)
+        // Only clean up when the legacy toggle key is actually present.
+        // After M9 the toggle is no longer persisted, so absence means
+        // the user may have intentionally set overrides post-M9.
+        if defaults.object(forKey: "iosPairingUseOverride") != nil {
+            let overrideWasEnabled = defaults.bool(forKey: "iosPairingUseOverride")
+            if !overrideWasEnabled {
+                defaults.removeObject(forKey: PairingConfiguration.gatewayOverrideKey)
+                defaults.removeObject(forKey: PairingConfiguration.tokenOverrideKey)
+            }
+            // Clean up the legacy toggle key itself — no longer used.
+            defaults.removeObject(forKey: "iosPairingUseOverride")
         }
-
-        // Clean up the legacy toggle key itself — no longer used.
-        defaults.removeObject(forKey: "iosPairingUseOverride")
 
         defaults.set(true, forKey: Self.pairingOverrideMigrationKey)
     }
@@ -634,6 +691,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         configureDaemonTransport(for: assistant)
+
+        // Rebind the menu bar icon observer to the (potentially new) daemon client
+        // so status changes on the replacement client trigger icon updates.
+        rebindConnectionStatusObserver()
 
         // Show macOS notification when a reminder fires
         daemonClient.onReminderFired = { msg in
@@ -732,10 +793,20 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 callSessionId: msg.callSessionId,
                 title: msg.title
             )
-            if let thread = self.mainWindow?.threadManager.threads.first(where: { $0.sessionId == msg.conversationId }) {
-                self.mainWindow?.threadManager.activeThreadId = thread.id
+            if NSApp.isActive {
+                // App is in foreground — select thread and show window immediately
+                if let thread = self.mainWindow?.threadManager.threads.first(where: { $0.sessionId == msg.conversationId }) {
+                    self.mainWindow?.threadManager.activeThreadId = thread.id
+                }
+                self.showMainWindow()
+            } else {
+                // App is backgrounded — post native notification
+                self.deliverGuardianRequestNotification(
+                    title: msg.title,
+                    questionText: msg.questionText,
+                    conversationId: msg.conversationId
+                )
             }
-            self.showMainWindow()
         }
 
         // Handle escalation: text_qa -> computer_use via computer_use_request_control
@@ -1092,90 +1163,110 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Hotkey
 
     private func setupHotKey() {
-        // Use NSEvent global monitor instead of Carbon RegisterEventHotKey (HotKey package).
-        // Carbon hotkeys consume the event globally, preventing other apps from seeing the
-        // keystroke. NSEvent.addGlobalMonitorForEvents observes without consuming, so Cmd+Shift+G
-        // still reaches the frontmost app.
-        hotKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard event.modifierFlags.intersection(.deviceIndependentFlagsMask) == [.command, .shift],
-                  event.charactersIgnoringModifiers?.lowercased() == "g" else { return }
-            Task { @MainActor in
-                // Don't create the main window while the first-launch
-                // readiness gate is in progress.
-                guard self?.isAwaitingFirstLaunchReady != true else { return }
-                self?.showMainWindow()
-            }
-        }
-    }
+        registerGlobalHotkeyMonitor()
+        registerQuickInputMonitor()
 
-    private func setupQuickChatHotKey() {
-        registerQuickChatMonitor()
-
-        // Re-register the global hotkey whenever the user changes the shortcut
-        quickChatShortcutObserver = NotificationCenter.default
+        globalHotkeyObserver = NotificationCenter.default
             .publisher(for: UserDefaults.didChangeNotification)
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
-                self?.registerQuickChatMonitor()
+                self?.registerGlobalHotkeyMonitor()
             }
     }
 
-    /// Tears down the existing Quick Chat monitors and registers new ones
-    /// based on the current `quickChatShortcut` UserDefaults value.
-    /// Skips re-registration if the shortcut hasn't changed.
-    private func registerQuickChatMonitor() {
-        let shortcut = UserDefaults.standard.string(forKey: "quickChatShortcut") ?? "cmd+shift+space"
+    /// Registers a Carbon hotkey (Cmd+/) that intercepts system-wide,
+    /// before the frontmost app's menu system can consume it.
+    private func registerQuickInputMonitor() {
+        // Install Carbon event handler for hotkey events
+        var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+        var handlerRef: EventHandlerRef?
+        InstallEventHandler(GetApplicationEventTarget(), quickInputHotKeyHandler, 1, &eventType, nil, &handlerRef)
+        quickInputEventHandlerRef = handlerRef
 
-        // Skip re-registration when the shortcut hasn't changed
-        if shortcut == lastRegisteredShortcut { return }
-
-        if let existing = quickChatMonitor {
-            NSEvent.removeMonitor(existing)
-            quickChatMonitor = nil
+        // Register Cmd+/ (keyCode 44) as a system-wide hotkey
+        let hotKeyID = EventHotKeyID(signature: OSType(0x564C_4D51), id: 1) // "VLMQ"
+        var hotKeyRef: EventHotKeyRef?
+        let status = RegisterEventHotKey(
+            UInt32(kVK_ANSI_Slash),
+            UInt32(cmdKey),
+            hotKeyID,
+            GetApplicationEventTarget(),
+            0,
+            &hotKeyRef
+        )
+        if status == noErr {
+            quickInputHotKeyRef = hotKeyRef
+            log.info("Quick Input: Carbon hotkey Cmd+/ registered successfully")
+        } else {
+            log.error("Quick Input: Failed to register Carbon hotkey, status: \(status)")
         }
-        if let existing = quickChatLocalMonitor {
+    }
+
+    /// Removes the Carbon hotkey and event handler registrations.
+    private func tearDownQuickInputMonitors() {
+        if let ref = quickInputHotKeyRef {
+            UnregisterEventHotKey(ref)
+            quickInputHotKeyRef = nil
+        }
+        if let ref = quickInputEventHandlerRef {
+            RemoveEventHandler(ref)
+            quickInputEventHandlerRef = nil
+        }
+    }
+
+    func toggleQuickInput() {
+        if let window = quickInputWindow, window.isVisible {
+            window.dismiss()
+            return
+        }
+
+        let window = QuickInputWindow()
+        window.onSubmit = { [weak self] message in
+            self?.handleQuickInputSubmit(message)
+        }
+        window.show()
+        quickInputWindow = window
+    }
+
+    private func handleQuickInputSubmit(_ message: String) {
+        showMainWindow()
+        guard let mainWindow else { return }
+        mainWindow.threadManager.createThread()
+        if let viewModel = mainWindow.activeViewModel {
+            viewModel.inputText = message
+            viewModel.sendMessage()
+        }
+    }
+
+    /// Tears down and re-registers the global "Open Vellum" hotkey based on
+    /// the current `globalHotkeyShortcut` UserDefaults value. Skips
+    /// re-registration if the shortcut hasn't changed.
+    private func registerGlobalHotkeyMonitor() {
+        let shortcut = UserDefaults.standard.string(forKey: "globalHotkeyShortcut") ?? "cmd+shift+g"
+
+        if shortcut == lastRegisteredGlobalHotkey { return }
+
+        if let existing = hotKeyMonitor {
             NSEvent.removeMonitor(existing)
-            quickChatLocalMonitor = nil
+            hotKeyMonitor = nil
         }
 
         let (targetModifiers, targetKey) = ShortcutHelper.parseShortcut(shortcut)
 
-        quickChatMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+        // Use NSEvent global monitor instead of Carbon RegisterEventHotKey (HotKey package).
+        // Carbon hotkeys consume the event globally, preventing other apps from seeing the
+        // keystroke. NSEvent.addGlobalMonitorForEvents observes without consuming.
+        hotKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
             let eventMods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.numericPad)
             guard eventMods == targetModifiers,
                   event.charactersIgnoringModifiers?.lowercased() == targetKey.lowercased() else { return }
             Task { @MainActor in
-                self?.showQuickChat()
+                guard self?.isAwaitingFirstLaunchReady != true else { return }
+                self?.showMainWindow()
             }
         }
 
-        // Local monitor fires when the app itself is active (global monitor only
-        // fires when other apps are frontmost). Return nil to consume the event.
-        quickChatLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            let eventMods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.numericPad)
-            guard eventMods == targetModifiers,
-                  event.charactersIgnoringModifiers?.lowercased() == targetKey.lowercased() else { return event }
-            Task { @MainActor in
-                self?.showQuickChat()
-            }
-            return nil
-        }
-
-        lastRegisteredShortcut = shortcut
-    }
-
-    func showQuickChat() {
-        if let existing = quickChatPanel, existing.isVisible {
-            existing.dismiss()
-            return
-        }
-
-        let panel = QuickChatPanel()
-        panel.onSubmit = { [weak self] message in
-            self?.startBackgroundSession(task: message, source: "quick_chat")
-        }
-        panel.show()
-        quickChatPanel = panel
+        lastRegisteredGlobalHotkey = shortcut
     }
 
     private func setupEscapeMonitor() {
@@ -1290,7 +1381,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let sensitivity = UserDefaults.standard.float(forKey: "wakeWordSensitivity")
-        let engine = PorcupineWakeWordEngine(sensitivity: sensitivity > 0 ? sensitivity : 0.5)
+        let keyword = UserDefaults.standard.string(forKey: "wakeWordKeyword") ?? "computer"
+        let engine = PorcupineWakeWordEngine(sensitivity: sensitivity > 0 ? sensitivity : 0.5, keyword: keyword)
         let audioMonitor = AlwaysOnAudioMonitor(engine: engine)
 
         let coordinator = WakeWordCoordinator(
@@ -1548,22 +1640,18 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         if let monitor = hotKeyMonitor {
             NSEvent.removeMonitor(monitor)
         }
+        tearDownQuickInputMonitors()
+        globalHotkeyObserver?.cancel()
         if let monitor = escapeMonitor {
             NSEvent.removeMonitor(monitor)
         }
-        if let monitor = quickChatMonitor {
-            NSEvent.removeMonitor(monitor)
-        }
-        if let monitor = quickChatLocalMonitor {
-            NSEvent.removeMonitor(monitor)
-        }
-        quickChatShortcutObserver?.cancel()
-        quickChatPanel?.dismiss()
-        quickChatPanel = nil
         if let observer = windowObserver {
             NotificationCenter.default.removeObserver(observer)
         }
         statusIconCancellable?.cancel()
+        connectionStatusCancellable?.cancel()
+        pulseTimer?.invalidate()
+        pulseTimer = nil
         voiceInput?.stop()
         ambientAgent.teardown()
         surfaceManager.dismissAll()

@@ -41,4 +41,5 @@ export type {
   IngressConfig,
   AssistantInboxConfig,
   NotificationsConfig,
+  DaemonConfig,
 } from './schema.js';
