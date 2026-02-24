@@ -47,6 +47,7 @@ import type {
 import type { GuardianRuntimeContext } from '../../daemon/session-runtime-assembly.js';
 import { composeApprovalMessageGenerative } from '../approval-message-composer.js';
 import { refreshThreadEscalation } from '../../memory/inbox-escalation-projection.js';
+import { emitNotificationSignal } from '../../notifications/emit-signal.js';
 import {
   type GuardianContext,
   verifyGatewayOrigin,
@@ -362,6 +363,30 @@ export async function handleChannelInbound(
 
     // Update inbox thread escalation state so the desktop UI badge is accurate
     refreshThreadEscalation(result.conversationId, assistantId);
+
+    // Emit notification signal through the unified pipeline (fire-and-forget).
+    // This lets the decision engine route escalation alerts to all configured
+    // channels, supplementing the direct guardian notification below.
+    void emitNotificationSignal({
+      sourceEventName: 'ingress.escalation',
+      sourceChannel: sourceChannel,
+      sourceSessionId: result.conversationId,
+      assistantId,
+      attentionHints: {
+        requiresAction: true,
+        urgency: 'high',
+        isAsyncBackground: false,
+        visibleInSourceNow: false,
+      },
+      contextPayload: {
+        conversationId: result.conversationId,
+        sourceChannel,
+        externalChatId,
+        senderIdentifier: body.senderName || body.senderUsername || body.senderExternalUserId || 'Unknown sender',
+        eventId: result.eventId,
+      },
+      dedupeKey: `escalation:${result.eventId}`,
+    });
 
     // Notify the guardian about the pending escalation via channel delivery
     const senderIdentifier = body.senderName || body.senderUsername || body.senderExternalUserId || 'Unknown sender';

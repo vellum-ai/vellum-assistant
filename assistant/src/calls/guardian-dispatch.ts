@@ -11,6 +11,7 @@
 
 import { getLogger } from '../util/logger.js';
 import { getGatewayInternalBaseUrl } from '../config/env.js';
+import { emitNotificationSignal } from '../notifications/emit-signal.js';
 import { getActiveBinding } from '../memory/channel-guardian-store.js';
 import {
   createGuardianActionRequest,
@@ -73,6 +74,33 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
       { requestId: request.id, requestCode: request.requestCode, callSessionId },
       'Created guardian action request',
     );
+
+    // Emit notification signal through the unified pipeline (fire-and-forget).
+    // The existing guardian dispatch logic below handles the actual delivery
+    // to specific channels (telegram, sms, macos), so this signal is
+    // supplementary — it lets the decision engine log and potentially route
+    // to additional channels in the future.
+    void emitNotificationSignal({
+      sourceEventName: 'guardian.question',
+      sourceChannel: 'voice',
+      sourceSessionId: callSessionId,
+      assistantId,
+      attentionHints: {
+        requiresAction: true,
+        urgency: 'high',
+        deadlineAt: expiresAt,
+        isAsyncBackground: false,
+        visibleInSourceNow: false,
+      },
+      contextPayload: {
+        requestId: request.id,
+        requestCode: request.requestCode,
+        callSessionId,
+        questionText: pendingQuestion.questionText,
+        pendingQuestionId: pendingQuestion.id,
+      },
+      dedupeKey: `guardian:${request.id}`,
+    });
 
     // Determine delivery destinations
     const destinations: Array<{
