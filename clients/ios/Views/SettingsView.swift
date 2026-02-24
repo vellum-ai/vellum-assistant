@@ -54,6 +54,11 @@ struct SettingsView: View {
                     } label: {
                         Label("Parental Controls", systemImage: "lock.shield")
                     }
+                    NavigationLink {
+                        PrivateThreadsSection(daemonClient: clientProvider.client)
+                    } label: {
+                        Label("Private Threads", systemImage: "lock.shield.fill")
+                    }
                 }
 
                 Section("Appearance") {
