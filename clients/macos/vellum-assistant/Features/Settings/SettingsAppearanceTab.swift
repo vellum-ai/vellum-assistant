@@ -6,7 +6,6 @@ struct SettingsAppearanceTab: View {
     @ObservedObject var store: SettingsStore
     @AppStorage("themePreference") private var themePreference: String = "system"
     @State private var newAllowlistDomain = ""
-    @State private var isRecordingQuickChat = false
     @State private var isRecordingGlobalHotkey = false
     @State private var shortcutMonitor: Any?
     @State private var shortcutConflictWarning: String?
@@ -73,39 +72,8 @@ struct SettingsAppearanceTab: View {
                         }
                     } else {
                         VButton(label: "Record", style: .tertiary) {
-                            startRecording(for: .globalHotkey)
+                            startRecording()
                         }
-                        .disabled(isRecordingQuickChat)
-                    }
-                }
-
-                // Quick Chat (configurable)
-                HStack {
-                    Text("Quick Chat")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
-                    Spacer()
-                    Text(ShortcutHelper.displayString(for: store.quickChatShortcut))
-                        .font(VFont.mono)
-                        .foregroundColor(VColor.textPrimary)
-                        .padding(.horizontal, VSpacing.sm)
-                        .padding(.vertical, VSpacing.xs)
-                        .background(VColor.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.sm)
-                                .stroke(VColor.surfaceBorder, lineWidth: 1)
-                        )
-
-                    if isRecordingQuickChat {
-                        VButton(label: "Press shortcut...", style: .tertiary) {
-                            stopRecording()
-                        }
-                    } else {
-                        VButton(label: "Record", style: .tertiary) {
-                            startRecording(for: .quickChat)
-                        }
-                        .disabled(isRecordingGlobalHotkey)
                     }
                 }
 
@@ -203,19 +171,10 @@ struct SettingsAppearanceTab: View {
 
     // MARK: - Shortcut Recording
 
-    private enum ShortcutTarget {
-        case globalHotkey
-        case quickChat
-    }
-
-    private func startRecording(for target: ShortcutTarget) {
-        switch target {
-        case .globalHotkey: isRecordingGlobalHotkey = true
-        case .quickChat: isRecordingQuickChat = true
-        }
+    private func startRecording() {
+        isRecordingGlobalHotkey = true
         shortcutConflictWarning = nil
 
-        let currentTarget = target
         shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
 
@@ -234,39 +193,15 @@ struct SettingsAppearanceTab: View {
             let shortcut = ShortcutHelper.shortcutString(
                 from: mods, key: chars, keyCode: event.keyCode
             )
-            let normalized = ShortcutHelper.normalizeShortcut(shortcut)
-
-            // Check for conflict with the other shortcut
-            let otherShortcut: String
-            let otherLabel: String
-            switch currentTarget {
-            case .globalHotkey:
-                otherShortcut = store.quickChatShortcut
-                otherLabel = "Quick Chat"
-            case .quickChat:
-                otherShortcut = store.globalHotkeyShortcut
-                otherLabel = "Open Vellum"
-            }
-
-            if normalized == ShortcutHelper.normalizeShortcut(otherShortcut) {
-                let display = ShortcutHelper.displayString(for: otherShortcut)
-                shortcutConflictWarning = "This shortcut conflicts with \(otherLabel) (\(display)). Choose a different shortcut."
-                stopRecording()
-                return nil
-            }
 
             shortcutConflictWarning = nil
-            switch currentTarget {
-            case .globalHotkey: store.globalHotkeyShortcut = shortcut
-            case .quickChat: store.quickChatShortcut = shortcut
-            }
+            store.globalHotkeyShortcut = shortcut
             stopRecording()
             return nil
         }
     }
 
     private func stopRecording() {
-        isRecordingQuickChat = false
         isRecordingGlobalHotkey = false
         if let monitor = shortcutMonitor {
             NSEvent.removeMonitor(monitor)

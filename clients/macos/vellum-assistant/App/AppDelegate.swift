@@ -66,10 +66,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastRegisteredGlobalHotkey: String?
     private var globalHotkeyObserver: AnyCancellable?
     private var escapeMonitor: Any?
-    private var quickChatPanel: QuickChatPanel?
-    private var quickChatMonitor: Any?
-    private var quickChatLocalMonitor: Any?
-    private var lastRegisteredShortcut: String?
     var overlayWindow: SessionOverlayWindow?
     var currentSession: ComputerUseSession?
     var currentTextSession: TextSession?
@@ -111,7 +107,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var galleryWindow: ComponentGalleryWindow?
     #endif
     private var windowObserver: Any?
-    private var quickChatShortcutObserver: AnyCancellable?
     private weak var recordingViewModel: ChatViewModel?
     private var statusIconCancellable: AnyCancellable?
     var connectionStatusCancellable: AnyCancellable?
@@ -218,7 +213,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         setupFileMenu()
         setupViewMenu()
         setupHotKey()
-        setupQuickChatHotKey()
         setupEscapeMonitor()
         setupVoiceInput()
         setupAmbientAgent()
@@ -370,19 +364,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 NSEvent.removeMonitor(escapeMonitor)
                 self.escapeMonitor = nil
             }
-            if let quickChatMonitor {
-                NSEvent.removeMonitor(quickChatMonitor)
-                self.quickChatMonitor = nil
-            }
-            if let quickChatLocalMonitor {
-                NSEvent.removeMonitor(quickChatLocalMonitor)
-                self.quickChatLocalMonitor = nil
-            }
-            lastRegisteredShortcut = nil
-            quickChatShortcutObserver?.cancel()
-            quickChatShortcutObserver = nil
-            quickChatPanel?.dismiss()
-            quickChatPanel = nil
             voiceInput?.stop()
             voiceInput = nil
             wakeWordCoordinator = nil
@@ -490,19 +471,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             NSEvent.removeMonitor(escapeMonitor)
             self.escapeMonitor = nil
         }
-        if let quickChatMonitor {
-            NSEvent.removeMonitor(quickChatMonitor)
-            self.quickChatMonitor = nil
-        }
-        if let quickChatLocalMonitor {
-            NSEvent.removeMonitor(quickChatLocalMonitor)
-            self.quickChatLocalMonitor = nil
-        }
-        lastRegisteredShortcut = nil
-        quickChatShortcutObserver?.cancel()
-        quickChatShortcutObserver = nil
-        quickChatPanel?.dismiss()
-        quickChatPanel = nil
         voiceInput?.stop()
         voiceInput = nil
         wakeWordCoordinator = nil
@@ -1176,76 +1144,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         lastRegisteredGlobalHotkey = shortcut
     }
 
-    private func setupQuickChatHotKey() {
-        registerQuickChatMonitor()
-
-        // Re-register the global hotkey whenever the user changes the shortcut
-        quickChatShortcutObserver = NotificationCenter.default
-            .publisher(for: UserDefaults.didChangeNotification)
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in
-                self?.registerQuickChatMonitor()
-            }
-    }
-
-    /// Tears down the existing Quick Chat monitors and registers new ones
-    /// based on the current `quickChatShortcut` UserDefaults value.
-    /// Skips re-registration if the shortcut hasn't changed.
-    private func registerQuickChatMonitor() {
-        let shortcut = UserDefaults.standard.string(forKey: "quickChatShortcut") ?? "cmd+shift+space"
-
-        // Skip re-registration when the shortcut hasn't changed
-        if shortcut == lastRegisteredShortcut { return }
-
-        if let existing = quickChatMonitor {
-            NSEvent.removeMonitor(existing)
-            quickChatMonitor = nil
-        }
-        if let existing = quickChatLocalMonitor {
-            NSEvent.removeMonitor(existing)
-            quickChatLocalMonitor = nil
-        }
-
-        let (targetModifiers, targetKey) = ShortcutHelper.parseShortcut(shortcut)
-
-        quickChatMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            let eventMods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.numericPad)
-            guard eventMods == targetModifiers,
-                  event.charactersIgnoringModifiers?.lowercased() == targetKey.lowercased() else { return }
-            Task { @MainActor in
-                self?.showQuickChat()
-            }
-        }
-
-        // Local monitor fires when the app itself is active (global monitor only
-        // fires when other apps are frontmost). Return nil to consume the event.
-        quickChatLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            let eventMods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.numericPad)
-            guard eventMods == targetModifiers,
-                  event.charactersIgnoringModifiers?.lowercased() == targetKey.lowercased() else { return event }
-            Task { @MainActor in
-                self?.showQuickChat()
-            }
-            return nil
-        }
-
-        lastRegisteredShortcut = shortcut
-    }
-
-    func showQuickChat() {
-        if let existing = quickChatPanel, existing.isVisible {
-            existing.dismiss()
-            return
-        }
-
-        let panel = QuickChatPanel()
-        panel.onSubmit = { [weak self] message in
-            self?.startBackgroundSession(task: message, source: "quick_chat")
-        }
-        panel.show()
-        quickChatPanel = panel
-    }
-
     private func setupEscapeMonitor() {
         escapeMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
             if event.keyCode == 53 { // Escape
@@ -1620,15 +1518,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         if let monitor = escapeMonitor {
             NSEvent.removeMonitor(monitor)
         }
-        if let monitor = quickChatMonitor {
-            NSEvent.removeMonitor(monitor)
-        }
-        if let monitor = quickChatLocalMonitor {
-            NSEvent.removeMonitor(monitor)
-        }
-        quickChatShortcutObserver?.cancel()
-        quickChatPanel?.dismiss()
-        quickChatPanel = nil
         if let observer = windowObserver {
             NotificationCenter.default.removeObserver(observer)
         }
