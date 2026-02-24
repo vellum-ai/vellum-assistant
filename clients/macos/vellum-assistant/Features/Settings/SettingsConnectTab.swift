@@ -37,6 +37,7 @@ struct SettingsConnectTab: View {
     // Developer local pairing state
     @AppStorage("iosPairingUseOverride") private var iosPairingUseOverride: Bool = false
     @AppStorage("iosPairingGatewayOverride") private var iosPairingGatewayOverride: String = ""
+    @AppStorage("iosPairingTokenOverride") private var iosPairingTokenOverride: String = ""
     @State private var lanUrlCopied: Bool = false
 
     var body: some View {
@@ -958,7 +959,8 @@ struct SettingsConnectTab: View {
 
     private var suggestedLanUrl: String? {
         guard let ip = LANIPHelper.currentLANAddress() else { return nil }
-        return "http://\(ip):7830"
+        let port = URL(string: store.localGatewayTarget)?.port ?? 7830
+        return "http://\(ip):\(port)"
     }
 
     private var developerLocalPairingSection: some View {
@@ -1064,6 +1066,7 @@ struct SettingsConnectTab: View {
                 // Reset / disable button
                 VButton(label: "Disable & Reset", style: .danger) {
                     iosPairingGatewayOverride = ""
+                    iosPairingTokenOverride = ""
                     iosPairingUseOverride = false
                 }
             }
