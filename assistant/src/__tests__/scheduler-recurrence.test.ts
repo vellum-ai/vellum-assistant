@@ -23,6 +23,8 @@ mock.module('../util/logger.js', () => ({
   getLogger: () => new Proxy({} as Record<string, unknown>, {
     get: () => () => {},
   }),
+  isDebug: () => false,
+  truncateForLog: (value: string) => value,
 }));
 
 import { initializeDb, getDb, resetDb } from '../memory/db.js';
@@ -286,10 +288,17 @@ describe('scheduler RRULE execution', () => {
   });
 
   test('RRULE set schedule fires and creates cron_runs entry', async () => {
+    // Use a recent DTSTART (1 hour ago) so rrule doesn't iterate through hundreds of
+    // thousands of occurrences when computing the next run.
+    const pastDate = new Date(Date.now() - 3_600_000);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const ds = `${pastDate.getUTCFullYear()}${pad(pastDate.getUTCMonth() + 1)}${pad(pastDate.getUTCDate())}T${pad(pastDate.getUTCHours())}${pad(pastDate.getUTCMinutes())}${pad(pastDate.getUTCSeconds())}Z`;
+    const exMinute = new Date(pastDate.getTime() + 60_000);
+    const exDs = `${exMinute.getUTCFullYear()}${pad(exMinute.getUTCMonth() + 1)}${pad(exMinute.getUTCDate())}T${pad(exMinute.getUTCHours())}${pad(exMinute.getUTCMinutes())}00Z`;
     const expression = [
-      'DTSTART:20250101T000000Z',
+      `DTSTART:${ds}`,
       'RRULE:FREQ=MINUTELY;INTERVAL=1',
-      'EXDATE:20250101T000100Z',
+      `EXDATE:${exDs}`,
     ].join('\n');
 
     const schedule = createSchedule({

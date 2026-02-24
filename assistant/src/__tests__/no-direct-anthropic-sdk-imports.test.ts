@@ -20,7 +20,7 @@ describe('no direct @anthropic-ai/sdk imports', () => {
     try {
       grepOutput = execSync(
         `git grep -l "@anthropic-ai/sdk" -- 'assistant/src/**/*.ts'`,
-        { encoding: 'utf-8', cwd: process.cwd() + '/../..' },
+        { encoding: 'utf-8', cwd: process.cwd() + '/..' },
       ).trim();
     } catch (err) {
       // Exit code 1 means no matches — that's the happy path
