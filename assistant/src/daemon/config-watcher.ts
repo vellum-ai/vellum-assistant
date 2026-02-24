@@ -24,7 +24,7 @@ export class ConfigWatcher {
     protectedKeyPrefix: '__',
   });
   private suppressReload = false;
-  private lastFingerprint = '';
+  lastFingerprint = '';
   private lastRefreshTime = 0;
 
   static readonly REFRESH_INTERVAL_MS = 30_000;

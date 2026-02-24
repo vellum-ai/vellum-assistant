@@ -17,7 +17,7 @@ export function resolveUserReference(): string {
 
   try {
     const content = readFileSync(userPath, 'utf-8');
-    const match = content.match(/Preferred name\/reference:\s*(.+)/);
+    const match = content.match(/Preferred name\/reference:[ \t]*(.*)/);
     if (match && match[1].trim()) {
       return match[1].trim();
     }

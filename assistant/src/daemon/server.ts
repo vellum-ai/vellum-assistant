@@ -488,6 +488,20 @@ export class DaemonServer {
     }
   }
 
+  get lastConfigFingerprint(): string {
+    return this.configWatcher.lastFingerprint;
+  }
+
+  set lastConfigFingerprint(value: string) {
+    this.configWatcher.lastFingerprint = value;
+  }
+
+  refreshConfigFromSources(): boolean {
+    const changed = this.configWatcher.refreshConfigFromSources();
+    if (changed) this.evictSessionsForReload();
+    return changed;
+  }
+
   private async sendInitialSession(socket: net.Socket): Promise<void> {
     const conversation = conversationStore.getLatestConversation();
     if (!conversation) {

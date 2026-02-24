@@ -60,6 +60,9 @@ function makeCompletingSession(): Session {
     persistUserMessage: () => undefined as unknown as string,
     memoryPolicy: { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false },
     setChannelCapabilities: () => {},
+    setAssistantId: () => {},
+    setGuardianContext: () => {},
+    setCommandIntent: () => {},
     updateClient: () => {},
     runAgentLoop: async () => {
       processing = true;
@@ -67,6 +70,7 @@ function makeCompletingSession(): Session {
       processing = false;
     },
     handleConfirmationResponse: () => {},
+    handleSecretResponse: () => {},
   } as unknown as Session;
 }
 
@@ -76,11 +80,15 @@ function makeFailingSession(errorMsg: string): Session {
     persistUserMessage: () => undefined as unknown as string,
     memoryPolicy: { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false },
     setChannelCapabilities: () => {},
+    setAssistantId: () => {},
+    setGuardianContext: () => {},
+    setCommandIntent: () => {},
     updateClient: () => {},
     runAgentLoop: async (_content: string, _messageId: string, onEvent: (msg: ServerMessage) => void) => {
       onEvent({ type: 'error', message: errorMsg });
     },
     handleConfirmationResponse: () => {},
+    handleSecretResponse: () => {},
   } as unknown as Session;
 }
 
@@ -91,6 +99,9 @@ function makeConfirmationSession(toolName: string): Session {
     persistUserMessage: () => undefined as unknown as string,
     memoryPolicy: { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false },
     setChannelCapabilities: () => {},
+    setAssistantId: () => {},
+    setGuardianContext: () => {},
+    setCommandIntent: () => {},
     updateClient: (handler: (msg: ServerMessage) => void) => {
       clientHandler = handler;
     },
@@ -108,6 +119,7 @@ function makeConfirmationSession(toolName: string): Session {
       await new Promise<void>(() => {});
     },
     handleConfirmationResponse: () => {},
+    handleSecretResponse: () => {},
   } as unknown as Session;
 }
 
@@ -118,12 +130,16 @@ function makeHangingSession(): Session {
     persistUserMessage: () => undefined as unknown as string,
     memoryPolicy: { scopeId: 'default', includeDefaultFallback: false, strictSideEffects: false },
     setChannelCapabilities: () => {},
+    setAssistantId: () => {},
+    setGuardianContext: () => {},
+    setCommandIntent: () => {},
     updateClient: () => {},
     runAgentLoop: async () => {
       processing = true;
       await new Promise<void>(() => {});
     },
     handleConfirmationResponse: () => {},
+    handleSecretResponse: () => {},
   } as unknown as Session;
 }
 
