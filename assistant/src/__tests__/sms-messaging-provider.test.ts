@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
 
-const sendSmsMock = mock(async (..._args: unknown[]) => {});
+const sendSmsMock = mock(async (..._args: unknown[]) => ({ messageSid: 'SM-mock-sid', status: 'queued' }));
 const getOrCreateConversationMock = mock((_key: string) => ({ conversationId: 'conv-1' }));
 const upsertOutboundBindingMock = mock((_input: Record<string, unknown>) => {});
 
@@ -89,6 +89,25 @@ describe('smsMessagingProvider', () => {
     );
     expect(getOrCreateConversationMock).toHaveBeenCalledWith('asst:ast-alpha:sms:+15550002222');
     expect(upsertOutboundBindingMock).not.toHaveBeenCalled();
+  });
+
+  test('sendMessage uses messageSid from gateway response as result ID', async () => {
+    sendSmsMock.mockImplementation(async () => ({ messageSid: 'SM-test-12345', status: 'queued' }));
+    const result = await smsMessagingProvider.sendMessage('', '+15550009999', 'sid test', {
+      assistantId: 'self',
+    });
+    expect(result.id).toBe('SM-test-12345');
+  });
+
+  test('sendMessage falls back to timestamp-based ID when messageSid is absent', async () => {
+    sendSmsMock.mockImplementation(async () => ({}));
+    const before = Date.now();
+    const result = await smsMessagingProvider.sendMessage('', '+15550009999', 'no sid', {
+      assistantId: 'self',
+    });
+    expect(result.id).toMatch(/^sms-\d+$/);
+    const ts = parseInt(result.id.replace('sms-', ''), 10);
+    expect(ts).toBeGreaterThanOrEqual(before);
   });
 
   test('sendMessage uses canonical self key and writes outbound binding for self scope', async () => {

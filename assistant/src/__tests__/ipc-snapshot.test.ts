@@ -1249,6 +1249,18 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     success: true,
     hasCredentials: true,
     phoneNumber: '+15551234567',
+    testResult: {
+      messageSid: 'SM1234567890abcdef1234567890abcdef',
+      to: '+15559876543',
+      initialStatus: 'queued',
+      finalStatus: 'delivered',
+    },
+    diagnostics: {
+      readiness: { ready: true, issues: [] },
+      compliance: { status: 'approved', remediation: 'Your number is verified and ready for SMS' },
+      overallStatus: 'healthy',
+      actionItems: [],
+    },
   },
   channel_readiness_response: {
     type: 'channel_readiness_response',

@@ -563,13 +563,14 @@ export interface TelegramConfigResponse {
 
 export interface TwilioConfigRequest {
   type: 'twilio_config';
-  action: 'get' | 'set_credentials' | 'clear_credentials' | 'provision_number' | 'assign_number' | 'list_numbers';
+  action: 'get' | 'set_credentials' | 'clear_credentials' | 'provision_number' | 'assign_number' | 'list_numbers' | 'sms_send_test' | 'sms_doctor';
   accountSid?: string;        // Only for action: 'set_credentials'
   authToken?: string;         // Only for action: 'set_credentials'
-  phoneNumber?: string;       // Only for action: 'assign_number'
+  phoneNumber?: string;       // Only for action: 'assign_number' or 'sms_send_test'
   areaCode?: string;          // Only for action: 'provision_number'
   country?: string;           // Only for action: 'provision_number' (ISO 3166-1 alpha-2, default 'US')
   assistantId?: string;       // Scope number assignment/lookup to a specific assistant
+  text?: string;              // Only for action: 'sms_send_test' (default: "Test SMS from your Vellum assistant")
 }
 
 export interface TwilioConfigResponse {
@@ -581,6 +582,23 @@ export interface TwilioConfigResponse {
   error?: string;
   /** Non-fatal warning message (e.g. webhook sync failure that did not prevent the primary operation). */
   warning?: string;
+  /** Present when action is 'sms_send_test'. */
+  testResult?: {
+    messageSid: string;
+    to: string;
+    initialStatus: string;
+    finalStatus: string;
+    errorCode?: string;
+    errorMessage?: string;
+  };
+  /** Present when action is 'sms_doctor'. */
+  diagnostics?: {
+    readiness: { ready: boolean; issues: string[] };
+    compliance: { status: string; detail?: string; remediation?: string };
+    lastSend?: { status: string; errorCode?: string; remediation?: string };
+    overallStatus: 'healthy' | 'degraded' | 'broken';
+    actionItems: string[];
+  };
 }
 
 export interface ChannelReadinessRequest {

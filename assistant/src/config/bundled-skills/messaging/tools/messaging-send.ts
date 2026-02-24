@@ -24,6 +24,10 @@ export async function run(input: Record<string, unknown>, context: ToolContext):
         assistantId: context.assistantId,
       });
 
+      // SMS acceptance is not the same as handset delivery — surface truthful wording.
+      if (provider.id === 'sms') {
+        return ok(`SMS accepted by Twilio (ID: ${result.id}). Note: "accepted" means Twilio received it for delivery — it has not yet been confirmed as delivered to the handset.`);
+      }
       return ok(`Message sent (ID: ${result.id}).`);
     });
   } catch (e) {

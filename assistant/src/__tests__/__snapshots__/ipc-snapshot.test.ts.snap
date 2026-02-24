@@ -1960,9 +1960,27 @@ exports[`IPC message snapshots ServerMessage types telegram_config_response seri
 
 exports[`IPC message snapshots ServerMessage types twilio_config_response serializes to expected JSON 1`] = `
 {
+  "diagnostics": {
+    "actionItems": [],
+    "compliance": {
+      "remediation": "Your number is verified and ready for SMS",
+      "status": "approved",
+    },
+    "overallStatus": "healthy",
+    "readiness": {
+      "issues": [],
+      "ready": true,
+    },
+  },
   "hasCredentials": true,
   "phoneNumber": "+15551234567",
   "success": true,
+  "testResult": {
+    "finalStatus": "delivered",
+    "initialStatus": "queued",
+    "messageSid": "SM1234567890abcdef1234567890abcdef",
+    "to": "+15559876543",
+  },
   "type": "twilio_config_response",
 }
 `;

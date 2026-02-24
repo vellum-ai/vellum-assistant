@@ -151,7 +151,7 @@ export const smsMessagingProvider: MessagingProvider = {
     const bearerToken = getBearerToken();
     const assistantId = options?.assistantId;
 
-    await sms.sendMessage(gatewayUrl, bearerToken, conversationId, text, assistantId);
+    const sendResult = await sms.sendMessage(gatewayUrl, bearerToken, conversationId, text, assistantId);
 
     // Upsert external conversation binding so the conversation key mapping
     // exists for the next inbound SMS from this number.
@@ -175,8 +175,12 @@ export const smsMessagingProvider: MessagingProvider = {
       // Best-effort — don't fail the send if binding upsert fails
     }
 
+    // Use the Twilio message SID as the send result ID when available,
+    // falling back to a timestamp-based ID for older gateway versions.
+    const id = sendResult.messageSid || `sms-${Date.now()}`;
+
     return {
-      id: `sms-${Date.now()}`,
+      id,
       timestamp: Date.now(),
       conversationId,
     };
