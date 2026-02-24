@@ -566,6 +566,14 @@ export function initializeDb(): void {
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_items_status_invalid_at ON memory_items(status, invalid_at)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_items_scope_status_kind ON memory_items(scope_id, status, kind)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_items_last_seen_at ON memory_items(last_seen_at)`);
+  // Partial covering index for directItemSearch: the LIKE '%term%' pattern can't
+  // seek a B-tree, but this index lets SQLite scan only active non-invalidated rows
+  // and evaluate LIKE + return columns without touching the main table.
+  database.run(/*sql*/ `
+    CREATE INDEX IF NOT EXISTS idx_memory_items_active_search
+    ON memory_items(last_seen_at DESC, subject, statement, id, kind, confidence, importance, first_seen_at, scope_id)
+    WHERE status = 'active' AND invalid_at IS NULL
+  `);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_embeddings_target ON memory_embeddings(target_type, target_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_embeddings_provider_model ON memory_embeddings(provider, model)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_embeddings_content_hash ON memory_embeddings(content_hash, provider, model)`);
