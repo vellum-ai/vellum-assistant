@@ -1,4 +1,4 @@
-import { eq, and, notInArray, desc } from 'drizzle-orm';
+import { eq, and, or, notInArray, desc } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb } from '../memory/db.js';
 import { callSessions, callEvents, callPendingQuestions } from '../memory/schema.js';
@@ -117,7 +117,10 @@ export function getActiveCallSessionForConversation(conversationId: string): Cal
     .from(callSessions)
     .where(
       and(
-        eq(callSessions.conversationId, conversationId),
+        or(
+          eq(callSessions.conversationId, conversationId),
+          eq(callSessions.initiatedFromConversationId, conversationId),
+        ),
         notInArray(callSessions.status, ['completed', 'failed', 'cancelled']),
       ),
     )
