@@ -95,4 +95,23 @@ export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * Like `sleep` but resolves early when an AbortSignal fires.
+ * Resolves (not rejects) on abort so callers can check the signal
+ * themselves and decide what to do.
+ */
+export function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (!signal) return sleep(ms);
+  if (signal.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(onDone, ms);
+    signal.addEventListener('abort', onDone, { once: true });
+    function onDone() {
+      clearTimeout(timer);
+      signal!.removeEventListener('abort', onDone);
+      resolve();
+    }
+  });
+}
+
 export { DEFAULT_MAX_RETRIES, DEFAULT_BASE_DELAY_MS };

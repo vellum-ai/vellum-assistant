@@ -3,7 +3,7 @@ import type { AssistantConfig } from '../config/types.js';
 import { estimateTextTokens } from '../context/token-estimator.js';
 import { getLogger } from '../util/logger.js';
 import { embedWithBackend, getMemoryBackendStatus, logMemoryEmbeddingWarning } from './embedding-backend.js';
-import { computeRetryDelay, isRetryableNetworkError, sleep } from '../util/retry.js';
+import { computeRetryDelay, isRetryableNetworkError, abortableSleep } from '../util/retry.js';
 import { getDb } from './db.js';
 import { memoryItemSources } from './schema.js';
 import type {
@@ -57,11 +57,12 @@ async function embedWithRetry(
       lastError = err;
       if (opts?.signal?.aborted || isAbortError(err)) throw err;
       const isTransient = isRetryableNetworkError(err)
-        || (err instanceof Error && /\b(429|5\d{2})\b/.test(err.message));
+        || isHttpStatusError(err);
       if (!isTransient || attempt === EMBED_MAX_RETRIES) throw err;
       const delay = computeRetryDelay(attempt, EMBED_BASE_DELAY_MS);
       log.warn({ err, attempt: attempt + 1, delayMs: Math.round(delay) }, 'Transient embedding failure, retrying');
-      await sleep(delay);
+      await abortableSleep(delay, opts?.signal);
+      if (opts?.signal?.aborted) throw err;
     }
   }
   throw lastError;
@@ -760,4 +761,21 @@ function truncate(text: string, max: number): string {
 function isAbortError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   return err.name === 'AbortError' || err.name === 'APIUserAbortError';
+}
+
+/**
+ * Check if an error represents a retryable HTTP status (429 or 5xx).
+ * Checks the error's `status` or `statusCode` property first (set by most
+ * HTTP/API clients), then falls back to looking for "status <code>" patterns
+ * in the message. This avoids false positives from dimension numbers like 512.
+ */
+function isHttpStatusError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const status = (err as Record<string, unknown>).status ?? (err as Record<string, unknown>).statusCode;
+  if (typeof status === 'number') {
+    return status === 429 || (status >= 500 && status < 600);
+  }
+  // Fall back to message matching, but only for patterns that clearly
+  // indicate an HTTP status code rather than arbitrary numbers.
+  return /\b429\b|(?:status|http)\s*(?:code\s*)?:?\s*5\d{2}\b/i.test(err.message);
 }
