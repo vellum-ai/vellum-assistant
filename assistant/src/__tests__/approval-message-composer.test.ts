@@ -65,6 +65,14 @@ describe('approval-message-composer', () => {
       expect(msg).toContain('write_file');
     });
 
+    test('guardian_delivery_failed includes toolName when provided', () => {
+      const msg = getFallbackMessage({
+        scenario: 'guardian_delivery_failed',
+        toolName: 'execute_shell',
+      });
+      expect(msg).toContain('execute_shell');
+    });
+
     test('guardian_request_forwarded includes toolName', () => {
       const msg = getFallbackMessage({
         scenario: 'guardian_request_forwarded',

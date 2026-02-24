@@ -88,7 +88,9 @@ export function getFallbackMessage(context: ApprovalMessageContext): string {
       return "I'm still waiting for your decision on the pending approval request.";
 
     case 'guardian_delivery_failed':
-      return "I wasn't able to reach the guardian to request approval. The request has been denied for safety.";
+      return context.toolName
+        ? `Your request to run "${context.toolName}" could not be sent to the guardian for approval. The request has been denied for safety.`
+        : "I wasn't able to reach the guardian to request approval. The request has been denied for safety.";
 
     case 'guardian_request_forwarded':
       return `Your request to use "${context.toolName ?? 'unknown'}" has been forwarded to the guardian for approval. I'll let you know once they decide.`;
