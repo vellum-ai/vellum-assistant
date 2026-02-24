@@ -6,6 +6,7 @@ import { getConfig } from '../config/loader.js';
 import { indexMessageNow } from './indexer.js';
 import { parseChannelId } from '../channels/types.js';
 import type { ChannelId } from '../channels/types.js';
+import { isChannelId } from '../channels/types.js';
 import { getLogger } from '../util/logger.js';
 import { deleteOrphanAttachments } from './attachments-store.js';
 
@@ -128,6 +129,10 @@ export function addMessage(conversationId: string, role: string, content: string
   const db = getDb();
   const messageId = uuid();
   const metadataStr = metadata ? JSON.stringify(metadata) : undefined;
+  const userMessageChannel =
+    role === 'user' && metadata && isChannelId(metadata.userMessageChannel)
+      ? metadata.userMessageChannel
+      : null;
   // Wrap insert + updatedAt bump in a transaction so they're atomic.
   // Retry on SQLITE_BUSY in case busy_timeout is exhausted under heavy contention.
   // Timestamp is recomputed each attempt so a late retry doesn't persist a stale updatedAt.
@@ -146,6 +151,12 @@ export function addMessage(conversationId: string, role: string, content: string
       };
       db.transaction((tx) => {
         tx.insert(messages).values(values).run();
+        if (userMessageChannel) {
+          tx.update(conversations)
+            .set({ originChannel: userMessageChannel })
+            .where(and(eq(conversations.id, conversationId), isNull(conversations.originChannel)))
+            .run();
+        }
         tx.update(conversations)
           .set({ updatedAt: now })
           .where(eq(conversations.id, conversationId))

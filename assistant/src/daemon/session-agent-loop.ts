@@ -332,7 +332,14 @@ export async function runAgentLoopImpl(
 
     let preRunHistoryLength = runMessages.length;
 
-    const deps: EventHandlerDeps = { ctx, onEvent, reqId, isFirstMessage, rlog };
+    const deps: EventHandlerDeps = {
+      ctx,
+      onEvent,
+      reqId,
+      isFirstMessage,
+      rlog,
+      turnChannelContext: capturedTurnChannelContext,
+    };
     const eventHandler = (event: AgentEvent) => dispatchAgentEvent(state, deps, event);
 
     const onCheckpoint = (): CheckpointDecision => {
@@ -513,10 +520,15 @@ export async function runAgentLoopImpl(
           ...(result.contentBlocks ? { contentBlocks: result.contentBlocks } : {}),
         }),
       );
+      const toolResultMetadata = {
+        userMessageChannel: capturedTurnChannelContext.userMessageChannel,
+        assistantMessageChannel: capturedTurnChannelContext.assistantMessageChannel,
+      };
       conversationStore.addMessage(
         ctx.conversationId,
         'user',
         JSON.stringify(toolResultBlocks),
+        toolResultMetadata,
       );
       state.pendingToolResults.clear();
     }

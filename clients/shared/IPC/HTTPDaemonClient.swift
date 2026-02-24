@@ -48,6 +48,15 @@ final class HTTPTransport {
     let baseURL: String
     let bearerToken: String?
     private let conversationKey: String
+    private let sourceChannel: String
+
+    private static var defaultSourceChannel: String {
+        #if os(iOS)
+        return "ios"
+        #else
+        return "macos"
+        #endif
+    }
 
     /// Currently active SSE task.
     private var sseTask: Task<Void, Never>?
@@ -95,6 +104,7 @@ final class HTTPTransport {
         self.baseURL = baseURL.hasSuffix("/") ? String(baseURL.dropLast()) : baseURL
         self.bearerToken = bearerToken
         self.conversationKey = conversationKey
+        self.sourceChannel = Self.defaultSourceChannel
     }
 
     // MARK: - Connect (health check driven)
@@ -294,7 +304,10 @@ final class HTTPTransport {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         applyAuth(&request)
 
-        var body: [String: Any] = ["conversationKey": conversationKey]
+        var body: [String: Any] = [
+            "conversationKey": conversationKey,
+            "sourceChannel": sourceChannel
+        ]
         if let content, !content.isEmpty {
             body["content"] = content
         }

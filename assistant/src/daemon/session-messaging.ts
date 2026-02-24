@@ -8,6 +8,7 @@
 import { v4 as uuid } from 'uuid';
 import type { Message } from '../providers/types.js';
 import type { TurnChannelContext } from '../channels/types.js';
+import { parseChannelId } from '../channels/types.js';
 import type { ServerMessage, UserMessageAttachment } from './ipc-protocol.js';
 import { createUserMessage } from '../agent/message-types.js';
 import * as conversationStore from '../memory/conversation-store.js';
@@ -29,6 +30,14 @@ export interface MessagingSessionContext {
   getTurnChannelContext(): TurnChannelContext | null;
 }
 
+function extractTurnChannelContext(metadata?: Record<string, unknown>): TurnChannelContext | null {
+  if (!metadata) return null;
+  const userMessageChannel = parseChannelId(metadata.userMessageChannel);
+  const assistantMessageChannel = parseChannelId(metadata.assistantMessageChannel);
+  if (!userMessageChannel || !assistantMessageChannel) return null;
+  return { userMessageChannel, assistantMessageChannel };
+}
+
 // ── enqueueMessage ───────────────────────────────────────────────────
 
 export function enqueueMessage(
@@ -45,7 +54,17 @@ export function enqueueMessage(
     return { queued: false, requestId };
   }
 
-  const pushed = ctx.queue.push({ content, attachments, requestId, onEvent, activeSurfaceId, currentPage, metadata });
+  const turnChannelContext = extractTurnChannelContext(metadata) ?? ctx.getTurnChannelContext() ?? undefined;
+  const pushed = ctx.queue.push({
+    content,
+    attachments,
+    requestId,
+    onEvent,
+    activeSurfaceId,
+    currentPage,
+    metadata,
+    turnChannelContext,
+  });
   if (!pushed) {
     return { queued: false, rejected: true, requestId };
   }
@@ -84,15 +103,14 @@ export function persistUserMessage(
   ctx.messages.push(userMessage);
 
   try {
-    const turnCtx = ctx.getTurnChannelContext();
-    const channelMetadata = turnCtx
-      ? { userMessageChannel: turnCtx.userMessageChannel, assistantMessageChannel: turnCtx.assistantMessageChannel }
-      : undefined;
-    // NOTE: When a message is queued and persisted later, turnCtx reflects the
-    // session's *current* channel context at persistence time, which may differ
-    // from the channel that was active when the user originally sent the message.
-    // A proper fix would capture channel context per queued request at enqueue time.
-    const mergedMetadata = (metadata || channelMetadata) ? { ...metadata, ...channelMetadata } : undefined;
+    const turnCtx = extractTurnChannelContext(metadata) ?? ctx.getTurnChannelContext();
+    const mergedMetadata = turnCtx
+      ? {
+          ...(metadata ?? {}),
+          userMessageChannel: turnCtx.userMessageChannel,
+          assistantMessageChannel: turnCtx.assistantMessageChannel,
+        }
+      : metadata;
 
     const persistedUserMessage = conversationStore.addMessage(
       ctx.conversationId,

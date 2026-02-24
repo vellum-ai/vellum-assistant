@@ -6,6 +6,7 @@
  */
 
 import type { ServerMessage, UserMessageAttachment } from './ipc-protocol.js';
+import type { TurnChannelContext } from '../channels/types.js';
 
 export interface QueuedMessage {
   content: string;
@@ -15,6 +16,7 @@ export interface QueuedMessage {
   activeSurfaceId?: string;
   currentPage?: string;
   metadata?: Record<string, unknown>;
+  turnChannelContext?: TurnChannelContext;
 }
 
 export const MAX_QUEUE_DEPTH = 10;

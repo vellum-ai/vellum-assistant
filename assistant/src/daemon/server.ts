@@ -15,7 +15,7 @@ import { IngressBlockedError } from '../util/errors.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import * as attachmentsStore from '../memory/attachments-store.js';
 import { Session, DEFAULT_MEMORY_POLICY, type SessionMemoryPolicy } from './session.js';
-import { parseChannelId } from '../channels/types.js';
+import { parseChannelId, type ChannelId } from '../channels/types.js';
 import { resolveChannelCapabilities } from './session-runtime-assembly.js';
 import { ComputerUseSession } from './computer-use-session.js';
 import {
@@ -52,6 +52,24 @@ function readPackageVersion(): string | undefined {
 }
 
 const daemonVersion = readPackageVersion();
+
+function resolveTurnChannel(sourceChannel?: string, transportChannelId?: string): ChannelId {
+  if (sourceChannel != null) {
+    const parsed = parseChannelId(sourceChannel);
+    if (!parsed) {
+      throw new Error(`Invalid sourceChannel: ${sourceChannel}`);
+    }
+    return parsed;
+  }
+  if (transportChannelId != null) {
+    const parsed = parseChannelId(transportChannelId);
+    if (!parsed) {
+      throw new Error(`Invalid transport.channelId: ${transportChannelId}`);
+    }
+    return parsed;
+  }
+  return 'macos';
+}
 
 export class DaemonServer {
   private server: net.Server | null = null;
@@ -684,7 +702,7 @@ export class DaemonServer {
     session.setGuardianContext(options?.guardianContext ?? null);
     session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel));
     session.setCommandIntent(options?.commandIntent ?? null);
-    const resolvedChannel = parseChannelId(sourceChannel) ?? parseChannelId(options?.transport?.channelId) ?? 'macos';
+    const resolvedChannel = resolveTurnChannel(sourceChannel, options?.transport?.channelId);
     session.setTurnChannelContext({
       userMessageChannel: resolvedChannel,
       assistantMessageChannel: resolvedChannel,
@@ -731,7 +749,7 @@ export class DaemonServer {
     session.setGuardianContext(options?.guardianContext ?? null);
     session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel));
     session.setCommandIntent(options?.commandIntent ?? null);
-    const resolvedChannel2 = parseChannelId(sourceChannel) ?? parseChannelId(options?.transport?.channelId) ?? 'macos';
+    const resolvedChannel2 = resolveTurnChannel(sourceChannel, options?.transport?.channelId);
     session.setTurnChannelContext({
       userMessageChannel: resolvedChannel2,
       assistantMessageChannel: resolvedChannel2,

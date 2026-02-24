@@ -104,6 +104,9 @@ const HIGH_RISK_VALIDATORS: Record<string, PropertyValidator> = {
       if (typeof transport.channelId !== 'string' || transport.channelId.trim().length === 0) {
         return 'session_create "transport.channelId" must be a non-empty string';
       }
+      if (!isChannelId(transport.channelId)) {
+        return 'session_create "transport.channelId" must be a valid channel ID';
+      }
       if (transport.uxBrief !== undefined && typeof transport.uxBrief !== 'string') {
         return 'session_create "transport.uxBrief" must be a string when present';
       }
