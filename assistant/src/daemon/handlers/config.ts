@@ -61,7 +61,7 @@ import {
   getTwilioSmsWebhookUrl,
   type IngressConfig,
 } from '../../inbound/public-ingress-urls.js';
-import { createVerificationChallenge, getGuardianBinding, revokeBinding as revokeGuardianBinding } from '../../runtime/channel-guardian-service.js';
+import { createVerificationChallenge, getGuardianBinding, revokeBinding as revokeGuardianBinding, getPendingChallenge } from '../../runtime/channel-guardian-service.js';
 import { createReadinessService, type ChannelReadinessService } from '../../runtime/channel-readiness-service.js';
 import { log, CONFIG_RELOAD_DEBOUNCE_MS, defineHandlers, type HandlerContext } from './shared.js';
 import { MODEL_TO_PROVIDER } from '../session-slash.js';
@@ -2357,6 +2357,11 @@ export function handleGuardianVerification(
           guardianDisplayName = ext.displayName;
         }
       }
+
+      // Include pending-challenge indicator so relay setup can detect
+      // active voice verification sessions.
+      const pendingChallenge = getPendingChallenge(assistantId, channel);
+
       ctx.send(socket, {
         type: 'guardian_verification_response',
         success: true,
@@ -2367,6 +2372,7 @@ export function handleGuardianVerification(
         channel,
         assistantId,
         guardianDeliveryChatId: binding?.guardianDeliveryChatId,
+        hasPendingChallenge: pendingChallenge !== null,
       });
     } else if (msg.action === 'revoke') {
       revokeGuardianBinding(assistantId, channel);

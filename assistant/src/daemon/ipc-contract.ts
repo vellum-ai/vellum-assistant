@@ -682,6 +682,8 @@ export interface GuardianVerificationResponse {
   guardianUsername?: string;
   /** Optional display name for the bound guardian (for UI display). */
   guardianDisplayName?: string;
+  /** Whether a pending verification challenge exists for this (assistantId, channel). Used by relay setup to detect active voice verification sessions. */
+  hasPendingChallenge?: boolean;
   error?: string;
 }
 
