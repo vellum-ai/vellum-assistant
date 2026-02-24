@@ -108,14 +108,14 @@ When the voice webhook is called without a `callSessionId` query parameter, the 
 1. **`resolveAssistantByPhoneNumber(config, To)`** — Reverse lookup of the inbound `To` number against `assistantPhoneNumbers`. If the dialed number matches an assistant's configured phone number, that assistant handles the call.
 2. **Fallback to `resolveAssistant(From, From)`** — If no phone number match is found, the standard routing chain is used: `chat_id` match, `user_id` match, then the unmapped policy.
 3. **TwiML Reject for unmapped** — When the unmapped policy is `reject` (and no route matches), the gateway returns `<Reject reason="rejected"/>` TwiML directly to Twilio. Twilio plays a busy signal and hangs up. The call is never forwarded to the runtime.
-4. **Forward with assistantId** — When routing succeeds, the gateway forwards the voice webhook to the runtime at `POST /v1/calls/voice-webhook` with the resolved `assistantId`. The runtime calls `createInboundVoiceSession()` to bootstrap a session keyed by CallSid, then returns TwiML pointing Twilio to the ConversationRelay WebSocket.
+4. **Forward with assistantId** — When routing succeeds, the gateway forwards the voice webhook to the runtime at `POST /v1/internal/twilio/voice-webhook` with a JSON body containing `{ params, originalUrl, assistantId }`. The runtime calls `createInboundVoiceSession()` to bootstrap a session keyed by CallSid, then returns TwiML pointing Twilio to the ConversationRelay WebSocket.
 
 ### Inbound call lifecycle (gateway perspective)
 
 ```
 Caller → Twilio → Gateway /webhooks/twilio/voice (no callSessionId)
   → resolveAssistantByPhoneNumber(To) || resolveAssistant(From) || TwiML Reject
-  → forward to runtime /v1/calls/voice-webhook (+ assistantId query param)
+  → forward to runtime /v1/internal/twilio/voice-webhook (JSON: { params, originalUrl, assistantId })
   → runtime returns TwiML (ConversationRelay connect)
   → Twilio opens WebSocket → Gateway /webhooks/twilio/relay → Runtime /v1/calls/relay
   → RelayConnection detects inbound (task=null), optional guardian verification gate, then receptionist-style LLM greeting
