@@ -47,9 +47,9 @@ struct SettingsConnectTab: View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
             pairingSection
             gatewaySection
-            channelsSection
             advancedSection
             diagnosticsSection
+            channelsSection
         }
         .onAppear {
             store.refreshIngressConfig()
