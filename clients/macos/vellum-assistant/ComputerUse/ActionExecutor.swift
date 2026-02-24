@@ -385,7 +385,7 @@ final class ActionExecutor: ActionExecuting {
         // double quotes. Process.arguments bypasses the shell, so shell-style
         // single-quote escaping (e.g. '\'') would be passed raw to mdfind and
         // break Spotlight query parsing.
-        let sanitizedName = name.replacingOccurrences(of: "\"", with: "\\\"")
+        let sanitizedName = name.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
         process.arguments = [
             "kMDItemKind == 'Application' && kMDItemDisplayName == \"\(sanitizedName)\""
         ]
