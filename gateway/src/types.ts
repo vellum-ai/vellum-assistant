@@ -1,6 +1,6 @@
 export type GatewayInboundEventV1 = {
   version: "v1";
-  sourceChannel: "telegram" | "sms";
+  sourceChannel: "telegram" | "sms" | "whatsapp";
   receivedAt: string;
   routing: {
     assistantId: string;

@@ -1,4 +1,4 @@
-import { eq, desc, asc, and, count, sql, inArray } from 'drizzle-orm';
+import { eq, desc, asc, and, count, sql, inArray, like, or } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb, rawGet, rawExec } from './db.js';
 import { conversations, messages, toolInvocations, messageRuns, channelInboundEvents, memoryItemSources, memoryItems, memoryEmbeddings, memoryItemEntities, memorySegments, messageAttachments, llmRequestLogs } from './schema.js';
@@ -497,4 +497,148 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
   deleteOrphanAttachments(candidateAttachmentIds);
 
   return result;
+}
+
+export interface ConversationSearchResult {
+  conversationId: string;
+  conversationTitle: string | null;
+  conversationUpdatedAt: number;
+  matchingMessages: Array<{
+    messageId: string;
+    role: string;
+    /** Plain-text excerpt around the match, truncated to ~200 chars. */
+    excerpt: string;
+    createdAt: number;
+  }>;
+}
+
+/**
+ * Full-text search across message content using SQL LIKE.
+ * Searches message content for the query string and returns matching
+ * conversations with their relevant messages, ordered by most recently updated.
+ *
+ * Messages that contain JSON-encoded content blocks are searched by their
+ * raw content string — the query will match inside code blocks, tool call text,
+ * and plain text alike. This is intentional: it avoids a full content parse
+ * at query time and stays fast even on large databases.
+ */
+export function searchConversations(
+  query: string,
+  opts?: { limit?: number; maxMessagesPerConversation?: number },
+): ConversationSearchResult[] {
+  if (!query.trim()) return [];
+
+  const db = getDb();
+  const limit = opts?.limit ?? 20;
+  const maxMsgsPerConv = opts?.maxMessagesPerConversation ?? 3;
+  const pattern = `%${query.replace(/%/g, '\\%').replace(/_/g, '\\_')}%`;
+
+  // Find conversations that have at least one matching message.
+  // We also search conversation titles for completeness.
+  const matchingConversations = db
+    .select({
+      id: conversations.id,
+      title: conversations.title,
+      updatedAt: conversations.updatedAt,
+    })
+    .from(conversations)
+    .innerJoin(messages, eq(messages.conversationId, conversations.id))
+    .where(
+      and(
+        sql`${conversations.threadType} != 'background'`,
+        or(
+          like(messages.content, pattern),
+          like(conversations.title, pattern),
+        ),
+      ),
+    )
+    .groupBy(conversations.id)
+    .orderBy(desc(conversations.updatedAt))
+    .limit(limit)
+    .all();
+
+  if (matchingConversations.length === 0) return [];
+
+  const results: ConversationSearchResult[] = [];
+
+  for (const conv of matchingConversations) {
+    // Fetch the top matching messages for this conversation.
+    const matchingMsgs = db
+      .select({
+        id: messages.id,
+        role: messages.role,
+        content: messages.content,
+        createdAt: messages.createdAt,
+      })
+      .from(messages)
+      .where(
+        and(
+          eq(messages.conversationId, conv.id),
+          like(messages.content, pattern),
+        ),
+      )
+      .orderBy(asc(messages.createdAt))
+      .limit(maxMsgsPerConv)
+      .all();
+
+    results.push({
+      conversationId: conv.id,
+      conversationTitle: conv.title,
+      conversationUpdatedAt: conv.updatedAt,
+      matchingMessages: matchingMsgs.map((m) => ({
+        messageId: m.id,
+        role: m.role,
+        excerpt: buildExcerpt(m.content, query),
+        createdAt: m.createdAt,
+      })),
+    });
+  }
+
+  return results;
+}
+
+/**
+ * Build a short excerpt from raw message content centered around the first
+ * occurrence of `query`. The content may be JSON (content blocks) or plain
+ * text; we extract a readable snippet in either case.
+ */
+function buildExcerpt(rawContent: string, query: string): string {
+  // Try to extract plain text from JSON content blocks first.
+  let text = rawContent;
+  try {
+    const parsed = JSON.parse(rawContent);
+    if (Array.isArray(parsed)) {
+      const parts: string[] = [];
+      for (const block of parsed) {
+        if (typeof block === 'object' && block !== null) {
+          if (block.type === 'text' && typeof block.text === 'string') {
+            parts.push(block.text);
+          } else if (block.type === 'tool_result') {
+            const inner = Array.isArray(block.content) ? block.content : [];
+            for (const ib of inner) {
+              if (ib?.type === 'text' && typeof ib.text === 'string') parts.push(ib.text);
+            }
+          }
+        }
+      }
+      if (parts.length > 0) text = parts.join(' ');
+    } else if (typeof parsed === 'string') {
+      text = parsed;
+    }
+  } catch {
+    // Not JSON — use as-is
+  }
+
+  const WINDOW = 100;
+  const lowerText = text.toLowerCase();
+  const lowerQuery = query.toLowerCase();
+  const idx = lowerText.indexOf(lowerQuery);
+  if (idx === -1) {
+    // Query matched the raw JSON but not the extracted text — fall back to raw start
+    return text.slice(0, WINDOW * 2).replace(/\s+/g, ' ').trim();
+  }
+  const start = Math.max(0, idx - WINDOW);
+  const end = Math.min(text.length, idx + query.length + WINDOW);
+  const excerpt = (start > 0 ? '…' : '') + text.slice(start, end).replace(/\s+/g, ' ').trim() + (end < text.length ? '…' : '');
+  return excerpt;
 }

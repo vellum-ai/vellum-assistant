@@ -132,7 +132,7 @@ Use `media_diagnostics` to get a full diagnostic report:
 3. Check `durationMs` to see if a stage timed out or ran unusually long.
 4. Common failure causes:
    - **keyframe_extraction**: ffmpeg not installed, corrupt video file, disk full.
-   - **vision_analysis**: ANTHROPIC_API_KEY not set, API rate limits, network errors.
+   - **vision_analysis**: Anthropic API key not configured (add one in Settings → Integrations), API rate limits, network errors.
    - **timeline_generation**: No keyframes or vision outputs exist (earlier stage skipped or failed).
    - **event_detection**: No timeline segments exist.
 
@@ -183,7 +183,7 @@ Increasing the keyframe interval reduces cost proportionally but may miss short-
 | Symptom | Likely Cause | Fix |
 |---------|-------------|-----|
 | "No keyframes found" | extract_keyframes not run or failed | Check keyframe_extraction stage status; re-run if needed |
-| "ANTHROPIC_API_KEY not set" | Missing env var | Set ANTHROPIC_API_KEY in the environment |
+| "No Anthropic API key available" | API key not configured | Add one in Settings → Integrations |
 | Vision analysis very slow | Large video, small interval | Increase interval_seconds or use smaller batch_size |
 | Low event confidence | Detection rules too broad | Tune rules: increase weights on high-signal rules, use tighter regex patterns |
 | Many false positives | Rules overfitting on noise | Submit `incorrect` feedback, then run `recalibrate` |

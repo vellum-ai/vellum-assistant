@@ -6,25 +6,35 @@ import VellumAssistantShared
 ///
 /// Runs the async MediaEmbedResolver when the message text changes
 /// (but not during streaming to avoid per-token re-resolution).
+/// Settings are read from UserDefaults so they stay in sync with
+/// MediaEmbedSettingsSection without requiring a restart.
 struct MessageMediaEmbedsView: View {
     let message: ChatMessage
 
     @State private var intents: [MediaEmbedIntent] = []
 
-    /// Default settings: embeds always enabled, all major video domains allowed.
-    private static let defaultSettings = MediaEmbedResolverSettings(
-        enabled: true,
-        enabledSince: nil,
-        allowedDomains: [
-            "youtube.com", "youtu.be",
-            "vimeo.com",
-            "loom.com",
-        ]
-    )
+    @AppStorage(UserDefaultsKeys.mediaEmbedsEnabled)
+    private var mediaEmbedsEnabled: Bool = true
 
+    @AppStorage(UserDefaultsKeys.mediaEmbedVideoAllowlistDomains)
+    private var domainsRaw: String = MediaEmbedSettings.defaultDomains.joined(separator: "\n")
+
+    private var resolverSettings: MediaEmbedResolverSettings {
+        let domains = domainsRaw
+            .components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return MediaEmbedResolverSettings(
+            enabled: mediaEmbedsEnabled,
+            enabledSince: nil,
+            allowedDomains: domains.isEmpty ? MediaEmbedSettings.defaultDomains : domains
+        )
+    }
+
+    /// Re-resolve when message content or settings change.
     private var taskID: String {
         if message.isStreaming { return "streaming-\(message.id)" }
-        return "\(message.text.hashValue)"
+        return "\(message.text.hashValue)-\(mediaEmbedsEnabled)-\(domainsRaw.hashValue)"
     }
 
     var body: some View {
@@ -46,7 +56,7 @@ struct MessageMediaEmbedsView: View {
                 guard !message.isStreaming else { return }
                 let resolved = await MediaEmbedResolver.resolve(
                     message: message,
-                    settings: Self.defaultSettings
+                    settings: resolverSettings
                 )
                 guard !Task.isCancelled else { return }
                 intents = resolved

@@ -25,7 +25,9 @@ import {
 } from './queries.js';
 import { loadCapturedQueries } from './query-extractor.js';
 import { truncate } from '../util/truncate.js';
-import { ProviderError } from '../util/errors.js';
+import { ProviderError, RateLimitError } from '../util/errors.js';
+
+export { RateLimitError };
 
 const GRAPHQL_BASE = 'https://www.doordash.com/graphql';
 const CDP_BASE = 'http://localhost:9222';
@@ -49,14 +51,6 @@ export class SessionExpiredError extends Error {
   constructor(reason: string) {
     super(reason);
     this.name = 'SessionExpiredError';
-  }
-}
-
-/** Thrown when DoorDash returns HTTP 403 (rate limited). */
-export class RateLimitError extends Error {
-  constructor(reason: string) {
-    super(reason);
-    this.name = 'RateLimitError';
   }
 }
 

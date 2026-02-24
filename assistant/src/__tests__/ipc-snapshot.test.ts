@@ -311,6 +311,12 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
   sessions_clear: {
     type: 'sessions_clear',
   },
+  conversation_search: {
+    type: 'conversation_search',
+    query: 'hello world',
+    limit: 20,
+    maxMessagesPerConversation: 3,
+  },
   ipc_blob_probe: {
     type: 'ipc_blob_probe',
     probeId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
@@ -718,6 +724,25 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   sessions_clear_response: {
     type: 'sessions_clear_response',
     cleared: 3,
+  },
+  conversation_search_response: {
+    type: 'conversation_search_response',
+    query: 'hello world',
+    results: [
+      {
+        conversationId: 'conv-001',
+        conversationTitle: 'My Conversation',
+        conversationUpdatedAt: 1700000000,
+        matchingMessages: [
+          {
+            messageId: 'msg-001',
+            role: 'user',
+            excerpt: '…hello world, how are you?…',
+            createdAt: 1699999000,
+          },
+        ],
+      },
+    ],
   },
   error: {
     type: 'error',

@@ -202,6 +202,40 @@ public final class ChatViewModel: ObservableObject {
     /// Observers can check this to avoid treating the history hydration as new activity.
     public private(set) var isLoadingHistory: Bool = false
 
+    // MARK: - Message Pagination
+
+    /// Page size for chat message display; older messages are loaded in this increment.
+    public static let messagePageSize = 50
+
+    /// Number of messages currently revealed at the top of the conversation.
+    /// The view slices `messages` to `messages.suffix(displayedMessageCount)`.
+    /// Grows by `messagePageSize` each time the user scrolls to the top.
+    @Published public var displayedMessageCount: Int = messagePageSize
+
+    /// True while a previous-page load is in progress (brief async delay for UX).
+    @Published public var isLoadingMoreMessages: Bool = false
+
+    /// Whether there are more messages above the current display window.
+    public var hasMoreMessages: Bool { displayedMessageCount < messages.count }
+
+    /// Load the previous page of messages by expanding the display window.
+    /// Returns `true` if there were additional messages to reveal.
+    @discardableResult
+    public func loadPreviousMessagePage() async -> Bool {
+        guard hasMoreMessages, !isLoadingMoreMessages else { return false }
+        isLoadingMoreMessages = true
+        // Brief delay so the loading indicator is visible before the list shifts.
+        try? await Task.sleep(nanoseconds: 150_000_000)
+        displayedMessageCount = min(displayedMessageCount + Self.messagePageSize, messages.count)
+        isLoadingMoreMessages = false
+        return true
+    }
+
+    /// Reset pagination when the thread switches or history is reloaded.
+    public func resetMessagePagination() {
+        displayedMessageCount = Self.messagePageSize
+    }
+
     /// Surface the user is currently viewing in workspace mode.
     /// Set by MainWindowView when the dynamic workspace is expanded.
     public var activeSurfaceId: String? {
@@ -235,6 +269,9 @@ public final class ChatViewModel: ObservableObject {
                 self?.pendingMessageIds.removeAll()
                 self?.requestIdToMessageId.removeAll()
                 self?.pendingLocalDeletions.removeAll()
+                #if os(iOS)
+                self?.flushOfflineQueue()
+                #endif
             }
         }
     }
@@ -446,6 +483,26 @@ public final class ChatViewModel: ObservableObject {
         // daemon has disconnected between turns.
         guard daemonClient.isConnected else {
             log.error("Cannot send user_message: daemon not connected")
+
+            #if os(iOS)
+            // On iOS, buffer the primary (non-queued-retry) send in the offline queue
+            // instead of surfacing an error. The message stays visible with a
+            // "pending" indicator and is flushed automatically on reconnect.
+            if queuedMessageId == nil {
+                log.info("Buffering message in offline queue (session: \(sessionId))")
+                OfflineMessageQueue.shared.enqueue(sessionId: sessionId, text: text, attachments: attachments)
+                // Mark the corresponding chat message as offline-pending so the UI
+                // can show a visual indicator. Find the last user message with this
+                // text — it is the one just appended by sendMessage().
+                if let idx = messages.indices.reversed().first(where: { messages[$0].role == .user && messages[$0].text == text }) {
+                    messages[idx].status = .pendingOffline
+                }
+                // Don't show the error banner — the pending indicator on the bubble
+                // communicates the offline state without interrupting the conversation.
+                return
+            }
+            #endif
+
             // Always track the failed message for retry support.
             lastFailedMessageText = text
             lastFailedMessageAttachments = attachments
@@ -511,6 +568,57 @@ public final class ChatViewModel: ObservableObject {
             }
         }
     }
+
+    // MARK: - Offline Queue Flush (iOS only)
+
+    #if os(iOS)
+    /// Drain the persistent offline queue and send all buffered messages in order.
+    ///
+    /// Called automatically when the daemon reconnects. Only flushes messages whose
+    /// sessionId matches this view model's current session, so concurrent view models
+    /// on different threads don't steal each other's queued messages.
+    func flushOfflineQueue() {
+        let queue = OfflineMessageQueue.shared
+        guard !queue.isEmpty else { return }
+
+        guard let currentSessionId = sessionId else {
+            // No session yet — nothing to flush for this view model.
+            return
+        }
+
+        // Dequeue only the messages that belong to this session.
+        // Messages for other sessions are left in place for their respective VMs to flush.
+        let allQueued = queue.dequeueAll()
+        let mine = allQueued.filter { $0.sessionId == currentSessionId }
+        let others = allQueued.filter { $0.sessionId != currentSessionId }
+
+        // Re-enqueue messages belonging to other sessions.
+        for msg in others {
+            queue.enqueue(sessionId: msg.sessionId, text: msg.text, attachments: msg.ipcAttachments)
+        }
+
+        guard !mine.isEmpty else { return }
+
+        log.info("Flushing \(mine.count) offline-queued message(s) for session \(currentSessionId)")
+
+        // Update message bubbles: clear pendingOffline status so they show as sent.
+        for queued in mine {
+            if let idx = messages.indices.reversed().first(where: {
+                messages[$0].role == .user
+                    && messages[$0].text == queued.text
+                    && messages[$0].status == .pendingOffline
+            }) {
+                messages[idx].status = .sent
+            }
+        }
+
+        // Send messages sequentially. Each send is async in the HTTP transport but
+        // the daemon processes messages in order, so fire them all immediately.
+        for queued in mine {
+            sendUserMessage(queued.text, attachments: queued.ipcAttachments)
+        }
+    }
+    #endif
 
     public func startMessageLoop() {
         messageLoopTask?.cancel()
@@ -1444,6 +1552,8 @@ public final class ChatViewModel: ObservableObject {
         }
         self.isLoadingHistory = false
         self.isHistoryLoaded = true
+        // Reset pagination so the view shows the most-recent page after history loads.
+        self.displayedMessageCount = Self.messagePageSize
         // Surfaces are now included directly in the history response and populated above
     }
 

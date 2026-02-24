@@ -1,11 +1,12 @@
 import SwiftUI
-import VellumAssistantShared
+import Foundation
 
 // MARK: - Work Item Status
 
 /// Normalized status enum that maps daemon status strings to typed cases.
 /// Case-insensitive matching protects against transport casing/serialization drift.
-enum WorkItemStatus: Equatable {
+/// Shared between macOS and iOS so both platforms use the same mapping.
+public enum WorkItemStatus: Equatable {
     case queued
     case running
     case awaitingReview
@@ -16,7 +17,7 @@ enum WorkItemStatus: Equatable {
     case unknown(String)
 
     /// Case-insensitive mapping from the raw daemon status string.
-    init(rawStatus: String) {
+    public init(rawStatus: String) {
         switch rawStatus.lowercased() {
         case "queued":          self = .queued
         case "running":         self = .running
@@ -32,53 +33,58 @@ enum WorkItemStatus: Equatable {
 
 // MARK: - Table Column Definitions
 
-/// Single source of truth for the Tasks table layout, column sizing,
+/// Single source of truth for the Tasks table/list layout, column sizing,
 /// priority/status display mappings, and sort order.
+/// Shared between macOS and iOS.
 ///
 /// Sorting rules (applied server-side, mirrored here for documentation):
 ///   1. `priority_tier ASC`  — high (0) surfaces first
 ///   2. `sort_index ASC`     — manual ordering within a tier
 ///   3. `updated_at DESC`    — most recently touched wins ties
-enum TasksTableContract {
+public enum TasksTableContract {
 
     // MARK: Columns
 
-    enum Column: String, CaseIterable {
+    public enum Column: String, CaseIterable {
         case task
         case priority
         case status
         case actions
     }
 
-    // MARK: Column Widths
+    // MARK: Column Widths (macOS table layout)
 
     /// Fixed-width columns. The `task` column is flexible and fills remaining space.
-    static let taskMinWidth: CGFloat = 200
-    static let priorityWidth: CGFloat = 80
-    static let statusWidth: CGFloat = 120
-    static let actionsWidth: CGFloat = 90
+    public static let taskMinWidth: CGFloat = 200
+    public static let priorityWidth: CGFloat = 80
+    public static let statusWidth: CGFloat = 120
+    public static let actionsWidth: CGFloat = 90
 
     // MARK: Truncation
 
     /// Title truncates with trailing ellipsis at the column boundary (lineLimit 1).
-    /// Notes are not displayed in the table view — they belong to the detail/card layout.
-    static let titleLineLimit = 1
+    public static let titleLineLimit = 1
 
     // MARK: Priority Mapping
 
-    struct PriorityStyle {
-        let label: String
-        let color: Color
+    public struct PriorityStyle {
+        public let label: String
+        public let color: Color
+
+        public init(label: String, color: Color) {
+            self.label = label
+            self.color = color
+        }
     }
 
     /// All priority tiers in display order, used to populate the priority edit menu.
-    static let allPriorityTiers: [(tier: Double, label: String, color: Color)] = [
+    public static let allPriorityTiers: [(tier: Double, label: String, color: Color)] = [
         (0, "High",   VColor.error),
         (1, "Medium", VColor.accent),
         (2, "Low",    VColor.textMuted),
     ]
 
-    static func priorityStyle(for tier: Double) -> PriorityStyle {
+    public static func priorityStyle(for tier: Double) -> PriorityStyle {
         switch tier {
         case 0:  return PriorityStyle(label: "High",   color: VColor.error)
         case 1:  return PriorityStyle(label: "Medium", color: VColor.accent)
@@ -88,12 +94,17 @@ enum TasksTableContract {
 
     // MARK: Status Mapping
 
-    struct StatusStyle {
-        let label: String
-        let color: Color
+    public struct StatusStyle {
+        public let label: String
+        public let color: Color
+
+        public init(label: String, color: Color) {
+            self.label = label
+            self.color = color
+        }
     }
 
-    static func statusStyle(for status: WorkItemStatus) -> StatusStyle {
+    public static func statusStyle(for status: WorkItemStatus) -> StatusStyle {
         switch status {
         case .queued:          return StatusStyle(label: "Queued",    color: VColor.textSecondary)
         case .running:         return StatusStyle(label: "Running",   color: VColor.textSecondary)

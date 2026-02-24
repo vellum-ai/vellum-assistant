@@ -5,7 +5,6 @@ import VellumAssistantShared
 struct SettingsView: View {
     @EnvironmentObject var clientProvider: ClientProvider
     @Bindable var authManager: AuthManager
-    @AppStorage(UserDefaultsKeys.appearanceMode) private var appearanceMode: String = "system"
     @AppStorage(UserDefaultsKeys.developerModeEnabled) private var developerModeEnabled: Bool = false
     @Binding var navigateToConnect: Bool
     @State private var versionTapCount: Int = 0
@@ -56,15 +55,22 @@ struct SettingsView: View {
                     } label: {
                         Label("Parental Controls", systemImage: "lock.shield")
                     }
+                    NavigationLink {
+                        PrivateThreadsSection(daemonClient: clientProvider.client)
+                    } label: {
+                        Label("Private Threads", systemImage: "lock.shield.fill")
+                    }
+                    NavigationLink {
+                        MediaEmbedSettingsSection()
+                    } label: {
+                        Label("Media Embeds", systemImage: "play.rectangle")
+                    }
                 }
 
-                Section("Appearance") {
-                    Picker("Theme", selection: $appearanceMode) {
-                        Text("System").tag("system")
-                        Text("Light").tag("light")
-                        Text("Dark").tag("dark")
-                    }
-                    .pickerStyle(.segmented)
+                NavigationLink {
+                    AppearanceSection()
+                } label: {
+                    Label("Appearance", systemImage: "paintbrush")
                 }
 
                 Section("Permissions") {

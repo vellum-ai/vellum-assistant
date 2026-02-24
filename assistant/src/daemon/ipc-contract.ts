@@ -27,7 +27,7 @@ export * from './ipc-contract/diagnostics.js';
 export * from './ipc-contract/parental-control.js';
 
 // Import types needed for aggregate unions and SubagentEvent
-import type { AuthMessage, PingMessage, CancelRequest, DeleteQueuedMessage, ModelGetRequest, ModelSetRequest, ImageGenModelSetRequest, HistoryRequest, UndoRequest, RegenerateRequest, UsageRequest, SandboxSetRequest, SessionListRequest, SessionCreateRequest, SessionSwitchRequest, SessionsClearRequest } from './ipc-contract/sessions.js';
+import type { AuthMessage, PingMessage, CancelRequest, DeleteQueuedMessage, ModelGetRequest, ModelSetRequest, ImageGenModelSetRequest, HistoryRequest, UndoRequest, RegenerateRequest, UsageRequest, SandboxSetRequest, SessionListRequest, SessionCreateRequest, SessionSwitchRequest, SessionsClearRequest, ConversationSearchRequest } from './ipc-contract/sessions.js';
 import type { UserMessage, ConfirmationResponse, SecretResponse, SuggestionRequest } from './ipc-contract/messages.js';
 import type { UiSurfaceAction, UiSurfaceUndoRequest } from './ipc-contract/surfaces.js';
 import type { SkillsListRequest, SkillDetailRequest, SkillsEnableRequest, SkillsDisableRequest, SkillsConfigureRequest, SkillsInstallRequest, SkillsUninstallRequest, SkillsUpdateRequest, SkillsCheckUpdatesRequest, SkillsSearchRequest, SkillsInspectRequest } from './ipc-contract/skills.js';
@@ -43,7 +43,7 @@ import type { WorkspaceFilesListRequest, WorkspaceFileReadRequest, IdentityGetRe
 import type { DiagnosticsExportRequest, EnvVarsRequest, IpcBlobProbe, DictationRequest } from './ipc-contract/diagnostics.js';
 
 // Server-side imports for ServerMessage union
-import type { AuthResult, PongMessage, DaemonStatusMessage, GenerationCancelled, GenerationHandoff, ModelInfo, HistoryResponse, UndoComplete, UsageUpdate, UsageResponse, ContextCompacted, SessionErrorMessage, SessionInfo, SessionListResponse, SessionsClearResponse } from './ipc-contract/sessions.js';
+import type { AuthResult, PongMessage, DaemonStatusMessage, GenerationCancelled, GenerationHandoff, ModelInfo, HistoryResponse, UndoComplete, UsageUpdate, UsageResponse, ContextCompacted, SessionErrorMessage, SessionInfo, SessionListResponse, SessionsClearResponse, ConversationSearchResponse } from './ipc-contract/sessions.js';
 import type { UserMessageEcho, AssistantTextDelta, AssistantThinkingDelta, ToolUseStart, ToolOutputChunk, ToolInputDelta, ToolResult, ConfirmationRequest, SecretRequest, MessageComplete, ErrorMessage, SecretDetected, MessageQueued, MessageDequeued, MessageQueuedDeleted, SuggestionResponse, TraceEvent } from './ipc-contract/messages.js';
 import type { UiSurfaceShow, UiSurfaceUpdate, UiSurfaceDismiss, UiSurfaceComplete, UiSurfaceUndoResult } from './ipc-contract/surfaces.js';
 import type { SkillsListResponse, SkillDetailResponse, SkillStateChanged, SkillsOperationResponse, SkillsInspectResponse } from './ipc-contract/skills.js';
@@ -149,6 +149,7 @@ export type ClientMessage =
   | TwitterAuthStartRequest
   | TwitterAuthStatusRequest
   | SessionsClearRequest
+  | ConversationSearchRequest
   | GalleryListRequest
   | GalleryInstallRequest
   | AppHistoryRequest
@@ -214,6 +215,7 @@ export type ServerMessage =
   | SessionInfo
   | SessionListResponse
   | SessionsClearResponse
+  | ConversationSearchResponse
   | ErrorMessage
   | PongMessage
   | DaemonStatusMessage

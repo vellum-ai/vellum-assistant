@@ -105,7 +105,38 @@ export interface SessionsClearRequest {
   type: 'sessions_clear';
 }
 
+export interface ConversationSearchRequest {
+  type: 'conversation_search';
+  /** The search query string. */
+  query: string;
+  /** Maximum number of conversations to return. Defaults to 20. */
+  limit?: number;
+  /** Maximum number of matching messages to return per conversation. Defaults to 3. */
+  maxMessagesPerConversation?: number;
+}
+
 // === Server → Client ===
+
+export interface ConversationSearchMatchingMessage {
+  messageId: string;
+  role: string;
+  /** Plain-text excerpt around the match, truncated to ~200 chars. */
+  excerpt: string;
+  createdAt: number;
+}
+
+export interface ConversationSearchResultItem {
+  conversationId: string;
+  conversationTitle: string | null;
+  conversationUpdatedAt: number;
+  matchingMessages: ConversationSearchMatchingMessage[];
+}
+
+export interface ConversationSearchResponse {
+  type: 'conversation_search_response';
+  query: string;
+  results: ConversationSearchResultItem[];
+}
 
 export interface SessionInfo {
   type: 'session_info';

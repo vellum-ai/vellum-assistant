@@ -4,6 +4,8 @@ import VellumAssistantShared
 
 struct LoginView: View {
     @Bindable var authManager: AuthManager
+    /// Called after a successful login so the onboarding flow can advance.
+    var onContinue: (() -> Void)?
 
     var body: some View {
         VStack(spacing: VSpacing.xl) {
@@ -32,7 +34,13 @@ struct LoginView: View {
             }
 
             Button {
-                Task { await authManager.startWorkOSLogin() }
+                Task {
+                    await authManager.startWorkOSLogin()
+                    // Advance once the auth state reflects a successful login.
+                    if authManager.isAuthenticated {
+                        onContinue?()
+                    }
+                }
             } label: {
                 if authManager.isSubmitting {
                     ProgressView()

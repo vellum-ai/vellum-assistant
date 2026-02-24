@@ -84,7 +84,11 @@ export function installCliLaunchers(): void {
 
   const entrypoint = resolveCliEntrypoint();
   if (!existsSync(entrypoint)) {
-    log.warn({ entrypoint }, 'Cannot install CLI launchers: CLI entrypoint not found');
+    // In compiled builds (e.g. macOS app via `bun build --compile`), the
+    // source tree isn't available.  Launcher scripts are a dev-mode
+    // convenience; compiled builds use their own command dispatch, so we
+    // silently skip installation.
+    log.debug({ entrypoint }, 'CLI entrypoint not found (compiled build?) — skipping launcher installation');
     return;
   }
 
@@ -97,7 +101,7 @@ export function installCliLaunchers(): void {
     const launcherPath = join(binDir, launcherName);
 
     const script = `#!/bin/bash
-exec ${bunPath} ${entrypoint} ${name} "$@"
+exec "${bunPath}" "${entrypoint}" ${name} "$@"
 `;
 
     writeFileSync(launcherPath, script);

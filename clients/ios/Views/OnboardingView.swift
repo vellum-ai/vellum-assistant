@@ -2,30 +2,48 @@
 import SwiftUI
 import VellumAssistantShared
 
+// Onboarding step identifiers. The path branches at ChoosePath:
+//   Welcome → ChoosePath → (LoginView | DaemonSetup) → Permissions → Ready
+private enum OnboardingStep: Hashable {
+    case welcome
+    case choosePath
+    case login
+    case daemonSetup
+    case permissions
+    case ready
+}
+
 struct OnboardingView: View {
     @Binding var isCompleted: Bool
     @Bindable var authManager: AuthManager
-    @State private var currentStep = 0
-
-    // Steps: Welcome(0) → DaemonSetup(1) → Permissions(2) → Ready(3)
-    // Note: Cloud login path (ChoosePath/LoginView) is disabled until
-    // platform.vellum.ai is deployed. Re-enable when the platform is live.
+    @State private var currentStep: OnboardingStep = .welcome
 
     var body: some View {
-        TabView(selection: $currentStep) {
-            WelcomeStep(onContinue: { currentStep = 1 })
-                .tag(0)
-
-            DaemonSetupStep(onContinue: { currentStep = 2 })
-                .tag(1)
-
-            PermissionsStep(onContinue: { currentStep = 3 })
-                .tag(2)
-
-            ReadyStep(isCompleted: $isCompleted)
-                .tag(3)
+        ZStack {
+            switch currentStep {
+            case .welcome:
+                WelcomeStep(onContinue: { currentStep = .choosePath })
+                    .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
+            case .choosePath:
+                ChoosePathStep(
+                    onLoginWithVellum: { currentStep = .login },
+                    onConnectToMac: { currentStep = .daemonSetup }
+                )
+                .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
+            case .login:
+                LoginView(authManager: authManager, onContinue: { currentStep = .permissions })
+                    .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
+            case .daemonSetup:
+                DaemonSetupStep(onContinue: { currentStep = .permissions })
+                    .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
+            case .permissions:
+                PermissionsStep(onContinue: { currentStep = .ready })
+                    .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
+            case .ready:
+                ReadyStep(isCompleted: $isCompleted)
+                    .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
+            }
         }
-        .tabViewStyle(.page(indexDisplayMode: .never))
         .animation(.easeInOut, value: currentStep)
     }
 }
