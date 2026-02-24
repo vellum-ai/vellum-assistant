@@ -1,12 +1,14 @@
 import SwiftUI
 
-/// A TextFieldStyle that matches the design system input background.
-/// Use on raw TextField / SecureField instances: `.textFieldStyle(VInputStyle())`
-public struct VInputStyle: TextFieldStyle {
+/// A ViewModifier that applies the design system input styling.
+/// Strips the native macOS text field background and applies VColor.inputBackground.
+/// Use on raw TextField / SecureField instances: `.vInputStyle()`
+public struct VInputStyleModifier: ViewModifier {
     public init() {}
 
-    public func _body(configuration: TextField<Self._Label>) -> some View {
-        configuration
+    public func body(content: Content) -> some View {
+        content
+            .textFieldStyle(.plain)
             .padding(VSpacing.md)
             .background(VColor.inputBackground)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
@@ -14,6 +16,12 @@ public struct VInputStyle: TextFieldStyle {
                 RoundedRectangle(cornerRadius: VRadius.md)
                     .stroke(VColor.surfaceBorder, lineWidth: 1)
             )
+    }
+}
+
+extension View {
+    public func vInputStyle() -> some View {
+        modifier(VInputStyleModifier())
     }
 }
 
