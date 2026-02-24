@@ -26,31 +26,11 @@ struct ChatEmptyStateView: View {
     @Binding var isComposerExpanded: Bool
 
     @State private var visible = false
-    @State private var title: String = titles.randomElement()!
-    @State private var placeholder: String = placeholderTexts.randomElement()!
 
     // MARK: - Greeting Data
 
-    static let defaultGreetings = [
-        "What are we working on?",
-        "I'm here whenever you need me.",
-        "What's on your mind?",
-        "Let's make something happen.",
-        "Ready when you are.",
-    ]
-
-    static var titles: [String] {
-        let custom = IdentityInfo.loadGreetings()
-        return custom.isEmpty ? defaultGreetings : custom
-    }
-
-    static let placeholderTexts = [
-        "Ask me anything...",
-        "Tell me what you need...",
-        "Say the word...",
-        "Go ahead, I'm listening...",
-        "Type or hold Fn to talk...",
-    ]
+    private let title = "Let\u{2019}s make something happen."
+    private let placeholder = "What you need chief?"
 
     // MARK: - Body
 
@@ -59,8 +39,10 @@ struct ChatEmptyStateView: View {
             Spacer()
             Spacer()
 
-            Text("🍃")
-                .font(.system(size: 48))
+            DinoFaceView(seed: "default")
+                .frame(width: 48, height: 48)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                .allowsHitTesting(false)
                 .opacity(visible ? 1 : 0)
                 .scaleEffect(visible ? 1 : 0.8)
                 .padding(.bottom, VSpacing.lg)
@@ -107,6 +89,7 @@ struct ChatEmptyStateView: View {
                     onPaste: onPaste,
                     onMicrophoneToggle: onMicrophoneToggle,
                     placeholderText: placeholder,
+                    composerCompactHeight: 68,
                     editorContentHeight: $editorContentHeight,
                     isComposerExpanded: $isComposerExpanded
                 )
