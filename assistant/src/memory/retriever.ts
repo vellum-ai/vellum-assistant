@@ -779,7 +779,10 @@ function isAbortError(err: unknown): boolean {
  * in the message. This avoids false positives from dimension numbers like 512.
  */
 function getErrorStatusCode(err: Error): unknown {
-  if ('status' in err) return (err as { status: unknown }).status;
+  if ('status' in err) {
+    const status = (err as { status: unknown }).status;
+    if (status != null) return status;
+  }
   if ('statusCode' in err) return (err as { statusCode: unknown }).statusCode;
   return undefined;
 }
