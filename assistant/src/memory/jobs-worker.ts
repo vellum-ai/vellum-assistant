@@ -112,40 +112,56 @@ export async function runMemoryJobsOnce(
   let processed = 0;
   const typeGroups = [...jobsByType.values()];
 
-  // Run type groups concurrently (up to workerConcurrency at a time).
-  // Within each group, jobs are processed sequentially.
-  for (let i = 0; i < typeGroups.length; i += concurrency) {
-    const groupChunk = typeGroups.slice(i, i + concurrency);
-    const groupResults = await Promise.allSettled(
-      groupChunk.map(async (group) => {
-        let groupProcessed = 0;
-        for (const job of group) {
-          try {
-            await processJob(job, config);
-            completeMemoryJob(job.id);
-            bumpMemoryVersion();
-            groupProcessed += 1;
-          } catch (err) {
-            try {
-              handleJobError(job, err);
-            } catch (handlerErr) {
-              log.error({ err: handlerErr, jobId: job.id, type: job.type }, 'handleJobError itself threw, job left in running status');
-            }
-          }
+  // Run type groups concurrently using a task pool (up to workerConcurrency
+  // active at a time). Unlike the old wave approach, a new group starts as
+  // soon as any slot frees up — no waiting for an entire wave to finish.
+  const processGroup = async (group: MemoryJob[]): Promise<number> => {
+    let groupProcessed = 0;
+    for (const job of group) {
+      try {
+        await processJob(job, config);
+        completeMemoryJob(job.id);
+        bumpMemoryVersion();
+        groupProcessed += 1;
+      } catch (err) {
+        try {
+          handleJobError(job, err);
+        } catch (handlerErr) {
+          log.error({ err: handlerErr, jobId: job.id, type: job.type }, 'handleJobError itself threw, job left in running status');
         }
-        return groupProcessed;
-      }),
-    );
-    for (const result of groupResults) {
+      }
+    }
+    return groupProcessed;
+  };
+
+  if (typeGroups.length <= concurrency) {
+    // Fast path: all groups fit within the concurrency limit
+    const results = await Promise.allSettled(typeGroups.map(processGroup));
+    for (const result of results) {
       if (result.status === 'fulfilled') {
         processed += result.value;
       } else {
-        // This branch is only reached by an unexpected error in the group
-        // runner itself (not per-job errors, which handleJobError already covers).
-        // Log it so dropped job batches are never silently swallowed.
         log.error({ err: result.reason }, 'Memory job group rejected unexpectedly — jobs in this batch may have been dropped');
       }
     }
+  } else {
+    // Task pool: maintain `concurrency` in-flight groups at all times
+    let nextIdx = 0;
+
+    const startNext = (): Promise<void> | undefined => {
+      if (nextIdx >= typeGroups.length) return undefined;
+      const group = typeGroups[nextIdx++]!;
+      return processGroup(group).then(
+        (count) => { processed += count; },
+        (err) => { log.error({ err }, 'Memory job group rejected unexpectedly — jobs in this batch may have been dropped'); },
+      ).then(() => startNext());
+    };
+
+    const workers = Array.from(
+      { length: Math.min(concurrency, typeGroups.length) },
+      () => startNext()!,
+    );
+    await Promise.all(workers);
   }
   if (enableScheduledCleanup) {
     maybeEnqueueScheduledCleanupJobs(config);
