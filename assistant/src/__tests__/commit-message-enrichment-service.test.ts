@@ -308,25 +308,30 @@ describe('CommitEnrichmentService', () => {
   });
 
   test('job timeout triggers retry with backoff then fails after max retries', async () => {
-    // Use a very short timeout so the real git notes write times out
     const service = new CommitEnrichmentService({
       maxQueueSize: 10,
       maxConcurrency: 1,
-      jobTimeoutMs: 1, // 1ms timeout — will always time out
+      jobTimeoutMs: 10, // short timeout
       maxRetries: 2,
     });
 
     const commitHash = await createCommit();
+
+    // Use a slow gitService so the timeout always wins the race.
+    // A 1ms timeout against a real git write is flaky on fast CI runners.
+    const slowGitService = new WorkspaceGitService(testDir);
+    await slowGitService.ensureInitialized();
+    slowGitService.writeNote = () => new Promise<void>(() => {});
+
     service.enqueue({
       workspaceDir: testDir,
       commitHash,
       context: makeContext(),
-      gitService,
+      gitService: slowGitService,
     });
 
     // Wait for all retries to complete (initial + 2 retries, with backoff)
     // Backoff: 1s after attempt 1, 2s after attempt 2 = ~3s total
-    // But since the job itself is very fast to time out, total time is dominated by backoff
     await waitForDrain(service, 10000);
     await service.shutdown();
 
