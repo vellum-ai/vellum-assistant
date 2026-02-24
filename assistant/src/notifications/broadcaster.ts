@@ -103,13 +103,14 @@ export class NotificationBroadcaster {
       // for the FK. If decision persistence failed (persistedDecisionId is
       // undefined), we still dispatch via the adapter but skip the delivery
       // record — using dedupeKey would violate the FK constraint.
-      const hasPersistedDecision = decision.persistedDecisionId != null;
+      const persistedDecisionId = decision.persistedDecisionId;
+      const hasPersistedDecision = typeof persistedDecisionId === 'string';
 
       try {
         if (hasPersistedDecision) {
           createDelivery({
             id: deliveryId,
-            notificationDecisionId: decision.persistedDecisionId,
+            notificationDecisionId: persistedDecisionId,
             assistantId: signal.assistantId,
             channel,
             destination: destinationLabel,

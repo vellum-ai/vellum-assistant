@@ -418,8 +418,13 @@ export async function handleChannelInbound(
         // the pending escalation even if channel notification failed.
         log.error({ err, conversationId: result.conversationId, guardianChatId: binding.guardianDeliveryChatId }, 'Failed to notify guardian of ingress escalation');
       }
-    } else {
+    } else if (!notificationsActive) {
       log.warn({ conversationId: result.conversationId }, 'Ingress escalation created but no replyCallbackUrl to notify guardian');
+    } else {
+      log.info(
+        { conversationId: result.conversationId },
+        'Skipping legacy guardian escalation callback delivery — notification pipeline active',
+      );
     }
 
     return Response.json({ accepted: true, escalated: true, reason: 'policy_escalate' });

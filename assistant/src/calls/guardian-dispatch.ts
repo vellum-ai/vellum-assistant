@@ -108,7 +108,7 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
     // it handles external channel delivery (Telegram, SMS) — skip the
     // legacy dispatch for those channels to avoid duplicate alerts.
     const notifConfig = getConfig().notifications;
-    const notificationsActive = notifConfig.enabled && !notifConfig.shadowMode;
+    const notificationsActive = notifConfig?.enabled === true && notifConfig.shadowMode !== true;
 
     // Determine delivery destinations
     const destinations: Array<{
@@ -197,6 +197,7 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
         if (!notificationsActive) {
           void deliverToExternalChannel(delivery.id, dest.channel, dest.chatId!, request.questionText, request.requestCode, assistantId, readHttpToken() ?? undefined);
         } else {
+          updateDeliveryStatus(delivery.id, 'sent');
           log.info({ deliveryId: delivery.id, channel: dest.channel }, 'Skipping legacy external delivery — notification pipeline active');
         }
       }

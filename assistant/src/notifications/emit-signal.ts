@@ -100,7 +100,7 @@ export interface EmitSignalParams {
  */
 export async function emitNotificationSignal(params: EmitSignalParams): Promise<void> {
   const config = getConfig();
-  if (!config.notifications.enabled) {
+  if (!config.notifications?.enabled) {
     log.debug({ sourceEventName: params.sourceEventName }, 'Notification system disabled, skipping signal');
     return;
   }
