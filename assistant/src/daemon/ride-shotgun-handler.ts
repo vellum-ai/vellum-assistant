@@ -135,6 +135,21 @@ export async function handleRideShotgunStart(
           activeRecorders.set(watchId, recorder);
           log.info({ watchId, targetDomain, attempt }, 'Network recording started for learn session');
 
+          // Send periodic progress updates with network entry counts
+          const progressInterval = setInterval(() => {
+            if (session.status !== 'active') {
+              clearInterval(progressInterval);
+              return;
+            }
+            ctx.send(socket, {
+              type: 'ride_shotgun_progress',
+              watchId,
+              message: `Recording network traffic...`,
+              networkEntryCount: recorder.entryCount,
+              statusMessage: 'Recording network traffic...',
+            });
+          }, 5000);
+
           // For x.com, auto-navigate Chrome through key pages to capture the full API surface.
           // Skip login detection — auto-navigation will complete the session when done.
           if (targetDomain === 'x.com' || targetDomain === 'twitter.com') {

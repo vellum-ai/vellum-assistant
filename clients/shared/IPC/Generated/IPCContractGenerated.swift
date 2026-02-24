@@ -2605,11 +2605,15 @@ public struct IPCRideShotgunProgress: Codable, Sendable {
     public let type: String
     public let watchId: String
     public let message: String
+    public let networkEntryCount: Int?
+    public let statusMessage: String?
 
-    public init(type: String, watchId: String, message: String) {
+    public init(type: String, watchId: String, message: String, networkEntryCount: Int? = nil, statusMessage: String? = nil) {
         self.type = type
         self.watchId = watchId
         self.message = message
+        self.networkEntryCount = networkEntryCount
+        self.statusMessage = statusMessage
     }
 }
 

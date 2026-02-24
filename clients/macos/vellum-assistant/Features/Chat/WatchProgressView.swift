@@ -4,6 +4,8 @@ import VellumAssistantShared
 struct WatchProgressView: View {
     @ObservedObject var session: WatchSession
     let onStop: () -> Void
+    var isLearnMode: Bool = false
+    var networkEntryCount: Int = 0
 
     @State private var isPulsing = false
 
@@ -26,9 +28,9 @@ struct WatchProgressView: View {
 
     var body: some View {
         VStack(spacing: VSpacing.md) {
-            // Pulsing eye icon + label
+            // Pulsing icon + label
             HStack(spacing: VSpacing.sm) {
-                Image(systemName: "eye.fill")
+                Image(systemName: isLearnMode ? "antenna.radiowaves.left.and.right" : "eye.fill")
                     .foregroundColor(VColor.accent)
                     .opacity(isPulsing ? 0.4 : 1.0)
                     .animation(
@@ -36,7 +38,7 @@ struct WatchProgressView: View {
                         value: isPulsing
                     )
 
-                Text("Watching your workflow...")
+                Text(isLearnMode ? "Recording network traffic..." : "Watching your workflow...")
                     .font(VFont.bodyMedium)
                     .foregroundColor(VColor.textPrimary)
 
@@ -62,9 +64,15 @@ struct WatchProgressView: View {
                         .font(VFont.caption)
                         .foregroundColor(VColor.textSecondary)
                     Spacer()
-                    Text("\(session.captureCount)/\(session.totalExpected) captures")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
+                    if isLearnMode {
+                        Text("\(networkEntryCount) network entries")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+                    } else {
+                        Text("\(session.captureCount)/\(session.totalExpected) captures")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+                    }
                 }
             }
 

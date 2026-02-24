@@ -627,6 +627,8 @@ struct ActiveChatViewWrapper: View {
             onDismissSessionError: { viewModel.dismissSessionError() },
             onCopyDebugInfo: { viewModel.copySessionErrorDebugDetails() },
             watchSession: ambientAgent.activeWatchSession,
+            isLearnMode: ambientAgent.currentSession?.isLearnMode ?? false,
+            networkEntryCount: ambientAgent.currentSession?.networkEntryCount ?? 0,
             onStopWatch: { viewModel.stopWatchSession() },
             onReportMessage: { daemonMessageId in
                 guard let sessionId = viewModel.sessionId else { return }
