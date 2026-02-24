@@ -74,9 +74,11 @@ struct TaskInputView: View {
                                 Text(attachment.fileName)
                                     .font(.caption)
                                     .lineLimit(1)
+                                    .textSelection(.enabled)
                                 Text("(\(ByteCountFormatter.string(fromByteCount: Int64(attachment.sizeBytes), countStyle: .file)))")
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
+                                    .textSelection(.enabled)
                                 Button {
                                     removeAttachment(id: attachment.id)
                                 } label: {
@@ -103,12 +105,14 @@ struct TaskInputView: View {
                 Text(attachmentError)
                     .font(.caption)
                     .foregroundStyle(.red)
+                    .textSelection(.enabled)
             }
 
             if !hasAPIKey {
                 Text("No API key configured. Open Settings to add one.")
                     .font(.caption)
                     .foregroundStyle(.red)
+                    .textSelection(.enabled)
             }
 
             HStack {

@@ -22,11 +22,13 @@ struct ChatErrorBanner: View {
                 Text(text)
                     .font(VFont.caption)
                     .lineLimit(4)
+                    .textSelection(.enabled)
                 if isConnectionError, let hint = connectionDiagnosticHint {
                     Text(hint)
                         .font(VFont.small)
                         .opacity(0.8)
                         .lineLimit(2)
+                        .textSelection(.enabled)
                 }
             }
 
@@ -107,11 +109,13 @@ struct ChatSessionErrorToast: View {
                     .font(VFont.caption)
                     .foregroundColor(VColor.textPrimary)
                     .lineLimit(2)
+                    .textSelection(.enabled)
 
                 Text(error.recoverySuggestion)
                     .font(VFont.small)
                     .foregroundColor(VColor.textSecondary)
                     .lineLimit(1)
+                    .textSelection(.enabled)
             }
 
             Spacer()

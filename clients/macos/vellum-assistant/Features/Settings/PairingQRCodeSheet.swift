@@ -224,6 +224,7 @@ struct PairingQRCodeSheet: View {
                         .disabled(resolvedBearerToken.isEmpty)
                     }
                 }
+                .textSelection(.enabled)
             }
             .padding(VSpacing.md)
             .background(VColor.surfaceSubtle)

@@ -33,6 +33,7 @@ struct WakeUpStepView: View {
         Text("Create your Vellum")
             .font(.system(size: 32, weight: .regular, design: .serif))
             .foregroundColor(VColor.textPrimary)
+            .textSelection(.enabled)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.md)
@@ -42,6 +43,7 @@ struct WakeUpStepView: View {
             .font(.system(size: 16, design: .monospaced))
             .foregroundColor(VColor.textSecondary)
             .multilineTextAlignment(.center)
+            .textSelection(.enabled)
             .opacity(showSubtext ? 1 : 0)
             .offset(y: showSubtext ? 0 : 8)
 
@@ -49,6 +51,7 @@ struct WakeUpStepView: View {
         Text("How would you like to start?")
             .font(.system(size: 16, weight: .medium, design: .monospaced))
             .foregroundColor(VColor.textPrimary)
+            .textSelection(.enabled)
             .opacity(showSubtext ? 1 : 0)
             .offset(y: showSubtext ? 0 : 8)
             .padding(.top, VSpacing.xxl)
@@ -79,6 +82,7 @@ struct WakeUpStepView: View {
                     .font(VFont.caption)
                     .foregroundColor(VColor.error)
                     .multilineTextAlignment(.center)
+                    .textSelection(.enabled)
             }
         }
         .padding(.horizontal, VSpacing.xxl)
@@ -171,4 +175,3 @@ struct WakeUpStepView: View {
     }
     .frame(width: 520, height: 580)
 }
-

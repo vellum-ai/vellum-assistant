@@ -25,10 +25,12 @@ struct AliveStepView: View {
                 Text("\(state.assistantName.isEmpty ? "It" : state.assistantName) has hatched.")
                     .font(VFont.onboardingTitle)
                     .foregroundColor(VColor.textPrimary)
+                    .textSelection(.enabled)
 
                 Text("All set up and ready to help.")
                     .font(VFont.onboardingSubtitle)
                     .foregroundColor(VColor.textSecondary)
+                    .textSelection(.enabled)
             }
 
             // Ability tags — 2x2 grid
@@ -76,6 +78,7 @@ struct AliveStepView: View {
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
                     .multilineTextAlignment(.center)
+                    .textSelection(.enabled)
                     .opacity(showButtons ? 1 : 0)
             }
         }
@@ -97,6 +100,7 @@ struct AliveStepView: View {
                 .font(VFont.caption)
             Text(title)
                 .font(VFont.captionMedium)
+                .textSelection(.enabled)
         }
         .foregroundColor(VColor.textPrimary.opacity(0.8))
         .padding(.horizontal, VSpacing.lg)

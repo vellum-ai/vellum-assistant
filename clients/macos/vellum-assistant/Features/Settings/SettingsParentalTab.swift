@@ -50,11 +50,13 @@ struct SettingsParentalTab: View {
                 Text(error)
                     .font(VFont.caption)
                     .foregroundColor(VColor.error)
+                    .textSelection(.enabled)
             }
             if let success = successMessage {
                 Text(success)
                     .font(VFont.caption)
                     .foregroundColor(VColor.success)
+                    .textSelection(.enabled)
             }
 
             Spacer()
@@ -120,6 +122,7 @@ struct SettingsParentalTab: View {
                 .font(VFont.caption)
                 .foregroundColor(VColor.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
 
             HStack {
                 Toggle("Enable Parental Controls", isOn: Binding(
@@ -158,6 +161,7 @@ struct SettingsParentalTab: View {
                 .font(VFont.caption)
                 .foregroundColor(VColor.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
 
             HStack(spacing: VSpacing.sm) {
                 if hasPIN {
@@ -194,6 +198,7 @@ struct SettingsParentalTab: View {
             Text("Block responses on these topics.")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textSecondary)
+                .textSelection(.enabled)
 
             ForEach(ContentTopic.allCases) { topic in
                 Toggle(topic.displayName, isOn: Binding(
@@ -220,6 +225,7 @@ struct SettingsParentalTab: View {
             Text("Prevent the assistant from using these tool categories.")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textSecondary)
+                .textSelection(.enabled)
 
             ForEach(ToolCategory.allCases) { category in
                 VStack(alignment: .leading, spacing: 2) {
@@ -239,6 +245,7 @@ struct SettingsParentalTab: View {
                         .font(VFont.caption)
                         .foregroundColor(VColor.textMuted)
                         .padding(.leading, 20)
+                        .textSelection(.enabled)
                 }
             }
         }
@@ -253,10 +260,12 @@ struct SettingsParentalTab: View {
             Text("Settings are locked")
                 .font(VFont.bodyMedium)
                 .foregroundColor(VColor.textSecondary)
+                .textSelection(.enabled)
 
             Text("Enter your PIN to make changes.")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textMuted)
+                .textSelection(.enabled)
 
             VButton(label: "Unlock", style: .primary) {
                 errorMessage = nil

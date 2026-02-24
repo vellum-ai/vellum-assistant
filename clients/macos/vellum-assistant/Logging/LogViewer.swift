@@ -18,6 +18,7 @@ struct LogViewer: View {
             )) { url in
                 Text(url.lastPathComponent)
                     .font(.caption.monospaced())
+                    .textSelection(.enabled)
             }
             .navigationTitle("Session Logs")
         } detail: {
@@ -51,6 +52,7 @@ struct LogViewer: View {
                         }
                     }
                     .padding()
+                    .textSelection(.enabled)
                 }
             } else {
                 Text("Select a log file")

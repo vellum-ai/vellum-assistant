@@ -14,6 +14,7 @@ struct ToolPermissionTesterView: View {
             Text("Test how a tool invocation would be evaluated by the permission system.")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textMuted)
+                .textSelection(.enabled)
 
             formFields
 
@@ -256,6 +257,7 @@ struct ToolPermissionTesterView: View {
                     .font(VFont.caption)
                     .foregroundColor(VColor.error)
             }
+            .textSelection(.enabled)
         }
 
         if let result = model.lastResult {
@@ -331,6 +333,7 @@ struct ToolPermissionTesterView: View {
                     }
                 }
             }
+            .textSelection(.enabled)
         }
     }
 
