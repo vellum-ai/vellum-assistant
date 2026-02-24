@@ -1161,7 +1161,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     // MARK: - Integrations Status
 
-    /// Response from the `GET /integrations/status` gateway endpoint.
     public struct IntegrationsStatusResponse: Decodable {
         public struct Email: Decodable {
             public let address: String?
@@ -1169,9 +1168,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         public let email: Email
     }
 
-    /// Fetch integration status from the gateway via HTTP (`GET /integrations/status`).
-    /// Uses `httpTransport` for remote assistants or `httpPort` for local connections.
-    /// Returns the decoded response, or `nil` if the request fails.
+    /// Fetches integration status (e.g. assigned email) from the gateway via HTTP.
+    /// Returns `nil` when the gateway is unreachable or the request fails.
     public func fetchIntegrationsStatus() async -> IntegrationsStatusResponse? {
         let baseURL: String
         let bearerToken: String?

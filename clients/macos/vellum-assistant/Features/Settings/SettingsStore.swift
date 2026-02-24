@@ -1054,11 +1054,8 @@ public final class SettingsStore: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
     }
 
-    // MARK: - Ingress Config Actions
-
     // MARK: - Email Integration
 
-    /// Fetches the assistant email from the gateway's `/integrations/status` endpoint.
     func refreshAssistantEmail() {
         guard let daemonClient else { return }
         Task {
