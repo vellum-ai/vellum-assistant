@@ -9,7 +9,7 @@ import { existsSync, readFileSync, statSync, statfsSync } from 'node:fs';
 import { resolve, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { timingSafeEqual } from 'node:crypto';
-import { assertChannelId, isChannelId } from '../channels/types.js';
+import { parseChannelId, isChannelId } from '../channels/types.js';
 import { ConfigError, IngressBlockedError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
 import { getWorkspacePromptPath, readLockfile } from '../util/platform.js';
@@ -959,7 +959,14 @@ export class RuntimeHttpServer {
 
       const content = typeof payload.content === 'string' ? payload.content.trim() : '';
       const attachmentIds = Array.isArray(payload.attachmentIds) ? payload.attachmentIds as string[] : undefined;
-      const sourceChannel = assertChannelId(payload.sourceChannel, 'sourceChannel');
+      const sourceChannel = parseChannelId(payload.sourceChannel);
+      if (!sourceChannel) {
+        channelDeliveryStore.recordProcessingFailure(
+          event.id,
+          new Error(`Invalid sourceChannel: ${String(payload.sourceChannel)}`),
+        );
+        continue;
+      }
       const sourceMetadata = payload.sourceMetadata as Record<string, unknown> | undefined;
       const assistantId = typeof payload.assistantId === 'string'
         ? payload.assistantId
