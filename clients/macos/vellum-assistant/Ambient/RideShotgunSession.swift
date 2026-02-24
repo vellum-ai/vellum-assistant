@@ -21,6 +21,8 @@ public final class RideShotgunSession: ObservableObject {
     @Published public var observationCount: Int = 0
     @Published public var recordingId: String?
     @Published public var recordingPath: String?
+    @Published public var networkEntryCount: Int = 0
+    @Published public var statusMessage: String = ""
 
     // Pass-through from WatchSession
     @Published public var elapsedSeconds: Double = 0
@@ -31,6 +33,7 @@ public final class RideShotgunSession: ObservableObject {
     public let intervalSeconds: Int
     public let mode: String?
     public let targetDomain: String?
+    public var isLearnMode: Bool { mode == "learn" }
 
     private var watchSession: WatchSession?
     private var daemonClient: DaemonClient?
@@ -63,6 +66,13 @@ public final class RideShotgunSession: ObservableObject {
                 switch message {
                 case .watchStarted(let started):
                     self.handleWatchStarted(started, daemonClient: daemonClient)
+                case .rideShotgunProgress(let progress):
+                    if let count = progress.networkEntryCount {
+                        self.networkEntryCount = count
+                    }
+                    if let msg = progress.statusMessage, !msg.isEmpty {
+                        self.statusMessage = msg
+                    }
                 case .rideShotgunResult(let result):
                     self.handleRideShotgunResult(result)
                 default:
@@ -128,7 +138,8 @@ public final class RideShotgunSession: ObservableObject {
             watchId: message.watchId,
             sessionId: message.sessionId,
             durationSeconds: durationSeconds,
-            intervalSeconds: intervalSeconds
+            intervalSeconds: intervalSeconds,
+            isLearnMode: isLearnMode
         )
         self.watchSession = session
         session.start(daemonClient: daemonClient)

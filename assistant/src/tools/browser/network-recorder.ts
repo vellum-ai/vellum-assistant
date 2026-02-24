@@ -106,6 +106,11 @@ export class NetworkRecorder {
   /** URL patterns that indicate a successful login (checked via `includes`). */
   loginSignals: string[] = [];
 
+  /** Number of network entries recorded so far. */
+  get entryCount(): number {
+    return this.entries.size;
+  }
+
   constructor(targetDomain?: string) {
     this.targetDomain = targetDomain;
   }

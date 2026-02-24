@@ -121,6 +121,8 @@ export interface RideShotgunProgress {
   type: 'ride_shotgun_progress';
   watchId: string;
   message: string;
+  networkEntryCount?: number;
+  statusMessage?: string;
 }
 
 export interface RideShotgunResult {
