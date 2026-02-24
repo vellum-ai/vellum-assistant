@@ -338,7 +338,15 @@ export class RunOrchestrator {
 
     return {
       run,
-      abort: () => session.abort(),
+      // Scope the abort to this specific run by capturing the requestId.
+      // If the session has moved on to a new turn (different currentRequestId),
+      // this abort is stale and becomes a no-op — preventing voice barge-in
+      // from cancelling unrelated turns.
+      abort: () => {
+        if (session.currentRequestId === requestId) {
+          session.abort();
+        }
+      },
     };
   }
 
