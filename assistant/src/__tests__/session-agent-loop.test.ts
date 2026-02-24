@@ -307,15 +307,6 @@ function makeCtx(overrides?: Partial<AgentLoopSessionContext> & { agentLoopRun?:
   } as AgentLoopSessionContext;
 }
 
-function collectEvents(onEvent: (msg: ServerMessage) => void): ServerMessage[] {
-  const events: ServerMessage[] = [];
-  return new Proxy(events, {
-    get(target, prop) {
-      if (prop === 'push') return (msg: ServerMessage) => target.push(msg);
-      return Reflect.get(target, prop);
-    },
-  });
-}
 
 // ── Tests ────────────────────────────────────────────────────────────
 
