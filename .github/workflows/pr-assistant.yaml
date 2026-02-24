@@ -5,8 +5,6 @@ on:
     types: [labeled, synchronize, opened, reopened]
     paths:
       - 'assistant/**'
-      - 'clients/shared/IPC/**'
-      - '.githooks/**'
       - '.github/workflows/pr-assistant.yaml'
 
 concurrency:

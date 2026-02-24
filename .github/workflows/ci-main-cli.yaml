@@ -1,4 +1,4 @@
-name: ci-main-cli.yaml
+name: CI Main CLI Checks
 
 on:
   push:

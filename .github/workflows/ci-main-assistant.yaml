@@ -1,12 +1,10 @@
-name: ci-main-assistant.yaml
+name: CI Main Assistant Checks
 
 on:
   push:
     branches: [main]
     paths:
       - 'assistant/**'
-      - 'clients/shared/IPC/**'
-      - '.githooks/**'
       - '.github/workflows/ci-main-assistant.yaml'
 
 jobs:

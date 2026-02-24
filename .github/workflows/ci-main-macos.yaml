@@ -1,4 +1,4 @@
-name: ci-main-macos.yaml
+name: CI Main macOS Build
 
 on:
   push:
@@ -6,7 +6,6 @@ on:
     paths:
       - 'clients/macos/**'
       - 'clients/shared/**'
-      - 'cli/**'
       - '.github/workflows/ci-main-macos.yaml'
 
 jobs:

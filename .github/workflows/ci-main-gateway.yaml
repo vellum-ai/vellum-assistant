@@ -1,4 +1,4 @@
-name: ci-main-gateway.yaml
+name: CI Main Gateway Checks
 
 on:
   push:
