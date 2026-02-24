@@ -326,11 +326,11 @@ export class ChannelReadinessService {
           remoteChecksAffectReadiness = true;
         }
       } else if (cached?.remoteChecks) {
-        // Surface cached remote checks when present. Stale checks are included
-        // for visibility but do not affect readiness until explicitly refreshed.
+        // Surface cached remote checks for visibility but never let them affect
+        // readiness when the caller explicitly opted out of remote checks.
         remoteChecks = cached.remoteChecks;
         stale = (now - cached.checkedAt) >= REMOTE_TTL_MS;
-        remoteChecksAffectReadiness = !stale;
+        remoteChecksAffectReadiness = false;
       }
 
       const allLocalPassed = localChecks.every((c) => c.passed);

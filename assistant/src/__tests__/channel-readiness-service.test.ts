@@ -255,6 +255,28 @@ describe('ChannelReadinessService', () => {
     ]);
   });
 
+  test('fresh cached remote failures do not affect local-only readiness', async () => {
+    const probe = makeProbe(
+      'sms',
+      [{ name: 'creds', passed: true, message: 'ok' }],
+      [{ name: 'api_check', passed: false, message: 'API unreachable' }],
+    );
+    service.registerProbe(probe);
+
+    // Prime remote cache with a failing check
+    await service.getReadiness('sms', true);
+
+    // Immediately call with includeRemote=false (cache is still fresh within TTL).
+    // The cached remote failure should be surfaced for visibility but must NOT
+    // affect readiness when the caller explicitly opted out of remote checks.
+    const [snapshot] = await service.getReadiness('sms', false);
+    expect(snapshot.ready).toBe(true);
+    expect(snapshot.reasons).toEqual([]);
+    // Remote checks are still visible for informational purposes
+    expect(snapshot.remoteChecks).toHaveLength(1);
+    expect(snapshot.remoteChecks![0].passed).toBe(false);
+  });
+
   test('stale cached remote failures do not affect local-only readiness', async () => {
     const probe = makeProbe(
       'sms',
