@@ -43,6 +43,12 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
   const { plan, limits, backend, workingDir, model, onStatus, signal } = opts;
   const startTime = Date.now();
 
+  // Safety net: reject cyclic plans even if the caller skipped validation
+  const cyclePath = detectCycle(plan.tasks);
+  if (cyclePath) {
+    throw new Error(`Swarm plan contains a dependency cycle: ${cyclePath.join(' -> ')}`);
+  }
+
   onStatus?.({ kind: 'plan_created', message: `Plan with ${plan.tasks.length} tasks` });
 
   const results = new Map<string, SwarmTaskResult>();
@@ -251,6 +257,62 @@ function blockDependents(
       blockDependents(depId, dependents, blocked, onStatus);
     }
   }
+}
+
+/**
+ * DFS-based cycle detection. Returns the cycle path (e.g. ['a', 'b', 'c', 'a'])
+ * if a cycle exists, or null if the graph is a valid DAG.
+ */
+function detectCycle(tasks: SwarmTaskNode[]): string[] | null {
+  const adj = new Map<string, string[]>();
+  for (const t of tasks) {
+    adj.set(t.id, []);
+  }
+  for (const t of tasks) {
+    for (const dep of t.dependencies) {
+      // Edge from dep -> t.id (dep must finish before t)
+      adj.get(dep)?.push(t.id);
+    }
+  }
+
+  const WHITE = 0, GRAY = 1, BLACK = 2;
+  const color = new Map<string, number>();
+  for (const t of tasks) color.set(t.id, WHITE);
+
+  const parent = new Map<string, string>();
+
+  function dfs(node: string): string[] | null {
+    color.set(node, GRAY);
+    for (const neighbor of adj.get(node) ?? []) {
+      if (color.get(neighbor) === GRAY) {
+        // Reconstruct cycle path
+        const cycle = [neighbor, node];
+        let cur = node;
+        while (cur !== neighbor) {
+          cur = parent.get(cur)!;
+          if (cur === undefined) break;
+          cycle.push(cur);
+        }
+        cycle.reverse();
+        return cycle;
+      }
+      if (color.get(neighbor) === WHITE) {
+        parent.set(neighbor, node);
+        const result = dfs(neighbor);
+        if (result) return result;
+      }
+    }
+    color.set(node, BLACK);
+    return null;
+  }
+
+  for (const t of tasks) {
+    if (color.get(t.id) === WHITE) {
+      const result = dfs(t.id);
+      if (result) return result;
+    }
+  }
+  return null;
 }
 
 function buildMarkdownFallback(objective: string, results: SwarmTaskResult[]): string {
