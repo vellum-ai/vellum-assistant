@@ -65,6 +65,7 @@ import {
 } from '../runtime/approval-message-composer.js';
 import { getHookManager } from '../hooks/manager.js';
 import { installTemplates } from '../hooks/templates.js';
+import { installCliLaunchers } from './install-cli-launchers.js';
 import { HeartbeatService } from '../workspace/heartbeat-service.js';
 import { AgentHeartbeatService } from '../agent-heartbeat/agent-heartbeat-service.js';
 import { getEnrichmentService } from '../workspace/commit-message-enrichment-service.js';
@@ -374,6 +375,13 @@ export async function runDaemon(): Promise<void> {
   log.info('Daemon startup: installing templates and initializing DB');
   installTemplates();
   ensurePromptFiles();
+
+  // Install standalone CLI launchers (e.g. doordash, map) in ~/.vellum/bin/
+  try {
+    installCliLaunchers();
+  } catch (err) {
+    log.warn({ err }, 'CLI launcher installation failed — continuing startup');
+  }
   initializeDb();
   log.info('Daemon startup: DB initialized');
 
