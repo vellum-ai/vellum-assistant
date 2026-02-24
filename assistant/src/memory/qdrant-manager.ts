@@ -4,6 +4,7 @@ import { arch, platform } from 'node:os';
 import type { Subprocess } from 'bun';
 import { getLogger } from '../util/logger.js';
 import { getDataDir } from '../util/platform.js';
+import { getQdrantUrlEnv } from '../config/env.js';
 
 const log = getLogger('qdrant-manager');
 
@@ -59,7 +60,7 @@ export class QdrantManager {
     this.shutdownGraceMs = config.shutdownGraceMs ?? SHUTDOWN_GRACE_MS;
 
     // External mode only if QDRANT_URL is explicitly set
-    this.isExternal = Boolean(process.env.QDRANT_URL?.trim());
+    this.isExternal = Boolean(getQdrantUrlEnv());
   }
 
   async start(): Promise<void> {

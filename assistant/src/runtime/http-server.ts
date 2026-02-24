@@ -12,6 +12,12 @@ import { timingSafeEqual } from 'node:crypto';
 import { ConfigError, IngressBlockedError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
 import { getWorkspacePromptPath, readLockfile } from '../util/platform.js';
+import {
+  getGatewayInternalBaseUrl,
+  isTwilioWebhookValidationDisabled,
+  isHttpAuthDisabled,
+  getRuntimeGatewayOriginSecret,
+} from '../config/env.js';
 import { TwilioConversationRelayProvider } from '../calls/twilio-provider.js';
 import { loadConfig } from '../config/loader.js';
 import { getPublicBaseUrl } from '../inbound/public-ingress-urls.js';
@@ -104,11 +110,7 @@ const DEFAULT_HOSTNAME = '127.0.0.1';
 
 /** Resolve the gateway base URL for internal delivery callbacks. */
 function getGatewayBaseUrl(): string {
-  if (process.env.GATEWAY_INTERNAL_BASE_URL) {
-    return process.env.GATEWAY_INTERNAL_BASE_URL.replace(/\/+$/, '');
-  }
-  const port = Number(process.env.GATEWAY_PORT) || 7830;
-  return `http://127.0.0.1:${port}`;
+  return getGatewayInternalBaseUrl();
 }
 
 /** Global hard cap on request body size (50 MB). Bun rejects larger payloads before they reach handlers. */
@@ -154,7 +156,7 @@ interface DiskSpaceInfo {
 
 function getDiskSpaceInfo(): DiskSpaceInfo | null {
   try {
-    const baseDataDir = process.env.BASE_DATA_DIR?.trim();
+    const baseDataDir = process.env.BASE_DATA_DIR?.trim(); // bootstrap-layer env var, stays in platform.ts
     const diskPath = baseDataDir && existsSync(baseDataDir) ? baseDataDir : '/';
     const stats = statfsSync(diskPath);
     const totalBytes = stats.bsize * stats.blocks;
@@ -310,7 +312,7 @@ async function validateTwilioWebhook(
   const rawBody = await req.text();
 
   // Allow explicit local-dev bypass — must be exactly "true"
-  if (process.env.TWILIO_WEBHOOK_VALIDATION_DISABLED === 'true') {
+  if (isTwilioWebhookValidationDisabled()) {
     log.warn('Twilio webhook signature validation explicitly disabled via TWILIO_WEBHOOK_VALIDATION_DISABLED');
     return { body: rawBody };
   }
@@ -578,7 +580,7 @@ export class RuntimeHttpServer {
     }
 
     // Require bearer token when configured
-    if ((process.env.DISABLE_HTTP_AUTH ?? "").toLowerCase() !== "true" && this.bearerToken) {
+    if (!isHttpAuthDisabled() && this.bearerToken) {
       const authHeader = req.headers.get('authorization');
       const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
       if (!token || !this.verifyToken(token)) {
@@ -789,7 +791,7 @@ export class RuntimeHttpServer {
       }
 
       if (endpoint === 'channels/inbound' && req.method === 'POST') {
-        const gatewayOriginSecret = process.env.RUNTIME_GATEWAY_ORIGIN_SECRET || undefined;
+        const gatewayOriginSecret = getRuntimeGatewayOriginSecret();
         return await handleChannelInbound(req, this.processMessage, this.bearerToken, this.runOrchestrator, assistantId, gatewayOriginSecret, this.approvalCopyGenerator);
       }
 

@@ -11,6 +11,7 @@ import { randomInt } from 'node:crypto';
 import { getLogger } from '../util/logger.js';
 import { parseJsonSafe } from '../util/json.js';
 import { getConfig } from '../config/loader.js';
+import { getCallWelcomeGreeting } from '../config/env.js';
 import {
   getCallSession,
   updateCallSession,
@@ -361,7 +362,7 @@ export class RelayConnection {
       // configured via CALL_WELCOME_GREETING — Twilio's ConversationRelay will
       // speak it at the transport level, so firing the orchestrator opener too
       // would cause a double greeting.
-      const hasStaticGreeting = !!process.env.CALL_WELCOME_GREETING?.trim();
+      const hasStaticGreeting = !!getCallWelcomeGreeting();
       if (!hasStaticGreeting) {
         orchestrator.startInitialGreeting().catch((err) =>
           log.error({ err, callSessionId: this.callSessionId }, 'Failed to start initial outbound greeting'),

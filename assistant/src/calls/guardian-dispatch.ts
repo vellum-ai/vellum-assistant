@@ -10,6 +10,7 @@
  */
 
 import { getLogger } from '../util/logger.js';
+import { getGatewayInternalBaseUrl } from '../config/env.js';
 import { getActiveBinding } from '../memory/channel-guardian-store.js';
 import {
   createGuardianActionRequest,
@@ -28,11 +29,7 @@ const log = getLogger('guardian-dispatch');
 
 /** Resolve the gateway base URL for internal delivery callbacks. */
 function getGatewayBaseUrl(): string {
-  if (process.env.GATEWAY_INTERNAL_BASE_URL) {
-    return process.env.GATEWAY_INTERNAL_BASE_URL.replace(/\/+$/, '');
-  }
-  const port = Number(process.env.GATEWAY_PORT) || 7830;
-  return `http://127.0.0.1:${port}`;
+  return getGatewayInternalBaseUrl();
 }
 
 export interface GuardianDispatchParams {
