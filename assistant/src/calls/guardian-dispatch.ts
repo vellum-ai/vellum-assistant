@@ -24,6 +24,7 @@ import { addMessage } from '../memory/conversation-store.js';
 import type { CallPendingQuestion } from './types.js';
 import { readHttpToken } from '../util/platform.js';
 import type { ServerMessage } from '../daemon/ipc-contract.js';
+import { generateGuardianCopy } from './guardian-question-copy.js';
 
 const log = getLogger('guardian-dispatch');
 
@@ -104,6 +105,12 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
     // Mac (internal) delivery — always created
     destinations.push({ channel: 'macos' });
 
+    // Generate thread copy for the mac guardian thread (title + initial message)
+    const guardianCopy = await generateGuardianCopy(
+      pendingQuestion.questionText,
+      request.requestCode,
+    );
+
     // Create delivery rows and dispatch
     for (const dest of destinations) {
       if (dest.channel === 'macos') {
@@ -121,7 +128,7 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
         addMessage(
           macConversationId,
           'assistant',
-          JSON.stringify([{ type: 'text', text: `Your assistant needs your input during a phone call.\n\nQuestion: ${request.questionText}\n\nReply to this message with your answer.` }]),
+          JSON.stringify([{ type: 'text', text: guardianCopy.initialMessage }]),
           { userMessageChannel: 'voice', assistantMessageChannel: 'macos' },
         );
 
@@ -132,7 +139,7 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
             conversationId: macConversationId,
             requestId: request.id,
             callSessionId,
-            title: `Guardian question: ${pendingQuestion.questionText.slice(0, 80)}`,
+            title: guardianCopy.threadTitle,
           } as ServerMessage);
         }
         updateDeliveryStatus(delivery.id, 'sent');
