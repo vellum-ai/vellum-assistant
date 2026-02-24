@@ -110,6 +110,12 @@ final class QuickChatPanel {
 
     /// Shows a brief "Message sent" toast near the given frame, then auto-dismisses.
     private func showSentToast(near frame: NSRect) {
+        // Close any existing toast immediately to prevent timer races
+        if let existing = toastPanel {
+            existing.close()
+            toastPanel = nil
+        }
+
         let toastView = HStack(spacing: VSpacing.sm) {
             Image(systemName: "checkmark.circle.fill")
                 .foregroundColor(VColor.success)
@@ -163,16 +169,18 @@ final class QuickChatPanel {
 
         self.toastPanel = toast
 
-        // Auto-dismiss after 1.5 seconds
+        // Auto-dismiss after 1.5 seconds. Capture `toast` directly so it's
+        // always closed even if `self` (QuickChatPanel) is deallocated first.
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
-            guard let toast = self?.toastPanel else { return }
             NSAnimationContext.runAnimationGroup({ context in
                 context.duration = VAnimation.durationFast
                 context.timingFunction = CAMediaTimingFunction(name: .easeIn)
                 toast.animator().alphaValue = 0
             }, completionHandler: {
                 toast.close()
-                self?.toastPanel = nil
+                if self?.toastPanel === toast {
+                    self?.toastPanel = nil
+                }
             })
         }
     }
