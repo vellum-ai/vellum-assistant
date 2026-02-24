@@ -600,18 +600,22 @@ struct HomeBaseView: View {
                     Button("Add") {
                         let trimmedName = newPinName.trimmingCharacters(in: .whitespaces)
                         let trimmedURL = newPinURL.trimmingCharacters(in: .whitespaces)
-                        guard !trimmedName.isEmpty else { return }
+                        guard !trimmedName.isEmpty, !trimmedURL.isEmpty, URL(string: trimmedURL) != nil else { return }
                         pinnedAppsStore.pin(PinnedAppLink(
                             id: UUID().uuidString,
                             name: trimmedName,
                             icon: newPinIcon.isEmpty ? nil : newPinIcon,
-                            url: trimmedURL.isEmpty ? nil : trimmedURL,
+                            url: trimmedURL,
                             appType: nil,
                             pinnedOrder: pinnedAppsStore.pins.count
                         ))
                         showAddPinSheet = false
                     }
-                    .disabled(newPinName.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .disabled({
+                        let trimmedName = newPinName.trimmingCharacters(in: .whitespaces)
+                        let trimmedURL = newPinURL.trimmingCharacters(in: .whitespaces)
+                        return trimmedName.isEmpty || trimmedURL.isEmpty || URL(string: trimmedURL) == nil
+                    }())
                 }
             }
         }
