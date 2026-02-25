@@ -2631,17 +2631,6 @@ exports[`IPC message snapshots ServerMessage types task_run_thread_created seria
 }
 `;
 
-exports[`IPC message snapshots ServerMessage types guardian_request_thread_created serializes to expected JSON 1`] = `
-{
-  "callSessionId": "call-001",
-  "conversationId": "conv-guardian-001",
-  "questionText": "What is the gate code?",
-  "requestId": "req-guardian-001",
-  "title": "Guardian action request",
-  "type": "guardian_request_thread_created",
-}
-`;
-
 exports[`IPC message snapshots ServerMessage types subagent_spawned serializes to expected JSON 1`] = `
 {
   "label": "Research Agent",

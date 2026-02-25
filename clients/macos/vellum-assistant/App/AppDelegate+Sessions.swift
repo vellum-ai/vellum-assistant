@@ -240,26 +240,6 @@ extension AppDelegate {
         }
     }
 
-    func deliverGuardianRequestNotification(title: String, questionText: String, conversationId: String) {
-        let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = String(questionText.prefix(200))
-        content.sound = .default
-        content.categoryIdentifier = "GUARDIAN_REQUEST"
-        content.userInfo = ["conversationId": conversationId]
-
-        let request = UNNotificationRequest(
-            identifier: "guardian-request-\(conversationId)",
-            content: content,
-            trigger: nil
-        )
-        UNUserNotificationCenter.current().add(request) { error in
-            if let error {
-                log.error("Failed to post guardian request notification: \(error.localizedDescription)")
-            }
-        }
-    }
-
     /// Opens the main window and navigates to the thread for the given conversation ID.
     /// Retries if the thread isn't populated yet (e.g., ThreadManager hasn't loaded it).
     /// Used by Quick Chat, Guardian Request, and other notification deep links.

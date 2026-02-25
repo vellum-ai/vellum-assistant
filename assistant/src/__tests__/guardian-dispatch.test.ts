@@ -30,6 +30,14 @@ mock.module('../config/env.js', () => ({
   getGatewayInternalBaseUrl: () => 'http://localhost:3000',
 }));
 
+// Mock the notification pipeline — guardian dispatch routes through it for
+// thread creation IPC (notification_thread_created). We stub it to a no-op
+// because the pipeline's own tests cover its behavior.
+mock.module('../notifications/emit-signal.js', () => ({
+  emitNotificationSignal: async () => {},
+  registerBroadcastFn: () => {},
+}));
+
 let mockTelegramBinding: unknown = null;
 let mockSmsBinding: unknown = null;
 
@@ -200,35 +208,6 @@ describe('guardian-dispatch', () => {
     expect(telegramMessage!.body.chatId).toBe('tg-chat-999');
   });
 
-  test('emits IPC event via broadcast for mac delivery', async () => {
-    const convId = 'conv-dispatch-3';
-    ensureConversation(convId);
-
-    const session = createCallSession({
-      conversationId: convId,
-      provider: 'twilio',
-      fromNumber: '+15550001111',
-      toNumber: '+15550002222',
-    });
-    const pq = createPendingQuestion(session.id, 'Approve action?');
-
-    const broadcastedMessages: unknown[] = [];
-    const broadcastFn = (msg: unknown) => { broadcastedMessages.push(msg); };
-
-    await dispatchGuardianQuestion({
-      callSessionId: session.id,
-      conversationId: convId,
-      assistantId: 'self',
-      pendingQuestion: pq,
-      broadcast: broadcastFn,
-    });
-
-    expect(broadcastedMessages).toHaveLength(1);
-    const msg = broadcastedMessages[0] as Record<string, unknown>;
-    expect(msg.type).toBe('guardian_request_thread_created');
-    expect(msg.callSessionId).toBe(session.id);
-  });
-
   test('adds initial guardian message to mac conversation', async () => {
     const convId = 'conv-dispatch-4';
     ensureConversation(convId);
@@ -241,20 +220,19 @@ describe('guardian-dispatch', () => {
     });
     const pq = createPendingQuestion(session.id, 'What is the password?');
 
-    const broadcastedMessages: unknown[] = [];
-    const broadcastFn = (msg: unknown) => { broadcastedMessages.push(msg); };
-
     await dispatchGuardianQuestion({
       callSessionId: session.id,
       conversationId: convId,
       assistantId: 'self',
       pendingQuestion: pq,
-      broadcast: broadcastFn,
     });
 
-    // Get the mac conversation ID from the broadcast
-    const msg = broadcastedMessages[0] as Record<string, unknown>;
-    const macConvId = msg.conversationId as string;
+    // Look up the mac conversation created by guardian dispatch via the DB
+    const db = getDb();
+    const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
+    const requests = raw.query('SELECT * FROM guardian_action_requests WHERE call_session_id = ?').all(session.id) as Array<{ id: string }>;
+    const deliveries = raw.query('SELECT * FROM guardian_action_deliveries WHERE request_id = ? AND destination_channel = ?').all(requests[0].id, 'vellum') as Array<{ destination_conversation_id: string }>;
+    const macConvId = deliveries[0].destination_conversation_id;
 
     // The mac conversation should have a message with the question text
     const messages = getMessages(macConvId);
@@ -284,7 +262,7 @@ describe('guardian-dispatch', () => {
     })).resolves.toBeUndefined();
   });
 
-  test('broadcast title is emoji-prefixed and does not start with "Guardian question:"', async () => {
+  test('conversation title is emoji-prefixed and does not start with "Guardian question:"', async () => {
     const convId = 'conv-dispatch-6';
     ensureConversation(convId);
 
@@ -296,19 +274,21 @@ describe('guardian-dispatch', () => {
     });
     const pq = createPendingQuestion(session.id, 'What is the gate code?');
 
-    const broadcastedMessages: unknown[] = [];
-    const broadcastFn = (msg: unknown) => { broadcastedMessages.push(msg); };
-
     await dispatchGuardianQuestion({
       callSessionId: session.id,
       conversationId: convId,
       assistantId: 'self',
       pendingQuestion: pq,
-      broadcast: broadcastFn,
     });
 
-    const msg = broadcastedMessages[0] as Record<string, unknown>;
-    const title = msg.title as string;
+    // Look up the mac conversation title via the DB
+    const db = getDb();
+    const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
+    const requests = raw.query('SELECT * FROM guardian_action_requests WHERE call_session_id = ?').all(session.id) as Array<{ id: string }>;
+    const deliveries = raw.query('SELECT * FROM guardian_action_deliveries WHERE request_id = ? AND destination_channel = ?').all(requests[0].id, 'vellum') as Array<{ destination_conversation_id: string }>;
+    const macConvId = deliveries[0].destination_conversation_id;
+    const conv = raw.query('SELECT * FROM conversations WHERE id = ?').get(macConvId) as { title: string };
+    const title = conv.title;
 
     // Title must NOT start with the old static "Guardian question:" prefix
     expect(title.startsWith('Guardian question:')).toBe(false);
@@ -316,36 +296,6 @@ describe('guardian-dispatch', () => {
     // Title must start with an emoji (code point > 127 or common emoji ranges)
     const firstCodePoint = title.codePointAt(0)!;
     expect(firstCodePoint).toBeGreaterThan(127);
-  });
-
-  test('broadcast includes questionText field matching the original question', async () => {
-    const convId = 'conv-dispatch-7';
-    ensureConversation(convId);
-
-    const questionText = 'What is the WiFi password?';
-    const session = createCallSession({
-      conversationId: convId,
-      provider: 'twilio',
-      fromNumber: '+15550001111',
-      toNumber: '+15550002222',
-    });
-    const pq = createPendingQuestion(session.id, questionText);
-
-    const broadcastedMessages: unknown[] = [];
-    const broadcastFn = (msg: unknown) => { broadcastedMessages.push(msg); };
-
-    await dispatchGuardianQuestion({
-      callSessionId: session.id,
-      conversationId: convId,
-      assistantId: 'self',
-      pendingQuestion: pq,
-      broadcast: broadcastFn,
-    });
-
-    expect(broadcastedMessages).toHaveLength(1);
-    const msg = broadcastedMessages[0] as Record<string, unknown>;
-    expect(msg.type).toBe('guardian_request_thread_created');
-    expect(msg.questionText).toBe(questionText);
   });
 
   test('initial message in mac conversation contains question text from generative copy', async () => {
@@ -366,19 +316,19 @@ describe('guardian-dispatch', () => {
     });
     const pq = createPendingQuestion(session.id, 'What is the gate code?');
 
-    const broadcastedMessages: unknown[] = [];
-    const broadcastFn = (msg: unknown) => { broadcastedMessages.push(msg); };
-
     await dispatchGuardianQuestion({
       callSessionId: session.id,
       conversationId: convId,
       assistantId: 'self',
       pendingQuestion: pq,
-      broadcast: broadcastFn,
     });
 
-    const msg = broadcastedMessages[0] as Record<string, unknown>;
-    const macConvId = msg.conversationId as string;
+    // Look up the mac conversation via the DB
+    const db = getDb();
+    const raw = (db as unknown as { $client: import('bun:sqlite').Database }).$client;
+    const requests = raw.query('SELECT * FROM guardian_action_requests WHERE call_session_id = ?').all(session.id) as Array<{ id: string }>;
+    const deliveries = raw.query('SELECT * FROM guardian_action_deliveries WHERE request_id = ? AND destination_channel = ?').all(requests[0].id, 'vellum') as Array<{ destination_conversation_id: string }>;
+    const macConvId = deliveries[0].destination_conversation_id;
 
     const messages = getMessages(macConvId);
     expect(messages.length).toBeGreaterThanOrEqual(1);
