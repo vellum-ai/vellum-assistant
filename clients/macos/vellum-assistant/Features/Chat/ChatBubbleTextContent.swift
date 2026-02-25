@@ -19,11 +19,7 @@ extension ChatBubble {
             if hasRichContent {
                 MarkdownSegmentView(segments: segments)
             } else {
-                let options = AttributedString.MarkdownParsingOptions(
-                    interpretedSyntax: .inlineOnlyPreservingWhitespace
-                )
-                let attributed = (try? AttributedString(markdown: segmentText, options: options))
-                    ?? AttributedString(segmentText)
+                let attributed = Self.cachedInlineMarkdown(for: segmentText)
                 Text(attributed)
                     .font(.system(size: 13))
                     .foregroundColor(VColor.textPrimary)
@@ -33,6 +29,22 @@ extension ChatBubble {
                     .frame(maxWidth: 520, alignment: .leading)
             }
         }
+    }
+
+    /// Cached inline markdown AttributedString to avoid re-parsing on every render.
+    static func cachedInlineMarkdown(for text: String) -> AttributedString {
+        let key = text.hashValue
+        if let cached = markdownCache[key] { return cached }
+        let options = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace
+        )
+        let result = (try? AttributedString(markdown: text, options: options))
+            ?? AttributedString(text)
+        if markdownCache.count >= maxCacheSize {
+            if let first = markdownCache.keys.first { markdownCache.removeValue(forKey: first) }
+        }
+        markdownCache[key] = result
+        return result
     }
 
     /// Cached markdown segment parser to avoid re-parsing on every render.

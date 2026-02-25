@@ -22,11 +22,19 @@ struct MessageListView: View {
     var onSubagentTap: ((String) -> Void)?
     var subagentDetailStore: SubagentDetailStore?
 
+    /// Hard cap on the number of messages rendered in the LazyVStack.
+    /// Keeps the SwiftUI view graph bounded even for very long conversations.
+    private static let displayMessageCap = 200
+
     @Binding var isNearBottom: Bool
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
     @AppStorage("completedConversationCount") private var completedConversationCount: Int = 0
     @State private var identity: IdentityInfo? = IdentityInfo.load()
     @State private var appearance = AvatarAppearanceManager.shared
+    /// Read once at the list level and passed down to each ChatBubble so that
+    /// individual bubbles don't each subscribe to the shared ObservableObject.
+    @ObservedObject private var taskProgressOverlay = TaskProgressOverlayManager.shared
+    private var activeSurfaceId: String? { taskProgressOverlay.activeSurfaceId }
 
     /// Triggers auto-scroll when the last message's text length changes (e.g. during streaming).
     /// Uses total text length (monotonically increasing) so the trigger never produces the same
@@ -69,10 +77,17 @@ struct MessageListView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: VSpacing.md) {
-                    let displayMessages = messages.filter { msg in
+                    // Filter and cap visible messages to prevent unbounded view-graph growth.
+                    // The most recent `displayMessageCap` messages are shown; older ones
+                    // are still in the model but not rendered, keeping the SwiftUI view
+                    // graph bounded regardless of conversation length.
+                    let allDisplayMessages = messages.filter { msg in
                         if msg.isSubagentNotification { return false }
                         return true
                     }
+                    let displayMessages = allDisplayMessages.count > Self.displayMessageCap
+                        ? Array(allDisplayMessages.suffix(Self.displayMessageCap))
+                        : allDisplayMessages
                     let activePendingRequestId = PendingConfirmationFocusSelector.activeRequestId(from: displayMessages)
                     ForEach(Array(displayMessages.enumerated()), id: \.element.id) { index, message in
                         if shouldShowTimestamp(at: index, in: displayMessages) {
@@ -145,7 +160,8 @@ struct MessageListView: View {
                                 mediaEmbedSettings: mediaEmbedSettings,
                                 daemonHttpPort: daemonHttpPort,
                                 showAvatar: !previousIsAssistant,
-                                isLatestAssistantMessage: message.role == .assistant && displayMessages.last(where: { $0.role == .assistant })?.id == message.id
+                                isLatestAssistantMessage: message.role == .assistant && displayMessages.last(where: { $0.role == .assistant })?.id == message.id,
+                                activeSurfaceId: activeSurfaceId
                             )
                                 .id(message.id)
                                 .transition(.opacity.combined(with: .move(edge: .bottom)))

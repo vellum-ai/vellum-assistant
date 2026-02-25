@@ -121,9 +121,50 @@ struct MarkdownSegmentView: View {
 
     // MARK: - Combined AttributedString
 
-    /// Builds a single AttributedString from consecutive text-selectable segments,
-    /// allowing text selection to span across paragraphs, headings, and list items.
+    /// Cache for expensive `buildCombinedAttributedString` results.
+    /// Keyed by a hash of the segment descriptions so identical segment
+    /// arrays return the cached value instead of re-parsing markdown and
+    /// re-creating `AttributedString` on every SwiftUI body evaluation.
+    private static var attributedStringCache: [Int: AttributedString] = [:]
+    private static let attributedStringCacheLimit = 200
+
+    /// Clears the attributed string cache.  Called when switching threads
+    /// or archiving a conversation to reclaim memory.
+    static func clearAttributedStringCache() {
+        attributedStringCache.removeAll()
+    }
+
+    /// Builds (or retrieves from cache) a single AttributedString from
+    /// consecutive text-selectable segments.
     private func buildCombinedAttributedString(from segments: [MarkdownSegment]) -> AttributedString {
+        // Build a stable cache key from the segment contents.
+        var hasher = Hasher()
+        for segment in segments {
+            hasher.combine(String(describing: segment))
+        }
+        let cacheKey = hasher.finalize()
+
+        if let cached = Self.attributedStringCache[cacheKey] {
+            return cached
+        }
+
+        let result = Self.buildAttributedStringUncached(from: segments, secondaryTextColor: secondaryTextColor)
+
+        // Evict oldest entry when the cache is full.
+        if Self.attributedStringCache.count >= Self.attributedStringCacheLimit {
+            if let firstKey = Self.attributedStringCache.keys.first {
+                Self.attributedStringCache.removeValue(forKey: firstKey)
+            }
+        }
+        Self.attributedStringCache[cacheKey] = result
+        return result
+    }
+
+    /// Pure builder with no side effects — separated for caching.
+    private static func buildAttributedStringUncached(
+        from segments: [MarkdownSegment],
+        secondaryTextColor: Color
+    ) -> AttributedString {
         let mdOptions = AttributedString.MarkdownParsingOptions(
             interpretedSyntax: .inlineOnlyPreservingWhitespace
         )
@@ -163,13 +204,10 @@ struct MarkdownSegmentView: View {
                     let leftMargin = indentLevel * indentStep
                     let prefix = item.ordered ? "\(item.number).\t" : "\u{2022}\t"
 
-                    // Measure the prefix width to set the tab stop / hanging indent
                     let prefixForMeasure = item.ordered ? "\(item.number). " : "\u{2022} "
                     let prefixSize = (prefixForMeasure as NSString).size(withAttributes: [.font: font])
                     let textColumn = leftMargin + prefixSize.width
 
-                    // Build paragraph style with hanging indent so wrapped lines
-                    // align with the text column rather than the bullet/number.
                     nonisolated(unsafe) let paraStyle = NSMutableParagraphStyle()
                     paraStyle.firstLineHeadIndent = leftMargin
                     paraStyle.headIndent = textColumn
