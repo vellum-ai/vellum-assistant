@@ -20,6 +20,7 @@ import { NotificationBroadcaster } from './broadcaster.js';
 import { VellumAdapter, type BroadcastFn } from './adapters/macos.js';
 import { TelegramAdapter } from './adapters/telegram.js';
 import type { NotificationSignal, AttentionHints } from './signal.js';
+import { getDeliverableChannels } from '../channels/config.js';
 import type { NotificationChannel } from './types.js';
 
 const log = getLogger('emit-signal');
@@ -56,18 +57,32 @@ function getBroadcaster(): NotificationBroadcaster {
 // ── Connected channels resolution ──────────────────────────────────────
 
 function getConnectedChannels(assistantId: string): NotificationChannel[] {
-  // Vellum is always considered connected (IPC socket is always available
-  // when the daemon is running).
-  const channels: NotificationChannel[] = ['vellum'];
-  // Only report Telegram as connected when there is an active guardian
-  // binding for this assistant. Without a binding, the destination
-  // resolver will fail to resolve a chat ID and dispatch will silently
-  // drop the message — which is worse than the decision engine knowing
-  // up front that the channel is unavailable.
-  const telegramBinding = getActiveBinding(assistantId, 'telegram');
-  if (telegramBinding) {
-    channels.push('telegram');
+  const channels: NotificationChannel[] = [];
+
+  for (const channel of getDeliverableChannels()) {
+    switch (channel) {
+      case 'vellum':
+        // Vellum is always considered connected (IPC socket is always
+        // available when the daemon is running).
+        channels.push(channel);
+        break;
+      case 'telegram':
+      case 'sms':
+        // Only report binding-based channels as connected when there is
+        // an active guardian binding for this assistant. Without a
+        // binding, the destination resolver will fail to resolve a
+        // delivery endpoint and dispatch will silently drop the
+        // message — which is worse than the decision engine knowing up
+        // front that the channel is unavailable.
+        if (getActiveBinding(assistantId, channel)) {
+          channels.push(channel);
+        }
+        break;
+      default:
+        break;
+    }
   }
+
   return channels;
 }
 
