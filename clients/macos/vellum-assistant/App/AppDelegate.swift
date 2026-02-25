@@ -96,6 +96,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastRegisteredGlobalHotkey: String?
     private var globalHotkeyObserver: AnyCancellable?
     private var escapeMonitor: Any?
+    private var fnVGlobalMonitor: Any?
+    private var fnVLocalMonitor: Any?
     var overlayWindow: SessionOverlayWindow?
     var currentSession: ComputerUseSession?
     var currentTextSession: TextSession?
@@ -193,6 +195,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         #else
         let skipOnboarding = false
         #endif
+
+        // Set up menu bar and hotkeys early so they work regardless of auth state.
+        setupMenuBar()
+        setupHotKey()
 
         if !skipOnboarding && !lockfileHasAssistants() {
             showOnboarding()
@@ -1166,9 +1172,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Hotkey
 
+    private var hasSetupHotKey = false
+
     private func setupHotKey() {
+        guard !hasSetupHotKey else { return }
+        hasSetupHotKey = true
+
         registerGlobalHotkeyMonitor()
         registerQuickInputMonitor()
+        registerFnVMonitor()
 
         globalHotkeyObserver = NotificationCenter.default
             .publisher(for: UserDefaults.didChangeNotification)
@@ -1216,30 +1228,148 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             RemoveEventHandler(ref)
             quickInputEventHandlerRef = nil
         }
+        if let monitor = fnVGlobalMonitor {
+            NSEvent.removeMonitor(monitor)
+            fnVGlobalMonitor = nil
+        }
+        if let monitor = fnVLocalMonitor {
+            NSEvent.removeMonitor(monitor)
+            fnVLocalMonitor = nil
+        }
     }
 
-    func toggleQuickInput() {
+    /// Registers Cmd+Shift+V as a global shortcut to open the quick input text field.
+    /// Uses NSEvent monitors (global + local).
+    private func registerFnVMonitor() {
+        let handler: (NSEvent) -> NSEvent? = { [weak self] event in
+            // Cmd+Shift+V: keyCode 9 is kVK_ANSI_V
+            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            guard event.keyCode == 9,
+                  mods == [.command, .shift] else {
+                return event
+            }
+            Task { @MainActor in
+                guard self?.isAwaitingFirstLaunchReady != true else { return }
+                self?.toggleQuickInput(aboveDock: true)
+            }
+            return nil // consume the event
+        }
+
+        fnVGlobalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { event in
+            _ = handler(event)
+        }
+        fnVLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
+    }
+
+    func toggleQuickInput(aboveDock: Bool = false, requestScreenPermission: Bool = false) {
         if let window = quickInputWindow, window.isVisible {
             window.dismiss()
             return
         }
 
         let window = QuickInputWindow()
-        window.onSubmit = { [weak self] message in
-            self?.handleQuickInputSubmit(message)
+        window.onSubmit = { [weak self] message, imageData in
+            self?.handleQuickInputSubmit(message, imageData: imageData)
         }
-        window.show()
+        window.onSubmitToThread = { [weak self] message, imageData in
+            self?.handleQuickInputSubmitToThread(message, imageData: imageData)
+        }
+        window.onSelectThread = { [weak self] threadId in
+            self?.handleQuickInputSelectThread(threadId)
+        }
+        window.onMicrophoneToggle = { [weak self] in
+            self?.voiceInput?.toggleRecording()
+        }
+        // Provide the 3 most recent non-archived threads
+        if let threads = mainWindow?.threadManager.threads {
+            window.recentThreads = threads
+                .filter { !$0.isArchived }
+                .sorted { $0.lastInteractedAt > $1.lastInteractedAt }
+                .prefix(3)
+                .map { QuickInputThread(id: $0.id, title: $0.title) }
+        }
+        window.showScreenPermissionPrompt = requestScreenPermission
+        if aboveDock {
+            window.showAboveDock()
+        } else {
+            window.show()
+        }
         quickInputWindow = window
     }
 
-    private func handleQuickInputSubmit(_ message: String) {
+    /// Starts screen region capture directly from the menu bar icon click.
+    /// After the user selects a region, the quick input bar appears near
+    /// the selection with the screenshot attached.
+    func startScreenCapture() {
+        guard PermissionManager.screenRecordingStatus() == .granted else {
+            PermissionManager.requestScreenRecordingAccess()
+            return
+        }
+
+        // Dismiss any existing quick input window
+        quickInputWindow?.dismiss()
+        quickInputWindow = nil
+
+        let selectionWindow = ScreenSelectionWindow()
+        selectionWindow.onComplete = { [weak self] imageData, selectionRect in
+            guard let self else { return }
+
+            let window = QuickInputWindow()
+            window.onSubmit = { [weak self] message, imgData in
+                self?.handleQuickInputSubmit(message, imageData: imgData)
+            }
+            window.onSubmitToThread = { [weak self] message, imgData in
+                self?.handleQuickInputSubmitToThread(message, imageData: imgData)
+            }
+            window.onSelectThread = { [weak self] threadId in
+                self?.handleQuickInputSelectThread(threadId)
+            }
+            window.onMicrophoneToggle = { [weak self] in
+                self?.voiceInput?.toggleRecording()
+            }
+            if let threads = self.mainWindow?.threadManager.threads {
+                window.recentThreads = threads
+                    .filter { !$0.isArchived }
+                    .sorted { $0.lastInteractedAt > $1.lastInteractedAt }
+                    .prefix(3)
+                    .map { QuickInputThread(id: $0.id, title: $0.title) }
+            }
+            window.setAttachment(imageData: imageData)
+            window.showNearRect(selectionRect)
+            self.quickInputWindow = window
+        }
+        selectionWindow.onCancel = { /* User cancelled — do nothing */ }
+        selectionWindow.show()
+    }
+
+    private func handleQuickInputSubmit(_ message: String, imageData: Data?) {
         showMainWindow()
         guard let mainWindow else { return }
         mainWindow.threadManager.createThread()
         if let viewModel = mainWindow.activeViewModel {
+            if let imageData {
+                viewModel.addAttachment(imageData: imageData, filename: "Screenshot.jpg")
+            }
             viewModel.inputText = message
             viewModel.sendMessage()
         }
+    }
+
+    private func handleQuickInputSubmitToThread(_ message: String, imageData: Data?) {
+        guard let mainWindow else { return }
+        if let viewModel = mainWindow.activeViewModel {
+            if let imageData {
+                viewModel.addAttachment(imageData: imageData, filename: "Screenshot.jpg")
+            }
+            viewModel.inputText = message
+            viewModel.sendMessage()
+        }
+    }
+
+    private func handleQuickInputSelectThread(_ threadId: UUID) {
+        showMainWindow()
+        guard let mainWindow else { return }
+        mainWindow.threadManager.activeThreadId = threadId
     }
 
     /// Tears down and re-registers the global "Open Vellum" hotkey based on
@@ -1299,6 +1429,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.voiceTranscriptionWindow?.close()
             self?.voiceTranscriptionWindow = nil
 
+            // Priority 0: Route to quick input bar if visible
+            if let quickInput = self?.quickInputWindow, quickInput.isVisible {
+                quickInput.setVoiceText(text)
+                return
+            }
+
             // Priority 1: Route to main window ChatView if in the foreground
             if NSApp.isActive,
                let mainWindow = self?.mainWindow, mainWindow.isVisible,
@@ -1318,6 +1454,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.startSession(task: text, source: "voice")
         }
         voiceInput?.onPartialTranscription = { [weak self] text in
+            // Priority 0: Route partial text to quick input bar if visible
+            if let quickInput = self?.quickInputWindow, quickInput.isVisible {
+                quickInput.setVoiceText(text)
+                return
+            }
+
             // Priority 1: Route partial text to main window ChatView input if in the foreground
             if NSApp.isActive,
                let mainWindow = self?.mainWindow, mainWindow.isVisible,
@@ -1355,12 +1497,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.recordingViewModel = nil
             }
 
+            // Sync recording state to the quick input bar
+            self?.quickInputWindow?.setRecordingState(isRecording)
+
             if isRecording {
                 self?.statusItem.button?.image = NSImage(
                     systemSymbolName: "mic.fill",
                     accessibilityDescription: "Vellum"
                 )
-                if !mainWindowActive && !hasActiveConvo {
+                let quickInputActive = self?.quickInputWindow?.isVisible ?? false
+                if !mainWindowActive && !hasActiveConvo && !quickInputActive {
                     let window = VoiceTranscriptionWindow()
                     window.show()
                     self?.voiceTranscriptionWindow = window

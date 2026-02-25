@@ -1,0 +1,18 @@
+{
+  "images" : [
+    {
+      "filename" : "quick-input-icon-32.png",
+      "idiom" : "mac",
+      "scale" : "1x"
+    },
+    {
+      "filename" : "quick-input-icon-64.png",
+      "idiom" : "mac",
+      "scale" : "2x"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}
