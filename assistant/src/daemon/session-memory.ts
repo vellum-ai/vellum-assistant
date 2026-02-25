@@ -34,6 +34,7 @@ export interface MemoryPrepareContext {
   conflictGate: ConflictGate;
   scopeId: string;
   includeDefaultFallback: boolean;
+  guardianActorRole?: 'guardian' | 'non-guardian' | 'unverified_channel';
 }
 
 /**
@@ -48,6 +49,41 @@ export async function prepareMemoryContext(
   abortSignal: AbortSignal,
   onEvent: (msg: ServerMessage) => void,
 ): Promise<MemoryRecallResult & { conflictClarification: string | null }> {
+  // Provenance-based trust gating: untrusted actors skip all memory operations
+  // (recall, dynamic profile, conflict gate) to prevent untrusted content from
+  // influencing memory-augmented responses.
+  const isTrustedActor = ctx.guardianActorRole === 'guardian' || ctx.guardianActorRole === undefined;
+
+  if (!isTrustedActor) {
+    return {
+      runMessages: ctx.messages,
+      recall: {
+        enabled: false,
+        degraded: false,
+        injectedText: '',
+        lexicalHits: 0,
+        semanticHits: 0,
+        recencyHits: 0,
+        entityHits: 0,
+        relationSeedEntityCount: 0,
+        relationTraversedEdgeCount: 0,
+        relationNeighborEntityCount: 0,
+        relationExpandedItemCount: 0,
+        earlyTerminated: false,
+        mergedCount: 0,
+        selectedCount: 0,
+        rerankApplied: false,
+        injectedTokens: 0,
+        latencyMs: 0,
+        topCandidates: [],
+      } as Awaited<ReturnType<typeof buildMemoryRecall>>,
+      dynamicProfile: { text: '' },
+      softConflictInstruction: null,
+      recallInjectionStrategy: 'prepend_user_block',
+      conflictClarification: null,
+    };
+  }
+
   const runtimeConfig = getConfig();
   const memoryEnabled = runtimeConfig.memory?.enabled !== false;
 

@@ -404,7 +404,9 @@ async function executeApprove(
     });
   }
   session.setAssistantId(assistantId);
-  session.setGuardianContext(null);
+  // Daemon inbox handler — the guardian approved this escalation, so tag as
+  // guardian to avoid 'unverified_channel' blocking memory extraction.
+  session.setGuardianContext({ actorRole: 'guardian', sourceChannel: sourceChannel ?? 'macos' });
   session.setCommandIntent(null);
 
   // Process the message through the agent loop (no IPC event callback
@@ -480,6 +482,7 @@ async function executeDeny(
 
   // Store a system note about the denial in the conversation
   addMessage(conversationId, 'assistant', denialText, {
+    provenanceActorRole: 'guardian' as const,
     userMessageChannel: sourceChannel,
     assistantMessageChannel: sourceChannel,
   });
@@ -514,9 +517,12 @@ export function handleAssistantInboxReply(
       conversationId,
       'assistant',
       content,
-      bindingChannel
-        ? { userMessageChannel: bindingChannel, assistantMessageChannel: bindingChannel }
-        : undefined,
+      {
+        provenanceActorRole: 'guardian' as const,
+        ...(bindingChannel
+          ? { userMessageChannel: bindingChannel, assistantMessageChannel: bindingChannel }
+          : {}),
+      },
     );
 
     // Update thread activity timestamps (resets unread count, updates last_outbound_at)

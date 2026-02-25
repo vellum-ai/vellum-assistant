@@ -15,7 +15,7 @@ import type { AgentLoop, CheckpointDecision, AgentEvent } from '../agent/loop.js
 import type { Provider } from '../providers/types.js';
 import { createAssistantMessage } from '../agent/message-types.js';
 import * as conversationStore from '../memory/conversation-store.js';
-import { getConversationOriginChannel } from '../memory/conversation-store.js';
+import { getConversationOriginChannel, provenanceFromGuardianContext } from '../memory/conversation-store.js';
 import type { PermissionPrompter } from '../permissions/prompter.js';
 import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
@@ -236,6 +236,7 @@ export async function runAgentLoopImpl(
         conflictGate: ctx.conflictGate,
         scopeId: ctx.memoryPolicy.scopeId,
         includeDefaultFallback: ctx.memoryPolicy.includeDefaultFallback,
+        guardianActorRole: ctx.guardianContext?.actorRole,
       },
       content,
       userMessageId,
@@ -245,6 +246,7 @@ export async function runAgentLoopImpl(
 
     if (memoryResult.conflictClarification) {
       const loopChannelMeta = {
+        ...provenanceFromGuardianContext(ctx.guardianContext),
         userMessageChannel: capturedTurnChannelContext.userMessageChannel,
         assistantMessageChannel: capturedTurnChannelContext.assistantMessageChannel,
       };
@@ -532,6 +534,7 @@ export async function runAgentLoopImpl(
         }),
       );
       const toolResultMetadata = {
+        ...provenanceFromGuardianContext(ctx.guardianContext),
         userMessageChannel: capturedTurnChannelContext.userMessageChannel,
         assistantMessageChannel: capturedTurnChannelContext.assistantMessageChannel,
       };
@@ -554,6 +557,7 @@ export async function runAgentLoopImpl(
     const hasAssistantResponse = newMessages.some((msg) => msg.role === 'assistant');
     if (!hasAssistantResponse && state.providerErrorUserMessage && !abortController.signal.aborted && !yieldedForHandoff) {
       const errChannelMeta = {
+        ...provenanceFromGuardianContext(ctx.guardianContext),
         userMessageChannel: capturedTurnChannelContext.userMessageChannel,
         assistantMessageChannel: capturedTurnChannelContext.assistantMessageChannel,
       };
