@@ -66,12 +66,21 @@ export class NotificationBroadcaster {
   ): Promise<NotificationDeliveryResult[]> {
     const destinations = resolveDestinations(signal.assistantId, decision.selectedChannels);
 
+    // Ensure vellum is processed first so the notification_thread_created IPC
+    // push fires immediately, before slower channel sends (e.g. Telegram 30s
+    // timeout) can delay it past the macOS deep-link retry window.
+    const orderedChannels = [...decision.selectedChannels].sort((a, b) => {
+      if (a === 'vellum') return -1;
+      if (b === 'vellum') return 1;
+      return 0;
+    });
+
     // Pre-compute fallback copy in case any channel is missing rendered copy
     let fallbackCopy: Partial<Record<NotificationChannel, RenderedChannelCopy>> | null = null;
 
     const results: NotificationDeliveryResult[] = [];
 
-    for (const channel of decision.selectedChannels) {
+    for (const channel of orderedChannels) {
       const adapter = this.adapters.get(channel);
       if (!adapter) {
         log.warn({ channel, signalId: signal.signalId }, 'No adapter registered for channel -- skipping');
