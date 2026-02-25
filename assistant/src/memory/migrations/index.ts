@@ -39,3 +39,4 @@ export { createMediaAssetsTables } from './111-media-assets.js';
 export { createAssistantInboxTables } from './112-assistant-inbox.js';
 export { runLateMigrations } from './113-late-migrations.js';
 export { createNotificationTables } from './114-notifications.js';
+export { createSequenceTables } from './115-sequences.js';

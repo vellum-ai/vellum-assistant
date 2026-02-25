@@ -15,6 +15,7 @@ import {
   createAssistantInboxTables,
   runLateMigrations,
   createNotificationTables,
+  createSequenceTables,
   validateMigrationState,
 } from './migrations/index.js';
 
@@ -65,6 +66,9 @@ export function initializeDb(): void {
 
   // 15. Notification system
   createNotificationTables(database);
+
+  // 16. Sequences (multi-step outreach)
+  createSequenceTables(database);
 
   validateMigrationState(database);
 }
