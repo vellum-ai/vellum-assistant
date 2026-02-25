@@ -11,7 +11,7 @@
     "./src/commands/*": "./src/commands/*.ts"
   },
   "bin": {
-    "vellum-cli": "./src/index.ts"
+    "vellum": "./src/index.ts"
   },
   "scripts": {
     "lint": "eslint",

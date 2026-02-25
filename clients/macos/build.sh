@@ -217,12 +217,12 @@ fi
 CLI_SRC_DIR="$SCRIPT_DIR/../../cli"
 CLI_BIN_NEEDS_BUILD=false
 if [ -d "$CLI_SRC_DIR/src" ] && command -v bun &>/dev/null; then
-    if [ ! -f "$SCRIPT_DIR/cli-bin/vellum-cli" ]; then
+    if [ ! -f "$SCRIPT_DIR/cli-bin/vellum" ]; then
         CLI_BIN_NEEDS_BUILD=true
-    elif [ -n "$(find "$CLI_SRC_DIR/src" -name '*.ts' -newer "$SCRIPT_DIR/cli-bin/vellum-cli" -print -quit 2>/dev/null)" ]; then
+    elif [ -n "$(find "$CLI_SRC_DIR/src" -name '*.ts' -newer "$SCRIPT_DIR/cli-bin/vellum" -print -quit 2>/dev/null)" ]; then
         CLI_BIN_NEEDS_BUILD=true
-    elif [ "$CLI_SRC_DIR/package.json" -nt "$SCRIPT_DIR/cli-bin/vellum-cli" ] || \
-         [ "$CLI_SRC_DIR/bun.lock" -nt "$SCRIPT_DIR/cli-bin/vellum-cli" ]; then
+    elif [ "$CLI_SRC_DIR/package.json" -nt "$SCRIPT_DIR/cli-bin/vellum" ] || \
+         [ "$CLI_SRC_DIR/bun.lock" -nt "$SCRIPT_DIR/cli-bin/vellum" ]; then
         CLI_BIN_NEEDS_BUILD=true
     fi
 fi
@@ -230,14 +230,14 @@ if [ "$CLI_BIN_NEEDS_BUILD" = true ]; then
     echo "Building CLI binary from source..."
     mkdir -p "$SCRIPT_DIR/cli-bin"
     (cd "$CLI_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
-    bun build --compile "$CLI_SRC_DIR/src/index.ts" --outfile "$SCRIPT_DIR/cli-bin/vellum-cli"
-    chmod +x "$SCRIPT_DIR/cli-bin/vellum-cli"
-    echo "CLI binary built: $SCRIPT_DIR/cli-bin/vellum-cli"
+    bun build --compile "$CLI_SRC_DIR/src/index.ts" --outfile "$SCRIPT_DIR/cli-bin/vellum"
+    chmod +x "$SCRIPT_DIR/cli-bin/vellum"
+    echo "CLI binary built: $SCRIPT_DIR/cli-bin/vellum"
 fi
 
 # Also rebuild if CLI binary changed or newly added
-if [ -f "$SCRIPT_DIR/cli-bin/vellum-cli" ]; then
-    if [ ! -f "$MACOS_DIR/vellum-cli" ] || [ "$SCRIPT_DIR/cli-bin/vellum-cli" -nt "$MACOS_DIR/vellum-cli" ]; then
+if [ -f "$SCRIPT_DIR/cli-bin/vellum" ]; then
+    if [ ! -f "$MACOS_DIR/vellum" ] || [ "$SCRIPT_DIR/cli-bin/vellum" -nt "$MACOS_DIR/vellum" ]; then
         NEEDS_REBUILD=true
     fi
 fi
@@ -296,11 +296,11 @@ if [ "$NEEDS_REBUILD" = true ]; then
     fi
 
     # Copy bundled CLI binary (if available — built by CI or locally)
-    CLI_BIN="$SCRIPT_DIR/cli-bin/vellum-cli"
+    CLI_BIN="$SCRIPT_DIR/cli-bin/vellum"
     if [ -f "$CLI_BIN" ]; then
         echo "Bundling CLI binary..."
-        cp "$CLI_BIN" "$MACOS_DIR/vellum-cli"
-        chmod +x "$MACOS_DIR/vellum-cli"
+        cp "$CLI_BIN" "$MACOS_DIR/vellum"
+        chmod +x "$MACOS_DIR/vellum"
     else
         echo "No CLI binary at $CLI_BIN — skipping (dev mode)"
     fi
@@ -531,12 +531,12 @@ if [ -d "$FRAMEWORKS_DIR/Sparkle.framework" ]; then
 fi
 
 # Sign CLI binary
-if [ -f "$MACOS_DIR/vellum-cli" ]; then
+if [ -f "$MACOS_DIR/vellum" ]; then
     CLI_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY")
     if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
         CLI_SIGN_FLAGS+=(--timestamp --options runtime)
     fi
-    codesign "${CLI_SIGN_FLAGS[@]}" "$MACOS_DIR/vellum-cli"
+    codesign "${CLI_SIGN_FLAGS[@]}" "$MACOS_DIR/vellum"
     echo "CLI binary signed"
 fi
 
