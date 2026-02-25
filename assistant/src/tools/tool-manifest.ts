@@ -9,7 +9,6 @@
 import { RiskLevel } from '../permissions/types.js';
 import { accountManageTool } from './credentials/account-registry.js';
 import { credentialStoreTool } from './credentials/vault.js';
-import { cliDiscoverTool } from './host-terminal/cli-discover.js';
 import { memorySaveTool, memorySearchTool, memoryUpdateTool } from './memory/register.js';
 import type { LazyToolDescriptor } from './registry.js';
 import { vellumSkillsCatalogTool } from './skills/vellum-catalog.js';
@@ -73,7 +72,6 @@ export const explicitTools: Tool[] = [
   accountManageTool,
   screenWatchTool,
   vellumSkillsCatalogTool,
-  cliDiscoverTool,
 ];
 
 // ── Lazy tool descriptors ───────────────────────────────────────────

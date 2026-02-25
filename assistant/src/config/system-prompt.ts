@@ -452,7 +452,7 @@ function buildAccessPreferenceSection(): string {
     '   (e.g., no API exists, visual interaction needed, or OAuth consent screen).',
     '',
     'Before using browser tools for a business system, ask yourself:',
-    '- Is there a CLI installed? (Check with `cli_discover` or `which <tool>` via host_bash)',
+    '- Is there a CLI installed? (Check with `which <tool>` via host_bash, or load the cli-discover skill for a thorough audit)',
     '- Does the service have a public API I can call with curl?',
     '- Can I get the data via web_fetch?',
     '',

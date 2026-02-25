@@ -179,7 +179,7 @@ describe('tool manifest', () => {
     expect(eagerModuleToolNames.length).toBe(16);
   });
 
-  test('explicit tools list includes memory, credential, watch, catalog, and discover tools', () => {
+  test('explicit tools list includes memory, credential, watch, and catalog tools', () => {
     const names = explicitTools.map((t) => t.name);
     expect(names).toContain('memory_search');
     expect(names).toContain('memory_save');
@@ -188,7 +188,6 @@ describe('tool manifest', () => {
     expect(names).toContain('account_manage');
     expect(names).toContain('start_screen_watch');
     expect(names).toContain('vellum_skills_catalog');
-    expect(names).toContain('cli_discover');
   });
 
   test('registered tool count is at least eager + lazy + host', async () => {
