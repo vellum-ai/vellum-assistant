@@ -15,6 +15,7 @@ import {
   advanceEnrollment,
   exitEnrollment,
   getSequence,
+  getEnrollment,
   rescheduleEnrollment,
 } from './store.js';
 import type { Sequence, SequenceEnrollment, SequenceStep } from './types.js';
@@ -45,6 +46,25 @@ export async function runSequencesOnce(
         { err, enrollmentId: enrollment.id, sequenceId: enrollment.sequenceId },
         'Sequence enrollment processing failed',
       );
+      // Reschedule so the enrollment is retryable. claimDueEnrollments nulled
+      // nextStepAt to prevent concurrent claims; without restoring it the
+      // enrollment would be stranded as active with nextStepAt = null forever.
+      try {
+        const current = getEnrollment(enrollment.id);
+        if (current && current.status === 'active') {
+          const retryDelayMs = 60_000;
+          rescheduleEnrollment(enrollment.id, Date.now() + retryDelayMs);
+          log.info(
+            { enrollmentId: enrollment.id, retryAt: new Date(Date.now() + retryDelayMs).toISOString() },
+            'Rescheduled enrollment for retry after processing failure',
+          );
+        }
+      } catch (rescheduleErr) {
+        log.error(
+          { err: rescheduleErr, enrollmentId: enrollment.id },
+          'Failed to reschedule enrollment after processing failure',
+        );
+      }
     }
   }
   return processed;

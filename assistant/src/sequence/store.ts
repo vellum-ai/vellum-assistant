@@ -12,6 +12,7 @@ import { v4 as uuid } from 'uuid';
 import { getDb, rawChanges } from '../memory/db.js';
 import { sequences, sequenceEnrollments } from '../memory/schema.js';
 import { createRowMapper, cast, parseJson, parseJsonNullable } from '../util/row-mapper.js';
+import { AssistantError, ErrorCode } from '../util/errors.js';
 import type {
   Sequence,
   SequenceEnrollment,
@@ -125,8 +126,8 @@ export function enrollContact(input: EnrollContactInput): SequenceEnrollment {
 
   // Look up the sequence to compute initial nextStepAt
   const seq = getSequence(input.sequenceId);
-  if (!seq) throw new Error(`Sequence not found: ${input.sequenceId}`);
-  if (seq.steps.length === 0) throw new Error('Sequence has no steps');
+  if (!seq) throw new AssistantError(`Sequence not found: ${input.sequenceId}`, ErrorCode.INTERNAL_ERROR);
+  if (seq.steps.length === 0) throw new AssistantError('Sequence has no steps', ErrorCode.INTERNAL_ERROR);
 
   const firstStep = seq.steps[0];
   const nextStepAt = now + (firstStep.delaySeconds * 1000);
