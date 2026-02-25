@@ -162,6 +162,14 @@ The `RetryProvider` resolves intents to provider-specific models automatically. 
 
 Use generic terms in comments, logs, and variable names — write "LLM" instead of "Haiku"/"Sonnet"/"Claude". The system is multi-provider; naming should reflect that.
 
+### Text generation goes through the assistant daemon
+
+When you need to generate text (summaries, replies, rewrites, classifications, etc.), route the request through the assistant/daemon process — do **not** make direct calls to an LLM provider or side-step the daemon.
+
+Why: the assistant daemon carries context, identity, and user preferences. Text produced through the daemon is shaped by all of that, which is what we want in almost every case. Calling a provider directly discards that context and produces generic output.
+
+There may be narrow cases where a direct provider call is acceptable (e.g., a low-level embedding or a purely mechanical transformation with no user-facing prose). If you believe your case qualifies, call it out explicitly in the PR description and get sign-off — don't silently bypass the daemon.
+
 ## Approval Flow Resilience
 
 - **Rich delivery failures must degrade gracefully.** If delivering a rich approval prompt (e.g., Telegram inline buttons) fails, fall back to plain text with parser-compatible instructions (e.g., `Reply "yes" to approve`) — never auto-deny.
