@@ -55,6 +55,15 @@ mock.module('../tools/credentials/metadata-store.js', () => ({
   deleteCredentialMetadata: () => {},
 }));
 
+// Call domain mock — outbound voice verification calls are fire-and-forget.
+const voiceCallInitCalls: Array<{ phoneNumber: string; guardianVerificationSessionId: string; assistantId?: string }> = [];
+mock.module('../calls/call-domain.js', () => ({
+  startGuardianVerificationCall: async (input: { phoneNumber: string; guardianVerificationSessionId: string; assistantId?: string }) => {
+    voiceCallInitCalls.push(input);
+    return { ok: true, callSessionId: 'mock-call-session', callSid: 'CA-mock' };
+  },
+}));
+
 // Track Telegram deliveries via fetch mock
 const telegramDeliverCalls: Array<{ chatId: string; text: string; assistantId?: string }> = [];
 const originalFetch = globalThis.fetch;
@@ -130,6 +139,7 @@ function resetTables(): void {
   db.run('DELETE FROM channel_guardian_rate_limits');
   smsSendCalls.length = 0;
   telegramDeliverCalls.length = 0;
+  voiceCallInitCalls.length = 0;
   mockBotUsername = 'test_bot';
 }
 
@@ -3322,5 +3332,194 @@ describe('outbound Telegram verification', () => {
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(false);
     expect(resp!.error).toBe('rate_limited');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 20. Outbound Voice Verification
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('outbound voice verification', () => {
+  beforeEach(() => {
+    resetTables();
+  });
+
+  test('start_outbound for voice creates session with 6-digit code and initiates call', async () => {
+    const { ctx, lastResponse } = createMockCtx();
+    handleGuardianVerification({
+      type: 'guardian_verification',
+      action: 'start_outbound',
+      channel: 'voice',
+      assistantId: 'self',
+      destination: '+15551234567',
+    }, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(true);
+    expect(resp!.verificationSessionId).toBeDefined();
+    expect(resp!.secret).toBeDefined();
+    // Voice codes are 6 digits
+    expect(resp!.secret!.length).toBe(6);
+    expect(/^\d{6}$/.test(resp!.secret!)).toBe(true);
+    expect(resp!.expiresAt).toBeGreaterThan(Date.now());
+    expect(resp!.nextResendAt).toBeGreaterThan(Date.now());
+    expect(resp!.sendCount).toBe(1);
+    expect(resp!.channel).toBe('voice');
+
+    // Verify the session was created with expected identity
+    const session = serviceFindActiveSession('self', 'voice');
+    expect(session).not.toBeNull();
+    expect(session!.expectedPhoneE164).toBe('+15551234567');
+    expect(session!.destinationAddress).toBe('+15551234567');
+
+    // Allow the fire-and-forget call initiation to complete
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // Verify the call was initiated
+    expect(voiceCallInitCalls.length).toBeGreaterThanOrEqual(1);
+    const lastCall = voiceCallInitCalls[voiceCallInitCalls.length - 1];
+    expect(lastCall.phoneNumber).toBe('+15551234567');
+    expect(lastCall.guardianVerificationSessionId).toBe(resp!.verificationSessionId);
+  });
+
+  test('start_outbound for voice rejects invalid E.164', () => {
+    const { ctx, lastResponse } = createMockCtx();
+    handleGuardianVerification({
+      type: 'guardian_verification',
+      action: 'start_outbound',
+      channel: 'voice',
+      assistantId: 'self',
+      destination: 'not-a-phone',
+    }, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(false);
+    expect(resp!.error).toBe('invalid_destination');
+  });
+
+  test('start_outbound for voice rejects when binding exists (rebind=false)', () => {
+    createBinding({
+      assistantId: 'self',
+      channel: 'voice',
+      guardianExternalUserId: '+15551234567',
+      guardianDeliveryChatId: '+15551234567',
+    });
+
+    const { ctx, lastResponse } = createMockCtx();
+    handleGuardianVerification({
+      type: 'guardian_verification',
+      action: 'start_outbound',
+      channel: 'voice',
+      assistantId: 'self',
+      destination: '+15559876543',
+      rebind: false,
+    }, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(false);
+    expect(resp!.error).toBe('already_bound');
+  });
+
+  test('resend_outbound for voice initiates a new call with cooldown check', async () => {
+    // Start an outbound session first
+    const { ctx: startCtx } = createMockCtx();
+    handleGuardianVerification({
+      type: 'guardian_verification',
+      action: 'start_outbound',
+      channel: 'voice',
+      assistantId: 'self',
+      destination: '+15551234567',
+    }, mockSocket, startCtx);
+
+    // Immediately try to resend (before cooldown)
+    const { ctx, lastResponse } = createMockCtx();
+    handleGuardianVerification({
+      type: 'guardian_verification',
+      action: 'resend_outbound',
+      channel: 'voice',
+      assistantId: 'self',
+    }, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(false);
+    expect(resp!.error).toBe('rate_limited');
+  });
+
+  test('cancel_outbound for voice cancels session', () => {
+    // Start an outbound session first
+    const { ctx: startCtx } = createMockCtx();
+    handleGuardianVerification({
+      type: 'guardian_verification',
+      action: 'start_outbound',
+      channel: 'voice',
+      assistantId: 'self',
+      destination: '+15551234567',
+    }, mockSocket, startCtx);
+
+    // Cancel the session
+    const { ctx, lastResponse } = createMockCtx();
+    handleGuardianVerification({
+      type: 'guardian_verification',
+      action: 'cancel_outbound',
+      channel: 'voice',
+      assistantId: 'self',
+    }, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(true);
+
+    // Session should no longer be active
+    const session = serviceFindActiveSession('self', 'voice');
+    expect(session).toBeNull();
+  });
+
+  test('rate limit enforcement: destination rate limit applies to voice', () => {
+    // Exhaust the per-destination rate limit by creating many sessions
+    const db = getDb();
+    const now = Date.now();
+    for (let i = 0; i < 10; i++) {
+      // Insert sessions with recent lastSentAt to simulate sends
+      const sessionId = `rate-limit-voice-${i}`;
+      db.run(
+        `INSERT INTO channel_guardian_verification_challenges
+         (id, assistant_id, channel, challenge_hash, expires_at, status, destination_address, last_sent_at, send_count)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [sessionId, 'self', 'voice', `hash-${i}`, now + 600_000, 'awaiting_response', '+15551234567', now - 1000, 1],
+      );
+    }
+
+    const { ctx, lastResponse } = createMockCtx();
+    handleGuardianVerification({
+      type: 'guardian_verification',
+      action: 'start_outbound',
+      channel: 'voice',
+      assistantId: 'self',
+      destination: '+15551234567',
+    }, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(false);
+    expect(resp!.error).toBe('rate_limited');
+  });
+
+  test('start_outbound for voice requires destination', () => {
+    const { ctx, lastResponse } = createMockCtx();
+    handleGuardianVerification({
+      type: 'guardian_verification',
+      action: 'start_outbound',
+      channel: 'voice',
+      assistantId: 'self',
+    }, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(false);
+    expect(resp!.error).toBe('missing_destination');
   });
 });
