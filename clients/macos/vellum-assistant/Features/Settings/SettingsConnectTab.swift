@@ -59,7 +59,7 @@ struct SettingsConnectTab: View {
         .onAppear {
             Task { await authManager.checkSession() }
             store.refreshPlatformConfig()
-            if store.isDevMode { Task { await store.checkVellumPlatform() } }
+            Task { await store.checkVellumPlatform() }
             store.refreshIngressConfig()
             store.refreshAssistantEmail()
             store.refreshApprovedDevices()
@@ -180,6 +180,38 @@ struct SettingsConnectTab: View {
                 Text(error)
                     .font(VFont.caption)
                     .foregroundColor(VColor.error)
+            }
+
+            Divider().background(VColor.surfaceBorder)
+
+            // Platform URL connection status
+            connectionStatusRow(
+                label: "Platform",
+                status: platformUrlStatusInfo
+            )
+
+            HStack(spacing: VSpacing.sm) {
+                if store.isCheckingVellumPlatform {
+                    VLoadingIndicator(size: 14, color: VColor.accent)
+                    Text("Checking...")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
+                } else {
+                    VButton(
+                        label: "Test Connection",
+                        leftIcon: "antenna.radiowaves.left.and.right",
+                        style: .secondary,
+                        isDisabled: store.isCheckingVellumPlatform
+                    ) {
+                        Task { await store.checkVellumPlatform() }
+                    }
+                }
+            }
+
+            if let lastChecked = store.platformLastChecked {
+                Text("Last verified: \(relativeTimeString(from: lastChecked))")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
             }
 
             if store.isDevMode {
@@ -1425,6 +1457,21 @@ struct SettingsConnectTab: View {
             return ConnectionStatusInfo(label: "Running", color: VColor.success, icon: "checkmark.circle.fill")
         } else {
             return ConnectionStatusInfo(label: "Stopped", color: VColor.error, icon: "xmark.circle.fill")
+        }
+    }
+
+    private var platformUrlStatusInfo: ConnectionStatusInfo {
+        if store.isCheckingVellumPlatform {
+            return ConnectionStatusInfo(label: "Checking...", color: VColor.textMuted, icon: "arrow.trianglehead.2.counterclockwise")
+        }
+        guard let reachable = store.vellumPlatformReachable else {
+            return ConnectionStatusInfo(label: "Unknown", color: VColor.textMuted, icon: "questionmark.circle.fill")
+        }
+        if reachable {
+            return ConnectionStatusInfo(label: "Reachable", color: VColor.success, icon: "checkmark.circle.fill")
+        } else {
+            let detail = store.vellumPlatformError ?? "Unreachable"
+            return ConnectionStatusInfo(label: detail, color: VColor.error, icon: "xmark.circle.fill")
         }
     }
 

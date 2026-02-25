@@ -156,6 +156,7 @@ public final class SettingsStore: ObservableObject {
     @Published var vellumPlatformReachable: Bool?
     @Published var vellumPlatformError: String?
     @Published var isCheckingVellumPlatform: Bool = false
+    @Published var platformLastChecked: Date?
 
     // MARK: - Dev Mode
 
@@ -1323,7 +1324,10 @@ public final class SettingsStore: ObservableObject {
 
     func checkVellumPlatform() async {
         isCheckingVellumPlatform = true
-        defer { isCheckingVellumPlatform = false }
+        defer {
+            isCheckingVellumPlatform = false
+            platformLastChecked = Date()
+        }
 
         let baseUrl = platformBaseUrl.isEmpty ? AuthService.shared.baseURL : platformBaseUrl
         let normalized = baseUrl.hasSuffix("/") ? String(baseUrl.dropLast()) : baseUrl
