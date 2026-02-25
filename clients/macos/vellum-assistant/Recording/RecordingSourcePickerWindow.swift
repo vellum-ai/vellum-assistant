@@ -101,6 +101,10 @@ final class RecordingSourcePickerWindow: NSObject, NSWindowDelegate {
     nonisolated func windowWillClose(_ notification: Notification) {
         Task { @MainActor in
             fireCancel()
+            if let observer = moveObserver {
+                NotificationCenter.default.removeObserver(observer)
+                moveObserver = nil
+            }
             window = nil
             viewModel = nil
         }
