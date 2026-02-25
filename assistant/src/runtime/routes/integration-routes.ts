@@ -1,13 +1,23 @@
 /**
- * Route handlers for Telegram integration config endpoints.
+ * Route handlers for integration config endpoints.
  *
+ * Telegram:
  * GET    /v1/integrations/telegram/config   — get current config status
  * POST   /v1/integrations/telegram/config   — set bot token and configure webhook
  * DELETE /v1/integrations/telegram/config   — clear credentials and deregister webhook
  * POST   /v1/integrations/telegram/commands — register bot commands
  * POST   /v1/integrations/telegram/setup    — composite: set config + register commands
+ *
+ * Guardian verification:
+ * POST   /v1/integrations/guardian/challenge — create a verification challenge
+ * GET    /v1/integrations/guardian/status    — check guardian binding status
  */
 
+import {
+  createGuardianChallenge,
+  getGuardianStatus,
+} from '../../daemon/handlers/config-channels.js';
+import type { ChannelId } from '../../channels/types.js';
 import {
   clearTelegramConfig,
   getTelegramConfig,
@@ -71,4 +81,37 @@ export async function handleSetupTelegram(req: Request): Promise<Response> {
   const result = await setupTelegram(body.commands, body.botToken);
   const status = result.success ? 200 : 400;
   return Response.json(result, { status });
+}
+
+// ---------------------------------------------------------------------------
+// Guardian verification
+// ---------------------------------------------------------------------------
+
+/**
+ * POST /v1/integrations/guardian/challenge
+ *
+ * Body: { channel?: ChannelId; assistantId?: string; rebind?: boolean; sessionId?: string }
+ */
+export async function handleCreateGuardianChallenge(req: Request): Promise<Response> {
+  const body = (await req.json()) as {
+    channel?: ChannelId;
+    assistantId?: string;
+    rebind?: boolean;
+    sessionId?: string;
+  };
+  const result = createGuardianChallenge(body.channel, body.assistantId, body.rebind, body.sessionId);
+  const status = result.success ? 200 : 400;
+  return Response.json(result, { status });
+}
+
+/**
+ * GET /v1/integrations/guardian/status
+ *
+ * Query params: channel?, assistantId?
+ */
+export function handleGetGuardianStatus(url: URL): Response {
+  const channel = (url.searchParams.get('channel') as ChannelId | null) ?? undefined;
+  const assistantId = url.searchParams.get('assistantId') ?? undefined;
+  const result = getGuardianStatus(channel, assistantId);
+  return Response.json(result);
 }
