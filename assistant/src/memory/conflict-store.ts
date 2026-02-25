@@ -161,7 +161,11 @@ export function listPendingConflicts(scopeId: string, limit = 100): MemoryItemCo
   return rows.map(toConflict);
 }
 
-export function listPendingConflictDetails(scopeId: string, limit = 100): PendingConflictDetail[] {
+export function listPendingConflictDetails(
+  scopeId: string,
+  limit = 100,
+  cursor?: { createdAt: number; id: string },
+): PendingConflictDetail[] {
   if (limit <= 0) return [];
   interface ConflictDetailRow {
     id: string;
@@ -181,6 +185,12 @@ export function listPendingConflictDetails(scopeId: string, limit = 100): Pendin
     existing_kind: string;
     candidate_kind: string;
   }
+  const cursorClause = cursor
+    ? `AND (c.created_at > ? OR (c.created_at = ? AND c.id > ?))`
+    : '';
+  const params: unknown[] = cursor
+    ? [scopeId, cursor.createdAt, cursor.createdAt, cursor.id, limit]
+    : [scopeId, limit];
   const rows = rawAll<ConflictDetailRow>(`
     SELECT
       c.id,
@@ -204,9 +214,10 @@ export function listPendingConflictDetails(scopeId: string, limit = 100): Pendin
     INNER JOIN memory_items candidate_item ON candidate_item.id = c.candidate_item_id
     WHERE c.scope_id = ?
       AND c.status = 'pending_clarification'
-    ORDER BY c.created_at ASC
+      ${cursorClause}
+    ORDER BY c.created_at ASC, c.id ASC
     LIMIT ?
-  `, scopeId, limit);
+  `, ...params);
 
   return rows.map((row) => ({
     id: row.id,
