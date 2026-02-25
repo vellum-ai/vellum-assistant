@@ -24,4 +24,5 @@ export {
   migrateMemoryItemsIndexes,
   migrateRemainingTableIndexes,
   migrateAddOriginInterface,
+  migrateNotificationDeliveryPairingColumns,
 } from './migrations/index.js';

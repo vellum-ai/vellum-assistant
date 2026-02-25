@@ -12,6 +12,7 @@
 import { v4 as uuid } from 'uuid';
 import { getLogger } from '../util/logger.js';
 import { composeFallbackCopy } from './copy-composer.js';
+import { pairDeliveryWithConversation } from './conversation-pairing.js';
 import { resolveDestinations } from './destination-resolver.js';
 import { createDelivery, updateDeliveryStatus } from './deliveries-store.js';
 import type { NotificationSignal } from './signal.js';
@@ -90,10 +91,20 @@ export class NotificationBroadcaster {
         copy = fallbackCopy[channel] ?? { title: 'Notification', body: signal.sourceEventName };
       }
 
+      // Pair the delivery with a conversation before sending
+      const pairing = pairDeliveryWithConversation(signal, channel, copy);
+
+      // For the vellum channel, merge the conversationId into deep-link metadata
+      // so the macOS/iOS client can navigate directly to the notification thread.
+      let deepLinkTarget = decision.deepLinkTarget;
+      if (channel === 'vellum' && pairing.conversationId) {
+        deepLinkTarget = { ...deepLinkTarget, conversationId: pairing.conversationId };
+      }
+
       const payload: ChannelDeliveryPayload = {
         sourceEventName: signal.sourceEventName,
         copy,
-        deepLinkTarget: decision.deepLinkTarget,
+        deepLinkTarget,
       };
 
       const deliveryId = uuid();
@@ -118,6 +129,9 @@ export class NotificationBroadcaster {
             attempt: 1,
             renderedTitle: copy.title,
             renderedBody: copy.body,
+            conversationId: pairing.conversationId ?? undefined,
+            messageId: pairing.messageId ?? undefined,
+            conversationStrategy: pairing.strategy,
           });
         } else {
           log.warn(
@@ -137,6 +151,9 @@ export class NotificationBroadcaster {
             destination: destinationLabel,
             status: 'sent',
             sentAt: Date.now(),
+            conversationId: pairing.conversationId ?? undefined,
+            messageId: pairing.messageId ?? undefined,
+            conversationStrategy: pairing.strategy,
           });
         } else {
           if (hasPersistedDecision) {
@@ -147,6 +164,9 @@ export class NotificationBroadcaster {
             destination: destinationLabel,
             status: 'failed',
             errorMessage: adapterResult.error,
+            conversationId: pairing.conversationId ?? undefined,
+            messageId: pairing.messageId ?? undefined,
+            conversationStrategy: pairing.strategy,
           });
         }
       } catch (err) {
@@ -166,6 +186,9 @@ export class NotificationBroadcaster {
           destination: destinationLabel,
           status: 'failed',
           errorMessage,
+          conversationId: pairing.conversationId ?? undefined,
+          messageId: pairing.messageId ?? undefined,
+          conversationStrategy: pairing.strategy,
         });
       }
     }
