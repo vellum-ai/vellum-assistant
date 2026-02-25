@@ -519,7 +519,7 @@ export async function handleSkillDetail(
 
 // ─── Frontmatter parsing ─────────────────────────────────────────────────────
 
-const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/;
+const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
 
 interface ParsedFrontmatter {
   skillId?: string;
@@ -534,12 +534,12 @@ function parseFrontmatter(sourceText: string): ParsedFrontmatter {
   if (!match) return { body: sourceText };
 
   const yamlBlock = match[1];
-  const body = match[2];
+  const body = match[2].replace(/\r\n/g, '\n');
 
   const result: ParsedFrontmatter = { body };
 
   // Simple YAML key-value extraction (handles quoted and unquoted values)
-  for (const line of yamlBlock.split('\n')) {
+  for (const line of yamlBlock.split(/\r?\n/)) {
     const kvMatch = /^(\w[\w-]*):\s*(.+)$/.exec(line.trim());
     if (!kvMatch) continue;
     const key = kvMatch[1];
