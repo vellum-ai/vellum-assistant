@@ -68,6 +68,12 @@ struct InlineVideoWebView: NSViewRepresentable {
         context.coordinator.onLoadFailure = onLoadFailure
     }
 
+    static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
+        webView.stopLoading()
+        webView.navigationDelegate = nil
+        webView.uiDelegate = nil
+    }
+
     /// Build a WKWebView with the privacy-hardened configuration used for embeds.
     /// Factored out so policy tests can verify settings without a full SwiftUI context.
     static func makeConfiguredWebView() -> WKWebView {

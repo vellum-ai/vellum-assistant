@@ -1,20 +1,21 @@
 import * as net from 'node:net';
-import type {
-  ParentalControlGetRequest,
-  ParentalControlVerifyPinRequest,
-  ParentalControlSetPinRequest,
-  ParentalControlUpdateRequest,
-} from '../ipc-protocol.js';
-import { defineHandlers, type HandlerContext } from './shared.js';
+
 import {
+  clearPIN,
   getParentalControlSettings,
-  updateParentalControlSettings,
   hasPIN,
   setPIN,
+  updateParentalControlSettings,
   verifyPIN,
-  clearPIN,
 } from '../../security/parental-control-store.js';
 import { getLogger } from '../../util/logger.js';
+import type {
+  ParentalControlGetRequest,
+  ParentalControlSetPinRequest,
+  ParentalControlUpdateRequest,
+  ParentalControlVerifyPinRequest,
+} from '../ipc-protocol.js';
+import { defineHandlers, type HandlerContext } from './shared.js';
 
 const log = getLogger('parental-control');
 

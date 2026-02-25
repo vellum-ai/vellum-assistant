@@ -190,22 +190,24 @@ public final class ChatViewModel: ObservableObject {
     let daemonClient: any DaemonClientProtocol
     public var sessionId: String? {
         didSet {
-            #if os(iOS)
             // If the daemon reconnected before this VM had a session ID, a deferred
             // flush was requested. Now that we have a session, run it.
             if sessionId != nil && needsOfflineFlush {
                 needsOfflineFlush = false
                 flushOfflineQueue()
             }
-            #endif
         }
     }
     private var reconnectObserver: NSObjectProtocol?
-    #if os(iOS)
+    /// Debounces rapid-fire daemon reconnect notifications so only one history
+    /// reload is triggered per reconnect burst (500ms settle window).
+    private var reconnectDebounceTask: Task<Void, Never>?
+    /// Guards against overlapping reconnect history loads. Set true before
+    /// requesting history, cleared when `populateFromHistory` completes.
+    private var isReconnectHistoryLoading = false
     /// Set to true when daemonDidReconnect fires before sessionId is populated.
     /// Cleared and actioned in the sessionId didSet observer.
     private var needsOfflineFlush: Bool = false
-    #endif
     /// Set to true when reconnecting after an SSE gap while a run was in progress.
     /// Causes `populateFromHistory` to do a full message replace instead of
     /// prepending, so the missed assistant response is displayed.
@@ -215,12 +217,18 @@ public final class ChatViewModel: ObservableObject {
     /// and sends a history request so the response is routed back properly.
     public var onReconnectHistoryNeeded: ((_ sessionId: String) -> Void)?
     var pendingUserMessage: String?
+    /// The display text (rawText) corresponding to pendingUserMessage.
+    /// In voice mode, pendingUserMessage contains the voice-prefixed text while
+    /// this stores the original user text used for message-bubble matching.
+    var pendingUserMessageDisplayText: String?
     /// Optional callback for sending notifications when tool-use messages complete
     public var onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)?
     /// Whether the current assistant response was triggered by a voice message.
     public var pendingVoiceMessage: Bool = false
     /// Called when a voice-triggered assistant response completes, with the response text.
     public var onVoiceResponseComplete: ((String) -> Void)?
+    /// Called when any assistant response completes, with a summary of the response text.
+    public var onResponseComplete: ((String) -> Void)?
     /// Called with each streaming text delta during a voice-triggered response, for real-time TTS.
     public var onVoiceTextDelta: ((String) -> Void)?
     /// When true, messages are prefixed with a concise-response instruction for voice conversations.
@@ -228,6 +236,7 @@ public final class ChatViewModel: ObservableObject {
     var pendingUserAttachments: [IPCAttachment]?
     /// Stores the last user message that failed to send, enabling retry.
     private(set) var lastFailedMessageText: String?
+    private(set) var lastFailedMessageDisplayText: String?
     private(set) var lastFailedMessageAttachments: [IPCAttachment]?
     /// Set only when a send operation (bootstrapSession or sendUserMessage) fails.
     /// Used by `isRetryableError` to ensure the retry button only appears for
@@ -464,17 +473,25 @@ public final class ChatViewModel: ObservableObject {
                 // client may have missed the messageComplete (or the full
                 // assistant response). Reset the spinner and re-fetch history
                 // so the UI catches up on anything that happened during the gap.
+                // Debounce: cancel any pending reconnect task and wait 500ms
+                // to coalesce rapid-fire reconnect notifications into one load.
                 if self?.isThinking == true || self?.isSending == true {
                     self?.isThinking = false
                     self?.isSending = false
                     self?.currentAssistantMessageId = nil
                     self?.discardStreamingBuffer()
-                    if let sessionId = self?.sessionId {
-                        self?.needsReconnectCatchUp = true
-                        self?.onReconnectHistoryNeeded?(sessionId)
+                    self?.reconnectDebounceTask?.cancel()
+                    self?.reconnectDebounceTask = Task { @MainActor [weak self] in
+                        try? await Task.sleep(nanoseconds: 500_000_000) // 500ms
+                        guard !Task.isCancelled else { return }
+                        guard let self, !self.isReconnectHistoryLoading else { return }
+                        if let sessionId = self.sessionId {
+                            self.isReconnectHistoryLoading = true
+                            self.needsReconnectCatchUp = true
+                            self.onReconnectHistoryNeeded?(sessionId)
+                        }
                     }
                 }
-                #if os(iOS)
                 // If we already have a session ID, flush immediately. Otherwise
                 // defer: sessionId's didSet will trigger flushOfflineQueue() once
                 // the session is restored from history (cold-start reconnect case).
@@ -483,7 +500,6 @@ public final class ChatViewModel: ObservableObject {
                 } else {
                     self?.needsOfflineFlush = true
                 }
-                #endif
             }
         }
     }
@@ -541,6 +557,7 @@ public final class ChatViewModel: ObservableObject {
                 let attachments = pendingAttachments
                 pendingAttachments = []
                 pendingUserMessage = text
+                pendingUserMessageDisplayText = rawText
                 pendingUserAttachments = attachments.isEmpty ? nil : attachments.map {
                     IPCAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
                 }
@@ -553,6 +570,7 @@ public final class ChatViewModel: ObservableObject {
                 errorText = nil
                 sessionError = nil
                 lastFailedMessageText = nil
+                lastFailedMessageDisplayText = nil
                 lastFailedMessageAttachments = nil
                 lastFailedSendError = nil
                 connectionDiagnosticHint = nil
@@ -600,6 +618,7 @@ public final class ChatViewModel: ObservableObject {
         errorText = nil
         sessionError = nil
         lastFailedMessageText = nil
+        lastFailedMessageDisplayText = nil
         lastFailedMessageAttachments = nil
         lastFailedSendError = nil
         connectionDiagnosticHint = nil
@@ -621,10 +640,11 @@ public final class ChatViewModel: ObservableObject {
 
         if sessionId == nil {
             // First message: need to bootstrap session
+            pendingUserMessageDisplayText = rawText
             bootstrapSession(userMessage: text, attachments: ipcAttachments)
         } else {
             // Subsequent messages: send directly (daemon queues if busy)
-            sendUserMessage(text, attachments: ipcAttachments, queuedMessageId: queuedMessageId)
+            sendUserMessage(text, displayText: rawText, attachments: ipcAttachments, queuedMessageId: queuedMessageId)
         }
     }
 
@@ -655,10 +675,12 @@ public final class ChatViewModel: ObservableObject {
                     self.isSending = false
                     self.bootstrapCorrelationId = nil
                     self.lastFailedMessageText = self.pendingUserMessage
+                    self.lastFailedMessageDisplayText = self.pendingUserMessageDisplayText
                     self.lastFailedMessageAttachments = self.pendingUserAttachments
                     self.lastFailedSendError = "Failed to connect to the assistant."
                     self.connectionDiagnosticHint = Self.connectionDiagnosticHint(for: error)
                     self.pendingUserMessage = nil
+                    self.pendingUserMessageDisplayText = nil
                     self.pendingUserAttachments = nil
                     self.errorText = self.lastFailedSendError
                     return
@@ -680,16 +702,18 @@ public final class ChatViewModel: ObservableObject {
                 self.isSending = false
                 self.bootstrapCorrelationId = nil
                 self.lastFailedMessageText = self.pendingUserMessage
+                self.lastFailedMessageDisplayText = self.pendingUserMessageDisplayText
                 self.lastFailedMessageAttachments = self.pendingUserAttachments
                 self.lastFailedSendError = "Failed to create session."
                 self.pendingUserMessage = nil
+                self.pendingUserMessageDisplayText = nil
                 self.pendingUserAttachments = nil
                 self.errorText = self.lastFailedSendError
             }
         }
     }
 
-    private func sendUserMessage(_ text: String, attachments: [IPCAttachment]? = nil, queuedMessageId: UUID? = nil) {
+    private func sendUserMessage(_ text: String, displayText: String? = nil, attachments: [IPCAttachment]? = nil, queuedMessageId: UUID? = nil) {
         guard let sessionId else { return }
 
         // Check connectivity before entering sending state so the UI
@@ -698,27 +722,27 @@ public final class ChatViewModel: ObservableObject {
         guard daemonClient.isConnected else {
             log.error("Cannot send user_message: daemon not connected")
 
-            #if os(iOS)
-            // On iOS, buffer the primary (non-queued-retry) send in the offline queue
+            // Buffer the primary (non-queued-retry) send in the offline queue
             // instead of surfacing an error. The message stays visible with a
             // "pending" indicator and is flushed automatically on reconnect.
             if queuedMessageId == nil {
                 log.info("Buffering message in offline queue (session: \(sessionId))")
-                OfflineMessageQueue.shared.enqueue(sessionId: sessionId, text: text, attachments: attachments)
+                OfflineMessageQueue.shared.enqueue(sessionId: sessionId, text: text, displayText: displayText, attachments: attachments)
                 // Mark the corresponding chat message as offline-pending so the UI
                 // can show a visual indicator. Find the last user message with this
                 // text — it is the one just appended by sendMessage().
-                if let idx = messages.indices.reversed().first(where: { messages[$0].role == .user && messages[$0].text == text }) {
+                let matchText = displayText ?? text
+                if let idx = messages.indices.reversed().first(where: { messages[$0].role == .user && messages[$0].text == matchText }) {
                     messages[idx].status = .pendingOffline
                 }
                 // Don't show the error banner — the pending indicator on the bubble
                 // communicates the offline state without interrupting the conversation.
                 return
             }
-            #endif
 
             // Always track the failed message for retry support.
             lastFailedMessageText = text
+            lastFailedMessageDisplayText = displayText
             lastFailedMessageAttachments = attachments
             // Only update UI error state for the primary send (not a queued
             // retry). A queued retry failing must not clobber the active turn's
@@ -762,6 +786,7 @@ public final class ChatViewModel: ObservableObject {
             log.error("Failed to send user_message: \(error.localizedDescription)")
             // Always track the failed message for retry support.
             lastFailedMessageText = text
+            lastFailedMessageDisplayText = displayText
             lastFailedMessageAttachments = attachments
             // Only update UI error state for the primary send (not a queued
             // retry). A queued retry failing must not clobber the active turn's
@@ -783,9 +808,8 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
-    // MARK: - Offline Queue Flush (iOS only)
+    // MARK: - Offline Queue Flush
 
-    #if os(iOS)
     /// Drain the persistent offline queue and send all buffered messages in order.
     ///
     /// Called automatically when the daemon reconnects. Only flushes messages whose
@@ -814,9 +838,10 @@ public final class ChatViewModel: ObservableObject {
 
         // Update message bubbles: clear pendingOffline status so they show as sent.
         for queued in mine {
+            let matchText = queued.displayText ?? queued.text
             if let idx = messages.indices.reversed().first(where: {
                 messages[$0].role == .user
-                    && messages[$0].text == queued.text
+                    && messages[$0].text == matchText
                     && messages[$0].status == .pendingOffline
             }) {
                 messages[idx].status = .sent
@@ -828,10 +853,9 @@ public final class ChatViewModel: ObservableObject {
         // via the normal error retry path, rather than duplicating on the next flush.
         for queued in mine {
             queue.remove(id: queued.id)
-            sendUserMessage(queued.text, attachments: queued.ipcAttachments)
+            sendUserMessage(queued.text, displayText: queued.displayText, attachments: queued.ipcAttachments)
         }
     }
-    #endif
 
     public func startMessageLoop() {
         messageLoopTask?.cancel()
@@ -941,6 +965,7 @@ public final class ChatViewModel: ObservableObject {
     /// but preserve the correlation ID so the VM only claims its own session.
     public func cancelPendingMessage() {
         pendingUserMessage = nil
+        pendingUserMessageDisplayText = nil
         pendingUserAttachments = nil
         isWorkspaceRefinementInFlight = false
         refinementMessagePreview = nil
@@ -960,6 +985,7 @@ public final class ChatViewModel: ObservableObject {
         // cancel on the daemon side.
         if sessionId == nil {
             pendingUserMessage = nil
+            pendingUserMessageDisplayText = nil
             pendingUserAttachments = nil
             bootstrapCorrelationId = nil
             isWorkspaceRefinementInFlight = false
@@ -1267,6 +1293,7 @@ public final class ChatViewModel: ObservableObject {
         sessionError = nil
         errorText = nil
         lastFailedMessageText = nil
+        lastFailedMessageDisplayText = nil
         lastFailedMessageAttachments = nil
         lastFailedSendError = nil
         connectionDiagnosticHint = nil
@@ -1393,16 +1420,19 @@ public final class ChatViewModel: ObservableObject {
     /// Retry sending the last user message that failed (e.g. due to daemon disconnection).
     public func retryLastMessage() {
         guard let text = lastFailedMessageText else { return }
+        let displayText = lastFailedMessageDisplayText
         let attachments = lastFailedMessageAttachments
 
         // Clear failed message state and error
         lastFailedMessageText = nil
+        lastFailedMessageDisplayText = nil
         lastFailedMessageAttachments = nil
         lastFailedSendError = nil
         errorText = nil
         connectionDiagnosticHint = nil
 
         if sessionId == nil {
+            pendingUserMessageDisplayText = displayText
             bootstrapSession(userMessage: text, attachments: attachments)
         } else {
             // When retrying while another turn is in progress, the retried
@@ -1415,13 +1445,14 @@ public final class ChatViewModel: ObservableObject {
                 // (it was already appended to messages[] during the original
                 // sendMessage() call). Use the last user message with matching
                 // text as the queue entry.
-                if let idx = messages.lastIndex(where: { $0.role == .user && $0.text == text }) {
+                let matchText = displayText ?? text
+                if let idx = messages.lastIndex(where: { $0.role == .user && $0.text == matchText }) {
                     pendingMessageIds.append(messages[idx].id)
                     queuedMessageId = messages[idx].id
                     messages[idx].status = .queued(position: 0)
                 }
             }
-            sendUserMessage(text, attachments: attachments, queuedMessageId: queuedMessageId)
+            sendUserMessage(text, displayText: displayText, attachments: attachments, queuedMessageId: queuedMessageId)
         }
     }
 
@@ -1565,6 +1596,17 @@ public final class ChatViewModel: ObservableObject {
         self.suggestion = nil
     }
 
+    /// Strip the voice mode instruction prefix from user messages so it
+    /// doesn't clutter the chat when conversations are reloaded from history.
+    private static let voicePrefixPattern = /^\[Voice conversation\s—[^\]]*\]\n\n/
+
+    private func stripVoicePrefix(_ text: String) -> String {
+        if let match = text.prefixMatch(of: Self.voicePrefixPattern) {
+            return String(text[match.range.upperBound...])
+        }
+        return text
+    }
+
     /// Populate messages from history data returned by the daemon.
     /// If the user hasn't sent any messages yet, replaces messages entirely.
     /// If the user already sent messages (late history_response), prepends
@@ -1601,20 +1643,15 @@ public final class ChatViewModel: ObservableObject {
                     // Use sessionId from the view model (assumes history is for current session)
                     if let sessionId = self.sessionId,
                        let surface = Surface.from(surf, sessionId: sessionId) {
-                        // Reconstruct a UiSurfaceShowMessage so the card remains
+                        // Build a lightweight SurfaceRef so the card remains
                         // clickable after the app restarts (history restore).
-                        let reconstructedActions: [SurfaceActionData]? = surf.actions?.map { action in
-                            SurfaceActionData(id: action.id, label: action.label, style: action.style)
-                        }
-                        let reconstructedMessage = UiSurfaceShowMessage(
-                            sessionId: sessionId,
+                        // The full UiSurfaceShowMessage is not retained to avoid
+                        // keeping entire HTML payloads in memory.
+                        let ref = SurfaceRef(
                             surfaceId: surf.surfaceId,
+                            sessionId: sessionId,
                             surfaceType: surf.surfaceType,
-                            title: surf.title,
-                            data: AnyCodable(surf.data.mapValues { $0.value }),
-                            actions: reconstructedActions,
-                            display: surf.display,
-                            messageId: item.id
+                            title: surf.title
                         )
                         let inlineSurface = InlineSurfaceData(
                             id: surface.id,
@@ -1622,7 +1659,7 @@ public final class ChatViewModel: ObservableObject {
                             title: surface.title,
                             data: surface.data,
                             actions: surface.actions,
-                            surfaceMessage: reconstructedMessage
+                            surfaceRef: ref
                         )
                         inlineSurfaces.append(inlineSurface)
                     }
@@ -1640,13 +1677,16 @@ public final class ChatViewModel: ObservableObject {
             if item.text.isEmpty && toolCalls.isEmpty && attachments.isEmpty && inlineSurfaces.isEmpty { continue }
             let timestamp = Date(timeIntervalSince1970: TimeInterval(item.timestamp) / 1000.0)
 
+            // Strip voice mode instruction prefix from user messages
+            let displayText = role == .user ? stripVoicePrefix(item.text) : item.text
+
             // Use the database message ID if available (for matching surfaces)
             var chatMsg: ChatMessage
             if let dbId = item.id, let uuid = UUID(uuidString: dbId) {
                 chatMsg = ChatMessage(
                     id: uuid,
                     role: role,
-                    text: item.text,
+                    text: displayText,
                     timestamp: timestamp,
                     attachments: attachments,
                     toolCalls: toolCalls
@@ -1654,7 +1694,7 @@ public final class ChatViewModel: ObservableObject {
             } else {
                 chatMsg = ChatMessage(
                     role: role,
-                    text: item.text,
+                    text: displayText,
                     timestamp: timestamp,
                     attachments: attachments,
                     toolCalls: toolCalls
@@ -1665,6 +1705,12 @@ public final class ChatViewModel: ObservableObject {
             // anchor to it. This is the database ID from the daemon, not the
             // client-side UUID.
             chatMsg.daemonMessageId = item.id
+
+            // Drop base64 data from history attachments — the daemon already
+            // persisted them, so we only need thumbnails for display.
+            for i in chatMsg.attachments.indices {
+                chatMsg.attachments[i].data = ""
+            }
 
             // Populate inlineSurfaces from history
             chatMsg.inlineSurfaces = inlineSurfaces
@@ -1758,10 +1804,26 @@ public final class ChatViewModel: ObservableObject {
         if needsReconnectCatchUp {
             // Reconnect catch-up: the SSE stream dropped while a run was
             // in progress, so the client may have missed the assistant's
-            // response. Do a full replace with the server's authoritative
-            // message list instead of the normal prepend-only dedup.
+            // response. Use the server's authoritative message list, but
+            // preserve any genuinely unsent local messages. History items
+            // use daemon DB IDs while local messages use Swift UUIDs, so
+            // simple ID-based dedup won't work — use fuzzy matching instead
+            // (role + text prefix + timestamp ±2s).
             needsReconnectCatchUp = false
-            self.messages = chatMessages
+            let localCandidates = self.messages.filter {
+                pendingMessageIds.contains($0.id) || $0.status == .pendingOffline
+            }
+            var localOnly: [ChatMessage] = []
+            for local in localCandidates {
+                let isDuplicate = chatMessages.contains { server in
+                    server.role == local.role
+                    && server.text.hasPrefix(String(local.text.prefix(100)))
+                    && abs(server.timestamp.timeIntervalSince(local.timestamp)) < 2
+                }
+                if !isDuplicate { localOnly.append(local) }
+            }
+            self.messages = chatMessages + localOnly
+            self.isReconnectHistoryLoading = false
         } else if messages.contains(where: { $0.role == .user }) {
             // History arrived after the user already sent messages.
             // The history payload includes ALL persisted messages — including
@@ -1789,6 +1851,7 @@ public final class ChatViewModel: ObservableObject {
 
     deinit {
         messageLoopTask?.cancel()
+        reconnectDebounceTask?.cancel()
         if let observer = reconnectObserver {
             NotificationCenter.default.removeObserver(observer)
         }

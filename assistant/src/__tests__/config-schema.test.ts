@@ -1,8 +1,9 @@
-import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
-import { mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, mock,test } from 'bun:test';
 
 // ---------------------------------------------------------------------------
 // Mocks — declared before imports that depend on platform/logger
@@ -50,12 +51,12 @@ mock.module('../util/platform.js', () => ({
   isWindows: () => false,
 }));
 
+import { buildElevenLabsVoiceSpec, resolveVoiceQualityProfile } from '../calls/voice-quality.js';
+import { DEFAULT_CONFIG } from '../config/defaults.js';
+import { invalidateConfigCache,loadConfig } from '../config/loader.js';
+import { AssistantConfigSchema } from '../config/schema.js';
 import { _setStorePath } from '../security/encrypted-store.js';
 import { _setBackend } from '../security/secure-keys.js';
-import { loadConfig, invalidateConfigCache } from '../config/loader.js';
-import { AssistantConfigSchema } from '../config/schema.js';
-import { DEFAULT_CONFIG } from '../config/defaults.js';
-import { buildElevenLabsVoiceSpec, resolveVoiceQualityProfile } from '../calls/voice-quality.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1436,7 +1437,7 @@ describe('Call entrypoint gating', () => {
     // Force config reload
     loadConfig();
 
-    const { CallStartTool: _CallStartToolClass } = await import('../tools/calls/call-start.js') as { CallStartTool: new () => { execute: (input: Record<string, unknown>, context: { conversationId: string }) => Promise<{ content: string; isError: boolean }> } };
+    const { executeCallStart: _executeCallStart } = await import('../tools/calls/call-start.js');
 
     // The tool is registered via side effect. We need to test the gating logic directly.
     // Since the module registers itself, we test by loading config and checking behavior.

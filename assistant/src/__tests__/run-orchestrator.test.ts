@@ -1,7 +1,9 @@
-import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, beforeEach, describe, expect, mock,test } from 'bun:test';
+
 import type { ServerMessage } from '../daemon/ipc-protocol.js';
 import type { Session } from '../daemon/session.js';
 
@@ -32,12 +34,12 @@ mock.module('../config/loader.js', () => ({
   }),
 }));
 
-import { initializeDb, getDb, resetDb } from '../memory/db.js';
-import { createConversation } from '../memory/conversation-store.js';
-import { createRun, getRun, setRunConfirmation } from '../memory/runs-store.js';
-import { RunOrchestrator } from '../runtime/run-orchestrator.js';
-import type { VoiceRunEventSink } from '../runtime/run-orchestrator.js';
 import type { ChannelCapabilities } from '../daemon/session-runtime-assembly.js';
+import { createConversation } from '../memory/conversation-store.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
+import { createRun, getRun, setRunConfirmation } from '../memory/runs-store.js';
+import type { VoiceRunEventSink } from '../runtime/run-orchestrator.js';
+import { RunOrchestrator } from '../runtime/run-orchestrator.js';
 
 initializeDb();
 

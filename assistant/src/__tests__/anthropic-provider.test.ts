@@ -1,4 +1,5 @@
-import { describe, test, expect, beforeEach, mock } from 'bun:test';
+import { beforeEach, describe, expect, mock,test } from 'bun:test';
+
 import type { Message, ToolDefinition } from '../providers/types.js';
 
 // ---------------------------------------------------------------------------
@@ -55,7 +56,7 @@ mock.module('@anthropic-ai/sdk', () => ({
 }));
 
 // Import after mocking
-import { AnthropicProvider, PLACEHOLDER_EMPTY_TURN, PLACEHOLDER_BLOCKS_OMITTED } from '../providers/anthropic/client.js';
+import { AnthropicProvider, PLACEHOLDER_BLOCKS_OMITTED,PLACEHOLDER_EMPTY_TURN } from '../providers/anthropic/client.js';
 
 // ---------------------------------------------------------------------------
 // Helpers

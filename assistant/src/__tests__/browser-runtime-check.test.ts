@@ -1,4 +1,4 @@
-import { describe, test, expect, mock, beforeEach } from 'bun:test';
+import { beforeEach,describe, expect, mock, test } from 'bun:test';
 
 // Mock playwright before importing runtime-check.
 // Use real filesystem paths so we don't need to mock node:fs

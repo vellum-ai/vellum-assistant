@@ -1,18 +1,22 @@
 /**
  * Route handlers for conversation messages and suggestions.
  */
-import { CHANNEL_IDS, INTERFACE_IDS, parseChannelId, parseInterfaceId } from '../../channels/types.js';
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
+
+import { CHANNEL_IDS, INTERFACE_IDS, parseChannelId, parseInterfaceId } from '../../channels/types.js';
+import { mergeToolResults,renderHistoryContent } from '../../daemon/handlers.js';
+import type { ServerMessage } from '../../daemon/ipc-protocol.js';
+import * as attachmentsStore from '../../memory/attachments-store.js';
 import {
   getConversationByKey,
   getOrCreateConversation,
 } from '../../memory/conversation-key-store.js';
 import * as conversationStore from '../../memory/conversation-store.js';
-import * as attachmentsStore from '../../memory/attachments-store.js';
-import { renderHistoryContent, mergeToolResults } from '../../daemon/handlers.js';
 import { getConfiguredProvider } from '../../providers/provider-send-message.js';
 import type { Provider } from '../../providers/types.js';
+import { getLogger } from '../../util/logger.js';
+import { buildAssistantEvent } from '../assistant-event.js';
 import type {
   MessageProcessor,
   NonBlockingMessageProcessor,
@@ -20,10 +24,7 @@ import type {
   RuntimeMessagePayload,
   SendMessageDeps,
 } from '../http-types.js';
-import type { ServerMessage } from '../../daemon/ipc-protocol.js';
-import { buildAssistantEvent } from '../assistant-event.js';
 import * as pendingInteractions from '../pending-interactions.js';
-import { getLogger } from '../../util/logger.js';
 
 const log = getLogger('conversation-routes');
 
@@ -313,6 +314,7 @@ export async function handleSendMessage(
           userMessageInterface: sourceInterface,
           assistantMessageInterface: sourceInterface,
         },
+        { isInteractive: false },
       );
       if (result.rejected) {
         return Response.json(
@@ -335,8 +337,9 @@ export async function handleSendMessage(
     const requestId = crypto.randomUUID();
     const messageId = session.persistUserMessage(content ?? '', attachments, requestId);
 
-    // Fire-and-forget the agent loop; events flow to the hub via onEvent
-    session.runAgentLoop(content ?? '', messageId, onEvent).catch((err) => {
+    // Fire-and-forget the agent loop; events flow to the hub via onEvent.
+    // Mark non-interactive so conflict clarification doesn't block the turn.
+    session.runAgentLoop(content ?? '', messageId, onEvent, { isInteractive: false }).catch((err) => {
       log.error({ err, conversationId: mapping.conversationId }, 'Agent loop failed (POST /messages)');
     });
 

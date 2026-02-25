@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "crypto";
 import { buildWhatsAppTransportMetadata } from "../../channels/transport-hints.js";
 import type { GatewayConfig } from "../../config.js";
 import { StringDedupCache } from "../../dedup-cache.js";
@@ -31,7 +32,10 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
       const challenge = url.searchParams.get("hub.challenge");
 
       if (mode === "subscribe" && token && config.whatsappWebhookVerifyToken) {
-        if (token === config.whatsappWebhookVerifyToken) {
+        const a = Buffer.from(token);
+        const b = Buffer.from(config.whatsappWebhookVerifyToken);
+        const match = a.length === b.length && timingSafeEqual(a, b);
+        if (match) {
           tlog.info("WhatsApp webhook verify token validated");
           // Return the challenge as plain text to complete the handshake
           return new Response(challenge ?? "", { status: 200 });
@@ -86,7 +90,7 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
 
     const normalizedMessages = normalizeWhatsAppWebhook(payload);
     if (normalizedMessages.length === 0) {
-      // Delivery receipts, status updates, non-text messages, etc. — acknowledge silently
+      // Delivery receipts, status updates, etc. — acknowledge silently
       return Response.json({ ok: true });
     }
 
@@ -96,7 +100,7 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
     let hasFailure = false;
 
     for (const normalized of normalizedMessages) {
-      const { event, whatsappMessageId } = normalized;
+      const { event, whatsappMessageId, mediaType } = normalized;
       const from = event.message.externalChatId;
 
       // Dedup by WhatsApp message ID — atomically reserve so concurrent retries
@@ -111,9 +115,26 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
           source: "whatsapp",
           messageId: whatsappMessageId,
           from,
+          ...(mediaType ? { mediaType } : {}),
         },
         "WhatsApp webhook received",
       );
+
+      if (mediaType) {
+        tlog.warn(
+          { whatsappMessageId, mediaType, hasCaption: event.message.content.length > 0 },
+          "WhatsApp media attachment not processed — media download not yet supported",
+        );
+
+        // No caption and no text — nothing to forward to the assistant
+        if (event.message.content.length === 0) {
+          markWhatsAppMessageRead(config, whatsappMessageId).catch((err) => {
+            tlog.debug({ err, messageId: whatsappMessageId }, "Failed to mark WhatsApp message as read");
+          });
+          dedupCache.mark(whatsappMessageId);
+          continue;
+        }
+      }
 
       // Mark message as read (best-effort, do not await)
       markWhatsAppMessageRead(config, whatsappMessageId).catch((err) => {

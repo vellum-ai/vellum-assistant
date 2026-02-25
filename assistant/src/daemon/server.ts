@@ -1,44 +1,46 @@
+import { chmodSync, readFileSync,statSync } from 'node:fs';
 import * as net from 'node:net';
-import * as tls from 'node:tls';
-import { chmodSync, statSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { getSocketPath, getSandboxWorkingDir, removeSocketFile, getTCPPort, getTCPHost, isTCPEnabled, isIOSPairingEnabled } from '../util/platform.js';
-import { ensureTlsCert } from './tls-certs.js';
-import { getLocalIPv4 } from '../util/network-info.js';
-import { getLogger } from '../util/logger.js';
-import { getFailoverProvider, initializeProviders } from '../providers/registry.js';
-import { RateLimitProvider } from '../providers/ratelimit.js';
+import * as tls from 'node:tls';
+
+import { createAssistantMessage,createUserMessage } from '../agent/message-types.js';
+import { type ChannelId, type InterfaceId,parseChannelId, parseInterfaceId } from '../channels/types.js';
 import { getConfig } from '../config/loader.js';
 import { buildSystemPrompt } from '../config/system-prompt.js';
-import { checkIngressForSecrets } from '../security/secret-ingress.js';
-import { IngressBlockedError } from '../util/errors.js';
+import { bootstrapHomeBaseAppLink } from '../home-base/bootstrap.js';
+import * as attachmentsStore from '../memory/attachments-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { provenanceFromGuardianContext } from '../memory/conversation-store.js';
-import * as attachmentsStore from '../memory/attachments-store.js';
-import { Session, DEFAULT_MEMORY_POLICY, type SessionMemoryPolicy } from './session.js';
-import { parseChannelId, parseInterfaceId, type ChannelId, type InterfaceId } from '../channels/types.js';
-import { resolveChannelCapabilities } from './session-runtime-assembly.js';
-import { ComputerUseSession } from './computer-use-session.js';
-import {
-  serialize,
-  createMessageParser,
-  MAX_LINE_SIZE,
-  type ServerMessage,
-  normalizeThreadType,
-} from './ipc-protocol.js';
-import { validateClientMessage } from './ipc-validate.js';
-import { handleMessage, type HandlerContext, type SessionCreateOptions } from './handlers.js';
+import { RateLimitProvider } from '../providers/ratelimit.js';
+import { getFailoverProvider, initializeProviders } from '../providers/registry.js';
 import { RunOrchestrator } from '../runtime/run-orchestrator.js';
-import { ensureBlobDir, sweepStaleBlobs } from './ipc-blob-store.js';
-import { bootstrapHomeBaseAppLink } from '../home-base/bootstrap.js';
-import { SessionEvictor } from './session-evictor.js';
+import { checkIngressForSecrets } from '../security/secret-ingress.js';
+import { cleanupRecordingsOnDisconnect } from './handlers/recording.js';
 import { getSubagentManager } from '../subagent/index.js';
-import { resolveSlash } from './session-slash.js';
-import { createUserMessage, createAssistantMessage } from '../agent/message-types.js';
+import { IngressBlockedError } from '../util/errors.js';
+import { getLogger } from '../util/logger.js';
+import { getLocalIPv4 } from '../util/network-info.js';
+import { getSandboxWorkingDir, getSocketPath, getTCPHost, getTCPPort, isIOSPairingEnabled,isTCPEnabled, removeSocketFile } from '../util/platform.js';
 import { registerDaemonCallbacks } from '../work-items/work-item-runner.js';
 import { AuthManager } from './auth-manager.js';
+import { ComputerUseSession } from './computer-use-session.js';
 import { ConfigWatcher } from './config-watcher.js';
+import { handleMessage, type HandlerContext, type SessionCreateOptions } from './handlers.js';
+import { ensureBlobDir, sweepStaleBlobs } from './ipc-blob-store.js';
 import { IpcSender } from './ipc-handler.js';
+import {
+  createMessageParser,
+  MAX_LINE_SIZE,
+  normalizeThreadType,
+  serialize,
+  type ServerMessage,
+} from './ipc-protocol.js';
+import { validateClientMessage } from './ipc-validate.js';
+import { DEFAULT_MEMORY_POLICY, Session, type SessionMemoryPolicy } from './session.js';
+import { SessionEvictor } from './session-evictor.js';
+import { resolveChannelCapabilities } from './session-runtime-assembly.js';
+import { resolveSlash } from './session-slash.js';
+import { ensureTlsCert } from './tls-certs.js';
 
 const log = getLogger('server');
 
@@ -459,6 +461,16 @@ export class DaemonServer {
         }
         getSubagentManager().abortAllForParent(sessionId);
       }
+      // Clean up recording state for recordings whose owning conversation is
+      // bound to the disconnecting socket. Runs outside the sessionId check
+      // because recordings may be keyed to a different conversation than the
+      // socket's current session.
+      cleanupRecordingsOnDisconnect(socket, (convId) => {
+        for (const [s, sid] of this.socketToSession.entries()) {
+          if (sid === convId) return s;
+        }
+        return undefined;
+      });
       this.socketToSession.delete(socket);
       const cuSessionIds = this.socketToCuSession.get(socket);
       if (cuSessionIds) {
@@ -694,14 +706,14 @@ export class DaemonServer {
 
   // ── HTTP message processing ─────────────────────────────────────────
 
-  async persistAndProcessMessage(
+  private async prepareSessionForMessage(
     conversationId: string,
     content: string,
-    attachmentIds?: string[],
-    options?: SessionCreateOptions,
-    sourceChannel?: string,
-    sourceInterface?: string,
-  ): Promise<{ messageId: string }> {
+    attachmentIds: string[] | undefined,
+    options: SessionCreateOptions | undefined,
+    sourceChannel: string | undefined,
+    sourceInterface: string | undefined,
+  ): Promise<{ session: Session; attachments: { id: string; filename: string; mimeType: string; data: string }[] }> {
     const ingressCheck = checkIngressForSecrets(content);
     if (ingressCheck.blocked) {
       throw new IngressBlockedError(ingressCheck.userNotice!, ingressCheck.detectedTypes);
@@ -737,10 +749,25 @@ export class DaemonServer {
         }))
       : [];
 
+    return { session, attachments };
+  }
+
+  async persistAndProcessMessage(
+    conversationId: string,
+    content: string,
+    attachmentIds?: string[],
+    options?: SessionCreateOptions,
+    sourceChannel?: string,
+    sourceInterface?: string,
+  ): Promise<{ messageId: string }> {
+    const { session, attachments } = await this.prepareSessionForMessage(
+      conversationId, content, attachmentIds, options, sourceChannel, sourceInterface,
+    );
+
     const requestId = crypto.randomUUID();
     const messageId = session.persistUserMessage(content, attachments, requestId);
 
-    session.runAgentLoop(content, messageId, () => {}).catch((err) => {
+    session.runAgentLoop(content, messageId, () => {}, { isInteractive: false }).catch((err) => {
       log.error({ err, conversationId }, 'Background agent loop failed');
     });
 
@@ -755,40 +782,9 @@ export class DaemonServer {
     sourceChannel?: string,
     sourceInterface?: string,
   ): Promise<{ messageId: string }> {
-    const ingressCheck = checkIngressForSecrets(content);
-    if (ingressCheck.blocked) {
-      throw new IngressBlockedError(ingressCheck.userNotice!, ingressCheck.detectedTypes);
-    }
-
-    const session = await this.getOrCreateSession(conversationId, undefined, true, options);
-
-    if (session.isProcessing()) {
-      throw new Error('Session is already processing a message');
-    }
-
-    const resolvedChannel2 = resolveTurnChannel(sourceChannel, options?.transport?.channelId);
-    const resolvedInterface2 = resolveTurnInterface(sourceInterface);
-    session.setAssistantId(options?.assistantId ?? 'self');
-    session.setGuardianContext(options?.guardianContext ?? null);
-    session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel, sourceInterface));
-    session.setCommandIntent(options?.commandIntent ?? null);
-    session.setTurnChannelContext({
-      userMessageChannel: resolvedChannel2,
-      assistantMessageChannel: resolvedChannel2,
-    });
-    session.setTurnInterfaceContext({
-      userMessageInterface: resolvedInterface2,
-      assistantMessageInterface: resolvedInterface2,
-    });
-
-    const attachments = attachmentIds
-      ? attachmentsStore.getAttachmentsByIds(attachmentIds).map((a) => ({
-          id: a.id,
-          filename: a.originalFilename,
-          mimeType: a.mimeType,
-          data: a.dataBase64,
-        }))
-      : [];
+    const { session, attachments } = await this.prepareSessionForMessage(
+      conversationId, content, attachmentIds, options, sourceChannel, sourceInterface,
+    );
 
     const slashResult = resolveSlash(content);
 
@@ -843,7 +839,7 @@ export class DaemonServer {
     const resolvedContent = slashResult.content;
 
     if (slashResult.kind === 'rewritten') {
-      (session as unknown as { preactivatedSkillIds?: string[] }).preactivatedSkillIds = [slashResult.skillId];
+      session.setPreactivatedSkillIds([slashResult.skillId]);
     }
 
     const requestId = crypto.randomUUID();
@@ -851,11 +847,11 @@ export class DaemonServer {
     try {
       messageId = session.persistUserMessage(resolvedContent, attachments, requestId);
     } catch (err) {
-      (session as unknown as { preactivatedSkillIds?: string[] }).preactivatedSkillIds = undefined;
+      session.setPreactivatedSkillIds(undefined);
       throw err;
     }
 
-    await session.runAgentLoop(resolvedContent, messageId, () => {});
+    await session.runAgentLoop(resolvedContent, messageId, () => {}, { isInteractive: false });
 
     return { messageId };
   }

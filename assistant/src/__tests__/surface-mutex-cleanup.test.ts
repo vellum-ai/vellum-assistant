@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import { createSurfaceMutex } from '../daemon/session-surfaces.js';
 
 describe('createSurfaceMutex cleanup', () => {

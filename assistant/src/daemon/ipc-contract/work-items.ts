@@ -214,12 +214,31 @@ export interface TaskRunThreadCreated {
   title: string;
 }
 
-/** Server push — broadcast when a guardian action request creates a thread for the mac channel. */
-export interface GuardianRequestThreadCreated {
-  type: 'guardian_request_thread_created';
-  conversationId: string;
-  requestId: string;
-  callSessionId: string;
-  title: string;
-  questionText: string;
-}
+// --- Domain-level union aliases (consumed by the barrel file) ---
+
+export type _WorkItemsClientMessages =
+  | WorkItemsListRequest
+  | WorkItemGetRequest
+  | WorkItemUpdateRequest
+  | WorkItemCompleteRequest
+  | WorkItemDeleteRequest
+  | WorkItemRunTaskRequest
+  | WorkItemOutputRequest
+  | WorkItemPreflightRequest
+  | WorkItemApprovePermissionsRequest
+  | WorkItemCancelRequest;
+
+export type _WorkItemsServerMessages =
+  | WorkItemsListResponse
+  | WorkItemGetResponse
+  | WorkItemUpdateResponse
+  | WorkItemDeleteResponse
+  | WorkItemRunTaskResponse
+  | WorkItemOutputResponse
+  | WorkItemPreflightResponse
+  | WorkItemApprovePermissionsResponse
+  | WorkItemCancelResponse
+  | WorkItemStatusChanged
+  | TaskRunThreadCreated
+  | TasksChanged
+  | OpenTasksWindow;

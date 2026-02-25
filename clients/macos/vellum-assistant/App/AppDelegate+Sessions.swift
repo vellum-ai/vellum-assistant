@@ -240,29 +240,39 @@ extension AppDelegate {
         }
     }
 
-    func deliverGuardianRequestNotification(title: String, questionText: String, conversationId: String) {
-        let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = String(questionText.prefix(200))
-        content.sound = .default
-        content.categoryIdentifier = "GUARDIAN_REQUEST"
-        content.userInfo = ["conversationId": conversationId]
-
-        let request = UNNotificationRequest(
-            identifier: "guardian-request-\(conversationId)",
-            content: content,
-            trigger: nil
+    /// Creates the thread in the sidebar and applies urgency surfacing policy.
+    /// Guardian questions are time-sensitive, so they are foregrounded when the
+    /// app is active. All notification types get a fallback native alert when
+    /// backgrounded to guarantee delivery if the notification_intent IPC is late.
+    func handleNotificationThreadCreated(_ msg: IPCNotificationThreadCreated) {
+        mainWindow?.threadManager.createNotificationThread(
+            conversationId: msg.conversationId,
+            title: msg.title,
+            sourceEventName: msg.sourceEventName
         )
-        UNUserNotificationCenter.current().add(request) { error in
-            if let error {
-                log.error("Failed to post guardian request notification: \(error.localizedDescription)")
-            }
+
+        // Guardian questions get foregrounded immediately when the app is active.
+        if msg.sourceEventName == "guardian.question" && NSApp.isActive {
+            openConversationThread(conversationId: msg.conversationId)
+            return
         }
+
+        // When the app is in the background (or for non-guardian events even when
+        // active), schedule a fallback notification. notification_intent is normally
+        // emitted moments later by the vellum adapter; if it arrives in time the
+        // fallback is cancelled to prevent duplicates.
+        guard !NSApp.isActive else { return }
+
+        scheduleNotificationFallback(
+            conversationId: msg.conversationId,
+            title: msg.title,
+            sourceEventName: msg.sourceEventName
+        )
     }
 
     /// Opens the main window and navigates to the thread for the given conversation ID.
     /// Retries if the thread isn't populated yet (e.g., ThreadManager hasn't loaded it).
-    /// Used by Quick Chat, Guardian Request, and other notification deep links.
+    /// Used by Quick Chat and notification deep links.
     func openConversationThread(conversationId: String?) {
         showMainWindow()
         guard let conversationId else { return }

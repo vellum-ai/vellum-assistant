@@ -1,21 +1,22 @@
 import * as Sentry from '@sentry/node';
-import { getSqlite, resetDb } from '../memory/db.js';
-import { browserManager } from '../tools/browser/browser-manager.js';
-import { getEnrichmentService } from '../workspace/commit-message-enrichment-service.js';
-import { getLogger } from '../util/logger.js';
-import type { DaemonServer } from './server.js';
-import type { RuntimeHttpServer } from '../runtime/http-server.js';
-import type { HeartbeatService } from '../workspace/heartbeat-service.js';
-import type { AgentHeartbeatService } from '../agent-heartbeat/agent-heartbeat-service.js';
-import type { QdrantManager } from '../memory/qdrant-manager.js';
+
+import type { HeartbeatService } from '../heartbeat/heartbeat-service.js';
 import type { HookManager } from '../hooks/manager.js';
+import { getSqlite, resetDb } from '../memory/db.js';
+import type { QdrantManager } from '../memory/qdrant-manager.js';
+import type { RuntimeHttpServer } from '../runtime/http-server.js';
+import { browserManager } from '../tools/browser/browser-manager.js';
+import { getLogger } from '../util/logger.js';
+import { getEnrichmentService } from '../workspace/commit-message-enrichment-service.js';
+import type { WorkspaceHeartbeatService } from '../workspace/heartbeat-service.js';
+import type { DaemonServer } from './server.js';
 
 const log = getLogger('lifecycle');
 
 export interface ShutdownDeps {
   server: DaemonServer;
+  workspaceHeartbeat: WorkspaceHeartbeatService;
   heartbeat: HeartbeatService;
-  agentHeartbeat: AgentHeartbeatService;
   hookManager: HookManager;
   runtimeHttp: RuntimeHttpServer | null;
   scheduler: { stop(): void };
@@ -44,8 +45,8 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     }, 10_000);
     forceTimer.unref();
 
+    await deps.workspaceHeartbeat.stop();
     await deps.heartbeat.stop();
-    await deps.agentHeartbeat.stop();
 
     try {
       await deps.hookManager.trigger('daemon-stop', { pid: process.pid });
@@ -57,7 +58,7 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     // This ensures no workspace state is lost during graceful shutdown.
     try {
       log.info({ phase: 'pre_stop' }, 'Committing pending workspace changes');
-      await deps.heartbeat.commitAllPending();
+      await deps.workspaceHeartbeat.commitAllPending();
     } catch (err) {
       log.warn({ err, phase: 'pre_stop' }, 'Shutdown workspace commit failed');
     }
@@ -68,7 +69,7 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     // (e.g. in-flight tool executions completing during drain).
     try {
       log.info({ phase: 'post_stop' }, 'Final workspace commit sweep');
-      await deps.heartbeat.commitAllPending();
+      await deps.workspaceHeartbeat.commitAllPending();
     } catch (err) {
       log.warn({ err, phase: 'post_stop' }, 'Post-stop workspace commit failed');
     }

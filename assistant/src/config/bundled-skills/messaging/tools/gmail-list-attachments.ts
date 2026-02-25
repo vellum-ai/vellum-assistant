@@ -1,9 +1,9 @@
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import { withValidToken } from '../../../../security/token-manager.js';
-import { getMessagingProvider } from '../../../../messaging/registry.js';
 import { getMessage } from '../../../../messaging/providers/gmail/client.js';
 import type { GmailMessagePart } from '../../../../messaging/providers/gmail/types.js';
-import { ok, err } from './shared.js';
+import { getMessagingProvider } from '../../../../messaging/registry.js';
+import { withValidToken } from '../../../../security/token-manager.js';
+import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
+import { err,ok } from './shared.js';
 
 interface AttachmentInfo {
   partId: string;

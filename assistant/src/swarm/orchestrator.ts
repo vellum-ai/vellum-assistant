@@ -1,13 +1,13 @@
-import type { SwarmPlan, SwarmTaskNode, SwarmTaskResult, SwarmExecutionSummary } from './types.js';
+import type { ModelIntent,Provider } from '../providers/types.js';
+import { getLogger } from '../util/logger.js';
+import { isCheckpointCompatible,loadCheckpoint, removeCheckpoint, writeCheckpoint } from './checkpoint.js';
+import { detectCycles } from './graph-utils.js';
 import type { SwarmLimits } from './limits.js';
 import { getTimeoutForRole } from './limits.js';
+import { synthesizeResults } from './synthesizer.js';
+import type { SwarmExecutionSummary,SwarmPlan, SwarmTaskNode, SwarmTaskResult } from './types.js';
 import type { SwarmWorkerBackend } from './worker-backend.js';
 import { runWorkerTask } from './worker-runner.js';
-import type { Provider } from '../providers/types.js';
-import { synthesizeResults } from './synthesizer.js';
-import { detectCycles } from './graph-utils.js';
-import { getLogger } from '../util/logger.js';
-import { writeCheckpoint, loadCheckpoint, removeCheckpoint, isCheckpointCompatible } from './checkpoint.js';
 
 const log = getLogger('swarm-orchestrator');
 
@@ -33,10 +33,10 @@ export interface ExecuteSwarmOptions {
   limits: SwarmLimits;
   backend: SwarmWorkerBackend;
   workingDir: string;
-  model?: string;
-  /** Provider + model for final synthesis. */
+  modelIntent?: string;
+  /** Provider + model intent for final synthesis. */
   synthesisProvider?: Provider;
-  synthesisModel?: string;
+  synthesisModelIntent?: ModelIntent;
   onStatus?: OrchestratorStatusCallback;
   signal?: AbortSignal;
   /** Stable identifier for this swarm run, used for checkpoint persistence. */
@@ -50,7 +50,7 @@ export interface ExecuteSwarmOptions {
  * bounded concurrency, and per-task retries.
  */
 export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExecutionSummary> {
-  const { plan, limits, backend, workingDir, model, onStatus, signal, runId, resume } = opts;
+  const { plan, limits, backend, workingDir, modelIntent, onStatus, signal, runId, resume } = opts;
   const startTime = Date.now();
 
   // Safety net: reject cyclic plans even if the caller skipped validation
@@ -183,7 +183,7 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
         dependencyOutputs: depOutputs,
         backend,
         workingDir,
-        model,
+        modelIntent,
         timeoutMs: taskTimeoutMs,
         signal,
       });
@@ -202,7 +202,7 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
           dependencyOutputs: depOutputs,
           backend,
           workingDir,
-          model,
+          modelIntent,
           timeoutMs: taskTimeoutMs,
           signal,
         });
@@ -287,9 +287,7 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
       objective: plan.objective,
       results: allResults,
       provider: opts.synthesisProvider,
-      ...(opts.synthesisModel
-        ? { model: opts.synthesisModel }
-        : { modelIntent: 'quality-optimized' as const }),
+      modelIntent: opts.synthesisModelIntent ?? 'quality-optimized',
     });
   } else {
     if (!signal?.aborted) onStatus?.({ kind: 'synthesis_started' });

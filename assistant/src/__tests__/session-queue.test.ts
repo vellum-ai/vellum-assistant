@@ -1,8 +1,10 @@
-import { describe, expect, mock, test, beforeEach, afterAll } from 'bun:test';
 import { rmSync, writeFileSync } from 'node:fs';
-import type { Message, ProviderResponse } from '../providers/types.js';
-import type { AgentEvent, CheckpointInfo, CheckpointDecision } from '../agent/loop.js';
+
+import { afterAll,beforeEach, describe, expect, mock, test } from 'bun:test';
+
+import type { AgentEvent, CheckpointDecision,CheckpointInfo } from '../agent/loop.js';
 import type { ServerMessage } from '../daemon/ipc-protocol.js';
+import type { Message, ProviderResponse } from '../providers/types.js';
 
 // ---------------------------------------------------------------------------
 // Mocks — must precede the Session import so Bun applies them at load time.
@@ -218,8 +220,8 @@ mock.module('../agent/loop.js', () => ({
 // Import Session AFTER mocks are registered.
 // ---------------------------------------------------------------------------
 
-import { Session, MAX_QUEUE_DEPTH } from '../daemon/session.js';
 import type { QueueDrainReason, QueuePolicy } from '../daemon/session.js';
+import { MAX_QUEUE_DEPTH,Session } from '../daemon/session.js';
 
 type SessionWithWorkspaceDeps = Session & {
   getWorkspaceGitService?: (_workspaceDir: string) => { ensureInitialized: () => Promise<void> };
@@ -1152,7 +1154,7 @@ describe('Surface-action queue-full trace', () => {
     expect(session.getQueueDepth()).toBe(MAX_QUEUE_DEPTH);
 
     // Register a pending surface action so handleSurfaceAction doesn't bail early
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- access private property for testing
+     
     (session as any).pendingSurfaceActions.set('surf-1', { surfaceType: 'confirmation' });
 
     // Trigger the surface action — queue is full, should be rejected
@@ -1169,7 +1171,7 @@ describe('Surface-action queue-full trace', () => {
     );
     expect(errorTrace).toBeDefined();
     expect(errorTrace).toHaveProperty('attributes');
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- access trace attributes
+     
     const attrs = (errorTrace as any).attributes;
     expect(attrs.reason).toBe('queue_full');
     expect(attrs.source).toBe('surface_action');
@@ -1310,7 +1312,7 @@ describe('Session attachment event payloads', () => {
       content: 'ok',
       isError: false,
       contentBlocks: [
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mock content block
+         
         { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0K' } } as any,
       ],
     });
@@ -1354,7 +1356,7 @@ describe('Session attachment event payloads', () => {
       content: 'ok',
       isError: false,
       contentBlocks: [
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mock content block
+         
         { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0K' } } as any,
       ],
     });
@@ -1430,7 +1432,7 @@ describe('Regression: cancel semantics and error channel split', () => {
       content: 'ok',
       isError: false,
       contentBlocks: [
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mock content block
+         
         { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0K' } } as any,
       ],
     });

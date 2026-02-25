@@ -1,12 +1,14 @@
-import { readFileSync, existsSync, copyFileSync } from 'node:fs';
+import { copyFileSync,existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { getWorkspaceDir, getWorkspacePromptPath, isMacOS } from '../util/platform.js';
-import { getLogger } from '../util/logger.js';
-import { loadSkillCatalog, type SkillSummary } from './skills.js';
-import { getConfig } from './loader.js';
-import { listCredentialMetadata } from '../tools/credentials/metadata-store.js';
-import { resolveUserReference } from './user-reference.js';
+
+import type { ResponseTier } from '../daemon/response-tier.js';
 import { getParentalControlSettings } from '../security/parental-control-store.js';
+import { listCredentialMetadata } from '../tools/credentials/metadata-store.js';
+import { getLogger } from '../util/logger.js';
+import { getWorkspaceDir, getWorkspacePromptPath, isMacOS } from '../util/platform.js';
+import { getConfig } from './loader.js';
+import { loadSkillCatalog, type SkillSummary } from './skills.js';
+import { resolveUserReference } from './user-reference.js';
 
 const log = getLogger('system-prompt');
 
@@ -83,7 +85,7 @@ export function isOnboardingComplete(): boolean {
  *   3. If BOOTSTRAP.md exists, append first-run ritual instructions
  *   4. Append skills catalog from ~/.vellum/workspace/skills
  */
-export function buildSystemPrompt(): string {
+export function buildSystemPrompt(tier: ResponseTier = 'high'): string {
   const soulPath = getWorkspacePromptPath('SOUL.md');
   const identityPath = getWorkspacePromptPath('IDENTITY.md');
   const userPath = getWorkspacePromptPath('USER.md');
@@ -97,6 +99,7 @@ export function buildSystemPrompt(): string {
   const looks = readPromptFile(looksPath);
   const bootstrap = readPromptFile(bootstrapPath);
 
+  // ── Core sections (all tiers) ──
   const parts: string[] = [];
   if (identity) parts.push(identity);
   if (soul) parts.push(soul);
@@ -110,27 +113,40 @@ export function buildSystemPrompt(): string {
     );
   }
   parts.push(buildConfigSection());
-  parts.push(buildTaskScheduleReminderRoutingSection());
-  parts.push(buildAttachmentSection());
-  if (!isOnboardingComplete()) {
-    parts.push(buildStarterTaskPlaybookSection());
-  }
-  parts.push(buildInChatConfigurationSection());
-  parts.push(buildToolPermissionSection());
-  parts.push(buildSystemPermissionSection());
-  parts.push(buildChannelAwarenessSection());
-  parts.push(buildChannelCommandIntentSection());
-  parts.push(buildExternalCommsIdentitySection());
-  parts.push(buildSwarmGuidanceSection());
-  parts.push(buildAccessPreferenceSection());
-  parts.push(buildIntegrationSection());
-  parts.push(buildWorkspaceReflectionSection());
-  parts.push(buildLearningMemorySection());
   parts.push(buildPostToolResponseSection());
+  parts.push(buildExternalCommsIdentitySection());
+  parts.push(buildChannelAwarenessSection());
+  // Parental controls are a safety boundary — always included regardless of tier.
   const parentalSection = buildParentalControlSection();
   if (parentalSection) parts.push(parentalSection);
 
-  return appendSkillsCatalog(parts.join('\n\n'));
+  // ── Extended sections (medium + high) ──
+  if (tier !== 'low') {
+    parts.push(buildToolPermissionSection());
+    parts.push(buildTaskScheduleReminderRoutingSection());
+    parts.push(buildAttachmentSection());
+    parts.push(buildInChatConfigurationSection());
+    parts.push(buildChannelCommandIntentSection());
+  }
+
+  // ── Full sections (high only) ──
+  if (tier === 'high') {
+    if (!isOnboardingComplete()) {
+      parts.push(buildStarterTaskPlaybookSection());
+    }
+    parts.push(buildSystemPermissionSection());
+    parts.push(buildSwarmGuidanceSection());
+    parts.push(buildAccessPreferenceSection());
+    parts.push(buildIntegrationSection());
+    parts.push(buildWorkspaceReflectionSection());
+    parts.push(buildLearningMemorySection());
+  }
+
+  // Skills catalog: include for medium+high, skip for low
+  if (tier !== 'low') {
+    return appendSkillsCatalog(parts.join('\n\n'));
+  }
+  return parts.join('\n\n');
 }
 
 function buildTaskScheduleReminderRoutingSection(): string {
@@ -286,7 +302,7 @@ function buildInChatConfigurationSection(): string {
     '',
     '**How to collect credentials and secrets:**',
     '- Use `credential_store` with `action: "prompt"` to present a secure input field. The value never appears in the conversation.',
-    '- For OAuth flows, use `credential_store` with `action: "oauth2_connect"` to handle the authorization in-browser. Note: some services (e.g. Twitter/X) define their own auth flow via dedicated skills rather than `oauth2_connect` — check the service\'s skill documentation for the specific auth action.',
+    '- For OAuth flows, use `credential_store` with `action: "oauth2_connect"` to handle the authorization in-browser. Some services (e.g. Twitter/X) define their own auth flow via dedicated skill instructions — check the service\'s skill documentation for provider-specific setup steps.',
     '- For non-secret config values (e.g. a public URL, a webhook URL), ask the user directly in the conversation and use the appropriate IPC or config tool to persist the value.',
     '',
     '**After saving a value**, confirm success with a message like: "Great, saved! You can always update this from the Settings page."',
@@ -436,7 +452,7 @@ function buildAccessPreferenceSection(): string {
     '   (e.g., no API exists, visual interaction needed, or OAuth consent screen).',
     '',
     'Before using browser tools for a business system, ask yourself:',
-    '- Is there a CLI installed? (Check with `cli_discover` or `which <tool>` via host_bash)',
+    '- Is there a CLI installed? (Check with `which <tool>` via host_bash, or load the cli-discover skill for a thorough audit)',
     '- Does the service have a public API I can call with curl?',
     '- Can I get the data via web_fetch?',
     '',
@@ -509,7 +525,7 @@ function buildPostToolResponseSection(): string {
     '',
     '**Call tools FIRST, explain AFTER:**',
     '- When a user request requires a tool, call it immediately at the start of your response',
-    '- After the tool call, provide a brief conversational explanation of what you did',
+    '- After the tool call, give a one-sentence summary of what you did — do not list out every detail or section',
     '- Do NOT provide conversational preamble before calling the tool',
     '',
     'Example (CORRECT):',
@@ -551,8 +567,13 @@ function buildConfigSection(): string {
     '- `SOUL.md` — Core principles, personality, and evolution guidance. Your behavioral foundation.',
     '- `USER.md` — Profile of your user. Update as you learn about them over time.',
     '- `LOOKS.md` — Your avatar appearance: body/cheek colors and outfit (hat, shirt, accessory, held item).',
+    '- `HEARTBEAT.md` — Checklist for periodic heartbeat runs. When heartbeat is enabled, the assistant runs this checklist on a timer and flags anything that needs attention. Edit this file to control what gets checked each run.',
     '- `BOOTSTRAP.md` — First-run ritual script (only present during onboarding; you delete it when done).',
     '- `skills/` — Directory of installed skills (loaded automatically at startup).',
+    '',
+    '### Heartbeat',
+    '',
+    'The heartbeat feature runs your `HEARTBEAT.md` checklist periodically in a background thread. To enable it, set `heartbeat.enabled: true` and `heartbeat.intervalMs` (default: 3600000 = 1 hour) in `config.json`. You can also set `heartbeat.activeHoursStart` and `heartbeat.activeHoursEnd` (0-23) to restrict runs to certain hours. When asked to set up a heartbeat, edit both the config and `HEARTBEAT.md` directly — no restart is needed for checklist changes, but toggling `heartbeat.enabled` requires a daemon restart.',
     '',
     '### Proactive Workspace Editing',
     '',
@@ -646,7 +667,7 @@ function buildDynamicSkillWorkflowSection(): string {
     'When no existing tool or skill can satisfy a request:',
     '1. Validate the gap — confirm no existing tool/skill covers it.',
     '2. Draft a TypeScript snippet exporting a `default` or `run` function (`(input: unknown) => unknown | Promise<unknown>`).',
-    '3. Test with `evaluate_typescript_code`. Iterate until it passes (max 3 attempts, then ask the user).',
+    '3. Test the snippet by writing it to a temp file and running it with `bash command="bun run /tmp/vellum-eval/snippet.ts"`. Iterate until it passes (max 3 attempts, then ask the user). Clean up temp files after.',
     '4. Persist with `scaffold_managed_skill` only after user consent.',
     '5. Load with `skill_load` before use.',
     '',

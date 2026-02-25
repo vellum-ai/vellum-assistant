@@ -1,8 +1,9 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
 
 let TEST_DIR = '';
 
@@ -21,7 +22,7 @@ import { ScaffoldManagedSkillTool } from '../tools/skills/scaffold-managed.js';
 import type { ToolContext } from '../tools/types.js';
 
 // Use internal class directly to avoid registry side effects
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- bypass private constructor for testing
+ 
 const tool = new (ScaffoldManagedSkillTool as any)() as InstanceType<typeof ScaffoldManagedSkillTool>;
 
 function makeContext(): ToolContext {

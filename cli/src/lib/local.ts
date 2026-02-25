@@ -4,7 +4,7 @@ import { createRequire } from "module";
 import { homedir } from "os";
 import { dirname, join } from "path";
 
-import { loadAllAssistants, loadLatestAssistant } from "./assistant-config.js";
+import { loadLatestAssistant } from "./assistant-config.js";
 import { GATEWAY_PORT } from "./constants.js";
 import { stopProcessByPidFile } from "./process.js";
 
@@ -288,7 +288,7 @@ export async function startLocalDaemon(): Promise<void> {
   }
 }
 
-export async function startGateway(): Promise<string> {
+export async function startGateway(assistantId?: string): Promise<string> {
   const publicUrl = await discoverPublicUrl();
   if (publicUrl) {
     console.log(`   Public URL: ${publicUrl}`);
@@ -296,12 +296,12 @@ export async function startGateway(): Promise<string> {
 
   console.log("🌐 Starting gateway...");
 
-  // Only auto-configure default routing when the workspace has exactly one
-  // assistant.  In multi-assistant deployments, falling back to "default"
-  // would silently deliver unmapped Telegram chats to whichever assistant was
-  // most recently hatched — keep the "reject" policy instead.
-  const assistants = loadAllAssistants();
-  const isSingleAssistant = assistants.length === 1;
+  // Resolve the default assistant ID for the gateway. Prefer the explicitly
+  // provided assistantId (from hatch), then env override, then lockfile.
+  const resolvedAssistantId =
+    assistantId
+    || process.env.GATEWAY_DEFAULT_ASSISTANT_ID
+    || loadLatestAssistant()?.assistantId;
 
   // Read the bearer token so the gateway can authenticate proxied requests
   // (e.g. from paired iOS devices). Respect VELLUM_HTTP_TOKEN_PATH and
@@ -318,12 +318,13 @@ export async function startGateway(): Promise<string> {
 
   // If no token is available (first startup — daemon hasn't written it yet),
   // poll for the file to appear. The daemon writes the token shortly after
-  // startup, so a short wait avoids starting the gateway without auth
-  // (which would leave it permanently unauthenticated since the gateway
-  // config is loaded once at startup and never reloads).
+  // startup, so we wait generously — the daemon socket wait is 15s, and
+  // the token may be written after the socket. Starting the gateway without
+  // auth is a security risk since the config is loaded once at startup and
+  // never reloads, so we fail rather than silently disabling auth.
   if (!runtimeProxyBearerToken) {
     console.log("   Waiting for bearer token file...");
-    const maxWait = 10000;
+    const maxWait = 30000;
     const pollInterval = 500;
     const start = Date.now();
     while (Date.now() - start < maxWait) {
@@ -340,36 +341,30 @@ export async function startGateway(): Promise<string> {
     }
   }
 
-  // If the token still isn't available after polling, fall back to starting
-  // the gateway without auth so it doesn't block forever. This is a degraded
-  // mode — the proxy will be broken because the runtime expects a token.
-  const proxyRequireAuth = runtimeProxyBearerToken ? "true" : "false";
   if (!runtimeProxyBearerToken) {
-    console.log("   ⚠️  Bearer token not found after 10s — gateway proxy auth disabled");
+    throw new Error(
+      `Bearer token file not found at ${httpTokenPath} after 30s.\n` +
+        "  The gateway cannot start without authentication — this would leave the proxy permanently unauthenticated.\n" +
+        "  Ensure the daemon is running and has written the token file, or set VELLUM_HTTP_TOKEN_PATH to the correct path.",
+    );
   }
 
   const gatewayEnv: Record<string, string> = {
     ...process.env as Record<string, string>,
     GATEWAY_RUNTIME_PROXY_ENABLED: "true",
-    GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH: proxyRequireAuth,
+    GATEWAY_RUNTIME_PROXY_REQUIRE_AUTH: "true",
+    RUNTIME_PROXY_BEARER_TOKEN: runtimeProxyBearerToken,
     RUNTIME_HTTP_PORT: process.env.RUNTIME_HTTP_PORT || "7821",
   };
 
-  if (runtimeProxyBearerToken) {
-    gatewayEnv.RUNTIME_PROXY_BEARER_TOKEN = runtimeProxyBearerToken;
-  }
-
   if (process.env.GATEWAY_UNMAPPED_POLICY) {
     gatewayEnv.GATEWAY_UNMAPPED_POLICY = process.env.GATEWAY_UNMAPPED_POLICY;
-  } else if (isSingleAssistant) {
+  } else {
     gatewayEnv.GATEWAY_UNMAPPED_POLICY = "default";
   }
 
-  if (process.env.GATEWAY_DEFAULT_ASSISTANT_ID) {
-    gatewayEnv.GATEWAY_DEFAULT_ASSISTANT_ID = process.env.GATEWAY_DEFAULT_ASSISTANT_ID;
-  } else if (isSingleAssistant) {
-    gatewayEnv.GATEWAY_DEFAULT_ASSISTANT_ID =
-      assistants[0].assistantId || loadLatestAssistant()?.assistantId || "default";
+  if (resolvedAssistantId) {
+    gatewayEnv.GATEWAY_DEFAULT_ASSISTANT_ID = resolvedAssistantId;
   }
   const workspaceIngressPublicBaseUrl = readWorkspaceIngressPublicBaseUrl();
   const ingressPublicBaseUrl =

@@ -1,3 +1,11 @@
+import {
+  getPhoneNumberSid,
+  getTollFreeVerificationStatus,
+  hasTwilioCredentials,
+} from '../calls/twilio-rest.js';
+import { getTwilioPhoneNumberEnv } from '../config/env.js';
+import { loadRawConfig } from '../config/loader.js';
+import { getSecureKey } from '../security/secure-keys.js';
 import type {
   ChannelId,
   ChannelProbe,
@@ -5,14 +13,6 @@ import type {
   ChannelReadinessSnapshot,
   ReadinessCheckResult,
 } from './channel-readiness-types.js';
-import {
-  hasTwilioCredentials,
-  getTollFreeVerificationStatus,
-  getPhoneNumberSid,
-} from '../calls/twilio-rest.js';
-import { getSecureKey } from '../security/secure-keys.js';
-import { loadRawConfig } from '../config/loader.js';
-import { getTwilioPhoneNumberEnv } from '../config/env.js';
 
 /** Remote check results are cached for 5 minutes before being considered stale. */
 export const REMOTE_TTL_MS = 5 * 60 * 1000;

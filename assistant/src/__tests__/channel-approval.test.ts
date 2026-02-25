@@ -1,7 +1,8 @@
-import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, beforeEach, describe, expect, mock,test } from 'bun:test';
 
 // ---------------------------------------------------------------------------
 // Test isolation: in-memory SQLite via temp directory
@@ -28,12 +29,12 @@ mock.module('../util/logger.js', () => ({
 }));
 
 import { initializeDb, resetDb } from '../memory/db.js';
+import type { PendingConfirmation } from '../memory/runs-store.js';
 import {
   createRun,
-  setRunConfirmation,
   getPendingConfirmationsByConversation,
+  setRunConfirmation,
 } from '../memory/runs-store.js';
-import type { PendingConfirmation } from '../memory/runs-store.js';
 import { parseApprovalDecision } from '../runtime/channel-approval-parser.js';
 
 initializeDb();

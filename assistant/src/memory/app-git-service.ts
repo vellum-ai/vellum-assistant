@@ -12,11 +12,12 @@
  * lazy init, etc.).
  */
 
-import { getWorkspaceGitService } from '../workspace/git-service.js';
-import { getAppsDir } from './app-store.js';
-import { getLogger } from '../util/logger.js';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+
+import { getLogger } from '../util/logger.js';
+import { getWorkspaceGitService } from '../workspace/git-service.js';
+import { getAppsDir } from './app-store.js';
 
 const log = getLogger('app-git');
 

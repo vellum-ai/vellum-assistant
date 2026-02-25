@@ -74,6 +74,21 @@ declare -a SAFE_LINE_PATTERNS=(
     # `//` comments — prevents masking real fallback assignments like
     # `clientSecret: config.clientSecret || "real_secret"`.
     "[.?]+[a-zA-Z0-9_]*[Cc]lient[Ss]ecret([^\"'/]*$|[^\"'/]*//.*)$"
+    # TS/JS: secret/key variable assigned from a function call.
+    # E.g. `const clientSecret = getSecureKey(keyVault)` or
+    # `getSecureKey('credential:integration:twitter:oauth_client_secret')`.
+    # Allows either no quoted args, or quoted args containing `:` (key paths).
+    # Raw alphanumeric strings like `"sk_live_..."` are still rejected.
+    "(client[_-]?[Ss]ecret|[Pp]rivate[_-]?[Kk]ey)[[:space:]]*=[[:space:]]*(get[A-Za-z]*|create[A-Za-z]*|load[A-Za-z]*|read[A-Za-z]*|delete[A-Za-z]*|set[A-Za-z]*)\(([^\"']*$|[^\"']*[\"'][^\"']*:[^\"']*[\"'][^\"']*$)"
+    # TS/JS: property key followed by type annotation or opening brace.
+    # E.g. `requiresClientSecret: boolean;` or `client_secret: {`.
+    "[Cc]lient[_-]?[Ss]ecret['\"]?:[[:space:]]*(boolean|number)[[:space:]]*[;,]?"
+    "[Cc]lient[_-]?[Ss]ecret['\"]?:[[:space:]]*\{[[:space:]]*$"
+    # TS/JS: secret/key property assigned from a variable (no string literal).
+    # E.g. `body.client_secret = clientSecret;` or `oauth2ClientSecret: clientSecret ?? undefined`.
+    "[Cc]lient[_-]?[Ss]ecret[[:space:]]*[:=][[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*[[:space:]]*((\?\?|\|\|)[[:space:]]*(undefined))?[[:space:]]*[;,]"
+    # AWS well-known example key used in documentation
+    "AKIAIOSFODNN7EXAMPLE"
 )
 
 matches_safe_line_pattern() {
@@ -166,6 +181,24 @@ if [ "${1:-}" = "--self-test" ]; then
 
     # Dotted reference with nullish coalescing fallback — must NOT be whitelisted
     UNSAFE_TS_NULLISH_FALLBACK='clientSecret: config.clientSecret ?? "real_secret_value_1234"'
+
+    # Function-call assignments (false positives to whitelist)
+    SAFE_FUNC_CALL_SECRET='const clientSecret = getSecureKey(keyVault)'
+    SAFE_CREATE_PRIVATE_KEY='const key = createPrivateKey(keyPem)'
+    # Function-call with quoted key path (colon-separated identifier) — must be whitelisted
+    SAFE_FUNC_CALL_KEY_PATH="const clientSecret = getSecureKey('credential:integration:twitter:oauth_client_secret') || undefined;"
+    # Function-call with key path followed by a hardcoded secret fallback — must NOT be whitelisted
+    UNSAFE_FUNC_CALL_KEY_PATH_FALLBACK="const clientSecret = getSecureKey('credential:integration:twitter:oauth_client_secret') || \"sk_live_12345678901234567890\""
+    # Function-call with literal secret in args — must NOT be whitelisted
+    UNSAFE_FUNC_CALL_LITERAL='const clientSecret = getSecureKey("sk_live_12345678901234567890")'
+    UNSAFE_FUNC_CALL_SINGLE_QUOTE="const privateKey = loadPrivateKey('real_secret_key_value_12345')"
+    # Type-annotated property (false positive to whitelist)
+    SAFE_TYPED_PROP_SECRET='  requiresClientSecret: boolean;'
+    # Variable-to-variable assignment (false positive to whitelist)
+    SAFE_VAR_ASSIGN_SECRET='body.client_secret = clientSecret;'
+    SAFE_VAR_NULLISH_SECRET='oauth2ClientSecret: clientSecret ?? undefined,'
+    # AWS well-known example key (false positive to whitelist)
+    SAFE_AWS_EXAMPLE_KEY='const EXAMPLE_KEY = "AKIAIOSFODNN7EXAMPLE";'
 
     if matches_secret_pattern "$SAFE_ARCHITECTURE_LINE"; then
         echo -e "${RED}Self-test failed:${NC} ARCHITECTURE allowlist case still matches"
@@ -345,6 +378,46 @@ if [ "${1:-}" = "--self-test" ]; then
     fi
     if matches_secret_pattern "$UNSAFE_TS_NULLISH_FALLBACK" && matches_safe_line_pattern "$UNSAFE_TS_NULLISH_FALLBACK"; then
         echo -e "${RED}Self-test failed:${NC} dotted clientSecret with nullish coalescing fallback was incorrectly whitelisted"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_FUNC_CALL_SECRET" && ! matches_safe_line_pattern "$SAFE_FUNC_CALL_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} function-call clientSecret assignment false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_CREATE_PRIVATE_KEY" && ! matches_safe_line_pattern "$SAFE_CREATE_PRIVATE_KEY"; then
+        echo -e "${RED}Self-test failed:${NC} createPrivateKey function-call false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_FUNC_CALL_KEY_PATH" && ! matches_safe_line_pattern "$SAFE_FUNC_CALL_KEY_PATH"; then
+        echo -e "${RED}Self-test failed:${NC} function-call with quoted key path false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$UNSAFE_FUNC_CALL_KEY_PATH_FALLBACK" && matches_safe_line_pattern "$UNSAFE_FUNC_CALL_KEY_PATH_FALLBACK"; then
+        echo -e "${RED}Self-test failed:${NC} function-call with key-path arg and hardcoded fallback was incorrectly whitelisted"
+        exit 1
+    fi
+    if matches_secret_pattern "$UNSAFE_FUNC_CALL_LITERAL" && matches_safe_line_pattern "$UNSAFE_FUNC_CALL_LITERAL"; then
+        echo -e "${RED}Self-test failed:${NC} function-call with literal secret was incorrectly whitelisted"
+        exit 1
+    fi
+    if matches_secret_pattern "$UNSAFE_FUNC_CALL_SINGLE_QUOTE" && matches_safe_line_pattern "$UNSAFE_FUNC_CALL_SINGLE_QUOTE"; then
+        echo -e "${RED}Self-test failed:${NC} function-call with single-quoted literal secret was incorrectly whitelisted"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_TYPED_PROP_SECRET" && ! matches_safe_line_pattern "$SAFE_TYPED_PROP_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} boolean-typed clientSecret property false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_VAR_ASSIGN_SECRET" && ! matches_safe_line_pattern "$SAFE_VAR_ASSIGN_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} variable-to-variable clientSecret assignment false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_VAR_NULLISH_SECRET" && ! matches_safe_line_pattern "$SAFE_VAR_NULLISH_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} clientSecret nullish coalescing undefined assignment false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_AWS_EXAMPLE_KEY" && ! matches_safe_line_pattern "$SAFE_AWS_EXAMPLE_KEY"; then
+        echo -e "${RED}Self-test failed:${NC} AWS well-known example key false positive"
         exit 1
     fi
 

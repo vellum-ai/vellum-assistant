@@ -6,14 +6,15 @@
  * This is a generic media-processing primitive with no domain-specific logic.
  */
 
+import { randomUUID } from 'node:crypto';
+import { mkdir, rmdir,stat, unlink } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { mkdir, unlink, stat, rmdir } from 'node:fs/promises';
-import { randomUUID } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import { getMediaAssetById } from '../../../../memory/media-store.js';
+
 import { uploadAttachment } from '../../../../memory/attachments-store.js';
+import { getMediaAssetById } from '../../../../memory/media-store.js';
+import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
 
 const FFMPEG_TIMEOUT_MS = 300_000;
 

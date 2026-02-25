@@ -7,14 +7,14 @@
  * or UNUserNotificationCenter).
  */
 
-import { getLogger } from '../../util/logger.js';
 import type { ServerMessage } from '../../daemon/ipc-contract.js';
+import { getLogger } from '../../util/logger.js';
 import type {
-  NotificationChannel,
   ChannelAdapter,
   ChannelDeliveryPayload,
   ChannelDestination,
   DeliveryResult,
+  NotificationChannel,
 } from '../types.js';
 
 const log = getLogger('notif-adapter-vellum');
@@ -34,6 +34,7 @@ export class VellumAdapter implements ChannelAdapter {
     try {
       this.broadcast({
         type: 'notification_intent',
+        deliveryId: payload.deliveryId,
         sourceEventName: payload.sourceEventName,
         title: payload.copy.title,
         body: payload.copy.body,

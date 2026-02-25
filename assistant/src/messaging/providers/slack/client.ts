@@ -6,18 +6,18 @@
  */
 
 import type {
+  SlackApiResponse,
   SlackAuthTestResponse,
-  SlackConversationsListResponse,
-  SlackConversationsOpenResponse,
   SlackConversationHistoryResponse,
-  SlackConversationRepliesResponse,
-  SlackUserInfoResponse,
-  SlackPostMessageResponse,
-  SlackSearchMessagesResponse,
-  SlackReactionAddResponse,
   SlackConversationLeaveResponse,
   SlackConversationMarkResponse,
-  SlackApiResponse,
+  SlackConversationRepliesResponse,
+  SlackConversationsListResponse,
+  SlackConversationsOpenResponse,
+  SlackPostMessageResponse,
+  SlackReactionAddResponse,
+  SlackSearchMessagesResponse,
+  SlackUserInfoResponse,
 } from './types.js';
 
 const SLACK_API_BASE = 'https://slack.com/api';

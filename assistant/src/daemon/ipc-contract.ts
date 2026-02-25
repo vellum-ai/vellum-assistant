@@ -1,73 +1,63 @@
 /**
- * IPC Contract — barrel re-export.
+ * IPC Contract -- barrel re-export.
  *
  * All message types are defined in domain files under ./ipc-contract/.
- * This file re-exports them and defines the aggregate union types
- * (ClientMessage, ServerMessage, IPCContractSchema).
+ * Each domain file exports `_<Domain>ClientMessages` and/or
+ * `_<Domain>ServerMessages` type aliases. This file composes those
+ * into the aggregate ClientMessage and ServerMessage unions.
+ *
+ * To add a new IPC message type:
+ *   1. Define its interface in the appropriate domain file.
+ *   2. Add it to that file's _<Domain>ClientMessages or _<Domain>ServerMessages.
+ * No changes needed here unless you're adding an entirely new domain file.
  */
 
-// Re-export domain modules
-export * from './ipc-contract/shared.js';
-export * from './ipc-contract/sessions.js';
-export * from './ipc-contract/messages.js';
-export * from './ipc-contract/surfaces.js';
-export * from './ipc-contract/skills.js';
-export * from './ipc-contract/trust.js';
+// Re-export domain modules (all individual types remain importable)
 export * from './ipc-contract/apps.js';
-export * from './ipc-contract/integrations.js';
-export * from './ipc-contract/computer-use.js';
-export * from './ipc-contract/work-items.js';
 export * from './ipc-contract/browser.js';
-export * from './ipc-contract/subagents.js';
-export * from './ipc-contract/documents.js';
-export * from './ipc-contract/memory.js';
-export * from './ipc-contract/workspace.js';
-export * from './ipc-contract/schedules.js';
+export * from './ipc-contract/computer-use.js';
 export * from './ipc-contract/diagnostics.js';
-export * from './ipc-contract/parental-control.js';
+export * from './ipc-contract/documents.js';
 export * from './ipc-contract/inbox.js';
-export * from './ipc-contract/pairing.js';
+export * from './ipc-contract/integrations.js';
+export * from './ipc-contract/memory.js';
+export * from './ipc-contract/messages.js';
 export * from './ipc-contract/notifications.js';
+export * from './ipc-contract/pairing.js';
+export * from './ipc-contract/parental-control.js';
+export * from './ipc-contract/schedules.js';
+export * from './ipc-contract/sessions.js';
+export * from './ipc-contract/shared.js';
+export * from './ipc-contract/skills.js';
+export * from './ipc-contract/subagents.js';
+export * from './ipc-contract/surfaces.js';
+export * from './ipc-contract/trust.js';
+export * from './ipc-contract/work-items.js';
+export * from './ipc-contract/workspace.js';
 
-// Import types needed for aggregate unions and SubagentEvent
-import type { AuthMessage, PingMessage, CancelRequest, DeleteQueuedMessage, ModelGetRequest, ModelSetRequest, ImageGenModelSetRequest, HistoryRequest, UndoRequest, RegenerateRequest, UsageRequest, SandboxSetRequest, SessionListRequest, SessionCreateRequest, SessionSwitchRequest, SessionRenameRequest, SessionsClearRequest, ConversationSearchRequest } from './ipc-contract/sessions.js';
-import type { UserMessage, ConfirmationResponse, SecretResponse, SuggestionRequest } from './ipc-contract/messages.js';
-import type { UiSurfaceAction, UiSurfaceUndoRequest } from './ipc-contract/surfaces.js';
-import type { SkillsListRequest, SkillDetailRequest, SkillsEnableRequest, SkillsDisableRequest, SkillsConfigureRequest, SkillsInstallRequest, SkillsUninstallRequest, SkillsUpdateRequest, SkillsCheckUpdatesRequest, SkillsSearchRequest, SkillsInspectRequest, SkillsDraftRequest, SkillsCreateRequest } from './ipc-contract/skills.js';
-import type { AddTrustRule, TrustRulesList, RemoveTrustRule, UpdateTrustRule, AcceptStarterBundle } from './ipc-contract/trust.js';
-import type { AppDataRequest, AppsListRequest, HomeBaseGetRequest, AppOpenRequest, SharedAppsListRequest, SharedAppDeleteRequest, ForkSharedAppRequest, BundleAppRequest, OpenBundleRequest, SignBundlePayloadResponse, GetSigningIdentityResponse, GalleryListRequest, GalleryInstallRequest, AppHistoryRequest, AppDiffRequest, AppFileAtVersionRequest, AppRestoreRequest, ShareAppCloudRequest, ShareToSlackRequest, AppUpdatePreviewRequest, AppPreviewRequest, PublishPageRequest, UnpublishPageRequest } from './ipc-contract/apps.js';
-import type { SlackWebhookConfigRequest, IngressConfigRequest, PlatformConfigRequest, VercelApiConfigRequest, TwitterIntegrationConfigRequest, TelegramConfigRequest, TwilioConfigRequest, ChannelReadinessRequest, GuardianVerificationRequest, TwitterAuthStartRequest, TwitterAuthStatusRequest, IntegrationListRequest, IntegrationConnectRequest, IntegrationDisconnectRequest, LinkOpenRequest } from './ipc-contract/integrations.js';
-import type { CuSessionCreate, CuSessionAbort, CuObservation, TaskSubmit, RideShotgunStart, RideShotgunStop, WatchObservation } from './ipc-contract/computer-use.js';
-import type { WorkItemsListRequest, WorkItemGetRequest, WorkItemUpdateRequest, WorkItemCompleteRequest, WorkItemDeleteRequest, WorkItemRunTaskRequest, WorkItemOutputRequest, WorkItemPreflightRequest, WorkItemApprovePermissionsRequest, WorkItemCancelRequest } from './ipc-contract/work-items.js';
-import type { BrowserCDPResponse, BrowserUserClick, BrowserUserScroll, BrowserUserKeypress, BrowserInteractiveMode } from './ipc-contract/browser.js';
-import type { SubagentAbortRequest, SubagentStatusRequest, SubagentMessageRequest, SubagentDetailRequest, SubagentSpawned, SubagentStatusChanged, SubagentDetailResponse } from './ipc-contract/subagents.js';
-import type { DocumentSaveRequest, DocumentLoadRequest, DocumentListRequest } from './ipc-contract/documents.js';
-import type { WorkspaceFilesListRequest, WorkspaceFileReadRequest, IdentityGetRequest, ToolPermissionSimulateRequest, ToolNamesListRequest } from './ipc-contract/workspace.js';
-import type { DiagnosticsExportRequest, EnvVarsRequest, IpcBlobProbe, DictationRequest } from './ipc-contract/diagnostics.js';
+// Import domain-level union aliases for composition
+import type { _AppsClientMessages, _AppsServerMessages } from './ipc-contract/apps.js';
+import type { _BrowserClientMessages, _BrowserServerMessages } from './ipc-contract/browser.js';
+import type { _ComputerUseClientMessages, _ComputerUseServerMessages } from './ipc-contract/computer-use.js';
+import type { _DiagnosticsClientMessages, _DiagnosticsServerMessages } from './ipc-contract/diagnostics.js';
+import type { _DocumentsClientMessages, _DocumentsServerMessages } from './ipc-contract/documents.js';
+import type { _InboxClientMessages, _InboxServerMessages } from './ipc-contract/inbox.js';
+import type { _IntegrationsClientMessages, _IntegrationsServerMessages } from './ipc-contract/integrations.js';
+import type { _MemoryServerMessages } from './ipc-contract/memory.js';
+import type { _MessagesClientMessages, _MessagesServerMessages } from './ipc-contract/messages.js';
+import type { _NotificationsClientMessages, _NotificationsServerMessages } from './ipc-contract/notifications.js';
+import type { _PairingClientMessages, _PairingServerMessages } from './ipc-contract/pairing.js';
+import type { _ParentalControlClientMessages, _ParentalControlServerMessages } from './ipc-contract/parental-control.js';
+import type { _SchedulesClientMessages, _SchedulesServerMessages } from './ipc-contract/schedules.js';
+import type { _SessionsClientMessages, _SessionsServerMessages } from './ipc-contract/sessions.js';
+import type { _SkillsClientMessages, _SkillsServerMessages } from './ipc-contract/skills.js';
+import type { _SubagentsClientMessages, _SubagentsServerMessages } from './ipc-contract/subagents.js';
+import type { _SurfacesClientMessages, _SurfacesServerMessages } from './ipc-contract/surfaces.js';
+import type { _TrustClientMessages, _TrustServerMessages } from './ipc-contract/trust.js';
+import type { _WorkItemsClientMessages, _WorkItemsServerMessages } from './ipc-contract/work-items.js';
+import type { _WorkspaceClientMessages, _WorkspaceServerMessages } from './ipc-contract/workspace.js';
 
-// Server-side imports for ServerMessage union
-import type { AuthResult, PongMessage, DaemonStatusMessage, GenerationCancelled, GenerationHandoff, ModelInfo, HistoryResponse, UndoComplete, UsageUpdate, UsageResponse, ContextCompacted, SessionErrorMessage, SessionInfo, SessionTitleUpdated, SessionListResponse, SessionsClearResponse, ConversationSearchResponse } from './ipc-contract/sessions.js';
-import type { UserMessageEcho, AssistantTextDelta, AssistantThinkingDelta, ToolUseStart, ToolOutputChunk, ToolInputDelta, ToolResult, ConfirmationRequest, SecretRequest, MessageComplete, ErrorMessage, SecretDetected, MessageQueued, MessageDequeued, MessageQueuedDeleted, SuggestionResponse, TraceEvent } from './ipc-contract/messages.js';
-import type { UiSurfaceShow, UiSurfaceUpdate, UiSurfaceDismiss, UiSurfaceComplete, UiSurfaceUndoResult } from './ipc-contract/surfaces.js';
-import type { SkillsListResponse, SkillDetailResponse, SkillStateChanged, SkillsOperationResponse, SkillsInspectResponse, SkillsDraftResponse } from './ipc-contract/skills.js';
-import type { TrustRulesListResponse, AcceptStarterBundleResponse } from './ipc-contract/trust.js';
-import type { AppDataResponse, AppsListResponse, HomeBaseGetResponse, SharedAppsListResponse, SharedAppDeleteResponse, ForkSharedAppResponse, BundleAppResponse, OpenBundleResponse, SignBundlePayloadRequest, GetSigningIdentityRequest, ShareAppCloudResponse, GalleryListResponse, GalleryInstallResponse, AppHistoryResponse, AppDiffResponse, AppFileAtVersionResponse, AppRestoreResponse, ShareToSlackResponse, AppUpdatePreviewResponse, AppPreviewResponse, PublishPageResponse, UnpublishPageResponse, AppFilesChanged } from './ipc-contract/apps.js';
-import type { SlackWebhookConfigResponse, IngressConfigResponse, PlatformConfigResponse, VercelApiConfigResponse, TwitterIntegrationConfigResponse, TelegramConfigResponse, TwilioConfigResponse, ChannelReadinessResponse, GuardianVerificationResponse, TwitterAuthResult, TwitterAuthStatusResponse, IntegrationListResponse, IntegrationConnectResult, OpenUrl } from './ipc-contract/integrations.js';
-import type { CuAction, CuComplete, CuError, TaskRouted, RideShotgunProgress, RideShotgunResult, WatchStarted, WatchCompleteRequest } from './ipc-contract/computer-use.js';
-import type { WorkItemsListResponse, WorkItemGetResponse, WorkItemUpdateResponse, WorkItemDeleteResponse, WorkItemRunTaskResponse, WorkItemOutputResponse, WorkItemPreflightResponse, WorkItemApprovePermissionsResponse, WorkItemCancelResponse, WorkItemStatusChanged, TaskRunThreadCreated, GuardianRequestThreadCreated, TasksChanged, OpenTasksWindow } from './ipc-contract/work-items.js';
-import type { BrowserFrame, BrowserCDPRequest, BrowserInteractiveModeChanged, BrowserHandoffRequest } from './ipc-contract/browser.js';
-import type { DocumentEditorShow, DocumentEditorUpdate, DocumentSaveResponse, DocumentLoadResponse, DocumentListResponse } from './ipc-contract/documents.js';
-import type { MemoryRecalled, MemoryStatus } from './ipc-contract/memory.js';
-import type { WorkspaceFilesListResponse, WorkspaceFileReadResponse, IdentityGetResponse, ToolPermissionSimulateResponse, ToolNamesListResponse } from './ipc-contract/workspace.js';
-import type { SchedulesListResponse, RemindersListResponse, ReminderFired, ScheduleComplete, WatcherNotification, WatcherEscalation, AgentHeartbeatAlert } from './ipc-contract/schedules.js';
-import type { DiagnosticsExportResponse, EnvVarsResponse, IpcBlobProbeResult, DictationResponse } from './ipc-contract/diagnostics.js';
-import type { SchedulesList, ScheduleToggle, ScheduleRemove, ScheduleRunNow, RemindersList, ReminderCancel } from './ipc-contract/schedules.js';
-import type { ParentalControlGetRequest, ParentalControlVerifyPinRequest, ParentalControlSetPinRequest, ParentalControlUpdateRequest, ParentalControlGetResponse, ParentalControlVerifyPinResponse, ParentalControlSetPinResponse, ParentalControlUpdateResponse } from './ipc-contract/parental-control.js';
-import type { IngressInviteRequest, IngressMemberRequest, AssistantInboxRequest, AssistantInboxEscalationRequest, AssistantInboxReplyRequest, IngressInviteResponse, IngressMemberResponse, AssistantInboxResponse, AssistantInboxEscalationResponse, AssistantInboxReplyResponse } from './ipc-contract/inbox.js';
-import type { PairingApprovalResponse, ApprovedDevicesList, ApprovedDeviceRemove, ApprovedDevicesClear, PairingApprovalRequest, ApprovedDevicesListResponse, ApprovedDeviceRemoveResponse } from './ipc-contract/pairing.js';
-import type { NotificationIntent } from './ipc-contract/notifications.js';
-
-// === SubagentEvent — defined here because it references ServerMessage ===
+// === SubagentEvent -- defined here because it references ServerMessage ===
 
 /** Wraps any ServerMessage emitted by a subagent session for routing to the client. */
 export interface SubagentEvent {
@@ -76,300 +66,53 @@ export interface SubagentEvent {
   event: ServerMessage;
 }
 
-// === Client → Server aggregate union ===
+// === Client -> Server aggregate union ===
 
 export type ClientMessage =
-  | AuthMessage
-  | UserMessage
-  | ConfirmationResponse
-  | SecretResponse
-  | SessionListRequest
-  | SessionCreateRequest
-  | SessionSwitchRequest
-  | SessionRenameRequest
-  | PingMessage
-  | CancelRequest
-  | DeleteQueuedMessage
-  | ModelGetRequest
-  | ModelSetRequest
-  | ImageGenModelSetRequest
-  | HistoryRequest
-  | UndoRequest
-  | RegenerateRequest
-  | UsageRequest
-  | SandboxSetRequest
-  | CuSessionCreate
-  | CuSessionAbort
-  | CuObservation
-  | RideShotgunStart
-  | RideShotgunStop
-  | WatchObservation
-  | TaskSubmit
-  | UiSurfaceAction
-  | UiSurfaceUndoRequest
-  | AppDataRequest
-  | SkillsListRequest
-  | SkillDetailRequest
-  | SkillsEnableRequest
-  | SkillsDisableRequest
-  | SkillsConfigureRequest
-  | SkillsInstallRequest
-  | SkillsUninstallRequest
-  | SkillsUpdateRequest
-  | SkillsCheckUpdatesRequest
-  | SkillsSearchRequest
-  | SkillsInspectRequest
-  | SkillsDraftRequest
-  | SkillsCreateRequest
-  | SuggestionRequest
-  | AddTrustRule
-  | TrustRulesList
-  | RemoveTrustRule
-  | UpdateTrustRule
-  | AcceptStarterBundle
-  | SchedulesList
-  | ScheduleToggle
-  | ScheduleRemove
-  | ScheduleRunNow
-  | RemindersList
-  | ReminderCancel
-  | BundleAppRequest
-  | AppsListRequest
-  | HomeBaseGetRequest
-  | AppOpenRequest
-  | SharedAppsListRequest
-  | SharedAppDeleteRequest
-  | ForkSharedAppRequest
-  | OpenBundleRequest
-  | SignBundlePayloadResponse
-  | GetSigningIdentityResponse
-  | IpcBlobProbe
-  | LinkOpenRequest
-  | ShareAppCloudRequest
-  | ShareToSlackRequest
-  | SlackWebhookConfigRequest
-  | IngressConfigRequest
-  | PlatformConfigRequest
-  | VercelApiConfigRequest
-  | TwitterIntegrationConfigRequest
-  | TelegramConfigRequest
-  | TwilioConfigRequest
-  | ChannelReadinessRequest
-  | GuardianVerificationRequest
-  | TwitterAuthStartRequest
-  | TwitterAuthStatusRequest
-  | SessionsClearRequest
-  | ConversationSearchRequest
-  | GalleryListRequest
-  | GalleryInstallRequest
-  | AppHistoryRequest
-  | AppDiffRequest
-  | AppFileAtVersionRequest
-  | AppRestoreRequest
-  | AppUpdatePreviewRequest
-  | AppPreviewRequest
-  | PublishPageRequest
-  | UnpublishPageRequest
-  | DiagnosticsExportRequest
-  | EnvVarsRequest
-  | IntegrationListRequest
-  | IntegrationConnectRequest
-  | IntegrationDisconnectRequest
-  | DocumentSaveRequest
-  | DocumentLoadRequest
-  | DocumentListRequest
-  | BrowserCDPResponse
-  | BrowserUserClick
-  | BrowserUserScroll
-  | BrowserUserKeypress
-  | BrowserInteractiveMode
-  | WorkItemsListRequest
-  | WorkItemGetRequest
-  | WorkItemUpdateRequest
-  | WorkItemCompleteRequest
-  | WorkItemDeleteRequest
-  | WorkItemRunTaskRequest
-  | WorkItemOutputRequest
-  | WorkItemPreflightRequest
-  | WorkItemApprovePermissionsRequest
-  | WorkItemCancelRequest
-  | SubagentAbortRequest
-  | SubagentStatusRequest
-  | SubagentMessageRequest
-  | SubagentDetailRequest
-  | WorkspaceFilesListRequest
-  | WorkspaceFileReadRequest
-  | IdentityGetRequest
-  | ToolPermissionSimulateRequest
-  | ToolNamesListRequest
-  | DictationRequest
-  | ParentalControlGetRequest
-  | ParentalControlVerifyPinRequest
-  | ParentalControlSetPinRequest
-  | ParentalControlUpdateRequest
-  | IngressInviteRequest
-  | IngressMemberRequest
-  | AssistantInboxRequest
-  | AssistantInboxEscalationRequest
-  | AssistantInboxReplyRequest
-  | PairingApprovalResponse
-  | ApprovedDevicesList
-  | ApprovedDeviceRemove
-  | ApprovedDevicesClear;
+  | _SessionsClientMessages
+  | _MessagesClientMessages
+  | _SurfacesClientMessages
+  | _SkillsClientMessages
+  | _TrustClientMessages
+  | _AppsClientMessages
+  | _IntegrationsClientMessages
+  | _ComputerUseClientMessages
+  | _WorkItemsClientMessages
+  | _BrowserClientMessages
+  | _SubagentsClientMessages
+  | _DocumentsClientMessages
+  | _WorkspaceClientMessages
+  | _SchedulesClientMessages
+  | _DiagnosticsClientMessages
+  | _ParentalControlClientMessages
+  | _InboxClientMessages
+  | _PairingClientMessages
+  | _NotificationsClientMessages;
 
-// === Server → Client aggregate union ===
+// === Server -> Client aggregate union ===
 
 export type ServerMessage =
-  | AuthResult
-  | UserMessageEcho
-  | AssistantTextDelta
-  | AssistantThinkingDelta
-  | ToolUseStart
-  | ToolOutputChunk
-  | ToolInputDelta
-  | ToolResult
-  | ConfirmationRequest
-  | SecretRequest
-  | MessageComplete
-  | SessionInfo
-  | SessionTitleUpdated
-  | SessionListResponse
-  | SessionsClearResponse
-  | ConversationSearchResponse
-  | ErrorMessage
-  | PongMessage
-  | DaemonStatusMessage
-  | GenerationCancelled
-  | GenerationHandoff
-  | ModelInfo
-  | HistoryResponse
-  | UndoComplete
-  | UsageUpdate
-  | UsageResponse
-  | ContextCompacted
-  | SecretDetected
-  | MemoryRecalled
-  | MemoryStatus
-  | CuAction
-  | CuComplete
-  | CuError
-  | SessionErrorMessage
-  | TaskRouted
-  | RideShotgunProgress
-  | RideShotgunResult
-  | UiSurfaceShow
-  | UiSurfaceUpdate
-  | UiSurfaceDismiss
-  | UiSurfaceComplete
-  | UiSurfaceUndoResult
-  | AppDataResponse
-  | SkillsListResponse
-  | SkillDetailResponse
-  | SkillStateChanged
-  | SkillsOperationResponse
-  | SkillsInspectResponse
-  | SkillsDraftResponse
-  | SuggestionResponse
-  | MessageQueued
-  | MessageDequeued
-  | MessageQueuedDeleted
-  | ReminderFired
-  | ScheduleComplete
-  | WatcherNotification
-  | WatcherEscalation
-  | AgentHeartbeatAlert
-  | WatchStarted
-  | WatchCompleteRequest
-  | TrustRulesListResponse
-  | AcceptStarterBundleResponse
-  | SchedulesListResponse
-  | RemindersListResponse
-  | BundleAppResponse
-  | AppsListResponse
-  | HomeBaseGetResponse
-  | SharedAppsListResponse
-  | SharedAppDeleteResponse
-  | ForkSharedAppResponse
-  | OpenBundleResponse
-  | SignBundlePayloadRequest
-  | GetSigningIdentityRequest
-  | IpcBlobProbeResult
-  | ShareAppCloudResponse
-  | TraceEvent
-  | GalleryListResponse
-  | GalleryInstallResponse
-  | AppHistoryResponse
-  | AppDiffResponse
-  | AppFileAtVersionResponse
-  | AppRestoreResponse
-  | ShareToSlackResponse
-  | SlackWebhookConfigResponse
-  | IngressConfigResponse
-  | PlatformConfigResponse
-  | VercelApiConfigResponse
-  | TwitterIntegrationConfigResponse
-  | TelegramConfigResponse
-  | TwilioConfigResponse
-  | ChannelReadinessResponse
-  | GuardianVerificationResponse
-  | TwitterAuthResult
-  | TwitterAuthStatusResponse
-  | OpenUrl
-  | AppUpdatePreviewResponse
-  | AppPreviewResponse
-  | PublishPageResponse
-  | UnpublishPageResponse
-  | DiagnosticsExportResponse
-  | AppFilesChanged
-  | BrowserFrame
-  | EnvVarsResponse
-  | IntegrationListResponse
-  | IntegrationConnectResult
-  | DocumentEditorShow
-  | DocumentEditorUpdate
-  | DocumentSaveResponse
-  | DocumentLoadResponse
-  | DocumentListResponse
-  | BrowserCDPRequest
-  | BrowserInteractiveModeChanged
-  | BrowserHandoffRequest
-  | WorkItemsListResponse
-  | WorkItemGetResponse
-  | WorkItemUpdateResponse
-  | WorkItemDeleteResponse
-  | WorkItemRunTaskResponse
-  | WorkItemOutputResponse
-  | WorkItemPreflightResponse
-  | WorkItemApprovePermissionsResponse
-  | WorkItemCancelResponse
-  | WorkItemStatusChanged
-  | TaskRunThreadCreated
-  | GuardianRequestThreadCreated
-  | TasksChanged
-  | OpenTasksWindow
-  | SubagentSpawned
-  | SubagentStatusChanged
-  | SubagentEvent
-  | SubagentDetailResponse
-  | WorkspaceFilesListResponse
-  | WorkspaceFileReadResponse
-  | IdentityGetResponse
-  | ToolPermissionSimulateResponse
-  | ToolNamesListResponse
-  | DictationResponse
-  | ParentalControlGetResponse
-  | ParentalControlVerifyPinResponse
-  | ParentalControlSetPinResponse
-  | ParentalControlUpdateResponse
-  | IngressInviteResponse
-  | IngressMemberResponse
-  | AssistantInboxResponse
-  | AssistantInboxEscalationResponse
-  | AssistantInboxReplyResponse
-  | PairingApprovalRequest
-  | ApprovedDevicesListResponse
-  | ApprovedDeviceRemoveResponse
-  | NotificationIntent;
+  | _SessionsServerMessages
+  | _MessagesServerMessages
+  | _SurfacesServerMessages
+  | _SkillsServerMessages
+  | _TrustServerMessages
+  | _AppsServerMessages
+  | _IntegrationsServerMessages
+  | _ComputerUseServerMessages
+  | _WorkItemsServerMessages
+  | _BrowserServerMessages
+  | _SubagentsServerMessages
+  | _DocumentsServerMessages
+  | _MemoryServerMessages
+  | _WorkspaceServerMessages
+  | _SchedulesServerMessages
+  | _DiagnosticsServerMessages
+  | _ParentalControlServerMessages
+  | _InboxServerMessages
+  | _PairingServerMessages
+  | _NotificationsServerMessages
+  | SubagentEvent;
 
 // === Contract schema ===
 

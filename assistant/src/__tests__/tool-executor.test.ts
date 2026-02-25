@@ -1,7 +1,8 @@
-import { describe, test, expect, beforeEach, afterEach, afterAll, mock, spyOn } from 'bun:test';
-import type { ToolExecutionResult, Tool, ToolLifecycleEvent, ToolPermissionPromptEvent } from '../tools/types.js';
+import { afterAll, afterEach, beforeEach, describe, expect, mock, spyOn,test } from 'bun:test';
+
+import type { AllowlistOption, PolicyContext, ScopeOption, TrustRule } from '../permissions/types.js';
 import { RiskLevel } from '../permissions/types.js';
-import type { AllowlistOption, ScopeOption, PolicyContext, TrustRule } from '../permissions/types.js';
+import type { Tool, ToolExecutionResult, ToolLifecycleEvent, ToolPermissionPromptEvent } from '../tools/types.js';
 
 const mockConfig = {
   provider: 'anthropic',
@@ -92,10 +93,10 @@ mock.module('../tools/terminal/sandbox.js', () => ({
   wrapCommand: () => ({ command: '', sandboxed: false }),
 }));
 
-import { ToolExecutor, isSideEffectTool } from '../tools/executor.js';
-import type { ToolContext } from '../tools/types.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
 import * as trustStore from '../permissions/trust-store.js';
+import { isSideEffectTool,ToolExecutor } from '../tools/executor.js';
+import type { ToolContext } from '../tools/types.js';
 
 function makeContext(overrides?: Partial<ToolContext>): ToolContext {
   return {
@@ -826,7 +827,6 @@ describe('isSideEffectTool', () => {
       'browser_extract',
       'skill_load',
       'schedule_list',
-      'evaluate_typescript_code',
     ];
 
     for (const toolName of readOnlyTools) {

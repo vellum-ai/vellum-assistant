@@ -1,14 +1,14 @@
-import type { ApprovalCopyGenerator, ApprovalConversationGenerator, ApprovalConversationResult, ApprovalConversationDisposition } from '../runtime/http-types.js';
-import {
-  buildGenerationPrompt,
-  includesRequiredKeywords,
-  getFallbackMessage,
-  APPROVAL_COPY_TIMEOUT_MS,
-  APPROVAL_COPY_MAX_TOKENS,
-  APPROVAL_COPY_SYSTEM_PROMPT,
-} from '../runtime/approval-message-composer.js';
 import { loadConfig } from '../config/loader.js';
 import { getFailoverProvider, listProviders } from '../providers/registry.js';
+import {
+  APPROVAL_COPY_MAX_TOKENS,
+  APPROVAL_COPY_SYSTEM_PROMPT,
+  APPROVAL_COPY_TIMEOUT_MS,
+  buildGenerationPrompt,
+  getFallbackMessage,
+  includesRequiredKeywords,
+} from '../runtime/approval-message-composer.js';
+import type { ApprovalConversationDisposition,ApprovalConversationGenerator, ApprovalConversationResult, ApprovalCopyGenerator } from '../runtime/http-types.js';
 
 // ---------------------------------------------------------------------------
 // Approval conversation generator constants

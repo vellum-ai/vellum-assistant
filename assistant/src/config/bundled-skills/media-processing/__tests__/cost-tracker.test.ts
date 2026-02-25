@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+
 import { CostTracker } from '../services/cost-tracker.js';
 
 describe('CostTracker', () => {

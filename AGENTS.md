@@ -6,7 +6,7 @@ Bun + TypeScript monorepo with multiple packages:
 
 - `assistant/` — Main backend service (Bun + TypeScript)
 - `gateway/` — Telegram webhook gateway (Bun + TypeScript)
-- `clients/macos/` — Native macOS desktop app (Swift/SwiftUI, see `clients/macos/CLAUDE.md`)
+- `clients/` — Client apps (macOS/iOS/etc). See `clients/AGENTS.md` and platform docs like `clients/macos/CLAUDE.md`.
 - `scripts/` — Utility scripts
 - `.claude/` — Claude Code slash commands and helper scripts (see `.claude/README.md`)
 
@@ -239,6 +239,12 @@ Returning `undefined` is acceptable only for **lookup functions** where "not fou
 | Memory retriever (`memory/retriever.ts`) | Result object (`MemoryRecallResult`) with degraded/reason fields | Graceful degradation — embedding failures, search failures degrade quality without crashing |
 | Filesystem tools (`path-policy.ts`, `edit-engine.ts`) | Discriminated union (`{ ok, reason }`) | Validation outcomes that the caller must handle (out of bounds, not found, ambiguous) |
 | Subagent manager (`subagent/manager.ts`) | Throws for precondition violations, string literal unions for expected outcomes | Depth limit exceeded is a bug; `sendMessage` returns `'not_found' | 'terminal' | 'queue_full'` as expected states |
+
+## Notification Pipeline
+
+All notification producers **MUST** go through `emitNotificationSignal()` in `notifications/emit-signal.ts`. Do not bypass the pipeline by broadcasting IPC events directly -- the pipeline handles event persistence, deduplication, decision routing, and delivery audit.
+
+When a notification flow creates a server-side conversation (e.g. guardian question threads, task run threads), the conversation and initial message **MUST** be persisted before the IPC thread-created event is emitted. This ensures the macOS/iOS client can immediately fetch the conversation contents when it receives the event.
 
 ## Memory Provenance Invariant
 

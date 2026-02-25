@@ -5,10 +5,11 @@
  * Validates latency stays within acceptable bounds and token budget
  * enforcement works correctly.
  */
-import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 
 const testDir = mkdtempSync(join(tmpdir(), 'mem-retrieval-bench-'));
 
@@ -61,10 +62,10 @@ mock.module('../memory/embedding-backend.js', () => ({
 }));
 
 import { DEFAULT_CONFIG } from '../config/defaults.js';
+import type { AssistantConfig } from '../config/types.js';
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { buildMemoryRecall } from '../memory/retriever.js';
 import { conversations, memorySegments, messages } from '../memory/schema.js';
-import type { AssistantConfig } from '../config/types.js';
 
 function seedMemoryItems(conversationId: string, count: number, now: number): void {
   const db = getDb();

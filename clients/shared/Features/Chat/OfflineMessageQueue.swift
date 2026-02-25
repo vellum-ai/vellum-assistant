@@ -1,4 +1,3 @@
-#if os(iOS)
 import Foundation
 import os
 
@@ -11,13 +10,18 @@ struct OfflineQueuedMessage: Codable, Identifiable {
     let id: UUID
     let sessionId: String?
     let text: String
+    /// The text stored in the ChatMessage for UI matching. In voice mode, `text`
+    /// carries the voice instruction prefix while the ChatMessage stores raw user
+    /// input — this field preserves that raw text so flush can find the right bubble.
+    let displayText: String?
     let attachments: [OfflineQueuedAttachment]
     let enqueuedAt: Date
 
-    init(sessionId: String?, text: String, attachments: [IPCAttachment]?) {
+    init(sessionId: String?, text: String, displayText: String? = nil, attachments: [IPCAttachment]?) {
         self.id = UUID()
         self.sessionId = sessionId
         self.text = text
+        self.displayText = displayText
         self.enqueuedAt = Date()
         self.attachments = (attachments ?? []).map {
             OfflineQueuedAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: $0.extractedText)
@@ -72,8 +76,8 @@ final class OfflineMessageQueue {
     // MARK: - Enqueue
 
     /// Append a message to the end of the offline queue and persist it.
-    func enqueue(sessionId: String?, text: String, attachments: [IPCAttachment]?) {
-        let message = OfflineQueuedMessage(sessionId: sessionId, text: text, attachments: attachments)
+    func enqueue(sessionId: String?, text: String, displayText: String? = nil, attachments: [IPCAttachment]?) {
+        let message = OfflineQueuedMessage(sessionId: sessionId, text: text, displayText: displayText, attachments: attachments)
         queue.append(message)
         save()
         log.info("OfflineMessageQueue: enqueued message (queue depth: \(self.queue.count))")
@@ -117,4 +121,3 @@ final class OfflineMessageQueue {
         UserDefaults.standard.removeObject(forKey: Self.userDefaultsKey)
     }
 }
-#endif

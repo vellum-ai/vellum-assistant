@@ -1,7 +1,8 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 
 const testDir = mkdtempSync(join(tmpdir(), 'memory-regressions-'));
 
@@ -48,8 +49,9 @@ mock.module('../memory/qdrant-client.js', () => ({
 }));
 
 import { and, eq } from 'drizzle-orm';
+
 import { DEFAULT_CONFIG } from '../config/defaults.js';
-import { currentMonthWindow } from '../memory/job-utils.js';
+import { currentMonthWindow, vectorToBlob } from '../memory/job-utils.js';
 
 // Disable LLM extraction in tests to avoid real API calls and ensure
 // deterministic pattern-based extraction.
@@ -73,11 +75,14 @@ import { estimateTextTokens } from '../context/token-estimator.js';
 import { getMemorySystemStatus, requestMemoryBackfill, requestMemoryCleanup } from '../memory/admin.js';
 import { getMemoryCheckpoint } from '../memory/checkpoints.js';
 import { createOrUpdatePendingConflict, getConflictById, resolveConflict } from '../memory/conflict-store.js';
+import { addMessage, createConversation, getConversationMemoryScopeId, messageMetadataSchema, provenanceFromGuardianContext } from '../memory/conversation-store.js';
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { selectEmbeddingBackend } from '../memory/embedding-backend.js';
 import { upsertEntity, upsertEntityRelation } from '../memory/entity-extractor.js';
 import { getRecentSegmentsForConversation, indexMessageNow } from '../memory/indexer.js';
 import { extractAndUpsertMemoryItemsForMessage } from '../memory/items-extractor.js';
+import { backfillEntityRelationsJob, backfillJob } from '../memory/job-handlers/backfill.js';
+import { buildConversationSummaryJob, buildGlobalSummaryJob } from '../memory/job-handlers/summarization.js';
 import {
   claimMemoryJobs,
   enqueueBackfillEntityRelationsJob,
@@ -99,21 +104,18 @@ import {
   escapeXmlTags,
   formatAbsoluteTime,
   formatRelativeTime,
-  injectMemoryRecallIntoUserMessage,
   injectMemoryRecallAsSeparateMessage,
+  injectMemoryRecallIntoUserMessage,
   searchMemoryItems,
   stripMemoryRecallMessages,
 } from '../memory/retriever.js';
-import { addMessage, createConversation, getConversationMemoryScopeId, messageMetadataSchema, provenanceFromGuardianContext } from '../memory/conversation-store.js';
-import { backfillEntityRelationsJob, backfillJob } from '../memory/job-handlers/backfill.js';
-import { buildConversationSummaryJob, buildGlobalSummaryJob } from '../memory/job-handlers/summarization.js';
 import {
   conversations,
   memoryEmbeddings,
   memoryEntities,
   memoryEntityRelations,
-  memoryItemEntities,
   memoryItemConflicts,
+  memoryItemEntities,
   memoryItems,
   memoryItemSources,
   memoryJobs,
@@ -1647,7 +1649,7 @@ describe('Memory regressions', () => {
         provider: 'openai',
         model: 'text-embedding-3-small',
         dimensions: 3,
-        vectorJson: '[0,0,0]',
+        vectorBlob: vectorToBlob([0, 0, 0]),
         createdAt: now - 1000,
         updatedAt: now - 1000,
       },
@@ -1658,7 +1660,7 @@ describe('Memory regressions', () => {
         provider: 'openai',
         model: 'text-embedding-3-small',
         dimensions: 3,
-        vectorJson: '[0,0,0]',
+        vectorBlob: vectorToBlob([0, 0, 0]),
         createdAt: now - 1000,
         updatedAt: now - 1000,
       },

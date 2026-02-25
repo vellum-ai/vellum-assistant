@@ -2,11 +2,11 @@
  * Shared types for the runtime HTTP server and its route handlers.
  */
 import type { ChannelId, InterfaceId } from '../channels/types.js';
-import type { RunOrchestrator } from './run-orchestrator.js';
+import type { Session } from '../daemon/session.js';
 import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
 import type { ApprovalMessageContext, ComposeApprovalMessageGenerativeOptions } from './approval-message-composer.js';
-import type { Session } from '../daemon/session.js';
 import type { AssistantEventHub } from './assistant-event-hub.js';
+import type { RunOrchestrator } from './run-orchestrator.js';
 
 /**
  * Daemon-injected function that generates approval copy using a provider.

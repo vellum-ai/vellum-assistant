@@ -1,9 +1,10 @@
-import { initializeDb, getDb } from '../../../../memory/db.js';
-import { findMatchedEntities, findNeighborEntities, getEntityLinkedItemCandidates, collectTypedNeighbors } from '../../../../memory/search/entity.js';
-import { memoryEntities } from '../../../../memory/schema.js';
 import { inArray } from 'drizzle-orm';
-import type { TraversalStep } from '../../../../memory/search/types.js';
+
+import { getDb,initializeDb } from '../../../../memory/db.js';
 import type { EntityRelationType, EntityType } from '../../../../memory/entity-extractor.js';
+import { memoryEntities } from '../../../../memory/schema.js';
+import { collectTypedNeighbors,findMatchedEntities, findNeighborEntities, getEntityLinkedItemCandidates } from '../../../../memory/search/entity.js';
+import type { TraversalStep } from '../../../../memory/search/types.js';
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
 
 interface GraphQueryInput {

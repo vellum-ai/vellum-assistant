@@ -1,5 +1,5 @@
-import { scanTopLevelDirectories } from '../workspace/top-level-scanner.js';
 import { renderWorkspaceTopLevelContext } from '../workspace/top-level-renderer.js';
+import { scanTopLevelDirectories } from '../workspace/top-level-scanner.js';
 
 /**
  * Subset of Session state that workspace context helpers need.

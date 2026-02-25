@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from 'bun:test';
+
 import type { Message } from '../providers/types.js';
 
 // Stub out heavy dependencies before importing Session

@@ -1,9 +1,9 @@
-import type { ToolExecutionResult } from '../types.js';
 import { formatLocalDate } from '../../schedule/schedule-store.js';
+import type { ToolExecutionResult } from '../types.js';
 import {
+  cancelReminder,
   insertReminder,
   listReminders,
-  cancelReminder,
 } from './reminder-store.js';
 
 // ── Exported execute functions ──────────────────────────────────────

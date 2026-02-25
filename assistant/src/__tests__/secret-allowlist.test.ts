@@ -1,7 +1,8 @@
-import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
-import { writeFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync,mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, mock,test } from 'bun:test';
 
 // Mock the data dir to a temp directory so tests don't touch ~/.vellum/
 let testDir: string;
@@ -17,7 +18,7 @@ mock.module('../util/platform.js', () => ({
   getDataDir: () => testDir,
 }));
 
-import { isAllowlisted, resetAllowlist, loadAllowlist } from '../security/secret-allowlist.js';
+import { isAllowlisted, loadAllowlist,resetAllowlist } from '../security/secret-allowlist.js';
 import { scanText } from '../security/secret-scanner.js';
 
 describe('secret-allowlist', () => {

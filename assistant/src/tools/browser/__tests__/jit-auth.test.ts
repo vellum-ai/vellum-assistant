@@ -1,6 +1,7 @@
-import { describe, test, expect } from 'bun:test';
-import { buildAuthForm, buildTimeoutMessage } from '../jit-auth.js';
+import { describe, expect,test } from 'bun:test';
+
 import type { AuthChallenge } from '../auth-detector.js';
+import { buildAuthForm, buildTimeoutMessage } from '../jit-auth.js';
 
 describe('buildAuthForm', () => {
   test('login challenge produces form with email (text) and password (password) fields', () => {

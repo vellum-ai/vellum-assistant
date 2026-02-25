@@ -1,9 +1,10 @@
-import { describe, test, expect, beforeEach, mock } from 'bun:test';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, utimesSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { mkdirSync, mkdtempSync, rmSync, utimesSync,writeFileSync } from 'node:fs';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createHash, randomUUID } from 'node:crypto';
+
+import { beforeEach, describe, expect, mock,test } from 'bun:test';
 
 const testDir = mkdtempSync(join(tmpdir(), 'ipc-blob-store-test-'));
 const blobDir = join(testDir, 'ipc-blobs');
@@ -42,11 +43,11 @@ mock.module('../util/logger.js', () => ({
 }));
 
 import {
+  deleteBlob,
   ensureBlobDir,
   isValidBlobId,
-  resolveBlobPath,
   readBlob,
-  deleteBlob,
+  resolveBlobPath,
   sweepStaleBlobs,
 } from '../daemon/ipc-blob-store.js';
 import type { IpcBlobRef } from '../daemon/ipc-contract.js';

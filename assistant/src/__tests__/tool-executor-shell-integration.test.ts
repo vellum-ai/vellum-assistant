@@ -7,10 +7,11 @@
  * WASM parser). This validates the full e2e chain from executor to parser-derived
  * allowlist options.
  */
-import { describe, test, expect, beforeAll, mock } from 'bun:test';
-import type { ToolContext } from '../tools/types.js';
-import type { AllowlistOption, ScopeOption } from '../permissions/types.js';
+import { beforeAll, describe, expect, mock,test } from 'bun:test';
+
 import { PermissionPrompter } from '../permissions/prompter.js';
+import type { AllowlistOption, ScopeOption } from '../permissions/types.js';
+import type { ToolContext } from '../tools/types.js';
 
 // ── Config mock ──────────────────────────────────────────────────────
 const mockConfig = {

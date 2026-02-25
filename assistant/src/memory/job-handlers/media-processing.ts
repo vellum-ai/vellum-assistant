@@ -1,15 +1,15 @@
-import { getLogger } from '../../util/logger.js';
-import { asString } from '../job-utils.js';
-import { getMediaAssetById, updateMediaAssetStatus } from '../media-store.js';
-import type { MemoryJob } from '../jobs-store.js';
 import {
-  runPipeline,
   type PipelineStageName,
+  runPipeline,
   type StageHandler,
 } from '../../config/bundled-skills/media-processing/services/processing-pipeline.js';
-import { preprocessForAsset } from '../../config/bundled-skills/media-processing/tools/extract-keyframes.js';
 import { mapSegmentsForAsset } from '../../config/bundled-skills/media-processing/tools/analyze-keyframes.js';
+import { preprocessForAsset } from '../../config/bundled-skills/media-processing/tools/extract-keyframes.js';
 import { reduceForAsset } from '../../config/bundled-skills/media-processing/tools/query-media-events.js';
+import { getLogger } from '../../util/logger.js';
+import { asString } from '../job-utils.js';
+import type { MemoryJob } from '../jobs-store.js';
+import { getMediaAssetById, updateMediaAssetStatus } from '../media-store.js';
 
 const log = getLogger('media-processing-job');
 

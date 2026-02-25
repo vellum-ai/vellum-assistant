@@ -1,8 +1,9 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
 
 let TEST_DIR = '';
 
@@ -20,7 +21,7 @@ mock.module('../util/logger.js', () => ({
 import { DeleteManagedSkillTool } from '../tools/skills/delete-managed.js';
 import type { ToolContext } from '../tools/types.js';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- bypass private constructor for testing
+ 
 const tool = new (DeleteManagedSkillTool as any)() as InstanceType<typeof DeleteManagedSkillTool>;
 
 function makeContext(): ToolContext {

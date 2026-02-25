@@ -1,8 +1,9 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
 
 let TEST_DIR = '';
 
@@ -66,17 +67,16 @@ mock.module('../tools/terminal/sandbox.js', () => ({
   }),
 }));
 
-import { ScaffoldManagedSkillTool } from '../tools/skills/scaffold-managed.js';
-import { DeleteManagedSkillTool } from '../tools/skills/delete-managed.js';
-import { EvaluateTypescriptTool } from '../tools/terminal/evaluate-typescript.js';
-import { SkillLoadTool } from '../tools/skills/load.js';
 import { loadSkillCatalog } from '../config/skills.js';
 import { buildSystemPrompt } from '../config/system-prompt.js';
+import { DeleteManagedSkillTool } from '../tools/skills/delete-managed.js';
+import { SkillLoadTool } from '../tools/skills/load.js';
+import { ScaffoldManagedSkillTool } from '../tools/skills/scaffold-managed.js';
 import type { ToolContext } from '../tools/types.js';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- bypass private constructor for testing
+ 
 const scaffoldTool = new (ScaffoldManagedSkillTool as any)() as InstanceType<typeof ScaffoldManagedSkillTool>;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 const deleteTool = new (DeleteManagedSkillTool as any)() as InstanceType<typeof DeleteManagedSkillTool>;
 
 function makeContext(): ToolContext {
@@ -201,56 +201,38 @@ describe('managed skill lifecycle: scaffold → catalog → prompt → delete', 
     expect(result.isError).toBe(true);
   });
 
-  test('evaluate → scaffold → skill_load chain: literal tool execution', async () => {
+  test('scaffold → skill_load chain: literal tool execution', async () => {
     const ctx = makeContext();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- bypass private constructor for testing
-    const evalTool = new (EvaluateTypescriptTool as any)() as InstanceType<typeof EvaluateTypescriptTool>;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
     const skillLoadTool = new (SkillLoadTool as any)() as InstanceType<typeof SkillLoadTool>;
 
-    // Step 1: Run evaluate_typescript_code with code that returns skill metadata
-    const code = `export default () => ({
-  name: 'Chain Test',
-  description: 'Created from evaluate output.',
-  body: 'This skill was dynamically created.\\n\\nRun: \\\`echo chain-test-ok\\\`',
-});`;
-
-    const evalResult = await evalTool.execute({ code }, ctx);
-    expect(evalResult.isError).not.toBe(true);
-
-    const evalData = JSON.parse(evalResult.content as string);
-    expect(evalData.ok).toBe(true);
-    expect(evalData.result).toBeDefined();
-    expect(evalData.result.name).toBe('Chain Test');
-
-    // Step 2: Feed evaluate output into scaffold_managed_skill
-    const meta = evalData.result;
+    // Step 1: Scaffold a skill directly
     const scaffoldResult = await scaffoldTool.execute({
       skill_id: 'chain-test',
-      name: meta.name,
-      description: meta.description,
-      body_markdown: meta.body,
+      name: 'Chain Test',
+      description: 'Created from scaffold.',
+      body_markdown: 'This skill was dynamically created.\n\nRun: `echo chain-test-ok`',
     }, ctx);
 
     expect(scaffoldResult.isError).not.toBe(true);
     const scaffoldData = JSON.parse(scaffoldResult.content as string);
     expect(scaffoldData.created).toBe(true);
 
-    // Step 3: Call skill_load tool to load the created skill
+    // Step 2: Call skill_load tool to load the created skill
     const loadResult = await skillLoadTool.execute({ skill: 'chain-test' }, ctx);
     expect(loadResult.isError).not.toBe(true);
     const loadContent = loadResult.content as string;
     expect(loadContent).toContain('Skill: Chain Test');
     expect(loadContent).toContain('ID: chain-test');
-    expect(loadContent).toContain('Description: Created from evaluate output.');
+    expect(loadContent).toContain('Description: Created from scaffold.');
     expect(loadContent).toContain('dynamically created');
     expect(loadContent).toContain('echo chain-test-ok');
 
-    // Step 4: Clean up
+    // Step 3: Clean up
     const deleteResult = await deleteTool.execute({ skill_id: 'chain-test' }, ctx);
     expect(deleteResult.isError).not.toBe(true);
 
-    // Step 5: Verify skill_load returns error for deleted skill
+    // Step 4: Verify skill_load returns error for deleted skill
     const loadAfterDelete = await skillLoadTool.execute({ skill: 'chain-test' }, ctx);
     expect(loadAfterDelete.isError).toBe(true);
   });

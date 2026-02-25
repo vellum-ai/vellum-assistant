@@ -5,13 +5,6 @@
  * or skip entirely.
  */
 
-import {
-  applyConflictResolution,
-  listPendingConflictDetails,
-  markConflictAsked,
-  resolveConflict,
-} from '../memory/conflict-store.js';
-import type { PendingConflictDetail } from '../memory/conflict-store.js';
 import { resolveConflictClarification } from '../memory/clarification-resolver.js';
 import {
   areStatementsCoherent,
@@ -20,6 +13,13 @@ import {
   shouldAttemptConflictResolution,
 } from '../memory/conflict-intent.js';
 import { isConflictKindPairEligible, isStatementConflictEligible } from '../memory/conflict-policy.js';
+import type { PendingConflictDetail } from '../memory/conflict-store.js';
+import {
+  applyConflictResolution,
+  listPendingConflictDetails,
+  markConflictAsked,
+  resolveConflict,
+} from '../memory/conflict-store.js';
 
 export interface ConflictGateDecision {
   question: string;

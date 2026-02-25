@@ -78,11 +78,11 @@ public struct InlineSurfaceRouter: View {
         .overlay(alignment: .topTrailing) {
             if isDynamicPreview {
                 Button {
-                    if let msg = surface.surfaceMessage {
+                    if let ref = surface.surfaceRef {
                         NotificationCenter.default.post(
                             name: Notification.Name("MainWindow.openDynamicWorkspace"),
                             object: nil,
-                            userInfo: ["surfaceMessage": msg]
+                            userInfo: ["surfaceRef": ref]
                         )
                     }
                 } label: {
@@ -146,22 +146,22 @@ public struct InlineSurfaceRouter: View {
             if let preview = data.preview {
                 InlineDynamicPagePreview(preview: preview) {
                     // Post notification to open (or re-open) the workspace
-                    if let msg = surface.surfaceMessage {
+                    if let ref = surface.surfaceRef {
                         NotificationCenter.default.post(
                             name: Notification.Name("MainWindow.openDynamicWorkspace"),
                             object: nil,
-                            userInfo: ["surfaceMessage": msg]
+                            userInfo: ["surfaceRef": ref]
                         )
                     }
                 }
             } else {
                 // Still allow opening the workspace even without a preview card.
                 Button {
-                    if let msg = surface.surfaceMessage {
+                    if let ref = surface.surfaceRef {
                         NotificationCenter.default.post(
                             name: Notification.Name("MainWindow.openDynamicWorkspace"),
                             object: nil,
-                            userInfo: ["surfaceMessage": msg]
+                            userInfo: ["surfaceRef": ref]
                         )
                     }
                 } label: {

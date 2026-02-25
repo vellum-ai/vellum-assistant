@@ -3,7 +3,6 @@
  * messages as decisions, reminders, or conversational follow-ups.
  */
 import type { ChannelId } from '../../channels/types.js';
-import { getLogger } from '../../util/logger.js';
 import {
   getPendingApprovalByRequestAndGuardianChat,
   getAllPendingApprovalsByGuardianChat,
@@ -11,30 +10,32 @@ import {
   getUnresolvedApprovalForRequest,
   updateApprovalDecision,
 } from '../../memory/channel-guardian-store.js';
-import { deliverChannelReply } from '../gateway-client.js';
+import { getLogger } from '../../util/logger.js';
+import { runApprovalConversationTurn } from '../approval-conversation-turn.js';
+import { composeApprovalMessageGenerative } from '../approval-message-composer.js';
 import { parseApprovalDecision } from '../channel-approval-parser.js';
+import type {
+  ApprovalDecisionResult,
+} from '../channel-approval-types.js';
 import {
   getChannelApprovalPrompt,
   getApprovalInfoByConversation,
   handleChannelDecision,
 } from '../channel-approvals.js';
-import { runApprovalConversationTurn } from '../approval-conversation-turn.js';
+import { deliverChannelReply } from '../gateway-client.js';
 import type {
   ApprovalDecisionResult,
 } from '../channel-approval-types.js';
 import type {
-  ApprovalCopyGenerator,
-  ApprovalConversationGenerator,
   ApprovalConversationContext,
+  ApprovalConversationGenerator,
+  ApprovalCopyGenerator,
 } from '../http-types.js';
-import { composeApprovalMessageGenerative } from '../approval-message-composer.js';
 import {
+  buildGuardianDenyContext,
   type GuardianContext,
   parseCallbackData,
-  buildGuardianDenyContext,
 } from './channel-route-shared.js';
-// schedulePostDecisionDelivery is no longer needed — post-decision delivery is
-// handled by the onEvent callback in the session that registered the pending interaction.
 
 const log = getLogger('runtime-http');
 

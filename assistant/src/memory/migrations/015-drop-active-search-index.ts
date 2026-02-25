@@ -1,4 +1,4 @@
-import { getSqliteFrom, type DrizzleDb } from '../db-connection.js';
+import { type DrizzleDb,getSqliteFrom } from '../db-connection.js';
 
 /**
  * One-time migration to drop the old idx_memory_items_active_search index so

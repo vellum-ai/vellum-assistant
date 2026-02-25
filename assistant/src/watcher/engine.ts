@@ -5,23 +5,23 @@
  * and processes pending events through a background LLM conversation.
  */
 
-import { getLogger } from '../util/logger.js';
 import { createConversation } from '../memory/conversation-store.js';
 import { GENERATING_TITLE, queueGenerateConversationTitle } from '../memory/conversation-title-service.js';
+import { checkForSequenceReplies } from '../sequence/reply-matcher.js';
+import { getLogger } from '../util/logger.js';
+import { MAX_CONSECUTIVE_ERRORS } from './constants.js';
 import { getWatcherProvider } from './provider-registry.js';
 import {
   claimDueWatchers,
   completeWatcherPoll,
-  failWatcherPoll,
   disableWatcher,
-  insertWatcherEvent,
+  failWatcherPoll,
   getPendingEvents,
-  updateEventDisposition,
+  insertWatcherEvent,
   resetStuckWatchers,
   setWatcherConversationId,
+  updateEventDisposition,
 } from './watcher-store.js';
-import { MAX_CONSECUTIVE_ERRORS } from './constants.js';
-import { checkForSequenceReplies } from '../sequence/reply-matcher.js';
 
 const log = getLogger('watcher-engine');
 

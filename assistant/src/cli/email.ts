@@ -7,8 +7,9 @@
  */
 
 import { Command } from 'commander';
-import { getEmailService, GuardrailError } from '../email/service.js';
+
 import { SUPPORTED_PROVIDERS, type SupportedProvider } from '../email/providers/index.js';
+import { getEmailService, GuardrailError } from '../email/service.js';
 
 // ---------------------------------------------------------------------------
 // Helpers

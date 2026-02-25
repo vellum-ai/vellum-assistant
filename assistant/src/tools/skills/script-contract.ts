@@ -1,4 +1,4 @@
-import type { ToolExecutionResult, ToolContext } from '../types.js';
+import type { ToolContext,ToolExecutionResult } from '../types.js';
 
 /** The exported interface a skill tool script must implement. */
 export interface SkillToolScript {

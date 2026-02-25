@@ -1,18 +1,19 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, expect,test } from 'bun:test';
+
 import {
   allComputerUseTools,
   computerUseClickTool,
-  computerUseDoubleClickTool,
-  computerUseRightClickTool,
-  computerUseTypeTextTool,
-  computerUseKeyTool,
-  computerUseScrollTool,
-  computerUseDragTool,
-  computerUseWaitTool,
-  computerUseOpenAppTool,
-  computerUseRunAppleScriptTool,
   computerUseDoneTool,
+  computerUseDoubleClickTool,
+  computerUseDragTool,
+  computerUseKeyTool,
+  computerUseOpenAppTool,
   computerUseRespondTool,
+  computerUseRightClickTool,
+  computerUseRunAppleScriptTool,
+  computerUseScrollTool,
+  computerUseTypeTextTool,
+  computerUseWaitTool,
 } from '../tools/computer-use/definitions.js';
 import { requestComputerControlTool } from '../tools/computer-use/request-computer-control.js';
 import { forwardComputerUseProxyTool } from '../tools/computer-use/skill-proxy-bridge.js';

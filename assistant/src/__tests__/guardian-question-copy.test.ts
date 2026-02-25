@@ -1,4 +1,5 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, expect,test } from 'bun:test';
+
 import { buildFallbackCopy } from '../calls/guardian-question-copy.js';
 
 describe('buildFallbackCopy', () => {

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from 'bun:test';
+import { randomBytes } from 'node:crypto';
 import {
   existsSync,
   mkdirSync,
@@ -6,9 +6,10 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { randomBytes } from 'node:crypto';
+import { join } from 'node:path';
+
+import { afterEach, describe, expect, test } from 'bun:test';
 
 import { migrateToWorkspaceLayout } from '../util/platform.js';
 

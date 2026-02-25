@@ -1,7 +1,8 @@
-import { describe, test, expect, beforeEach, afterAll, mock, spyOn } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, beforeEach, describe, expect, mock, spyOn,test } from 'bun:test';
 
 // ---------------------------------------------------------------------------
 // Test isolation: in-memory SQLite via temp directory
@@ -29,11 +30,11 @@ mock.module('../util/logger.js', () => ({
 }));
 
 import {
-  getChannelApprovalPrompt,
   buildApprovalUIMetadata,
-  handleChannelDecision,
   buildGuardianApprovalPrompt,
   channelSupportsRichApprovalUI,
+  getChannelApprovalPrompt,
+  handleChannelDecision,
 } from '../runtime/channel-approvals.js';
 import type { PendingApprovalInfo } from '../runtime/channel-approvals.js';
 import type { ApprovalDecisionResult, ChannelApprovalPrompt } from '../runtime/channel-approval-types.js';

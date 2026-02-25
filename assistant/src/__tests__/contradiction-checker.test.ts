@@ -1,7 +1,8 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { eq } from 'drizzle-orm';
 
 const testDir = mkdtempSync(join(tmpdir(), 'contradiction-checker-test-'));
@@ -81,8 +82,8 @@ mock.module('../config/loader.js', () => ({
   }),
 }));
 
-import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { checkContradictions } from '../memory/contradiction-checker.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { memoryItemConflicts, memoryItems } from '../memory/schema.js';
 
 beforeAll(() => {

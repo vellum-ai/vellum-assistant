@@ -1,9 +1,10 @@
-import * as net from 'node:net';
 import { existsSync, readFileSync, statSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import * as net from 'node:net';
+import { dirname,join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
 import { getWorkspacePromptPath, readLockfile } from '../../util/platform.js';
-import { log, defineHandlers, type HandlerContext } from './shared.js';
+import { defineHandlers, type HandlerContext,log } from './shared.js';
 
 function handleIdentityGet(socket: net.Socket, ctx: HandlerContext): void {
   const identityPath = getWorkspacePromptPath('IDENTITY.md');

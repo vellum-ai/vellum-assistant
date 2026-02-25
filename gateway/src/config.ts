@@ -78,6 +78,8 @@ export type GatewayConfig = {
   whatsappTimeoutMs: number;
   whatsappMaxRetries: number;
   whatsappInitialBackoffMs: number;
+  /** When true, trust X-Forwarded-For for client IP resolution (set when behind a reverse proxy). */
+  trustProxy: boolean;
 };
 
 function parseRoutingJson(raw: string): RoutingEntry[] {
@@ -228,7 +230,7 @@ export function loadConfig(): GatewayConfig {
       `GATEWAY_TELEGRAM_DELIVER_AUTH_BYPASS must be "true" or "false", got "${telegramDeliverAuthBypassRaw}"`,
     );
   }
-  const telegramDeliverAuthBypass = telegramDeliverAuthBypassRaw === "true";
+  let telegramDeliverAuthBypass = telegramDeliverAuthBypassRaw === "true";
 
   const telegramTimeoutMs = Number(process.env.GATEWAY_TELEGRAM_TIMEOUT_MS || "15000");
   if (!Number.isFinite(telegramTimeoutMs) || telegramTimeoutMs <= 0) {
@@ -322,7 +324,7 @@ export function loadConfig(): GatewayConfig {
       `GATEWAY_WHATSAPP_DELIVER_AUTH_BYPASS must be "true" or "false", got "${whatsappDeliverAuthBypassRaw}"`,
     );
   }
-  const whatsappDeliverAuthBypass = whatsappDeliverAuthBypassRaw === "true";
+  let whatsappDeliverAuthBypass = whatsappDeliverAuthBypassRaw === "true";
 
   const whatsappTimeoutMs = Number(process.env.GATEWAY_WHATSAPP_TIMEOUT_MS || "15000");
   if (!Number.isFinite(whatsappTimeoutMs) || whatsappTimeoutMs <= 0) {
@@ -349,7 +351,35 @@ export function loadConfig(): GatewayConfig {
       `GATEWAY_SMS_DELIVER_AUTH_BYPASS must be "true" or "false", got "${smsDeliverAuthBypassRaw}"`,
     );
   }
-  const smsDeliverAuthBypass = smsDeliverAuthBypassRaw === "true";
+  let smsDeliverAuthBypass = smsDeliverAuthBypassRaw === "true";
+
+  // Production guard: auth bypass flags must never be active outside dev mode.
+  // Fail closed: treat missing APP_VERSION as production, since the gateway
+  // release pipeline does not inject it (unlike the daemon build).
+  const appVersion = process.env.APP_VERSION;
+  const isDevMode = appVersion === "0.0.0-dev";
+  if (!isDevMode) {
+    if (telegramDeliverAuthBypass) {
+      log.warn("GATEWAY_TELEGRAM_DELIVER_AUTH_BYPASS is set but ignored in production (APP_VERSION=%s)", appVersion);
+      telegramDeliverAuthBypass = false;
+    }
+    if (smsDeliverAuthBypass) {
+      log.warn("GATEWAY_SMS_DELIVER_AUTH_BYPASS is set but ignored in production (APP_VERSION=%s)", appVersion);
+      smsDeliverAuthBypass = false;
+    }
+    if (whatsappDeliverAuthBypass) {
+      log.warn("GATEWAY_WHATSAPP_DELIVER_AUTH_BYPASS is set but ignored in production (APP_VERSION=%s)", appVersion);
+      whatsappDeliverAuthBypass = false;
+    }
+  }
+
+  const trustProxyRaw = process.env.GATEWAY_TRUST_PROXY;
+  if (trustProxyRaw !== undefined && trustProxyRaw !== "true" && trustProxyRaw !== "false") {
+    throw new Error(
+      `GATEWAY_TRUST_PROXY must be "true" or "false", got "${trustProxyRaw}"`,
+    );
+  }
+  const trustProxy = trustProxyRaw === "true";
 
   const ingressPublicBaseUrl = process.env.INGRESS_PUBLIC_BASE_URL || undefined;
 
@@ -401,6 +431,7 @@ export function loadConfig(): GatewayConfig {
       hasWhatsAppAppSecret: !!whatsappAppSecret,
       hasWhatsAppWebhookVerifyToken: !!whatsappWebhookVerifyToken,
       whatsappDeliverAuthBypass,
+      trustProxy,
     },
     "Configuration loaded",
   );
@@ -447,5 +478,6 @@ export function loadConfig(): GatewayConfig {
     whatsappTimeoutMs,
     whatsappMaxRetries,
     whatsappInitialBackoffMs,
+    trustProxy,
   };
 }

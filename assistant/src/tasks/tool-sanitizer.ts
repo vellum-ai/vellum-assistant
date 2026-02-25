@@ -1,4 +1,4 @@
-import { getTool, getAllTools } from '../tools/registry.js';
+import { getAllTools,getTool } from '../tools/registry.js';
 
 /**
  * Deduplicate and sort a list of tool names, validating against the live

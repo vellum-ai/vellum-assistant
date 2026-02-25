@@ -1,4 +1,4 @@
-import { getSqliteFrom, type DrizzleDb } from '../db-connection.js';
+import { type DrizzleDb,getSqliteFrom } from '../db-connection.js';
 
 /**
  * One-shot migration: merge duplicate relation edges so uniqueness can be

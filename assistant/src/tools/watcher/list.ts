@@ -1,5 +1,5 @@
+import { getWatcher, listWatcherEvents,listWatchers } from '../../watcher/watcher-store.js';
 import type { ToolContext, ToolExecutionResult } from '../types.js';
-import { listWatchers, getWatcher, listWatcherEvents } from '../../watcher/watcher-store.js';
 
 export async function executeWatcherList(
   input: Record<string, unknown>,

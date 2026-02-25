@@ -9,12 +9,13 @@
 
 import { and, eq, inArray, lt } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
+
+import { getLogger } from '../util/logger.js';
 import { getDb, rawChanges } from './db.js';
 import {
-  guardianActionRequests,
   guardianActionDeliveries,
+  guardianActionRequests,
 } from './schema.js';
-import { getLogger } from '../util/logger.js';
 
 const log = getLogger('guardian-action-store');
 

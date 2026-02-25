@@ -1,9 +1,10 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-import { describe, test, expect, beforeEach, mock } from 'bun:test';
+ 
 import { mkdtempSync } from 'node:fs';
+import * as net from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import * as net from 'node:net';
+
+import { beforeEach, describe, expect, mock,test } from 'bun:test';
 
 const testDir = mkdtempSync(join(tmpdir(), 'permsim-handler-test-'));
 
@@ -56,10 +57,10 @@ mock.module('../config/loader.js', () => ({
   setNestedValue: () => {},
 }));
 
-import { handleToolPermissionSimulate } from '../daemon/handlers/config.js';
-import { addRule, clearAllRules, clearCache } from '../permissions/trust-store.js';
-import type { ToolPermissionSimulateRequest, ToolPermissionSimulateResponse, ServerMessage } from '../daemon/ipc-contract.js';
 import type { HandlerContext } from '../daemon/handlers.js';
+import { handleToolPermissionSimulate } from '../daemon/handlers/config.js';
+import type { ServerMessage,ToolPermissionSimulateRequest, ToolPermissionSimulateResponse } from '../daemon/ipc-contract.js';
+import { addRule, clearAllRules, clearCache } from '../permissions/trust-store.js';
 import { DebouncerMap } from '../util/debounce.js';
 
 function createTestContext(): { ctx: HandlerContext; sent: ServerMessage[] } {

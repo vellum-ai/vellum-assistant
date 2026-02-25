@@ -1,8 +1,9 @@
-import { describe, test, expect, beforeEach, mock, spyOn } from 'bun:test';
 import * as fs from 'node:fs';
-import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, dirname } from 'node:path';
+import { dirname,join } from 'node:path';
+
+import { beforeEach, describe, expect, mock, spyOn,test } from 'bun:test';
 
 // Create a temp directory for the trust file
 const testDir = mkdtempSync(join(tmpdir(), 'trust-store-test-'));
@@ -39,8 +40,8 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
-import { addRule, removeRule, updateRule, findMatchingRule, findDenyRule, findHighestPriorityRule, getAllRules, clearAllRules, clearCache } from '../permissions/trust-store.js';
 import { getDefaultRuleTemplates } from '../permissions/defaults.js';
+import { addRule, clearAllRules, clearCache,findDenyRule, findHighestPriorityRule, findMatchingRule, getAllRules, removeRule, updateRule } from '../permissions/trust-store.js';
 
 const trustPath = join(testDir, 'protected', 'trust.json');
 const DEFAULT_TEMPLATES = getDefaultRuleTemplates();
@@ -1113,9 +1114,9 @@ describe('Trust Store', () => {
       expect(rule!.tool).toBe('bash');
       expect(rule!.pattern).toBe('git *');
       // Extra fields pass through because the migration does not strip them
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- asserting extra fields pass through migration
+       
       expect((rule as any).customField).toBe('should-survive');
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- asserting extra fields pass through migration
+       
       expect((rule as any).nested).toEqual({ deep: true });
     });
 

@@ -1,4 +1,4 @@
-import { getSqliteFrom, type DrizzleDb } from '../db-connection.js';
+import { type DrizzleDb,getSqliteFrom } from '../db-connection.js';
 import { migrateDropActiveSearchIndex } from './015-drop-active-search-index.js';
 
 /**
@@ -40,8 +40,24 @@ export function createCoreIndexes(database: DrizzleDb): void {
     ON memory_items(status, invalid_at, last_seen_at DESC, subject, statement, id, kind, confidence, importance, first_seen_at, scope_id)
     WHERE status = 'active' AND invalid_at IS NULL
   `);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_embeddings_target ON memory_embeddings(target_type, target_id)`);
-  database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_embeddings_provider_model ON memory_embeddings(provider, model)`);
+  // Deduplicate — existing DBs may have duplicate (target_type, target_id, provider, model) tuples
+  // from before the table-level UNIQUE constraint was enforced. Keep the most recent row per group.
+  {
+    const rawEmb = getSqliteFrom(database);
+    rawEmb.exec(/*sql*/ `
+      DELETE FROM memory_embeddings
+      WHERE rowid NOT IN (
+        SELECT MAX(rowid) FROM memory_embeddings
+        GROUP BY target_type, target_id, provider, model
+      )
+    `);
+  }
+  database.run(/*sql*/ `DROP INDEX IF EXISTS idx_memory_embeddings_target`);
+  database.run(/*sql*/ `DROP INDEX IF EXISTS idx_memory_embeddings_provider_model`);
+  // The table-level UNIQUE(target_type, target_id, provider, model) in 100-core-tables.ts already
+  // creates an autoindex that SQLite uses for ON CONFLICT upserts. Drop the explicit index if a
+  // previous run of this migration created it, to avoid a duplicate B-tree.
+  database.run(/*sql*/ `DROP INDEX IF EXISTS idx_memory_embeddings_target_provider_model`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_embeddings_content_hash ON memory_embeddings(content_hash, provider, model)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_jobs_status_run_after ON memory_jobs(status, run_after)`);
   database.run(/*sql*/ `

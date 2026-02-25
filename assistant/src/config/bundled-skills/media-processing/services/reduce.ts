@@ -12,12 +12,13 @@
  */
 
 import { readFile } from 'node:fs/promises';
-import { join, dirname } from 'node:path';
+import { dirname,join } from 'node:path';
+
 import { getMediaAssetById } from '../../../../memory/media-store.js';
 import {
-  getConfiguredProvider,
   createTimeout,
   extractAllText,
+  getConfiguredProvider,
   userMessage,
 } from '../../../../providers/provider-send-message.js';
 import type { MapOutput } from './gemini-map.js';

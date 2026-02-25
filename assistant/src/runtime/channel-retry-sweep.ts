@@ -2,14 +2,14 @@
  * Periodic retry sweep for failed channel inbound events.
  */
 
-import { parseChannelId, parseInterfaceId, isChannelId } from '../channels/types.js';
-import { getLogger } from '../util/logger.js';
+import { isChannelId,parseChannelId, parseInterfaceId } from '../channels/types.js';
+import { renderHistoryContent } from '../daemon/handlers.js';
+import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
+import * as attachmentsStore from '../memory/attachments-store.js';
 import * as channelDeliveryStore from '../memory/channel-delivery-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
-import * as attachmentsStore from '../memory/attachments-store.js';
-import { renderHistoryContent } from '../daemon/handlers.js';
+import { getLogger } from '../util/logger.js';
 import { deliverChannelReply } from './gateway-client.js';
-import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
 import type { MessageProcessor } from './http-types.js';
 
 const log = getLogger('runtime-http');

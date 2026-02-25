@@ -8,23 +8,23 @@
  * barge-in, state machine, guardian verification).
  */
 
-import { getLogger } from '../util/logger.js';
-import {
-  getCallSession,
-  updateCallSession,
-  recordCallEvent,
-  createPendingQuestion,
-  expirePendingQuestions,
-} from './call-store.js';
-import { getMaxCallDurationMs, getUserConsultationTimeoutMs, SILENCE_TIMEOUT_MS } from './call-constants.js';
-import type { RelayConnection } from './relay-server.js';
-import { registerCallController, unregisterCallController, fireCallQuestionNotifier, fireCallCompletionNotifier, fireCallTranscriptNotifier } from './call-state.js';
-import type { PromptSpeakerContext } from './speaker-identification.js';
-import { addPointerMessage, formatDuration } from './call-pointer-messages.js';
-import { persistCallCompletionMessage } from './call-conversation-messages.js';
-import { dispatchGuardianQuestion } from './guardian-dispatch.js';
 import type { ServerMessage } from '../daemon/ipc-contract.js';
 import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
+import { getLogger } from '../util/logger.js';
+import { getMaxCallDurationMs, getUserConsultationTimeoutMs, SILENCE_TIMEOUT_MS } from './call-constants.js';
+import { persistCallCompletionMessage } from './call-conversation-messages.js';
+import { addPointerMessage, formatDuration } from './call-pointer-messages.js';
+import { fireCallCompletionNotifier, fireCallQuestionNotifier, fireCallTranscriptNotifier,registerCallController, unregisterCallController } from './call-state.js';
+import {
+  createPendingQuestion,
+  expirePendingQuestions,
+  getCallSession,
+  recordCallEvent,
+  updateCallSession,
+} from './call-store.js';
+import { dispatchGuardianQuestion } from './guardian-dispatch.js';
+import type { RelayConnection } from './relay-server.js';
+import type { PromptSpeakerContext } from './speaker-identification.js';
 import { startVoiceTurn, type VoiceTurnHandle } from './voice-session-bridge.js';
 
 const log = getLogger('call-controller');
@@ -531,7 +531,6 @@ export class CallController {
               conversationId: session.conversationId,
               assistantId: this.assistantId,
               pendingQuestion,
-              broadcast: this.broadcast,
             });
           }
 

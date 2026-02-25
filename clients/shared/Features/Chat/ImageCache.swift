@@ -15,6 +15,9 @@ public actor ImageCache {
 
     private init() {
         dataCache.countLimit = 250
+        // 100 MB byte ceiling so large images don't blow out memory even
+        // when the count is under 250.
+        dataCache.totalCostLimit = 100 * 1024 * 1024
     }
 
     /// Returns raw `Data` for the URL (needed for GIF animation frames).
@@ -47,7 +50,7 @@ public actor ImageCache {
 
         do {
             let data = try await task.value
-            dataCache.setObject(data as NSData, forKey: nsURL)
+            dataCache.setObject(data as NSData, forKey: nsURL, cost: data.count)
             inFlight[url] = nil
             return data
         } catch {

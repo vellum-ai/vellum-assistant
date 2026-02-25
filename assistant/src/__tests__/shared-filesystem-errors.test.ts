@@ -1,15 +1,16 @@
 import { describe, expect, it } from 'bun:test';
+
 import {
-  invalidPath,
-  pathOutOfBounds,
-  pathNotAbsolute,
-  notFound,
-  notAFile,
-  sizeLimitExceeded,
-  matchNotFound,
-  matchAmbiguous,
-  ioError,
   type FsErrorCode,
+  invalidPath,
+  ioError,
+  matchAmbiguous,
+  matchNotFound,
+  notAFile,
+  notFound,
+  pathNotAbsolute,
+  pathOutOfBounds,
+  sizeLimitExceeded,
 } from '../tools/shared/filesystem/errors.js';
 
 describe('shared filesystem error helpers', () => {

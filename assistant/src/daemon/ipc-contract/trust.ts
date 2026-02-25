@@ -58,3 +58,16 @@ export interface AcceptStarterBundleResponse {
   rulesAdded: number;
   alreadyAccepted: boolean;
 }
+
+// --- Domain-level union aliases (consumed by the barrel file) ---
+
+export type _TrustClientMessages =
+  | AddTrustRule
+  | TrustRulesList
+  | RemoveTrustRule
+  | UpdateTrustRule
+  | AcceptStarterBundle;
+
+export type _TrustServerMessages =
+  | TrustRulesListResponse
+  | AcceptStarterBundleResponse;

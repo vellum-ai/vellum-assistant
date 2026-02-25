@@ -1,25 +1,25 @@
-import { describe, test, expect, beforeEach, afterAll } from 'bun:test';
-import { RiskLevel } from '../permissions/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../tools/types.js';
-import type { ToolDefinition } from '../providers/types.js';
+import { afterAll,beforeEach, describe, expect, test } from 'bun:test';
 
+import { RiskLevel } from '../permissions/types.js';
+import type { ToolDefinition } from '../providers/types.js';
 // We cannot import the private LazyTool class directly, so we test through
 // registerLazyTool + getTool which exercise the same code path.
 import {
-  registerTool,
-  registerLazyTool,
-  getTool,
-  getAllTools,
-  getAllToolDefinitions,
-  initializeTools,
-  registerSkillTools,
-  unregisterSkillTools,
-  getSkillToolNames,
-  getSkillRefCount,
-  __resetRegistryForTesting,
   __clearRegistryForTesting,
+  __resetRegistryForTesting,
+  getAllToolDefinitions,
+  getAllTools,
+  getSkillRefCount,
+  getSkillToolNames,
+  getTool,
+  initializeTools,
+  registerLazyTool,
+  registerSkillTools,
+  registerTool,
+  unregisterSkillTools,
 } from '../tools/registry.js';
 import { eagerModuleToolNames, explicitTools, lazyTools } from '../tools/tool-manifest.js';
+import type { Tool, ToolContext, ToolExecutionResult } from '../tools/types.js';
 
 // Clean up global registry after this file completes to prevent
 // contamination of subsequent test files in combined runs.
@@ -112,11 +112,10 @@ describe('tool registry host tools', () => {
 });
 
 describe('tool registry dynamic-tools tools', () => {
-  test('registers evaluate, scaffold, delete, and skill_load tools', async () => {
+  test('registers scaffold, delete, and skill_load tools', async () => {
     await initializeTools();
 
     const dynamicToolNames = [
-      'evaluate_typescript_code',
       'scaffold_managed_skill',
       'delete_managed_skill',
       'skill_load',
@@ -131,13 +130,6 @@ describe('tool registry dynamic-tools tools', () => {
     for (const toolName of dynamicToolNames) {
       expect(definitionNames).toContain(toolName);
     }
-  });
-
-  test('evaluate_typescript_code is registered as High risk', async () => {
-    await initializeTools();
-    const tool = getTool('evaluate_typescript_code');
-    expect(tool).toBeDefined();
-    expect(tool?.defaultRiskLevel).toBe(RiskLevel.High);
   });
 
   test('scaffold and delete are registered as High risk', async () => {
@@ -170,7 +162,7 @@ describe('tool manifest', () => {
   test('manifest declares expected core lazy tools', () => {
     const lazyNames = new Set(lazyTools.map((t) => t.name));
     expect(lazyNames.has('bash')).toBe(true);
-    expect(lazyNames.has('evaluate_typescript_code')).toBe(true);
+    expect(lazyNames.has('evaluate_typescript_code')).toBe(false);
     expect(lazyNames.has('claude_code')).toBe(false);
     expect(lazyNames.has('swarm_delegate')).toBe(true);
   });
@@ -179,7 +171,7 @@ describe('tool manifest', () => {
     expect(eagerModuleToolNames.length).toBe(16);
   });
 
-  test('explicit tools list includes memory, credential, watch, catalog, and discover tools', () => {
+  test('explicit tools list includes memory, credential, watch, and catalog tools', () => {
     const names = explicitTools.map((t) => t.name);
     expect(names).toContain('memory_search');
     expect(names).toContain('memory_save');
@@ -188,7 +180,6 @@ describe('tool manifest', () => {
     expect(names).toContain('account_manage');
     expect(names).toContain('start_screen_watch');
     expect(names).toContain('vellum_skills_catalog');
-    expect(names).toContain('cli_discover');
   });
 
   test('registered tool count is at least eager + lazy + host', async () => {

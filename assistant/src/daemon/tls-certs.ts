@@ -1,8 +1,9 @@
-import { mkdir, stat, readFile, writeFile, chmod } from 'node:fs/promises';
+import { createPrivateKey,X509Certificate } from 'node:crypto';
+import { chmod,mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { X509Certificate, createPrivateKey } from 'node:crypto';
-import { getRootDir } from '../util/platform.js';
+
 import { getLogger } from '../util/logger.js';
+import { getRootDir } from '../util/platform.js';
 
 const log = getLogger('tls-certs');
 

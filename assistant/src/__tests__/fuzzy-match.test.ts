@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { findMatch, findAllMatches, adjustIndentation } from '../tools/filesystem/fuzzy-match.js';
+
+import { adjustIndentation,findAllMatches, findMatch } from '../tools/filesystem/fuzzy-match.js';
 
 describe('findMatch', () => {
   test('exact match returns method "exact"', () => {

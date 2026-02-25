@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, mock, test } from 'bun:test';
 import type * as net from 'node:net';
+
+import { beforeEach, describe, expect, mock, test } from 'bun:test';
 
 interface MockMemoryPolicy {
   scopeId: string;

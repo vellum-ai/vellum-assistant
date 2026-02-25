@@ -1,5 +1,5 @@
-import { resolve, relative, dirname, basename, join, isAbsolute } from 'node:path';
 import { realpathSync } from 'node:fs';
+import { basename, dirname, isAbsolute,join, relative, resolve } from 'node:path';
 
 /**
  * Result type shared by both sandbox and host path policies.

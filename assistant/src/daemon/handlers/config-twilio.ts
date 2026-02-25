@@ -1,29 +1,30 @@
 import * as net from 'node:net';
-import { loadRawConfig, saveRawConfig } from '../../config/loader.js';
-import { getSecureKey, setSecureKey, deleteSecureKey } from '../../security/secure-keys.js';
-import { upsertCredentialMetadata, deleteCredentialMetadata } from '../../tools/credentials/metadata-store.js';
-import { readHttpToken } from '../../util/platform.js';
+
 import {
-  hasTwilioCredentials,
-  listIncomingPhoneNumbers,
-  searchAvailableNumbers,
-  provisionPhoneNumber,
-  releasePhoneNumber,
+  deleteTollFreeVerification,
   fetchMessageStatus,
   getPhoneNumberSid,
-  getTollFreeVerificationStatus,
   getTollFreeVerificationBySid,
+  getTollFreeVerificationStatus,
+  hasTwilioCredentials,
+  listIncomingPhoneNumbers,
+  provisionPhoneNumber,
+  releasePhoneNumber,
+  searchAvailableNumbers,
   submitTollFreeVerification,
-  updateTollFreeVerification,
-  deleteTollFreeVerification,
   type TollFreeVerificationSubmitParams,
+  updateTollFreeVerification,
 } from '../../calls/twilio-rest.js';
-import type { IngressConfig } from '../../inbound/public-ingress-urls.js';
-import { syncTwilioWebhooks } from './config-ingress.js';
-import { getReadinessService } from './config-channels.js';
-import type { TwilioConfigRequest } from '../ipc-protocol.js';
-import { log, CONFIG_RELOAD_DEBOUNCE_MS, defineHandlers, type HandlerContext } from './shared.js';
 import { getGatewayInternalBaseUrl } from '../../config/env.js';
+import { loadRawConfig, saveRawConfig } from '../../config/loader.js';
+import type { IngressConfig } from '../../inbound/public-ingress-urls.js';
+import { deleteSecureKey,getSecureKey, setSecureKey } from '../../security/secure-keys.js';
+import { deleteCredentialMetadata,upsertCredentialMetadata } from '../../tools/credentials/metadata-store.js';
+import { readHttpToken } from '../../util/platform.js';
+import type { TwilioConfigRequest } from '../ipc-protocol.js';
+import { getReadinessService } from './config-channels.js';
+import { syncTwilioWebhooks } from './config-ingress.js';
+import { CONFIG_RELOAD_DEBOUNCE_MS, defineHandlers, type HandlerContext,log } from './shared.js';
 
 /** In-memory store for the last SMS send test result. Shared between sms_send_test and sms_doctor. */
 let _lastTestResult: {
@@ -453,6 +454,7 @@ export async function handleTwilioConfig(
         phoneNumber,
         compliance: {
           numberType,
+          tollfreePhoneNumberSid: phoneSid,
           verificationSid: verification?.sid,
           verificationStatus: verification?.status,
           rejectionReason: verification?.rejectionReason,

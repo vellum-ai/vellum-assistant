@@ -20,8 +20,9 @@ struct MessageListView: View {
     var onModelPickerSelect: ((UUID, String) -> Void)?
     var onAbortSubagent: ((String) -> Void)?
     var onSubagentTap: ((String) -> Void)?
-    var subagentDetailStore: SubagentDetailStore?
+    @ObservedObject var subagentDetailStore: SubagentDetailStore
 
+    var threadId: UUID?
     @Binding var isNearBottom: Bool
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
     @AppStorage("completedConversationCount") private var completedConversationCount: Int = 0
@@ -29,6 +30,7 @@ struct MessageListView: View {
     @State private var appearance = AvatarAppearanceManager.shared
     /// Read once at the list level and passed down to each ChatBubble so that
     /// individual bubbles don't each subscribe to the shared ObservableObject.
+    @State private var scrollDebounceTask: Task<Void, Never>?
     @ObservedObject private var taskProgressOverlay = TaskProgressOverlayManager.shared
     private var activeSurfaceId: String? { taskProgressOverlay.activeSurfaceId }
 
@@ -159,7 +161,7 @@ struct MessageListView: View {
                         ForEach(activeSubagents.filter { $0.parentMessageId == message.id }) { subagent in
                             SubagentThreadView(
                                 subagent: subagent,
-                                events: subagentDetailStore?.eventsBySubagent[subagent.id] ?? [],
+                                events: subagentDetailStore.eventsBySubagent[subagent.id] ?? [],
                                 onAbort: { onAbortSubagent?(subagent.id) },
                                 onTap: { onSubagentTap?(subagent.id) }
                             )
@@ -173,7 +175,7 @@ struct MessageListView: View {
                     ForEach(activeSubagents.filter { $0.parentMessageId == nil }) { subagent in
                         SubagentThreadView(
                             subagent: subagent,
-                            events: subagentDetailStore?.eventsBySubagent[subagent.id] ?? [],
+                            events: subagentDetailStore.eventsBySubagent[subagent.id] ?? [],
                             onAbort: { onAbortSubagent?(subagent.id) },
                             onTap: { onSubagentTap?(subagent.id) }
                         )
@@ -297,8 +299,13 @@ struct MessageListView: View {
             }
             .onChange(of: streamingScrollTrigger) {
                 if isNearBottom {
-                    withAnimation(VAnimation.fast) {
-                        proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                    scrollDebounceTask?.cancel()
+                    scrollDebounceTask = Task {
+                        try? await Task.sleep(nanoseconds: 200_000_000)
+                        guard !Task.isCancelled else { return }
+                        withAnimation(VAnimation.fast) {
+                            proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                        }
                     }
                 }
             }
@@ -310,5 +317,6 @@ struct MessageListView: View {
                 }
             }
         }
+        .id(threadId)
     }
 }

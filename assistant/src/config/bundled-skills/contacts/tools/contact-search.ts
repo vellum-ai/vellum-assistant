@@ -1,6 +1,6 @@
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
 import { searchContacts } from '../../../../contacts/contact-store.js';
 import type { ContactWithChannels } from '../../../../contacts/types.js';
+import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
 
 function formatContactSummary(c: ContactWithChannels): string {
   const parts = [`- **${c.displayName}** (ID: ${c.id})`];

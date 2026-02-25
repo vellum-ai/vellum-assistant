@@ -13,13 +13,13 @@ import * as pendingInteractions from './pending-interactions.js';
 import type { PendingInteraction, ConfirmationDetails } from './pending-interactions.js';
 import { addRule } from '../permissions/trust-store.js';
 import { getTool } from '../tools/registry.js';
-import { DEFAULT_APPROVAL_ACTIONS } from './channel-approval-types.js';
-import type {
-  ChannelApprovalPrompt,
-  ApprovalUIMetadata,
-  ApprovalDecisionResult,
-} from './channel-approval-types.js';
 import { composeApprovalMessage } from './approval-message-composer.js';
+import type {
+  ApprovalDecisionResult,
+  ApprovalUIMetadata,
+  ChannelApprovalPrompt,
+} from './channel-approval-types.js';
+import { DEFAULT_APPROVAL_ACTIONS } from './channel-approval-types.js';
 
 /** Summary of a pending interaction, used by channel approval flows. */
 export interface PendingApprovalInfo {

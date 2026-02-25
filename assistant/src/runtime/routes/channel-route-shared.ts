@@ -2,14 +2,15 @@
  * Shared types, constants, and utilities used across channel route modules.
  */
 import { timingSafeEqual } from 'node:crypto';
+
 import type { ChannelId } from '../../channels/types.js';
-import type { DenialReason } from '../guardian-context-resolver.js';
+import { normalizeAssistantId } from '../../util/platform.js';
 import type {
   ApprovalAction,
   ApprovalDecisionResult,
   ApprovalUIMetadata,
 } from '../channel-approval-types.js';
-import { normalizeAssistantId } from '../../util/platform.js';
+import type { DenialReason } from '../guardian-context-resolver.js';
 export type { ActorRole, DenialReason, GuardianContext } from '../guardian-context-resolver.js';
 export { toGuardianRuntimeContext } from '../guardian-context-resolver.js';
 

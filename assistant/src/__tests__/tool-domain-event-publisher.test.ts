@@ -1,5 +1,6 @@
-import { describe, test, expect } from 'bun:test';
-import { EventBus, type AnyEventEnvelope } from '../events/bus.js';
+import { describe, expect,test } from 'bun:test';
+
+import { type AnyEventEnvelope,EventBus } from '../events/bus.js';
 import type { AssistantDomainEvents } from '../events/domain-events.js';
 import { createToolDomainEventPublisher } from '../events/tool-domain-event-publisher.js';
 

@@ -1,11 +1,12 @@
 import { and, eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
+
 import { getDb } from '../../../../memory/db.js';
 import { computeMemoryFingerprint } from '../../../../memory/fingerprint.js';
-import { memoryItems } from '../../../../memory/schema.js';
 import { enqueueMemoryJob } from '../../../../memory/jobs-store.js';
+import { memoryItems } from '../../../../memory/schema.js';
 import type { Playbook, PlaybookAutonomyLevel } from '../../../../playbooks/types.js';
+import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
 import { truncate } from '../../../../util/truncate.js';
 
 const VALID_AUTONOMY_LEVELS = new Set<string>(['auto', 'draft', 'notify']);

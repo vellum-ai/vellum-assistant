@@ -6,8 +6,10 @@
  */
 
 import { eq } from 'drizzle-orm';
+import { unlinkSync } from 'node:fs';
 import { v4 as uuid } from 'uuid';
-import { getDb, rawRun } from './db.js';
+
+import { getDb, rawAll, rawGet, rawRun } from './db.js';
 import { attachments, messageAttachments } from './schema.js';
 
 export interface StoredAttachment {
@@ -149,6 +151,80 @@ export function validateAttachmentUpload(
  */
 function computeContentHash(dataBase64: string): string {
   return Bun.hash(dataBase64).toString(36);
+}
+
+// ---------------------------------------------------------------------------
+// File-backed attachment storage (avoids reading large files into memory)
+// ---------------------------------------------------------------------------
+
+function ensureFilePathColumn(): void {
+  try {
+    // SQLite allows ALTER TABLE ADD COLUMN for nullable columns
+    rawRun('ALTER TABLE attachments ADD COLUMN file_path TEXT');
+  } catch {
+    // Column already exists — ignore the error
+  }
+}
+
+let filePathColumnEnsured = false;
+
+/**
+ * Store a file-backed attachment by path reference, without reading the file
+ * into memory. This avoids OOM risk for large recordings that exceed the
+ * normal 20 MB upload limit.
+ *
+ * The file stays on disk; the attachment row stores an empty dataBase64 and
+ * records the on-disk path in a `file_path` column (added via runtime
+ * migration since the Drizzle schema doesn't know about it).
+ */
+export function uploadFileBackedAttachment(
+  filename: string,
+  mimeType: string,
+  filePath: string,
+  sizeBytes: number,
+): StoredAttachment & { filePath: string } {
+  if (!filePathColumnEnsured) {
+    ensureFilePathColumn();
+    filePathColumnEnsured = true;
+  }
+
+  const now = Date.now();
+  const kind = classifyKind(mimeType);
+  const id = uuid();
+
+  // Use raw SQL since the Drizzle schema doesn't know about the file_path column
+  rawRun(
+    `INSERT INTO attachments (id, original_filename, mime_type, size_bytes, kind, data_base64, file_path, created_at)
+     VALUES (?, ?, ?, ?, ?, '', ?, ?)`,
+    id, filename, mimeType, sizeBytes, kind, filePath, now,
+  );
+
+  return {
+    id,
+    originalFilename: filename,
+    mimeType,
+    sizeBytes,
+    kind,
+    thumbnailBase64: null,
+    createdAt: now,
+    filePath,
+  };
+}
+
+/**
+ * Returns the file_path for a file-backed attachment, or null if not file-backed.
+ * Uses raw SQL since file_path is added via runtime migration and is not in the Drizzle schema.
+ */
+export function getFilePathForAttachment(attachmentId: string): string | null {
+  if (!filePathColumnEnsured) {
+    ensureFilePathColumn();
+    filePathColumnEnsured = true;
+  }
+  const row = rawGet<{ file_path: string | null }>(
+    'SELECT file_path FROM attachments WHERE id = ?',
+    attachmentId,
+  );
+  return row?.file_path ?? null;
 }
 
 export function uploadAttachment(
@@ -386,9 +462,28 @@ export function getAttachmentById(
  */
 export function deleteOrphanAttachments(candidateIds: string[]): number {
   if (candidateIds.length === 0) return 0;
+
+  // Identify truly orphaned attachment IDs first (not referenced by any message)
   const placeholders = candidateIds.map(() => '?').join(', ');
-  return rawRun(
-    `DELETE FROM attachments WHERE id IN (${placeholders}) AND id NOT IN (SELECT attachment_id FROM message_attachments)`,
+  const orphanIds = rawAll<{ id: string }>(
+    `SELECT id FROM attachments WHERE id IN (${placeholders}) AND id NOT IN (SELECT attachment_id FROM message_attachments)`,
     ...candidateIds,
+  ).map(row => row.id);
+
+  if (orphanIds.length === 0) return 0;
+
+  // Clean up on-disk files only for confirmed orphans
+  for (const id of orphanIds) {
+    const filePath = getFilePathForAttachment(id);
+    if (filePath) {
+      try { unlinkSync(filePath); } catch { /* file may already be gone */ }
+    }
+  }
+
+  // Delete the orphaned DB rows
+  const orphanPlaceholders = orphanIds.map(() => '?').join(', ');
+  return rawRun(
+    `DELETE FROM attachments WHERE id IN (${orphanPlaceholders})`,
+    ...orphanIds,
   );
 }

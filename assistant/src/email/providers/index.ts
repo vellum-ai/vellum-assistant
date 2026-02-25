@@ -4,10 +4,10 @@
  * Config path: integrations.email.provider (default: 'agentmail')
  */
 
-import type { EmailProvider } from '../provider.js';
+import { getNestedValue,loadRawConfig } from '../../config/loader.js';
 import { getSecureKey } from '../../security/secure-keys.js';
-import { loadRawConfig, getNestedValue } from '../../config/loader.js';
 import { ConfigError } from '../../util/errors.js';
+import type { EmailProvider } from '../provider.js';
 
 export const SUPPORTED_PROVIDERS = ['agentmail'] as const;
 export type SupportedProvider = (typeof SUPPORTED_PROVIDERS)[number];

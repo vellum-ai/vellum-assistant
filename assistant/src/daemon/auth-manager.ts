@@ -2,12 +2,13 @@
  * Manages daemon-level authentication: session token lifecycle,
  * per-socket auth state, and auth timeouts.
  */
-import * as net from 'node:net';
 import { randomBytes } from 'node:crypto';
-import { readFileSync, writeFileSync, chmodSync } from 'node:fs';
+import { chmodSync,readFileSync, writeFileSync } from 'node:fs';
+import * as net from 'node:net';
+
+import { getLogger } from '../util/logger.js';
 import { getSessionTokenPath } from '../util/platform.js';
 import { hasNoAuthOverride } from './connection-policy.js';
-import { getLogger } from '../util/logger.js';
 
 const log = getLogger('auth-manager');
 

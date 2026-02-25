@@ -7,13 +7,13 @@
  * overwritten, never user-provided custom titles.
  */
 
-import * as conversationStore from './conversation-store.js';
-import type { MessageRow } from './conversation-store.js';
-import { getConfiguredProvider } from '../providers/provider-send-message.js';
 import { getConfig } from '../config/loader.js';
-import { truncate } from '../util/truncate.js';
-import { getLogger } from '../util/logger.js';
+import { getConfiguredProvider } from '../providers/provider-send-message.js';
 import type { Provider } from '../providers/types.js';
+import { getLogger } from '../util/logger.js';
+import { truncate } from '../util/truncate.js';
+import type { MessageRow } from './conversation-store.js';
+import * as conversationStore from './conversation-store.js';
 
 const log = getLogger('conversation-title-service');
 

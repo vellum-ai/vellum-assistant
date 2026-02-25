@@ -3,9 +3,10 @@
  */
 
 import { request as httpsRequest, type RequestOptions as HttpsRequestOptions } from 'node:https';
-import { withValidToken } from '../../../../security/token-manager.js';
-import { getMessagingProvider, getConnectedProviders } from '../../../../messaging/registry.js';
+
 import type { MessagingProvider } from '../../../../messaging/provider.js';
+import { getConnectedProviders,getMessagingProvider } from '../../../../messaging/registry.js';
+import { withValidToken } from '../../../../security/token-manager.js';
 import type { ToolExecutionResult } from '../../../../tools/types.js';
 
 export function ok(content: string): ToolExecutionResult {

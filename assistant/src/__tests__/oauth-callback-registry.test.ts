@@ -1,9 +1,10 @@
-import { describe, test, expect, afterEach } from 'bun:test';
+import { afterEach,describe, expect, test } from 'bun:test';
+
 import {
-  registerPendingCallback,
+  clearAllCallbacks,
   consumeCallback,
   consumeCallbackError,
-  clearAllCallbacks,
+  registerPendingCallback,
 } from '../security/oauth-callback-registry.js';
 
 afterEach(() => {

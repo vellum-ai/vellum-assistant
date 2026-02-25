@@ -1,5 +1,6 @@
-import { describe, test, expect, beforeAll } from 'bun:test';
-import { analyzeShellCommand, deriveShellActionKeys, buildShellCommandCandidates, buildShellAllowlistOptions } from '../permissions/shell-identity.js';
+import { beforeAll,describe, expect, test } from 'bun:test';
+
+import { analyzeShellCommand, buildShellAllowlistOptions,buildShellCommandCandidates, deriveShellActionKeys } from '../permissions/shell-identity.js';
 import { parse } from '../tools/terminal/parser.js';
 
 describe('analyzeShellCommand', () => {

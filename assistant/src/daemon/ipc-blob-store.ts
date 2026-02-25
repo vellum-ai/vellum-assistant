@@ -1,16 +1,17 @@
-import { getIpcBlobDir } from '../util/platform.js';
-import { getLogger } from '../util/logger.js';
-import type { IpcBlobRef } from './ipc-contract.js';
-import {
-  mkdirSync,
-  existsSync,
-  unlinkSync,
-  lstatSync,
-  realpathSync,
-} from 'node:fs';
-import { readFile, readdir, lstat, realpath, unlink } from 'node:fs/promises';
-import { join, resolve, relative, sep } from 'node:path';
 import { createHash } from 'node:crypto';
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  realpathSync,
+  unlinkSync,
+} from 'node:fs';
+import { lstat, readdir, readFile, realpath, unlink } from 'node:fs/promises';
+import { join, relative, resolve, sep } from 'node:path';
+
+import { getLogger } from '../util/logger.js';
+import { getIpcBlobDir } from '../util/platform.js';
+import type { IpcBlobRef } from './ipc-contract.js';
 
 const log = getLogger('ipc-blob-store');
 

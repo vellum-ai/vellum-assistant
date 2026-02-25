@@ -5,10 +5,11 @@
  * Works across all platforms — Slack, Gmail, Discord, etc.
  */
 
-import { readFileSync, writeFileSync, unlinkSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
-import { ensureDir, pathExists } from '../util/fs.js';
 import { randomUUID } from 'node:crypto';
+import { readdirSync,readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+import { ensureDir, pathExists } from '../util/fs.js';
 import { getRootDir } from '../util/platform.js';
 
 export interface Draft {

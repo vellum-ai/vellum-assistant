@@ -1,4 +1,4 @@
-import { describe, test, expect, mock, beforeEach } from 'bun:test';
+import { beforeEach,describe, expect, mock, test } from 'bun:test';
 
 // ---------------------------------------------------------------------------
 // Mocks — must be set up before importing the module under test
@@ -106,7 +106,7 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 // Import module under test AFTER mocks are in place
 // ---------------------------------------------------------------------------
 
-import { startOAuth2Flow, type OAuth2Config } from '../security/oauth2.js';
+import { type OAuth2Config,startOAuth2Flow } from '../security/oauth2.js';
 
 const BASE_OAUTH_CONFIG: OAuth2Config = {
   authUrl: 'https://provider.example.com/authorize',

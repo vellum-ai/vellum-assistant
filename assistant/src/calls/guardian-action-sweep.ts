@@ -9,15 +9,15 @@
  * 4. Adds an expiry message to mac guardian thread conversations
  */
 
-import { getLogger } from '../util/logger.js';
+import { addMessage } from '../memory/conversation-store.js';
 import {
-  getExpiredGuardianActionRequests,
   expireGuardianActionRequest,
   getDeliveriesByRequestId,
+  getExpiredGuardianActionRequests,
 } from '../memory/guardian-action-store.js';
-import { expirePendingQuestions } from './call-store.js';
 import { deliverChannelReply } from '../runtime/gateway-client.js';
-import { addMessage } from '../memory/conversation-store.js';
+import { getLogger } from '../util/logger.js';
+import { expirePendingQuestions } from './call-store.js';
 
 const log = getLogger('guardian-action-sweep');
 

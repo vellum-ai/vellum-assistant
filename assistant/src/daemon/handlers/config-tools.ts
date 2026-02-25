@@ -1,13 +1,14 @@
 import * as net from 'node:net';
 import { join } from 'node:path';
-import { classifyRisk, check, generateAllowlistOptions, generateScopeOptions } from '../../permissions/checker.js';
-import { isSideEffectTool } from '../../tools/executor.js';
-import { resolveExecutionTarget, type ManifestOverride } from '../../tools/execution-target.js';
-import { getAllTools, getTool } from '../../tools/registry.js';
+
 import { loadSkillCatalog } from '../../config/skills.js';
+import { check, classifyRisk, generateAllowlistOptions, generateScopeOptions } from '../../permissions/checker.js';
 import { parseToolManifestFile } from '../../skills/tool-manifest.js';
+import { type ManifestOverride,resolveExecutionTarget } from '../../tools/execution-target.js';
+import { getAllTools, getTool } from '../../tools/registry.js';
+import { isSideEffectTool } from '../../tools/side-effects.js';
 import type { ToolPermissionSimulateRequest } from '../ipc-protocol.js';
-import { log, defineHandlers, type HandlerContext } from './shared.js';
+import { defineHandlers, type HandlerContext,log } from './shared.js';
 
 export function handleEnvVarsRequest(socket: net.Socket, ctx: HandlerContext): void {
   const vars: Record<string, string> = {};

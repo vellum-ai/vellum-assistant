@@ -13,174 +13,155 @@
  *   bun run scripts/generate-bundled-tool-registry.ts
  */
 import type { SkillToolScript } from '../tools/skills/script-contract.js';
-
 // ── app-builder ──────────────────────────────────────────────────────────────
 import * as appCreate from './bundled-skills/app-builder/tools/app-create.js';
+import * as appDelete from './bundled-skills/app-builder/tools/app-delete.js';
+import * as appFileEdit from './bundled-skills/app-builder/tools/app-file-edit.js';
+import * as appFileList from './bundled-skills/app-builder/tools/app-file-list.js';
+import * as appFileRead from './bundled-skills/app-builder/tools/app-file-read.js';
+import * as appFileWrite from './bundled-skills/app-builder/tools/app-file-write.js';
 import * as appList from './bundled-skills/app-builder/tools/app-list.js';
 import * as appQuery from './bundled-skills/app-builder/tools/app-query.js';
 import * as appUpdate from './bundled-skills/app-builder/tools/app-update.js';
-import * as appDelete from './bundled-skills/app-builder/tools/app-delete.js';
-import * as appFileList from './bundled-skills/app-builder/tools/app-file-list.js';
-import * as appFileRead from './bundled-skills/app-builder/tools/app-file-read.js';
-import * as appFileEdit from './bundled-skills/app-builder/tools/app-file-edit.js';
-import * as appFileWrite from './bundled-skills/app-builder/tools/app-file-write.js';
-
-// ── browser ──────────────────────────────────────────────────────────────────
-import * as browserNavigate from './bundled-skills/browser/tools/browser-navigate.js';
-import * as browserSnapshot from './bundled-skills/browser/tools/browser-snapshot.js';
-import * as browserScreenshot from './bundled-skills/browser/tools/browser-screenshot.js';
-import * as browserClose from './bundled-skills/browser/tools/browser-close.js';
 import * as browserClick from './bundled-skills/browser/tools/browser-click.js';
-import * as browserType from './bundled-skills/browser/tools/browser-type.js';
-import * as browserPressKey from './bundled-skills/browser/tools/browser-press-key.js';
-import * as browserWaitFor from './bundled-skills/browser/tools/browser-wait-for.js';
+import * as browserClose from './bundled-skills/browser/tools/browser-close.js';
 import * as browserExtract from './bundled-skills/browser/tools/browser-extract.js';
 import * as browserFillCredential from './bundled-skills/browser/tools/browser-fill-credential.js';
-
+// ── browser ──────────────────────────────────────────────────────────────────
+import * as browserNavigate from './bundled-skills/browser/tools/browser-navigate.js';
+import * as browserPressKey from './bundled-skills/browser/tools/browser-press-key.js';
+import * as browserScreenshot from './bundled-skills/browser/tools/browser-screenshot.js';
+import * as browserSnapshot from './bundled-skills/browser/tools/browser-snapshot.js';
+import * as browserType from './bundled-skills/browser/tools/browser-type.js';
+import * as browserWaitFor from './bundled-skills/browser/tools/browser-wait-for.js';
 // ── claude-code ──────────────────────────────────────────────────────────────
 import * as claudeCode from './bundled-skills/claude-code/tools/claude-code.js';
-
 // ── computer-use ─────────────────────────────────────────────────────────────
 import * as computerUseClick from './bundled-skills/computer-use/tools/computer-use-click.js';
-import * as computerUseDoubleClick from './bundled-skills/computer-use/tools/computer-use-double-click.js';
-import * as computerUseRightClick from './bundled-skills/computer-use/tools/computer-use-right-click.js';
-import * as computerUseTypeText from './bundled-skills/computer-use/tools/computer-use-type-text.js';
-import * as computerUseKey from './bundled-skills/computer-use/tools/computer-use-key.js';
-import * as computerUseScroll from './bundled-skills/computer-use/tools/computer-use-scroll.js';
-import * as computerUseDrag from './bundled-skills/computer-use/tools/computer-use-drag.js';
-import * as computerUseWait from './bundled-skills/computer-use/tools/computer-use-wait.js';
-import * as computerUseOpenApp from './bundled-skills/computer-use/tools/computer-use-open-app.js';
-import * as computerUseRunApplescript from './bundled-skills/computer-use/tools/computer-use-run-applescript.js';
 import * as computerUseDone from './bundled-skills/computer-use/tools/computer-use-done.js';
+import * as computerUseDoubleClick from './bundled-skills/computer-use/tools/computer-use-double-click.js';
+import * as computerUseDrag from './bundled-skills/computer-use/tools/computer-use-drag.js';
+import * as computerUseKey from './bundled-skills/computer-use/tools/computer-use-key.js';
+import * as computerUseOpenApp from './bundled-skills/computer-use/tools/computer-use-open-app.js';
 import * as computerUseRespond from './bundled-skills/computer-use/tools/computer-use-respond.js';
-
+import * as computerUseRightClick from './bundled-skills/computer-use/tools/computer-use-right-click.js';
+import * as computerUseRunApplescript from './bundled-skills/computer-use/tools/computer-use-run-applescript.js';
+import * as computerUseScroll from './bundled-skills/computer-use/tools/computer-use-scroll.js';
+import * as computerUseTypeText from './bundled-skills/computer-use/tools/computer-use-type-text.js';
+import * as computerUseWait from './bundled-skills/computer-use/tools/computer-use-wait.js';
+import * as contactMerge from './bundled-skills/contacts/tools/contact-merge.js';
+import * as contactSearch from './bundled-skills/contacts/tools/contact-search.js';
 // ── contacts ─────────────────────────────────────────────────────────────────
 import * as contactUpsert from './bundled-skills/contacts/tools/contact-upsert.js';
-import * as contactSearch from './bundled-skills/contacts/tools/contact-search.js';
-import * as contactMerge from './bundled-skills/contacts/tools/contact-merge.js';
-
 // ── document ─────────────────────────────────────────────────────────────────
 import * as documentCreate from './bundled-skills/document/tools/document-create.js';
 import * as documentUpdate from './bundled-skills/document/tools/document-update.js';
-
 // ── followups ────────────────────────────────────────────────────────────────
 import * as followupCreate from './bundled-skills/followups/tools/followup-create.js';
 import * as followupList from './bundled-skills/followups/tools/followup-list.js';
 import * as followupResolve from './bundled-skills/followups/tools/followup-resolve.js';
-
+import * as calendarCheckAvailability from './bundled-skills/google-calendar/tools/calendar-check-availability.js';
+import * as calendarCreateEvent from './bundled-skills/google-calendar/tools/calendar-create-event.js';
+import * as calendarGetEvent from './bundled-skills/google-calendar/tools/calendar-get-event.js';
 // ── google-calendar ──────────────────────────────────────────────────────────
 import * as calendarListEvents from './bundled-skills/google-calendar/tools/calendar-list-events.js';
-import * as calendarGetEvent from './bundled-skills/google-calendar/tools/calendar-get-event.js';
-import * as calendarCreateEvent from './bundled-skills/google-calendar/tools/calendar-create-event.js';
-import * as calendarCheckAvailability from './bundled-skills/google-calendar/tools/calendar-check-availability.js';
 import * as calendarRsvp from './bundled-skills/google-calendar/tools/calendar-rsvp.js';
-
 // ── image-studio ─────────────────────────────────────────────────────────────
 import * as mediaGenerateImage from './bundled-skills/image-studio/tools/media-generate-image.js';
-
 // ── knowledge-graph ──────────────────────────────────────────────────────────
 import * as graphQuery from './bundled-skills/knowledge-graph/tools/graph-query.js';
-
+import * as analyzeKeyframes from './bundled-skills/media-processing/tools/analyze-keyframes.js';
+import * as extractKeyframes from './bundled-skills/media-processing/tools/extract-keyframes.js';
+import * as generateClip from './bundled-skills/media-processing/tools/generate-clip.js';
 // ── media-processing ─────────────────────────────────────────────────────────
 import * as ingestMedia from './bundled-skills/media-processing/tools/ingest-media.js';
-import * as mediaStatus from './bundled-skills/media-processing/tools/media-status.js';
-import * as extractKeyframes from './bundled-skills/media-processing/tools/extract-keyframes.js';
-import * as analyzeKeyframes from './bundled-skills/media-processing/tools/analyze-keyframes.js';
-import * as queryMediaEvents from './bundled-skills/media-processing/tools/query-media-events.js';
-import * as generateClip from './bundled-skills/media-processing/tools/generate-clip.js';
 import * as mediaDiagnostics from './bundled-skills/media-processing/tools/media-diagnostics.js';
-
-// ── messaging ────────────────────────────────────────────────────────────────
-import * as messagingAuthTest from './bundled-skills/messaging/tools/messaging-auth-test.js';
-import * as messagingListConversations from './bundled-skills/messaging/tools/messaging-list-conversations.js';
-import * as messagingRead from './bundled-skills/messaging/tools/messaging-read.js';
-import * as messagingSearch from './bundled-skills/messaging/tools/messaging-search.js';
-import * as messagingSend from './bundled-skills/messaging/tools/messaging-send.js';
-import * as sendNotification from './bundled-skills/messaging/tools/send-notification.js';
-import * as messagingReply from './bundled-skills/messaging/tools/messaging-reply.js';
-import * as messagingMarkRead from './bundled-skills/messaging/tools/messaging-mark-read.js';
-import * as slackAddReaction from './bundled-skills/messaging/tools/slack-add-reaction.js';
-import * as slackLeaveChannel from './bundled-skills/messaging/tools/slack-leave-channel.js';
-import * as messagingAnalyzeActivity from './bundled-skills/messaging/tools/messaging-analyze-activity.js';
-import * as messagingAnalyzeStyle from './bundled-skills/messaging/tools/messaging-analyze-style.js';
-import * as messagingDraft from './bundled-skills/messaging/tools/messaging-draft.js';
+import * as mediaStatus from './bundled-skills/media-processing/tools/media-status.js';
+import * as queryMediaEvents from './bundled-skills/media-processing/tools/query-media-events.js';
 import * as gmailArchive from './bundled-skills/messaging/tools/gmail-archive.js';
 import * as gmailBatchArchive from './bundled-skills/messaging/tools/gmail-batch-archive.js';
-import * as gmailLabel from './bundled-skills/messaging/tools/gmail-label.js';
 import * as gmailBatchLabel from './bundled-skills/messaging/tools/gmail-batch-label.js';
-import * as gmailTrash from './bundled-skills/messaging/tools/gmail-trash.js';
-import * as gmailUnsubscribe from './bundled-skills/messaging/tools/gmail-unsubscribe.js';
-import * as gmailDraft from './bundled-skills/messaging/tools/gmail-draft.js';
-import * as gmailListAttachments from './bundled-skills/messaging/tools/gmail-list-attachments.js';
 import * as gmailDownloadAttachment from './bundled-skills/messaging/tools/gmail-download-attachment.js';
-import * as gmailSendWithAttachments from './bundled-skills/messaging/tools/gmail-send-with-attachments.js';
-import * as gmailForward from './bundled-skills/messaging/tools/gmail-forward.js';
-import * as gmailSummarizeThread from './bundled-skills/messaging/tools/gmail-summarize-thread.js';
-import * as gmailFollowUp from './bundled-skills/messaging/tools/gmail-follow-up.js';
-import * as gmailTriage from './bundled-skills/messaging/tools/gmail-triage.js';
+import * as gmailDraft from './bundled-skills/messaging/tools/gmail-draft.js';
 import * as gmailFilters from './bundled-skills/messaging/tools/gmail-filters.js';
-import * as gmailVacation from './bundled-skills/messaging/tools/gmail-vacation.js';
-import * as gmailSenderDigest from './bundled-skills/messaging/tools/gmail-sender-digest.js';
+import * as gmailFollowUp from './bundled-skills/messaging/tools/gmail-follow-up.js';
+import * as gmailForward from './bundled-skills/messaging/tools/gmail-forward.js';
+import * as gmailLabel from './bundled-skills/messaging/tools/gmail-label.js';
+import * as gmailListAttachments from './bundled-skills/messaging/tools/gmail-list-attachments.js';
 import * as gmailOutreachScan from './bundled-skills/messaging/tools/gmail-outreach-scan.js';
+import * as gmailSendWithAttachments from './bundled-skills/messaging/tools/gmail-send-with-attachments.js';
+import * as gmailSenderDigest from './bundled-skills/messaging/tools/gmail-sender-digest.js';
+import * as gmailSummarizeThread from './bundled-skills/messaging/tools/gmail-summarize-thread.js';
+import * as gmailTrash from './bundled-skills/messaging/tools/gmail-trash.js';
+import * as gmailTriage from './bundled-skills/messaging/tools/gmail-triage.js';
+import * as gmailUnsubscribe from './bundled-skills/messaging/tools/gmail-unsubscribe.js';
+import * as gmailVacation from './bundled-skills/messaging/tools/gmail-vacation.js';
 import * as googleContacts from './bundled-skills/messaging/tools/google-contacts.js';
+import * as messagingAnalyzeActivity from './bundled-skills/messaging/tools/messaging-analyze-activity.js';
+import * as messagingAnalyzeStyle from './bundled-skills/messaging/tools/messaging-analyze-style.js';
+// ── messaging ────────────────────────────────────────────────────────────────
+import * as messagingAuthTest from './bundled-skills/messaging/tools/messaging-auth-test.js';
+import * as messagingDraft from './bundled-skills/messaging/tools/messaging-draft.js';
+import * as messagingListConversations from './bundled-skills/messaging/tools/messaging-list-conversations.js';
+import * as messagingMarkRead from './bundled-skills/messaging/tools/messaging-mark-read.js';
+import * as messagingRead from './bundled-skills/messaging/tools/messaging-read.js';
+import * as messagingReply from './bundled-skills/messaging/tools/messaging-reply.js';
+import * as messagingSearch from './bundled-skills/messaging/tools/messaging-search.js';
+import * as messagingSend from './bundled-skills/messaging/tools/messaging-send.js';
+// ── notifications ───────────────────────────────────────────────────────────
+import * as sendNotification from './bundled-skills/notifications/tools/send-notification.js';
+import * as sequenceAnalytics from './bundled-skills/messaging/tools/sequence-analytics.js';
+import * as sequenceCancel from './bundled-skills/messaging/tools/sequence-cancel.js';
 import * as sequenceCreate from './bundled-skills/messaging/tools/sequence-create.js';
-import * as sequenceList from './bundled-skills/messaging/tools/sequence-list.js';
-import * as sequenceGet from './bundled-skills/messaging/tools/sequence-get.js';
-import * as sequenceUpdate from './bundled-skills/messaging/tools/sequence-update.js';
 import * as sequenceDelete from './bundled-skills/messaging/tools/sequence-delete.js';
 import * as sequenceEnroll from './bundled-skills/messaging/tools/sequence-enroll.js';
 import * as sequenceEnrollmentList from './bundled-skills/messaging/tools/sequence-enrollment-list.js';
+import * as sequenceGet from './bundled-skills/messaging/tools/sequence-get.js';
+import * as sequenceImport from './bundled-skills/messaging/tools/sequence-import.js';
+import * as sequenceList from './bundled-skills/messaging/tools/sequence-list.js';
 import * as sequencePause from './bundled-skills/messaging/tools/sequence-pause.js';
 import * as sequenceResume from './bundled-skills/messaging/tools/sequence-resume.js';
-import * as sequenceCancel from './bundled-skills/messaging/tools/sequence-cancel.js';
-import * as sequenceImport from './bundled-skills/messaging/tools/sequence-import.js';
-import * as sequenceAnalytics from './bundled-skills/messaging/tools/sequence-analytics.js';
-
+import * as sequenceUpdate from './bundled-skills/messaging/tools/sequence-update.js';
+import * as slackAddReaction from './bundled-skills/messaging/tools/slack-add-reaction.js';
+import * as slackLeaveChannel from './bundled-skills/messaging/tools/slack-leave-channel.js';
 // ── playbooks ────────────────────────────────────────────────────────────────
 import * as playbookCreate from './bundled-skills/playbooks/tools/playbook-create.js';
+import * as playbookDelete from './bundled-skills/playbooks/tools/playbook-delete.js';
 import * as playbookList from './bundled-skills/playbooks/tools/playbook-list.js';
 import * as playbookUpdate from './bundled-skills/playbooks/tools/playbook-update.js';
-import * as playbookDelete from './bundled-skills/playbooks/tools/playbook-delete.js';
-
+import * as reminderCancel from './bundled-skills/reminder/tools/reminder-cancel.js';
 // ── reminder ─────────────────────────────────────────────────────────────────
 import * as reminderCreate from './bundled-skills/reminder/tools/reminder-create.js';
 import * as reminderList from './bundled-skills/reminder/tools/reminder-list.js';
-import * as reminderCancel from './bundled-skills/reminder/tools/reminder-cancel.js';
-
 // ── schedule ─────────────────────────────────────────────────────────────────
 import * as scheduleCreate from './bundled-skills/schedule/tools/schedule-create.js';
+import * as scheduleDelete from './bundled-skills/schedule/tools/schedule-delete.js';
 import * as scheduleList from './bundled-skills/schedule/tools/schedule-list.js';
 import * as scheduleUpdate from './bundled-skills/schedule/tools/schedule-update.js';
-import * as scheduleDelete from './bundled-skills/schedule/tools/schedule-delete.js';
-
-// ── subagent ─────────────────────────────────────────────────────────────────
-import * as subagentSpawn from './bundled-skills/subagent/tools/subagent-spawn.js';
-import * as subagentStatus from './bundled-skills/subagent/tools/subagent-status.js';
 import * as subagentAbort from './bundled-skills/subagent/tools/subagent-abort.js';
 import * as subagentMessage from './bundled-skills/subagent/tools/subagent-message.js';
 import * as subagentRead from './bundled-skills/subagent/tools/subagent-read.js';
-
+// ── subagent ─────────────────────────────────────────────────────────────────
+import * as subagentSpawn from './bundled-skills/subagent/tools/subagent-spawn.js';
+import * as subagentStatus from './bundled-skills/subagent/tools/subagent-status.js';
+import * as taskDelete from './bundled-skills/tasks/tools/task-delete.js';
+import * as taskList from './bundled-skills/tasks/tools/task-list.js';
+import * as taskListAdd from './bundled-skills/tasks/tools/task-list-add.js';
+import * as taskListRemove from './bundled-skills/tasks/tools/task-list-remove.js';
+import * as taskListShow from './bundled-skills/tasks/tools/task-list-show.js';
+import * as taskListUpdate from './bundled-skills/tasks/tools/task-list-update.js';
+import * as taskQueueRun from './bundled-skills/tasks/tools/task-queue-run.js';
+import * as taskRun from './bundled-skills/tasks/tools/task-run.js';
 // ── tasks ────────────────────────────────────────────────────────────────────
 import * as taskSave from './bundled-skills/tasks/tools/task-save.js';
-import * as taskRun from './bundled-skills/tasks/tools/task-run.js';
-import * as taskList from './bundled-skills/tasks/tools/task-list.js';
-import * as taskDelete from './bundled-skills/tasks/tools/task-delete.js';
-import * as taskListShow from './bundled-skills/tasks/tools/task-list-show.js';
-import * as taskListAdd from './bundled-skills/tasks/tools/task-list-add.js';
-import * as taskListUpdate from './bundled-skills/tasks/tools/task-list-update.js';
-import * as taskListRemove from './bundled-skills/tasks/tools/task-list-remove.js';
-import * as taskQueueRun from './bundled-skills/tasks/tools/task-queue-run.js';
-
 // ── transcribe ───────────────────────────────────────────────────────────────
 import * as transcribeMedia from './bundled-skills/transcribe/tools/transcribe-media.js';
-
 // ── watcher ──────────────────────────────────────────────────────────────────
 import * as watcherCreate from './bundled-skills/watcher/tools/watcher-create.js';
-import * as watcherList from './bundled-skills/watcher/tools/watcher-list.js';
-import * as watcherUpdate from './bundled-skills/watcher/tools/watcher-update.js';
 import * as watcherDelete from './bundled-skills/watcher/tools/watcher-delete.js';
 import * as watcherDigest from './bundled-skills/watcher/tools/watcher-digest.js';
-
+import * as watcherList from './bundled-skills/watcher/tools/watcher-list.js';
+import * as watcherUpdate from './bundled-skills/watcher/tools/watcher-update.js';
 // ── weather ──────────────────────────────────────────────────────────────────
 import * as getWeather from './bundled-skills/weather/tools/get-weather.js';
 
@@ -270,7 +251,6 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ['messaging:tools/messaging-read.ts', messagingRead],
   ['messaging:tools/messaging-search.ts', messagingSearch],
   ['messaging:tools/messaging-send.ts', messagingSend],
-  ['messaging:tools/send-notification.ts', sendNotification],
   ['messaging:tools/messaging-reply.ts', messagingReply],
   ['messaging:tools/messaging-mark-read.ts', messagingMarkRead],
   ['messaging:tools/slack-add-reaction.ts', slackAddReaction],
@@ -309,6 +289,9 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ['messaging:tools/sequence-cancel.ts', sequenceCancel],
   ['messaging:tools/sequence-import.ts', sequenceImport],
   ['messaging:tools/sequence-analytics.ts', sequenceAnalytics],
+
+  // notifications
+  ['notifications:tools/send-notification.ts', sendNotification],
 
   // playbooks
   ['playbooks:tools/playbook-create.ts', playbookCreate],

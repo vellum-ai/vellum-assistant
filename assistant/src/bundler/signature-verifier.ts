@@ -6,7 +6,9 @@
 
 import { createHash, verify } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+
 import JSZip from 'jszip';
+
 import type { SignatureJson } from './bundle-signer.js';
 
 export type TrustTier = 'verified' | 'signed' | 'unsigned' | 'tampered';

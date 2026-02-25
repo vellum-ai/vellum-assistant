@@ -11,9 +11,28 @@ const MIN_STATE_LENGTH = 32;
 // Track consumed state tokens to prevent replay attacks. Each entry has a TTL
 // so the set doesn't grow unboundedly.
 const CONSUMED_STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+/** Exported for testing. */
+export const MAX_CONSUMED_STATES = 1000;
 const consumedStates = new Map<string, ReturnType<typeof setTimeout>>();
 
+function evictOldestConsumedState(): void {
+  // Map iteration order is insertion order — first key is the oldest entry.
+  const oldest = consumedStates.keys().next().value;
+  if (oldest !== undefined) {
+    const timer = consumedStates.get(oldest);
+    if (timer !== undefined) clearTimeout(timer);
+    consumedStates.delete(oldest);
+  }
+}
+
 function markStateConsumed(state: string): void {
+  // LRU eviction: if the map is at capacity, drop the oldest entry rather than
+  // rejecting the request. Consumed states only exist to prevent replay within
+  // their TTL window — losing the oldest is acceptable since it's closest to
+  // expiry anyway, and hard-rejecting creates a DoS vector.
+  if (consumedStates.size >= MAX_CONSUMED_STATES) {
+    evictOldestConsumedState();
+  }
   const timer = setTimeout(() => {
     consumedStates.delete(state);
   }, CONSUMED_STATE_TTL_MS);
@@ -116,6 +135,10 @@ function renderSuccessPage(): string {
   return `<!DOCTYPE html><html><head><title>Authorization Successful</title><style>body{font-family:system-ui,sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;background:#f5f5f5}div{text-align:center;padding:2rem;background:white;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1)}</style></head><body><div><h1>Authorization Successful</h1><p>You can close this tab and return to the app.</p></div></body></html>`;
 }
 
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 function renderErrorPage(message: string): string {
-  return `<!DOCTYPE html><html><head><title>Authorization Failed</title><style>body{font-family:system-ui,sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;background:#f5f5f5}div{text-align:center;padding:2rem;background:white;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1)}</style></head><body><div><h1>Authorization Failed</h1><p>${message}</p></div></body></html>`;
+  return `<!DOCTYPE html><html><head><title>Authorization Failed</title><style>body{font-family:system-ui,sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;background:#f5f5f5}div{text-align:center;padding:2rem;background:white;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1)}</style></head><body><div><h1>Authorization Failed</h1><p>${escapeHtml(message)}</p></div></body></html>`;
 }

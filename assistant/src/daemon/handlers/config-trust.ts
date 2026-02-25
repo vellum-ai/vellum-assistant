@@ -1,11 +1,12 @@
 import * as net from 'node:net';
-import { addRule, removeRule, updateRule, getAllRules, acceptStarterBundle } from '../../permissions/trust-store.js';
+
+import { acceptStarterBundle,addRule, getAllRules, removeRule, updateRule } from '../../permissions/trust-store.js';
 import type {
   AddTrustRule,
   RemoveTrustRule,
   UpdateTrustRule,
 } from '../ipc-protocol.js';
-import { log, defineHandlers, type HandlerContext } from './shared.js';
+import { defineHandlers, type HandlerContext,log } from './shared.js';
 
 export function handleAddTrustRule(
   msg: AddTrustRule,

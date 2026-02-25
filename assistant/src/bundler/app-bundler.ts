@@ -5,20 +5,22 @@
  * zip archive written to a temp file.
  */
 
+import { createHash,randomUUID } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
-import { readFile, writeFile, stat } from 'node:fs/promises';
-import { join, extname } from 'node:path';
+import { readFile, stat,writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { randomUUID, createHash } from 'node:crypto';
+import { extname,join } from 'node:path';
+
 import archiver from 'archiver';
 import JSZip from 'jszip';
+
 import { getApp } from '../memory/app-store.js';
+import { computeContentId } from '../util/content-id.js';
+import { getLogger } from '../util/logger.js';
+import type { SigningCallback } from './bundle-signer.js';
+import { signBundle } from './bundle-signer.js';
 import type { AppManifest } from './manifest.js';
 import { serializeManifest } from './manifest.js';
-import { signBundle } from './bundle-signer.js';
-import type { SigningCallback } from './bundle-signer.js';
-import { getLogger } from '../util/logger.js';
-import { computeContentId } from '../util/content-id.js';
 
 const bundlerLog = getLogger('app-bundler');
 

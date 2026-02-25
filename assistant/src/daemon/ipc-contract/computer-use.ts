@@ -1,6 +1,6 @@
 // Computer use, task routing, ride shotgun, and watch observation types.
 
-import type { UserMessageAttachment, IpcBlobRef } from './shared.js';
+import type { IpcBlobRef,UserMessageAttachment } from './shared.js';
 
 // === Client → Server ===
 
@@ -82,7 +82,44 @@ export interface WatchObservation {
   totalExpected: number;
 }
 
+// === Recording ===
+
+/** Recording options shared across standalone and CU recording flows. */
+export interface RecordingOptions {
+  captureScope?: 'display' | 'window';
+  displayId?: string;        // CGDirectDisplayID as string
+  windowId?: number;          // CGWindowID
+  includeAudio?: boolean;
+  includeMicrophone?: boolean;
+  promptForSource?: boolean;  // show source picker
+}
+
+/** Client → Server: recording lifecycle status update. */
+export interface RecordingStatus {
+  type: 'recording_status';
+  sessionId: string;          // matches recordingId from RecordingStart
+  status: 'started' | 'stopped' | 'failed';
+  filePath?: string;          // on stop
+  durationMs?: number;        // on stop
+  error?: string;             // on failure
+  attachToConversationId?: string;
+}
+
 // === Server → Client ===
+
+/** Server → Client: start a recording. */
+export interface RecordingStart {
+  type: 'recording_start';
+  recordingId: string;        // daemon-assigned UUID
+  attachToConversationId?: string;
+  options?: RecordingOptions;
+}
+
+/** Server → Client: stop a recording. */
+export interface RecordingStop {
+  type: 'recording_stop';
+  recordingId: string;        // matches RecordingStart.recordingId
+}
 
 export interface CuAction {
   type: 'cu_action';
@@ -149,3 +186,27 @@ export interface WatchCompleteRequest {
   sessionId: string;
   watchId: string;
 }
+
+// --- Domain-level union aliases (consumed by the barrel file) ---
+
+export type _ComputerUseClientMessages =
+  | CuSessionCreate
+  | CuSessionAbort
+  | CuObservation
+  | TaskSubmit
+  | RideShotgunStart
+  | RideShotgunStop
+  | WatchObservation
+  | RecordingStatus;
+
+export type _ComputerUseServerMessages =
+  | CuAction
+  | CuComplete
+  | CuError
+  | TaskRouted
+  | RideShotgunProgress
+  | RideShotgunResult
+  | WatchStarted
+  | WatchCompleteRequest
+  | RecordingStart
+  | RecordingStop;

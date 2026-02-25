@@ -5,9 +5,6 @@ public struct SubagentStatusChip: View {
     var onAbort: (() -> Void)?
     var onTap: (() -> Void)?
 
-    @State private var phase: Int = 0
-    @State private var timer: Timer?
-
     private var statusColor: Color {
         switch subagent.status {
         case .completed: return VColor.success
@@ -32,80 +29,61 @@ public struct SubagentStatusChip: View {
     }
 
     public var body: some View {
-        HStack(spacing: VSpacing.sm) {
-            Image(systemName: statusIcon)
-                .font(.system(size: 11))
-                .foregroundColor(statusColor)
+        TimelineView(.periodic(every: 0.4)) { context in
+            let phase = !subagent.isTerminal ? Int(context.date.timeIntervalSince1970 / 0.4) % 3 : 0
+            HStack(spacing: VSpacing.sm) {
+                Image(systemName: statusIcon)
+                    .font(.system(size: 11))
+                    .foregroundColor(statusColor)
 
-            VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: VSpacing.xs) {
-                    Text(subagent.label)
-                        .font(VFont.captionMedium)
-                        .foregroundColor(VColor.textPrimary)
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: VSpacing.xs) {
+                        Text(subagent.label)
+                            .font(VFont.captionMedium)
+                            .foregroundColor(VColor.textPrimary)
 
-                    if !subagent.isTerminal {
-                        // Animated dots
-                        HStack(spacing: 2) {
-                            ForEach(0..<3, id: \.self) { index in
-                                Circle()
-                                    .fill(VColor.textSecondary)
-                                    .frame(width: 4, height: 4)
-                                    .opacity(dotOpacity(for: index))
+                        if !subagent.isTerminal {
+                            // Animated dots
+                            HStack(spacing: 2) {
+                                ForEach(0..<3, id: \.self) { index in
+                                    Circle()
+                                        .fill(VColor.textSecondary)
+                                        .frame(width: 4, height: 4)
+                                        .opacity(phase % 3 == index ? 1.0 : 0.3)
+                                }
                             }
                         }
                     }
+
+                    if let error = subagent.error, !error.isEmpty {
+                        Text(error)
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.error)
+                            .lineLimit(2)
+                    }
                 }
 
-                if let error = subagent.error, !error.isEmpty {
-                    Text(error)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.error)
-                        .lineLimit(2)
+                Spacer()
+
+                if !subagent.isTerminal, let onAbort {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundColor(VColor.textMuted)
+                        .padding(VSpacing.xs)
+                        .contentShape(Rectangle())
+                        .highPriorityGesture(TapGesture().onEnded { onAbort() })
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityLabel("Abort subagent")
                 }
             }
-
-            Spacer()
-
-            if !subagent.isTerminal, let onAbort {
-                Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundColor(VColor.textMuted)
-                    .padding(VSpacing.xs)
-                    .contentShape(Rectangle())
-                    .highPriorityGesture(TapGesture().onEnded { onAbort() })
-                    .accessibilityAddTraits(.isButton)
-                    .accessibilityLabel("Abort subagent")
-            }
-        }
-        .padding(.horizontal, VSpacing.sm)
-        .padding(.vertical, VSpacing.xs)
-        .background(
-            RoundedRectangle(cornerRadius: VRadius.md)
-                .fill(VColor.backgroundSubtle.opacity(0.3))
-        )
-        .contentShape(Rectangle())
-        .onTapGesture { onTap?() }
-        .onAppear { startDotAnimation() }
-        .onDisappear { timer?.invalidate() }
-        .onChange(of: subagent.status) {
-            if subagent.status.isTerminal {
-                timer?.invalidate()
-                timer = nil
-            }
-        }
-    }
-
-    private func dotOpacity(for index: Int) -> Double {
-        let active = phase % 3
-        return index == active ? 1.0 : 0.3
-    }
-
-    private func startDotAnimation() {
-        guard !subagent.isTerminal else { return }
-        timer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { _ in
-            withAnimation(VAnimation.standard) {
-                phase += 1
-            }
+            .padding(.horizontal, VSpacing.sm)
+            .padding(.vertical, VSpacing.xs)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .fill(VColor.backgroundSubtle.opacity(0.3))
+            )
+            .contentShape(Rectangle())
+            .onTapGesture { onTap?() }
         }
     }
 }

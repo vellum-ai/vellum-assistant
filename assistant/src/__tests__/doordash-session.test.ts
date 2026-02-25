@@ -1,12 +1,14 @@
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, rmSync,writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach,beforeEach, describe, expect, it } from 'bun:test';
+
 import {
-  importFromRecording,
+  type DoorDashSession,
   getCookieHeader,
   getCsrfToken,
-  type DoorDashSession,
+  importFromRecording,
 } from '../doordash/session.js';
 
 // Override getDataDir to use a temp directory during tests

@@ -8,8 +8,8 @@
  */
 
 import { getLogger } from '../util/logger.js';
-import { listPreferences } from './preferences-store.js';
 import type { AppliesWhenConditions } from './preferences-store.js';
+import { listPreferences } from './preferences-store.js';
 
 const log = getLogger('notification-preference-summary');
 

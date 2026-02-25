@@ -12,8 +12,8 @@
  */
 
 import { getConfig } from '../config/loader.js';
+import { createTimeout, extractToolUse, getConfiguredProvider, userMessage } from '../providers/provider-send-message.js';
 import { getLogger } from '../util/logger.js';
-import { getConfiguredProvider, createTimeout, extractToolUse, userMessage } from '../providers/provider-send-message.js';
 import type { AppliesWhenConditions } from './preferences-store.js';
 
 const log = getLogger('notification-preference-extractor');
@@ -128,7 +128,7 @@ export async function extractPreferences(message: string): Promise<ExtractionRes
   }
 
   const config = getConfig();
-  const model = config.notifications.decisionModel;
+  const modelIntent = config.notifications.decisionModelIntent;
 
   const { signal, cleanup } = createTimeout(EXTRACTION_TIMEOUT_MS);
 
@@ -139,7 +139,7 @@ export async function extractPreferences(message: string): Promise<ExtractionRes
       SYSTEM_PROMPT,
       {
         config: {
-          model,
+          modelIntent,
           max_tokens: 1024,
           tool_choice: { type: 'tool' as const, name: 'extract_notification_preferences' },
         },

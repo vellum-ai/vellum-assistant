@@ -3,15 +3,15 @@
  */
 import type { ChannelId } from '../../channels/types.js';
 import { getLogger } from '../../util/logger.js';
-import { deliverChannelReply, deliverApprovalPrompt } from '../gateway-client.js';
-import { channelSupportsRichApprovalUI } from '../channel-approvals.js';
+import type { ApprovalMessageContext } from '../approval-message-composer.js';
+import { composeApprovalMessageGenerative } from '../approval-message-composer.js';
 import type {
   ApprovalUIMetadata,
   ChannelApprovalPrompt,
 } from '../channel-approval-types.js';
+import { channelSupportsRichApprovalUI } from '../channel-approvals.js';
+import { deliverApprovalPrompt,deliverChannelReply } from '../gateway-client.js';
 import type { ApprovalCopyGenerator } from '../http-types.js';
-import { composeApprovalMessageGenerative } from '../approval-message-composer.js';
-import type { ApprovalMessageContext } from '../approval-message-composer.js';
 import { requiredDecisionKeywords } from './channel-route-shared.js';
 
 const log = getLogger('runtime-http');

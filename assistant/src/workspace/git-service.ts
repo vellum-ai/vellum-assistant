@@ -1,9 +1,10 @@
+import { execFile } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { getLogger } from '../util/logger.js';
+
 import { getConfig } from '../config/loader.js';
+import { getLogger } from '../util/logger.js';
 import { PromiseGuard } from '../util/promise-guard.js';
 
 const execFileAsync = promisify(execFile);

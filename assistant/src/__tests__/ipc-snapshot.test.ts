@@ -1,9 +1,10 @@
-import { describe, test, expect } from 'bun:test';
-import { serialize } from '../daemon/ipc-protocol.js';
+import { describe, expect,test } from 'bun:test';
+
 import type {
   ClientMessage,
   ServerMessage,
 } from '../daemon/ipc-protocol.js';
+import { serialize } from '../daemon/ipc-protocol.js';
 
 /**
  * Snapshot tests for every IPC message type.
@@ -475,6 +476,11 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'integration_disconnect',
     integrationId: 'gmail',
   },
+  oauth_connect_start: {
+    type: 'oauth_connect_start',
+    service: 'gmail',
+    requestedScopes: ['https://www.googleapis.com/auth/gmail.readonly'],
+  },
   browser_cdp_response: {
     type: 'browser_cdp_response',
     sessionId: 'test-session',
@@ -687,6 +693,11 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
   },
   approved_devices_clear: {
     type: 'approved_devices_clear',
+  },
+  notification_intent_result: {
+    type: 'notification_intent_result',
+    deliveryId: 'delivery-001',
+    success: true,
   },
 };
 
@@ -1111,6 +1122,12 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
       conversationId: 'conv-guardian-001',
     },
   },
+  notification_thread_created: {
+    type: 'notification_thread_created',
+    conversationId: 'conv-notif-001',
+    title: 'Weather alert for your area',
+    sourceEventName: 'watcher.escalation',
+  },
   schedule_complete: {
     type: 'schedule_complete',
     scheduleId: 'sched-001',
@@ -1126,9 +1143,9 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     title: 'Urgent email from Alice',
     body: 'Meeting rescheduled to 3pm today.',
   },
-  agent_heartbeat_alert: {
-    type: 'agent_heartbeat_alert',
-    title: 'Agent heartbeat stalled',
+  heartbeat_alert: {
+    type: 'heartbeat_alert',
+    title: 'Heartbeat stalled',
     body: 'No activity detected in the last 60 minutes.',
   },
   watch_started: {
@@ -1559,6 +1576,12 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     integrationId: 'gmail',
     success: true,
   },
+  oauth_connect_result: {
+    type: 'oauth_connect_result',
+    success: true,
+    grantedScopes: ['https://www.googleapis.com/auth/gmail.readonly'],
+    accountInfo: 'user@example.com',
+  },
   browser_cdp_request: {
     type: 'browser_cdp_request',
     sessionId: 'test-session',
@@ -1745,14 +1768,6 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     conversationId: 'conv-task-run-001',
     workItemId: 'wi-001',
     title: 'Process report',
-  },
-  guardian_request_thread_created: {
-    type: 'guardian_request_thread_created',
-    conversationId: 'conv-guardian-001',
-    requestId: 'req-guardian-001',
-    callSessionId: 'call-001',
-    title: 'Guardian action request',
-    questionText: 'What is the gate code?',
   },
   subagent_spawned: {
     type: 'subagent_spawned',

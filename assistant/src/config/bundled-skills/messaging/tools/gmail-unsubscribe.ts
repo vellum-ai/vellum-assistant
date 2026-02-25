@@ -1,9 +1,9 @@
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import { withValidToken } from '../../../../security/token-manager.js';
-import { getMessagingProvider } from '../../../../messaging/registry.js';
 import { getMessage, sendMessage } from '../../../../messaging/providers/gmail/client.js';
+import { getMessagingProvider } from '../../../../messaging/registry.js';
+import { withValidToken } from '../../../../security/token-manager.js';
 import { isPrivateOrLocalHost, resolveHostAddresses, resolveRequestAddress } from '../../../../tools/network/url-safety.js';
-import { ok, err, pinnedHttpsRequest } from './shared.js';
+import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
+import { err, ok, pinnedHttpsRequest } from './shared.js';
 
 export async function run(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
   const messageId = input.message_id as string;

@@ -1,7 +1,8 @@
 import { join } from 'node:path';
-import { getRootDir } from '../util/platform.js';
-import { getBundledSkillsDir } from '../config/skills.js';
+
 import { getConfig } from '../config/loader.js';
+import { getBundledSkillsDir } from '../config/skills.js';
+import { getRootDir } from '../util/platform.js';
 
 export interface DefaultRuleTemplate {
   id: string;

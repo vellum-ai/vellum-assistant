@@ -1,12 +1,13 @@
 import * as net from 'node:net';
+
 import { loadRawConfig, saveRawConfig } from '../../config/loader.js';
-import { postToSlackWebhook } from '../../slack/slack-webhook.js';
 import { getApp } from '../../memory/app-store.js';
+import { postToSlackWebhook } from '../../slack/slack-webhook.js';
 import type {
   ShareToSlackRequest,
   SlackWebhookConfigRequest,
 } from '../ipc-protocol.js';
-import { log, defineHandlers, type HandlerContext } from './shared.js';
+import { defineHandlers, type HandlerContext,log } from './shared.js';
 
 export async function handleShareToSlack(
   msg: ShareToSlackRequest,

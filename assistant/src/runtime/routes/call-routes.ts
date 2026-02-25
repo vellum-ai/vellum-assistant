@@ -8,7 +8,7 @@
  * POST   /v1/calls/:callSessionId/instruction — relay an instruction to an active call
  */
 
-import { startCall, getCallStatus, cancelCall, answerCall, relayInstruction } from '../../calls/call-domain.js';
+import { answerCall, cancelCall, getCallStatus, relayInstruction,startCall } from '../../calls/call-domain.js';
 import { getConfig } from '../../config/loader.js';
 import { VALID_CALLER_IDENTITY_MODES } from '../../config/schema.js';
 

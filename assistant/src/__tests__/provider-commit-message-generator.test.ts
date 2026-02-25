@@ -1,8 +1,9 @@
-import { describe, test, expect, beforeEach, mock } from 'bun:test';
-import type { CommitContext } from '../workspace/commit-message-provider.js';
-import type { Provider, ProviderResponse } from '../providers/types.js';
-import type { AssistantConfig } from '../config/types.js';
+import { beforeEach, describe, expect, mock,test } from 'bun:test';
+
 import { DEFAULT_CONFIG } from '../config/defaults.js';
+import type { AssistantConfig } from '../config/types.js';
+import type { Provider, ProviderResponse } from '../providers/types.js';
+import type { CommitContext } from '../workspace/commit-message-provider.js';
 
 // ---------------------------------------------------------------------------
 // Deep-clone a base config so each test can tweak fields independently

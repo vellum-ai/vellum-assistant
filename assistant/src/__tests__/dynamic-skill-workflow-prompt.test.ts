@@ -1,7 +1,8 @@
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync,mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach,beforeEach, describe, expect, test } from 'bun:test';
 
 const TEST_DIR = join(tmpdir(), `vellum-dyn-skill-test-${crypto.randomUUID()}`);
 
@@ -64,10 +65,10 @@ describe('Dynamic Skill Authoring Workflow prompt section', () => {
     expect(result).toContain('## Dynamic Skill Authoring Workflow');
   });
 
-  test('workflow section mentions all three new tools', () => {
+  test('workflow section mentions scaffold and delete tools and bun run workflow', () => {
     writeFileSync(join(TEST_DIR, 'IDENTITY.md'), 'I am Vellum.');
     const result = buildSystemPrompt();
-    expect(result).toContain('evaluate_typescript_code');
+    expect(result).toContain('bun run /tmp/vellum-eval/snippet.ts');
     expect(result).toContain('scaffold_managed_skill');
     expect(result).toContain('delete_managed_skill');
   });

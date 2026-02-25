@@ -52,7 +52,10 @@ struct MainWindowView: View {
     @ObservedObject var threadManager: ThreadManager
     @ObservedObject var appListManager: AppListManager
     var zoomManager: ZoomManager
-    @ObservedObject var traceStore: TraceStore
+    /// Plain `let` instead of `@ObservedObject` so SwiftUI doesn't observe
+    /// TraceStore mutations when the DebugPanel isn't visible. DebugPanel
+    /// itself uses `@ObservedObject` and is only instantiated when shown.
+    let traceStore: TraceStore
     @ObservedObject var windowState: MainWindowState
     @State private var selectedThreadId: UUID?
     @State var sharing = SharingState()
@@ -499,7 +502,7 @@ struct MainWindowView: View {
                     threadManager.activeViewModel?.activeSurfaceId = surfaceId
                 }
             }
-            .onChange(of: threadManager.activeViewModel?.messages.map(\.id)) { _, _ in
+            .onChange(of: threadManager.activeViewModel?.messages.count) { _, _ in
                 // Bootstrap avatar: apply milestones based on assistant turn count
                 if let evoState = avatarEvolutionState, evoState.stage != .stabilized,
                    let viewModel = threadManager.activeViewModel {
@@ -742,6 +745,7 @@ struct MainWindowView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .openDynamicWorkspace)) { notification in
             if let msg = notification.userInfo?["surfaceMessage"] as? UiSurfaceShowMessage {
+                // Full message from daemon live IPC (AppDelegate path)
                 windowState.activeDynamicSurface = msg
                 windowState.activeDynamicParsedSurface = Surface.from(msg)
                 // Determine the app ID from the surface if available
@@ -760,6 +764,13 @@ struct MainWindowView: View {
                 } else {
                     windowState.selection = .app(msg.surfaceId)
                 }
+            } else if let ref = notification.userInfo?["surfaceRef"] as? SurfaceRef {
+                // Lightweight ref from inline surface click — the daemon will
+                // send a fresh ui_surface_show via live IPC with the full payload.
+                // Open by surfaceId to trigger the workspace view.
+                windowState.selection = .app(ref.surfaceId)
+                // Request the daemon to re-show the surface
+                try? daemonClient.sendAppOpen(appId: ref.surfaceId)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .openDocumentEditor)) { notification in

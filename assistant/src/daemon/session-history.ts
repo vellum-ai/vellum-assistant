@@ -1,12 +1,13 @@
 import { v4 as uuid } from 'uuid';
-import type { Message, ContentBlock } from '../providers/types.js';
-import type { ServerMessage } from './ipc-protocol.js';
-import { getQdrantClient } from '../memory/qdrant-client.js';
-import { enqueueMemoryJob } from '../memory/jobs-store.js';
-import * as conversationStore from '../memory/conversation-store.js';
+
 import { getSummaryFromContextMessage } from '../context/window-manager.js';
-import type { TraceEmitter } from './trace-emitter.js';
+import * as conversationStore from '../memory/conversation-store.js';
+import { enqueueMemoryJob } from '../memory/jobs-store.js';
+import { getQdrantClient } from '../memory/qdrant-client.js';
+import type { ContentBlock,Message } from '../providers/types.js';
 import { getLogger } from '../util/logger.js';
+import type { ServerMessage } from './ipc-protocol.js';
+import type { TraceEmitter } from './trace-emitter.js';
 
 const log = getLogger('session-history');
 

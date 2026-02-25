@@ -1,6 +1,6 @@
-import type { Provider, ProviderResponse, SendMessageOptions, Message, ToolDefinition } from './types.js';
 import { ProviderError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
+import type { Message, Provider, ProviderResponse, SendMessageOptions, ToolDefinition } from './types.js';
 
 const log = getLogger('failover');
 

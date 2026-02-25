@@ -1,4 +1,4 @@
-import { describe, test, expect, mock } from 'bun:test';
+import { describe, expect, mock,test } from 'bun:test';
 
 let mockConfig: Record<string, unknown> = {};
 
@@ -6,7 +6,7 @@ mock.module('../config/loader.js', () => ({
   loadConfig: () => mockConfig,
 }));
 
-import { buildElevenLabsVoiceSpec, resolveVoiceQualityProfile, isVoiceProfileValid } from '../calls/voice-quality.js';
+import { buildElevenLabsVoiceSpec, isVoiceProfileValid,resolveVoiceQualityProfile } from '../calls/voice-quality.js';
 
 describe('buildElevenLabsVoiceSpec', () => {
   test('returns bare voiceId when no model is set', () => {

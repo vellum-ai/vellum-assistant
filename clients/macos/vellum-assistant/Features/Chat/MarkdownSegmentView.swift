@@ -24,6 +24,7 @@ struct MarkdownSegmentView: View {
                     let attributed = buildCombinedAttributedString(from: runSegments)
                     Text(attributed)
                         .font(.system(size: 13))
+                        .lineSpacing(4)
                         .foregroundColor(textColor)
                         .tint(tintColor)
                         .textSelection(.enabled)
@@ -125,7 +126,9 @@ struct MarkdownSegmentView: View {
     /// Keyed by a hash of the segment descriptions so identical segment
     /// arrays return the cached value instead of re-parsing markdown and
     /// re-creating `AttributedString` on every SwiftUI body evaluation.
-    @MainActor private static var attributedStringCache: [Int: AttributedString] = [:]
+    /// Each entry stores (value, accessTime) for LRU eviction.
+    @MainActor private static var attributedStringCache: [Int: (value: AttributedString, accessTime: Int)] = [:]
+    @MainActor private static var lruCounter: Int = 0
     private static let attributedStringCacheLimit = 200
 
     /// Clears the attributed string cache.  Called when switching threads
@@ -148,19 +151,21 @@ struct MarkdownSegmentView: View {
         let cacheKey = hasher.finalize()
 
         if let cached = Self.attributedStringCache[cacheKey] {
-            return cached
+            Self.lruCounter += 1
+            Self.attributedStringCache[cacheKey] = (cached.value, Self.lruCounter)
+            return cached.value
         }
 
         let result = Self.buildAttributedStringUncached(from: segments, secondaryTextColor: secondaryTextColor)
 
-        // Evict an arbitrary entry when the cache is full (Dictionary
-        // iteration order is unspecified, so this is not strictly FIFO).
+        // Evict the least-recently-used entry when the cache is full.
         if Self.attributedStringCache.count >= Self.attributedStringCacheLimit {
-            if let firstKey = Self.attributedStringCache.keys.first {
-                Self.attributedStringCache.removeValue(forKey: firstKey)
+            if let lruKey = Self.attributedStringCache.min(by: { $0.value.accessTime < $1.value.accessTime })?.key {
+                Self.attributedStringCache.removeValue(forKey: lruKey)
             }
         }
-        Self.attributedStringCache[cacheKey] = result
+        Self.lruCounter += 1
+        Self.attributedStringCache[cacheKey] = (result, Self.lruCounter)
         return result
     }
 
@@ -212,6 +217,7 @@ struct MarkdownSegmentView: View {
                     let textColumn = leftMargin + prefixSize.width
 
                     nonisolated(unsafe) let paraStyle = NSMutableParagraphStyle()
+                    paraStyle.lineSpacing = 4
                     paraStyle.firstLineHeadIndent = leftMargin
                     paraStyle.headIndent = textColumn
                     paraStyle.tabStops = []

@@ -1,5 +1,5 @@
-import type { SkillSummary } from './skills.js';
 import type { AssistantConfig, SkillEntryConfig } from './schema.js';
+import type { SkillSummary } from './skills.js';
 import { checkSkillRequirements } from './skills.js';
 
 export type SkillState = 'enabled' | 'disabled' | 'degraded' | 'available';

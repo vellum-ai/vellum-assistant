@@ -728,6 +728,84 @@ sequenceDiagram
 
 ---
 
+## Standalone Screen Recording
+
+Standalone screen recording allows users to record their screen without starting a full computer-use session. The daemon manages the recording lifecycle and attaches the resulting video file to the conversation as a file-backed attachment.
+
+### Lifecycle
+
+```
+idle → starting → recording → stopping → idle
+                                      └→ failed → idle
+```
+
+A recording is initiated when the daemon detects a recording-only intent in the user's message (or a mixed-intent message that includes a recording clause). The daemon generates a unique `recordingId`, stores bidirectional mappings (`recordingId ↔ conversationId`), and sends a `recording_start` IPC message to the macOS client. The client manages the actual screen capture via `RecordingManager.swift` and reports status transitions back to the daemon.
+
+### Key Files
+
+| File | Role |
+|---|---|
+| `assistant/src/daemon/recording-intent.ts` | Detects and strips recording/stop-recording intent from user messages |
+| `assistant/src/daemon/handlers/recording.ts` | Daemon handler for start, stop, and status lifecycle events |
+| `clients/macos/vellum-assistant/ComputerUse/RecordingManager.swift` | macOS-side screen capture using ScreenCaptureKit |
+
+### IPC Messages
+
+| Message | Direction | Purpose |
+|---|---|---|
+| `recording_start` | Server → Client | Instructs the client to begin recording with a `recordingId` and optional `RecordingOptions` |
+| `recording_stop` | Server → Client | Instructs the client to stop the active recording |
+| `recording_status` | Client → Server | Reports lifecycle transitions: `started`, `stopped` (with `filePath`), or `failed` (with `error`) |
+
+### Intent Routing
+
+Recording-only prompts (e.g., "record my screen", "please start recording") are intercepted before reaching the classifier or computer-use session creation. The routing logic:
+
+1. `detectRecordingIntent(taskText)` checks if any recording phrases are present.
+2. `isRecordingOnly(taskText)` determines if the entire message is about recording (after stripping polite fillers like "please", "can you", "thanks").
+3. If recording-only: the daemon calls `handleRecordingStart()` directly, bypassing the classifier.
+4. If mixed-intent (e.g., "open Safari and record my screen"): `stripRecordingIntent()` removes the recording clause and starts recording as a side-effect while the remaining task proceeds through normal routing.
+5. Stop-recording follows the same pattern with `detectStopRecordingIntent()`, `isStopRecordingOnly()`, and `stripStopRecordingIntent()`.
+
+### File-Backed Attachments
+
+When a recording stops with a valid `filePath`, the handler:
+1. Validates the file exists and reads its size via `statSync`.
+2. Creates a file-backed attachment via `uploadFileBackedAttachment()` (avoids reading large video files into memory).
+3. Links the attachment to the last assistant message in the conversation (or creates a new one).
+4. Sends `assistant_text_delta` + `message_complete` with attachment metadata to the client.
+
+### Recording Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Daemon as Daemon (Bun)
+    participant Client as macOS Client
+    participant RM as RecordingManager
+
+    User->>Daemon: "record my screen"
+    Note over Daemon: detectRecordingIntent → true<br/>isRecordingOnly → true
+    Daemon->>Client: recording_start { recordingId, options }
+    Client->>RM: startRecording(recordingId)
+    RM-->>Client: capture started
+    Client->>Daemon: recording_status { status: 'started' }
+
+    Note over RM: Screen capture in progress...
+
+    User->>Daemon: "stop recording"
+    Note over Daemon: detectStopRecordingIntent → true<br/>isStopRecordingOnly → true
+    Daemon->>Client: recording_stop { recordingId }
+    Client->>RM: stopRecording()
+    RM-->>Client: file saved at filePath
+    Client->>Daemon: recording_status { status: 'stopped', filePath, durationMs }
+
+    Note over Daemon: uploadFileBackedAttachment<br/>linkAttachmentToMessage
+    Daemon->>Client: assistant_text_delta + message_complete { attachments }
+```
+
+---
+
 ## Ride Shotgun — Detailed Data Flow
 
 The Ride Shotgun system replaces the legacy ambient suggestion pipeline. Instead of continuously observing and generating suggestions, it uses a timer-based invitation model: after eligibility checks pass, the user is invited to a time-boxed observation session. Captures are sent to the daemon for analysis, and a summary is presented at the end.
@@ -2635,37 +2713,44 @@ Twitter uses a standalone OAuth2 flow separate from the unified messaging layer.
 
 #### Twitter OAuth2 Flow
 
+Twitter's OAuth2 flow delegates to the shared **connect orchestrator** (`oauth/connect-orchestrator.ts`). The Twitter provider profile in the registry defines auth/token URLs, default scopes, and an identity verifier. The daemon handler (`daemon/handlers/oauth-connect.ts`) resolves credentials from the keychain using canonical names (`client_id`, `client_secret`) with fallback to legacy names (`oauth_client_id`, `oauth_client_secret`), then calls `orchestrateOAuthConnect()`.
+
 ```mermaid
 sequenceDiagram
     participant UI as Settings UI (Swift)
     participant IPC as IPC Socket
-    participant Handler as twitter-auth handler
+    participant Handler as oauth-connect handler
+    participant Orchestrator as ConnectOrchestrator
+    participant ScopePolicy as Scope Policy
     participant OAuth as OAuth2 PKCE Flow
     participant Browser as System Browser
     participant Twitter as Twitter OAuth Server
     participant Vault as Credential Vault
     participant API as X API (v2)
 
-    Note over UI,API: Connection Flow (local_byo mode)
-    UI->>IPC: twitter_auth_start
+    Note over UI,API: Connection Flow (via generic orchestrator)
+    UI->>IPC: oauth_connect_start {service: "twitter"}
     IPC->>Handler: dispatch
-    Handler->>Handler: load config (twitterIntegrationMode)
-    Handler->>Vault: getSecureKey (oauth_client_id)
-    Handler->>OAuth: startOAuth2Flow(config)
+    Handler->>Handler: resolve client_id / client_secret from keychain
+    Handler->>Orchestrator: orchestrateOAuthConnect(options)
+    Orchestrator->>Orchestrator: resolveService("twitter") → "integration:twitter"
+    Orchestrator->>Orchestrator: getProviderProfile("integration:twitter")
+    Orchestrator->>ScopePolicy: resolveScopes(profile, requestedScopes)
+    ScopePolicy-->>Orchestrator: {ok: true, scopes}
+    Orchestrator->>OAuth: startOAuth2Flow(config)
     OAuth->>OAuth: generate code_verifier + code_challenge (S256)
-    OAuth->>OAuth: start Bun.serve on random port
     OAuth->>IPC: open_url (twitter.com/i/oauth2/authorize)
     IPC->>Browser: open URL
     Browser->>Twitter: user authorizes
     Twitter->>OAuth: callback with auth code
     OAuth->>Twitter: exchange code + code_verifier at api.x.com/2/oauth2/token
     Twitter-->>OAuth: access + refresh tokens
-    OAuth-->>Handler: tokens + grantedScopes
-    Handler->>API: GET /2/users/me (verify identity)
-    API-->>Handler: username
-    Handler->>Vault: setSecureKey (access + refresh tokens)
-    Handler->>Vault: upsertCredentialMetadata
-    Handler->>IPC: twitter_auth_result {success, accountInfo: "@username"}
+    OAuth-->>Orchestrator: tokens + grantedScopes
+    Orchestrator->>API: identityVerifier → GET /2/users/me
+    API-->>Orchestrator: username
+    Orchestrator->>Vault: storeOAuth2Tokens (access + refresh + metadata)
+    Orchestrator-->>Handler: {success, grantedScopes, accountInfo: "@username"}
+    Handler->>IPC: oauth_connect_result {success, accountInfo}
     IPC->>UI: show connected state
 ```
 
@@ -2702,13 +2787,13 @@ The strategy is persisted in the Vellum config file as `twitterOperationStrategy
 
 | Aspect | Detail |
 |--------|--------|
-| Auth URL | `https://twitter.com/i/oauth2/authorize` |
-| Token URL | `https://api.x.com/2/oauth2/token` |
-| Flow | PKCE (S256), optional client secret |
-| Requested scopes | `tweet.read`, `tweet.write`, `users.read`, `offline.access` |
-| Identity verification | `GET https://api.x.com/2/users/me` with Bearer token, before persisting tokens |
-| Integration mode | `local_byo` — user provides their own Twitter app Client ID |
-| IPC messages | `twitter_auth_start`, `twitter_auth_status` / `twitter_auth_result`, `twitter_auth_status_response` |
+| Auth URL | `https://twitter.com/i/oauth2/authorize` (from provider profile) |
+| Token URL | `https://api.x.com/2/oauth2/token` (from provider profile) |
+| Flow | PKCE (S256), optional client secret, via connect orchestrator |
+| Default scopes | `tweet.read`, `tweet.write`, `users.read`, `offline.access` (from provider profile) |
+| Identity verification | Provider profile `identityVerifier` → `GET https://api.x.com/2/users/me` with Bearer token |
+| Credential names | Canonical: `client_id`, `client_secret`; reads fall back to legacy `oauth_client_id`, `oauth_client_secret` |
+| IPC messages | `oauth_connect_start` / `oauth_connect_result` (generic), plus legacy `twitter_auth_start` / `twitter_auth_status` |
 
 #### Twitter Credential Metadata Structure
 
@@ -2758,6 +2843,8 @@ Note: OAuth2 scopes (`tweet.read`, `tweet.write`, `users.read`, `offline.access`
 | Decision | Rationale |
 |----------|-----------|
 | PKCE by default, optional client_secret | Desktop apps prefer PKCE; some providers (Slack) require a secret, which is stored in credential metadata for autonomous refresh |
+| Shared connect orchestrator | All OAuth providers route through `orchestrateOAuthConnect()`, which resolves profiles, enforces scope policy, runs the flow, stores tokens, and verifies identity. Adding a provider is a declarative profile entry, not new orchestration code |
+| Canonical credential naming | Writes use `client_id`/`client_secret`; reads fall back to legacy `oauth_client_id`/`oauth_client_secret` for backward compatibility |
 | Gateway callback transport | OAuth callbacks are now routed through the gateway at `${ingress.publicBaseUrl}/webhooks/oauth/callback` instead of a loopback redirect URI. This enables OAuth flows to work in remote and tunneled deployments. |
 | Unified `MessagingProvider` interface | All platforms implement the same contract; generic tools work immediately for new providers |
 | Twitter outside unified messaging | Twitter is a broadcast/read platform, not a conversation platform — it doesn't fit the `MessagingProvider` contract |
@@ -2787,13 +2874,100 @@ Note: OAuth2 scopes (`tweet.read`, `tweet.write`, `users.read`, `offline.access`
 | `assistant/src/watcher/providers/gmail.ts` | Gmail watcher using History API |
 | `assistant/src/watcher/providers/github.ts` | GitHub watcher for PRs, issues, review requests, and mentions |
 | `assistant/src/watcher/providers/linear.ts` | Linear watcher for assigned issues, status changes, and @mentions |
-| `assistant/src/daemon/handlers/twitter-auth.ts` | Twitter OAuth2 flow handlers (`twitter_auth_start`, `twitter_auth_status`) |
+| `assistant/src/oauth/provider-profiles.ts` | Provider profile registry: auth URLs, token URLs, scopes, policies, identity verifiers |
+| `assistant/src/oauth/connect-orchestrator.ts` | Shared OAuth connect orchestrator: profile resolution, scope policy, flow execution, token storage |
+| `assistant/src/oauth/scope-policy.ts` | Deterministic scope resolution and policy enforcement |
+| `assistant/src/oauth/connect-types.ts` | Shared types: `OAuthProviderProfile`, `OAuthScopePolicy`, `OAuthConnectResult` |
+| `assistant/src/oauth/token-persistence.ts` | Token storage helper: persists tokens, metadata, and runs post-connect hooks |
+| `assistant/src/daemon/handlers/oauth-connect.ts` | Generic OAuth connect IPC handler (`oauth_connect_start` / `oauth_connect_result`) |
+| `assistant/src/daemon/handlers/twitter-auth.ts` | Legacy Twitter OAuth2 flow handlers (`twitter_auth_start`, `twitter_auth_status`) |
 | `assistant/src/twitter/client.ts` | Twitter CDP client: GraphQL mutations/queries via Chrome DevTools Protocol |
 | `assistant/src/twitter/oauth-client.ts` | OAuth-backed Twitter client: X API v2 post/reply via stored tokens using `withValidToken()` |
 | `assistant/src/twitter/router.ts` | Strategy router: selects OAuth or browser path based on `twitterOperationStrategy` config |
 | `assistant/src/twitter/session.ts` | Twitter browser session persistence (cookie import/export) |
 | `assistant/src/cli/twitter.ts` | `vellum x` CLI command group (post, reply, strategy, refresh, status, login, logout, and read operations) |
 | `assistant/src/config/bundled-skills/twitter/SKILL.md` | X (Twitter) bundled skill instructions |
+
+---
+
+## OAuth Extensibility — Provider Profiles, Scope Policy, and Connect Orchestrator
+
+The OAuth extensibility layer makes adding a new OAuth provider a declarative operation. Instead of writing custom auth handlers, new providers are added as entries in the **provider profile registry**. The shared **connect orchestrator** handles the full flow from profile resolution through token storage.
+
+### Provider Profile Registry
+
+`assistant/src/oauth/provider-profiles.ts` contains the `PROVIDER_PROFILES` map — a canonical registry of well-known OAuth providers. Each profile (`OAuthProviderProfile`) declares:
+
+| Field | Purpose |
+|-------|---------|
+| `authUrl` / `tokenUrl` | OAuth2 authorization and token endpoints |
+| `defaultScopes` | Scopes requested on every connect attempt |
+| `scopePolicy` | Controls whether additional scopes are allowed (see Scope Policy below) |
+| `callbackTransport` | `'loopback'` (local redirect) or `'gateway'` (public ingress) |
+| `identityVerifier` | Async function that fetches human-readable account info (e.g. `@username`, email) after token exchange |
+| `setup` | Optional metadata for the generic OAuth setup skill (display name, dashboard URL, app type) |
+| `injectionTemplates` | Auto-applied credential injection rules for the script proxy |
+
+Registered providers: `integration:gmail`, `integration:slack`, `integration:notion`, `integration:twitter`. Short aliases (e.g. `gmail`, `twitter`) are resolved via `SERVICE_ALIASES`.
+
+### Scope Policy Engine
+
+`assistant/src/oauth/scope-policy.ts` exports `resolveScopes(profile, requestedScopes)`, which deterministically computes the final scope set:
+
+1. No requested scopes → returns `defaultScopes`.
+2. Requested scopes provided → starts with defaults, then validates each additional scope:
+   - Rejected if in `forbiddenScopes`.
+   - Rejected if `allowAdditionalScopes` is `false`.
+   - Rejected if not in `allowedOptionalScopes`.
+   - Accepted otherwise, added to the union.
+
+Returns `{ ok: true, scopes }` or `{ ok: false, error, allowedScopes }`.
+
+### Connect Orchestrator
+
+`assistant/src/oauth/connect-orchestrator.ts` exports `orchestrateOAuthConnect(options)`, which runs the full OAuth2 flow:
+
+1. **Resolve service** — alias expansion via `resolveService()`.
+2. **Load profile** — `getProviderProfile()` from the registry.
+3. **Compute scopes** — `resolveScopes()` with scope policy enforcement.
+4. **Build OAuth config** — merge profile defaults with caller overrides.
+5. **Run flow** — interactive (opens browser, blocks until completion) or deferred (returns auth URL for the caller to deliver).
+6. **Verify identity** — runs the profile's `identityVerifier` if defined.
+7. **Store tokens** — `storeOAuth2Tokens()` persists access/refresh tokens, client credentials, and metadata.
+
+Result is a discriminated union: `{ success, deferred, grantedScopes, accountInfo }` or `{ success: false, error }`.
+
+### Generic Daemon IPC
+
+`assistant/src/daemon/handlers/oauth-connect.ts` handles `oauth_connect_start` messages. The handler:
+
+1. Resolves client credentials from the keychain using canonical names (`client_id`, `client_secret`) with fallback to legacy names (`oauth_client_id`, `oauth_client_secret`).
+2. Validates that required credentials exist (including `client_secret` when the provider requires it).
+3. Delegates to `orchestrateOAuthConnect()`.
+4. Sends `oauth_connect_result` back to the client.
+
+This replaces provider-specific IPC handlers — any provider in the registry can be connected through the same message pair.
+
+### Adding a New OAuth Provider
+
+1. **Declare a profile** in `PROVIDER_PROFILES` (`oauth/provider-profiles.ts`):
+   - Set `authUrl`, `tokenUrl`, `defaultScopes`, `scopePolicy`, and `callbackTransport`.
+   - Add a `SERVICE_ALIASES` entry if a shorthand name is desired.
+2. **Optional: add an identity verifier** — an async function on the profile that fetches the user's account info from the provider's API.
+3. **Optional: add setup metadata** — `setup.displayName`, `setup.dashboardUrl`, `setup.appType` enable the generic OAuth setup skill to guide users through app creation.
+4. **Optional: add injection templates** — for providers whose tokens should be auto-injected by the script proxy.
+5. **No handler code needed** — the generic `oauth_connect_start` IPC handler and the connect orchestrator handle the flow automatically.
+
+### Key Source Files
+
+| File | Role |
+|------|------|
+| `assistant/src/oauth/provider-profiles.ts` | Provider profile registry and alias resolution |
+| `assistant/src/oauth/scope-policy.ts` | Scope resolution and policy enforcement (pure, no I/O) |
+| `assistant/src/oauth/connect-orchestrator.ts` | Shared connect orchestrator (profile → scopes → flow → tokens) |
+| `assistant/src/oauth/connect-types.ts` | Shared types (`OAuthProviderProfile`, `OAuthScopePolicy`, `OAuthConnectResult`) |
+| `assistant/src/oauth/token-persistence.ts` | Token storage: keychain writes, metadata upsert, post-connect hooks |
+| `assistant/src/daemon/handlers/oauth-connect.ts` | Generic `oauth_connect_start` / `oauth_connect_result` IPC handler |
 
 ---
 
@@ -4227,7 +4401,7 @@ sequenceDiagram
     alt ASK_GUARDIAN pattern detected
         Ctrl->>CallStore: createPendingQuestion()
         Ctrl->>GuardianDispatch: dispatchGuardianQuestion()
-        GuardianDispatch->>Mac: guardian_request_thread_created IPC
+        GuardianDispatch->>Mac: notification_thread_created IPC
         GuardianDispatch->>TG/SMS: POST /deliver/{channel}
         Note over Mac,TG/SMS: First channel to respond wins
         Mac/TG/SMS->>Routes: guardian answer
@@ -4408,9 +4582,10 @@ When the LLM emits `[ASK_GUARDIAN: question]` during a voice call, the controlle
 
 1. **Request creation**: A `guardian_action_request` row is created with a unique 6-character hex request code, the question text, a `pending` status, and an expiry timestamp.
 
-2. **Delivery fan-out**: Deliveries are created for each configured channel:
-   - **Mac (always)**: A server-side conversation is created with key `asst:${assistantId}:guardian:request:${request.id}`. The dispatch engine emits a `guardian_request_thread_created` IPC event so the desktop UI can display the question thread.
-   - **Telegram/SMS (if guardian binding exists)**: A `POST /deliver/{channel}` request is sent to the gateway with the question text and request code.
+2. **Delivery fan-out via notification pipeline**: The guardian dispatch calls `emitNotificationSignal()` and uses the same notification decision + broadcaster path as every other producer.
+   - **Vellum**: Conversation pairing happens in the notification broadcaster. The resulting `notification_thread_created` event surfaces the thread in the desktop UI.
+   - **Telegram/SMS**: Delivery is handled by channel adapters selected by the notification decision and guarded by configured bindings.
+   - Guardian dispatch records `guardian_action_deliveries` from pipeline delivery results. It also uses the per-dispatch `onThreadCreated` callback so vellum delivery rows are created as soon as thread pairing occurs (without waiting for slower channels).
 
 3. **Answer resolution**: The first channel to respond wins. Answer resolution uses an atomic `WHERE status = 'pending'` check on the `guardian_action_requests` table -- only the first writer succeeds in transitioning the request to `answered` status. The winning answer text and responding channel are recorded on the request row.
 
@@ -4422,13 +4597,9 @@ When the LLM emits `[ASK_GUARDIAN: question]` during a voice call, the controlle
 
 7. **Separation from channel guardian approvals**: Guardian action requests are SEPARATE from `channelGuardianApprovalRequests` (the existing channel tool-approval system). The channel guardian approval system handles tool-use permission grants (approve/deny a specific tool invocation). Guardian action requests handle free-form questions from voice calls that require human input to continue the conversation.
 
-#### Guardian Request Copy Generation Pipeline
-
-Thread titles and initial messages for guardian question threads are generated via `guardian-question-copy.ts`. The module calls the configured LLM provider (with `modelIntent: 'latency-optimized'`) to produce an emoji-prefixed, attention-oriented title and a richer initial message that explains the live-call context. A 5-second timeout guards the generation call. When no provider is configured, generation times out, or parsing fails, the module falls back to deterministic copy (`buildFallbackCopy`) that uses a warning emoji prefix and a simple template containing the question text. The generative copy is awaited only in the macOS delivery branch so that Telegram/SMS deliveries dispatch without LLM latency.
-
 #### macOS Notification + Deep-Link Flow
 
-When a guardian question is dispatched while the macOS app is backgrounded, the Swift client posts a native `UNUserNotificationCenter` notification under the `GUARDIAN_REQUEST` category. The notification title mirrors the emoji-prefixed thread title from the copy generation pipeline. Tapping the notification triggers the `openConversationThread` deep-link handler, which switches the main window to the guardian question thread so the user can reply immediately.
+When a guardian question is dispatched while the macOS app is backgrounded, the Swift client posts a native `UNUserNotificationCenter` notification from the generic `notification_intent` payload (`NOTIFICATION_INTENT` category). The deep-link metadata includes the paired conversation ID, so tapping the notification routes directly to the guardian thread.
 
 ### SQLite Tables
 
@@ -4689,27 +4860,84 @@ Keep-alive heartbeats (every 30 s by default):
 The notification module (`assistant/src/notifications/`) uses a signal-based architecture where producers emit free-form events and an LLM-backed decision engine determines whether, where, and how to notify the user. See `assistant/src/notifications/README.md` for the full developer guide.
 
 ```
-Producer → NotificationSignal → Decision Engine (LLM) → Deterministic Checks → Broadcaster → Adapters → Delivery
-                                       ↑
-                               Preference Summary
+Producer → NotificationSignal → Decision Engine (LLM) → Deterministic Checks → Broadcaster → Conversation Pairing → Adapters → Delivery
+                                       ↑                                                            ↓
+                               Preference Summary                                    notification_thread_created IPC
 ```
+
+### Channel Policy Registry
+
+`assistant/src/channels/config.ts` is the **single source of truth** for per-channel notification behavior. Every `ChannelId` must have an entry in the `CHANNEL_POLICIES` map (enforced at compile time via `satisfies Record<ChannelId, ChannelNotificationPolicy>`). Each policy defines:
+
+- **`deliveryEnabled`** — whether the channel can receive notification deliveries. The `NotificationChannel` type is derived from this flag: only channels with `deliveryEnabled: true` are valid notification targets.
+- **`conversationStrategy`** — how the notification pipeline materializes conversations for the channel:
+  - `start_new_conversation` — creates a fresh conversation per delivery (e.g. vellum desktop/mobile threads)
+  - `continue_existing_conversation` — intended to append to an existing channel-scoped conversation; currently materializes a background audit conversation per delivery (e.g. Telegram)
+  - `not_deliverable` — channel cannot receive notifications (e.g. voice)
+
+Helper functions: `getDeliverableChannels()`, `getChannelPolicy()`, `isNotificationDeliverable()`, `getConversationStrategy()`.
+
+### Conversation Pairing
+
+Every notification delivery materializes a conversation + seed message **before** the adapter sends it (`conversation-pairing.ts`). This ensures:
+
+1. Every delivery has an auditable conversation trail in the conversations table
+2. The macOS/iOS client can deep-link directly into the notification thread
+3. Delivery audit rows in `notification_deliveries` carry `conversation_id`, `message_id`, and `conversation_strategy` columns
+
+The pairing function (`pairDeliveryWithConversation`) is resilient — errors are caught and logged without breaking the delivery pipeline.
+
+### Notification Conversation Materialization
+
+The notification pipeline uses a single conversation materialization path across producers:
+
+1. **Canonical pipeline** (`emitNotificationSignal` → decision engine → broadcaster → conversation pairing → adapters): The broadcaster pairs each delivery with a conversation, then dispatches a `notification_intent` IPC event via the Vellum adapter. The IPC payload includes `deepLinkMetadata` (e.g. `{ conversationId }`) so the macOS/iOS client can deep-link to the relevant context when the user taps the notification.
+2. **Guardian bookkeeping** (`dispatchGuardianQuestion`): Guardian dispatch still creates `guardian_action_request` / `guardian_action_delivery` audit rows, but those rows are now derived from pipeline delivery results and the per-dispatch `onThreadCreated` callback instead of a second custom thread-creation path.
+
+### Thread Surfacing via `notification_thread_created` IPC
+
+When a vellum notification thread is paired with a conversation (strategy `start_new_conversation`), the broadcaster emits a `notification_thread_created` IPC event **immediately** (before waiting for slower channel deliveries like Telegram). This pushes the thread to the macOS/iOS client so it can display the notification thread in the sidebar and deep-link to it.
+
+### IPC Thread-Created Events
+
+Two IPC push events surface new threads in the macOS/iOS client sidebar:
+
+- **`notification_thread_created`** — Emitted by `broadcaster.ts` when a notification delivery creates a vellum conversation (strategy `start_new_conversation`). Payload: `{ conversationId, title, sourceEventName }`.
+- **`task_run_thread_created`** — Emitted by `work-item-runner.ts` when a task run creates a conversation. Payload: `{ conversationId, workItemId, title }`.
+
+All events follow the same pattern: the daemon creates a server-side conversation, persists an initial message, and broadcasts the IPC event so the macOS `ThreadManager` can create a visible thread in the sidebar.
+
+### Channel Delivery
+
+Notifications are delivered to two channel types:
+
+- **Vellum (always connected)**: Local IPC via the daemon's broadcast mechanism. The `VellumAdapter` emits a `notification_intent` message with rendered copy and optional `deepLinkMetadata`.
+- **Telegram (when guardian binding exists)**: HTTP POST to the gateway's `/deliver/telegram` endpoint. Requires an active guardian binding for the assistant.
+
+Connected channels are resolved at signal emission time: vellum is always included, and binding-based channels (Telegram) are included only when an active guardian binding exists for the assistant.
 
 **Key modules:**
 
 | Module | Purpose |
 |--------|---------|
+| `assistant/src/channels/config.ts` | Channel policy registry — single source of truth for per-channel notification behavior |
 | `assistant/src/notifications/emit-signal.ts` | Single entry point for all producers; orchestrates the full pipeline |
 | `assistant/src/notifications/decision-engine.ts` | LLM-based routing decisions with deterministic fallback |
 | `assistant/src/notifications/deterministic-checks.ts` | Hard invariant checks (dedupe, source-active suppression, channel availability) |
-| `assistant/src/notifications/broadcaster.ts` | Dispatches decisions to channel adapters |
-| `assistant/src/notifications/adapters/` | Per-channel delivery (macOS IPC, Telegram gateway) |
+| `assistant/src/notifications/broadcaster.ts` | Dispatches decisions to channel adapters; emits `notification_thread_created` IPC |
+| `assistant/src/notifications/conversation-pairing.ts` | Materializes conversation + message per delivery based on channel strategy |
+| `assistant/src/notifications/adapters/macos.ts` | Vellum adapter — broadcasts `notification_intent` via IPC with deep-link metadata |
+| `assistant/src/notifications/adapters/telegram.ts` | Telegram adapter — POSTs to gateway `/deliver/telegram` |
+| `assistant/src/notifications/destination-resolver.ts` | Resolves per-channel endpoints (vellum IPC, Telegram chat ID from guardian binding) |
+| `assistant/src/notifications/copy-composer.ts` | Template-based fallback copy when LLM copy is unavailable |
 | `assistant/src/notifications/preference-extractor.ts` | Detects preference statements in conversation messages |
 | `assistant/src/notifications/preferences-store.ts` | CRUD for user notification preferences |
 | `assistant/src/config/bundled-skills/messaging/tools/send-notification.ts` | Explicit producer tool for user-requested notifications; emits signals into the same routing pipeline |
+| `assistant/src/calls/guardian-dispatch.ts` | Guardian question dispatch that reuses canonical notification pairing and records guardian delivery bookkeeping from pipeline results |
 
-**Audit trail (SQLite):** `notification_events` → `notification_decisions` → `notification_deliveries`
+**Audit trail (SQLite):** `notification_events` → `notification_decisions` → `notification_deliveries` (with `conversation_id`, `message_id`, `conversation_strategy`)
 
-**Configuration:** `notifications.decisionModel` in `config.json`.
+**Configuration:** `notifications.decisionModelIntent` in `config.json`.
 
 ---
 

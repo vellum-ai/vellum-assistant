@@ -14,10 +14,11 @@
  *   - generation_handoff (terminal)
  *   - generation_cancelled (terminal)
  */
-import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
-import { mkdtempSync, rmSync, realpathSync } from 'node:fs';
+import { mkdtempSync, realpathSync,rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, beforeEach, describe, expect, mock,test } from 'bun:test';
 
 const testDir = realpathSync(mkdtempSync(join(tmpdir(), 'runtime-events-sse-parity-')));
 
@@ -51,12 +52,12 @@ mock.module('../config/loader.js', () => ({
   }),
 }));
 
-import { initializeDb, getDb, resetDb } from '../memory/db.js';
-import { assistantEventHub } from '../runtime/assistant-event-hub.js';
-import { buildAssistantEvent } from '../runtime/assistant-event.js';
-import { getOrCreateConversation } from '../memory/conversation-key-store.js';
-import type { AssistantEvent } from '../runtime/assistant-event.js';
 import type { ServerMessage } from '../daemon/ipc-protocol.js';
+import { getOrCreateConversation } from '../memory/conversation-key-store.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
+import type { AssistantEvent } from '../runtime/assistant-event.js';
+import { buildAssistantEvent } from '../runtime/assistant-event.js';
+import { assistantEventHub } from '../runtime/assistant-event-hub.js';
 
 initializeDb();
 

@@ -1,9 +1,10 @@
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { join } from 'node:path';
-import { mkdirSync, writeFileSync, rmSync, realpathSync } from 'node:fs';
-import { parseDirectives, resolveSandboxDirective, resolveHostDirective, type DirectiveRequest } from '../daemon/assistant-attachments.js';
-
+import { mkdirSync, realpathSync,rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach,beforeEach, describe, expect, test } from 'bun:test';
+
+import { type DirectiveRequest,parseDirectives, resolveHostDirective, resolveSandboxDirective } from '../daemon/assistant-attachments.js';
 
 // Use realpath to avoid macOS /tmp → /private/tmp symlink mismatches
 const RAW_TEST_DIR = join(tmpdir(), `vellum-sandbox-test-${Date.now()}`);

@@ -1,4 +1,5 @@
-import { describe, test, expect, afterEach, mock } from 'bun:test';
+import { afterEach, describe, expect, mock,test } from 'bun:test';
+
 import type { CredentialInjectionTemplate } from '../tools/credentials/policy-types.js';
 import type { ResolvedCredential } from '../tools/credentials/resolve.js';
 
@@ -26,12 +27,12 @@ mock.module('../tools/network/script-proxy/certs.js', () => ({
 
 import {
   createSession,
-  startSession,
-  stopSession,
-  getSessionEnv,
   getActiveSession,
+  getSessionEnv,
   getSessionsForConversation,
+  startSession,
   stopAllSessions,
+  stopSession,
 } from '../tools/network/script-proxy/index.js';
 
 afterEach(async () => {

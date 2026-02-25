@@ -1,10 +1,12 @@
-import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Tool } from '../tools/types.js';
-import type { SandboxBackend } from '../tools/terminal/backends/types.js';
+
+import { afterEach, beforeEach, describe, expect, mock,test } from 'bun:test';
+
 import type { ShellOutputResult } from '../tools/shared/shell-output.js';
+import type { SandboxBackend } from '../tools/terminal/backends/types.js';
+import type { Tool } from '../tools/types.js';
 
 // ── Mock modules ────────────────────────────────────────────────────────────
 
@@ -75,10 +77,10 @@ mock.module('../tools/network/script-proxy/index.js', () => ({
 
 // ── Imports (after mocks) ───────────────────────────────────────────────────
 
+import type { SandboxConfig } from '../config/schema.js';
 import { parse } from '../tools/terminal/parser.js';
 import { buildSanitizedEnv } from '../tools/terminal/safe-env.js';
 import { wrapCommand } from '../tools/terminal/sandbox.js';
-import type { SandboxConfig } from '../config/schema.js';
 import { ToolError } from '../util/errors.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -774,73 +776,3 @@ describe('formatShellOutput', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════════════════
-//  8. Evaluate TypeScript tool — input validation
-// ═══════════════════════════════════════════════════════════════════════════
-
-describe('EvaluateTypescriptTool input validation', () => {
-  let evalTool: Tool;
-
-  beforeEach(async () => {
-    const mod = await import('../tools/terminal/evaluate-typescript.js');
-    evalTool = mod.evaluateTypescriptTool;
-  });
-
-  const baseContext = {
-    workingDir: testTmpDir,
-    sessionId: 'test-session-1',
-    conversationId: 'test-conv-1',
-    onOutput: () => {},
-  };
-
-  test('rejects empty code', async () => {
-    const result = await evalTool.execute({ code: '' }, baseContext);
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain('code is required');
-  });
-
-  test('rejects non-string code', async () => {
-    const result = await evalTool.execute({ code: 123 }, baseContext);
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain('code is required');
-  });
-
-  test('rejects oversized code', async () => {
-    const result = await evalTool.execute(
-      { code: 'x'.repeat(100_001) },
-      baseContext,
-    );
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain('exceeds maximum size');
-  });
-
-  test('rejects invalid JSON in mock_input_json', async () => {
-    const result = await evalTool.execute(
-      { code: 'export default (x: unknown) => x;', mock_input_json: '{invalid' },
-      baseContext,
-    );
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain('valid JSON');
-  });
-
-  test('rejects oversized mock_input_json', async () => {
-    const result = await evalTool.execute(
-      { code: 'export default (x: unknown) => x;', mock_input_json: '"' + 'x'.repeat(100_001) + '"' },
-      baseContext,
-    );
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain('exceeds maximum size');
-  });
-
-  test('tool definition has correct name and schema', () => {
-    const def = evalTool.getDefinition();
-    const schema = def.input_schema as { required: string[]; properties: Record<string, unknown> };
-    expect(def.name).toBe('evaluate_typescript_code');
-    expect(schema.required).toContain('code');
-    expect(schema.properties.code).toBeDefined();
-    expect(schema.properties.mock_input_json).toBeDefined();
-    expect(schema.properties.timeout_seconds).toBeDefined();
-    expect(schema.properties.filename).toBeDefined();
-    expect(schema.properties.entrypoint).toBeDefined();
-  });
-});

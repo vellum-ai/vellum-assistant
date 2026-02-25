@@ -7,8 +7,8 @@
  */
 import type { ChannelId } from '../channels/types.js';
 import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
-import { getGuardianBinding } from './channel-guardian-service.js';
 import { normalizeAssistantId } from '../util/platform.js';
+import { getGuardianBinding } from './channel-guardian-service.js';
 
 /** Sub-reason for unverified-channel denials. */
 export type DenialReason = 'no_binding' | 'no_identity';

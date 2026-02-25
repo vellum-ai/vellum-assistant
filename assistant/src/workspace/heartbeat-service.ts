@@ -1,11 +1,11 @@
 import { getLogger } from '../util/logger.js';
-import { getAllWorkspaceGitServices, type WorkspaceGitService } from './git-service.js';
+import { getEnrichmentService } from './commit-message-enrichment-service.js';
 import {
-  DefaultCommitMessageProvider,
   type CommitContext,
   type CommitMessageProvider,
+  DefaultCommitMessageProvider,
 } from './commit-message-provider.js';
-import { getEnrichmentService } from './commit-message-enrichment-service.js';
+import { getAllWorkspaceGitServices, type WorkspaceGitService } from './git-service.js';
 
 const log = getLogger('heartbeat');
 
@@ -18,7 +18,7 @@ const DEFAULT_FILE_THRESHOLD = 20;
 /** How often the heartbeat runs (ms). Default: 5 minutes. */
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000;
 
-export interface HeartbeatServiceOptions {
+export interface WorkspaceHeartbeatServiceOptions {
   /** Maximum age of uncommitted changes before auto-commit (ms). */
   ageThresholdMs?: number;
   /** Maximum number of changed files before auto-commit. */
@@ -63,7 +63,7 @@ const firstSeenDirty = new Map<string, number>();
  * - Background processes that write to the workspace
  * - Forgotten state from crashed or interrupted sessions
  */
-export class HeartbeatService {
+export class WorkspaceHeartbeatService {
   private readonly ageThresholdMs: number;
   private readonly fileThreshold: number;
   private readonly intervalMs: number;
@@ -74,7 +74,7 @@ export class HeartbeatService {
   /** Tracks the currently in-flight check to prevent overlapping runs and allow clean shutdown. */
   private activeCheck: Promise<HeartbeatCheckResult> | null = null;
 
-  constructor(options?: HeartbeatServiceOptions) {
+  constructor(options?: WorkspaceHeartbeatServiceOptions) {
     this.ageThresholdMs = options?.ageThresholdMs ?? DEFAULT_AGE_THRESHOLD_MS;
     this.fileThreshold = options?.fileThreshold ?? DEFAULT_FILE_THRESHOLD;
     this.intervalMs = options?.intervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS;

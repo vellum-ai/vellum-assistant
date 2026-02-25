@@ -8,9 +8,9 @@
  */
 
 import { countPendingByConversation } from './channel-guardian-store.js';
-import { updateEscalationState } from './inbox-thread-store.js';
 import { getDb } from './db.js';
 import { getSqliteFrom } from './db-connection.js';
+import { updateEscalationState } from './inbox-thread-store.js';
 
 /**
  * Recompute pending escalation counts for all inbox threads and update

@@ -1,8 +1,9 @@
 import { writeFileSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { dirname,join } from 'node:path';
+
 import { ensureDir, readTextFileSync } from '../util/fs.js';
-import { getHooksDir } from '../util/platform.js';
 import { getLogger } from '../util/logger.js';
+import { getHooksDir } from '../util/platform.js';
 import type { HookConfig, HookConfigEntry, HookManifest } from './types.js';
 
 const log = getLogger('hooks-config');

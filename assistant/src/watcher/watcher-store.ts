@@ -1,9 +1,10 @@
 import { and, asc, desc, eq, gte, lte } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
+
 import { getDb } from '../memory/db.js';
-import { watchers, watcherEvents } from '../memory/schema.js';
-import { DEFAULT_POLL_INTERVAL_MS } from './constants.js';
+import { watcherEvents,watchers } from '../memory/schema.js';
 import { truncate } from '../util/truncate.js';
+import { DEFAULT_POLL_INTERVAL_MS } from './constants.js';
 
 // ── Interfaces ──────────────────────────────────────────────────────
 

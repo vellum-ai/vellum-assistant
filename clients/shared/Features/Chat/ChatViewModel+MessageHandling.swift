@@ -125,7 +125,9 @@ extension ChatViewModel {
             }
         }
 
-        return lines.joined(separator: "\n")
+        var result = lines.joined(separator: "\n")
+        if result.count > 10_000 { result = String(result.prefix(10_000)) + "... [truncated]" }
+        return result
     }
 
     private func stringifyValue(_ value: AnyCodable) -> String {
@@ -457,6 +459,7 @@ extension ChatViewModel {
                 if let pending = pendingUserMessage {
                     let attachments = pendingUserAttachments
                     pendingUserMessage = nil
+                    pendingUserMessageDisplayText = nil
                     pendingUserAttachments = nil
                     do {
                         try daemonClient.send(UserMessageMessage(
@@ -623,10 +626,14 @@ extension ChatViewModel {
             currentTurnUserText = nil
             currentAssistantHasText = false
             lastContentWasToolCall = false
-            // Reset processing messages to sent
+            // Reset processing messages to sent and drop attachment base64 data
+            // since the daemon has persisted it at this point.
             for i in messages.indices {
                 if messages[i].role == .user && messages[i].status == .processing {
                     messages[i].status = .sent
+                    for j in messages[i].attachments.indices {
+                        messages[i].attachments[j].data = ""
+                    }
                 }
             }
             dispatchPendingSendDirect()
@@ -637,6 +644,17 @@ extension ChatViewModel {
             // Notify about completed tool calls
             if let toolCalls = completedToolCalls, let callback = onToolCallsComplete {
                 callback(toolCalls)
+            }
+            // Notify that the assistant response is complete
+            if let callback = onResponseComplete, !wasRefinement {
+                // Extract a summary from the last assistant message
+                if let existingId = messages.last(where: { $0.role == .assistant })?.id,
+                   let index = messages.firstIndex(where: { $0.id == existingId }) {
+                    let summary = messages[index].textSegments.joined()
+                    callback(summary)
+                } else {
+                    callback("Response complete")
+                }
             }
 
         case .undoComplete(let undoMsg):
@@ -1042,8 +1060,10 @@ extension ChatViewModel {
                 messages[msgIndex].toolCalls[tcIndex].isError = msg.isError ?? false
                 messages[msgIndex].toolCalls[tcIndex].isComplete = true
                 messages[msgIndex].toolCalls[tcIndex].completedAt = Date()
-                messages[msgIndex].toolCalls[tcIndex].imageData = msg.imageData
-                messages[msgIndex].toolCalls[tcIndex].cachedImage = ToolCallData.decodeImage(from: msg.imageData)
+                let decoded = ToolCallData.decodeImage(from: msg.imageData)
+                // Keep cachedImage for display, nil out raw base64 to save ~2.7MB per screenshot
+                messages[msgIndex].toolCalls[tcIndex].cachedImage = decoded
+                messages[msgIndex].toolCalls[tcIndex].imageData = decoded == nil ? msg.imageData : nil
                 if let status = msg.status, !status.isEmpty {
                     messages[msgIndex].toolCalls[tcIndex].buildingStatus = status
                 }
@@ -1115,7 +1135,7 @@ extension ChatViewModel {
                 title: surface.title,
                 data: surface.data,
                 actions: surface.actions,
-                surfaceMessage: msg
+                surfaceRef: SurfaceRef(from: msg)
             )
 
             // If messageId is provided, attach to that specific message (rarely used now that
@@ -1175,7 +1195,7 @@ extension ChatViewModel {
                             title: updated.title,
                             data: updated.data,
                             actions: updated.actions,
-                            surfaceMessage: existing.surfaceMessage
+                            surfaceRef: existing.surfaceRef
                         )
                         // Update floating overlay for task_progress cards (macOS only)
                         #if os(macOS)
@@ -1335,8 +1355,6 @@ extension ChatViewModel {
         case .subagentEvent(let msg):
             guard activeSubagents.contains(where: { $0.id == msg.subagentId }) else { break }
             subagentDetailStore.handleEvent(subagentId: msg.subagentId, event: msg.event)
-            // Notify SwiftUI so SubagentThreadView re-renders with updated events
-            objectWillChange.send()
 
         case .modelInfo(let msg):
             selectedModel = msg.model

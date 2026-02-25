@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, test } from 'bun:test';
+
+import type { TraceEventKind } from '../daemon/ipc-protocol.js';
+import type { TraceEmitOptions,TraceEmitter } from '../daemon/trace-emitter.js';
 import { EventBus } from '../events/bus.js';
 import type { AssistantDomainEvents } from '../events/domain-events.js';
 import { registerToolTraceListener } from '../events/tool-trace-listener.js';
-import type { TraceEmitter, TraceEmitOptions } from '../daemon/trace-emitter.js';
-import type { TraceEventKind } from '../daemon/ipc-protocol.js';
 
 interface EmittedTrace {
   kind: TraceEventKind;

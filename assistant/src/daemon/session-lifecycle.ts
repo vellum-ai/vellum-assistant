@@ -4,21 +4,21 @@
  * can delegate without exposing its full surface.
  */
 
-import type { Message, ContentBlock } from '../providers/types.js';
-import type { UsageStats, SurfaceType, SurfaceData } from './ipc-protocol.js';
-import { repairHistory } from './history-repair.js';
 import { createContextSummaryMessage } from '../context/window-manager.js';
+import type { EventBus } from '../events/bus.js';
+import type { AssistantDomainEvents } from '../events/domain-events.js';
+import type { ToolProfiler } from '../events/tool-profiling-listener.js';
+import { getHookManager } from '../hooks/manager.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import type { PermissionPrompter } from '../permissions/prompter.js';
 import type { SecretPrompter } from '../permissions/secret-prompter.js';
-import type { ToolProfiler } from '../events/tool-profiling-listener.js';
-import type { EventBus } from '../events/bus.js';
-import type { AssistantDomainEvents } from '../events/domain-events.js';
-import type { MessageQueue } from './session-queue-manager.js';
-import { getHookManager } from '../hooks/manager.js';
-import { getLogger } from '../util/logger.js';
-import { unregisterWatchNotifiers, unregisterCallNotifiers } from './session-notifiers.js';
+import type { ContentBlock,Message } from '../providers/types.js';
 import { unregisterSessionSender } from '../tools/browser/browser-screencast.js';
+import { getLogger } from '../util/logger.js';
+import { repairHistory } from './history-repair.js';
+import type { SurfaceData,SurfaceType, UsageStats } from './ipc-protocol.js';
+import { unregisterCallNotifiers,unregisterWatchNotifiers } from './session-notifiers.js';
+import type { MessageQueue } from './session-queue-manager.js';
 import { resetSkillToolProjection } from './session-skill-tools.js';
 
 const log = getLogger('session-lifecycle');

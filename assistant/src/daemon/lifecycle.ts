@@ -1,67 +1,68 @@
 import { randomBytes } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync, existsSync, chmodSync } from 'node:fs';
-import { createRequire } from 'node:module';
-import { dirname, join } from 'node:path';
+import { chmodSync,readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { config as dotenvConfig } from 'dotenv';
-import {
-  getInterfacesDir,
-  getSocketPath,
-  getHttpTokenPath,
-  getRootDir,
-  ensureDataDir,
-} from '../util/platform.js';
-import { migrateToDataLayout } from '../migrations/data-layout.js';
-import { migrateToWorkspaceLayout } from '../migrations/workspace-layout.js';
-import { initializeDb } from '../memory/db.js';
-import { rotateToolInvocations } from '../memory/tool-usage-store.js';
-import { loadConfig } from '../config/loader.js';
+
+import { reconcileCallsOnStartup } from '../calls/call-recovery.js';
+import { setRelayBroadcast } from '../calls/relay-server.js';
+import { TwilioConversationRelayProvider } from '../calls/twilio-provider.js';
+import { setVoiceBridgeOrchestrator } from '../calls/voice-session-bridge.js';
 import {
   getQdrantUrlEnv,
+  getRuntimeHttpHost,
   getRuntimeHttpPort,
   getRuntimeProxyBearerToken,
-  getRuntimeHttpHost,
   validateEnv,
 } from '../config/env.js';
+import { loadConfig } from '../config/loader.js';
 import { ensurePromptFiles } from '../config/system-prompt.js';
-import { loadPrebuiltHtml } from '../home-base/prebuilt/seed.js';
-import { DaemonServer } from './server.js';
-import { setRelayBroadcast } from '../calls/relay-server.js';
-import { setVoiceBridgeOrchestrator } from '../calls/voice-session-bridge.js';
-import { listWorkItems, updateWorkItem } from '../work-items/work-item-store.js';
-import { getLogger, initLogger } from '../util/logger.js';
-import { initSentry } from '../instrument.js';
-import { initLogfire } from '../logfire.js';
-import { startMemoryJobsWorker } from '../memory/jobs-worker.js';
-import { QdrantManager } from '../memory/qdrant-manager.js';
-import { initQdrantClient } from '../memory/qdrant-client.js';
-import { startScheduler } from '../schedule/scheduler.js';
-import { RuntimeHttpServer } from '../runtime/http-server.js';
-import { assistantEventHub } from '../runtime/assistant-event-hub.js';
-import * as attachmentsStore from '../memory/attachments-store.js';
+import { HeartbeatService } from '../heartbeat/heartbeat-service.js';
 import { getHookManager } from '../hooks/manager.js';
 import { installTemplates } from '../hooks/templates.js';
-import { installCliLaunchers } from './install-cli-launchers.js';
-import { HeartbeatService } from '../workspace/heartbeat-service.js';
-import { AgentHeartbeatService } from '../agent-heartbeat/agent-heartbeat-service.js';
-import { reconcileCallsOnStartup } from '../calls/call-recovery.js';
-import { TwilioConversationRelayProvider } from '../calls/twilio-provider.js';
+import { initSentry } from '../instrument.js';
+import { initLogfire } from '../logfire.js';
+import * as attachmentsStore from '../memory/attachments-store.js';
+import { initializeDb } from '../memory/db.js';
+import { startMemoryJobsWorker } from '../memory/jobs-worker.js';
+import { initQdrantClient } from '../memory/qdrant-client.js';
+import { QdrantManager } from '../memory/qdrant-manager.js';
+import { rotateToolInvocations } from '../memory/tool-usage-store.js';
+import { migrateToDataLayout } from '../migrations/data-layout.js';
+import { migrateToWorkspaceLayout } from '../migrations/workspace-layout.js';
 import { emitNotificationSignal, registerBroadcastFn } from '../notifications/emit-signal.js';
-import { createApprovalCopyGenerator, createApprovalConversationGenerator } from './approval-generators.js';
-import { initializeProvidersAndTools, registerWatcherProviders, registerMessagingProviders } from './providers-setup.js';
-import { installShutdownHandlers } from './shutdown-handlers.js';
-import { writePid, cleanupPidFile } from './daemon-control.js';
-import type { ServerMessage } from './ipc-protocol.js';
+import { assistantEventHub } from '../runtime/assistant-event-hub.js';
+import { RuntimeHttpServer } from '../runtime/http-server.js';
+import { startScheduler } from '../schedule/scheduler.js';
+import { getLogger, initLogger } from '../util/logger.js';
+import {
+  ensureDataDir,
+  getHttpTokenPath,
+  getInterfacesDir,
+  getRootDir,
+  getSocketPath,
+} from '../util/platform.js';
+import { listWorkItems, updateWorkItem } from '../work-items/work-item-store.js';
+import { WorkspaceHeartbeatService } from '../workspace/heartbeat-service.js';
+import { createApprovalConversationGenerator,createApprovalCopyGenerator } from './approval-generators.js';
+import { cleanupPidFile,writePid } from './daemon-control.js';
 import { initPairingHandlers } from './handlers/pairing.js';
+import { installCliLaunchers } from './install-cli-launchers.js';
+import type { ServerMessage } from './ipc-protocol.js';
+import { initializeProvidersAndTools, registerMessagingProviders,registerWatcherProviders } from './providers-setup.js';
+import { seedInterfaceFiles } from './seed-files.js';
+import { DaemonServer } from './server.js';
+import { installShutdownHandlers } from './shutdown-handlers.js';
 
 // Re-export public API so existing consumers don't need to change imports
+export type { StopResult } from './daemon-control.js';
 export {
-  isDaemonRunning,
+  ensureDaemonRunning,
   getDaemonStatus,
+  isDaemonRunning,
   startDaemon,
   stopDaemon,
-  ensureDaemonRunning,
 } from './daemon-control.js';
-export type { StopResult } from './daemon-control.js';
 
 const log = getLogger('lifecycle');
 
@@ -85,39 +86,7 @@ export async function runDaemon(): Promise<void> {
 
   log.info('Daemon startup: migrations complete');
 
-  // Seed the TUI main-window interface from the CLI package's DefaultMainScreen
-  // component so the remote runtime can serve it without the old INTERFACES_SEED
-  // environment variable.
-  const tuiDir = join(getInterfacesDir(), 'tui');
-  const mainWindowPath = join(tuiDir, 'main-window.tsx');
-  if (!existsSync(mainWindowPath)) {
-    try {
-      const require = createRequire(import.meta.url);
-      const cliPkgPath = require.resolve('@vellumai/cli/package.json');
-      const cliRoot = dirname(cliPkgPath);
-      const source = readFileSync(join(cliRoot, 'src', 'components', 'DefaultMainScreen.tsx'), 'utf-8');
-      mkdirSync(tuiDir, { recursive: true });
-      writeFileSync(mainWindowPath, source);
-      log.info('Seeded tui/main-window.tsx from @vellumai/cli');
-    } catch (err) {
-      log.warn({ err }, 'Could not seed tui/main-window.tsx from CLI package');
-    }
-  }
-
-  // Seed the vellum-desktop interface from the prebuilt Home Base HTML if it
-  // doesn't already exist. This ensures the Home tab renders immediately
-  // on first launch for both local and remote hatches.
-  const desktopIndexPath = join(getInterfacesDir(), 'vellum-desktop', 'index.html');
-  if (!existsSync(desktopIndexPath)) {
-    const prebuiltHtml = loadPrebuiltHtml();
-    if (prebuiltHtml) {
-      mkdirSync(join(getInterfacesDir(), 'vellum-desktop'), { recursive: true });
-      writeFileSync(desktopIndexPath, prebuiltHtml);
-      log.info('Seeded vellum-desktop/index.html from prebuilt Home Base');
-    } else {
-      log.warn('Could not seed vellum-desktop/index.html — prebuilt HTML not found (missing embedded index.html in home-base/prebuilt/)');
-    }
-  }
+  seedInterfaceFiles();
 
   log.info('Daemon startup: installing templates and initializing DB');
   installTemplates();
@@ -390,20 +359,20 @@ export async function runDaemon(): Promise<void> {
     }
   }
 
-  const heartbeat = new HeartbeatService();
-  heartbeat.start();
+  const workspaceHeartbeat = new WorkspaceHeartbeatService();
+  workspaceHeartbeat.start();
 
-  const agentHeartbeat = new AgentHeartbeatService({
+  const heartbeat = new HeartbeatService({
     processMessage: (conversationId, content) =>
       server.processMessage(conversationId, content),
     alerter: (alert) => server.broadcast(alert),
   });
-  agentHeartbeat.start();
+  heartbeat.start();
 
   installShutdownHandlers({
     server,
+    workspaceHeartbeat,
     heartbeat,
-    agentHeartbeat,
     hookManager,
     runtimeHttp,
     scheduler,

@@ -1,10 +1,11 @@
 import { describe, expect, test } from 'bun:test';
+
 import {
-  TERMINAL_STATUSES,
   SUBAGENT_LIMITS,
-  type SubagentStatus,
   type SubagentConfig,
   type SubagentState,
+  type SubagentStatus,
+  TERMINAL_STATUSES,
 } from '../subagent/types.js';
 
 describe('SubagentStatus terminal states', () => {

@@ -84,11 +84,13 @@ export interface ChannelReadinessRequest {
 
 export interface GuardianVerificationRequest {
   type: 'guardian_verification';
-  action: 'create_challenge' | 'status' | 'revoke';
+  action: 'create_challenge' | 'status' | 'revoke' | 'start_outbound' | 'resend_outbound' | 'cancel_outbound';
   channel?: ChannelId;  // Defaults to 'telegram'
   sessionId?: string;
   assistantId?: string;  // Defaults to 'self'
   rebind?: boolean;  // When true, allows creating a challenge even if a binding already exists
+  /** E.164 phone number for SMS/voice, Telegram handle/chat-id. Used by outbound actions. */
+  destination?: string;
 }
 
 export interface TwitterAuthStartRequest {
@@ -111,6 +113,12 @@ export interface IntegrationConnectRequest {
 export interface IntegrationDisconnectRequest {
   type: 'integration_disconnect';
   integrationId: string;
+}
+
+export interface OAuthConnectStartRequest {
+  type: 'oauth_connect_start';
+  service: string;
+  requestedScopes?: string[];
 }
 
 export interface LinkOpenRequest {
@@ -188,6 +196,7 @@ export interface TwilioConfigResponse {
   warning?: string;
   compliance?: {
     numberType?: string;
+    tollfreePhoneNumberSid?: string;
     verificationSid?: string;
     verificationStatus?: string;
     rejectionReason?: string;
@@ -253,6 +262,16 @@ export interface GuardianVerificationResponse {
   error?: string;
   /** Human-readable error detail (e.g. for already_bound failures). */
   message?: string;
+  /** Session ID for outbound verification flows. */
+  verificationSessionId?: string;
+  /** Epoch ms when the verification session expires. */
+  expiresAt?: number;
+  /** Epoch ms after which a resend is allowed. */
+  nextResendAt?: number;
+  /** Number of SMS sends for this session. */
+  sendCount?: number;
+  /** Telegram deep-link URL for bootstrap (M3 placeholder). */
+  telegramBootstrapUrl?: string;
 }
 
 export interface TwitterAuthResult {
@@ -293,8 +312,53 @@ export interface IntegrationConnectResult {
   setupHint?: string;
 }
 
+export interface OAuthConnectResultResponse {
+  type: 'oauth_connect_result';
+  success: boolean;
+  grantedScopes?: string[];
+  accountInfo?: string;
+  error?: string;
+}
+
 export interface OpenUrl {
   type: 'open_url';
   url: string;
   title?: string;
 }
+
+// --- Domain-level union aliases (consumed by the barrel file) ---
+
+export type _IntegrationsClientMessages =
+  | SlackWebhookConfigRequest
+  | IngressConfigRequest
+  | PlatformConfigRequest
+  | VercelApiConfigRequest
+  | TwitterIntegrationConfigRequest
+  | TelegramConfigRequest
+  | TwilioConfigRequest
+  | ChannelReadinessRequest
+  | GuardianVerificationRequest
+  | TwitterAuthStartRequest
+  | TwitterAuthStatusRequest
+  | IntegrationListRequest
+  | IntegrationConnectRequest
+  | IntegrationDisconnectRequest
+  | OAuthConnectStartRequest
+  | LinkOpenRequest;
+
+export type _IntegrationsServerMessages =
+  | SlackWebhookConfigResponse
+  | IngressConfigResponse
+  | PlatformConfigResponse
+  | VercelApiConfigResponse
+  | TwitterIntegrationConfigResponse
+  | TelegramConfigResponse
+  | TwilioConfigResponse
+  | ChannelReadinessResponse
+  | GuardianVerificationResponse
+  | TwitterAuthResult
+  | TwitterAuthStatusResponse
+  | IntegrationListResponse
+  | IntegrationConnectResult
+  | OAuthConnectResultResponse
+  | OpenUrl;

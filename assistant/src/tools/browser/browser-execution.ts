@@ -1,27 +1,27 @@
-import type { ToolContext, ToolExecutionResult } from '../types.js';
 import type { ImageContent } from '../../providers/types.js';
 import { getLogger } from '../../util/logger.js';
 import { truncate } from '../../util/truncate.js';
+import { credentialBroker } from '../credentials/broker.js';
 import {
-  parseUrl,
   isPrivateOrLocalHost,
+  parseUrl,
   resolveHostAddresses,
   resolveRequestAddress,
   sanitizeUrlForOutput,
 } from '../network/url-safety.js';
-import { browserManager } from './browser-manager.js';
-import type { RouteHandler, PageResponse } from './browser-manager.js';
+import type { ToolContext, ToolExecutionResult } from '../types.js';
 import { detectAuthChallenge, detectCaptchaChallenge, formatAuthChallenge } from './auth-detector.js';
-import { credentialBroker } from '../credentials/broker.js';
+import type { PageResponse,RouteHandler } from './browser-manager.js';
+import { browserManager } from './browser-manager.js';
 import {
   ensureScreencast,
-  updateBrowserStatus,
-  updatePagesList,
-  stopBrowserScreencast,
-  stopAllScreencasts,
-  getSender,
   getElementBounds,
+  getSender,
+  stopAllScreencasts,
+  stopBrowserScreencast,
+  updateBrowserStatus,
   updateHighlights,
+  updatePagesList,
 } from './browser-screencast.js';
 
 const log = getLogger('headless-browser');

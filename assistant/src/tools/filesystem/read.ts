@@ -1,9 +1,9 @@
 import { RiskLevel } from '../../permissions/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
 import { FileSystemOps } from '../shared/filesystem/file-ops-service.js';
 import { sandboxPolicy } from '../shared/filesystem/path-policy.js';
+import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 
 class FileReadTool implements Tool {
   name = 'file_read';

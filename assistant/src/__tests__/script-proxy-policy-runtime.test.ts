@@ -1,8 +1,10 @@
-import { describe, test, expect, afterEach, mock } from 'bun:test';
-import { createServer, type Server, request as httpRequest } from 'node:http';
+import { createServer, request as httpRequest,type Server } from 'node:http';
+
+import { afterEach, describe, expect, mock,test } from 'bun:test';
+
+import type { CredentialMetadata } from '../tools/credentials/metadata-store.js';
 import type { CredentialInjectionTemplate } from '../tools/credentials/policy-types.js';
 import type { ResolvedCredential } from '../tools/credentials/resolve.js';
-import type { CredentialMetadata } from '../tools/credentials/metadata-store.js';
 import type { ProxyApprovalCallback } from '../tools/network/script-proxy/types.js';
 
 // ── Mocks ────────────────────────────────────────────────────────────
@@ -29,8 +31,8 @@ mock.module('../tools/network/script-proxy/certs.js', () => ({
 import {
   createSession,
   startSession,
-  stopSession,
   stopAllSessions,
+  stopSession,
 } from '../tools/network/script-proxy/index.js';
 
 let upstreamServer: Server | null = null;

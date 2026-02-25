@@ -1,3 +1,8 @@
+---
+name: "Knowledge Graph"
+description: "Query the entity knowledge graph to explore relationships between people, projects, tools, and other entities tracked in memory"
+---
+
 # Knowledge Graph
 
 Query the entity knowledge graph to explore relationships between people, projects, tools, and other entities tracked in memory.

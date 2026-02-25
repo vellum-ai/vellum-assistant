@@ -6,38 +6,40 @@
  */
 
 import * as net from 'node:net';
+
 import { Command } from 'commander';
+
 import {
-  loadSession,
-  saveSession,
-  importFromRecording,
-  clearSession,
-} from '../amazon/session.js';
+  addToCart,
+  getCheckoutSummary,
+  getFreshDeliverySlots,
+  getPaymentMethods,
+  getProductDetails,
+  placeOrder,
+  removeFromCart,
+  search,
+  selectFreshDeliverySlot,
+  SessionExpiredError,
+  viewCart,
+} from '../amazon/client.js';
 import {
   extractRequests,
   saveRequests,
 } from '../amazon/request-extractor.js';
 import {
+  clearSession,
+  importFromRecording,
+  loadSession,
+  saveSession,
+} from '../amazon/session.js';
+import {
+  createMessageParser,
+  serialize,
+} from '../daemon/ipc-protocol.js';
+import {
   loadRecording,
 } from '../tools/browser/recording-store.js';
-import {
-  search,
-  getProductDetails,
-  addToCart,
-  removeFromCart,
-  viewCart,
-  getFreshDeliverySlots,
-  selectFreshDeliverySlot,
-  getPaymentMethods,
-  getCheckoutSummary,
-  placeOrder,
-  SessionExpiredError,
-} from '../amazon/client.js';
 import { getSocketPath, readSessionToken } from '../util/platform.js';
-import {
-  serialize,
-  createMessageParser,
-} from '../daemon/ipc-protocol.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -452,11 +454,11 @@ export function registerAmazonCommand(program: Command): void {
 // Chrome CDP restart helper
 // ---------------------------------------------------------------------------
 
-import { spawn as spawnChild, execSync } from 'node:child_process';
+import { execSync,spawn as spawnChild } from 'node:child_process';
+import * as crypto from 'node:crypto';
+import { copyFileSync, existsSync as fileExists,unlinkSync as unlinkFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join as pathJoin } from 'node:path';
-import { copyFileSync, unlinkSync as unlinkFileSync, existsSync as fileExists } from 'node:fs';
-import * as crypto from 'node:crypto';
 
 const CDP_BASE = 'http://localhost:9222';
 const CHROME_DATA_DIR = pathJoin(

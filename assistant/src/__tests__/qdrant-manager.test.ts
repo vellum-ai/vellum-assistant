@@ -1,6 +1,7 @@
-import { describe, test, expect, beforeEach, mock, afterEach } from 'bun:test';
-import { existsSync, mkdirSync, writeFileSync, readFileSync, rmSync, chmodSync } from 'node:fs';
+import { chmodSync,existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+
+import { afterEach,beforeEach, describe, expect, mock, test } from 'bun:test';
 
 const testDataDir = '/tmp/qdrant-manager-test-' + process.pid;
 

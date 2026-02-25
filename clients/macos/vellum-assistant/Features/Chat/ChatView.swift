@@ -53,7 +53,7 @@ struct ChatView: View {
     var activeSubagents: [SubagentInfo] = []
     var onAbortSubagent: ((String) -> Void)?
     var onSubagentTap: ((String) -> Void)?
-    var subagentDetailStore: SubagentDetailStore?
+    @ObservedObject var subagentDetailStore: SubagentDetailStore
     var daemonHttpPort: Int?
     var isHistoryLoaded: Bool = true
     var dismissedDocumentSurfaceIds: Set<String> = []
@@ -61,6 +61,7 @@ struct ChatView: View {
     var isMemoryDegraded: Bool = false
     var memoryDegradedReason: String? = nil
     var connectionDiagnosticHint: String? = nil
+    var threadId: UUID?
 
     @State private var isNearBottom = true
     @State private var isDropTargeted = false
@@ -172,6 +173,7 @@ struct ChatView: View {
                             onAbortSubagent: onAbortSubagent,
                             onSubagentTap: onSubagentTap,
                             subagentDetailStore: subagentDetailStore,
+                            threadId: threadId,
                             isNearBottom: $isNearBottom
                         )
                         .safeAreaInset(edge: .bottom) {

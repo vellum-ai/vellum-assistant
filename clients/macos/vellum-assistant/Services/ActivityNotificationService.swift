@@ -85,6 +85,34 @@ public final class ActivityNotificationService: ActivityNotificationServiceProto
         }
     }
 
+    /// Sends a notification when a quick input response completes.
+    /// Only sends if the app is not active and notification permissions are granted.
+    public func notifyQuickInputComplete(summary: String) async {
+        // Check if app is in background
+        guard !NSApp.isActive else { return }
+
+        // Check notification permissions
+        let center = UNUserNotificationCenter.current()
+        let settings = await center.notificationSettings()
+        guard settings.authorizationStatus == .authorized else { return }
+
+        let content = UNMutableNotificationContent()
+        // Use first line of summary, truncated
+        let firstLine = summary.components(separatedBy: .newlines).first ?? summary
+        let truncated = firstLine.count > 100 ? String(firstLine.prefix(100)) + "…" : firstLine
+        content.title = "Vellum"
+        content.body = truncated.isEmpty ? "Response complete" : truncated
+        content.sound = .default
+        content.userInfo = ["type": "quick_input_complete"]
+
+        let request = UNNotificationRequest(
+            identifier: UUID().uuidString,
+            content: content,
+            trigger: nil
+        )
+        try? await center.add(request)
+    }
+
     // MARK: - Private Helpers
 
     private func formatTitle(summary: String, steps: Int) -> String {

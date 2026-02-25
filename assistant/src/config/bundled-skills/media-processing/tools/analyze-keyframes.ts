@@ -1,11 +1,12 @@
-import { join, dirname } from 'node:path';
 import { readFile } from 'node:fs/promises';
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
+import { dirname,join } from 'node:path';
+
 import { getConfig } from '../../../../config/loader.js';
 import {
   getMediaAssetById,
 } from '../../../../memory/media-store.js';
-import { mapSegments, type MapOutput } from '../services/gemini-map.js';
+import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
+import { type MapOutput,mapSegments } from '../services/gemini-map.js';
 import type { PreprocessManifest } from '../services/preprocess.js';
 
 // ---------------------------------------------------------------------------

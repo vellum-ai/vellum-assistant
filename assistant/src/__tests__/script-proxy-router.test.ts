@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
-import { routeConnection, type RouteDecision } from '../tools/network/script-proxy/router.js';
+
 import type { CredentialInjectionTemplate } from '../tools/credentials/policy-types.js';
+import { routeConnection, type RouteDecision } from '../tools/network/script-proxy/router.js';
 
 function headerTemplate(
   hostPattern: string,

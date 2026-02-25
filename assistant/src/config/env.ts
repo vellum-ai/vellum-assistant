@@ -15,7 +15,7 @@
  */
 
 import { getLogger } from '../util/logger.js';
-import { getEnableMonitoring, checkUnrecognizedEnvVars } from './env-registry.js';
+import { checkUnrecognizedEnvVars,getEnableMonitoring } from './env-registry.js';
 
 const log = getLogger('env');
 

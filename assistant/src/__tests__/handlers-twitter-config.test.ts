@@ -1,8 +1,9 @@
-import { describe, test, expect, mock, beforeEach } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
+import * as net from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import * as net from 'node:net';
+
+import { beforeEach,describe, expect, mock, test } from 'bun:test';
 
 const testDir = mkdtempSync(join(tmpdir(), 'handlers-twitter-cfg-test-'));
 
@@ -112,8 +113,8 @@ mock.module('../tools/credentials/metadata-store.js', () => ({
 
 import { handleMessage, type HandlerContext } from '../daemon/handlers.js';
 import type {
-  TwitterIntegrationConfigRequest,
   ServerMessage,
+  TwitterIntegrationConfigRequest,
 } from '../daemon/ipc-contract.js';
 import { DebouncerMap } from '../util/debounce.js';
 

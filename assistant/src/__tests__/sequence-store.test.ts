@@ -1,7 +1,8 @@
-import { describe, test, expect, beforeEach, afterAll } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll,beforeEach, describe, expect, test } from 'bun:test';
 import { mock } from 'bun:test';
 
 const testDir = mkdtempSync(join(tmpdir(), 'sequence-store-test-'));
@@ -28,22 +29,22 @@ mock.module('../util/logger.js', () => ({
   truncateForLog: (value: string) => value,
 }));
 
-import { initializeDb, getDb, resetDb } from '../memory/db.js';
-import { sequences, sequenceEnrollments } from '../memory/schema.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
+import { sequenceEnrollments,sequences } from '../memory/schema.js';
 import {
+  advanceEnrollment,
+  claimDueEnrollments,
+  countActiveEnrollments,
   createSequence,
-  getSequence,
-  listSequences,
-  updateSequence,
   deleteSequence,
   enrollContact,
-  getEnrollment,
-  listEnrollments,
-  claimDueEnrollments,
-  advanceEnrollment,
   exitEnrollment,
   findActiveEnrollmentsByEmail,
-  countActiveEnrollments,
+  getEnrollment,
+  getSequence,
+  listEnrollments,
+  listSequences,
+  updateSequence,
 } from '../sequence/store.js';
 import type { SequenceStep } from '../sequence/types.js';
 

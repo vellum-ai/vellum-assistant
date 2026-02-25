@@ -1,11 +1,13 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, chmodSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { v4 as uuid } from 'uuid';
+import { chmodSync,existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { dirname,join } from 'node:path';
+
 import { Minimatch } from 'minimatch';
-import { getRootDir } from '../util/platform.js';
+import { v4 as uuid } from 'uuid';
+
 import { getLogger } from '../util/logger.js';
+import { getRootDir } from '../util/platform.js';
 import { getDefaultRuleTemplates } from './defaults.js';
-import type { TrustRule, PolicyContext } from './types.js';
+import type { PolicyContext,TrustRule } from './types.js';
 
 const log = getLogger('trust-store');
 

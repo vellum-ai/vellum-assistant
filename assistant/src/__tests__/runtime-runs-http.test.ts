@@ -4,10 +4,12 @@
  * Tests POST /runs, GET /runs/:id, and POST /runs/:id/decision
  * through RuntimeHttpServer with a real RunOrchestrator instance.
  */
-import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
-import { mkdtempSync, rmSync, realpathSync } from 'node:fs';
+import { mkdtempSync, realpathSync,rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, beforeEach, describe, expect, mock,test } from 'bun:test';
+
 import type { ServerMessage } from '../daemon/ipc-protocol.js';
 import type { Session } from '../daemon/session.js';
 
@@ -43,7 +45,7 @@ mock.module('../config/loader.js', () => ({
   }),
 }));
 
-import { initializeDb, getDb, resetDb } from '../memory/db.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { RuntimeHttpServer } from '../runtime/http-server.js';
 import { RunOrchestrator } from '../runtime/run-orchestrator.js';
 

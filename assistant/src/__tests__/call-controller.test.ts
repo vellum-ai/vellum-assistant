@@ -1,7 +1,8 @@
-import { describe, test, expect, beforeEach, afterAll, mock, type Mock } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, beforeEach, describe, expect, type Mock,mock, test } from 'bun:test';
 
 const testDir = mkdtempSync(join(tmpdir(), 'call-controller-test-'));
 
@@ -101,7 +102,7 @@ function createMockVoiceTurn(tokens: string[]) {
   };
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 let mockStartVoiceTurn: Mock<any>;
 
 mock.module('../calls/voice-session-bridge.js', () => {
@@ -114,20 +115,20 @@ mock.module('../calls/voice-session-bridge.js', () => {
 
 // ── Import source modules after all mocks are registered ────────────
 
-import { initializeDb, getDb, resetDb } from '../memory/db.js';
-import { conversations } from '../memory/schema.js';
-import {
-  createCallSession,
-  getCallSession,
-  getCallEvents,
-  getPendingQuestion,
-  updateCallSession,
-} from '../calls/call-store.js';
+import { CallController } from '../calls/call-controller.js';
 import {
   getCallController,
 } from '../calls/call-state.js';
-import { CallController } from '../calls/call-controller.js';
+import {
+  createCallSession,
+  getCallEvents,
+  getCallSession,
+  getPendingQuestion,
+  updateCallSession,
+} from '../calls/call-store.js';
 import type { RelayConnection } from '../calls/relay-server.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
+import { conversations } from '../memory/schema.js';
 
 initializeDb();
 

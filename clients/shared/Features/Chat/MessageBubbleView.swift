@@ -104,7 +104,7 @@ public struct MessageBubbleView: View {
 
                 // Streaming indicator
                 if message.isStreaming {
-                    TimelineView(.animation(minimumInterval: 0.05)) { context in
+                    TimelineView(.animation(minimumInterval: 0.2)) { context in
                         HStack(spacing: VSpacing.xs) {
                             ForEach(0..<3, id: \.self) { index in
                                 Circle()

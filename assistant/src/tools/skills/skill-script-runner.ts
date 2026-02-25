@@ -1,9 +1,10 @@
-import type { ToolExecutionResult, ToolContext, ExecutionTarget } from '../types.js';
-import type { SkillToolScript } from './script-contract.js';
 import { basename, join, resolve } from 'node:path';
-import { runSkillToolScriptSandbox } from './sandbox-runner.js';
-import { computeSkillVersionHash } from '../../skills/version-hash.js';
+
 import { bundledToolRegistry } from '../../config/bundled-tool-registry.js';
+import { computeSkillVersionHash } from '../../skills/version-hash.js';
+import type { ExecutionTarget,ToolContext, ToolExecutionResult } from '../types.js';
+import { runSkillToolScriptSandbox } from './sandbox-runner.js';
+import type { SkillToolScript } from './script-contract.js';
 
 export interface RunSkillToolScriptOptions {
   /** Where to execute: 'host' runs in-process, 'sandbox' runs in an isolated subprocess. */

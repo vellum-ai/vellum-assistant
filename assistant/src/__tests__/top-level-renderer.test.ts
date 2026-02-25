@@ -1,4 +1,5 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, expect,test } from 'bun:test';
+
 import { renderWorkspaceTopLevelContext } from '../workspace/top-level-renderer.js';
 import type { TopLevelSnapshot } from '../workspace/top-level-scanner.js';
 

@@ -1,12 +1,13 @@
 import { spawn } from 'node:child_process';
-import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
-import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { ToolExecutionResult, ToolContext } from '../types.js';
+import { mkdirSync, rmSync,writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+
 import { getConfig } from '../../config/loader.js';
-import { wrapCommand } from '../terminal/sandbox.js';
-import { buildSanitizedEnv } from '../terminal/safe-env.js';
 import { computeSkillVersionHash } from '../../skills/version-hash.js';
+import { buildSanitizedEnv } from '../terminal/safe-env.js';
+import { wrapCommand } from '../terminal/sandbox.js';
+import type { ToolContext,ToolExecutionResult } from '../types.js';
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_OUTPUT_CHARS = 50_000;
@@ -53,8 +54,7 @@ try {
 /**
  * Execute a skill tool script in a sandboxed subprocess.
  *
- * Follows the same subprocess isolation pattern used by the
- * evaluate_typescript_code tool: writes a runner script to a temp dir,
+ * Follows a subprocess isolation pattern: writes a runner script to a temp dir,
  * spawns it via the sandbox backend, passes input through env vars,
  * and reads a structured JSON result from stdout.
  */
@@ -225,7 +225,7 @@ function spawnRunner(
 
 /**
  * Scan stdout for the last occurrence of our structured result marker.
- * Uses the same backward-scanning approach as evaluate-typescript.
+ * Uses a backward-scanning approach to find the last valid result line.
  */
 function parseSkillResult(stdout: string, executorPath: string): ToolExecutionResult | null {
   let searchFrom = stdout.length;
