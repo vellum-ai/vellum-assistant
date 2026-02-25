@@ -4482,13 +4482,13 @@ describe('Memory regressions', () => {
     expect(validUnverified.success).toBe(true);
   });
 
-  test('provenanceFromGuardianContext returns guardian default when no context', () => {
+  test('provenanceFromGuardianContext returns unverified_channel default when no context', () => {
     const result = provenanceFromGuardianContext(null);
-    expect(result.provenanceActorRole).toBe('guardian');
+    expect(result.provenanceActorRole).toBe('unverified_channel');
     expect(result.provenanceSourceChannel).toBeUndefined();
 
     const result2 = provenanceFromGuardianContext(undefined);
-    expect(result2.provenanceActorRole).toBe('guardian');
+    expect(result2.provenanceActorRole).toBe('unverified_channel');
   });
 
   test('provenanceFromGuardianContext extracts fields from guardian context', () => {

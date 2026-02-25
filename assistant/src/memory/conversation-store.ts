@@ -44,11 +44,12 @@ export type MessageMetadata = z.infer<typeof messageMetadataSchema>;
 
 /**
  * Extract provenance metadata fields from a GuardianRuntimeContext.
- * When no guardian context is provided (e.g. daemon UI), defaults to
- * guardian actor role since the macOS/iOS app user is the guardian.
+ * When no guardian context is provided, defaults to 'unverified_channel'
+ * because the absence of guardian context means we cannot verify trust —
+ * callers with actual guardian trust should always supply a real context.
  */
 export function provenanceFromGuardianContext(ctx: GuardianRuntimeContext | null | undefined): Record<string, unknown> {
-  if (!ctx) return { provenanceActorRole: 'guardian' };
+  if (!ctx) return { provenanceActorRole: 'unverified_channel' };
   return {
     provenanceActorRole: ctx.actorRole,
     provenanceSourceChannel: ctx.sourceChannel,
