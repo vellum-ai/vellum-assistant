@@ -480,6 +480,7 @@ async function executeDeny(
 
   // Store a system note about the denial in the conversation
   addMessage(conversationId, 'assistant', denialText, {
+    provenanceActorRole: 'guardian' as const,
     userMessageChannel: sourceChannel,
     assistantMessageChannel: sourceChannel,
   });
@@ -514,9 +515,12 @@ export function handleAssistantInboxReply(
       conversationId,
       'assistant',
       content,
-      bindingChannel
-        ? { userMessageChannel: bindingChannel, assistantMessageChannel: bindingChannel }
-        : undefined,
+      {
+        provenanceActorRole: 'guardian' as const,
+        ...(bindingChannel
+          ? { userMessageChannel: bindingChannel, assistantMessageChannel: bindingChannel }
+          : {}),
+      },
     );
 
     // Update thread activity timestamps (resets unread count, updates last_outbound_at)

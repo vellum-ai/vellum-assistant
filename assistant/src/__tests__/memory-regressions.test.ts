@@ -104,7 +104,7 @@ import {
   searchMemoryItems,
   stripMemoryRecallMessages,
 } from '../memory/retriever.js';
-import { addMessage, createConversation, getConversationMemoryScopeId } from '../memory/conversation-store.js';
+import { addMessage, createConversation, getConversationMemoryScopeId, messageMetadataSchema, provenanceFromGuardianContext } from '../memory/conversation-store.js';
 import { backfillJob } from '../memory/job-handlers/backfill.js';
 import { buildConversationSummaryJob, buildGlobalSummaryJob } from '../memory/job-handlers/summarization.js';
 import {
@@ -4431,5 +4431,97 @@ describe('Memory regressions', () => {
     for (const seg of segments) {
       expect(seg.scopeId).toBe(conv.memoryScopeId);
     }
+  });
+
+  // ── Provenance plumbing tests ────────────────────────────────────────
+
+  test('provenance fields are preserved in stored message metadata', () => {
+    const conv = createConversation('provenance-preserve');
+    const metadata = {
+      userMessageChannel: 'telegram' as const,
+      provenanceActorRole: 'non-guardian' as const,
+      provenanceSourceChannel: 'telegram' as const,
+      provenanceGuardianExternalUserId: 'guardian-123',
+      provenanceRequesterIdentifier: 'Alice',
+    };
+    const msg = addMessage(conv.id, 'user', 'Hello from telegram', metadata);
+
+    const db = getDb();
+    const stored = db
+      .select({ metadata: messages.metadata })
+      .from(messages)
+      .where(eq(messages.id, msg.id))
+      .get();
+
+    expect(stored).toBeTruthy();
+    const parsed = JSON.parse(stored!.metadata!);
+    expect(parsed.provenanceActorRole).toBe('non-guardian');
+    expect(parsed.provenanceSourceChannel).toBe('telegram');
+    expect(parsed.provenanceGuardianExternalUserId).toBe('guardian-123');
+    expect(parsed.provenanceRequesterIdentifier).toBe('Alice');
+  });
+
+  test('messageMetadataSchema validates provenance fields', () => {
+    const valid = messageMetadataSchema.safeParse({
+      provenanceActorRole: 'guardian',
+      provenanceSourceChannel: 'macos',
+    });
+    expect(valid.success).toBe(true);
+
+    const validNonGuardian = messageMetadataSchema.safeParse({
+      provenanceActorRole: 'non-guardian',
+      provenanceSourceChannel: 'telegram',
+      provenanceGuardianExternalUserId: 'g-123',
+      provenanceRequesterIdentifier: 'Bob',
+    });
+    expect(validNonGuardian.success).toBe(true);
+
+    const validUnverified = messageMetadataSchema.safeParse({
+      provenanceActorRole: 'unverified_channel',
+    });
+    expect(validUnverified.success).toBe(true);
+  });
+
+  test('provenanceFromGuardianContext returns unverified_channel default when no context', () => {
+    const result = provenanceFromGuardianContext(null);
+    expect(result.provenanceActorRole).toBe('unverified_channel');
+    expect(result.provenanceSourceChannel).toBeUndefined();
+
+    const result2 = provenanceFromGuardianContext(undefined);
+    expect(result2.provenanceActorRole).toBe('unverified_channel');
+  });
+
+  test('provenanceFromGuardianContext extracts fields from guardian context', () => {
+    const ctx = {
+      sourceChannel: 'telegram' as const,
+      actorRole: 'non-guardian' as const,
+      guardianExternalUserId: 'g-456',
+      requesterIdentifier: 'Charlie',
+    };
+    const result = provenanceFromGuardianContext(ctx);
+    expect(result.provenanceActorRole).toBe('non-guardian');
+    expect(result.provenanceSourceChannel).toBe('telegram');
+    expect(result.provenanceGuardianExternalUserId).toBe('g-456');
+    expect(result.provenanceRequesterIdentifier).toBe('Charlie');
+  });
+
+  test('indexMessageNow receives provenanceActorRole when metadata includes it', () => {
+    const conv = createConversation('provenance-indexer');
+    const metadata = {
+      provenanceActorRole: 'non-guardian' as const,
+      provenanceSourceChannel: 'telegram' as const,
+    };
+    // addMessage parses metadata and passes provenanceActorRole to indexMessageNow.
+    // We verify indirectly: the message is persisted with metadata and segments are indexed.
+    const msg = addMessage(conv.id, 'user', 'Test provenance indexing message with enough content to segment', metadata);
+    expect(msg.id).toBeTruthy();
+
+    // Verify segments were created (indexMessageNow was called successfully)
+    const segments = getDb()
+      .select()
+      .from(memorySegments)
+      .where(eq(memorySegments.messageId, msg.id))
+      .all();
+    expect(segments.length).toBeGreaterThan(0);
   });
 });

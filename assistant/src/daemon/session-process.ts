@@ -10,12 +10,14 @@ import type { Message } from '../providers/types.js';
 import type { TurnChannelContext } from '../channels/types.js';
 import { parseChannelId } from '../channels/types.js';
 import type { ServerMessage, UserMessageAttachment } from './ipc-protocol.js';
+import type { GuardianRuntimeContext } from './session-runtime-assembly.js';
 import type { UsageStats } from './ipc-contract.js';
 import type { MessageQueue } from './session-queue-manager.js';
 import type { QueueDrainReason } from './session-queue-manager.js';
 import type { TraceEmitter } from './trace-emitter.js';
 import { createUserMessage, createAssistantMessage } from '../agent/message-types.js';
 import * as conversationStore from '../memory/conversation-store.js';
+import { provenanceFromGuardianContext } from '../memory/conversation-store.js';
 import {
   getPendingDeliveryByConversation,
   getGuardianActionRequest,
@@ -72,6 +74,7 @@ export interface ProcessSessionContext {
   preactivatedSkillIds?: string[];
   /** Assistant identity — used for scoping notification preferences. */
   readonly assistantId?: string;
+  guardianContext?: GuardianRuntimeContext;
   persistUserMessage(content: string, attachments: UserMessageAttachment[], requestId?: string, metadata?: Record<string, unknown>): string;
   runAgentLoop(
     content: string,
@@ -154,9 +157,13 @@ export function drainQueue(session: ProcessSessionContext, reason: QueueDrainRea
   // failed write never leaves an unpersisted message in memory.
   if (slashResult.kind === 'unknown') {
     try {
-      const drainChannelMeta = queuedTurnCtx
-        ? { userMessageChannel: queuedTurnCtx.userMessageChannel, assistantMessageChannel: queuedTurnCtx.assistantMessageChannel }
-        : undefined;
+      const drainProvenance = provenanceFromGuardianContext(session.guardianContext);
+      const drainChannelMeta = {
+        ...drainProvenance,
+        ...(queuedTurnCtx
+          ? { userMessageChannel: queuedTurnCtx.userMessageChannel, assistantMessageChannel: queuedTurnCtx.assistantMessageChannel }
+          : {}),
+      };
       const userMsg = createUserMessage(next.content, next.attachments);
       conversationStore.addMessage(
         session.conversationId,
@@ -293,7 +300,7 @@ export async function processMessage(
   if (guardianDelivery) {
     const guardianRequest = getGuardianActionRequest(guardianDelivery.requestId);
     if (guardianRequest && guardianRequest.status === 'pending') {
-      const guardianChannelMeta = { userMessageChannel: 'vellum' as const, assistantMessageChannel: 'vellum' as const };
+      const guardianChannelMeta = { userMessageChannel: 'vellum' as const, assistantMessageChannel: 'vellum' as const, provenanceActorRole: 'guardian' as const };
       const userMsg = createUserMessage(content, attachments);
       const persisted = conversationStore.addMessage(
         session.conversationId,
@@ -349,9 +356,13 @@ export async function processMessage(
   // so that a failed write never leaves an unpersisted message in memory.
   if (slashResult.kind === 'unknown') {
     const pmTurnCtx = session.getTurnChannelContext();
-    const pmChannelMeta = pmTurnCtx
-      ? { userMessageChannel: pmTurnCtx.userMessageChannel, assistantMessageChannel: pmTurnCtx.assistantMessageChannel }
-      : undefined;
+    const pmProvenance = provenanceFromGuardianContext(session.guardianContext);
+    const pmChannelMeta = {
+      ...pmProvenance,
+      ...(pmTurnCtx
+        ? { userMessageChannel: pmTurnCtx.userMessageChannel, assistantMessageChannel: pmTurnCtx.assistantMessageChannel }
+        : {}),
+    };
     const userMsg = createUserMessage(content, attachments);
     const persisted = conversationStore.addMessage(
       session.conversationId,
