@@ -1060,6 +1060,10 @@ public final class ChatViewModel: ObservableObject {
             return
         }
 
+        // Flush any buffered streaming text so already-received tokens are
+        // visible before we set isCancelling (which suppresses future deltas).
+        flushStreamingBuffer()
+
         // Set cancelling flag so late-arriving deltas are suppressed.
         // isSending stays true until the daemon acknowledges the cancel
         // (via generation_cancelled or message_complete) to prevent the
