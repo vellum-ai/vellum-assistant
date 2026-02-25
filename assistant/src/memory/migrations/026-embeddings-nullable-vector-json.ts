@@ -1,4 +1,4 @@
-import { getSqliteFrom, type DrizzleDb } from '../db-connection.js';
+import { type DrizzleDb, getSqliteFrom } from '../db-connection.js';
 
 /**
  * Rebuild memory_embeddings to make vector_json nullable.
@@ -54,11 +54,12 @@ export function migrateEmbeddingsNullableVectorJson(database: DrizzleDb): void {
         vector_blob BLOB,
         content_hash TEXT,
         created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
+        updated_at INTEGER NOT NULL,
+        UNIQUE (target_type, target_id, provider, model)
       )
     `);
     raw.exec(/*sql*/ `
-      INSERT INTO memory_embeddings_new (
+      INSERT OR IGNORE INTO memory_embeddings_new (
         id, target_type, target_id, provider, model, dimensions,
         vector_json, vector_blob, content_hash, created_at, updated_at
       )
@@ -69,6 +70,10 @@ export function migrateEmbeddingsNullableVectorJson(database: DrizzleDb): void {
     `);
     raw.exec(/*sql*/ `DROP TABLE memory_embeddings`);
     raw.exec(/*sql*/ `ALTER TABLE memory_embeddings_new RENAME TO memory_embeddings`);
+
+    // Recreate indexes destroyed by the DROP TABLE (createCoreIndexes ran earlier)
+    raw.exec(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_embeddings_target_provider_model ON memory_embeddings(target_type, target_id, provider, model)`);
+    raw.exec(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_embeddings_content_hash ON memory_embeddings(content_hash, provider, model)`);
 
     raw.query(
       `INSERT OR IGNORE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
