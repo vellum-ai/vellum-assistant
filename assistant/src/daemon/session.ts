@@ -18,13 +18,23 @@
 import type { Message } from '../providers/types.js';
 import type { TurnChannelContext, TurnInterfaceContext } from '../channels/types.js';
 import type { ServerMessage, UsageStats, UserMessageAttachment, SurfaceType, SurfaceData } from './ipc-protocol.js';
-import { AgentLoop } from '../agent/loop.js';
+import { AgentLoop, type ResolvedSystemPrompt } from '../agent/loop.js';
 import type { Provider } from '../providers/types.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
 import { SecretPrompter } from '../permissions/secret-prompter.js';
 import { ToolExecutor } from '../tools/executor.js';
 import type { UserDecision } from '../permissions/types.js';
 import { getConfig } from '../config/loader.js';
+import { buildSystemPrompt } from '../config/system-prompt.js';
+import {
+  classifyResponseTier,
+  classifyResponseTierDetailed,
+  resolveWithHint,
+  classifyResponseTierAsync,
+  tierMaxTokens,
+  tierModel,
+  type SessionTierHint,
+} from './response-tier.js';
 import { TraceEmitter } from './trace-emitter.js';
 import { EventBus } from '../events/bus.js';
 import type { AssistantDomainEvents } from '../events/domain-events.js';
@@ -203,6 +213,101 @@ export class Session {
     this.streamThinking = config.thinking.streamThinking ?? false;
     const resolveTools = createResolveToolsCallback(toolDefs, this);
 
+    const configuredMaxTokens = maxTokens;
+    // When a systemPromptOverride was provided, skip tier-based prompt
+    // rebuilding and use the override as-is — only scale maxTokens and model.
+    const hasSystemPromptOverride = systemPrompt !== buildSystemPrompt();
+
+    // Known runtime-injected XML context block prefixes. Using an explicit
+    // list avoids false-positives on user messages that start with HTML/XML.
+    const INJECTED_PREFIXES = [
+      '<channel_capabilities>',
+      '<channel_command_context>',
+      '<channel_turn_context>',
+      '<temporal_context>',
+      '<guardian_context>',
+      '<voice_call_control>',
+      '<workspace_top_level>',
+      '<active_workspace>',
+      '<active_dynamic_page>',
+      '<dynamic-profile-context>',
+      '<memory_recall',
+      '<memory source=',
+      '<memory',
+      '<system_notice>',
+      '<interface_turn_context>',
+    ];
+
+    // Track the last user-message tier so tool-use continuation turns
+    // (where user text is empty — only tool_result blocks) inherit it
+    // instead of falling to 'low'.
+    let lastUserMessageTier: import('./response-tier.js').ResponseTier = 'high';
+    let sessionTierHint: SessionTierHint | null = null;
+    const recentUserTexts: string[] = []; // circular buffer, max 3
+    const MAX_RECENT_TEXTS = 3;
+
+    const resolveSystemPromptCallback = (history: import('../providers/types.js').Message[]): ResolvedSystemPrompt => {
+      // Extract last user message text, ignoring runtime-injected context blocks
+      const lastUserMsg = [...history].reverse().find((m) => m.role === 'user');
+      let userText = '';
+      let isToolResultOnly = false;
+      if (lastUserMsg) {
+        const hasToolResult = lastUserMsg.content.some((b) => b.type === 'tool_result');
+        for (const block of lastUserMsg.content) {
+          if (block.type === 'text') {
+            const trimmed = block.text.trimStart();
+            if (!INJECTED_PREFIXES.some((p) => trimmed.startsWith(p))) {
+              userText += block.text;
+            }
+          }
+        }
+        // Inherit previous tier when there's no real user text — either
+        // tool_result-only messages or system nudges where all text was
+        // filtered out as injected context.
+        isToolResultOnly = userText.trim().length === 0;
+      }
+
+      let tier: import('./response-tier.js').ResponseTier;
+
+      if (isToolResultOnly) {
+        // Tool-use continuation: inherit previous tier
+        tier = lastUserMessageTier;
+      } else {
+        const classification = classifyResponseTierDetailed(userText, this.turnCount);
+        tier = resolveWithHint(classification, sessionTierHint, this.turnCount);
+        lastUserMessageTier = tier;
+
+        // Update recent user texts buffer
+        const trimmedText = userText.trim();
+        if (trimmedText) {
+          if (recentUserTexts.length >= MAX_RECENT_TEXTS) {
+            recentUserTexts.shift();
+          }
+          recentUserTexts.push(trimmedText);
+        }
+
+        // Fire background Haiku classification when confidence is low
+        if (classification.confidence === 'low') {
+          void classifyResponseTierAsync([...recentUserTexts]).then((asyncTier) => {
+            if (asyncTier) {
+              sessionTierHint = {
+                tier: asyncTier,
+                turn: this.turnCount,
+                timestamp: Date.now(),
+              };
+            }
+          });
+        }
+      }
+
+      const model = tierModel(tier, provider.name);
+      return {
+        systemPrompt: hasSystemPromptOverride ? systemPrompt : buildSystemPrompt(tier),
+        maxTokens: tierMaxTokens(tier, configuredMaxTokens),
+        model,
+      };
+    };
+
     this.agentLoop = new AgentLoop(
       provider,
       systemPrompt,
@@ -210,6 +315,7 @@ export class Session {
       toolDefs.length > 0 ? toolDefs : undefined,
       toolDefs.length > 0 ? toolExecutor : undefined,
       resolveTools,
+      resolveSystemPromptCallback,
     );
     this.contextWindowManager = new ContextWindowManager(
       provider,
