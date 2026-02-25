@@ -1,6 +1,7 @@
 import * as net from 'node:net';
 import { existsSync, statSync } from 'node:fs';
 import { basename } from 'node:path';
+import { v4 as uuidv4 } from 'uuid';
 import { getConfig } from '../../config/loader.js';
 import { getFailoverProvider } from '../../providers/registry.js';
 import { RateLimitProvider } from '../../providers/ratelimit.js';
@@ -21,6 +22,9 @@ import { log, defineHandlers, type HandlerContext } from './shared.js';
 
 const cuObservationSequenceBySession = new Map<string, number>();
 
+/** Stores the conversation ID to attach recordings to, keyed by CU session ID. */
+export const cuSessionAttachConversationId = new Map<string, string>();
+
 function removeCuSessionReferences(
   ctx: HandlerContext,
   sessionId: string,
@@ -32,6 +36,7 @@ function removeCuSessionReferences(
   }
   ctx.cuSessions.delete(sessionId);
   cuObservationSequenceBySession.delete(sessionId);
+  cuSessionAttachConversationId.delete(sessionId);
   ctx.cuObservationParseSequence.delete(sessionId);
   for (const [sock, ids] of ctx.socketToCuSession) {
     if (ids.delete(sessionId) && ids.size === 0) {
@@ -92,6 +97,10 @@ export function handleCuSessionCreate(
     ctx.socketToCuSession.set(socket, sessionIds);
   }
   sessionIds.add(msg.sessionId);
+
+  if (msg.attachToConversationId) {
+    cuSessionAttachConversationId.set(msg.sessionId, msg.attachToConversationId);
+  }
 
   log.info({ sessionId: msg.sessionId, taskLength: msg.task.length }, 'Computer-use session created');
 }
@@ -209,9 +218,12 @@ export function handleRecordingStatus(
         return;
       }
 
-      // Find the latest assistant message BEFORE creating the attachment to
-      // avoid orphaned attachment rows when no message exists to link to.
-      const conversationId = msg.sessionId;
+      const conversationId = cuSessionAttachConversationId.get(msg.sessionId);
+      if (!conversationId) {
+        log.warn({ sessionId: msg.sessionId }, 'No attachToConversationId found for session — cannot link recording');
+        return;
+      }
+
       const db = getDb();
       const latestAssistantMsg = db
         .select({ id: messages.id })
@@ -220,9 +232,21 @@ export function handleRecordingStatus(
         .orderBy(desc(messages.createdAt))
         .get();
 
-      if (!latestAssistantMsg) {
-        log.warn({ sessionId: msg.sessionId }, 'No assistant message found in session to link recording attachment — skipping attachment creation');
-        return;
+      let messageId: string;
+      if (latestAssistantMsg) {
+        messageId = latestAssistantMsg.id;
+      } else {
+        // Create a minimal assistant message to hold the recording attachment
+        const newMsgId = uuidv4();
+        db.insert(messages).values({
+          id: newMsgId,
+          conversationId,
+          role: 'assistant',
+          content: 'Screen recording attached.',
+          createdAt: Date.now(),
+        }).run();
+        messageId = newMsgId;
+        log.info({ sessionId: msg.sessionId, conversationId, messageId }, 'Created assistant message for recording attachment');
       }
 
       const stat = statSync(msg.filePath);
@@ -236,8 +260,8 @@ export function handleRecordingStatus(
       const attachment = uploadFileBackedAttachment(filename, mimeType, msg.filePath, sizeBytes);
       log.info({ sessionId: msg.sessionId, attachmentId: attachment.id, sizeBytes, filePath: msg.filePath }, 'Created file-backed attachment for recording');
 
-      linkAttachmentToMessage(latestAssistantMsg.id, attachment.id, 0);
-      log.info({ sessionId: msg.sessionId, messageId: latestAssistantMsg.id, attachmentId: attachment.id }, 'Linked recording attachment to assistant message');
+      linkAttachmentToMessage(messageId, attachment.id, 0);
+      log.info({ sessionId: msg.sessionId, messageId, attachmentId: attachment.id }, 'Linked recording attachment to assistant message');
     } catch (err) {
       log.error({ err, sessionId: msg.sessionId, filePath: msg.filePath }, 'Failed to create attachment for recording');
     }

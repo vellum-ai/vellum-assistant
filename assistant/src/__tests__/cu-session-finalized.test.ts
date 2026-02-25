@@ -36,10 +36,11 @@ mock.module('../config/loader.js', () => ({
 }));
 
 import { initializeDb, getDb, resetDb } from '../memory/db.js';
-import { attachments } from '../memory/schema.js';
+import { attachments, messages } from '../memory/schema.js';
 import { createConversation, addMessage } from '../memory/conversation-store.js';
 import { getAttachmentMetadataForMessage } from '../memory/attachments-store.js';
-import { handleRecordingStatus } from '../daemon/handlers/computer-use.js';
+import { handleRecordingStatus, cuSessionAttachConversationId } from '../daemon/handlers/computer-use.js';
+import { eq } from 'drizzle-orm';
 import type { RecordingStatus } from '../daemon/ipc-contract/computer-use.js';
 import type { HandlerContext } from '../daemon/handlers/shared.js';
 
@@ -56,6 +57,7 @@ function resetTables() {
   db.run('DELETE FROM attachments');
   db.run('DELETE FROM messages');
   db.run('DELETE FROM conversations');
+  cuSessionAttachConversationId.clear();
 }
 
 function createMockSocket(): net.Socket {
@@ -92,11 +94,15 @@ describe('handleRecordingStatus - recording finalization', () => {
 
   test('creates file-backed attachment when recording stops with filePath', () => {
     const sessionId = 'test-session-001';
+    const conversationId = 'conv-001';
 
-    // Create conversation and messages using sessionId as conversationId
-    createConversation(sessionId);
-    addMessage(sessionId, 'user', 'Start the test');
-    addMessage(sessionId, 'assistant', 'Running the test now');
+    // Set up the attachToConversationId mapping
+    cuSessionAttachConversationId.set(sessionId, conversationId);
+
+    // Create conversation and messages using the target conversationId
+    createConversation(conversationId);
+    addMessage(conversationId, 'user', 'Start the test');
+    addMessage(conversationId, 'assistant', 'Running the test now');
 
     // Create a real recording file
     const filePath = join(testDir, 'recording-001.mov');
@@ -124,10 +130,13 @@ describe('handleRecordingStatus - recording finalization', () => {
 
   test('links attachment to latest assistant message', () => {
     const sessionId = 'test-session-002';
+    const conversationId = 'conv-002';
 
-    createConversation(sessionId);
-    addMessage(sessionId, 'user', 'Do something');
-    const assistantMsg = addMessage(sessionId, 'assistant', 'Done');
+    cuSessionAttachConversationId.set(sessionId, conversationId);
+
+    createConversation(conversationId);
+    addMessage(conversationId, 'user', 'Do something');
+    const assistantMsg = addMessage(conversationId, 'assistant', 'Done');
 
     const filePath = join(testDir, 'recording-002.mp4');
     writeFileSync(filePath, 'video content');
@@ -148,11 +157,54 @@ describe('handleRecordingStatus - recording finalization', () => {
     expect(attachmentMeta[0].filePath).toBe(filePath);
   });
 
+  test('creates assistant message when none exists in target conversation', () => {
+    const sessionId = 'test-session-create-msg';
+    const conversationId = 'conv-create-msg';
+
+    cuSessionAttachConversationId.set(sessionId, conversationId);
+
+    // Create conversation with only a user message — no assistant message
+    createConversation(conversationId);
+    addMessage(conversationId, 'user', 'Start recording');
+
+    const filePath = join(testDir, 'recording-create-msg.mov');
+    writeFileSync(filePath, 'video data');
+
+    const msg: RecordingStatus = {
+      type: 'recording_status',
+      sessionId,
+      status: 'stopped',
+      filePath,
+      durationMs: 2000,
+    };
+
+    handleRecordingStatus(msg, createMockSocket(), createMockCtx());
+
+    // A new assistant message should have been created
+    const db = getDb();
+    const assistantMsgs = db
+      .select()
+      .from(messages)
+      .where(eq(messages.conversationId, conversationId))
+      .all()
+      .filter(m => m.role === 'assistant');
+    expect(assistantMsgs.length).toBe(1);
+    expect(assistantMsgs[0].content).toBe('Screen recording attached.');
+
+    // Attachment should be linked to that new message
+    const attachmentMeta = getAttachmentMetadataForMessage(assistantMsgs[0].id);
+    expect(attachmentMeta.length).toBe(1);
+    expect(attachmentMeta[0].filePath).toBe(filePath);
+  });
+
   test('does not crash when filePath does not exist', () => {
     const sessionId = 'test-session-003';
+    const conversationId = 'conv-003';
 
-    createConversation(sessionId);
-    addMessage(sessionId, 'assistant', 'test');
+    cuSessionAttachConversationId.set(sessionId, conversationId);
+
+    createConversation(conversationId);
+    addMessage(conversationId, 'assistant', 'test');
 
     const msg: RecordingStatus = {
       type: 'recording_status',
@@ -173,8 +225,8 @@ describe('handleRecordingStatus - recording finalization', () => {
     expect(rows.length).toBe(0);
   });
 
-  test('does not create attachment when session has no conversation', () => {
-    // Session doesn't exist as a conversation, so no messages to link to
+  test('does not create attachment when no attachToConversationId is set', () => {
+    // No mapping entry — simulates a session without attachToConversationId
     const sessionId = 'orphan-session';
 
     const filePath = join(testDir, 'recording-orphan.mov');
@@ -188,7 +240,7 @@ describe('handleRecordingStatus - recording finalization', () => {
       durationMs: 1000,
     };
 
-    // Should not throw even when there's no conversation/messages
+    // Should not throw even when there's no mapping
     expect(() => {
       handleRecordingStatus(msg, createMockSocket(), createMockCtx());
     }).not.toThrow();
