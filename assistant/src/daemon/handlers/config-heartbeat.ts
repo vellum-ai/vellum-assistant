@@ -60,6 +60,9 @@ export function handleHeartbeatConfig(
       }
       ctx.debounceTimers.schedule('__suppress_reset__', () => { ctx.setSuppressConfigReload(false); }, CONFIG_RELOAD_DEBOUNCE_MS);
 
+      // Reconfigure the in-memory heartbeat timer so changes take effect immediately
+      ctx.heartbeatService?.reconfigure();
+
       const enabled = (hb.enabled as boolean) ?? false;
       const intervalMs = (hb.intervalMs as number) ?? 3_600_000;
       const nextRunAt = enabled ? Date.now() + intervalMs : null;
@@ -153,8 +156,12 @@ export function handleHeartbeatRunNow(
     ctx.send(socket, { type: 'heartbeat_run_now_response', success: false, error: 'Heartbeat service not available' });
     return;
   }
-  heartbeatService.runOnce().then(() => {
-    ctx.send(socket, { type: 'heartbeat_run_now_response', success: true });
+  heartbeatService.runOnce().then((didRun) => {
+    if (didRun) {
+      ctx.send(socket, { type: 'heartbeat_run_now_response', success: true });
+    } else {
+      ctx.send(socket, { type: 'heartbeat_run_now_response', success: false, error: 'Heartbeat skipped (disabled, outside active hours, or already running)' });
+    }
   }).catch((err: unknown) => {
     const message = err instanceof Error ? err.message : String(err);
     ctx.send(socket, { type: 'heartbeat_run_now_response', success: false, error: message });
