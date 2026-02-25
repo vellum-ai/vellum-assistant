@@ -34,7 +34,7 @@ function getIntegrityPath(): string {
   return join(getManagedSkillsDir(), '.integrity.json');
 }
 
-function loadIntegrityManifest(): IntegrityManifest {
+export function loadIntegrityManifest(): IntegrityManifest {
   const path = getIntegrityPath();
   if (!existsSync(path)) return {};
   try {
@@ -97,7 +97,7 @@ function computeSkillHash(skillDir: string): string | null {
  * Hash format migration: v1 (legacy, no prefix) → v2 (prefixed "v2:sha256hex").
  * When stored hash is v1, silently re-record with v2 instead of warning.
  */
-function verifyAndRecordSkillHash(slug: string): void {
+export function verifyAndRecordSkillHash(slug: string): void {
   const skillDir = join(getManagedSkillsDir(), slug);
   const hash = computeSkillHash(skillDir);
   if (!hash) {
