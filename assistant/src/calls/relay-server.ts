@@ -719,12 +719,18 @@ export class RelayConnection {
       // completes. The session pipeline normally handles persistence, but
       // this early-utterance path bypasses it entirely.
       if (session) {
-        conversationStore.addMessage(
-          session.conversationId,
-          'user',
-          JSON.stringify([{ type: 'text', text: msg.voicePrompt }]),
-          { userMessageChannel: 'voice', assistantMessageChannel: 'voice' },
-        );
+        try {
+          conversationStore.addMessage(
+            session.conversationId,
+            'user',
+            JSON.stringify([{ type: 'text', text: msg.voicePrompt }]),
+            { userMessageChannel: 'voice', assistantMessageChannel: 'voice' },
+          );
+        } catch (err) {
+          // Best-effort — don't let persistence failures prevent the hold
+          // response from reaching the caller.
+          log.warn({ err, callSessionId: this.callSessionId }, 'Failed to persist early caller utterance');
+        }
       }
       this.sendTextToken('I\'m still setting up. Please hold.', true);
     }
