@@ -71,6 +71,12 @@ export function handleVercelApiConfig(
   }
 }
 
+/** Check whether a Twitter client ID has been stored (canonical key first, legacy fallback). */
+function hasTwitterClientId(): boolean {
+  return !!(getSecureKey('credential:integration:twitter:client_id')
+    ?? getSecureKey('credential:integration:twitter:oauth_client_id'));
+}
+
 export function handleTwitterIntegrationConfig(
   msg: TwitterIntegrationConfigRequest,
   socket: net.Socket,
@@ -82,7 +88,7 @@ export function handleTwitterIntegrationConfig(
       const mode = (raw.twitterIntegrationMode as 'local_byo' | 'managed' | undefined) ?? 'local_byo';
       const strategy = (raw.twitterOperationStrategy as 'oauth' | 'browser' | 'auto' | undefined) ?? 'auto';
       const strategyConfigured = Object.prototype.hasOwnProperty.call(raw, 'twitterOperationStrategy');
-      const localClientConfigured = !!getSecureKey('credential:integration:twitter:oauth_client_id');
+      const localClientConfigured = hasTwitterClientId();
       const connected = !!getSecureKey('credential:integration:twitter:access_token');
       const meta = getCredentialMetadata('integration:twitter', 'access_token');
       ctx.send(socket, {
@@ -104,7 +110,7 @@ export function handleTwitterIntegrationConfig(
         type: 'twitter_integration_config_response',
         success: true,
         managedAvailable: false,
-        localClientConfigured: !!getSecureKey('credential:integration:twitter:oauth_client_id'),
+        localClientConfigured: hasTwitterClientId(),
         connected: !!getSecureKey('credential:integration:twitter:access_token'),
         strategy,
         strategyConfigured,
@@ -130,7 +136,7 @@ export function handleTwitterIntegrationConfig(
         type: 'twitter_integration_config_response',
         success: true,
         managedAvailable: false,
-        localClientConfigured: !!getSecureKey('credential:integration:twitter:oauth_client_id'),
+        localClientConfigured: hasTwitterClientId(),
         connected: !!getSecureKey('credential:integration:twitter:access_token'),
         strategy: value as 'oauth' | 'browser' | 'auto',
         strategyConfigured: true,
@@ -144,7 +150,7 @@ export function handleTwitterIntegrationConfig(
         success: true,
         mode: msg.mode ?? 'local_byo',
         managedAvailable: false,
-        localClientConfigured: !!getSecureKey('credential:integration:twitter:oauth_client_id'),
+        localClientConfigured: hasTwitterClientId(),
         connected: !!getSecureKey('credential:integration:twitter:access_token'),
       });
     } else if (msg.action === 'set_local_client') {
@@ -159,8 +165,11 @@ export function handleTwitterIntegrationConfig(
         });
         return;
       }
-      const previousClientId = getSecureKey('credential:integration:twitter:oauth_client_id');
-      const storedId = setSecureKey('credential:integration:twitter:oauth_client_id', msg.clientId);
+      // Read previous value from canonical key first, fall back to legacy
+      const previousClientId = getSecureKey('credential:integration:twitter:client_id')
+        ?? getSecureKey('credential:integration:twitter:oauth_client_id');
+      // Write canonical key
+      const storedId = setSecureKey('credential:integration:twitter:client_id', msg.clientId);
       if (!storedId) {
         ctx.send(socket, {
           type: 'twitter_integration_config_response',
@@ -172,13 +181,18 @@ export function handleTwitterIntegrationConfig(
         });
         return;
       }
+      // Also write legacy key for backward compatibility
+      setSecureKey('credential:integration:twitter:oauth_client_id', msg.clientId);
       if (msg.clientSecret) {
-        const storedSecret = setSecureKey('credential:integration:twitter:oauth_client_secret', msg.clientSecret);
+        // Write canonical key
+        const storedSecret = setSecureKey('credential:integration:twitter:client_secret', msg.clientSecret);
         if (!storedSecret) {
           // Roll back the client ID to its previous value to avoid inconsistent OAuth state
           if (previousClientId) {
+            setSecureKey('credential:integration:twitter:client_id', previousClientId);
             setSecureKey('credential:integration:twitter:oauth_client_id', previousClientId);
           } else {
+            deleteSecureKey('credential:integration:twitter:client_id');
             deleteSecureKey('credential:integration:twitter:oauth_client_id');
           }
           ctx.send(socket, {
@@ -191,8 +205,11 @@ export function handleTwitterIntegrationConfig(
           });
           return;
         }
+        // Also write legacy key for backward compatibility
+        setSecureKey('credential:integration:twitter:oauth_client_secret', msg.clientSecret);
       } else {
         // Clear any stale secret when updating client without a secret (e.g. switching to PKCE)
+        deleteSecureKey('credential:integration:twitter:client_secret');
         deleteSecureKey('credential:integration:twitter:oauth_client_secret');
       }
       ctx.send(socket, {
@@ -209,11 +226,11 @@ export function handleTwitterIntegrationConfig(
         deleteSecureKey('credential:integration:twitter:refresh_token');
         deleteCredentialMetadata('integration:twitter', 'access_token');
       }
-      deleteSecureKey('credential:integration:twitter:oauth_client_id');
-      deleteSecureKey('credential:integration:twitter:oauth_client_secret');
-      // Also remove canonical-named keys persisted by storeOAuth2Tokens
+      // Remove both canonical and legacy client credential keys
       deleteSecureKey('credential:integration:twitter:client_id');
       deleteSecureKey('credential:integration:twitter:client_secret');
+      deleteSecureKey('credential:integration:twitter:oauth_client_id');
+      deleteSecureKey('credential:integration:twitter:oauth_client_secret');
       ctx.send(socket, {
         type: 'twitter_integration_config_response',
         success: true,
@@ -225,14 +242,13 @@ export function handleTwitterIntegrationConfig(
       deleteSecureKey('credential:integration:twitter:access_token');
       deleteSecureKey('credential:integration:twitter:refresh_token');
       deleteCredentialMetadata('integration:twitter', 'access_token');
-      // Also remove canonical-named keys persisted by storeOAuth2Tokens
-      deleteSecureKey('credential:integration:twitter:client_id');
-      deleteSecureKey('credential:integration:twitter:client_secret');
+      // Client credentials (client_id, oauth_client_id, etc.) are intentionally
+      // preserved so the user can re-connect without reconfiguring.
       ctx.send(socket, {
         type: 'twitter_integration_config_response',
         success: true,
         managedAvailable: false,
-        localClientConfigured: !!getSecureKey('credential:integration:twitter:oauth_client_id'),
+        localClientConfigured: hasTwitterClientId(),
         connected: false,
       });
     } else {
