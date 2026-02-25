@@ -1,11 +1,11 @@
 import * as net from 'node:net';
-import { existsSync, statSync, readFileSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import * as path from 'node:path';
 import { v4 as uuid } from 'uuid';
 import type { RecordingStatus, RecordingOptions } from '../ipc-protocol.js';
 import { log, findSocketForSession, defineHandlers, type HandlerContext } from './shared.js';
 import * as conversationStore from '../../memory/conversation-store.js';
-import { uploadAttachment, linkAttachmentToMessage } from '../../memory/attachments-store.js';
+import { uploadFileBackedAttachment, linkAttachmentToMessage } from '../../memory/attachments-store.js';
 
 // ─── Deterministic maps ──────────────────────────────────────────────────────
 // These ensure stop resolves the exact active recording for a conversation,
@@ -130,11 +130,8 @@ function handleRecordingStatus(
             const ext = filename.split('.').pop()?.toLowerCase();
             const mimeType = ext === 'mov' ? 'video/quicktime' : ext === 'mp4' ? 'video/mp4' : 'video/mp4';
 
-            // Read file and encode as base64 for the attachment store
-            const fileData = readFileSync(msg.filePath);
-            const dataBase64 = fileData.toString('base64');
-
-            const attachment = uploadAttachment(filename, mimeType, dataBase64);
+            // Store as file-backed attachment (avoids reading large files into memory)
+            const attachment = uploadFileBackedAttachment(filename, mimeType, msg.filePath, sizeBytes);
             log.info({ recordingId, attachmentId: attachment.id, sizeBytes, filePath: msg.filePath }, 'Created attachment for standalone recording');
 
             // Find or create an assistant message to attach the recording to
@@ -168,11 +165,30 @@ function handleRecordingStatus(
               ctx.send(socket, {
                 type: 'message_complete',
                 sessionId: conversationId,
+                attachments: [{
+                  id: attachment.id,
+                  filename: attachment.originalFilename,
+                  mimeType: attachment.mimeType,
+                  data: '',  // empty for file-backed; client uses content endpoint
+                  sizeBytes: attachment.sizeBytes,
+                }],
               });
             }
           }
         } catch (err) {
           log.error({ err, recordingId, filePath: msg.filePath }, 'Failed to create attachment for standalone recording');
+          // Notify the client about the finalization failure
+          if (conversationId) {
+            const errSocket = findSocketForSession(conversationId, ctx);
+            if (errSocket) {
+              ctx.send(errSocket, {
+                type: 'assistant_text_delta',
+                text: 'Recording saved but failed to attach to conversation.',
+                sessionId: conversationId,
+              });
+              ctx.send(errSocket, { type: 'message_complete', sessionId: conversationId });
+            }
+          }
         }
       }
 
