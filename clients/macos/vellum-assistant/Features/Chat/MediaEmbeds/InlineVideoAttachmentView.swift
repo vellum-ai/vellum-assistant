@@ -170,13 +170,25 @@ struct InlineVideoAttachmentView: View {
         // Server thumbnail and aspect ratio are set eagerly in init.
         if thumbnailImage != nil { return }
 
-        // Fallback: extract thumbnail from inline video data.
-        guard !attachment.data.isEmpty, let data = Data(base64Encoded: attachment.data) else { return }
-
-        let fileURL = safeTempURL()
-        do {
-            try data.write(to: fileURL)
-        } catch {
+        let fileURL: URL
+        if !attachment.data.isEmpty, let data = Data(base64Encoded: attachment.data) {
+            // Inline attachment: decode base64 to temp file.
+            let url = safeTempURL()
+            do { try data.write(to: url) } catch { return }
+            fileURL = url
+        } else if attachment.isLazyLoad,
+                  let port = daemonHttpPort,
+                  let attachmentId = attachment.id.isEmpty ? nil : attachment.id {
+            // File-backed attachment: fetch from content endpoint.
+            let url = safeTempURL()
+            do {
+                let bytes = try await fetchAttachmentContent(port: port, attachmentId: attachmentId)
+                try bytes.write(to: url)
+            } catch {
+                return
+            }
+            fileURL = url
+        } else {
             return
         }
 
