@@ -1343,7 +1343,24 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func handleQuickInputSubmit(_ message: String, imageData: Data?) {
-        showMainWindow()
+        // Ensure MainWindow exists without bringing it to the foreground.
+        // showMainWindow() would activate the app — instead, create the
+        // window lazily if needed, but don't call show().
+        if mainWindow == nil {
+            let main = MainWindow(services: services)
+            main.onMicrophoneToggle = { [weak self] in
+                self?.voiceInput?.toggleRecording()
+            }
+            main.threadManager.onInlineConfirmationResponse = { [weak self] requestId, decision in
+                guard let self else { return }
+                self.toolConfirmationNotificationService.handleInlineResponse(requestId: requestId)
+                UNUserNotificationCenter.current().removeDeliveredNotifications(
+                    withIdentifiers: ["tool-confirm-\(requestId)"]
+                )
+            }
+            mainWindow = main
+            observeAssistantStatus()
+        }
         guard let mainWindow else { return }
         mainWindow.threadManager.createThread()
         if let viewModel = mainWindow.activeViewModel {
