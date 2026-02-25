@@ -79,16 +79,15 @@ export async function handleTaskSubmit(
         // Find the active session for this socket so we can resolve the
         // conversation that owns the recording.
         let activeSessionId = ctx.socketToSession.get(socket);
-        let stopped = false;
-        if (activeSessionId) {
-          stopped = handleRecordingStop(activeSessionId, ctx) !== undefined;
-        }
         // Ensure we have a sessionId for message_complete even if no prior session exists
         if (!activeSessionId) {
           const conversation = conversationStore.createConversation(msg.task);
           activeSessionId = conversation.id;
           ctx.socketToSession.set(socket, activeSessionId);
         }
+        // Always attempt stop — handleRecordingStop has a global fallback that
+        // resolves to the active recording even if this conversation doesn't own it.
+        const stopped = handleRecordingStop(activeSessionId, ctx) !== undefined;
         rlog.info('Recording stop intent intercepted');
         ctx.send(socket, { type: 'task_routed', sessionId: activeSessionId, interactionType: 'text_qa' });
         ctx.send(socket, {

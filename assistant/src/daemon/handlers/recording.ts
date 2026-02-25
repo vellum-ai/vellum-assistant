@@ -98,9 +98,10 @@ export function handleRecordingStop(
   const socket = findSocketForSession(ownerConversationId, ctx)
     ?? findSocketForSession(conversationId, ctx);
   if (!socket) {
-    log.warn({ conversationId, ownerConversationId, recordingId }, 'Cannot send recording_stop: no socket bound to conversation');
-    standaloneRecordingConversationId.delete(recordingId);
-    recordingOwnerByConversation.delete(ownerConversationId);
+    // Keep maps intact so the recording can be stopped later when a socket
+    // reconnects. Cleaning up here would orphan the client-side recording
+    // (still running) while the daemon thinks no recording is active.
+    log.warn({ conversationId, ownerConversationId, recordingId }, 'Cannot send recording_stop: no socket bound to conversation — keeping state for retry');
     return undefined;
   }
 
