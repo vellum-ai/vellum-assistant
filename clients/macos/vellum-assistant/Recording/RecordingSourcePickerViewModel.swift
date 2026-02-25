@@ -216,6 +216,24 @@ final class RecordingSourcePickerViewModel: ObservableObject {
         }
     }
 
+    // MARK: - Update Current Display
+
+    /// Recalculates `isCurrentDisplay` for every display source based on
+    /// the screen the picker window currently occupies.  Because `displays`
+    /// is `@Published`, the UI updates reactively.
+    func updateCurrentDisplay() {
+        guard let pickerScreen = pickerWindow?.screen else { return }
+        let pickerDisplayId = pickerScreen.deviceDescription[
+            NSDeviceDescriptionKey("NSScreenNumber")
+        ] as? UInt32
+
+        displays = displays.map { source in
+            var updated = source
+            updated.isCurrentDisplay = (source.id == pickerDisplayId)
+            return updated
+        }
+    }
+
     /// Show a brief unavailability notice, auto-clearing after 4 seconds.
     private func showSourceUnavailableNotice(_ message: String) {
         sourceUnavailableNotice = message
