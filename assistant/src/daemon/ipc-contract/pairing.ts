@@ -43,3 +43,16 @@ export interface ApprovedDeviceRemoveResponse {
   type: 'approved_device_remove_response';
   success: boolean;
 }
+
+// --- Domain-level union aliases (consumed by the barrel file) ---
+
+export type _PairingClientMessages =
+  | PairingApprovalResponse
+  | ApprovedDevicesList
+  | ApprovedDeviceRemove
+  | ApprovedDevicesClear;
+
+export type _PairingServerMessages =
+  | PairingApprovalRequest
+  | ApprovedDevicesListResponse
+  | ApprovedDeviceRemoveResponse;

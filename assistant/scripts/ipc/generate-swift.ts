@@ -117,6 +117,8 @@ function generateSchemas(): Record<string, SchemaDef> {
   const skipped: string[] = [];
 
   for (const symbol of symbols) {
+    // Skip domain-level union aliases (_<Domain>ClientMessages / _<Domain>ServerMessages)
+    if (symbol.startsWith('_') && (symbol.endsWith('ClientMessages') || symbol.endsWith('ServerMessages'))) continue;
     if (SKIP_TYPES.has(symbol)) continue;
     try {
       const schema = generator.getSchemaForSymbol(symbol) as SchemaDef | null;

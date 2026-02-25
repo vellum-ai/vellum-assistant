@@ -354,3 +354,55 @@ export interface AppFilesChanged {
   type: 'app_files_changed';
   appId: string;
 }
+
+// --- Domain-level union aliases (consumed by the barrel file) ---
+
+export type _AppsClientMessages =
+  | AppDataRequest
+  | AppsListRequest
+  | HomeBaseGetRequest
+  | AppOpenRequest
+  | SharedAppsListRequest
+  | SharedAppDeleteRequest
+  | ForkSharedAppRequest
+  | BundleAppRequest
+  | OpenBundleRequest
+  | SignBundlePayloadResponse
+  | GetSigningIdentityResponse
+  | GalleryListRequest
+  | GalleryInstallRequest
+  | AppHistoryRequest
+  | AppDiffRequest
+  | AppFileAtVersionRequest
+  | AppRestoreRequest
+  | ShareAppCloudRequest
+  | ShareToSlackRequest
+  | AppUpdatePreviewRequest
+  | AppPreviewRequest
+  | PublishPageRequest
+  | UnpublishPageRequest;
+
+export type _AppsServerMessages =
+  | AppDataResponse
+  | AppsListResponse
+  | HomeBaseGetResponse
+  | SharedAppsListResponse
+  | SharedAppDeleteResponse
+  | ForkSharedAppResponse
+  | BundleAppResponse
+  | OpenBundleResponse
+  | SignBundlePayloadRequest
+  | GetSigningIdentityRequest
+  | ShareAppCloudResponse
+  | GalleryListResponse
+  | GalleryInstallResponse
+  | AppHistoryResponse
+  | AppDiffResponse
+  | AppFileAtVersionResponse
+  | AppRestoreResponse
+  | ShareToSlackResponse
+  | AppUpdatePreviewResponse
+  | AppPreviewResponse
+  | PublishPageResponse
+  | UnpublishPageResponse
+  | AppFilesChanged;

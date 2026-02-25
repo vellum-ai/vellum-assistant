@@ -111,3 +111,19 @@ export interface ToolNamesListResponse {
   /** Input schemas keyed by tool name. */
   schemas?: Record<string, ToolInputSchema>;
 }
+
+// --- Domain-level union aliases (consumed by the barrel file) ---
+
+export type _WorkspaceClientMessages =
+  | WorkspaceFilesListRequest
+  | WorkspaceFileReadRequest
+  | IdentityGetRequest
+  | ToolPermissionSimulateRequest
+  | ToolNamesListRequest;
+
+export type _WorkspaceServerMessages =
+  | WorkspaceFilesListResponse
+  | WorkspaceFileReadResponse
+  | IdentityGetResponse
+  | ToolPermissionSimulateResponse
+  | ToolNamesListResponse;

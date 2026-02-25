@@ -249,3 +249,16 @@ export interface UiSurfaceUndoResult {
   /** Number of remaining undo entries after this undo. */
   remainingUndos: number;
 }
+
+// --- Domain-level union aliases (consumed by the barrel file) ---
+
+export type _SurfacesClientMessages =
+  | UiSurfaceAction
+  | UiSurfaceUndoRequest;
+
+export type _SurfacesServerMessages =
+  | UiSurfaceShow
+  | UiSurfaceUpdate
+  | UiSurfaceDismiss
+  | UiSurfaceComplete
+  | UiSurfaceUndoResult;

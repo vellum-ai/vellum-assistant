@@ -1,4 +1,4 @@
-import type { Provider, Message } from '../providers/types.js';
+import type { Provider, Message, ModelIntent } from '../providers/types.js';
 import { parseJsonSafe } from '../util/json.js';
 import type { SwarmPlan, SwarmTaskNode } from './types.js';
 import { VALID_SWARM_ROLES } from './types.js';
@@ -13,7 +13,7 @@ import { ROUTER_SYSTEM_PROMPT, buildPlannerUserMessage } from './router-prompts.
 export async function generatePlan(opts: {
   objective: string;
   provider: Provider;
-  modelIntent: string;
+  modelIntent: ModelIntent;
   limits: SwarmLimits;
 }): Promise<SwarmPlan> {
   const { objective, provider, modelIntent, limits } = opts;

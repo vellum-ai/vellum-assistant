@@ -56,3 +56,16 @@ export interface SubagentDetailRequest {
   subagentId: string;
   conversationId: string;
 }
+
+// --- Domain-level union aliases (consumed by the barrel file) ---
+
+export type _SubagentsClientMessages =
+  | SubagentAbortRequest
+  | SubagentStatusRequest
+  | SubagentMessageRequest
+  | SubagentDetailRequest;
+
+export type _SubagentsServerMessages =
+  | SubagentSpawned
+  | SubagentStatusChanged
+  | SubagentDetailResponse;

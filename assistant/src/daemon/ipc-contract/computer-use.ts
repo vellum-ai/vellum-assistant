@@ -186,3 +186,27 @@ export interface WatchCompleteRequest {
   sessionId: string;
   watchId: string;
 }
+
+// --- Domain-level union aliases (consumed by the barrel file) ---
+
+export type _ComputerUseClientMessages =
+  | CuSessionCreate
+  | CuSessionAbort
+  | CuObservation
+  | TaskSubmit
+  | RideShotgunStart
+  | RideShotgunStop
+  | WatchObservation
+  | RecordingStatus;
+
+export type _ComputerUseServerMessages =
+  | CuAction
+  | CuComplete
+  | CuError
+  | TaskRouted
+  | RideShotgunProgress
+  | RideShotgunResult
+  | WatchStarted
+  | WatchCompleteRequest
+  | RecordingStart
+  | RecordingStop;
