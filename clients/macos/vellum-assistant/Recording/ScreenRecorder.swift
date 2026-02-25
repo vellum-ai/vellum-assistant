@@ -939,7 +939,9 @@ final class ScreenRecorder: NSObject {
             // handleStreamError already cleaned up writer/stream/file — just
             // clean up the output file if it wasn't already removed.
             try? FileManager.default.removeItem(at: outputURL)
-            pendingStreamError = nil
+            // Do NOT clear pendingStreamError here — start() reads it in the
+            // .streamStartFailed branch to decide if the error is non-retriable
+            // (e.g. permissionDenied, sourceUnavailable). It clears it there.
             return .streamStartFailed(streamError.localizedDescription ?? "Stream error during startup")
         }
 

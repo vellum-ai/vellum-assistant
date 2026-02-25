@@ -135,19 +135,37 @@ export function isStopRecordingOnly(taskText: string): boolean {
 /**
  * Strips dynamic assistant name aliases from the beginning of text.
  * Handles patterns like "Nova, ...", "Nova ...", "hey Nova, ...", "hey, Nova, ..." (case-insensitive).
+ * Periods in names are optional to handle natural omission (e.g., "Jr" vs "Jr.").
  */
-function stripDynamicNames(text: string, dynamicNames: string[]): string {
+export function stripDynamicNames(text: string, dynamicNames: string[]): string {
   let result = text;
   for (const name of dynamicNames) {
     const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // Make escaped periods optional — users often omit dots (e.g., "Jr" vs "Jr.")
+    const withOptionalDots = escaped.replace(/\\\./g, '\\.?');
     // "hey <name>, ..." / "hey <name> ..." / "hey, <name>, ..."
-    const heyPattern = new RegExp(`^hey[,\\s]+${escaped}[,:]?\\s*`, 'i');
+    // Lookahead ensures the name is a whole token (not a prefix of a longer word).
+    const heyPattern = new RegExp(`^hey[,\\s]+${withOptionalDots}(?=[,:\\s]|$)[,:]?\\s*`, 'i');
     // "<name>, ..." or "<name> ..."
-    const namePattern = new RegExp(`^${escaped}[,:]?\\s*`, 'i');
+    const namePattern = new RegExp(`^${withOptionalDots}(?=[,:\\s]|$)[,:]?\\s*`, 'i');
     result = result.replace(heyPattern, '');
     result = result.replace(namePattern, '');
   }
   return result.trim();
+}
+
+/**
+ * Returns true if the text contains substantive content beyond fillers,
+ * punctuation, and dynamic assistant names. Used to determine whether
+ * remaining text after stripping recording clauses needs further processing.
+ */
+export function hasSubstantiveContent(text: string, dynamicNames?: string[]): boolean {
+  let cleaned = text;
+  if (dynamicNames && dynamicNames.length > 0) {
+    cleaned = stripDynamicNames(cleaned, dynamicNames);
+  }
+  cleaned = cleaned.replace(FILLER_PATTERN, '');
+  return cleaned.replace(/[.,;!?\s]+/g, '').length > 0;
 }
 
 // ─── Unified classification ─────────────────────────────────────────────────
