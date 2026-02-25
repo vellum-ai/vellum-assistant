@@ -22,7 +22,7 @@ import {
 import { deliverChannelReply } from '../runtime/gateway-client.js';
 import { getUserConsultationTimeoutMs } from './call-constants.js';
 import { getOrCreateConversation } from '../memory/conversation-key-store.js';
-import { addMessage } from '../memory/conversation-store.js';
+import { addMessage, updateConversationTitle } from '../memory/conversation-store.js';
 import type { CallPendingQuestion } from './types.js';
 import { readHttpToken } from '../util/platform.js';
 import type { ServerMessage } from '../daemon/ipc-contract.js';
@@ -164,6 +164,10 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
 
         // Now await LLM-generated copy for the message content and thread title
         const guardianCopy = await guardianCopyPromise;
+
+        // Persist the generated thread title to the DB (replaces the
+        // "Generating title..." placeholder set by getOrCreateConversation)
+        updateConversationTitle(macConversationId, guardianCopy.threadTitle);
 
         // Add the guardian question as the initial message in the thread
         addMessage(

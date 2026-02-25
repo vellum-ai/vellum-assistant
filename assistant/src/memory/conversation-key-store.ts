@@ -11,6 +11,7 @@ import { eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb } from './db.js';
 import { conversations, conversationKeys } from './schema.js';
+import { GENERATING_TITLE } from './conversation-title-service.js';
 
 export interface ConversationKeyMapping {
   id: string;
@@ -116,7 +117,7 @@ export function getOrCreateConversation(
     tx.insert(conversations)
       .values({
         id: conversationId,
-        title: `Runtime: ${conversationKey}`,
+        title: GENERATING_TITLE,
         createdAt: now,
         updatedAt: now,
         totalInputTokens: 0,

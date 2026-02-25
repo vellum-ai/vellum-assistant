@@ -30,6 +30,7 @@ import type { CallSession } from './types.js';
 import { VALID_CALLER_IDENTITY_MODES } from '../config/schema.js';
 import type { AssistantConfig } from '../config/types.js';
 import { getOrCreateConversation } from '../memory/conversation-key-store.js';
+import { queueGenerateConversationTitle } from '../memory/conversation-title-service.js';
 import { upsertBinding } from '../memory/external-conversation-store.js';
 import { addPointerMessage } from './call-pointer-messages.js';
 
@@ -236,6 +237,16 @@ export function createInboundVoiceSession(
   updateCallSession(session.id, { providerCallSid: callSid });
   session.providerCallSid = callSid;
 
+  queueGenerateConversationTitle({
+    conversationId: voiceConversationId,
+    context: {
+      origin: 'voice_inbound',
+      sourceChannel: 'voice',
+      assistantId,
+      systemHint: `Inbound call from ${fromNumber}`,
+    },
+  });
+
   log.info(
     { callSessionId: session.id, callSid, voiceConversationId, from: fromNumber, to: toNumber, assistantId },
     'Created new inbound voice session',
@@ -318,6 +329,17 @@ export async function startCall(input: StartCallInput): Promise<StartCallResult 
       conversationId: voiceConversationId,
     });
     session.conversationId = voiceConversationId;
+
+    queueGenerateConversationTitle({
+      conversationId: voiceConversationId,
+      context: {
+        origin: 'voice_outbound',
+        sourceChannel: 'voice',
+        assistantId,
+        systemHint: `Outbound call to ${phoneNumber}`,
+        triggerTextSnippet: task,
+      },
+    });
 
     log.info({ callSessionId: session.id, voiceConversationId, initiatedFrom: conversationId, to: phoneNumber, from: fromNumber, task }, 'Initiating outbound call');
 

@@ -55,6 +55,8 @@ export interface EventHandlerDeps {
   readonly onEvent: (msg: ServerMessage) => void;
   readonly reqId: string;
   readonly isFirstMessage: boolean;
+  /** Whether the conversation title is replaceable — controls firstAssistantText accumulation for title generation. */
+  readonly shouldGenerateTitle: boolean;
   readonly rlog: pino.Logger;
   readonly turnChannelContext: TurnChannelContext;
 }
@@ -112,7 +114,7 @@ export function handleTextDelta(
   state.pendingDirectiveDisplayBuffer = drained.bufferedRemainder;
   if (drained.emitText.length > 0) {
     deps.onEvent({ type: 'assistant_text_delta', text: drained.emitText, sessionId: deps.ctx.conversationId });
-    if (deps.isFirstMessage) state.firstAssistantText += drained.emitText;
+    if (deps.shouldGenerateTitle) state.firstAssistantText += drained.emitText;
   }
 }
 
@@ -259,7 +261,7 @@ export function handleMessageComplete(
       text: state.pendingDirectiveDisplayBuffer,
       sessionId: deps.ctx.conversationId,
     });
-    if (deps.isFirstMessage) state.firstAssistantText += state.pendingDirectiveDisplayBuffer;
+    if (deps.shouldGenerateTitle) state.firstAssistantText += state.pendingDirectiveDisplayBuffer;
     state.pendingDirectiveDisplayBuffer = '';
   }
 

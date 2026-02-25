@@ -3,6 +3,7 @@ import { getLogger } from '../util/logger.js';
 import { getWorkspacePromptPath } from '../util/platform.js';
 import { getConfig } from '../config/loader.js';
 import { createConversation } from '../memory/conversation-store.js';
+import { GENERATING_TITLE, queueGenerateConversationTitle } from '../memory/conversation-title-service.js';
 import type { AgentHeartbeatAlert } from '../daemon/ipc-contract.js';
 
 const log = getLogger('agent-heartbeat');
@@ -94,8 +95,12 @@ export class AgentHeartbeatService {
       const prompt = this.buildPrompt(checklist);
 
       const conversation = createConversation({
-        title: 'Agent Heartbeat',
+        title: GENERATING_TITLE,
         threadType: 'background',
+      });
+      queueGenerateConversationTitle({
+        conversationId: conversation.id,
+        context: { origin: 'heartbeat', systemHint: 'Agent Heartbeat' },
       });
 
       await this.deps.processMessage(conversation.id, prompt);
