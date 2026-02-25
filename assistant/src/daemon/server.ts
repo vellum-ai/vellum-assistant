@@ -699,11 +699,14 @@ export class DaemonServer {
       throw new Error('Session is already processing a message');
     }
 
+    const resolvedChannel = resolveTurnChannel(sourceChannel, options?.transport?.channelId);
     session.setAssistantId(options?.assistantId ?? 'self');
-    session.setGuardianContext(options?.guardianContext ?? null);
+    // IPC/desktop callers don't supply guardianContext — the local daemon user
+    // IS the guardian, so default to guardian role to avoid tagging messages as
+    // 'unverified_channel' and blocking memory extraction.
+    session.setGuardianContext(options?.guardianContext ?? { actorRole: 'guardian', sourceChannel: resolvedChannel });
     session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel));
     session.setCommandIntent(options?.commandIntent ?? null);
-    const resolvedChannel = resolveTurnChannel(sourceChannel, options?.transport?.channelId);
     session.setTurnChannelContext({
       userMessageChannel: resolvedChannel,
       assistantMessageChannel: resolvedChannel,
@@ -746,11 +749,14 @@ export class DaemonServer {
       throw new Error('Session is already processing a message');
     }
 
+    const resolvedChannel2 = resolveTurnChannel(sourceChannel, options?.transport?.channelId);
     session.setAssistantId(options?.assistantId ?? 'self');
-    session.setGuardianContext(options?.guardianContext ?? null);
+    // IPC/desktop callers don't supply guardianContext — the local daemon user
+    // IS the guardian, so default to guardian role to avoid tagging messages as
+    // 'unverified_channel' and blocking memory extraction.
+    session.setGuardianContext(options?.guardianContext ?? { actorRole: 'guardian', sourceChannel: resolvedChannel2 });
     session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel));
     session.setCommandIntent(options?.commandIntent ?? null);
-    const resolvedChannel2 = resolveTurnChannel(sourceChannel, options?.transport?.channelId);
     session.setTurnChannelContext({
       userMessageChannel: resolvedChannel2,
       assistantMessageChannel: resolvedChannel2,

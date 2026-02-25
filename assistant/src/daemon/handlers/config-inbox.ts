@@ -402,7 +402,9 @@ async function executeApprove(
     });
   }
   session.setAssistantId(assistantId);
-  session.setGuardianContext(null);
+  // Daemon inbox handler — the guardian approved this escalation, so tag as
+  // guardian to avoid 'unverified_channel' blocking memory extraction.
+  session.setGuardianContext({ actorRole: 'guardian', sourceChannel: sourceChannel ?? 'macos' });
   session.setCommandIntent(null);
 
   // Process the message through the agent loop (no IPC event callback
