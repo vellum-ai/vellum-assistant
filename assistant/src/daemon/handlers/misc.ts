@@ -117,8 +117,9 @@ export async function handleTaskSubmit(
         ctx.send(socket, { type: 'message_complete', sessionId: conversation.id });
 
         if (!recordingId) {
-          // Delete the conversation since no recording was started — prevents empty orphans
-          conversationStore.deleteConversation(conversation.id);
+          // Unbind the socket so the ephemeral rejection session doesn't block
+          // future task_submit routing, but keep the conversation in the DB so
+          // the client can still send follow-up messages to the routed sessionId.
           ctx.socketToSession.delete(socket);
         }
 
