@@ -271,8 +271,11 @@ class IOSThreadStore: ObservableObject {
 
         let filteredSessions = response.sessions.filter { $0.threadType != "private" }
 
-        // Handle empty first-page response: clear stale cached sessions.
-        if filteredSessions.isEmpty && threadListOffset == 0 {
+        // Handle confirmed-empty first-page response: clear stale cached sessions.
+        // Only clear when hasMore is explicitly false (authoritative empty result).
+        // Transient failures (HTTP errors, decode errors) emit hasMore: nil and must
+        // not wipe the cache — the user should keep seeing cached threads.
+        if filteredSessions.isEmpty && threadListOffset == 0 && response.hasMore == false {
             let keepThreads = threads.filter { $0.sessionId == nil || $0.isPrivate }
             for thread in threads where thread.sessionId != nil && !thread.isPrivate {
                 viewModels.removeValue(forKey: thread.id)
