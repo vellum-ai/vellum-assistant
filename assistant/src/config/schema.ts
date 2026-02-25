@@ -455,6 +455,7 @@ export const AssistantConfigSchema = z.object({
     stopTimeoutMs: 5000,
     sigkillGracePeriodMs: 2000,
     titleGenerationMaxTokens: 30,
+    standaloneRecording: true,
   }),
   notifications: NotificationsConfigSchema.default({
     decisionModel: 'claude-haiku-4-5-20251001',
