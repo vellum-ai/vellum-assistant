@@ -698,6 +698,25 @@ final class ScreenRecorder: NSObject {
                     RecordingTelemetry.logFallbackAttempt(fromConfig: encodeConfig.label, toConfig: nextLabel, reason: "no frames received")
                 case .streamStartFailed(let reason):
                     log.warning("Encoder config '\(encodeConfig.label, privacy: .public)' failed: stream start error — \(reason, privacy: .public)")
+                    // If the failure came from a typed stream error (permission
+                    // denied, source unavailable), throw the original error
+                    // immediately — retrying with a different codec won't help.
+                    if let typedError = pendingStreamError {
+                        pendingStreamError = nil
+                        switch typedError {
+                        case .permissionDenied, .sourceUnavailable:
+                            RecordingTelemetry.logError(
+                                category: .stream,
+                                sourceWidth: telemetrySourceWidth,
+                                sourceHeight: telemetrySourceHeight,
+                                configLabel: encodeConfig.label,
+                                message: typedError.localizedDescription ?? reason
+                            )
+                            throw typedError
+                        default:
+                            break // transient errors can still try next config
+                        }
+                    }
                     if isLastConfig {
                         RecordingTelemetry.logError(
                             category: .stream,
