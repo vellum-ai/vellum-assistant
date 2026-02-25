@@ -645,7 +645,7 @@ struct MainWindowView: View {
                             onDebug: {
                                 sidebar.showControlCenterDrawer = false
                                 windowState.selection = .panel(.debug)
-                            },
+                            }
                         )
                         .frame(width: drawerWidth)
                         .offset(x: drawerX, y: -28)
