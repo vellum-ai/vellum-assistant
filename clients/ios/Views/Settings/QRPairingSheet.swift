@@ -48,7 +48,7 @@ struct QRPairingSheet: View {
                     errorView
                 }
             }
-            .navigationTitle("Pair with Mac")
+            .navigationTitle("Pair with Assistant")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -72,7 +72,7 @@ struct QRPairingSheet: View {
 
     private var scanningView: some View {
         VStack(spacing: VSpacing.lg) {
-            Text("Scan the QR code from your Mac to pair.")
+            Text("Scan the QR code from your assistant to pair.")
                 .font(VFont.body)
                 .foregroundColor(VColor.textSecondary)
                 .multilineTextAlignment(.center)
@@ -85,7 +85,7 @@ struct QRPairingSheet: View {
             .cornerRadius(VRadius.md)
             .padding(.horizontal, VSpacing.lg)
 
-            Text("Open Vellum on your Mac, go to Settings \u{2192} Connect, and tap Show QR Code.")
+            Text("Open Vellum on your assistant, go to Settings \u{2192} Connect, and tap Show QR Code.")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textMuted)
                 .multilineTextAlignment(.center)
@@ -122,7 +122,7 @@ struct QRPairingSheet: View {
                 .font(VFont.title)
                 .foregroundColor(VColor.textPrimary)
 
-            Text("Approve this pairing request on your Mac to continue.")
+            Text("Approve this pairing request on your assistant to continue.")
                 .font(VFont.body)
                 .foregroundColor(VColor.textSecondary)
                 .multilineTextAlignment(.center)
@@ -142,7 +142,7 @@ struct QRPairingSheet: View {
             Spacer()
             ProgressView()
                 .controlSize(.large)
-            Text("Connecting to Mac...")
+            Text("Connecting to assistant...")
                 .font(VFont.body)
                 .foregroundColor(VColor.textSecondary)
             Spacer()
@@ -163,7 +163,7 @@ struct QRPairingSheet: View {
                 .font(VFont.title)
                 .foregroundColor(VColor.textPrimary)
 
-            Text("Your iPhone is now connected to your Mac.")
+            Text("Your iPhone is now connected to your assistant.")
                 .font(VFont.body)
                 .foregroundColor(VColor.textSecondary)
                 .multilineTextAlignment(.center)
@@ -224,7 +224,7 @@ struct QRPairingSheet: View {
     private func handleScannedCode(_ code: String) {
         guard let data = code.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            errorMessage = "This doesn't look like a Vellum QR code. Open Vellum on your Mac \u{2192} Settings \u{2192} Connect \u{2192} Show QR Code."
+            errorMessage = "This doesn't look like a Vellum QR code. Open Vellum on your assistant \u{2192} Settings \u{2192} Connect \u{2192} Show QR Code."
             phase = .error
             return
         }
@@ -239,7 +239,7 @@ struct QRPairingSheet: View {
 
         // Reject v2/v3 QR codes — require v4
         guard version >= 4 else {
-            errorMessage = "This QR code is outdated. Update Vellum on your Mac and try again."
+            errorMessage = "This QR code is outdated. Update Vellum on your assistant and try again."
             phase = .error
             return
         }
@@ -248,7 +248,7 @@ struct QRPairingSheet: View {
               let hostId = json["id"] as? String,
               let pairingRequestId = json["pairingRequestId"] as? String,
               let pairingSecret = json["pairingSecret"] as? String else {
-            errorMessage = "QR code is missing required fields. Show a new QR code on your Mac."
+            errorMessage = "QR code is missing required fields. Show a new QR code on your assistant."
             phase = .error
             return
         }
@@ -316,7 +316,7 @@ struct QRPairingSheet: View {
                 handlePairingResponse(result, payload: payload, effectiveBaseURL: payload.gatewayURL)
             } else if !Task.isCancelled {
                 await MainActor.run {
-                    errorMessage = "Could not reach your Mac. Make sure the Vellum daemon is running."
+                    errorMessage = "Could not reach your assistant. Make sure the Vellum daemon is running."
                     phase = .error
                 }
             }
@@ -347,7 +347,7 @@ struct QRPairingSheet: View {
 
     private func handlePairingResponse(_ response: [String: Any], payload: DaemonQRPayloadV4, effectiveBaseURL: String) {
         guard let status = response["status"] as? String else {
-            errorMessage = "Unexpected response from Mac."
+            errorMessage = "Unexpected response from assistant."
             phase = .error
             return
         }
@@ -374,11 +374,11 @@ struct QRPairingSheet: View {
             startPolling(payload: payload, effectiveBaseURL: effectiveBaseURL)
 
         case "denied":
-            errorMessage = "Pairing was denied on your Mac."
+            errorMessage = "Pairing was denied on your assistant."
             phase = .error
 
         case "expired":
-            errorMessage = "Pairing request expired. Show a new QR code on your Mac."
+            errorMessage = "Pairing request expired. Show a new QR code on your assistant."
             phase = .error
 
         default:
@@ -443,12 +443,12 @@ struct QRPairingSheet: View {
 
                 case "denied":
                     stopPolling()
-                    errorMessage = "Pairing was denied on your Mac."
+                    errorMessage = "Pairing was denied on your assistant."
                     phase = .error
 
                 case "expired":
                     stopPolling()
-                    errorMessage = "Pairing request expired. Show a new QR code on your Mac."
+                    errorMessage = "Pairing request expired. Show a new QR code on your assistant."
                     phase = .error
 
                 default:

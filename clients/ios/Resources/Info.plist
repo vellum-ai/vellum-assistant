@@ -30,7 +30,7 @@
     <key>NSSpeechRecognitionUsageDescription</key>
     <string>Vellum Assistant needs access to speech recognition to transcribe your voice input.</string>
     <key>NSCameraUsageDescription</key>
-    <string>Vellum Assistant uses the camera to scan QR codes for pairing with your Mac.</string>
+    <string>Vellum Assistant uses the camera to scan QR codes for pairing with your assistant.</string>
     <key>NSPhotoLibraryUsageDescription</key>
     <string>Select photos to attach to your message</string>
     <key>NSLocalNetworkUsageDescription</key>
