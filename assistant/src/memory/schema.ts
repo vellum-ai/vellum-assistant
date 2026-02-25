@@ -675,6 +675,8 @@ export const channelGuardianVerificationChallenges = sqliteTable('channel_guardi
   // Session configuration
   codeDigits: integer('code_digits').default(6),
   maxAttempts: integer('max_attempts').default(3),
+  // Telegram bootstrap deep-link token hash
+  bootstrapTokenHash: text('bootstrap_token_hash'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });

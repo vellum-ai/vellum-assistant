@@ -246,6 +246,10 @@ All notification producers **MUST** go through `emitNotificationSignal()` in `no
 
 When a notification flow creates a server-side conversation (e.g. guardian question threads, task run threads), the conversation and initial message **MUST** be persisted before the IPC thread-created event is emitted. This ensures the macOS/iOS client can immediately fetch the conversation contents when it receives the event.
 
+## Guardian Verification Invariant
+
+Guardian verification consumption must be identity-bound to the expected recipient identity. Every outbound verification session stores the expected identity (phone E.164, Telegram user/chat ID), and the consume path rejects attempts where the responding actor's identity does not match.
+
 ## Memory Provenance Invariant
 
 All memory extraction and retrieval decisions must consider actor-role provenance. Untrusted actors (non-guardian, unverified_channel) must not trigger profile extraction or receive memory recall/conflict disclosures. This invariant is enforced in `indexer.ts` (write gate) and `session-memory.ts` (read gate).

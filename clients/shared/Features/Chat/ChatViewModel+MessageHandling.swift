@@ -537,6 +537,8 @@ extension ChatViewModel {
             guard belongsToSession(complete.sessionId) else { return }
             // Flush any buffered streaming text before finalizing the message.
             flushStreamingBuffer()
+            // Strip heavy binary data from old messages to cap memory growth.
+            trimOldMessagesIfNeeded()
             let wasRefinement = isWorkspaceRefinementInFlight || cancelledDuringRefinement
             isWorkspaceRefinementInFlight = false
             cancelledDuringRefinement = false

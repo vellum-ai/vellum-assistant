@@ -8,7 +8,7 @@
  * requests track per-run guardian approval decisions.
  */
 
-import { and, count, desc, eq, gt, gte, inArray, lte, or, sum } from 'drizzle-orm';
+import { and, count, desc, eq, gt, gte, inArray, lte, or } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
 import { getDb } from './db.js';
@@ -49,7 +49,7 @@ export interface VerificationChallenge {
   channel: string;
   challengeHash: string;
   expiresAt: number;
-  status: ChallengeStatus;
+  status: SessionStatus;
   createdBySessionId: string | null;
   consumedByExternalUserId: string | null;
   consumedByChatId: string | null;
@@ -66,6 +66,8 @@ export interface VerificationChallenge {
   // Session configuration
   codeDigits: number;
   maxAttempts: number;
+  // Telegram bootstrap deep-link token hash
+  bootstrapTokenHash: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -131,6 +133,7 @@ function rowToChallenge(row: typeof channelGuardianVerificationChallenges.$infer
     nextResendAt: row.nextResendAt ?? null,
     codeDigits: row.codeDigits ?? 6,
     maxAttempts: row.maxAttempts ?? 3,
+    bootstrapTokenHash: row.bootstrapTokenHash ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -284,6 +287,7 @@ export function createChallenge(params: {
     nextResendAt: null,
     codeDigits: 6,
     maxAttempts: 3,
+    bootstrapTokenHash: null,
     createdAt: now,
     updatedAt: now,
   };
@@ -351,7 +355,7 @@ export function findPendingChallengeForChannel(
       and(
         eq(channelGuardianVerificationChallenges.assistantId, assistantId),
         eq(channelGuardianVerificationChallenges.channel, channel),
-        eq(channelGuardianVerificationChallenges.status, 'pending'),
+        inArray(channelGuardianVerificationChallenges.status, ['pending', 'pending_bootstrap', 'awaiting_response']),
         gt(channelGuardianVerificationChallenges.expiresAt, now),
       ),
     )
@@ -403,6 +407,7 @@ export function createVerificationSession(params: {
   destinationAddress?: string | null;
   codeDigits?: number;
   maxAttempts?: number;
+  bootstrapTokenHash?: string | null;
 }): VerificationChallenge {
   const db = getDb();
   const now = Date.now();
@@ -439,6 +444,7 @@ export function createVerificationSession(params: {
     nextResendAt: null,
     codeDigits: params.codeDigits ?? 6,
     maxAttempts: params.maxAttempts ?? 3,
+    bootstrapTokenHash: params.bootstrapTokenHash ?? null,
     createdAt: now,
     updatedAt: now,
   };
@@ -471,6 +477,35 @@ export function findActiveSession(
       ),
     )
     .orderBy(desc(channelGuardianVerificationChallenges.createdAt))
+    .get();
+
+  return row ? rowToChallenge(row) : null;
+}
+
+/**
+ * Look up a pending_bootstrap session by its bootstrap token hash.
+ * Used by the Telegram /start gv_<token> bootstrap flow.
+ */
+export function findSessionByBootstrapTokenHash(
+  assistantId: string,
+  channel: string,
+  tokenHash: string,
+): VerificationChallenge | null {
+  const db = getDb();
+  const now = Date.now();
+
+  const row = db
+    .select()
+    .from(channelGuardianVerificationChallenges)
+    .where(
+      and(
+        eq(channelGuardianVerificationChallenges.assistantId, assistantId),
+        eq(channelGuardianVerificationChallenges.channel, channel),
+        eq(channelGuardianVerificationChallenges.bootstrapTokenHash, tokenHash),
+        eq(channelGuardianVerificationChallenges.status, 'pending_bootstrap'),
+        gt(channelGuardianVerificationChallenges.expiresAt, now),
+      ),
+    )
     .get();
 
   return row ? rowToChallenge(row) : null;
@@ -582,10 +617,11 @@ export function updateSessionDelivery(
 }
 
 /**
- * Count SMS sends to a specific destination across all sessions within a
- * rolling time window. Used to enforce per-destination rate limits that
- * span across sessions, preventing circumvention via repeated
- * start_outbound calls.
+ * Count actual sends to a specific destination across all sessions within a
+ * rolling time window. Uses COUNT of rows with a last_sent_at timestamp
+ * inside the window rather than SUM(send_count) to avoid double-counting
+ * cumulative session counters when resend creates new sessions that carry
+ * forward the cumulative count.
  */
 export function countRecentSendsToDestination(
   channel: string,
@@ -596,18 +632,18 @@ export function countRecentSendsToDestination(
   const cutoff = Date.now() - windowMs;
 
   const result = db
-    .select({ total: sum(channelGuardianVerificationChallenges.sendCount) })
+    .select({ total: count() })
     .from(channelGuardianVerificationChallenges)
     .where(
       and(
         eq(channelGuardianVerificationChallenges.channel, channel),
         eq(channelGuardianVerificationChallenges.destinationAddress, destinationAddress),
-        gte(channelGuardianVerificationChallenges.createdAt, cutoff),
+        gte(channelGuardianVerificationChallenges.lastSentAt, cutoff),
       ),
     )
     .get();
 
-  return result?.total != null ? Number(result.total) : 0;
+  return result?.total ?? 0;
 }
 
 /**

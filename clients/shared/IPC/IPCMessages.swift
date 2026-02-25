@@ -2008,7 +2008,8 @@ extension IPCGuardianVerificationRequest {
         channel: String? = nil,
         sessionId: String? = nil,
         assistantId: String? = nil,
-        rebind: Bool? = nil
+        rebind: Bool? = nil,
+        destination: String? = nil
     ) {
         self.init(
             type: "guardian_verification",
@@ -2016,7 +2017,8 @@ extension IPCGuardianVerificationRequest {
             channel: channel,
             sessionId: sessionId,
             assistantId: assistantId,
-            rebind: rebind
+            rebind: rebind,
+            destination: destination
         )
     }
 }
