@@ -145,13 +145,7 @@ const MemoryFreshnessConfigSchema = z.object({
       .number({ error: 'memory.retrieval.freshness.maxAgeDays.opinion must be a number' })
       .nonnegative('memory.retrieval.freshness.maxAgeDays.opinion must be non-negative')
       .default(60),
-  }).default({
-    fact: 0,
-    preference: 0,
-    behavior: 90,
-    event: 30,
-    opinion: 60,
-  }),
+  }).default({} as any),
   staleDecay: z
     .number({ error: 'memory.retrieval.freshness.staleDecay must be a number' })
     .min(0, 'memory.retrieval.freshness.staleDecay must be >= 0')
@@ -187,40 +181,15 @@ export const MemoryRetrievalConfigSchema = z.object({
       error: 'memory.retrieval.injectionStrategy must be "prepend_user_block" or "separate_context_message"',
     })
     .default('prepend_user_block'),
-  reranking: MemoryRerankingConfigSchema.default({
-    enabled: false,
-    modelIntent: 'latency-optimized',
-    topK: 20,
-  }),
-  freshness: MemoryFreshnessConfigSchema.default({
-    enabled: true,
-    maxAgeDays: {
-      fact: 0,
-      preference: 0,
-      behavior: 90,
-      event: 30,
-      opinion: 60,
-    },
-    staleDecay: 0.5,
-    reinforcementShieldDays: 7,
-  }),
+  reranking: MemoryRerankingConfigSchema.default({} as any),
+  freshness: MemoryFreshnessConfigSchema.default({} as any),
   scopePolicy: z
     .enum(['allow_global_fallback', 'strict'], {
       error: 'memory.retrieval.scopePolicy must be "allow_global_fallback" or "strict"',
     })
     .default('allow_global_fallback'),
-  dynamicBudget: MemoryDynamicBudgetConfigSchema.default({
-    enabled: true,
-    minInjectTokens: 1200,
-    maxInjectTokens: 10000,
-    targetHeadroomTokens: 10000,
-  }),
-  earlyTermination: MemoryEarlyTerminationConfigSchema.default({
-    enabled: true,
-    minCandidates: 20,
-    minHighConfidence: 10,
-    confidenceThreshold: 0.7,
-  }),
+  dynamicBudget: MemoryDynamicBudgetConfigSchema.default({} as any),
+  earlyTermination: MemoryEarlyTerminationConfigSchema.default({} as any),
 });
 
 export const MemorySegmentationConfigSchema = z.object({
@@ -313,10 +282,7 @@ export const MemoryEntityConfigSchema = z.object({
       .int('memory.entity.extractRelations.backfillBatchSize must be an integer')
       .positive('memory.entity.extractRelations.backfillBatchSize must be a positive integer')
       .default(200),
-  }).default({
-    enabled: true,
-    backfillBatchSize: 200,
-  }),
+  }).default({} as any),
   relationRetrieval: z.object({
     enabled: z
       .boolean({ error: 'memory.entity.relationRetrieval.enabled must be a boolean' })
@@ -349,15 +315,7 @@ export const MemoryEntityConfigSchema = z.object({
     depthDecay: z
       .boolean({ error: 'memory.entity.relationRetrieval.depthDecay must be a boolean' })
       .default(true),
-  }).default({
-    enabled: true,
-    maxSeedEntities: 8,
-    maxNeighborEntities: 20,
-    maxEdges: 40,
-    neighborScoreMultiplier: 0.7,
-    maxDepth: 3,
-    depthDecay: true,
-  }),
+  }).default({} as any),
 });
 
 export const MemoryConflictsConfigSchema = z.object({
@@ -421,109 +379,18 @@ export const MemoryConfigSchema = z.object({
   enabled: z
     .boolean({ error: 'memory.enabled must be a boolean' })
     .default(true),
-  embeddings: MemoryEmbeddingsConfigSchema.default({
-    required: true,
-    provider: 'auto',
-    localModel: 'Xenova/bge-small-en-v1.5',
-    openaiModel: 'text-embedding-3-small',
-    geminiModel: 'gemini-embedding-001',
-    ollamaModel: 'nomic-embed-text',
-  }),
-  qdrant: QdrantConfigSchema.default({
-    url: 'http://127.0.0.1:6333',
-    collection: 'memory',
-    vectorSize: 384,
-    onDisk: true,
-    quantization: 'scalar',
-  }),
-  retrieval: MemoryRetrievalConfigSchema.default({
-    lexicalTopK: 80,
-    semanticTopK: 40,
-    maxInjectTokens: 10000,
-    injectionFormat: 'markdown',
-    injectionStrategy: 'prepend_user_block',
-    reranking: {
-      enabled: false,
-      modelIntent: 'latency-optimized',
-      topK: 20,
-    },
-    freshness: {
-      enabled: true,
-      maxAgeDays: { fact: 0, preference: 0, behavior: 90, event: 30, opinion: 60 },
-      staleDecay: 0.5,
-      reinforcementShieldDays: 7,
-    },
-    scopePolicy: 'allow_global_fallback',
-    dynamicBudget: {
-      enabled: true,
-      minInjectTokens: 1200,
-      maxInjectTokens: 10000,
-      targetHeadroomTokens: 10000,
-    },
-    earlyTermination: {
-      enabled: true,
-      minCandidates: 20,
-      minHighConfidence: 10,
-      confidenceThreshold: 0.7,
-    },
-  }),
-  segmentation: MemorySegmentationConfigSchema.default({
-    targetTokens: 450,
-    overlapTokens: 60,
-  }),
-  jobs: MemoryJobsConfigSchema.default({
-    workerConcurrency: 2,
-    batchSize: 10,
-  }),
-  retention: MemoryRetentionConfigSchema.default({
-    keepRawForever: true,
-  }),
-  cleanup: MemoryCleanupConfigSchema.default({
-    enabled: true,
-    enqueueIntervalMs: 6 * 60 * 60 * 1000,
-    resolvedConflictRetentionMs: 30 * 24 * 60 * 60 * 1000,
-    supersededItemRetentionMs: 30 * 24 * 60 * 60 * 1000,
-    conversationRetentionDays: 90,
-  }),
-  extraction: MemoryExtractionConfigSchema.default({
-    useLLM: true,
-    modelIntent: 'latency-optimized',
-    extractFromAssistant: true,
-  }),
-  summarization: MemorySummarizationConfigSchema.default({
-    useLLM: true,
-    modelIntent: 'latency-optimized',
-  }),
-  entity: MemoryEntityConfigSchema.default({
-    enabled: true,
-    modelIntent: 'latency-optimized',
-    extractRelations: {
-      enabled: true,
-      backfillBatchSize: 200,
-    },
-    relationRetrieval: {
-      enabled: true,
-      maxSeedEntities: 8,
-      maxNeighborEntities: 20,
-      maxEdges: 40,
-      neighborScoreMultiplier: 0.7,
-      maxDepth: 3,
-      depthDecay: true,
-    },
-  }),
-  conflicts: MemoryConflictsConfigSchema.default({
-    enabled: true,
-    gateMode: 'soft',
-    reaskCooldownTurns: 3,
-    resolverLlmTimeoutMs: 12000,
-    relevanceThreshold: 0.3,
-    askOnIrrelevantTurns: false,
-    conflictableKinds: ['preference', 'profile', 'constraint', 'instruction', 'style'],
-  }),
-  profile: MemoryProfileConfigSchema.default({
-    enabled: true,
-    maxInjectTokens: 800,
-  }),
+  embeddings: MemoryEmbeddingsConfigSchema.default({} as any),
+  qdrant: QdrantConfigSchema.default({} as any),
+  retrieval: MemoryRetrievalConfigSchema.default({} as any),
+  segmentation: MemorySegmentationConfigSchema.default({} as any),
+  jobs: MemoryJobsConfigSchema.default({} as any),
+  retention: MemoryRetentionConfigSchema.default({} as any),
+  cleanup: MemoryCleanupConfigSchema.default({} as any),
+  extraction: MemoryExtractionConfigSchema.default({} as any),
+  summarization: MemorySummarizationConfigSchema.default({} as any),
+  entity: MemoryEntityConfigSchema.default({} as any),
+  conflicts: MemoryConflictsConfigSchema.default({} as any),
+  profile: MemoryProfileConfigSchema.default({} as any),
 });
 
 export type MemoryEmbeddingsConfig = z.infer<typeof MemoryEmbeddingsConfigSchema>;

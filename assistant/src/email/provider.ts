@@ -6,10 +6,10 @@
  */
 
 import type {
-  EmailDomain,
   DnsRecord,
-  EmailInbox,
+  EmailDomain,
   EmailDraft,
+  EmailInbox,
   EmailMessage,
   EmailThread,
   EmailWebhook,

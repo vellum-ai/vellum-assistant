@@ -4,9 +4,9 @@
  */
 
 import { loadRawConfig } from '../config/loader.js';
-import { oauthPostTweet, oauthIsAvailable, oauthSupportsOperation } from './oauth-client.js';
-import { postTweet as browserPostTweet, SessionExpiredError } from './client.js';
 import type { PostTweetResult } from './client.js';
+import { postTweet as browserPostTweet, SessionExpiredError } from './client.js';
+import { oauthIsAvailable, oauthPostTweet, oauthSupportsOperation } from './oauth-client.js';
 
 export type TwitterStrategy = 'oauth' | 'browser' | 'auto';
 

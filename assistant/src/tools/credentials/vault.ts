@@ -1,22 +1,22 @@
+import { getConfig } from '../../config/loader.js';
 import { RiskLevel } from '../../permissions/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
+import { type OAuth2FlowResult, prepareOAuth2Flow, startOAuth2Flow, type TokenEndpointAuthMethod } from '../../security/oauth2.js';
 import {
-  getSecureKey,
-  setSecureKey,
   deleteSecureKey,
   getBackendType,
-  listSecureKeys,
+  getSecureKey,
   isDowngradedFromKeychain,
+  listSecureKeys,
+  setSecureKey,
 } from '../../security/secure-keys.js';
-import { upsertCredentialMetadata, deleteCredentialMetadata, getCredentialMetadata, listCredentialMetadata, assertMetadataWritable } from './metadata-store.js';
-import { validatePolicyInput, toPolicyFromInput } from './policy-validate.js';
-import type { CredentialPolicyInput, CredentialInjectionTemplate } from './policy-types.js';
-import { credentialBroker } from './broker.js';
-import { startOAuth2Flow, prepareOAuth2Flow, type OAuth2FlowResult, type TokenEndpointAuthMethod } from '../../security/oauth2.js';
-import { runPostConnectHook } from './post-connect-hooks.js';
-import { getConfig } from '../../config/loader.js';
 import { getLogger } from '../../util/logger.js';
+import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
+import { credentialBroker } from './broker.js';
+import { assertMetadataWritable,deleteCredentialMetadata, getCredentialMetadata, listCredentialMetadata, upsertCredentialMetadata } from './metadata-store.js';
+import type { CredentialInjectionTemplate,CredentialPolicyInput } from './policy-types.js';
+import { toPolicyFromInput,validatePolicyInput } from './policy-validate.js';
+import { runPostConnectHook } from './post-connect-hooks.js';
 
 const log = getLogger('credential-vault');
 

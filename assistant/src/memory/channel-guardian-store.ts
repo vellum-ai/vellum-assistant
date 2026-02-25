@@ -10,12 +10,13 @@
 
 import { and, count, desc, eq, gt, inArray, lte, or } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
+
 import { getDb } from './db.js';
 import {
-  channelGuardianBindings,
-  channelGuardianVerificationChallenges,
   channelGuardianApprovalRequests,
+  channelGuardianBindings,
   channelGuardianRateLimits,
+  channelGuardianVerificationChallenges,
 } from './schema.js';
 
 // ---------------------------------------------------------------------------

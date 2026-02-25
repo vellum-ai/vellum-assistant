@@ -1,14 +1,16 @@
-import * as net from 'node:net';
-import { v4 as uuid } from 'uuid';
-import { Session } from '../session.js';
-import { ComputerUseSession } from '../computer-use-session.js';
-import { getLogger } from '../../util/logger.js';
 import { execSync } from 'node:child_process';
-import { estimateBase64Bytes } from '../assistant-attachments.js';
-import type { ClientMessage, CuSessionCreate, ServerMessage, SessionTransportMetadata } from '../ipc-protocol.js';
-import type { SecretPromptResult } from '../../permissions/secret-prompter.js';
+import * as net from 'node:net';
+
+import { v4 as uuid } from 'uuid';
+
 import { getConfig } from '../../config/loader.js';
+import type { SecretPromptResult } from '../../permissions/secret-prompter.js';
 import type { DebouncerMap } from '../../util/debounce.js';
+import { getLogger } from '../../util/logger.js';
+import { estimateBase64Bytes } from '../assistant-attachments.js';
+import { ComputerUseSession } from '../computer-use-session.js';
+import type { ClientMessage, CuSessionCreate, ServerMessage, SessionTransportMetadata } from '../ipc-protocol.js';
+import { Session } from '../session.js';
 import type { GuardianRuntimeContext } from '../session-runtime-assembly.js';
 
 const log = getLogger('handlers');

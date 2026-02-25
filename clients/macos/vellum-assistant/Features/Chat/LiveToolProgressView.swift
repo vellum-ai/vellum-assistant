@@ -67,6 +67,7 @@ struct LiveToolProgressView: View {
                         .foregroundColor(VColor.textMuted)
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
                 }
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .padding(.horizontal, VSpacing.sm)

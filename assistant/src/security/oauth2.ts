@@ -16,8 +16,9 @@
  * are now inlined here since the integration framework is removed.
  */
 
-import { randomBytes, createHash } from 'node:crypto';
+import { createHash,randomBytes } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
+
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('oauth2');

@@ -1,15 +1,16 @@
-import { describe, test, expect, afterAll } from 'bun:test';
-import {
-  getTool,
-  getAllTools,
-  getAllToolDefinitions,
-  initializeTools,
-  __resetRegistryForTesting,
-} from '../tools/registry.js';
+import { afterAll,describe, expect, test } from 'bun:test';
+
 import { buildToolDefinitions } from '../daemon/session-tool-setup.js';
 import {
-  COMPUTER_USE_TOOL_NAMES,
+  __resetRegistryForTesting,
+  getAllToolDefinitions,
+  getAllTools,
+  getTool,
+  initializeTools,
+} from '../tools/registry.js';
+import {
   assertComputerUseToolsAbsent,
+  COMPUTER_USE_TOOL_NAMES,
 } from './test-support/computer-use-skill-harness.js';
 
 afterAll(() => { __resetRegistryForTesting(); });

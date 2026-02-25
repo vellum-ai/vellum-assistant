@@ -352,7 +352,9 @@ export function loadConfig(): GatewayConfig {
   let smsDeliverAuthBypass = smsDeliverAuthBypassRaw === "true";
 
   // Production guard: auth bypass flags must never be active outside dev mode.
-  const appVersion = process.env.APP_VERSION ?? "0.0.0-dev";
+  // Fail closed: treat missing APP_VERSION as production, since the gateway
+  // release pipeline does not inject it (unlike the daemon build).
+  const appVersion = process.env.APP_VERSION;
   const isDevMode = appVersion === "0.0.0-dev";
   if (!isDevMode) {
     if (telegramDeliverAuthBypass) {

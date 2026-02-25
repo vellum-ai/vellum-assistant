@@ -1,5 +1,6 @@
-import { existsSync, readdirSync, readFileSync, writeFileSync, renameSync, unlinkSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, renameSync, unlinkSync,writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+
 import { isPlainObject } from '../util/object.js';
 import { migrationLog } from './log.js';
 

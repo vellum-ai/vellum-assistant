@@ -1,6 +1,6 @@
-import type { ToolContext, ToolExecutionResult } from '../types.js';
-import { resolveFollowUp, resolveByThread } from '../../followups/followup-store.js';
+import { resolveByThread,resolveFollowUp } from '../../followups/followup-store.js';
 import type { FollowUp } from '../../followups/types.js';
+import type { ToolContext, ToolExecutionResult } from '../types.js';
 
 function formatFollowUp(f: FollowUp): string {
   const lines = [

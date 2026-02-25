@@ -1,9 +1,9 @@
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import { withValidToken } from '../../../../security/token-manager.js';
+import { createFilter, deleteFilter,listFilters } from '../../../../messaging/providers/gmail/client.js';
+import type { GmailFilterAction,GmailFilterCriteria } from '../../../../messaging/providers/gmail/types.js';
 import { getMessagingProvider } from '../../../../messaging/registry.js';
-import { listFilters, createFilter, deleteFilter } from '../../../../messaging/providers/gmail/client.js';
-import type { GmailFilterCriteria, GmailFilterAction } from '../../../../messaging/providers/gmail/types.js';
-import { ok, err } from './shared.js';
+import { withValidToken } from '../../../../security/token-manager.js';
+import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
+import { err,ok } from './shared.js';
 
 export async function run(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
   const action = input.action as string;

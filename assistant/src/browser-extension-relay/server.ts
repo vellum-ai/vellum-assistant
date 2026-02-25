@@ -6,12 +6,13 @@
  */
 
 import type { ServerWebSocket } from 'bun';
+
 import { getLogger } from '../util/logger.js';
 import type {
   ExtensionCommand,
-  ExtensionResponse,
   ExtensionHeartbeat,
   ExtensionInboundMessage,
+  ExtensionResponse,
 } from './protocol.js';
 
 const log = getLogger('browser-extension-relay');

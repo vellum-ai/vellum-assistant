@@ -1,11 +1,11 @@
 import { getLogger } from '../util/logger.js';
-import { getAllWorkspaceGitServices, type WorkspaceGitService } from './git-service.js';
+import { getEnrichmentService } from './commit-message-enrichment-service.js';
 import {
-  DefaultCommitMessageProvider,
   type CommitContext,
   type CommitMessageProvider,
+  DefaultCommitMessageProvider,
 } from './commit-message-provider.js';
-import { getEnrichmentService } from './commit-message-enrichment-service.js';
+import { getAllWorkspaceGitServices, type WorkspaceGitService } from './git-service.js';
 
 const log = getLogger('heartbeat');
 

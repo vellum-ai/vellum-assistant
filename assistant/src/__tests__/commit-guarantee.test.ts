@@ -5,21 +5,23 @@
  * post-processing errors occur after the agent loop completes, and
  * that the shutdown sequence commits changes made during server.stop().
  */
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
+import { existsSync,mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach,beforeEach, describe, expect, test } from 'bun:test';
+
 import {
-  WorkspaceGitService,
-  getWorkspaceGitService,
   _resetGitServiceRegistry,
+  getWorkspaceGitService,
+  WorkspaceGitService,
 } from '../workspace/git-service.js';
-import { commitTurnChanges } from '../workspace/turn-commit.js';
 import {
-  HeartbeatService,
   _resetHeartbeatState,
+  HeartbeatService,
 } from '../workspace/heartbeat-service.js';
+import { commitTurnChanges } from '../workspace/turn-commit.js';
 
 describe('Commit guarantees', () => {
   let testDir: string;

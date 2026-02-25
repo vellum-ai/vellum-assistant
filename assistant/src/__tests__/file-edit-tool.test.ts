@@ -1,7 +1,8 @@
-import { afterEach, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach, beforeAll, describe, expect, test } from 'bun:test';
 
 import { getTool } from '../tools/registry.js';
 import type { Tool, ToolContext } from '../tools/types.js';

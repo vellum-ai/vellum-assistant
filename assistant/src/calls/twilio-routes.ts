@@ -6,30 +6,30 @@
  * - handleConnectAction: called when the ConversationRelay connection ends
  */
 
-import { getLogger } from '../util/logger.js';
-import { getCallWelcomeGreeting } from '../config/env.js';
-import {
-  getCallSession,
-  getCallSessionByCallSid,
-  updateCallSession,
-  recordCallEvent,
-  expirePendingQuestions,
-  buildCallbackDedupeKey,
-  claimCallback,
-  releaseCallbackClaim,
-  finalizeCallbackClaim,
-} from './call-store.js';
-import type { CallStatus } from './types.js';
-import { logDeadLetterEvent } from './call-recovery.js';
-import { isTerminalState } from './call-state-machine.js';
-import { getTwilioConfig } from './twilio-config.js';
+import { getCallWelcomeGreeting, getRuntimeProxyBearerToken } from '../config/env.js';
 import { loadConfig } from '../config/loader.js';
 import { getTwilioRelayUrl } from '../inbound/public-ingress-urls.js';
-import { fireCallCompletionNotifier } from './call-state.js';
-import { persistCallCompletionMessage } from './call-conversation-messages.js';
-import { resolveVoiceQualityProfile, isVoiceProfileValid } from './voice-quality.js';
-import { createInboundVoiceSession } from './call-domain.js';
+import { getLogger } from '../util/logger.js';
 import { readHttpToken } from '../util/platform.js';
+import { persistCallCompletionMessage } from './call-conversation-messages.js';
+import { createInboundVoiceSession } from './call-domain.js';
+import { logDeadLetterEvent } from './call-recovery.js';
+import { fireCallCompletionNotifier } from './call-state.js';
+import { isTerminalState } from './call-state-machine.js';
+import {
+  buildCallbackDedupeKey,
+  claimCallback,
+  expirePendingQuestions,
+  finalizeCallbackClaim,
+  getCallSession,
+  getCallSessionByCallSid,
+  recordCallEvent,
+  releaseCallbackClaim,
+  updateCallSession,
+} from './call-store.js';
+import { getTwilioConfig } from './twilio-config.js';
+import type { CallStatus } from './types.js';
+import { isVoiceProfileValid,resolveVoiceQualityProfile } from './voice-quality.js';
 
 const log = getLogger('twilio-routes');
 
@@ -240,10 +240,9 @@ function buildVoiceWebhookTwiml(
   }
   const welcomeGreeting = buildWelcomeGreeting(task, getCallWelcomeGreeting());
 
-  // Include the gateway bearer token so the WebSocket relay endpoint can
-  // authenticate the connection. Without this, any client that guesses a
-  // callSessionId could inject frames into a live call.
-  const relayToken = readHttpToken() ?? undefined;
+  // Use the same token resolution the gateway uses for runtimeProxyBearerToken:
+  // env var override first, then the on-disk http-token file.
+  const relayToken = getRuntimeProxyBearerToken() ?? readHttpToken() ?? undefined;
 
   const twiml = generateTwiML(callSessionId, relayUrl, welcomeGreeting, profile, relayToken);
 

@@ -1,11 +1,12 @@
-import { join } from 'node:path';
 import { mkdirSync } from 'node:fs';
-import { getDataDir } from '../../util/platform.js';
+import { join } from 'node:path';
+
 import { getLogger } from '../../util/logger.js';
-import { checkBrowserRuntime } from './runtime-check.js';
+import { getDataDir } from '../../util/platform.js';
+import { silentlyWithLog } from '../../util/silently.js';
 import { authSessionCache } from './auth-cache.js';
 import type { ExtractedCredential } from './network-recording-types.js';
-import { silentlyWithLog } from '../../util/silently.js';
+import { checkBrowserRuntime } from './runtime-check.js';
 
 const log = getLogger('browser-manager');
 

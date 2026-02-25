@@ -1,11 +1,13 @@
 import { chmodSync, existsSync, mkdirSync, readdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { Writable } from 'node:stream';
+
 import pino from 'pino';
 import pinoPretty from 'pino-pretty';
+
+import { getDebugMode, getDebugStdoutLogs,getLogStderr } from '../config/env-registry.js';
 import { logSerializers } from './log-redact.js';
 import { getLogPath } from './platform.js';
-import { getDebugMode, getLogStderr, getDebugStdoutLogs } from '../config/env-registry.js';
 
 export type LogFileConfig = {
   dir: string | undefined;

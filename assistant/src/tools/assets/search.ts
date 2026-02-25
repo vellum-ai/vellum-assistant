@@ -7,17 +7,18 @@
  * passed to asset_materialize (PR 35) to retrieve actual content.
  */
 
-import { and, eq, like, gte, desc } from 'drizzle-orm';
+import { and, desc,eq, gte, like } from 'drizzle-orm';
+
+import { type AttachmentContext,isAttachmentVisible } from '../../daemon/media-visibility-policy.js';
+import type { StoredAttachment } from '../../memory/attachments-store.js';
+import { getConversationThreadType } from '../../memory/conversation-store.js';
+import { getDb, rawAll } from '../../memory/db.js';
+import { attachments, conversations,messageAttachments, messages } from '../../memory/schema.js';
+import { escapeLikeWildcards } from '../../memory/search/lexical.js';
 import { RiskLevel } from '../../permissions/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
-import { getDb, rawAll } from '../../memory/db.js';
-import { attachments, messageAttachments, messages, conversations } from '../../memory/schema.js';
-import type { StoredAttachment } from '../../memory/attachments-store.js';
-import { isAttachmentVisible, type AttachmentContext } from '../../daemon/media-visibility-policy.js';
-import { getConversationThreadType } from '../../memory/conversation-store.js';
-import { escapeLikeWildcards } from '../../memory/search/lexical.js';
+import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 
 // ---------------------------------------------------------------------------
 // Recency presets — map human-readable labels to epoch-ms cutoff offsets

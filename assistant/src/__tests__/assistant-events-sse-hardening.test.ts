@@ -8,10 +8,11 @@
  *   - Subscription cleanup on request abort.
  *   - Subscription cleanup on reader cancel.
  */
-import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
-import { mkdtempSync, rmSync, realpathSync } from 'node:fs';
+import { mkdtempSync, realpathSync,rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, beforeEach, describe, expect, mock,test } from 'bun:test';
 
 const testDir = realpathSync(mkdtempSync(join(tmpdir(), 'sse-hardening-')));
 
@@ -45,7 +46,7 @@ mock.module('../config/loader.js', () => ({
   }),
 }));
 
-import { initializeDb, getDb, resetDb } from '../memory/db.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { AssistantEventHub } from '../runtime/assistant-event-hub.js';
 import { handleSubscribeAssistantEvents } from '../runtime/routes/events-routes.js';
 

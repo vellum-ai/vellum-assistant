@@ -1,6 +1,7 @@
-import { describe, test, expect } from 'bun:test';
-import { AssistantEventHub } from '../runtime/assistant-event-hub.js';
+import { describe, expect,test } from 'bun:test';
+
 import type { AssistantEvent } from '../runtime/assistant-event.js';
+import { AssistantEventHub } from '../runtime/assistant-event-hub.js';
 
 function makeEvent(overrides: Partial<AssistantEvent> = {}): AssistantEvent {
   return {

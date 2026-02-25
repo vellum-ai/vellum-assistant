@@ -1,8 +1,9 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, expect,test } from 'bun:test';
+
 import {
-  isAttachmentVisible,
-  filterVisibleAttachments,
   type AttachmentContext,
+  filterVisibleAttachments,
+  isAttachmentVisible,
 } from '../daemon/media-visibility-policy.js';
 
 // ---------------------------------------------------------------------------

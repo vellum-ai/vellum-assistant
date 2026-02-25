@@ -3,7 +3,7 @@
  * them to the upstream server with full body streaming.
  */
 
-import { request as httpRequest, type IncomingMessage, type ServerResponse } from 'node:http';
+import { type IncomingMessage, request as httpRequest, type ServerResponse } from 'node:http';
 import { URL } from 'node:url';
 
 /** Hop-by-hop headers that MUST NOT be forwarded between proxy hops. */

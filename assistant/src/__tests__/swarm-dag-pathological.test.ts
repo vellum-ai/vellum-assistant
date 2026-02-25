@@ -9,16 +9,17 @@
  *   3. Very wide fan-outs (one root task with 50+ immediate dependents)
  */
 
-import { describe, test, expect } from 'bun:test';
-import { executeSwarm } from '../swarm/orchestrator.js';
+import { describe, expect,test } from 'bun:test';
+
+import { resolveSwarmLimits } from '../swarm/limits.js';
 import type { OrchestratorEvent } from '../swarm/orchestrator.js';
+import { executeSwarm } from '../swarm/orchestrator.js';
 import {
-  validateAndNormalizePlan,
   SwarmPlanValidationError,
+  validateAndNormalizePlan,
 } from '../swarm/plan-validator.js';
 import type { SwarmPlan, SwarmTaskNode } from '../swarm/types.js';
 import type { SwarmWorkerBackend } from '../swarm/worker-backend.js';
-import { resolveSwarmLimits } from '../swarm/limits.js';
 
 // ---------------------------------------------------------------------------
 // Shared helpers

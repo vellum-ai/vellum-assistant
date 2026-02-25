@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real, blob, index } from 'drizzle-orm/sqlite-core';
+import { blob, index,integer, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 export const conversations = sqliteTable('conversations', {
   id: text('id').primaryKey(),
@@ -138,6 +138,7 @@ export const memorySummaries = sqliteTable('memory_summaries', {
   updatedAt: integer('updated_at').notNull(),
 }, (table) => [
   index('idx_memory_summaries_scope_id').on(table.scopeId),
+  uniqueIndex('idx_memory_summaries_scope_scope_key').on(table.scope, table.scopeKey),
 ]);
 
 export const memoryEmbeddings = sqliteTable('memory_embeddings', {
@@ -152,7 +153,9 @@ export const memoryEmbeddings = sqliteTable('memory_embeddings', {
   contentHash: text('content_hash'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
-});
+}, (table) => [
+  uniqueIndex('idx_memory_embeddings_target_provider_model').on(table.targetType, table.targetId, table.provider, table.model),
+]);
 
 export const memoryJobs = sqliteTable('memory_jobs', {
   id: text('id').primaryKey(),

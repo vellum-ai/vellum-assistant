@@ -11,8 +11,8 @@
 import { describe, expect, mock, test } from 'bun:test';
 
 import { DEFAULT_CONFIG } from '../config/defaults.js';
-import { ContextWindowManager } from '../context/window-manager.js';
 import { estimatePromptTokens } from '../context/token-estimator.js';
+import { ContextWindowManager } from '../context/window-manager.js';
 import type { Message, Provider } from '../providers/types.js';
 
 mock.module('../util/logger.js', () => ({

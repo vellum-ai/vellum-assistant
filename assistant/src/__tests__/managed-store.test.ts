@@ -1,9 +1,10 @@
-import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from 'bun:test';
 import * as fs from 'node:fs';
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync,writeFileSync } from 'node:fs';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from 'bun:test';
 
 let TEST_DIR = '';
 
@@ -18,16 +19,16 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
+import { loadSkillCatalog } from '../config/skills.js';
 import {
-  validateManagedSkillId,
   buildSkillMarkdown,
-  upsertSkillsIndexEntry,
-  removeSkillsIndexEntry,
   createManagedSkill,
   deleteManagedSkill,
   readSkillVersion,
+  removeSkillsIndexEntry,
+  upsertSkillsIndexEntry,
+  validateManagedSkillId,
 } from '../skills/managed-store.js';
-import { loadSkillCatalog } from '../config/skills.js';
 
 beforeEach(() => {
   TEST_DIR = mkdtempSync(join(tmpdir(), 'managed-store-test-'));

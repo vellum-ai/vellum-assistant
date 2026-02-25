@@ -1,7 +1,8 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { eq } from 'drizzle-orm';
 
 import { DEFAULT_CONFIG } from '../config/defaults.js';
@@ -55,9 +56,9 @@ mock.module('../config/loader.js', () => ({
 }));
 
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
+import { enqueueMemoryJob } from '../memory/jobs-store.js';
 import { conversations, cronJobs, cronRuns, memoryItems, memoryItemSources, memoryJobs, messages, taskRuns, tasks } from '../memory/schema.js';
 import { invalidateAssistantInferredItemsForConversation, isConversationFailed } from '../memory/task-memory-cleanup.js';
-import { enqueueMemoryJob } from '../memory/jobs-store.js';
 
 describe('invalidateAssistantInferredItemsForConversation', () => {
   const now = 1_701_100_000_000;

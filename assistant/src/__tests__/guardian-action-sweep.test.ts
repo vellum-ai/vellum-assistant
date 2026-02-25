@@ -1,7 +1,8 @@
-import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, beforeEach, describe, expect, mock,test } from 'bun:test';
 
 const testDir = mkdtempSync(join(tmpdir(), 'guardian-action-sweep-test-'));
 
@@ -32,21 +33,21 @@ mock.module('../runtime/gateway-client.js', () => ({
   },
 }));
 
-import { initializeDb, getDb, resetDb } from '../memory/db.js';
-import { conversations } from '../memory/schema.js';
 import { createCallSession, createPendingQuestion, getPendingQuestion } from '../calls/call-store.js';
 import {
-  createGuardianActionRequest,
-  createGuardianActionDelivery,
-  updateDeliveryStatus,
-  getGuardianActionRequest,
-  getDeliveriesByRequestId,
-} from '../memory/guardian-action-store.js';
-import {
-  sweepExpiredGuardianActions,
   startGuardianActionSweep,
   stopGuardianActionSweep,
+  sweepExpiredGuardianActions,
 } from '../calls/guardian-action-sweep.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
+import {
+  createGuardianActionDelivery,
+  createGuardianActionRequest,
+  getDeliveriesByRequestId,
+  getGuardianActionRequest,
+  updateDeliveryStatus,
+} from '../memory/guardian-action-store.js';
+import { conversations } from '../memory/schema.js';
 
 initializeDb();
 

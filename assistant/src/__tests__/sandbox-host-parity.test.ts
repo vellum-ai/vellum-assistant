@@ -19,7 +19,6 @@
  * out-of-scope operations is correct.
  */
 
-import { afterEach, describe, expect, mock, test } from 'bun:test';
 import {
   existsSync,
   mkdirSync,
@@ -29,8 +28,10 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach, describe, expect, mock, test } from 'bun:test';
 
 // Mock the logger before any transitive imports that depend on pino
 mock.module('../util/logger.js', () => ({
@@ -42,9 +43,9 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
-import { FileSystemOps, type PathPolicy } from '../tools/shared/filesystem/file-ops-service.js';
-import { sandboxPolicy, hostPolicy } from '../tools/shared/filesystem/path-policy.js';
 import { applyEdit } from '../tools/shared/filesystem/edit-engine.js';
+import { FileSystemOps, type PathPolicy } from '../tools/shared/filesystem/file-ops-service.js';
+import { hostPolicy,sandboxPolicy } from '../tools/shared/filesystem/path-policy.js';
 import { formatShellOutput, MAX_OUTPUT_LENGTH } from '../tools/shared/shell-output.js';
 
 // Dynamically import modules that depend on the mocked logger

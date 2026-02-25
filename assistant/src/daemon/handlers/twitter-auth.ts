@@ -1,13 +1,14 @@
 import * as net from 'node:net';
-import { loadRawConfig, loadConfig } from '../../config/loader.js';
-import { getSecureKey, setSecureKey, deleteSecureKey } from '../../security/secure-keys.js';
-import { startOAuth2Flow } from '../../security/oauth2.js';
+
+import { loadConfig,loadRawConfig } from '../../config/loader.js';
 import { getPublicBaseUrl } from '../../inbound/public-ingress-urls.js';
-import { upsertCredentialMetadata, getCredentialMetadata } from '../../tools/credentials/metadata-store.js';
+import type { OAuth2Config } from '../../security/oauth2.js';
+import { startOAuth2Flow } from '../../security/oauth2.js';
+import { deleteSecureKey,getSecureKey, setSecureKey } from '../../security/secure-keys.js';
+import { getCredentialMetadata,upsertCredentialMetadata } from '../../tools/credentials/metadata-store.js';
 import { ConfigError } from '../../util/errors.js';
 import type { TwitterAuthStartRequest, TwitterAuthStatusRequest } from '../ipc-protocol.js';
-import { log, defineHandlers, type HandlerContext } from './shared.js';
-import type { OAuth2Config } from '../../security/oauth2.js';
+import { defineHandlers, type HandlerContext,log } from './shared.js';
 
 export async function handleTwitterAuthStart(
   _msg: TwitterAuthStartRequest,

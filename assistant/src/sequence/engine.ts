@@ -6,21 +6,21 @@
  * sends through the messaging layer.
  */
 
-import { getLogger } from '../util/logger.js';
 import { createConversation, getMessages } from '../memory/conversation-store.js';
 import { GENERATING_TITLE, queueGenerateConversationTitle } from '../memory/conversation-title-service.js';
 import type { ScheduleMessageProcessor } from '../schedule/scheduler.js';
+import { getLogger } from '../util/logger.js';
+import { recordEvent } from './analytics.js';
+import { checkAllPreSend, recordSend } from './guardrails.js';
 import {
-  claimDueEnrollments,
   advanceEnrollment,
+  claimDueEnrollments,
   exitEnrollment,
-  getSequence,
   getEnrollment,
+  getSequence,
   rescheduleEnrollment,
   updateEnrollmentThreadId,
 } from './store.js';
-import { checkAllPreSend, recordSend } from './guardrails.js';
-import { recordEvent } from './analytics.js';
 import type { Sequence, SequenceEnrollment, SequenceStep } from './types.js';
 
 const log = getLogger('sequence-engine');

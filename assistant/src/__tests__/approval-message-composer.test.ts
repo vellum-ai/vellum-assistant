@@ -1,11 +1,12 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, expect,test } from 'bun:test';
+
+import type {
+  ApprovalMessageContext,
+  ApprovalMessageScenario,
+} from '../runtime/approval-message-composer.js';
 import {
   composeApprovalMessage,
   getFallbackMessage,
-} from '../runtime/approval-message-composer.js';
-import type {
-  ApprovalMessageScenario,
-  ApprovalMessageContext,
 } from '../runtime/approval-message-composer.js';
 
 // ---------------------------------------------------------------------------

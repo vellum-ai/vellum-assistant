@@ -1,8 +1,9 @@
-import { describe, test, expect, mock } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
+import * as net from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import * as net from 'node:net';
+
+import { describe, expect, mock,test } from 'bun:test';
 
 const testDir = mkdtempSync(join(tmpdir(), 'handlers-slack-cfg-test-'));
 
@@ -78,9 +79,9 @@ mock.module('../slack/slack-webhook.js', () => ({
 
 import { handleMessage, type HandlerContext } from '../daemon/handlers.js';
 import type {
-  SlackWebhookConfigRequest,
-  ShareToSlackRequest,
   ServerMessage,
+  ShareToSlackRequest,
+  SlackWebhookConfigRequest,
 } from '../daemon/ipc-contract.js';
 import { DebouncerMap } from '../util/debounce.js';
 

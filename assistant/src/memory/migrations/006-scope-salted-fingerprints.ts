@@ -1,5 +1,5 @@
+import { type DrizzleDb,getSqliteFrom } from '../db-connection.js';
 import { computeMemoryFingerprint } from '../fingerprint.js';
-import { getSqliteFrom, type DrizzleDb } from '../db-connection.js';
 
 /**
  * One-shot migration: recompute fingerprints for existing memory items to

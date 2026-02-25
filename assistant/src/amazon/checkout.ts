@@ -1,11 +1,11 @@
+import type { CheckoutSummary, DeliverySlot, PaymentMethod, PlaceOrderResult } from './client.js';
 import {
-  prepareRequest,
+  AMAZON_BASE,
   cdpEval,
   handleResult,
+  prepareRequest,
   runWithBackoff,
-  AMAZON_BASE,
 } from './client.js';
-import type { DeliverySlot, PaymentMethod, CheckoutSummary, PlaceOrderResult } from './client.js';
 
 /**
  * Get available Amazon Fresh delivery slots.

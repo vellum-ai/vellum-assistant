@@ -9,13 +9,14 @@
  * skill-origin tools. These tests verify that contract.
  */
 
-import { describe, test, expect, mock, beforeEach } from 'bun:test';
-import type { ToolExecutionResult } from '../tools/types.js';
+import { beforeEach,describe, expect, mock, test } from 'bun:test';
+
+import type { SurfaceData,SurfaceType } from '../daemon/ipc-protocol.js';
 import type { ToolSetupContext } from '../daemon/session-tool-setup.js';
-import type { SurfaceType, SurfaceData } from '../daemon/ipc-protocol.js';
-import type { ToolExecutor } from '../tools/executor.js';
 import type { PermissionPrompter } from '../permissions/prompter.js';
 import type { SecretPrompter } from '../permissions/secret-prompter.js';
+import type { ToolExecutor } from '../tools/executor.js';
+import type { ToolExecutionResult } from '../tools/types.js';
 
 // ---------------------------------------------------------------------------
 // Spies for side-effect verification

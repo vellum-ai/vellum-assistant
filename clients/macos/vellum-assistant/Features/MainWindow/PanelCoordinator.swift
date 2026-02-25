@@ -472,7 +472,8 @@ extension MainWindowView {
                 ambientAgent: ambientAgent,
                 settingsStore: settingsStore,
                 onMicrophoneToggle: onMicrophoneToggle,
-                isTemporaryChat: activeThread?.kind == .private
+                isTemporaryChat: activeThread?.kind == .private,
+                threadId: threadManager.activeThreadId
             )
             .overlay(alignment: .bottomTrailing) {
                 DemoOverlayView()
@@ -650,6 +651,7 @@ struct ActiveChatViewWrapper: View {
     @ObservedObject var settingsStore: SettingsStore
     let onMicrophoneToggle: () -> Void
     var isTemporaryChat: Bool = false
+    var threadId: UUID?
 
     var body: some View {
         ChatView(
@@ -751,7 +753,8 @@ struct ActiveChatViewWrapper: View {
             onDismissDocumentWidget: { viewModel.dismissDocumentSurface(id: $0) },
             isMemoryDegraded: viewModel.isMemoryDegraded,
             memoryDegradedReason: viewModel.memoryDegradedReason,
-            connectionDiagnosticHint: viewModel.connectionDiagnosticHint
+            connectionDiagnosticHint: viewModel.connectionDiagnosticHint,
+            threadId: threadId
         )
     }
 }

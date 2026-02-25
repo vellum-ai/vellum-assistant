@@ -6,32 +6,30 @@
  * keeping the constructor body focused on wiring.
  */
 
-import type { Message, ToolDefinition } from '../providers/types.js';
-import type { ToolExecutionResult, ToolLifecycleEventHandler } from '../tools/types.js';
-import type { ServerMessage, UiSurfaceShow } from './ipc-protocol.js';
-import type { ToolExecutor } from '../tools/executor.js';
+import { generateAllowlistOptions, generateScopeOptions, normalizeWebFetchUrl } from '../permissions/checker.js';
 import type { PermissionPrompter } from '../permissions/prompter.js';
 import type { SecretPrompter } from '../permissions/secret-prompter.js';
 import { addRule, findHighestPriorityRule } from '../permissions/trust-store.js';
-import { generateAllowlistOptions, generateScopeOptions, normalizeWebFetchUrl } from '../permissions/checker.js';
+import type { Message, ToolDefinition } from '../providers/types.js';
+import type { ToolExecutor } from '../tools/executor.js';
+import type { ToolExecutionResult, ToolLifecycleEventHandler } from '../tools/types.js';
 import { getLogger } from '../util/logger.js';
-import { isDoordashCommand, markDoordashStepInProgress, updateDoordashProgress } from './doordash-steps.js';
+import { isDoordashCommand, markDoordashStepInProgress } from './doordash-steps.js';
+import type { ServerMessage, UiSurfaceShow } from './ipc-protocol.js';
+import { runPostExecutionSideEffects } from './tool-side-effects.js';
 
 const log = getLogger('session-tool-setup');
+import { coreAppProxyTools } from '../tools/apps/definitions.js';
+import { registerSessionSender } from '../tools/browser/browser-screencast.js';
+import { requestComputerControlTool } from '../tools/computer-use/request-computer-control.js';
+import type { ProxyApprovalCallback, ProxyApprovalRequest } from '../tools/network/script-proxy/index.js';
 import { getAllToolDefinitions } from '../tools/registry.js';
 import { allUiSurfaceTools } from '../tools/ui-surface/definitions.js';
-import { coreAppProxyTools } from '../tools/apps/definitions.js';
-import { requestComputerControlTool } from '../tools/computer-use/request-computer-control.js';
+import { projectSkillTools, type SkillProjectionCache } from './session-skill-tools.js';
+import type { SurfaceSessionContext } from './session-surfaces.js';
 import {
-  refreshSurfacesForApp,
   surfaceProxyResolver,
 } from './session-surfaces.js';
-import type { SurfaceSessionContext } from './session-surfaces.js';
-import { updatePublishedAppDeployment } from '../services/published-app-updater.js';
-import { openAppViaSurface } from '../tools/apps/open-proxy.js';
-import { registerSessionSender } from '../tools/browser/browser-screencast.js';
-import type { ProxyApprovalCallback, ProxyApprovalRequest } from '../tools/network/script-proxy/index.js';
-import { projectSkillTools, type SkillProjectionCache } from './session-skill-tools.js';
 
 // ── Context Interface ────────────────────────────────────────────────
 
@@ -184,51 +182,7 @@ export function createToolExecutor(
       },
     });
 
-    // Auto-refresh workspace surfaces when a persisted app is updated.
-    // If no surface is currently showing the app, auto-open it.
-    if (name === 'app_update' && !result.isError) {
-      const appId = input.app_id as string | undefined;
-      if (appId) {
-        const refreshed = refreshSurfacesForApp(ctx, appId);
-        broadcastToAllClients?.({ type: 'app_files_changed', appId });
-        void updatePublishedAppDeployment(appId);
-        if (!refreshed && !ctx.hasNoClient && !ctx.headlessLock) {
-          const resolver = (tn: string, pi: Record<string, unknown>) => surfaceProxyResolver(ctx, tn, pi);
-          void openAppViaSurface(appId, resolver);
-        }
-      }
-    }
-
-    // Tell the client to open/focus the tasks window when the model lists tasks
-    if (name === 'task_list_show' && !result.isError) {
-      ctx.sendToClient({ type: 'open_tasks_window' });
-    }
-
-    // Broadcast tasks_changed so connected clients (e.g. macOS Tasks window)
-    // auto-refresh when the LLM mutates the task queue via tools
-    if ((name === 'task_list_add' || name === 'task_list_update' || name === 'task_list_remove' || name === 'task_queue_run') && !result.isError) {
-      broadcastToAllClients?.({ type: 'tasks_changed' });
-    }
-
-    // Auto-refresh workspace surfaces when app files are edited.
-    // If no surface is currently showing the app, auto-open it.
-    if ((name === 'app_file_edit' || name === 'app_file_write') && !result.isError) {
-      const appId = input.app_id as string | undefined;
-      const status = input.status as string | undefined;
-      if (appId) {
-        const refreshed = refreshSurfacesForApp(ctx, appId, { fileChange: true, status });
-        broadcastToAllClients?.({ type: 'app_files_changed', appId });
-        void updatePublishedAppDeployment(appId);
-        if (!refreshed && !ctx.hasNoClient && !ctx.headlessLock) {
-          const resolver = (tn: string, pi: Record<string, unknown>) => surfaceProxyResolver(ctx, tn, pi);
-          void openAppViaSurface(appId, resolver);
-        }
-      }
-    }
-
-    if (isDoordashCommand(name, input)) {
-      updateDoordashProgress(ctx, input, result.isError);
-    }
+    runPostExecutionSideEffects(name, input, result, { ctx, broadcastToAllClients });
 
     return result;
   };

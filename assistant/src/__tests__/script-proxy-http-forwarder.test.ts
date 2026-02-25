@@ -1,5 +1,7 @@
-import { describe, test, expect, afterEach } from 'bun:test';
-import http, { createServer, type Server, type IncomingMessage } from 'node:http';
+import http, { createServer, type IncomingMessage,type Server } from 'node:http';
+
+import { afterEach,describe, expect, test } from 'bun:test';
+
 import { createProxyServer } from '../tools/network/script-proxy/server.js';
 
 /** Shape of the JSON body echoed by the upstream test server. */

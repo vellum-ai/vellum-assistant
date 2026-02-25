@@ -1,7 +1,8 @@
-import { describe, test, expect } from 'bun:test';
-import { generatePlan, parsePlanJSON, makeFallbackPlan } from '../swarm/router-planner.js';
-import { resolveSwarmLimits } from '../swarm/limits.js';
+import { describe, expect,test } from 'bun:test';
+
 import type { Provider, ProviderResponse } from '../providers/types.js';
+import { resolveSwarmLimits } from '../swarm/limits.js';
+import { generatePlan, makeFallbackPlan,parsePlanJSON } from '../swarm/router-planner.js';
 
 const DEFAULT_LIMITS = resolveSwarmLimits({
   maxWorkers: 3,
@@ -104,7 +105,7 @@ describe('generatePlan', () => {
     const plan = await generatePlan({
       objective: 'Build feature X',
       provider: makeProvider(responseText),
-      model: 'test-model',
+      modelIntent: 'latency-optimized',
       limits: DEFAULT_LIMITS,
     });
     expect(plan.tasks).toHaveLength(2);
@@ -116,7 +117,7 @@ describe('generatePlan', () => {
     const plan = await generatePlan({
       objective: 'Build feature X',
       provider: makeProvider('Sorry, I cannot help with that.'),
-      model: 'test-model',
+      modelIntent: 'latency-optimized',
       limits: DEFAULT_LIMITS,
     });
     expect(plan.tasks).toHaveLength(1);
@@ -127,7 +128,7 @@ describe('generatePlan', () => {
     const plan = await generatePlan({
       objective: 'Build feature X',
       provider: makeFailingProvider(),
-      model: 'test-model',
+      modelIntent: 'latency-optimized',
       limits: DEFAULT_LIMITS,
     });
     expect(plan.tasks).toHaveLength(1);
@@ -143,7 +144,7 @@ describe('generatePlan', () => {
     const plan = await generatePlan({
       objective: 'Build feature X',
       provider: makeProvider(responseText),
-      model: 'test-model',
+      modelIntent: 'latency-optimized',
       limits: DEFAULT_LIMITS,
     });
     // Plan validator rejects invalid roles, so generatePlan catches and falls back
@@ -161,7 +162,7 @@ describe('generatePlan', () => {
     const plan = await generatePlan({
       objective: 'Build feature X',
       provider: makeProvider(responseText),
-      model: 'test-model',
+      modelIntent: 'latency-optimized',
       limits: DEFAULT_LIMITS,
     });
     expect(plan.tasks).toHaveLength(1);
@@ -178,7 +179,7 @@ describe('generatePlan', () => {
     const plan = await generatePlan({
       objective: 'Big feature',
       provider: makeProvider(JSON.stringify({ tasks })),
-      model: 'test-model',
+      modelIntent: 'latency-optimized',
       limits: DEFAULT_LIMITS,
     });
     expect(plan.tasks.length).toBeLessThanOrEqual(DEFAULT_LIMITS.maxTasks);
@@ -199,7 +200,7 @@ describe('generatePlan', () => {
     const plan = await generatePlan({
       objective: 'Build feature',
       provider,
-      model: 'test-model',
+      modelIntent: 'latency-optimized',
       limits: DEFAULT_LIMITS,
     });
     expect(plan.tasks).toHaveLength(1);

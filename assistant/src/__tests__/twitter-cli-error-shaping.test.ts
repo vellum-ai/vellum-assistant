@@ -5,7 +5,8 @@
  * suggestAlternative, oauthError) is preserved in CLI output while
  * maintaining backward-compatible error codes.
  */
-import { describe, test, expect } from 'bun:test';
+import { describe, expect,test } from 'bun:test';
+
 import { SessionExpiredError } from '../twitter/client.js';
 
 // ---------------------------------------------------------------------------

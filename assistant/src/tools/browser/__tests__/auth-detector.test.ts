@@ -1,10 +1,11 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, expect,it } from 'bun:test';
+
 import {
+  type AuthChallenge,
   detectAuthChallenge,
+  formatAuthChallenge,
   identifyService,
   isAuthUrl,
-  formatAuthChallenge,
-  type AuthChallenge,
 } from '../auth-detector.js';
 import type { Page } from '../browser-manager.js';
 

@@ -1,6 +1,6 @@
 import { getLogger } from '../util/logger.js';
-import type { RuntimeAttachmentMetadata } from './http-types.js';
 import type { ApprovalUIMetadata } from './channel-approval-types.js';
+import type { RuntimeAttachmentMetadata } from './http-types.js';
 
 const log = getLogger('gateway-client');
 

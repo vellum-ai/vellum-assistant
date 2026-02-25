@@ -1,14 +1,15 @@
 import { and, eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
+
 import type { AssistantConfig } from '../../config/types.js';
-import { getLogger } from '../../util/logger.js';
-import { truncate } from '../../util/truncate.js';
 import { getDb } from '../../memory/db.js';
 import { computeMemoryFingerprint } from '../../memory/fingerprint.js';
-import { memoryItems } from '../../memory/schema.js';
 import { enqueueMemoryJob } from '../../memory/jobs-store.js';
-import { searchMemoryItems, formatRelativeTime } from '../../memory/retriever.js';
+import { formatRelativeTime,searchMemoryItems } from '../../memory/retriever.js';
+import { memoryItems } from '../../memory/schema.js';
 import type { ScopePolicyOverride } from '../../memory/search/types.js';
+import { getLogger } from '../../util/logger.js';
+import { truncate } from '../../util/truncate.js';
 import type { ToolExecutionResult } from '../types.js';
 
 const log = getLogger('memory-tools');

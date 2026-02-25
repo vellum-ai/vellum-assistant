@@ -2,14 +2,14 @@
  * Pairing HTTP route handlers for device pairing flow.
  */
 
-import { getLogger } from '../../util/logger.js';
-import { PairingStore } from '../../daemon/pairing-store.js';
 import {
+  hashDeviceId,
   isDeviceApproved,
   refreshDevice,
-  hashDeviceId,
 } from '../../daemon/approved-devices-store.js';
 import type { ServerMessage } from '../../daemon/ipc-contract.js';
+import { PairingStore } from '../../daemon/pairing-store.js';
+import { getLogger } from '../../util/logger.js';
 
 const log = getLogger('runtime-http');
 

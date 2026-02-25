@@ -5,21 +5,23 @@
  * This test wires together WorkspaceGitService, commitTurnChanges, and HeartbeatService
  * in the same flow a real daemon session would follow.
  */
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
+import { existsSync,mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach,beforeEach, describe, expect, test } from 'bun:test';
+
 import {
-  WorkspaceGitService,
-  getWorkspaceGitService,
   _resetGitServiceRegistry,
+  getWorkspaceGitService,
+  WorkspaceGitService,
 } from '../workspace/git-service.js';
-import { commitTurnChanges } from '../workspace/turn-commit.js';
 import {
-  HeartbeatService,
   _resetHeartbeatState,
+  HeartbeatService,
 } from '../workspace/heartbeat-service.js';
+import { commitTurnChanges } from '../workspace/turn-commit.js';
 
 describe('Workspace git lifecycle (integration)', () => {
   let testDir: string;

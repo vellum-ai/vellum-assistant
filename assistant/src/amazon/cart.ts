@@ -1,12 +1,12 @@
+import type { CartSummary } from './client.js';
 import {
-  prepareRequest,
+  AMAZON_BASE,
   cdpEval,
   handleResult,
+  prepareRequest,
   runWithBackoff,
   sendRelayCommand,
-  AMAZON_BASE,
 } from './client.js';
-import type { CartSummary } from './client.js';
 
 /**
  * Add an item to the Amazon cart.

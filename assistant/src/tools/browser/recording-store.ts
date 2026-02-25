@@ -3,10 +3,11 @@
  * Stores recordings at ~/.vellum/workspace/data/recordings/<id>.json
  */
 
+import { existsSync,mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
-import { getDataDir } from '../../util/platform.js';
+
 import { getLogger } from '../../util/logger.js';
+import { getDataDir } from '../../util/platform.js';
 import type { SessionRecording } from './network-recording-types.js';
 
 const log = getLogger('recording-store');

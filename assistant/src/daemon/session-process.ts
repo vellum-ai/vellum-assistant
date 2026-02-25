@@ -6,29 +6,29 @@
  * used by session-history.ts.
  */
 
-import type { Message } from '../providers/types.js';
+import { createAssistantMessage,createUserMessage } from '../agent/message-types.js';
+import { answerCall } from '../calls/call-domain.js';
 import type { TurnChannelContext, TurnInterfaceContext } from '../channels/types.js';
 import { parseChannelId, parseInterfaceId } from '../channels/types.js';
-import type { ServerMessage, UserMessageAttachment } from './ipc-protocol.js';
-import type { GuardianRuntimeContext } from './session-runtime-assembly.js';
-import type { UsageStats } from './ipc-contract.js';
-import type { MessageQueue } from './session-queue-manager.js';
-import type { QueueDrainReason } from './session-queue-manager.js';
-import type { TraceEmitter } from './trace-emitter.js';
-import { createUserMessage, createAssistantMessage } from '../agent/message-types.js';
+import { getConfig } from '../config/loader.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { provenanceFromGuardianContext } from '../memory/conversation-store.js';
 import {
-  getPendingDeliveryByConversation,
   getGuardianActionRequest,
+  getPendingDeliveryByConversation,
   resolveGuardianActionRequest,
 } from '../memory/guardian-action-store.js';
-import { answerCall } from '../calls/call-domain.js';
-import { resolveSlash, type SlashContext } from './session-slash.js';
-import { getConfig } from '../config/loader.js';
 import { extractPreferences } from '../notifications/preference-extractor.js';
 import { createPreference } from '../notifications/preferences-store.js';
+import type { Message } from '../providers/types.js';
 import { getLogger } from '../util/logger.js';
+import type { UsageStats } from './ipc-contract.js';
+import type { ServerMessage, UserMessageAttachment } from './ipc-protocol.js';
+import type { MessageQueue } from './session-queue-manager.js';
+import type { QueueDrainReason } from './session-queue-manager.js';
+import type { GuardianRuntimeContext } from './session-runtime-assembly.js';
+import { resolveSlash, type SlashContext } from './session-slash.js';
+import type { TraceEmitter } from './trace-emitter.js';
 
 const log = getLogger('session-process');
 
@@ -80,7 +80,7 @@ export interface ProcessSessionContext {
     content: string,
     userMessageId: string,
     onEvent: (msg: ServerMessage) => void,
-    options?: { skipPreMessageRollback?: boolean },
+    options?: { skipPreMessageRollback?: boolean; isInteractive?: boolean },
   ): Promise<void>;
   getTurnChannelContext(): TurnChannelContext | null;
   setTurnChannelContext(ctx: TurnChannelContext): void;
@@ -322,6 +322,7 @@ export async function processMessage(
   requestId?: string,
   activeSurfaceId?: string,
   currentPage?: string,
+  options?: { isInteractive?: boolean },
 ): Promise<string> {
   session.currentActiveSurfaceId = activeSurfaceId;
   session.currentPage = currentPage;
@@ -482,6 +483,8 @@ export async function processMessage(
       });
   }
 
-  await session.runAgentLoop(resolvedContent, userMessageId, onEvent);
+  await session.runAgentLoop(resolvedContent, userMessageId, onEvent,
+    options?.isInteractive !== undefined ? { isInteractive: options.isInteractive } : undefined,
+  );
   return userMessageId;
 }

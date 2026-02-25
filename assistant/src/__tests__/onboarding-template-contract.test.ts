@@ -1,6 +1,7 @@
-import { describe, test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+
+import { describe, expect,test } from 'bun:test';
 
 const templatesDir = join(import.meta.dirname, '..', 'config', 'templates');
 const bootstrap = readFileSync(join(templatesDir, 'BOOTSTRAP.md'), 'utf-8');

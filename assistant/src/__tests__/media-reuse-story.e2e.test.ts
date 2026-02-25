@@ -14,11 +14,12 @@
  * Also verifies that private-thread isolation blocks cross-thread media access.
  */
 
-import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
+import { existsSync,mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import * as http from 'node:http';
-import { mkdtempSync, rmSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, beforeEach, describe, expect, mock,test } from 'bun:test';
 
 // ---------------------------------------------------------------------------
 // Test directory and mocks (must precede any source imports)
@@ -96,19 +97,19 @@ mock.module('../tools/network/script-proxy/certs.js', () => ({
 // Source imports (after mocks)
 // ---------------------------------------------------------------------------
 
-import { initializeDb, getDb, resetDb } from '../memory/db.js';
-import { uploadAttachment, linkAttachmentToMessage } from '../memory/attachments-store.js';
-import { createConversation, addMessage } from '../memory/conversation-store.js';
-import { assetSearchTool, searchAttachments } from '../tools/assets/search.js';
+import { mkdirSync } from 'node:fs';
+
+import { type AttachmentContext,filterVisibleAttachments, isAttachmentVisible } from '../daemon/media-visibility-policy.js';
+import { linkAttachmentToMessage,uploadAttachment } from '../memory/attachments-store.js';
+import { addMessage,createConversation } from '../memory/conversation-store.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { assetMaterializeTool } from '../tools/assets/materialize.js';
-import { isAttachmentVisible, filterVisibleAttachments, type AttachmentContext } from '../daemon/media-visibility-policy.js';
-import { TINY_PNG_BASE64, FAKE_SELFIE_ATTACHMENT, fakeAllowOnce, fakeDeny } from './fixtures/media-reuse-fixtures.js';
-import type { ToolContext } from '../tools/types.js';
+import { assetSearchTool, searchAttachments } from '../tools/assets/search.js';
 import type { CredentialInjectionTemplate } from '../tools/credentials/policy-types.js';
 import { stopAllSessions } from '../tools/network/script-proxy/index.js';
 import { shellTool } from '../tools/terminal/shell.js';
-
-import { mkdirSync } from 'node:fs';
+import type { ToolContext } from '../tools/types.js';
+import { FAKE_SELFIE_ATTACHMENT, fakeAllowOnce, fakeDeny,TINY_PNG_BASE64 } from './fixtures/media-reuse-fixtures.js';
 
 initializeDb();
 mkdirSync(sandboxDir, { recursive: true });

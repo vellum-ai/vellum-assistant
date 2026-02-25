@@ -1,10 +1,10 @@
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import { withValidToken } from '../../../../security/token-manager.js';
-import { getMessagingProvider } from '../../../../messaging/registry.js';
-import { getMessage, getAttachment, sendMessageRaw } from '../../../../messaging/providers/gmail/client.js';
+import { getAttachment, getMessage, sendMessageRaw } from '../../../../messaging/providers/gmail/client.js';
 import { buildMultipartMime } from '../../../../messaging/providers/gmail/mime-builder.js';
 import type { GmailMessagePart } from '../../../../messaging/providers/gmail/types.js';
-import { ok, err } from './shared.js';
+import { getMessagingProvider } from '../../../../messaging/registry.js';
+import { withValidToken } from '../../../../security/token-manager.js';
+import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
+import { err,ok } from './shared.js';
 
 function extractHeader(headers: Array<{ name: string; value: string }> | undefined, name: string): string {
   return headers?.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value ?? '';

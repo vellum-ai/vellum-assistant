@@ -1,7 +1,8 @@
-import { describe, test, expect, beforeAll, beforeEach, afterEach, mock } from 'bun:test';
-import { mkdtempSync, mkdirSync } from 'node:fs';
+import { mkdirSync,mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterEach, beforeAll, beforeEach, describe, expect, mock,test } from 'bun:test';
 
 // Use a temp directory so trust-store doesn't touch ~/.vellum
 const testDir = mkdtempSync(join(tmpdir(), 'ephemeral-perm-test-'));
@@ -44,10 +45,10 @@ mock.module('../config/loader.js', () => ({
   setNestedValue: () => {},
 }));
 
-import { setTaskRunRules, getTaskRunRules, clearTaskRunRules, buildTaskRules } from '../tasks/ephemeral-permissions.js';
-import { findHighestPriorityRule, addRule, clearCache } from '../permissions/trust-store.js';
 import { check, classifyRisk } from '../permissions/checker.js';
-import type { TrustRule, PolicyContext } from '../permissions/types.js';
+import { addRule, clearCache,findHighestPriorityRule } from '../permissions/trust-store.js';
+import type { PolicyContext,TrustRule } from '../permissions/types.js';
+import { buildTaskRules,clearTaskRunRules, getTaskRunRules, setTaskRunRules } from '../tasks/ephemeral-permissions.js';
 
 // Ensure the protected directory exists for trust-store disk operations
 mkdirSync(join(testDir, 'protected'), { recursive: true });

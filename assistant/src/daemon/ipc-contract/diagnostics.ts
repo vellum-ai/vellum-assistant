@@ -54,3 +54,17 @@ export interface DictationResponse {
   mode: 'dictation' | 'command' | 'action';
   actionPlan?: string;
 }
+
+// --- Domain-level union aliases (consumed by the barrel file) ---
+
+export type _DiagnosticsClientMessages =
+  | DiagnosticsExportRequest
+  | EnvVarsRequest
+  | IpcBlobProbe
+  | DictationRequest;
+
+export type _DiagnosticsServerMessages =
+  | DiagnosticsExportResponse
+  | EnvVarsResponse
+  | IpcBlobProbeResult
+  | DictationResponse;

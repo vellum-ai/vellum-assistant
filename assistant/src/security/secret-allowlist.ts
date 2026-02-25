@@ -15,9 +15,10 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { getRootDir } from '../util/platform.js';
+
 import { pathExists } from '../util/fs.js';
 import { getLogger } from '../util/logger.js';
+import { getRootDir } from '../util/platform.js';
 
 const log = getLogger('secret-allowlist');
 

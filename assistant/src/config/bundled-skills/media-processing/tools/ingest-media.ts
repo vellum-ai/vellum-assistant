@@ -1,15 +1,16 @@
-import { basename, extname } from 'node:path';
 import { access } from 'node:fs/promises';
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import {
-  registerMediaAsset,
-  getMediaAssetByHash,
-  createProcessingStage,
-  updateMediaAssetStatus,
-  computeFileHash,
-  type MediaType,
-} from '../../../../memory/media-store.js';
+import { basename, extname } from 'node:path';
+
 import { enqueueMemoryJob } from '../../../../memory/jobs-store.js';
+import {
+  computeFileHash,
+  createProcessingStage,
+  getMediaAssetByHash,
+  type MediaType,
+  registerMediaAsset,
+  updateMediaAssetStatus,
+} from '../../../../memory/media-store.js';
+import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
 
 // ---------------------------------------------------------------------------
 // MIME detection

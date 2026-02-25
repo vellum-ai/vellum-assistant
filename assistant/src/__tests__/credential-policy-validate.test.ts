@@ -1,10 +1,11 @@
-import { describe, test, expect } from 'bun:test';
-import {
-  validatePolicyInput,
-  toPolicyFromInput,
-  createStrictDefaultPolicy,
-} from '../tools/credentials/policy-validate.js';
+import { describe, expect,test } from 'bun:test';
+
 import type { CredentialPolicyInput } from '../tools/credentials/policy-types.js';
+import {
+  createStrictDefaultPolicy,
+  toPolicyFromInput,
+  validatePolicyInput,
+} from '../tools/credentials/policy-validate.js';
 
 describe('validatePolicyInput', () => {
   test('valid input with all fields', () => {

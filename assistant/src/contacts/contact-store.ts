@@ -1,7 +1,8 @@
-import { and, eq, like, desc, asc } from 'drizzle-orm';
+import { and, asc,desc, eq, like } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
+
 import { getDb } from '../memory/db.js';
-import { contacts, contactChannels } from '../memory/schema.js';
+import { contactChannels,contacts } from '../memory/schema.js';
 import type { Contact, ContactChannel, ContactWithChannels } from './types.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────

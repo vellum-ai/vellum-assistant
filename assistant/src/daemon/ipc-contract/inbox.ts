@@ -209,3 +209,19 @@ export interface AssistantInboxReplyResponse {
   error?: string;
   messageId?: string;
 }
+
+// --- Domain-level union aliases (consumed by the barrel file) ---
+
+export type _InboxClientMessages =
+  | IngressInviteRequest
+  | IngressMemberRequest
+  | AssistantInboxRequest
+  | AssistantInboxEscalationRequest
+  | AssistantInboxReplyRequest;
+
+export type _InboxServerMessages =
+  | IngressInviteResponse
+  | IngressMemberResponse
+  | AssistantInboxResponse
+  | AssistantInboxEscalationResponse
+  | AssistantInboxReplyResponse;

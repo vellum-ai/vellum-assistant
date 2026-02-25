@@ -1,7 +1,9 @@
-import { describe, test, expect, afterEach } from 'bun:test';
 import { type Server } from 'node:http';
 import { createServer as createTcpServer } from 'node:net';
 import { connect } from 'node:net';
+
+import { afterEach,describe, expect, test } from 'bun:test';
+
 import { createProxyServer } from '../tools/network/script-proxy/server.js';
 
 /** Start an HTTP server and return its address + cleanup handle. */

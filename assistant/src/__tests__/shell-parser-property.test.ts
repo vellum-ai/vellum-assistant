@@ -1,8 +1,9 @@
-import { describe, test, expect, beforeAll } from 'bun:test';
+import { beforeAll,describe, expect, test } from 'bun:test';
 import fc from 'fast-check';
-import { parse } from '../tools/terminal/parser.js';
+
 import { classifyRisk } from '../permissions/checker.js';
 import { RiskLevel } from '../permissions/types.js';
+import { parse } from '../tools/terminal/parser.js';
 
 // Helper: build a string arbitrary from a set of characters (fc.stringOf removed in v4)
 function charsToString(

@@ -1,8 +1,10 @@
-import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
-import { mkdtemp, rm, stat, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdtemp, readFile,rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { ensureLocalCA, issueLeafCert, getCAPath } from '../tools/network/script-proxy/certs.js';
+import { join } from 'node:path';
+
+import { afterAll,beforeAll, describe, expect, test } from 'bun:test';
+
+import { ensureLocalCA, getCAPath,issueLeafCert } from '../tools/network/script-proxy/certs.js';
 
 let dataDir: string;
 

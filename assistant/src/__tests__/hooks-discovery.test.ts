@@ -1,9 +1,11 @@
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdirSync, writeFileSync, rmSync, chmodSync } from 'node:fs';
-import { join } from 'node:path';
+import { chmodSync,mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { discoverHooks } from '../hooks/discovery.js';
+import { join } from 'node:path';
+
+import { afterEach,beforeEach, describe, expect, test } from 'bun:test';
+
 import { saveHooksConfig } from '../hooks/config.js';
+import { discoverHooks } from '../hooks/discovery.js';
 
 // Set BASE_DATA_DIR before importing modules that use getRootDir()
 const testDir = join(tmpdir(), `hooks-discovery-test-${Date.now()}`);

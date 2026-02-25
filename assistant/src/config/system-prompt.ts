@@ -1,12 +1,14 @@
-import { readFileSync, existsSync, copyFileSync } from 'node:fs';
+import { copyFileSync,existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { getWorkspaceDir, getWorkspacePromptPath, isMacOS } from '../util/platform.js';
-import { getLogger } from '../util/logger.js';
-import { loadSkillCatalog, type SkillSummary } from './skills.js';
-import { getConfig } from './loader.js';
-import { listCredentialMetadata } from '../tools/credentials/metadata-store.js';
-import { resolveUserReference } from './user-reference.js';
+
+import type { ResponseTier } from '../daemon/response-tier.js';
 import { getParentalControlSettings } from '../security/parental-control-store.js';
+import { listCredentialMetadata } from '../tools/credentials/metadata-store.js';
+import { getLogger } from '../util/logger.js';
+import { getWorkspaceDir, getWorkspacePromptPath, isMacOS } from '../util/platform.js';
+import { getConfig } from './loader.js';
+import { loadSkillCatalog, type SkillSummary } from './skills.js';
+import { resolveUserReference } from './user-reference.js';
 
 const log = getLogger('system-prompt');
 
@@ -83,7 +85,7 @@ export function isOnboardingComplete(): boolean {
  *   3. If BOOTSTRAP.md exists, append first-run ritual instructions
  *   4. Append skills catalog from ~/.vellum/workspace/skills
  */
-export function buildSystemPrompt(): string {
+export function buildSystemPrompt(tier: ResponseTier = 'high'): string {
   const soulPath = getWorkspacePromptPath('SOUL.md');
   const identityPath = getWorkspacePromptPath('IDENTITY.md');
   const userPath = getWorkspacePromptPath('USER.md');
@@ -97,6 +99,7 @@ export function buildSystemPrompt(): string {
   const looks = readPromptFile(looksPath);
   const bootstrap = readPromptFile(bootstrapPath);
 
+  // ── Core sections (all tiers) ──
   const parts: string[] = [];
   if (identity) parts.push(identity);
   if (soul) parts.push(soul);
@@ -110,27 +113,40 @@ export function buildSystemPrompt(): string {
     );
   }
   parts.push(buildConfigSection());
-  parts.push(buildTaskScheduleReminderRoutingSection());
-  parts.push(buildAttachmentSection());
-  if (!isOnboardingComplete()) {
-    parts.push(buildStarterTaskPlaybookSection());
-  }
-  parts.push(buildInChatConfigurationSection());
-  parts.push(buildToolPermissionSection());
-  parts.push(buildSystemPermissionSection());
-  parts.push(buildChannelAwarenessSection());
-  parts.push(buildChannelCommandIntentSection());
-  parts.push(buildExternalCommsIdentitySection());
-  parts.push(buildSwarmGuidanceSection());
-  parts.push(buildAccessPreferenceSection());
-  parts.push(buildIntegrationSection());
-  parts.push(buildWorkspaceReflectionSection());
-  parts.push(buildLearningMemorySection());
   parts.push(buildPostToolResponseSection());
+  parts.push(buildExternalCommsIdentitySection());
+  parts.push(buildChannelAwarenessSection());
+  // Parental controls are a safety boundary — always included regardless of tier.
   const parentalSection = buildParentalControlSection();
   if (parentalSection) parts.push(parentalSection);
 
-  return appendSkillsCatalog(parts.join('\n\n'));
+  // ── Extended sections (medium + high) ──
+  if (tier !== 'low') {
+    parts.push(buildToolPermissionSection());
+    parts.push(buildTaskScheduleReminderRoutingSection());
+    parts.push(buildAttachmentSection());
+    parts.push(buildInChatConfigurationSection());
+    parts.push(buildChannelCommandIntentSection());
+  }
+
+  // ── Full sections (high only) ──
+  if (tier === 'high') {
+    if (!isOnboardingComplete()) {
+      parts.push(buildStarterTaskPlaybookSection());
+    }
+    parts.push(buildSystemPermissionSection());
+    parts.push(buildSwarmGuidanceSection());
+    parts.push(buildAccessPreferenceSection());
+    parts.push(buildIntegrationSection());
+    parts.push(buildWorkspaceReflectionSection());
+    parts.push(buildLearningMemorySection());
+  }
+
+  // Skills catalog: include for medium+high, skip for low
+  if (tier !== 'low') {
+    return appendSkillsCatalog(parts.join('\n\n'));
+  }
+  return parts.join('\n\n');
 }
 
 function buildTaskScheduleReminderRoutingSection(): string {
@@ -509,7 +525,7 @@ function buildPostToolResponseSection(): string {
     '',
     '**Call tools FIRST, explain AFTER:**',
     '- When a user request requires a tool, call it immediately at the start of your response',
-    '- After the tool call, provide a brief conversational explanation of what you did',
+    '- After the tool call, give a one-sentence summary of what you did — do not list out every detail or section',
     '- Do NOT provide conversational preamble before calling the tool',
     '',
     'Example (CORRECT):',

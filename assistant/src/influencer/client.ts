@@ -45,8 +45,8 @@
  *   - The chrome.debugger API shows a yellow infobar on the tab being debugged
  */
 
-import { extensionRelayServer } from '../browser-extension-relay/server.js';
 import type { ExtensionCommand, ExtensionResponse } from '../browser-extension-relay/protocol.js';
+import { extensionRelayServer } from '../browser-extension-relay/server.js';
 import { readHttpToken } from '../util/platform.js';
 
 // ---------------------------------------------------------------------------

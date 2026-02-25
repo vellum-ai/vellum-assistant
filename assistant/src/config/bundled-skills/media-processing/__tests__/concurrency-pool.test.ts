@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+
 import { ConcurrencyPool } from '../services/concurrency-pool.js';
 
 describe('ConcurrencyPool', () => {

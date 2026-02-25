@@ -6,16 +6,17 @@
  */
 
 import { v4 as uuid } from 'uuid';
-import type { Message } from '../providers/types.js';
+
+import { createUserMessage } from '../agent/message-types.js';
 import type { TurnChannelContext, TurnInterfaceContext } from '../channels/types.js';
 import { parseChannelId, parseInterfaceId } from '../channels/types.js';
-import type { ServerMessage, UserMessageAttachment } from './ipc-protocol.js';
-import { createUserMessage } from '../agent/message-types.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { provenanceFromGuardianContext } from '../memory/conversation-store.js';
 import type { SecretPrompter } from '../permissions/secret-prompter.js';
-import type { MessageQueue } from './session-queue-manager.js';
+import type { Message } from '../providers/types.js';
 import { getLogger } from '../util/logger.js';
+import type { ServerMessage, UserMessageAttachment } from './ipc-protocol.js';
+import type { MessageQueue } from './session-queue-manager.js';
 import type { GuardianRuntimeContext } from './session-runtime-assembly.js';
 
 const log = getLogger('session-messaging');

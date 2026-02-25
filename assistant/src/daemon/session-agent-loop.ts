@@ -8,60 +8,61 @@
  */
 
 import { v4 as uuid } from 'uuid';
-import type { Message, ContentBlock } from '../providers/types.js';
-import type { ChannelId, TurnChannelContext, InterfaceId, TurnInterfaceContext } from '../channels/types.js';
-import type { ServerMessage, UsageStats, SurfaceType, SurfaceData, DynamicPageSurfaceData } from './ipc-protocol.js';
-import type { AgentLoop, CheckpointDecision, AgentEvent } from '../agent/loop.js';
-import type { Provider } from '../providers/types.js';
+
+import type { AgentEvent,AgentLoop, CheckpointDecision } from '../agent/loop.js';
 import { createAssistantMessage } from '../agent/message-types.js';
+import type { ChannelId, InterfaceId, TurnChannelContext, TurnInterfaceContext } from '../channels/types.js';
+import { getConfig } from '../config/loader.js';
+import type { ContextWindowManager } from '../context/window-manager.js';
+import type { ToolProfiler } from '../events/tool-profiling-listener.js';
+import { getHookManager } from '../hooks/manager.js';
+import { commitAppTurnChanges } from '../memory/app-git-service.js';
+import { getApp, listAppFiles } from '../memory/app-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { getConversationOriginChannel, getConversationOriginInterface, provenanceFromGuardianContext } from '../memory/conversation-store.js';
-import type { PermissionPrompter } from '../permissions/prompter.js';
-import { getConfig } from '../config/loader.js';
-import { getLogger } from '../util/logger.js';
-import type { TraceEmitter } from './trace-emitter.js';
-import { classifySessionError, isUserCancellation, buildSessionErrorMessage } from './session-error.js';
-import type { ToolProfiler } from '../events/tool-profiling-listener.js';
-import type { ContextWindowManager } from '../context/window-manager.js';
-import { getHookManager } from '../hooks/manager.js';
-import { truncate } from '../util/truncate.js';
 import { isReplaceableTitle, queueGenerateConversationTitle, queueRegenerateConversationTitle } from '../memory/conversation-title-service.js';
 import { stripMemoryRecallMessages } from '../memory/retriever.js';
-import { getApp, listAppFiles } from '../memory/app-store.js';
-import type { ConflictGate } from './session-conflict-gate.js';
-import { stripDynamicProfileMessages } from './session-dynamic-profile.js';
-import type { MessageQueue } from './session-queue-manager.js';
-import type { QueueDrainReason } from './session-queue-manager.js';
-import {
-  applyRuntimeInjections,
-  stripInjectedContext,
-} from './session-runtime-assembly.js';
-import { buildTemporalContext } from './date-context.js';
-import type { ActiveSurfaceContext, ChannelCapabilities, ChannelTurnContextParams, InterfaceTurnContextParams, GuardianRuntimeContext } from './session-runtime-assembly.js';
-import {
-  cleanAssistantContent,
-  type AssistantAttachmentDraft,
-} from './assistant-attachments.js';
-import { prepareMemoryContext } from './session-memory.js';
-import {
-  approveHostAttachmentRead,
-  formatAttachmentWarnings,
-  resolveAssistantAttachments,
-} from './session-attachments.js';
-import { consolidateAssistantMessages } from './session-history.js';
-import { recordUsage } from './session-usage.js';
-import { repairHistory, deepRepairHistory } from './history-repair.js';
-import { stripMediaPayloadsForRetry, raceWithTimeout } from './session-media-retry.js';
-import { commitTurnChanges } from '../workspace/turn-commit.js';
-import { getWorkspaceGitService } from '../workspace/git-service.js';
-import { commitAppTurnChanges } from '../memory/app-git-service.js';
+import type { PermissionPrompter } from '../permissions/prompter.js';
+import type { ContentBlock,Message } from '../providers/types.js';
+import type { Provider } from '../providers/types.js';
 import type { UsageActor } from '../usage/actors.js';
-import type { SkillProjectionCache } from './session-skill-tools.js';
+import { getLogger } from '../util/logger.js';
+import { truncate } from '../util/truncate.js';
+import { getWorkspaceGitService } from '../workspace/git-service.js';
+import { commitTurnChanges } from '../workspace/turn-commit.js';
+import {
+  type AssistantAttachmentDraft,
+  cleanAssistantContent,
+} from './assistant-attachments.js';
+import { buildTemporalContext } from './date-context.js';
+import { deepRepairHistory,repairHistory } from './history-repair.js';
+import type { DynamicPageSurfaceData,ServerMessage, SurfaceData, SurfaceType, UsageStats } from './ipc-protocol.js';
 import {
   createEventHandlerState,
   dispatchAgentEvent,
   type EventHandlerDeps,
 } from './session-agent-loop-handlers.js';
+import {
+  approveHostAttachmentRead,
+  formatAttachmentWarnings,
+  resolveAssistantAttachments,
+} from './session-attachments.js';
+import type { ConflictGate } from './session-conflict-gate.js';
+import { stripDynamicProfileMessages } from './session-dynamic-profile.js';
+import { buildSessionErrorMessage,classifySessionError, isUserCancellation } from './session-error.js';
+import { consolidateAssistantMessages } from './session-history.js';
+import { raceWithTimeout,stripMediaPayloadsForRetry } from './session-media-retry.js';
+import { prepareMemoryContext } from './session-memory.js';
+import type { MessageQueue } from './session-queue-manager.js';
+import type { QueueDrainReason } from './session-queue-manager.js';
+import type { ActiveSurfaceContext, ChannelCapabilities, ChannelTurnContextParams, GuardianRuntimeContext,InterfaceTurnContextParams } from './session-runtime-assembly.js';
+import {
+  applyRuntimeInjections,
+  stripInjectedContext,
+} from './session-runtime-assembly.js';
+import type { SkillProjectionCache } from './session-skill-tools.js';
+import { recordUsage } from './session-usage.js';
+import type { TraceEmitter } from './trace-emitter.js';
 
 const log = getLogger('session-agent-loop');
 
@@ -118,6 +119,7 @@ export interface AgentLoopSessionContext {
   lastAttachmentWarnings: string[];
 
   hasNoClient: boolean;
+  headlessLock?: boolean;
   readonly streamThinking: boolean;
   readonly prompter: PermissionPrompter;
   readonly queue: MessageQueue;
@@ -142,7 +144,7 @@ export async function runAgentLoopImpl(
   content: string,
   userMessageId: string,
   onEvent: (msg: ServerMessage) => void,
-  options?: { skipPreMessageRollback?: boolean },
+  options?: { skipPreMessageRollback?: boolean; isInteractive?: boolean },
 ): Promise<void> {
   if (!ctx.abortController) {
     throw new Error('runAgentLoop called without prior persistUserMessage');
@@ -253,7 +255,7 @@ export async function runAgentLoopImpl(
         scopeId: ctx.memoryPolicy.scopeId,
         includeDefaultFallback: ctx.memoryPolicy.includeDefaultFallback,
         guardianActorRole: ctx.guardianContext?.actorRole,
-        isInteractive: !ctx.hasNoClient,
+        isInteractive: options?.isInteractive ?? (!ctx.hasNoClient && !ctx.headlessLock),
       },
       content,
       userMessageId,
@@ -340,6 +342,7 @@ export async function runAgentLoopImpl(
       conversationOriginInterface: getConversationOriginInterface(ctx.conversationId),
     };
 
+    const isInteractiveResolved = options?.isInteractive ?? (!ctx.hasNoClient && !ctx.headlessLock);
     runMessages = applyRuntimeInjections(runMessages, {
       softConflictInstruction,
       activeSurface,
@@ -351,6 +354,7 @@ export async function runAgentLoopImpl(
       guardianContext: ctx.guardianContext ?? null,
       temporalContext,
       voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
+      isNonInteractive: !isInteractiveResolved,
     });
 
     // Pre-run repair
@@ -469,6 +473,7 @@ export async function runAgentLoopImpl(
           guardianContext: ctx.guardianContext ?? null,
           temporalContext,
           voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
+          isNonInteractive: !isInteractiveResolved,
         });
         preRepairMessages = runMessages;
         preRunHistoryLength = runMessages.length;
@@ -506,6 +511,7 @@ export async function runAgentLoopImpl(
             guardianContext: ctx.guardianContext ?? null,
             temporalContext,
             voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
+            isNonInteractive: !isInteractiveResolved,
           });
           preRepairMessages = runMessages;
           preRunHistoryLength = runMessages.length;

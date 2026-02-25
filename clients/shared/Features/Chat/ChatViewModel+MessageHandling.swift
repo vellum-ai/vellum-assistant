@@ -638,6 +638,17 @@ extension ChatViewModel {
             if let toolCalls = completedToolCalls, let callback = onToolCallsComplete {
                 callback(toolCalls)
             }
+            // Notify that the assistant response is complete
+            if let callback = onResponseComplete, !wasRefinement {
+                // Extract a summary from the last assistant message
+                if let existingId = messages.last(where: { $0.role == .assistant })?.id,
+                   let index = messages.firstIndex(where: { $0.id == existingId }) {
+                    let summary = messages[index].textSegments.joined()
+                    callback(summary)
+                } else {
+                    callback("Response complete")
+                }
+            }
 
         case .undoComplete(let undoMsg):
             guard belongsToSession(undoMsg.sessionId) else { return }

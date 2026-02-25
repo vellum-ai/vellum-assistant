@@ -13,10 +13,11 @@
  * - destroy cleanup
  * - Malformed message resilience
  */
-import { describe, test, expect, beforeEach, afterAll, mock, type Mock } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, beforeEach, describe, expect, type Mock,mock, test } from 'bun:test';
 
 const testDir = mkdtempSync(join(tmpdir(), 'relay-server-test-'));
 
@@ -119,22 +120,22 @@ mock.module('../providers/registry.js', () => {
 
 // ── Import source modules after all mocks ────────────────────────────
 
-import { initializeDb, getDb, resetDb } from '../memory/db.js';
-import { conversations } from '../memory/schema.js';
+import { registerCallCompletionNotifier, unregisterCallCompletionNotifier } from '../calls/call-state.js';
 import {
   createCallSession,
-  getCallSession,
   getCallEvents,
+  getCallSession,
 } from '../calls/call-store.js';
-import { getMessages } from '../memory/conversation-store.js';
-import { registerCallCompletionNotifier, unregisterCallCompletionNotifier } from '../calls/call-state.js';
-import { RelayConnection, activeRelayConnections } from '../calls/relay-server.js';
 import type { RelayWebSocketData } from '../calls/relay-server.js';
+import { activeRelayConnections,RelayConnection } from '../calls/relay-server.js';
+import { createBinding } from '../memory/channel-guardian-store.js';
+import { getMessages } from '../memory/conversation-store.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
+import { conversations } from '../memory/schema.js';
 import {
   createVerificationChallenge,
   getGuardianBinding,
 } from '../runtime/channel-guardian-service.js';
-import { createBinding } from '../memory/channel-guardian-store.js';
 
 initializeDb();
 

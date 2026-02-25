@@ -10,19 +10,20 @@
  *     migration system detects and handles it gracefully.
  */
 
-import { describe, test, expect } from 'bun:test';
 import { Database } from 'bun:sqlite';
+import { describe, expect,test } from 'bun:test';
 import { drizzle } from 'drizzle-orm/bun-sqlite';
+
+import { getSqliteFrom } from '../memory/db-connection.js';
 import * as schema from '../memory/schema.js';
 import {
   migrateJobDeferrals,
   migrateMemoryEntityRelationDedup,
   migrateMemoryItemsFingerprintScopeUnique,
-  validateMigrationState,
   MIGRATION_REGISTRY,
   type MigrationValidationResult,
+  validateMigrationState,
 } from '../memory/schema-migration.js';
-import { getSqliteFrom } from '../memory/db-connection.js';
 
 // ---------------------------------------------------------------------------
 // Helpers

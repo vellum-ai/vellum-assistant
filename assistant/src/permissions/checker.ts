@@ -1,18 +1,19 @@
 import { createHash } from 'node:crypto';
-import { RiskLevel, type PermissionCheckResult, type AllowlistOption, type ScopeOption, type PolicyContext } from './types.js';
-import { findHighestPriorityRule, onRulesChanged } from './trust-store.js';
-import { resolveSkillSelector } from '../config/skills.js';
-import { computeSkillVersionHash } from '../skills/version-hash.js';
-import { getTool } from '../tools/registry.js';
-import { getConfig } from '../config/loader.js';
-import { getLogger } from '../util/logger.js';
-import { dirname, resolve } from 'node:path';
 import { homedir } from 'node:os';
-import { looksLikeHostPortShorthand, looksLikePathOnlyInput } from '../tools/network/url-safety.js';
-import { normalizeFilePath, isSkillSourcePath } from '../skills/path-classifier.js';
-import { isWorkspaceScopedInvocation } from './workspace-policy.js';
-import { buildShellCommandCandidates, buildShellAllowlistOptions, cachedParse, type ParsedCommand } from './shell-identity.js';
+import { dirname, resolve } from 'node:path';
+
+import { getConfig } from '../config/loader.js';
+import { resolveSkillSelector } from '../config/skills.js';
+import { isSkillSourcePath,normalizeFilePath } from '../skills/path-classifier.js';
+import { computeSkillVersionHash } from '../skills/version-hash.js';
 import type { ManifestOverride } from '../tools/execution-target.js';
+import { looksLikeHostPortShorthand, looksLikePathOnlyInput } from '../tools/network/url-safety.js';
+import { getTool } from '../tools/registry.js';
+import { getLogger } from '../util/logger.js';
+import { buildShellAllowlistOptions, buildShellCommandCandidates, cachedParse, type ParsedCommand } from './shell-identity.js';
+import { findHighestPriorityRule, onRulesChanged } from './trust-store.js';
+import { type AllowlistOption, type PermissionCheckResult, type PolicyContext,RiskLevel, type ScopeOption } from './types.js';
+import { isWorkspaceScopedInvocation } from './workspace-policy.js';
 
 // ── Risk classification cache ────────────────────────────────────────────────
 // classifyRisk() is called on every permission check and can invoke WASM
@@ -756,8 +757,9 @@ const ALLOWLIST_STRATEGIES: Record<string, AllowlistStrategy> = {
 export async function generateAllowlistOptions(toolName: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<AllowlistOption[]> {
   signal?.throwIfAborted();
 
-  const strategy = ALLOWLIST_STRATEGIES[toolName];
-  if (strategy) return strategy(toolName, input);
+  if (Object.hasOwn(ALLOWLIST_STRATEGIES, toolName)) {
+    return ALLOWLIST_STRATEGIES[toolName](toolName, input);
+  }
 
   return [{ label: '*', description: 'Everything', pattern: '*' }];
 }

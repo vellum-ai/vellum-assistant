@@ -1,5 +1,5 @@
-import type { ToolContext, ToolExecutionResult } from '../types.js';
 import { getSubagentManager } from '../../subagent/index.js';
+import type { ToolContext, ToolExecutionResult } from '../types.js';
 
 export async function executeSubagentSpawn(
   input: Record<string, unknown>,

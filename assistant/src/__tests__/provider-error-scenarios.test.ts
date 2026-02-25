@@ -1,5 +1,6 @@
-import { describe, test, expect, mock } from 'bun:test';
 import { resolve } from 'node:path';
+
+import { describe, expect, mock,test } from 'bun:test';
 
 const retryModulePath = resolve(import.meta.dir, '../util/retry.ts');
 
@@ -18,17 +19,17 @@ mock.module('../util/retry.js', async () => {
   };
 });
 
-import { RetryProvider } from '../providers/retry.js';
 import { FailoverProvider } from '../providers/failover.js';
+import { RetryProvider } from '../providers/retry.js';
 import { createStreamTimeout } from '../providers/stream-timeout.js';
+import type {
+  Message,
+  Provider,
+  ProviderEvent,
+  ProviderResponse,
+} from '../providers/types.js';
 import { ProviderError } from '../util/errors.js';
 import { DEFAULT_MAX_RETRIES } from '../util/retry.js';
-import type {
-  Provider,
-  ProviderResponse,
-  Message,
-  ProviderEvent,
-} from '../providers/types.js';
 
 // ---------------------------------------------------------------------------
 // Helpers

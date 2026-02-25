@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
+
 import type { MessagingProvider } from '../messaging/provider.js';
 import type { SendOptions } from '../messaging/provider-types.js';
 

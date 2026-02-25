@@ -1,7 +1,7 @@
+import type { ServerMessage } from '../../daemon/ipc-contract.js';
 import { getLogger } from '../../util/logger.js';
 import { browserManager } from './browser-manager.js';
 import { getScreencastSurfaceId } from './browser-screencast.js';
-import type { ServerMessage } from '../../daemon/ipc-contract.js';
 
 const log = getLogger('browser-handoff');
 

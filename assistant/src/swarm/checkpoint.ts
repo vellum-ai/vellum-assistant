@@ -1,8 +1,9 @@
-import { mkdirSync, writeFileSync, readFileSync, existsSync, unlinkSync, renameSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { getRootDir } from '../util/platform.js';
-import type { SwarmTaskResult, SwarmPlan } from './types.js';
+import { existsSync, mkdirSync, readFileSync, renameSync,unlinkSync, writeFileSync } from 'node:fs';
+import { dirname,join } from 'node:path';
+
 import { getLogger } from '../util/logger.js';
+import { getRootDir } from '../util/platform.js';
+import type { SwarmPlan,SwarmTaskResult } from './types.js';
 
 const log = getLogger('swarm-checkpoint');
 

@@ -1,4 +1,5 @@
 import { v4 as uuid } from 'uuid';
+
 import type { ServerMessage, TraceEventKind } from './ipc-protocol.js';
 
 export type TraceEventStatus = 'info' | 'success' | 'warning' | 'error';

@@ -1,7 +1,8 @@
-import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, beforeEach, describe, expect, mock,test } from 'bun:test';
 
 const testDir = mkdtempSync(join(tmpdir(), 'followup-tools-test-'));
 
@@ -30,11 +31,12 @@ mock.module('../config/loader.js', () => ({
 }));
 
 import type { Database } from 'bun:sqlite';
-import { initializeDb, getDb, resetDb } from '../memory/db.js';
-import type { ToolContext } from '../tools/types.js';
+
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { executeFollowupCreate } from '../tools/followups/followup_create.js';
 import { executeFollowupList } from '../tools/followups/followup_list.js';
 import { executeFollowupResolve } from '../tools/followups/followup_resolve.js';
+import type { ToolContext } from '../tools/types.js';
 
 initializeDb();
 

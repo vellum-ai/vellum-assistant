@@ -1,7 +1,8 @@
-import { describe, test, expect, beforeEach } from 'bun:test';
-import { SecretPrompter } from '../permissions/secret-prompter.js';
+import { beforeEach,describe, expect, test } from 'bun:test';
+
+import type { SecretRequest,ServerMessage } from '../daemon/ipc-contract.js';
 import type { SecretPromptResult } from '../permissions/secret-prompter.js';
-import type { ServerMessage, SecretRequest } from '../daemon/ipc-contract.js';
+import { SecretPrompter } from '../permissions/secret-prompter.js';
 
 describe('secret response routing', () => {
   let prompter: SecretPrompter;

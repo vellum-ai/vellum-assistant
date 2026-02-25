@@ -1,4 +1,4 @@
-import { describe, test, expect, mock } from 'bun:test';
+import { describe, expect, mock,test } from 'bun:test';
 
 // Mock config before importing modules that depend on it.
 // The permissions mode must be 'legacy' so computer-use tools
@@ -26,8 +26,8 @@ mock.module('../config/loader.js', () => ({
 }));
 
 import { ComputerUseSession } from '../daemon/computer-use-session.js';
-import type { Provider, ProviderResponse } from '../providers/types.js';
 import type { CuObservation, ServerMessage } from '../daemon/ipc-protocol.js';
+import type { Provider, ProviderResponse } from '../providers/types.js';
 
 function createProvider(responses: ProviderResponse[]): { provider: Provider; getCalls: () => number } {
   let calls = 0;

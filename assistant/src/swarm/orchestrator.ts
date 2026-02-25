@@ -1,13 +1,13 @@
-import type { SwarmPlan, SwarmTaskNode, SwarmTaskResult, SwarmExecutionSummary } from './types.js';
+import type { ModelIntent,Provider } from '../providers/types.js';
+import { getLogger } from '../util/logger.js';
+import { isCheckpointCompatible,loadCheckpoint, removeCheckpoint, writeCheckpoint } from './checkpoint.js';
+import { detectCycles } from './graph-utils.js';
 import type { SwarmLimits } from './limits.js';
 import { getTimeoutForRole } from './limits.js';
+import { synthesizeResults } from './synthesizer.js';
+import type { SwarmExecutionSummary,SwarmPlan, SwarmTaskNode, SwarmTaskResult } from './types.js';
 import type { SwarmWorkerBackend } from './worker-backend.js';
 import { runWorkerTask } from './worker-runner.js';
-import type { Provider } from '../providers/types.js';
-import { synthesizeResults } from './synthesizer.js';
-import { detectCycles } from './graph-utils.js';
-import { getLogger } from '../util/logger.js';
-import { writeCheckpoint, loadCheckpoint, removeCheckpoint, isCheckpointCompatible } from './checkpoint.js';
 
 const log = getLogger('swarm-orchestrator');
 
@@ -36,7 +36,7 @@ export interface ExecuteSwarmOptions {
   modelIntent?: string;
   /** Provider + model intent for final synthesis. */
   synthesisProvider?: Provider;
-  synthesisModelIntent?: string;
+  synthesisModelIntent?: ModelIntent;
   onStatus?: OrchestratorStatusCallback;
   signal?: AbortSignal;
   /** Stable identifier for this swarm run, used for checkpoint persistence. */

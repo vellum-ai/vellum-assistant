@@ -1,9 +1,9 @@
 import { RiskLevel } from '../../permissions/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { FileSystemOps } from '../shared/filesystem/file-ops-service.js';
 import { formatEditDiff } from '../shared/filesystem/format-diff.js';
 import { hostPolicy } from '../shared/filesystem/path-policy.js';
+import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 
 class HostFileEditTool implements Tool {
   name = 'host_file_edit';

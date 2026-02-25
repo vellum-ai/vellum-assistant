@@ -6,10 +6,11 @@
  *   - 400 when conversationKey is absent
  *   - Happy path: stream receives a published AssistantEvent
  */
-import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
-import { mkdtempSync, rmSync, realpathSync } from 'node:fs';
+import { mkdtempSync, realpathSync,rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, beforeEach, describe, expect, mock,test } from 'bun:test';
 
 const testDir = realpathSync(mkdtempSync(join(tmpdir(), 'runtime-events-sse-test-')));
 
@@ -43,11 +44,11 @@ mock.module('../config/loader.js', () => ({
   }),
 }));
 
-import { initializeDb, getDb, resetDb } from '../memory/db.js';
-import { RuntimeHttpServer } from '../runtime/http-server.js';
-import { assistantEventHub } from '../runtime/assistant-event-hub.js';
-import { buildAssistantEvent } from '../runtime/assistant-event.js';
 import { getOrCreateConversation } from '../memory/conversation-key-store.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
+import { buildAssistantEvent } from '../runtime/assistant-event.js';
+import { assistantEventHub } from '../runtime/assistant-event-hub.js';
+import { RuntimeHttpServer } from '../runtime/http-server.js';
 
 initializeDb();
 

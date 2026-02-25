@@ -1,15 +1,15 @@
-import { describe, test, expect } from "bun:test";
+import { describe, expect,test } from "bun:test";
 
-import type { ContentBlock, ToolResultContent } from "../providers/types.js";
 import {
-  truncateToolResultText,
   calculateMaxToolResultChars,
-  isOversizedToolResult,
-  truncateOversizedToolResults,
   HARD_MAX_TOOL_RESULT_CHARS,
+  isOversizedToolResult,
   MIN_KEEP_CHARS,
+  truncateOversizedToolResults,
+  truncateToolResultText,
   TRUNCATION_SUFFIX,
 } from "../context/tool-result-truncation.js";
+import type { ContentBlock, ToolResultContent } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

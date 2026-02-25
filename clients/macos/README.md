@@ -324,15 +324,12 @@ ComputerUse/          Core perception + action pipeline
   ScreenCapture       ScreenCaptureKit screenshot capture
   Session             Main orchestration loop
 Inference/            AI action selection
-  AnthropicClient     Shared HTTP client with retry logic (used by KnowledgeCron)
   ToolDefinitions     Tool schemas for function calling
 Services/             Singleton service containers
 Ambient/              Background screen-watching agent
   AmbientAgent        Periodic capture → OCR → analyze via daemon IPC
   AmbientAnalyzer     Type definitions (AmbientDecision, AmbientAnalysisResult)
   KnowledgeStore      Persists observations as JSON
-  KnowledgeCron       Triggers periodic insight analysis
-  InsightStore        Higher-level insights derived from observations
   ScreenOCR           Vision framework OCR
 Features/
   Ambient/            Background screen monitoring UI

@@ -6,17 +6,17 @@
  * and consuming them, and managing guardian bindings.
  */
 
-import { randomBytes, createHash } from 'crypto';
+import { createHash,randomBytes } from 'crypto';
 import { v4 as uuid } from 'uuid';
+
+import type { GuardianBinding, VerificationChallenge, SessionStatus, IdentityBindingStatus } from '../memory/channel-guardian-store.js';
 import {
+  consumeChallenge,
   createBinding,
-  getActiveBinding,
-  revokeBinding as storeRevokeBinding,
-  revokePendingChallenges as storeRevokePendingChallenges,
   createChallenge,
   findPendingChallengeByHash,
   findPendingChallengeForChannel,
-  consumeChallenge,
+  getActiveBinding,
   getRateLimit,
   recordInvalidAttempt,
   resetRateLimit,
@@ -26,12 +26,8 @@ import {
   updateSessionStatus as storeUpdateSessionStatus,
   updateSessionDelivery as storeUpdateSessionDelivery,
   bindSessionIdentity as storeBindSessionIdentity,
-} from '../memory/channel-guardian-store.js';
-import type {
-  GuardianBinding,
-  VerificationChallenge,
-  SessionStatus,
-  IdentityBindingStatus,
+  revokeBinding as storeRevokeBinding,
+  revokePendingChallenges as storeRevokePendingChallenges,
 } from '../memory/channel-guardian-store.js';
 import { composeApprovalMessage } from './approval-message-composer.js';
 

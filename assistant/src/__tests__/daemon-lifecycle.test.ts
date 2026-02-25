@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, mock, test } from 'bun:test';
 import type * as net from 'node:net';
+
+import { beforeEach, describe, expect, mock, test } from 'bun:test';
 
 // ── Mocks ────────────────────────────────────────────────────────────
 
@@ -139,9 +140,9 @@ mock.module('../daemon/session.js', () => ({
 
 // ── Imports (after mocks) ────────────────────────────────────────────
 
-import { DaemonServer } from '../daemon/server.js';
-import { SessionEvictor, type EvictableSession } from '../daemon/session-evictor.js';
 import { createMessageParser, serialize } from '../daemon/ipc-protocol.js';
+import { DaemonServer } from '../daemon/server.js';
+import { type EvictableSession,SessionEvictor } from '../daemon/session-evictor.js';
 
 // ── Test Helpers ─────────────────────────────────────────────────────
 

@@ -1,7 +1,8 @@
-import { describe, expect, test, beforeEach, afterAll, mock } from 'bun:test';
-import { mkdtempSync, rmSync, realpathSync } from 'node:fs';
+import { mkdtempSync, realpathSync,rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, beforeEach, describe, expect, mock,test } from 'bun:test';
 
 const testDir = realpathSync(mkdtempSync(join(tmpdir(), 'history-render-test-')));
 
@@ -24,17 +25,17 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
-import { initializeDb, getDb, resetDb } from '../memory/db.js';
-import { renderHistoryContent, mergeToolResults } from '../daemon/handlers.js';
+import { mergeToolResults,renderHistoryContent } from '../daemon/handlers.js';
 import {
-  uploadAttachment,
-  linkAttachmentToMessage,
   getAttachmentsForMessage,
+  linkAttachmentToMessage,
+  uploadAttachment,
 } from '../memory/attachments-store.js';
 import {
-  createConversation,
   addMessage,
+  createConversation,
 } from '../memory/conversation-store.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
 
 initializeDb();
 

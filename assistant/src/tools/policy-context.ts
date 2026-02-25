@@ -1,6 +1,6 @@
 import type { PolicyContext } from '../permissions/types.js';
-import type { Tool, ToolContext } from './types.js';
 import { getTaskRunRules } from '../tasks/ephemeral-permissions.js';
+import type { Tool, ToolContext } from './types.js';
 
 /**
  * Build a PolicyContext from tool metadata and execution context.

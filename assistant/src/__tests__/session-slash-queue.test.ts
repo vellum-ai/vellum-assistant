@@ -1,7 +1,8 @@
-import { describe, expect, mock, test, beforeEach } from 'bun:test';
-import type { Message, ProviderResponse } from '../providers/types.js';
-import type { AgentEvent, CheckpointInfo, CheckpointDecision } from '../agent/loop.js';
+import { beforeEach,describe, expect, mock, test } from 'bun:test';
+
+import type { AgentEvent, CheckpointDecision,CheckpointInfo } from '../agent/loop.js';
 import type { ServerMessage } from '../daemon/ipc-protocol.js';
+import type { Message, ProviderResponse } from '../providers/types.js';
 
 // ---------------------------------------------------------------------------
 // Mocks — must precede the Session import so Bun applies them at load time.

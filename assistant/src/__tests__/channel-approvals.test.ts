@@ -1,7 +1,8 @@
-import { describe, test, expect, beforeEach, afterAll, mock, spyOn } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, beforeEach, describe, expect, mock, spyOn,test } from 'bun:test';
 
 // ---------------------------------------------------------------------------
 // Test isolation: in-memory SQLite via temp directory
@@ -28,23 +29,23 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
-import { initializeDb, getDb, resetDb } from '../memory/db.js';
-import { conversations } from '../memory/schema.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
+import type { PendingConfirmation, PendingRunInfo } from '../memory/runs-store.js';
 import {
   createRun,
   setRunConfirmation,
 } from '../memory/runs-store.js';
-import type { PendingConfirmation, PendingRunInfo } from '../memory/runs-store.js';
-import type { RunOrchestrator } from '../runtime/run-orchestrator.js';
+import { conversations } from '../memory/schema.js';
+import * as trustStore from '../permissions/trust-store.js';
+import type { ApprovalDecisionResult, ChannelApprovalPrompt } from '../runtime/channel-approval-types.js';
 import {
-  getChannelApprovalPrompt,
   buildApprovalUIMetadata,
-  handleChannelDecision,
   buildGuardianApprovalPrompt,
   channelSupportsRichApprovalUI,
+  getChannelApprovalPrompt,
+  handleChannelDecision,
 } from '../runtime/channel-approvals.js';
-import type { ApprovalDecisionResult, ChannelApprovalPrompt } from '../runtime/channel-approval-types.js';
-import * as trustStore from '../permissions/trust-store.js';
+import type { RunOrchestrator } from '../runtime/run-orchestrator.js';
 
 initializeDb();
 

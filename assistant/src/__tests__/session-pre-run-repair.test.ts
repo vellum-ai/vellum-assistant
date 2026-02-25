@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from 'bun:test';
+
 import type { Message, ProviderResponse } from '../providers/types.js';
 
 // Capture messages passed to agentLoop.run

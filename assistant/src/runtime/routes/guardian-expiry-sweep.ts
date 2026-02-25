@@ -3,17 +3,17 @@
  * guardian approvals, auto-denies the underlying runs, and notifies both
  * the requester and guardian.
  */
-import { getLogger } from '../../util/logger.js';
 import {
   getExpiredPendingApprovals,
   updateApprovalDecision,
 } from '../../memory/channel-guardian-store.js';
-import { deliverChannelReply } from '../gateway-client.js';
-import { handleChannelDecision } from '../channel-approvals.js';
-import type { ApprovalDecisionResult } from '../channel-approval-types.js';
-import type { RunOrchestrator } from '../run-orchestrator.js';
-import type { ApprovalCopyGenerator } from '../http-types.js';
+import { getLogger } from '../../util/logger.js';
 import { composeApprovalMessageGenerative } from '../approval-message-composer.js';
+import type { ApprovalDecisionResult } from '../channel-approval-types.js';
+import { handleChannelDecision } from '../channel-approvals.js';
+import { deliverChannelReply } from '../gateway-client.js';
+import type { ApprovalCopyGenerator } from '../http-types.js';
+import type { RunOrchestrator } from '../run-orchestrator.js';
 
 const log = getLogger('runtime-http');
 

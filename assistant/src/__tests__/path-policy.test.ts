@@ -1,8 +1,10 @@
-import { afterEach, describe, expect, mock, test } from 'bun:test';
-import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { join, sep } from 'node:path';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { sandboxPolicy, hostPolicy } from '../tools/shared/filesystem/path-policy.js';
+import { join, sep } from 'node:path';
+
+import { afterEach, describe, expect, mock, test } from 'bun:test';
+
+import { hostPolicy,sandboxPolicy } from '../tools/shared/filesystem/path-policy.js';
 
 // ── Mock setup for skill path classifier ────────────────────────────────────
 // The classifier imports getWorkspaceSkillsDir and getBundledSkillsDir, which

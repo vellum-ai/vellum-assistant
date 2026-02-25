@@ -1,28 +1,30 @@
 import type { Command } from 'commander';
 
 import {
+  API_KEY_PROVIDERS,
+  getNestedValue,
   loadRawConfig,
   saveRawConfig,
-  getNestedValue,
   setNestedValue,
-  API_KEY_PROVIDERS,
 } from '../config/loader.js';
 import {
-  getAllRules,
-  removeRule,
-  clearAllRules,
-} from '../permissions/trust-store.js';
-import { getSecureKey, setSecureKey, deleteSecureKey } from '../security/secure-keys.js';
-import { getCliLogger } from '../util/logger.js';
-import { initializeDb } from '../memory/db.js';
-import {
+  dismissPendingConflicts,
   getMemorySystemStatus,
   queryMemory,
   requestMemoryBackfill,
   requestMemoryCleanup,
   requestMemoryRebuildIndex,
 } from '../memory/admin.js';
+import { listPendingConflictDetails } from '../memory/conflict-store.js';
 import { listConversations } from '../memory/conversation-store.js';
+import { initializeDb } from '../memory/db.js';
+import {
+  clearAllRules,
+  getAllRules,
+  removeRule,
+} from '../permissions/trust-store.js';
+import { deleteSecureKey,getSecureKey, setSecureKey } from '../security/secure-keys.js';
+import { getCliLogger } from '../util/logger.js';
 
 const log = getCliLogger('cli');
 
@@ -330,5 +332,49 @@ export function registerMemoryCommand(program: Command): void {
       initializeDb();
       const jobId = requestMemoryRebuildIndex();
       log.info(`Queued rebuild-index job: ${jobId}`);
+    });
+
+  memory
+    .command('dismiss-conflicts')
+    .description('Dismiss pending memory conflicts (all or matching a pattern)')
+    .option('-a, --all', 'Dismiss all pending conflicts')
+    .option('-p, --pattern <regex>', 'Dismiss conflicts where either statement matches this regex')
+    .option('-s, --scope <id>', 'Memory scope (default: "default")')
+    .option('--dry-run', 'Show what would be dismissed without making changes')
+    .action((opts: { all?: boolean; pattern?: string; scope?: string; dryRun?: boolean }) => {
+      if (!opts.all && !opts.pattern) {
+        log.info('Usage: vellum memory dismiss-conflicts --all  OR  --pattern <regex>');
+        log.info('Use --dry-run to preview without making changes.');
+        return;
+      }
+
+      initializeDb();
+
+      const pattern = opts.pattern ? new RegExp(opts.pattern, 'i') : undefined;
+
+      if (opts.dryRun) {
+        const scopeId = opts.scope ?? 'default';
+        const pending = listPendingConflictDetails(scopeId, 1000);
+        let matchCount = 0;
+        for (const conflict of pending) {
+          const matches = opts.all
+            || (pattern && (pattern.test(conflict.existingStatement) || pattern.test(conflict.candidateStatement)));
+          if (!matches) continue;
+          matchCount++;
+          log.info(`  [${conflict.id.slice(0, SHORT_HASH_LENGTH)}] "${conflict.existingStatement}" vs "${conflict.candidateStatement}"`);
+        }
+        log.info(`\nDry run: ${matchCount} of ${pending.length} pending conflicts would be dismissed.`);
+        return;
+      }
+
+      const result = dismissPendingConflicts({
+        all: opts.all,
+        pattern,
+        scopeId: opts.scope,
+      });
+      for (const detail of result.details) {
+        log.info(`  Dismissed [${detail.id.slice(0, SHORT_HASH_LENGTH)}]: "${detail.existingStatement}" vs "${detail.candidateStatement}"`);
+      }
+      log.info(`\nDismissed ${result.dismissed} conflicts. ${result.remaining} pending conflicts remain.`);
     });
 }

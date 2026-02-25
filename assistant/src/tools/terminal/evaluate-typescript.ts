@@ -1,16 +1,17 @@
 import { spawn } from 'node:child_process';
-import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
-import { join, basename } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { RiskLevel } from '../../permissions/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
-import type { ToolDefinition } from '../../providers/types.js';
-import { registerTool } from '../registry.js';
+import { mkdirSync, rmSync,writeFileSync } from 'node:fs';
+import { basename,join } from 'node:path';
+
 import { getConfig } from '../../config/loader.js';
-import { getLogger } from '../../util/logger.js';
+import { RiskLevel } from '../../permissions/types.js';
+import type { ToolDefinition } from '../../providers/types.js';
 import { parseJsonSafe } from '../../util/json.js';
-import { wrapCommand } from './sandbox.js';
+import { getLogger } from '../../util/logger.js';
+import { registerTool } from '../registry.js';
+import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import { buildSanitizedEnv } from './safe-env.js';
+import { wrapCommand } from './sandbox.js';
 
 const log = getLogger('evaluate-typescript');
 

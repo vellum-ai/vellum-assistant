@@ -1,12 +1,14 @@
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, mkdtempSync, rmSync,writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach,beforeEach, describe, expect, test } from 'bun:test';
+
 import {
   discoverCCCommands,
   getCCCommand,
-  loadCCCommandTemplate,
   invalidateCCCommandCache,
+  loadCCCommandTemplate,
 } from '../cc-command-registry.js';
 
 let tmpDir: string;

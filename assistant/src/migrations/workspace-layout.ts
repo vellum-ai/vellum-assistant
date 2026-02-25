@@ -1,11 +1,12 @@
 import { existsSync, mkdirSync, renameSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { dirname,join } from 'node:path';
+
 import { getRootDir, getWorkspaceDir } from '../util/platform.js';
-import { migrationLog } from './log.js';
 import { mergeSkippedConfigKeys } from './config-merge.js';
-import { mergeLegacyHooks } from './hooks-merge.js';
-import { mergeLegacySkills } from './skills-merge.js';
 import { mergeLegacyDataEntries } from './data-merge.js';
+import { mergeLegacyHooks } from './hooks-merge.js';
+import { migrationLog } from './log.js';
+import { mergeLegacySkills } from './skills-merge.js';
 
 /**
  * Idempotent move: relocates source to destination for migration.

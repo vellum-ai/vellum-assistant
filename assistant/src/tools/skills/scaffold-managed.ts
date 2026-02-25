@@ -1,8 +1,8 @@
 import { RiskLevel } from '../../permissions/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
-import { registerTool } from '../registry.js';
 import { createManagedSkill } from '../../skills/managed-store.js';
+import { registerTool } from '../registry.js';
+import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 
 /** Strip embedded newlines/carriage returns to prevent YAML frontmatter injection. */
 function sanitizeFrontmatterValue(value: string): string {

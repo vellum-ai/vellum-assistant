@@ -1,8 +1,9 @@
-import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createHash } from 'node:crypto';
+
+import { afterAll, beforeEach, describe, expect, mock,test } from 'bun:test';
 
 // ---------------------------------------------------------------------------
 // Test isolation: in-memory SQLite via temp directory
@@ -29,19 +30,21 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
-import { initializeDb, getDb, resetDb } from '../memory/db.js';
+import type * as net from 'node:net';
+
+import { handleGuardianVerification } from '../daemon/handlers/config.js';
+import type { HandlerContext } from '../daemon/handlers/shared.js';
+import type { GuardianVerificationRequest, GuardianVerificationResponse } from '../daemon/ipc-contract.js';
 import {
+  consumeChallenge,
+  createApprovalRequest,
   createBinding,
-  getActiveBinding,
-  revokeBinding,
   createChallenge,
   findPendingChallengeByHash,
   findPendingChallengeForChannel,
-  consumeChallenge,
-  createApprovalRequest,
-  getPendingApprovalForRun,
+  getActiveBinding,
   getPendingApprovalByGuardianChat,
-  updateApprovalDecision,
+  getPendingApprovalForRun,
   getRateLimit,
   recordInvalidAttempt,
   resetRateLimit,
@@ -51,24 +54,23 @@ import {
   updateSessionStatus as storeUpdateSessionStatus,
   updateSessionDelivery as storeUpdateSessionDelivery,
   bindSessionIdentity as storeBindSessionIdentity,
+  revokeBinding,
+  updateApprovalDecision,
 } from '../memory/channel-guardian-store.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import {
   createVerificationChallenge,
-  validateAndConsumeChallenge,
   getGuardianBinding,
+  getPendingChallenge,
   isGuardian,
   revokeBinding as serviceRevokeBinding,
-  getPendingChallenge,
   createOutboundSession,
   findActiveSession as serviceFindActiveSession,
   findSessionByIdentity as serviceFindSessionByIdentity,
   updateSessionStatus as serviceUpdateSessionStatus,
   bindSessionIdentity as serviceBindSessionIdentity,
+  validateAndConsumeChallenge,
 } from '../runtime/channel-guardian-service.js';
-import { handleGuardianVerification } from '../daemon/handlers/config.js';
-import type { GuardianVerificationRequest, GuardianVerificationResponse } from '../daemon/ipc-contract.js';
-import type { HandlerContext } from '../daemon/handlers/shared.js';
-import type * as net from 'node:net';
 
 initializeDb();
 

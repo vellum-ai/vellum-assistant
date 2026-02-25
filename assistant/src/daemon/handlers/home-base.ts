@@ -1,13 +1,14 @@
 import * as net from 'node:net';
-import type { HomeBaseGetRequest } from '../ipc-protocol.js';
+
+import { getHomeBaseAppLink } from '../../home-base/app-link-store.js';
 import { bootstrapHomeBaseAppLink, resolveHomeBaseAppId } from '../../home-base/bootstrap.js';
 import {
   getPrebuiltHomeBasePreview,
   getPrebuiltHomeBaseTaskPayload,
 } from '../../home-base/prebuilt/seed.js';
-import { getHomeBaseAppLink } from '../../home-base/app-link-store.js';
 import { getApp } from '../../memory/app-store.js';
-import { log, defineHandlers, type HandlerContext } from './shared.js';
+import type { HomeBaseGetRequest } from '../ipc-protocol.js';
+import { defineHandlers, type HandlerContext,log } from './shared.js';
 
 export function handleHomeBaseGet(
   msg: HomeBaseGetRequest,

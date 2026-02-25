@@ -72,3 +72,17 @@ export interface DocumentListResponse {
     updatedAt: number;
   }>;
 }
+
+// --- Domain-level union aliases (consumed by the barrel file) ---
+
+export type _DocumentsClientMessages =
+  | DocumentSaveRequest
+  | DocumentLoadRequest
+  | DocumentListRequest;
+
+export type _DocumentsServerMessages =
+  | DocumentEditorShow
+  | DocumentEditorUpdate
+  | DocumentSaveResponse
+  | DocumentLoadResponse
+  | DocumentListResponse;

@@ -1,7 +1,8 @@
-import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, beforeEach, describe, expect, mock,test } from 'bun:test';
 
 const testDir = mkdtempSync(join(tmpdir(), 'call-pointer-messages-test-'));
 
@@ -24,10 +25,10 @@ mock.module('../util/logger.js', () => ({
     }),
 }));
 
-import { initializeDb, getDb, resetDb } from '../memory/db.js';
-import { conversations } from '../memory/schema.js';
-import { getMessages } from '../memory/conversation-store.js';
 import { addPointerMessage, formatDuration } from '../calls/call-pointer-messages.js';
+import { getMessages } from '../memory/conversation-store.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
+import { conversations } from '../memory/schema.js';
 
 initializeDb();
 

@@ -7,8 +7,8 @@
  *   - waitForExtension — poll until the extension connects
  */
 
-import { extensionRelayServer } from './server.js';
 import type { CookieSpec } from './protocol.js';
+import { extensionRelayServer } from './server.js';
 
 const WAIT_POLL_INTERVAL_MS = 250;
 

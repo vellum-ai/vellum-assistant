@@ -1,9 +1,10 @@
 import { spawn } from 'node:child_process';
+
 import { RiskLevel } from '../../permissions/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { getLogger } from '../../util/logger.js';
 import { truncate } from '../../util/truncate.js';
+import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 
 const log = getLogger('cli-discover');
 

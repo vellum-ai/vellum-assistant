@@ -61,6 +61,7 @@ struct ChatView: View {
     var isMemoryDegraded: Bool = false
     var memoryDegradedReason: String? = nil
     var connectionDiagnosticHint: String? = nil
+    var threadId: UUID?
 
     @State private var isNearBottom = true
     @State private var isDropTargeted = false
@@ -172,6 +173,7 @@ struct ChatView: View {
                             onAbortSubagent: onAbortSubagent,
                             onSubagentTap: onSubagentTap,
                             subagentDetailStore: subagentDetailStore,
+                            threadId: threadId,
                             isNearBottom: $isNearBottom
                         )
                         .safeAreaInset(edge: .bottom) {

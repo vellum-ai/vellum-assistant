@@ -15,69 +15,77 @@
  * - session-usage.ts        — recordUsage
  */
 
-import type { Message } from '../providers/types.js';
+import { AgentLoop, type ResolvedSystemPrompt } from '../agent/loop.js';
 import type { TurnChannelContext, TurnInterfaceContext } from '../channels/types.js';
-import type { ServerMessage, UsageStats, UserMessageAttachment, SurfaceType, SurfaceData } from './ipc-protocol.js';
-import { AgentLoop } from '../agent/loop.js';
-import type { Provider } from '../providers/types.js';
-import { PermissionPrompter } from '../permissions/prompter.js';
-import { SecretPrompter } from '../permissions/secret-prompter.js';
-import { ToolExecutor } from '../tools/executor.js';
-import type { UserDecision } from '../permissions/types.js';
 import { getConfig } from '../config/loader.js';
-import { TraceEmitter } from './trace-emitter.js';
+import { buildSystemPrompt } from '../config/system-prompt.js';
+import { ContextWindowManager } from '../context/window-manager.js';
 import { EventBus } from '../events/bus.js';
 import type { AssistantDomainEvents } from '../events/domain-events.js';
+import { createToolAuditListener } from '../events/tool-audit-listener.js';
 import { createToolDomainEventPublisher } from '../events/tool-domain-event-publisher.js';
 import { registerToolMetricsLoggingListener } from '../events/tool-metrics-listener.js';
 import { registerToolNotificationListener } from '../events/tool-notification-listener.js';
+import { registerToolProfilingListener,ToolProfiler } from '../events/tool-profiling-listener.js';
 import { registerToolTraceListener } from '../events/tool-trace-listener.js';
-import { createToolAuditListener } from '../events/tool-audit-listener.js';
-import { ToolProfiler, registerToolProfilingListener } from '../events/tool-profiling-listener.js';
-import { ContextWindowManager } from '../context/window-manager.js';
 import { getHookManager } from '../hooks/manager.js';
-import { ConflictGate } from './session-conflict-gate.js';
-import { MessageQueue } from './session-queue-manager.js';
-import type { QueueDrainReason, QueueMetrics } from './session-queue-manager.js';
-import type { ChannelCapabilities, GuardianRuntimeContext } from './session-runtime-assembly.js';
+import { PermissionPrompter } from '../permissions/prompter.js';
+import { SecretPrompter } from '../permissions/secret-prompter.js';
+import type { UserDecision } from '../permissions/types.js';
+import type { Message } from '../providers/types.js';
+import type { Provider } from '../providers/types.js';
+import { ToolExecutor } from '../tools/executor.js';
 import type { AssistantAttachmentDraft } from './assistant-attachments.js';
+import type { ServerMessage, SurfaceData,SurfaceType, UsageStats, UserMessageAttachment } from './ipc-protocol.js';
 import {
-  handleSurfaceAction as handleSurfaceActionImpl,
-  handleSurfaceUndo as handleSurfaceUndoImpl,
-  createSurfaceMutex,
-} from './session-surfaces.js';
+  classifyResponseTierAsync,
+  classifyResponseTierDetailed,
+  resolveWithHint,
+  type SessionTierHint,
+  tierMaxTokens,
+  tierModel,
+} from './response-tier.js';
+import { runAgentLoopImpl } from './session-agent-loop.js';
+import { ConflictGate } from './session-conflict-gate.js';
 import {
-  undo as undoImpl,
-  regenerate as regenerateImpl,
   type HistorySessionContext,
+  regenerate as regenerateImpl,
+  undo as undoImpl,
 } from './session-history.js';
-import { refreshWorkspaceTopLevelContextIfNeeded as refreshWorkspaceImpl } from './session-workspace.js';
 import {
-  drainQueue as drainQueueImpl,
-  processMessage as processMessageImpl,
-  type ProcessSessionContext,
-} from './session-process.js';
-import {
-  buildToolDefinitions,
-  createToolExecutor,
-  createResolveToolsCallback,
-  type ToolSetupContext,
-} from './session-tool-setup.js';
-import type { SkillProjectionCache } from './session-skill-tools.js';
-
-// Extracted modules
-import { registerSessionNotifiers } from './session-notifiers.js';
-import {
-  loadFromDb as loadFromDbImpl,
   abortSession,
   disposeSession,
+  loadFromDb as loadFromDbImpl,
 } from './session-lifecycle.js';
 import {
   enqueueMessage as enqueueMessageImpl,
   persistUserMessage as persistUserMessageImpl,
   redirectToSecurePrompt as redirectToSecurePromptImpl,
 } from './session-messaging.js';
-import { runAgentLoopImpl } from './session-agent-loop.js';
+// Extracted modules
+import { registerSessionNotifiers } from './session-notifiers.js';
+import {
+  drainQueue as drainQueueImpl,
+  processMessage as processMessageImpl,
+  type ProcessSessionContext,
+} from './session-process.js';
+import type { QueueDrainReason, QueueMetrics } from './session-queue-manager.js';
+import { MessageQueue } from './session-queue-manager.js';
+import type { ChannelCapabilities, GuardianRuntimeContext } from './session-runtime-assembly.js';
+import type { SkillProjectionCache } from './session-skill-tools.js';
+import {
+  createSurfaceMutex,
+  handleSurfaceAction as handleSurfaceActionImpl,
+  handleSurfaceUndo as handleSurfaceUndoImpl,
+} from './session-surfaces.js';
+import {
+  buildToolDefinitions,
+  createResolveToolsCallback,
+  createToolExecutor,
+  type ToolSetupContext,
+} from './session-tool-setup.js';
+import { refreshWorkspaceTopLevelContextIfNeeded as refreshWorkspaceImpl } from './session-workspace.js';
+import { TraceEmitter } from './trace-emitter.js';
 
 export interface SessionMemoryPolicy {
   scopeId: string;
@@ -91,8 +99,8 @@ export const DEFAULT_MEMORY_POLICY: Readonly<SessionMemoryPolicy> = Object.freez
   strictSideEffects: false,
 });
 
-export { MAX_QUEUE_DEPTH, type QueueDrainReason, type QueuePolicy } from './session-queue-manager.js';
 export { findLastUndoableUserMessageIndex } from './session-history.js';
+export { MAX_QUEUE_DEPTH, type QueueDrainReason, type QueuePolicy } from './session-queue-manager.js';
 
 export class Session {
   public readonly conversationId: string;
@@ -203,6 +211,101 @@ export class Session {
     this.streamThinking = config.thinking.streamThinking ?? false;
     const resolveTools = createResolveToolsCallback(toolDefs, this);
 
+    const configuredMaxTokens = maxTokens;
+    // When a systemPromptOverride was provided, skip tier-based prompt
+    // rebuilding and use the override as-is — only scale maxTokens and model.
+    const hasSystemPromptOverride = systemPrompt !== buildSystemPrompt();
+
+    // Known runtime-injected XML context block prefixes. Using an explicit
+    // list avoids false-positives on user messages that start with HTML/XML.
+    const INJECTED_PREFIXES = [
+      '<channel_capabilities>',
+      '<channel_command_context>',
+      '<channel_turn_context>',
+      '<temporal_context>',
+      '<guardian_context>',
+      '<voice_call_control>',
+      '<workspace_top_level>',
+      '<active_workspace>',
+      '<active_dynamic_page>',
+      '<dynamic-profile-context>',
+      '<memory_recall',
+      '<memory source=',
+      '<memory',
+      '<system_notice>',
+      '<interface_turn_context>',
+    ];
+
+    // Track the last user-message tier so tool-use continuation turns
+    // (where user text is empty — only tool_result blocks) inherit it
+    // instead of falling to 'low'.
+    let lastUserMessageTier: import('./response-tier.js').ResponseTier = 'high';
+    let sessionTierHint: SessionTierHint | null = null;
+    const recentUserTexts: string[] = []; // circular buffer, max 3
+    const MAX_RECENT_TEXTS = 3;
+
+    const resolveSystemPromptCallback = (history: import('../providers/types.js').Message[]): ResolvedSystemPrompt => {
+      // Extract last user message text, ignoring runtime-injected context blocks
+      const lastUserMsg = [...history].reverse().find((m) => m.role === 'user');
+      let userText = '';
+      let isToolResultOnly = false;
+      if (lastUserMsg) {
+        const _hasToolResult = lastUserMsg.content.some((b) => b.type === 'tool_result');
+        for (const block of lastUserMsg.content) {
+          if (block.type === 'text') {
+            const trimmed = block.text.trimStart();
+            if (!INJECTED_PREFIXES.some((p) => trimmed.startsWith(p))) {
+              userText += block.text;
+            }
+          }
+        }
+        // Inherit previous tier when there's no real user text — either
+        // tool_result-only messages or system nudges where all text was
+        // filtered out as injected context.
+        isToolResultOnly = userText.trim().length === 0;
+      }
+
+      let tier: import('./response-tier.js').ResponseTier;
+
+      if (isToolResultOnly) {
+        // Tool-use continuation: inherit previous tier
+        tier = lastUserMessageTier;
+      } else {
+        const classification = classifyResponseTierDetailed(userText, this.turnCount);
+        tier = resolveWithHint(classification, sessionTierHint, this.turnCount);
+        lastUserMessageTier = tier;
+
+        // Update recent user texts buffer
+        const trimmedText = userText.trim();
+        if (trimmedText) {
+          if (recentUserTexts.length >= MAX_RECENT_TEXTS) {
+            recentUserTexts.shift();
+          }
+          recentUserTexts.push(trimmedText);
+        }
+
+        // Fire background Haiku classification when confidence is low
+        if (classification.confidence === 'low') {
+          void classifyResponseTierAsync([...recentUserTexts]).then((asyncTier) => {
+            if (asyncTier) {
+              sessionTierHint = {
+                tier: asyncTier,
+                turn: this.turnCount,
+                timestamp: Date.now(),
+              };
+            }
+          });
+        }
+      }
+
+      const model = tierModel(tier, provider.name);
+      return {
+        systemPrompt: hasSystemPromptOverride ? systemPrompt : buildSystemPrompt(tier),
+        maxTokens: tierMaxTokens(tier, configuredMaxTokens),
+        model,
+      };
+    };
+
     this.agentLoop = new AgentLoop(
       provider,
       systemPrompt,
@@ -210,6 +313,7 @@ export class Session {
       toolDefs.length > 0 ? toolDefs : undefined,
       toolDefs.length > 0 ? toolExecutor : undefined,
       resolveTools,
+      resolveSystemPromptCallback,
     );
     this.contextWindowManager = new ContextWindowManager(
       provider,
@@ -393,7 +497,7 @@ export class Session {
     content: string,
     userMessageId: string,
     onEvent: (msg: ServerMessage) => void,
-    options?: { skipPreMessageRollback?: boolean },
+    options?: { skipPreMessageRollback?: boolean; isInteractive?: boolean },
   ): Promise<void> {
     return runAgentLoopImpl(this, content, userMessageId, onEvent, options);
   }
@@ -410,8 +514,9 @@ export class Session {
     requestId?: string,
     activeSurfaceId?: string,
     currentPage?: string,
+    options?: { isInteractive?: boolean },
   ): Promise<string> {
-    return processMessageImpl(this as ProcessSessionContext, content, attachments, onEvent, requestId, activeSurfaceId, currentPage);
+    return processMessageImpl(this as ProcessSessionContext, content, attachments, onEvent, requestId, activeSurfaceId, currentPage, options);
   }
 
   // ── History ──────────────────────────────────────────────────────

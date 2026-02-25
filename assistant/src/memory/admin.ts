@@ -1,7 +1,8 @@
 import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
-import { getMemoryBackendStatus } from './embedding-backend.js';
+import { listPendingConflictDetails, resolveConflict } from './conflict-store.js';
 import { rawGet } from './db.js';
+import { getMemoryBackendStatus } from './embedding-backend.js';
 import { enqueueBackfillJob, enqueueRebuildIndexJob } from './indexer.js';
 import {
   enqueueCleanupResolvedConflictsJob,
@@ -198,4 +199,51 @@ export async function queryMemory(
   conversationId: string,
 ) {
   return queryMemoryForCli(query, conversationId, getConfig());
+}
+
+export interface DismissConflictsResult {
+  dismissed: number;
+  remaining: number;
+  details: Array<{ id: string; existingStatement: string; candidateStatement: string }>;
+}
+
+/**
+ * Dismiss pending memory conflicts. With `all: true`, dismisses every
+ * pending conflict. Otherwise, dismisses only conflicts matching the
+ * given `pattern` regex against either statement.
+ */
+export function dismissPendingConflicts(
+  options: { all?: boolean; pattern?: RegExp; scopeId?: string },
+): DismissConflictsResult {
+  const scopeId = options.scopeId ?? 'default';
+  const pending = listPendingConflictDetails(scopeId, 1000);
+  const dismissed: DismissConflictsResult['details'] = [];
+
+  for (const conflict of pending) {
+    const matches = options.all
+      || (options.pattern && (
+        options.pattern.test(conflict.existingStatement)
+        || options.pattern.test(conflict.candidateStatement)
+      ));
+    if (!matches) continue;
+
+    resolveConflict(conflict.id, {
+      status: 'dismissed',
+      resolutionNote: options.all
+        ? 'Bulk dismissed via CLI (dismiss-conflicts --all).'
+        : `Dismissed via CLI (pattern: ${options.pattern?.source}).`,
+    });
+    dismissed.push({
+      id: conflict.id,
+      existingStatement: conflict.existingStatement,
+      candidateStatement: conflict.candidateStatement,
+    });
+  }
+
+  log.info({ dismissed: dismissed.length, remaining: pending.length - dismissed.length, scopeId }, 'Dismissed pending conflicts');
+  return {
+    dismissed: dismissed.length,
+    remaining: pending.length - dismissed.length,
+    details: dismissed,
+  };
 }

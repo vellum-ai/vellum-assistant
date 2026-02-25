@@ -1,6 +1,6 @@
 // Computer use, task routing, ride shotgun, and watch observation types.
 
-import type { UserMessageAttachment, IpcBlobRef } from './shared.js';
+import type { IpcBlobRef,UserMessageAttachment } from './shared.js';
 
 // === Client → Server ===
 
@@ -149,3 +149,24 @@ export interface WatchCompleteRequest {
   sessionId: string;
   watchId: string;
 }
+
+// --- Domain-level union aliases (consumed by the barrel file) ---
+
+export type _ComputerUseClientMessages =
+  | CuSessionCreate
+  | CuSessionAbort
+  | CuObservation
+  | TaskSubmit
+  | RideShotgunStart
+  | RideShotgunStop
+  | WatchObservation;
+
+export type _ComputerUseServerMessages =
+  | CuAction
+  | CuComplete
+  | CuError
+  | TaskRouted
+  | RideShotgunProgress
+  | RideShotgunResult
+  | WatchStarted
+  | WatchCompleteRequest;

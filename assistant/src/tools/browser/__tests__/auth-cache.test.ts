@@ -1,8 +1,10 @@
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, rmSync,writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { AuthSessionCache, type AuthSession } from '../auth-cache.js';
+import { join } from 'node:path';
+
+import { afterEach,beforeEach, describe, expect, test } from 'bun:test';
+
+import { type AuthSession,AuthSessionCache } from '../auth-cache.js';
 
 function makeTmpDir(): string {
   const dir = join(tmpdir(), `auth-cache-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);

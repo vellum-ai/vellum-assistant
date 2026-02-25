@@ -6,9 +6,9 @@
  * Backend selection is cached after the first call for the process lifetime.
  */
 
-import * as keychain from './keychain.js';
-import * as encryptedStore from './encrypted-store.js';
 import { getLogger } from '../util/logger.js';
+import * as encryptedStore from './encrypted-store.js';
+import * as keychain from './keychain.js';
 
 const log = getLogger('secure-keys');
 

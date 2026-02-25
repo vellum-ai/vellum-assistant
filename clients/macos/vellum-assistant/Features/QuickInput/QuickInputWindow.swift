@@ -18,6 +18,8 @@ final class QuickInputTextModel: ObservableObject {
     /// When set, the user has selected an existing thread to continue.
     @Published var selectedThreadId: UUID?
     @Published var selectedThreadTitle: String?
+    /// Whether to send a notification when the assistant response completes.
+    @Published var notifyOnComplete: Bool = UserDefaults.standard.object(forKey: "quickInputNotifyOnComplete") as? Bool ?? true
 }
 
 /// A borderless, floating NSPanel that hosts the Quick Input text field.
@@ -43,12 +45,17 @@ final class QuickInputWindow {
     var onSubmitToThread: ((String, Data?) -> Void)?
     /// Callback invoked when the user taps the microphone button.
     var onMicrophoneToggle: (() -> Void)?
+    /// Callback invoked when the user toggles the notification bell.
+    var onNotificationToggle: (() -> Void)?
     /// Callback invoked when the user selects an existing thread (navigates to it).
     var onSelectThread: ((UUID) -> Void)?
     /// Recent threads to show in the dropdown.
     var recentThreads: [QuickInputThread] = []
     /// When true, show a screen recording permission prompt below the bar.
     var showScreenPermissionPrompt = false
+
+    /// Whether to send a notification when the assistant response completes.
+    var notifyOnComplete: Bool { textModel.notifyOnComplete }
 
     /// Shared text model for voice input injection.
     private let textModel = QuickInputTextModel()
@@ -85,12 +92,18 @@ final class QuickInputWindow {
 
         isCapturingScreen = true
 
-        // Hide the panel temporarily
+        // Remove the resign-key observer so the panel doesn't dismiss when the
+        // selection overlay takes key status. The panel stays visible — the
+        // screenshot excludes app windows via SCContentFilter, and the selection
+        // overlay renders above the panel (.screenSaver > .floating).
         if let resignObserver {
             NotificationCenter.default.removeObserver(resignObserver)
         }
         resignObserver = nil
-        panel?.orderOut(nil)
+
+        // Save the panel's current frame so we can restore it after recreating
+        // the panel (needed because attachedImage is a `let` init param).
+        let savedFrame = self.panel?.frame
 
         let selectionWindow = ScreenSelectionWindow()
         selectionWindow.onComplete = { [weak self] imageData, selectionRect in
@@ -100,11 +113,16 @@ final class QuickInputWindow {
             self.screenSelectionWindow = nil
             self.isCapturingScreen = false
 
-            // Recreate the panel with the image attached and reposition near selection
+            // Recreate the panel with the image attached
             self.panel?.close()
             self.panel = nil
             let newPanel = self.makePanel()
-            self.repositionNearRect(newPanel, rect: selectionRect)
+            // Restore to the saved position instead of repositioning near the selection rect
+            if let savedFrame {
+                newPanel.setFrame(savedFrame, display: true)
+            } else {
+                self.repositionNearRect(newPanel, rect: selectionRect)
+            }
             self.presentPanel(newPanel)
         }
         selectionWindow.onCancel = { [weak self] in
@@ -112,11 +130,16 @@ final class QuickInputWindow {
             self.screenSelectionWindow = nil
             self.isCapturingScreen = false
 
-            // Re-show the panel in its original position
-            if let panel = self.panel {
-                self.presentPanel(panel)
-            } else {
-                self.show()
+            // Panel was never hidden — just restore the resign-key observer
+            self.resignObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didResignKeyNotification,
+                object: self.panel,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in
+                    guard self?.isCapturingScreen != true else { return }
+                    self?.dismiss(restorePreviousApp: false)
+                }
             }
         }
         selectionWindow.show()
@@ -168,6 +191,11 @@ final class QuickInputWindow {
                 self?.dismiss()
             },
             onMicrophoneToggle: onMicrophoneToggle,
+            onNotificationToggle: { [weak self] in
+                guard let self else { return }
+                self.textModel.notifyOnComplete.toggle()
+                UserDefaults.standard.set(self.textModel.notifyOnComplete, forKey: "quickInputNotifyOnComplete")
+            },
             recentThreads: recentThreads,
             attachedImage: attachedImage,
             showScreenPermissionPrompt: showScreenPermissionPrompt
