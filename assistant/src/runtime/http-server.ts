@@ -94,10 +94,6 @@ import {
   handleListContacts,
   handleMergeContacts,
 } from './routes/contact-routes.js';
-import {
-  handleListSkills,
-  handleInstallSkill,
-} from './routes/skill-routes.js';
 // Route handlers — grouped by domain
 import {
   handleGetSuggestion,
@@ -592,10 +588,6 @@ export class RuntimeHttpServer {
       if (endpoint === 'contacts/merge' && req.method === 'POST') return await handleMergeContacts(req);
       const contactMatch = endpoint.match(/^contacts\/([^/]+)$/);
       if (contactMatch && req.method === 'GET') return handleGetContact(contactMatch[1]);
-
-      // Skills catalog
-      if (endpoint === 'skills' && req.method === 'GET') return await handleListSkills();
-      if (endpoint === 'skills/install' && req.method === 'POST') return await handleInstallSkill(req);
 
       if (endpoint === 'attachments' && req.method === 'POST') return await handleUploadAttachment(req);
       if (endpoint === 'attachments' && req.method === 'DELETE') return await handleDeleteAttachment(req);
