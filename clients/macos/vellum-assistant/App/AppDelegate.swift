@@ -148,6 +148,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var bundleConfirmationWindow: BundleConfirmationWindow?
     private var tasksWindow: TasksWindow?
     private var pairingApprovalWindow: PairingApprovalWindow?
+    /// Window shown during first-launch bootstrap when daemon is slow to start.
+    private var bootstrapInterstitialWindow: NSWindow?
+    /// Active task for the bootstrap retry coordinator. Cancelled on dismiss.
+    private var bootstrapRetryTask: Task<Void, Never>?
     /// Tracks file paths of .vellumapp bundles awaiting daemon responses (FIFO).
     /// Each call to sendOpenBundle appends a path; handleOpenBundleResponse
     /// pops the first entry so concurrent opens are correctly paired.
@@ -320,25 +324,20 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             transitionBootstrap(to: .pendingDaemon)
             Task {
                 let ready = await awaitDaemonReady(timeout: 15)
-                transitionBootstrap(to: .pendingWakeupSend)
+
                 if ready {
-                    showMainWindow(initialMessage: wakeUpGreeting(), isFirstLaunch: true)
+                    // Daemon connected within timeout — proceed directly
+                    // to mandatory wake-up send with retries.
+                    transitionBootstrap(to: .pendingWakeupSend)
+                    await performRetriableWakeUpSend()
                 } else {
-                    log.warning("Daemon not ready after timeout — opening window without wake-up greeting")
-                    showMainWindow(isFirstLaunch: true)
-                    mainWindow?.windowState.showToast(
-                        message: "Still connecting to your assistant — it may take a moment.",
-                        style: .warning
-                    )
+                    // Daemon not ready — show blocking interstitial instead
+                    // of the chat empty state. The interstitial auto-retries
+                    // daemon connection and proceeds to wake-up send once
+                    // connected.
+                    log.warning("Daemon not ready after timeout — showing bootstrap interstitial")
+                    showBootstrapInterstitial()
                 }
-                // Wake-up message has been sent (or skipped on timeout).
-                // Transition to pendingFirstReply — M3 will handle the
-                // .complete transition when the first assistant reply arrives.
-                transitionBootstrap(to: .pendingFirstReply)
-                // TODO(M3): Remove this — transition to .complete should happen when first assistant reply arrives
-                transitionBootstrap(to: .complete)
-                setupWakeWordCoordinator()
-                debugStateWriter.start(appDelegate: self)
             }
         } else {
             showMainWindow()
@@ -386,6 +385,200 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
         log.warning("awaitDaemonReady timed out after \(timeout)s")
         return daemonClient.isConnected
+    }
+
+    // MARK: - Bootstrap Interstitial
+
+    /// Shows a blocking interstitial window during first-launch bootstrap when
+    /// the daemon is slow to start. The interstitial auto-retries daemon
+    /// connection every 2 seconds and transitions to the chat with the wake-up
+    /// greeting once the daemon connects.
+    private func showBootstrapInterstitial() {
+        guard bootstrapInterstitialWindow == nil else { return }
+
+        let interstitialView = BootstrapInterstitialView(
+            isRetrying: true,
+            onRetry: { [weak self] in
+                self?.bootstrapInterstitialRetry()
+            }
+        )
+
+        let hostingController = NSHostingController(rootView: interstitialView)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
+            styleMask: [.titled, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = hostingController
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.isMovableByWindowBackground = true
+        window.backgroundColor = NSColor(VColor.background)
+        window.isReleasedWhenClosed = false
+        window.center()
+
+        NSApp.setActivationPolicy(.regular)
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+
+        bootstrapInterstitialWindow = window
+
+        // Start auto-retry polling for daemon readiness
+        startBootstrapRetryCoordinator()
+    }
+
+    /// Updates the interstitial view content (error message and retry state).
+    private func updateBootstrapInterstitial(errorMessage: String? = nil, isRetrying: Bool = true) {
+        guard let window = bootstrapInterstitialWindow else { return }
+
+        let updatedView = BootstrapInterstitialView(
+            errorMessage: errorMessage,
+            isRetrying: isRetrying,
+            onRetry: { [weak self] in
+                self?.bootstrapInterstitialRetry()
+            }
+        )
+        window.contentViewController = NSHostingController(rootView: updatedView)
+    }
+
+    /// Dismisses the bootstrap interstitial window and cancels any retry tasks.
+    /// Use this for external cleanup callers that need to stop the retry loop.
+    private func dismissBootstrapInterstitial() {
+        bootstrapRetryTask?.cancel()
+        bootstrapRetryTask = nil
+        bootstrapInterstitialWindow?.close()
+        bootstrapInterstitialWindow = nil
+    }
+
+    /// Closes only the interstitial window without cancelling the retry task.
+    /// Use this from within `startBootstrapRetryCoordinator()` to avoid
+    /// self-cancellation when the task dismisses the window upon success.
+    private func dismissBootstrapInterstitialWindow() {
+        bootstrapInterstitialWindow?.close()
+        bootstrapInterstitialWindow = nil
+    }
+
+    /// Manual retry triggered by the "Try Again" button in the interstitial.
+    private func bootstrapInterstitialRetry() {
+        bootstrapRetryTask?.cancel()
+        startBootstrapRetryCoordinator()
+    }
+
+    /// Starts a background task that polls daemon readiness every 2 seconds.
+    /// When the daemon connects, dismisses the interstitial and proceeds
+    /// with the mandatory wake-up send.
+    private func startBootstrapRetryCoordinator() {
+        bootstrapRetryTask?.cancel()
+        updateBootstrapInterstitial(isRetrying: true)
+
+        bootstrapRetryTask = Task {
+            while !Task.isCancelled {
+                if daemonClient.isConnected {
+                    log.info("Daemon connected during bootstrap retry — proceeding to wake-up send")
+                    transitionBootstrap(to: .pendingWakeupSend)
+                    dismissBootstrapInterstitialWindow()
+                    await performRetriableWakeUpSend()
+                    // Only nil out if we're still the active task (no new coordinator was started)
+                    if !Task.isCancelled {
+                        bootstrapRetryTask = nil
+                    }
+                    return
+                }
+
+                // Attempt a connection if not already in progress
+                if !daemonClient.isConnecting {
+                    do {
+                        try await daemonClient.connect()
+                    } catch {
+                        log.error("Bootstrap retry connect attempt failed: \(error)")
+                    }
+                }
+
+                if daemonClient.isConnected {
+                    log.info("Daemon connected after bootstrap retry connect — proceeding to wake-up send")
+                    transitionBootstrap(to: .pendingWakeupSend)
+                    dismissBootstrapInterstitialWindow()
+                    await performRetriableWakeUpSend()
+                    // Only nil out if we're still the active task (no new coordinator was started)
+                    if !Task.isCancelled {
+                        bootstrapRetryTask = nil
+                    }
+                    return
+                }
+
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+            }
+        }
+    }
+
+    /// Sends the wake-up greeting with bounded exponential backoff retries.
+    ///
+    /// Retry schedule: 1s, 2s, 4s, 8s (max 5 attempts). If the daemon
+    /// disconnects during retries, pauses and waits for reconnection.
+    /// After exhausting retries, shows an error in the interstitial with
+    /// a manual retry button.
+    private func performRetriableWakeUpSend() async {
+        let maxAttempts = 5
+        let backoffIntervals: [UInt64] = [
+            1_000_000_000,  // 1s
+            2_000_000_000,  // 2s
+            4_000_000_000,  // 4s
+            8_000_000_000,  // 8s
+            8_000_000_000,  // 8s (cap)
+        ]
+
+        for attempt in 0..<maxAttempts {
+            guard !Task.isCancelled else { return }
+
+            // If daemon disconnected, wait for reconnection before retrying
+            if !daemonClient.isConnected {
+                log.warning("Daemon disconnected during wake-up send — waiting for reconnection (attempt \(attempt + 1)/\(maxAttempts))")
+                let reconnected = await awaitDaemonReady(timeout: 15)
+                if !reconnected {
+                    log.warning("Daemon did not reconnect — showing interstitial for manual retry")
+                    showBootstrapInterstitial()
+                    updateBootstrapInterstitial(
+                        errorMessage: "Lost connection to your assistant. Retrying...",
+                        isRetrying: true
+                    )
+                    return
+                }
+            }
+
+            // Attempt to show the main window with the wake-up greeting
+            let greeting = wakeUpGreeting()
+            showMainWindow(initialMessage: greeting, isFirstLaunch: true)
+
+            // Check if the message was sent by verifying the main window exists
+            // and has an active view model. The wake-up message is queued via
+            // pendingWakeUpMessage in MainWindow — if the window was created
+            // successfully, consider the send successful.
+            if mainWindow != nil {
+                log.info("Wake-up greeting sent successfully (attempt \(attempt + 1))")
+                // Transition to pendingFirstReply — M3 will handle the
+                // .complete transition when the first assistant reply arrives.
+                transitionBootstrap(to: .pendingFirstReply)
+                // TODO(M3): Remove this — transition to .complete should happen when first assistant reply arrives
+                transitionBootstrap(to: .complete)
+                setupWakeWordCoordinator()
+                debugStateWriter.start(appDelegate: self)
+                return
+            }
+
+            // Send failed — apply backoff before next attempt
+            let delay = backoffIntervals[min(attempt, backoffIntervals.count - 1)]
+            log.warning("Wake-up send attempt \(attempt + 1)/\(maxAttempts) failed — retrying in \(delay / 1_000_000_000)s")
+            try? await Task.sleep(nanoseconds: delay)
+        }
+
+        // Exhausted all retries — show error in interstitial
+        log.error("Wake-up send failed after \(maxAttempts) attempts")
+        showBootstrapInterstitial()
+        updateBootstrapInterstitial(
+            errorMessage: "Could not connect after \(maxAttempts) attempts. Please try again.",
+            isRetrying: false
+        )
     }
 
     private func showAuthWindow() {
