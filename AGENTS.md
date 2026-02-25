@@ -177,6 +177,44 @@ There may be narrow cases where a direct provider call is acceptable (e.g., a lo
 - **Race conditions:** Always check whether a decision has already been resolved before delivering the engine's optimistic reply. If `handleChannelDecision` returns `applied: false`, deliver an "already resolved" notice and return `stale_ignored`.
 - **Requester self-cancel:** A requester with a pending guardian approval must be able to cancel their own request (but not self-approve).
 
+## HTTP API Patterns
+
+### Sending messages
+
+The single HTTP send endpoint is `POST /v1/messages`. Key behaviors:
+- **Queue if busy**: When the session is processing, messages are queued and processed when the current agent turn completes. No 409 rejections.
+- **Fire-and-forget**: Returns `202 { accepted: true }` immediately. The client observes progress via SSE (`GET /v1/events`).
+- **Hub publishing**: All agent events are published to `assistantEventHub`, making them observable via SSE.
+
+Do NOT add new send endpoints. All message ingress should go through `POST /v1/messages` (HTTP) or `session.processMessage()` (IPC).
+
+### Approvals (confirmations, secrets, trust rules)
+
+Approvals are **orthogonal to message sending**. The assistant asks for approval whenever it needs one — this is a separate concern from how a message enters the system.
+
+- **Discovery**: Clients discover pending approvals via SSE events (`confirmation_request`, `secret_request`) which include a `requestId`.
+- **Resolution**: Clients respond via standalone endpoints keyed by `requestId`:
+  - `POST /v1/confirm` — `{ requestId, decision: "allow" | "deny" }`
+  - `POST /v1/secret` — `{ requestId, value, delivery }`
+  - `POST /v1/trust-rules` — `{ requestId, pattern, scope }`
+- **Tracking**: The `pending-interactions` tracker (`assistant/src/runtime/pending-interactions.ts`) maps `requestId → session`. Use `register()` to track, `resolve()` to consume, `getByConversation()` to query.
+
+Do NOT couple approval handling to message sending. Do NOT add run/status tracking to the send path.
+
+### Channel approvals (Telegram, SMS)
+
+Channel approval flows use `requestId` (not `runId`) as the primary identifier:
+- Telegram callback buttons encode `apr:<requestId>:<action>` in `callback_data`.
+- Guardian approval records in `channelGuardianApprovalRequests` link via `requestId`.
+- The conversational approval engine classifies user intent and resolves via `session.handleConfirmationResponse(requestId, decision)`.
+
+### What NOT to do
+
+- Do NOT use `RunOrchestrator` or `runs-store` — they have been removed.
+- Do NOT add `/v1/runs` endpoints — use `/v1/messages` and standalone approval endpoints.
+- Do NOT create run status tracking (queued/running/completed/failed) — clients observe progress via SSE events.
+- Do NOT use `runId` as an identifier for approval flows — use `requestId`.
+
 ## Error Handling Conventions
 
 Use the right error signaling mechanism for the situation. The codebase has three patterns — pick the one that matches the failure mode:
