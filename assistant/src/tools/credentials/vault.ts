@@ -56,6 +56,11 @@ interface WellKnownOAuthConfig {
     /** Provider-specific notes the LLM should follow during setup */
     notes?: string[];
   };
+  /** Bundled skill ID that contains provider-specific setup instructions.
+   *  When present, the guardrail for missing client_secret directs the agent
+   *  to load this skill for guidance rather than embedding instructions inline.
+   *  This keeps the SKILL.md as the single source of truth for setup flows. */
+  setupSkillId?: string;
 }
 
 const WELL_KNOWN_OAUTH: Record<string, WellKnownOAuthConfig> = {
@@ -74,6 +79,13 @@ const WELL_KNOWN_OAUTH: Record<string, WellKnownOAuthConfig> = {
     userinfoUrl: 'https://www.googleapis.com/oauth2/v2/userinfo',
     extraParams: { access_type: 'offline', prompt: 'consent' },
     callbackTransport: 'loopback',
+    setupSkillId: 'google-oauth-setup',
+    setup: {
+      displayName: 'Google (Gmail & Calendar)',
+      dashboardUrl: 'https://console.cloud.google.com/apis/credentials',
+      appType: 'Desktop app',
+      requiresClientSecret: true,
+    },
   },
   'integration:slack': {
     authUrl: 'https://slack.com/oauth/v2/authorize',
@@ -689,6 +701,22 @@ class CredentialStoreTool implements Tool {
         // provided and no well-known config), not when it is an empty array.
         if (!scopes) return { content: 'Error: scopes is required for oauth2_connect action (no well-known config for this service)', isError: true };
         if (!clientId) return { content: 'Error: client_id is required for oauth2_connect action. Provide it directly or store it first with credential_store.', isError: true };
+
+        // Fail early when client_secret is required but missing — guide the
+        // agent to collect it from the user rather than letting it improvise
+        // browser-automation workarounds that inevitably fail.
+        const requiresSecret = wellKnown?.setup?.requiresClientSecret
+          ?? !!(wellKnown?.tokenEndpointAuthMethod || wellKnown?.extraParams);
+        if (requiresSecret && !clientSecret) {
+          const skillId = wellKnown?.setupSkillId;
+          const skillHint = skillId
+            ? `\n\nLoad the "${skillId}" skill for provider-specific instructions on obtaining the client secret.`
+            : '\n\nUse credential_store with action "prompt" to securely collect the client_secret from the user before calling oauth2_connect again.';
+          return {
+            content: `Error: client_secret is required for ${rawService} but not found in the vault.${skillHint}`,
+            isError: true,
+          };
+        }
 
         try {
           assertMetadataWritable();
