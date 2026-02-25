@@ -22,6 +22,14 @@ function markStateConsumed(state: string): void {
   consumedStates.set(state, timer);
 }
 
+function rollBackConsumedState(state: string): void {
+  const timer = consumedStates.get(state);
+  if (timer !== undefined) {
+    clearTimeout(timer);
+    consumedStates.delete(state);
+  }
+}
+
 /** Exported for testing — clears all consumed state entries. */
 export function _resetConsumedStates(): void {
   for (const timer of consumedStates.values()) clearTimeout(timer);
@@ -58,8 +66,9 @@ export function createOAuthCallbackHandler(config: GatewayConfig) {
       });
     }
 
-    // Mark consumed before forwarding so concurrent duplicate callbacks
-    // are blocked even if the runtime hasn't responded yet.
+    // Optimistically mark consumed so concurrent duplicate callbacks are
+    // blocked while the runtime processes this one. Rolled back on failure
+    // so transient errors don't permanently block retries.
     markStateConsumed(state);
 
     try {
@@ -77,11 +86,13 @@ export function createOAuthCallbackHandler(config: GatewayConfig) {
         });
       }
 
+      rollBackConsumedState(state);
       return new Response(
         renderErrorPage("Authorization failed. Please try again."),
         { status: 400, headers: { "Content-Type": "text/html" } },
       );
     } catch (err) {
+      rollBackConsumedState(state);
       log.error({ err }, "Failed to forward OAuth callback to runtime");
       return new Response(
         renderErrorPage("Authorization failed. Please try again."),

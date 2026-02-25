@@ -203,38 +203,64 @@ describe("OAuth callback handler", () => {
     expect(sentBody.code).toBeUndefined();
   });
 
-  test("runtime returning 404 (unknown state) shows error page", async () => {
-    fetchMock = mock(async () =>
-      Response.json({ error: "Unknown state" }, { status: 404 }),
-    );
+  test("runtime returning 404 (unknown state) shows error page and allows retry", async () => {
+    let callCount = 0;
+    fetchMock = mock(async () => {
+      callCount++;
+      if (callCount === 1) {
+        return Response.json({ error: "Unknown state" }, { status: 404 });
+      }
+      return Response.json({ ok: true }, { status: 200 });
+    });
 
     const handler = createOAuthCallbackHandler(makeConfig());
-    const req = new Request(
+    const req1 = new Request(
       `http://localhost:7830/webhooks/oauth/callback?state=${VALID_STATE}&code=code`,
       { method: "GET" },
     );
 
-    const res = await handler(req);
-    expect(res.status).toBe(400);
+    const res1 = await handler(req1);
+    expect(res1.status).toBe(400);
+    expect(await res1.text()).toContain("Authorization Failed");
 
-    const body = await res.text();
-    expect(body).toContain("Authorization Failed");
+    // State should be rolled back so a retry succeeds
+    const req2 = new Request(
+      `http://localhost:7830/webhooks/oauth/callback?state=${VALID_STATE}&code=code`,
+      { method: "GET" },
+    );
+    const res2 = await handler(req2);
+    expect(res2.status).toBe(200);
+    expect(callCount).toBe(2);
   });
 
-  test("runtime unreachable returns 502 error page", async () => {
-    fetchMock = mock(async () => { throw new Error("Connection refused"); });
+  test("runtime unreachable returns 502 error page and allows retry", async () => {
+    let callCount = 0;
+    fetchMock = mock(async () => {
+      callCount++;
+      if (callCount === 1) {
+        throw new Error("Connection refused");
+      }
+      return Response.json({ ok: true }, { status: 200 });
+    });
 
     const handler = createOAuthCallbackHandler(makeConfig());
-    const req = new Request(
+    const req1 = new Request(
       `http://localhost:7830/webhooks/oauth/callback?state=${VALID_STATE}&code=code`,
       { method: "GET" },
     );
 
-    const res = await handler(req);
-    expect(res.status).toBe(502);
+    const res1 = await handler(req1);
+    expect(res1.status).toBe(502);
+    expect(await res1.text()).toContain("Authorization Failed");
 
-    const body = await res.text();
-    expect(body).toContain("Authorization Failed");
+    // State should be rolled back so a retry succeeds
+    const req2 = new Request(
+      `http://localhost:7830/webhooks/oauth/callback?state=${VALID_STATE}&code=code`,
+      { method: "GET" },
+    );
+    const res2 = await handler(req2);
+    expect(res2.status).toBe(200);
+    expect(callCount).toBe(2);
   });
 
   test("omits Authorization header when runtimeBearerToken is undefined", async () => {
