@@ -211,6 +211,9 @@ export function handleTwitterIntegrationConfig(
       }
       deleteSecureKey('credential:integration:twitter:oauth_client_id');
       deleteSecureKey('credential:integration:twitter:oauth_client_secret');
+      // Also remove canonical-named keys persisted by storeOAuth2Tokens
+      deleteSecureKey('credential:integration:twitter:client_id');
+      deleteSecureKey('credential:integration:twitter:client_secret');
       ctx.send(socket, {
         type: 'twitter_integration_config_response',
         success: true,
@@ -222,6 +225,9 @@ export function handleTwitterIntegrationConfig(
       deleteSecureKey('credential:integration:twitter:access_token');
       deleteSecureKey('credential:integration:twitter:refresh_token');
       deleteCredentialMetadata('integration:twitter', 'access_token');
+      // Also remove canonical-named keys persisted by storeOAuth2Tokens
+      deleteSecureKey('credential:integration:twitter:client_id');
+      deleteSecureKey('credential:integration:twitter:client_secret');
       ctx.send(socket, {
         type: 'twitter_integration_config_response',
         success: true,

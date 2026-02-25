@@ -91,17 +91,11 @@ export async function handleTwitterAuthStart(
       return;
     }
 
-    // Clear any stale refresh token before re-authenticating. The
-    // orchestrator's storeOAuth2Tokens only writes a refresh token when
-    // the provider returns one — it never deletes an existing entry. So
-    // a leftover token from a previous session can survive reconnects.
-    // Deleting it upfront ensures we only keep a fresh token.
-    deleteSecureKey('credential:integration:twitter:refresh_token');
-    try {
-      deleteCredentialMetadata('integration:twitter', 'refresh_token');
-    } catch {
-      // Non-fatal — metadata entry may not exist
-    }
+    // Snapshot the old refresh token so we can detect whether the new
+    // auth provided a replacement. We defer deletion until after a
+    // successful flow to avoid destroying a valid token when re-auth
+    // fails (user cancels, timeout, etc.).
+    const previousRefreshToken = getSecureKey('credential:integration:twitter:refresh_token');
 
     const result = await orchestrateOAuthConnect({
       service: 'integration:twitter',
@@ -130,6 +124,21 @@ export async function handleTwitterAuthStart(
         error: `OAuth flow was deferred unexpectedly. Open this URL to authorize: ${result.authUrl}`,
       });
       return;
+    }
+
+    // storeOAuth2Tokens writes a new refresh token when the provider
+    // returns one, but never deletes an existing entry. If the new
+    // auth did NOT return a refresh token the stale one would linger
+    // and eventually fail on use. Clean it up only when the stored
+    // value is still the old one (i.e. no new token was written).
+    const currentRefreshToken = getSecureKey('credential:integration:twitter:refresh_token');
+    if (previousRefreshToken && currentRefreshToken === previousRefreshToken) {
+      deleteSecureKey('credential:integration:twitter:refresh_token');
+      try {
+        deleteCredentialMetadata('integration:twitter', 'refresh_token');
+      } catch {
+        // Non-fatal — metadata entry may not exist
+      }
     }
 
     ctx.send(socket, {
