@@ -414,6 +414,26 @@ public final class ChatViewModel: ObservableObject {
         displayedMessageCount = Self.messagePageSize
     }
 
+    // MARK: - Message Trimming
+
+    /// Threshold above which old messages have their heavy content stripped.
+    private static let trimThreshold = 200
+    /// Number of recent messages to keep untrimmed (images, attachments, surfaces intact).
+    private static let trimKeepRecent = 100
+
+    /// Strip heavyweight binary data (images, attachments, completed surface payloads)
+    /// from old messages when the total count exceeds `trimThreshold`. The most recent
+    /// `trimKeepRecent` messages are left intact so scrolling back a reasonable amount
+    /// still shows full content. Called after message mutations that increase count.
+    public func trimOldMessagesIfNeeded() {
+        let count = messages.count
+        guard count > Self.trimThreshold else { return }
+        let trimEnd = count - Self.trimKeepRecent
+        for i in 0..<trimEnd {
+            messages[i].stripHeavyContent()
+        }
+    }
+
     /// Surface the user is currently viewing in workspace mode.
     /// Set by MainWindowView when the dynamic workspace is expanded.
     public var activeSurfaceId: String? {
@@ -1851,6 +1871,8 @@ public final class ChatViewModel: ObservableObject {
         // Reset pagination so the view shows the most-recent page after history loads.
         self.displayedMessageCount = Self.messagePageSize
         // Surfaces are now included directly in the history response and populated above
+        // Strip heavy data from old messages after a (potentially large) history load.
+        trimOldMessagesIfNeeded()
     }
 
     deinit {

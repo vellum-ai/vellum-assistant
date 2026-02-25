@@ -1229,6 +1229,34 @@ public struct ChatMessage: Identifiable {
         self.isError = isError
     }
 
+    /// Release heavyweight data (images, attachment binary data, completed surface
+    /// payloads) to reduce memory pressure on old messages that are no longer visible.
+    /// Metadata (tool names, summaries, surface refs) is preserved for display.
+    public mutating func stripHeavyContent() {
+        for i in toolCalls.indices {
+            toolCalls[i].cachedImage = nil
+            toolCalls[i].imageData = nil
+        }
+        for i in attachments.indices {
+            attachments[i].data = ""
+        }
+        for i in inlineSurfaces.indices {
+            if inlineSurfaces[i].completionState != nil {
+                // Surface is completed — keep the SurfaceRef but clear the data payload.
+                // The surface can be re-fetched from the daemon if the user scrolls back.
+                inlineSurfaces[i] = InlineSurfaceData(
+                    id: inlineSurfaces[i].id,
+                    surfaceType: inlineSurfaces[i].surfaceType,
+                    title: inlineSurfaces[i].title,
+                    data: inlineSurfaces[i].data,
+                    actions: [],
+                    surfaceRef: inlineSurfaces[i].surfaceRef,
+                    completionState: inlineSurfaces[i].completionState
+                )
+            }
+        }
+    }
+
     /// Build a default content order from the legacy `arrivedBeforeText` flag.
     public static func buildDefaultContentOrder(
         textSegmentCount: Int,

@@ -63,6 +63,13 @@ struct ChatView: View {
     var connectionDiagnosticHint: String? = nil
     var threadId: UUID?
 
+    // MARK: - Pagination
+
+    var displayedMessageCount: Int = .max
+    var hasMoreMessages: Bool = false
+    var isLoadingMoreMessages: Bool = false
+    var loadPreviousMessagePage: (() async -> Bool)?
+
     @State private var isNearBottom = true
     @State private var isDropTargeted = false
     @State private var editorContentHeight: CGFloat = 20
@@ -173,6 +180,10 @@ struct ChatView: View {
                             onAbortSubagent: onAbortSubagent,
                             onSubagentTap: onSubagentTap,
                             subagentDetailStore: subagentDetailStore,
+                            displayedMessageCount: displayedMessageCount,
+                            hasMoreMessages: hasMoreMessages,
+                            isLoadingMoreMessages: isLoadingMoreMessages,
+                            loadPreviousMessagePage: loadPreviousMessagePage,
                             threadId: threadId,
                             isNearBottom: $isNearBottom
                         )

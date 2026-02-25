@@ -754,7 +754,11 @@ struct ActiveChatViewWrapper: View {
             isMemoryDegraded: viewModel.isMemoryDegraded,
             memoryDegradedReason: viewModel.memoryDegradedReason,
             connectionDiagnosticHint: viewModel.connectionDiagnosticHint,
-            threadId: threadId
+            threadId: threadId,
+            displayedMessageCount: viewModel.displayedMessageCount,
+            hasMoreMessages: viewModel.hasMoreMessages,
+            isLoadingMoreMessages: viewModel.isLoadingMoreMessages,
+            loadPreviousMessagePage: { await viewModel.loadPreviousMessagePage() }
         )
     }
 }

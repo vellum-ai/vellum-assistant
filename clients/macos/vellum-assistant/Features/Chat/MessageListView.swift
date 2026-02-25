@@ -22,6 +22,17 @@ struct MessageListView: View {
     var onSubagentTap: ((String) -> Void)?
     @ObservedObject var subagentDetailStore: SubagentDetailStore
 
+    // MARK: - Pagination
+
+    /// Number of messages the view currently displays (suffix window size).
+    var displayedMessageCount: Int = .max
+    /// Whether older messages exist beyond the current display window.
+    var hasMoreMessages: Bool = false
+    /// True while a previous-page load is in progress.
+    var isLoadingMoreMessages: Bool = false
+    /// Callback to load the next older page of messages.
+    var loadPreviousMessagePage: (() async -> Bool)?
+
     var threadId: UUID?
     @Binding var isNearBottom: Bool
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
@@ -33,6 +44,15 @@ struct MessageListView: View {
     @State private var scrollDebounceTask: Task<Void, Never>?
     @ObservedObject private var taskProgressOverlay = TaskProgressOverlayManager.shared
     private var activeSurfaceId: String? { taskProgressOverlay.activeSurfaceId }
+
+    /// The subset of messages actually shown, honoring the pagination window.
+    private var visibleMessages: [ChatMessage] {
+        let all = messages.filter { !$0.isSubagentNotification }
+        // When displayedMessageCount covers all messages (or is Int.max / show-all mode),
+        // return everything so new incoming messages don't collapse visible history.
+        guard displayedMessageCount < all.count else { return all }
+        return Array(all.suffix(displayedMessageCount))
+    }
 
     /// Triggers auto-scroll when the last message's text length changes (e.g. during streaming).
     /// Uses total text length (monotonically increasing) so the trigger never produces the same
@@ -75,10 +95,35 @@ struct MessageListView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: VSpacing.md) {
-                    let displayMessages = messages.filter { msg in
-                        if msg.isSubagentNotification { return false }
-                        return true
+                    // MARK: - Pagination sentinel
+
+                    if isLoadingMoreMessages {
+                        HStack {
+                            Spacer()
+                            ProgressView()
+                                .controlSize(.small)
+                            Spacer()
+                        }
+                        .padding(.vertical, VSpacing.sm)
+                        .id("page-loading-indicator")
+                    } else if hasMoreMessages {
+                        // Invisible sentinel: fires when the user scrolls to the top,
+                        // triggering the next-older page of messages to be revealed.
+                        Color.clear
+                            .frame(height: 1)
+                            .id("page-load-trigger")
+                            .onAppear {
+                                let anchorId = visibleMessages.first?.id
+                                Task {
+                                    let hadMore = await loadPreviousMessagePage?() ?? false
+                                    if hadMore, let id = anchorId {
+                                        proxy.scrollTo(id, anchor: .top)
+                                    }
+                                }
+                            }
                     }
+
+                    let displayMessages = visibleMessages
                     let activePendingRequestId = PendingConfirmationFocusSelector.activeRequestId(from: displayMessages)
                     ForEach(Array(displayMessages.enumerated()), id: \.element.id) { index, message in
                         if shouldShowTimestamp(at: index, in: displayMessages) {

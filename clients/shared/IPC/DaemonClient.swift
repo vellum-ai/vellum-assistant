@@ -465,6 +465,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         let id = UUID()
         let (stream, continuation) = AsyncStream<ServerMessage>.makeStream()
         subscribers[id] = continuation
+        // onTermination fires on an arbitrary thread, but `subscribers` is
+        // MainActor-isolated. Dispatching via Task { @MainActor } is correct —
+        // the removal happens on the next MainActor tick, which is safe because
+        // a terminated continuation ignores further yields. The weak capture
+        // prevents a retain cycle if DaemonClient is deallocated first.
         continuation.onTermination = { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.subscribers.removeValue(forKey: id)
