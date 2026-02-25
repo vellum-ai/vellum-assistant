@@ -96,9 +96,10 @@ public struct ConfirmationSurfaceView: View {
         HStack(spacing: VSpacing.sm) {
             switch action {
             case .confirmed:
-                ProgressView()
-                    .controlSize(.small)
-                Text(data.confirmLabel.map { "\($0)..." } ?? "In progress...")
+                Image(systemName: "checkmark.circle.fill")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.success)
+                Text("Started")
                     .font(VFont.captionMedium)
                     .foregroundColor(VColor.textPrimary)
             case .cancelled:
