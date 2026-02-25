@@ -312,7 +312,7 @@ private final class RecorderStreamOutput: NSObject, SCStreamOutput, @unchecked S
         super.init()
     }
 
-    func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutput.OutputType) {
+    func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStream.OutputType) {
         guard sampleBuffer.isValid else { return }
 
         // Start the writer session on the first valid video frame
