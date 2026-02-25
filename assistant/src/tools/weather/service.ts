@@ -538,7 +538,10 @@ export async function executeGetWeather(
     } catch (err) {
       log.warn({ err }, 'Failed to auto-emit weather surface');
     }
-    // Return concise result -- the surface is already displayed
+    // Return concise result -- the surface is already displayed.
+    // The trailing notice prevents the model from looping with web_search
+    // to "verify" or "improve" data that is already live and complete.
+    lines.push('', '[Live data from Open-Meteo Weather API. The weather card is already rendered. Respond with a brief summary — do NOT call web_search, ui_show, or ui_update.]');
     return { content: lines.join('\n'), isError: false };
   }
 

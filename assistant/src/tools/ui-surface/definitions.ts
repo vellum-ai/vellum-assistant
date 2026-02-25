@@ -58,7 +58,7 @@ export const uiShowTool: Tool = {
     'Presenting choices: When the user needs to make a choice or provide structured input, prefer interactive surfaces over plain text. ' +
     'Use list (2-8 options, single select), form (structured input with typed fields), confirmation (destructive/important actions), or table (data review with selectable rows).\n\n' +
     'Tool chaining: After gathering data via tools (web search, browser, APIs), synthesize results into a visual output. ' +
-    'Exception: get_weather automatically renders its own surface — do NOT call ui_show or app_create after get_weather, just respond with a brief summary.\n\n' +
+    'Exception: get_weather automatically renders its own surface with live API data — do NOT call ui_show, ui_update, app_create, or web_search after get_weather. Just respond with a brief summary.\n\n' +
     'Task progress for multi-step workflows: Create a card with template "task_progress" and templateData containing steps. ' +
     'As each step completes, call ui_update to patch data.templateData (not top-level fields). ' +
     'Set templateData.status to "completed" or "failed" when done.',
