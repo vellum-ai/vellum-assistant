@@ -827,7 +827,6 @@ describe('isSideEffectTool', () => {
       'browser_extract',
       'skill_load',
       'schedule_list',
-      'evaluate_typescript_code',
     ];
 
     for (const toolName of readOnlyTools) {

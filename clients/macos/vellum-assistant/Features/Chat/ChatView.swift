@@ -53,8 +53,8 @@ struct ChatView: View {
     var activeSubagents: [SubagentInfo] = []
     var onAbortSubagent: ((String) -> Void)?
     var onSubagentTap: ((String) -> Void)?
-    var subagentDetailStore: SubagentDetailStore?
-    var resolveDaemonPort: (() -> Int?) = { nil }
+    @ObservedObject var subagentDetailStore: SubagentDetailStore
+    var daemonHttpPort: Int?
     var isHistoryLoaded: Bool = true
     var dismissedDocumentSurfaceIds: Set<String> = []
     var onDismissDocumentWidget: ((String) -> Void)?
@@ -62,6 +62,13 @@ struct ChatView: View {
     var memoryDegradedReason: String? = nil
     var connectionDiagnosticHint: String? = nil
     var threadId: UUID?
+
+    // MARK: - Pagination
+
+    var displayedMessageCount: Int = .max
+    var hasMoreMessages: Bool = false
+    var isLoadingMoreMessages: Bool = false
+    var loadPreviousMessagePage: (() async -> Bool)?
 
     @State private var isNearBottom = true
     @State private var isDropTargeted = false
@@ -168,11 +175,15 @@ struct ChatView: View {
                             onDismissDocumentWidget: onDismissDocumentWidget,
                             onReportMessage: onReportMessage,
                             mediaEmbedSettings: mediaEmbedSettings,
-                            resolveDaemonPort: resolveDaemonPort,
+                            daemonHttpPort: daemonHttpPort,
                             onModelPickerSelect: onModelPickerSelect,
                             onAbortSubagent: onAbortSubagent,
                             onSubagentTap: onSubagentTap,
                             subagentDetailStore: subagentDetailStore,
+                            displayedMessageCount: displayedMessageCount,
+                            hasMoreMessages: hasMoreMessages,
+                            isLoadingMoreMessages: isLoadingMoreMessages,
+                            loadPreviousMessagePage: loadPreviousMessagePage,
                             threadId: threadId,
                             isNearBottom: $isNearBottom
                         )
@@ -561,7 +572,8 @@ private struct ChatViewPreviewWrapper: View {
                 onDismissSessionError: {},
                 onCopyDebugInfo: {},
                 watchSession: nil,
-                onStopWatch: {}
+                onStopWatch: {},
+                subagentDetailStore: SubagentDetailStore()
             )
         }
     }

@@ -48,6 +48,12 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     }
 
     private var chatViewModels: [UUID: ChatViewModel] = [:]
+    /// Maximum number of ChatViewModels to keep in memory. When this limit is
+    /// exceeded, the least-recently-accessed VM (that isn't the active thread) is
+    /// evicted. This prevents unbounded memory growth from accumulated conversations.
+    private let maxCachedViewModels = 10
+    /// Tracks access order for LRU eviction. Most-recently-accessed ID is at the end.
+    private var vmAccessOrder: [UUID] = []
     private let daemonClient: DaemonClient
     private let sessionRestorer: ThreadSessionRestorer
     private let activityNotificationService: ActivityNotificationService?
@@ -124,6 +130,8 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         }
         threads.insert(thread, at: 0)
         chatViewModels[thread.id] = viewModel
+        touchVMAccessOrder(thread.id)
+        evictStaleCachedViewModels()
         activeThreadId = thread.id
         log.info("Created thread \(thread.id) with title \"\(thread.title)\"")
     }
@@ -140,6 +148,8 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         }
         threads.insert(thread, at: 0)
         chatViewModels[thread.id] = viewModel
+        touchVMAccessOrder(thread.id)
+        evictStaleCachedViewModels()
         activeThreadId = thread.id
 
         // Immediately create a daemon session so the thread is persisted
@@ -166,14 +176,16 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
         threads.insert(thread, at: 0)
         chatViewModels[thread.id] = viewModel
+        touchVMAccessOrder(thread.id)
+        evictStaleCachedViewModels()
 
         log.info("Created task run thread \(thread.id) for conversation \(conversationId) (work item \(workItemId))")
     }
 
-    /// Create a visible thread bound to an existing guardian action request conversation.
-    /// Called when the daemon broadcasts `guardian_request_thread_created` so the user
-    /// can see and respond to guardian questions from a voice call.
-    func createGuardianRequestThread(conversationId: String, requestId: String, callSessionId: String, title: String) {
+    /// Create a visible thread bound to a notification-created conversation.
+    /// Called when the daemon broadcasts `notification_thread_created` so the user
+    /// can see notification threads and deep-link into them.
+    func createNotificationThread(conversationId: String, title: String, sourceEventName: String) {
         // Avoid creating a duplicate thread if one already exists for this conversation
         if threads.contains(where: { $0.sessionId == conversationId }) {
             return
@@ -187,8 +199,10 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
         threads.insert(thread, at: 0)
         chatViewModels[thread.id] = viewModel
+        touchVMAccessOrder(thread.id)
+        evictStaleCachedViewModels()
 
-        log.info("Created guardian request thread \(thread.id) for conversation \(conversationId) (request \(requestId), call \(callSessionId))")
+        log.info("Created notification thread \(thread.id) for conversation \(conversationId) (source: \(sourceEventName))")
     }
 
     func closeThread(id: UUID) {
@@ -203,6 +217,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
         threads.remove(at: index)
         chatViewModels.removeValue(forKey: id)
+        vmAccessOrder.removeAll { $0 == id }
 
         // Reclaim memory held by static caches that may reference
         // messages from the closed thread.
@@ -233,6 +248,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             archivedSessionIds = archived
             // Session ID already known — safe to release the view model.
             chatViewModels.removeValue(forKey: id)
+            vmAccessOrder.removeAll { $0 == id }
         } else if chatViewModels[id]?.messages.contains(where: { $0.role == .user }) != true
                     && chatViewModels[id]?.isBootstrapping != true {
             chatViewModels[id]?.stopGenerating()
@@ -240,6 +256,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             // a session will never be created, so there is nothing to backfill.
             // Clean up immediately.
             chatViewModels.removeValue(forKey: id)
+            vmAccessOrder.removeAll { $0 == id }
         } else {
             // Session ID is nil but a session is expected (user messages exist
             // or bootstrap is in flight, e.g. a workspace refinement that
@@ -291,6 +308,8 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             let viewModel = makeViewModel()
             viewModel.sessionId = threads[index].sessionId
             chatViewModels[id] = viewModel
+            touchVMAccessOrder(id)
+            evictStaleCachedViewModels()
         }
 
         if let sessionId = threads[index].sessionId {
@@ -343,12 +362,14 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             let viewModel = makeViewModel()
             viewModel.sessionId = session.id
             chatViewModels[thread.id] = viewModel
+            touchVMAccessOrder(thread.id)
             threads.append(thread)
         }
 
         if let hasMore = response.hasMore {
             hasMoreThreads = hasMore
         }
+        evictStaleCachedViewModels()
         isLoadingMoreThreads = false
     }
 
@@ -360,6 +381,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
     func selectThread(id: UUID) {
         guard threads.contains(where: { $0.id == id }) else { return }
+        touchVMAccessOrder(id)
         activeThreadId = id
         // Switching threads is a natural point to shed cached render
         // artefacts from the previous conversation.
@@ -485,11 +507,17 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     // MARK: - ThreadRestorerDelegate
 
     func chatViewModel(for threadId: UUID) -> ChatViewModel? {
-        chatViewModels[threadId]
+        if let vm = chatViewModels[threadId] {
+            touchVMAccessOrder(threadId)
+            return vm
+        }
+        return nil
     }
 
     func setChatViewModel(_ vm: ChatViewModel, for threadId: UUID) {
         chatViewModels[threadId] = vm
+        touchVMAccessOrder(threadId)
+        evictStaleCachedViewModels()
         // Re-subscribe if this is the active view model
         if threadId == activeThreadId {
             subscribeToActiveViewModel()
@@ -498,6 +526,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
     func removeChatViewModel(for threadId: UUID) {
         chatViewModels.removeValue(forKey: threadId)
+        vmAccessOrder.removeAll { $0 == threadId }
     }
 
     /// Called when the user responds to a confirmation via the inline chat UI.
@@ -612,6 +641,30 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             archived.insert(sessionId)
             archivedSessionIds = archived
             chatViewModels.removeValue(forKey: threadId)
+            vmAccessOrder.removeAll { $0 == threadId }
+        }
+    }
+
+    // MARK: - VM LRU Cache Management
+
+    /// Move `threadId` to the end of `vmAccessOrder` (most-recently-used position).
+    private func touchVMAccessOrder(_ threadId: UUID) {
+        vmAccessOrder.removeAll { $0 == threadId }
+        vmAccessOrder.append(threadId)
+    }
+
+    /// Evict the oldest cached ChatViewModel that is not the active thread,
+    /// keeping at most `maxCachedViewModels` entries in the dictionary.
+    private func evictStaleCachedViewModels() {
+        while chatViewModels.count > maxCachedViewModels {
+            // Find the oldest entry in vmAccessOrder that is not the active thread.
+            guard let victim = vmAccessOrder.first(where: { $0 != activeThreadId && chatViewModels[$0] != nil }) else {
+                break
+            }
+            chatViewModels[victim]?.stopGenerating()
+            chatViewModels.removeValue(forKey: victim)
+            vmAccessOrder.removeAll { $0 == victim }
+            log.info("LRU evicted VM for thread \(victim)")
         }
     }
 

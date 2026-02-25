@@ -485,7 +485,7 @@ final class ChatDynamicPreviewRegressionTests: XCTestCase {
 
     // MARK: - Surface message preservation (for re-opening workspace)
 
-    func testInlineSurfacePreservesSurfaceMessage() {
+    func testInlineSurfacePreservesSurfaceRef() {
         viewModel.handleServerMessage(.assistantTextDelta(
             AssistantTextDeltaMessage(text: "App ready:")
         ))
@@ -497,9 +497,9 @@ final class ChatDynamicPreviewRegressionTests: XCTestCase {
         viewModel.handleServerMessage(.uiSurfaceShow(showMsg))
 
         let surface = viewModel.messages[0].inlineSurfaces[0]
-        XCTAssertNotNil(surface.surfaceMessage,
-                        "Inline surface should preserve the original IPC message for re-opening workspace")
-        XCTAssertEqual(surface.surfaceMessage?.surfaceId, "surface-msg-test")
-        XCTAssertEqual(surface.surfaceMessage?.sessionId, "sess-dp")
+        XCTAssertNotNil(surface.surfaceRef,
+                        "Inline surface should preserve a lightweight SurfaceRef for re-opening workspace")
+        XCTAssertEqual(surface.surfaceRef?.surfaceId, "surface-msg-test")
+        XCTAssertEqual(surface.surfaceRef?.sessionId, "sess-dp")
     }
 }

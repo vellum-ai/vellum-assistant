@@ -168,14 +168,6 @@ export async function runDaemon(): Promise<void> {
       await server.processMessage(conversationId, message);
     },
     (reminder) => {
-      // Legacy IPC broadcast for backward compatibility with desktop client UI
-      server.broadcast({
-        type: 'reminder_fired',
-        reminderId: reminder.id,
-        label: reminder.label,
-        message: reminder.message,
-      });
-      // Signal pipeline: fire-and-forget
       void emitNotificationSignal({
         sourceEventName: 'reminder.fired',
         sourceChannel: 'scheduler',
@@ -195,13 +187,6 @@ export async function runDaemon(): Promise<void> {
       });
     },
     (schedule) => {
-      // Legacy IPC broadcast for backward compatibility with desktop client UI
-      server.broadcast({
-        type: 'schedule_complete',
-        scheduleId: schedule.id,
-        name: schedule.name,
-      });
-      // Signal pipeline: fire-and-forget
       void emitNotificationSignal({
         sourceEventName: 'schedule.complete',
         sourceChannel: 'scheduler',
@@ -219,13 +204,6 @@ export async function runDaemon(): Promise<void> {
       });
     },
     (notification) => {
-      // Legacy IPC broadcast for backward compatibility with desktop client UI
-      server.broadcast({
-        type: 'watcher_notification',
-        title: notification.title,
-        body: notification.body,
-      });
-      // Signal pipeline: fire-and-forget
       void emitNotificationSignal({
         sourceEventName: 'watcher.notification',
         sourceChannel: 'watcher',
@@ -243,13 +221,6 @@ export async function runDaemon(): Promise<void> {
       });
     },
     (params) => {
-      // Legacy IPC broadcast for backward compatibility with desktop client UI
-      server.broadcast({
-        type: 'watcher_escalation',
-        title: params.title,
-        body: params.body,
-      });
-      // Signal pipeline: fire-and-forget
       void emitNotificationSignal({
         sourceEventName: 'watcher.escalation',
         sourceChannel: 'watcher',

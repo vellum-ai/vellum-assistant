@@ -282,10 +282,8 @@ export class RuntimeHttpServer {
       }, 30_000);
     }
 
-    if (this.runOrchestrator) {
-      startGuardianExpirySweep(this.runOrchestrator, getGatewayInternalBaseUrl(), this.bearerToken, this.approvalCopyGenerator);
-      log.info('Guardian approval expiry sweep started');
-    }
+    startGuardianExpirySweep(getGatewayInternalBaseUrl(), this.bearerToken, this.approvalCopyGenerator);
+    log.info('Guardian approval expiry sweep started');
 
     startGuardianActionSweep(getGatewayInternalBaseUrl(), this.bearerToken);
     log.info('Guardian action expiry sweep started');
@@ -631,7 +629,7 @@ export class RuntimeHttpServer {
 
       if (endpoint === 'channels/inbound' && req.method === 'POST') {
         const gatewayOriginSecret = getRuntimeGatewayOriginSecret();
-        return await handleChannelInbound(req, this.processMessage, this.bearerToken, this.runOrchestrator, assistantId, gatewayOriginSecret, this.approvalCopyGenerator, this.approvalConversationGenerator);
+        return await handleChannelInbound(req, this.processMessage, this.bearerToken, assistantId, gatewayOriginSecret, this.approvalCopyGenerator, this.approvalConversationGenerator);
       }
 
       if (endpoint === 'channels/delivery-ack' && req.method === 'POST') return await handleChannelDeliveryAck(req);

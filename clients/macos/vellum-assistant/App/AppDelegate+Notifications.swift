@@ -5,6 +5,8 @@ import VellumAssistantShared
 import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate+Notifications")
+private let fallbackDedupWindowMs: Double = 30_000
+private let fallbackDelayNs: UInt64 = 750_000_000
 
 extension AppDelegate {
 
@@ -16,8 +18,10 @@ extension AppDelegate {
         center.delegate = self
 
         center.requestAuthorization(options: [.alert, .sound]) { granted, error in
-            if let error {
-                log.error("Notification authorization error: \(error.localizedDescription)")
+            if granted {
+                log.info("Notification authorization granted")
+            } else {
+                log.warning("Notification authorization denied (error: \(error?.localizedDescription ?? "none"))")
             }
         }
 
@@ -73,18 +77,6 @@ extension AppDelegate {
             options: []
         )
 
-        let viewGuardianAction = UNNotificationAction(
-            identifier: "VIEW_GUARDIAN",
-            title: "View",
-            options: [.foreground]
-        )
-        let guardianRequestCategory = UNNotificationCategory(
-            identifier: "GUARDIAN_REQUEST",
-            actions: [viewGuardianAction],
-            intentIdentifiers: [],
-            options: []
-        )
-
         let viewNotificationIntentAction = UNNotificationAction(
             identifier: "VIEW_NOTIFICATION_INTENT",
             title: "View",
@@ -102,7 +94,6 @@ extension AppDelegate {
             toolConfirmationCategory,
             rideShotgunCategory,
             voiceResponseCategory,
-            guardianRequestCategory,
             notificationIntentCategory,
         ])
     }
@@ -145,19 +136,60 @@ extension AppDelegate {
         }
     }
 
-    func deliverNotificationIntent(_ msg: NotificationIntentMessage) {
+    private func conversationId(from deepLinkMetadata: [String: AnyCodable]?) -> String? {
+        if let direct = deepLinkMetadata?["conversationId"]?.value as? String {
+            return direct
+        }
+        if let snake = deepLinkMetadata?["conversation_id"]?.value as? String {
+            return snake
+        }
+        return nil
+    }
+
+    private func pruneFallbackMarkers(nowMs: Double) {
+        fallbackDeliveredAtMs = fallbackDeliveredAtMs.filter { _, deliveredAt in
+            nowMs - deliveredAt <= fallbackDedupWindowMs
+        }
+    }
+
+    /// Check notification authorization before posting. Returns true if
+    /// notifications are authorized and can be delivered.
+    private func checkNotificationAuthorization() async -> Bool {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        switch settings.authorizationStatus {
+        case .authorized, .provisional, .ephemeral:
+            return true
+        case .denied:
+            log.warning("Notification authorization status is denied — skipping notification post")
+            return false
+        case .notDetermined:
+            log.info("Notification authorization status is notDetermined — attempting post anyway")
+            return true
+        @unknown default:
+            log.warning("Notification authorization status is unknown (\(settings.authorizationStatus.rawValue)) — skipping notification post")
+            return false
+        }
+    }
+
+    private func postNotificationIntent(
+        sourceEventName: String,
+        title: String,
+        body: String,
+        deepLinkMetadata: [String: AnyCodable]?,
+        deliveryId: String? = nil
+    ) {
         let content = UNMutableNotificationContent()
-        content.title = msg.title
-        content.body = msg.body
+        content.title = title
+        content.body = body
         content.sound = .default
         content.categoryIdentifier = "NOTIFICATION_INTENT"
 
         var userInfo: [String: Any] = [
-            "sourceEventName": msg.sourceEventName,
+            "sourceEventName": sourceEventName,
         ]
-        if let metadata = msg.deepLinkMetadata {
+        if let metadata = deepLinkMetadata {
             for (key, wrapped) in metadata {
-                // Keep sourceEventName authoritative from the daemon envelope.
+                // Keep sourceEventName authoritative from the envelope.
                 if key == "sourceEventName" {
                     continue
                 }
@@ -168,15 +200,126 @@ extension AppDelegate {
         }
         content.userInfo = userInfo
 
+        let notificationId = "notification-intent-\(UUID().uuidString)"
         let request = UNNotificationRequest(
-            identifier: "notification-intent-\(UUID().uuidString)",
+            identifier: notificationId,
             content: content,
             trigger: nil
         )
-        UNUserNotificationCenter.current().add(request) { error in
-            if let error {
-                log.error("Failed to post notification intent: \(error.localizedDescription)")
+
+        Task {
+            let authorized = await checkNotificationAuthorization()
+            guard authorized else {
+                self.sendNotificationIntentResult(
+                    deliveryId: deliveryId,
+                    success: false,
+                    errorMessage: "Notification authorization denied",
+                    errorCode: "authorization_denied"
+                )
+                return
             }
+
+            UNUserNotificationCenter.current().add(request) { error in
+                if let error {
+                    log.error("Failed to post notification intent (id: \(notificationId), source: \(sourceEventName)): \(error.localizedDescription)")
+                }
+                self.sendNotificationIntentResult(
+                    deliveryId: deliveryId,
+                    success: error == nil,
+                    errorMessage: error?.localizedDescription,
+                    errorCode: nil
+                )
+            }
+        }
+    }
+
+    /// Send a `notification_intent_result` ack back to the daemon.
+    private func sendNotificationIntentResult(
+        deliveryId: String?,
+        success: Bool,
+        errorMessage: String?,
+        errorCode: String?
+    ) {
+        guard let deliveryId else { return }
+        let result = IPCNotificationIntentResult(
+            type: "notification_intent_result",
+            deliveryId: deliveryId,
+            success: success,
+            errorMessage: errorMessage,
+            errorCode: errorCode
+        )
+        do {
+            try daemonClient.send(result)
+        } catch {
+            log.warning("Failed to send notification_intent_result for deliveryId \(deliveryId): \(error.localizedDescription)")
+        }
+    }
+
+    func deliverNotificationIntent(_ msg: NotificationIntentMessage) {
+        let nowMs = Date().timeIntervalSince1970 * 1000
+        pruneFallbackMarkers(nowMs: nowMs)
+
+        if let conversationId = conversationId(from: msg.deepLinkMetadata) {
+            // If we already posted the fallback alert for this conversation,
+            // suppress the later notification_intent duplicate.
+            if let deliveredAt = fallbackDeliveredAtMs.removeValue(forKey: conversationId),
+               nowMs - deliveredAt <= fallbackDedupWindowMs {
+                log.info("Suppressing duplicate notification_intent for conversation \(conversationId) (fallback already delivered)")
+                // Ack the suppressed intent so the delivery audit trail is complete
+                if let deliveryId = msg.deliveryId {
+                    sendNotificationIntentResult(deliveryId: deliveryId, success: true, errorMessage: nil, errorCode: nil)
+                }
+                return
+            }
+
+            // notification_intent arrived in time; invalidate pending fallback.
+            pendingFallbackNotifications.removeValue(forKey: conversationId)
+        }
+
+        postNotificationIntent(
+            sourceEventName: msg.sourceEventName,
+            title: msg.title,
+            body: msg.body,
+            deepLinkMetadata: msg.deepLinkMetadata,
+            deliveryId: msg.deliveryId
+        )
+    }
+
+    /// Schedules a fallback local notification for any notification_thread_created
+    /// event. If the corresponding notification_intent IPC arrives within the
+    /// delay window, the fallback is cancelled (preventing duplicates). Guardian
+    /// questions use a specific body; all other event types use a generic body.
+    func scheduleNotificationFallback(
+        conversationId: String,
+        title: String,
+        sourceEventName: String
+    ) {
+        let token = UUID()
+        pendingFallbackNotifications[conversationId] = token
+
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: fallbackDelayNs)
+            guard let self else { return }
+            guard self.pendingFallbackNotifications[conversationId] == token else { return }
+
+            self.pendingFallbackNotifications.removeValue(forKey: conversationId)
+            let nowMs = Date().timeIntervalSince1970 * 1000
+            self.fallbackDeliveredAtMs[conversationId] = nowMs
+            self.pruneFallbackMarkers(nowMs: nowMs)
+
+            let body: String
+            if sourceEventName == "guardian.question" {
+                body = "A guardian question needs your attention."
+            } else {
+                body = "A notification needs your attention."
+            }
+
+            self.postNotificationIntent(
+                sourceEventName: sourceEventName,
+                title: title,
+                body: body,
+                deepLinkMetadata: ["conversationId": AnyCodable(conversationId)]
+            )
         }
     }
 
@@ -249,16 +392,6 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
             await MainActor.run {
                 guard !self.isAwaitingFirstLaunchReady else { return }
                 self.showMainWindow()
-            }
-            return
-        }
-
-        // Handle guardian request notifications — open the guardian thread in the main window
-        if categoryId == "GUARDIAN_REQUEST" {
-            let conversationId = response.notification.request.content.userInfo["conversationId"] as? String
-            await MainActor.run {
-                guard !self.isAwaitingFirstLaunchReady else { return }
-                self.openConversationThread(conversationId: conversationId)
             }
             return
         }

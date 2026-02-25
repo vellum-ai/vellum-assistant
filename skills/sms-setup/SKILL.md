@@ -76,7 +76,7 @@ When the remote check returns `toll_free_verification` as a failing check, use t
 }
 ```
 
-The response includes a `compliance` object with `numberType`, `verificationSid`, `verificationStatus`, `rejectionReason`, `rejectionReasons`, `editAllowed`, and `editExpiration` fields.
+The response includes a `compliance` object with `numberType`, `tollfreePhoneNumberSid`, `verificationSid`, `verificationStatus`, `rejectionReason`, `rejectionReasons`, `editAllowed`, and `editExpiration` fields. For toll-free numbers, `tollfreePhoneNumberSid` contains the Twilio phone number SID needed for verification submission.
 
 - If `verificationStatus` is `PENDING_REVIEW` or `IN_REVIEW`, tell the user verification is already in progress and skip submission.
 - If `verificationStatus` is `TWILIO_APPROVED`, compliance is complete — proceed to Step 4.
@@ -98,7 +98,7 @@ The response includes a `compliance` object with `numberType`, `verificationSid`
 | Opt-in type | `optInType` | `VERBAL`, `WEB_FORM`, `PAPER_FORM`, `VIA_TEXT`, `MOBILE_QR_CODE` |
 | Opt-in image URL | `optInImageUrls` | Array of URLs showing opt-in mechanism (can be website URL) |
 
-The `tollfreePhoneNumberSid` can be obtained from the `sms_compliance_status` response (which resolves the configured phone number to its Twilio SID). Do NOT ask for EIN, business registration number, or business registration authority. Explain that Twilio labels some fields as "business" fields even for individual submitters.
+The `tollfreePhoneNumberSid` is returned by the `sms_compliance_status` response in the `compliance` object. Use `compliance.tollfreePhoneNumberSid` from the Step 3a response as the value for `verificationParams.tollfreePhoneNumberSid` when submitting. Do NOT ask for EIN, business registration number, or business registration authority. Explain that Twilio labels some fields as "business" fields even for individual submitters.
 
 **Step 3c: Submit verification:**
 
@@ -107,7 +107,7 @@ The `tollfreePhoneNumberSid` can be obtained from the `sms_compliance_status` re
   "type": "twilio_config",
   "action": "sms_submit_tollfree_verification",
   "verificationParams": {
-    "tollfreePhoneNumberSid": "<PN SID from sms_compliance_status or use the daemon to resolve it>",
+    "tollfreePhoneNumberSid": "<compliance.tollfreePhoneNumberSid from Step 3a>",
     "businessName": "...",
     "businessWebsite": "...",
     "notificationEmail": "...",

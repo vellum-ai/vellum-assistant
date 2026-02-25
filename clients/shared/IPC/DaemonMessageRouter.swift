@@ -77,12 +77,10 @@ extension DaemonClient {
             onTaskRouted?(msg)
         case .dictationResponse(let msg):
             onDictationResponse?(msg)
-        case .reminderFired(let msg):
-            onReminderFired?(msg)
         case .notificationIntent(let msg):
             onNotificationIntent?(msg)
-        case .scheduleComplete(let msg):
-            onScheduleComplete?(msg)
+        case .notificationThreadCreated(let msg):
+            onNotificationThreadCreated?(msg)
         case .trustRulesListResponse(let msg):
             onTrustRulesListResponse?(msg.rules)
         case .toolPermissionSimulateResponse(let msg):
@@ -236,8 +234,6 @@ extension DaemonClient {
             onWorkItemCancelResponse?(msg)
         case .taskRunThreadCreated(let msg):
             onTaskRunThreadCreated?(msg)
-        case .guardianRequestThreadCreated(let msg):
-            onGuardianRequestThreadCreated?(msg)
         case .openTasksWindow:
             onOpenTasksWindow?()
         case .subagentSpawned(let msg):

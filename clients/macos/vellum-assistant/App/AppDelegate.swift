@@ -157,6 +157,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var refreshSkillsTask: Task<Void, Never>?
     var cachedApps: [AppItem] = []
     var refreshAppsTask: Task<Void, Never>?
+    /// Pending fallback notification tokens, keyed by conversationId.
+    /// Used to avoid duplicate native alerts when notification_intent arrives.
+    var pendingFallbackNotifications: [String: UUID] = [:]
+    /// Recently delivered fallback notifications (epoch ms), keyed by
+    /// conversationId. Incoming notification_intent for the same conversation
+    /// inside a short window is treated as a duplicate and suppressed.
+    var fallbackDeliveredAtMs: [String: Double] = [:]
 
     /// Whether the current assistant runs remotely (cloud != "local").
     /// When true, local daemon hatching is skipped.
@@ -267,6 +274,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         setupWindowObserver()
         setupNotifications()
         setupAutoUpdate()
+        installCLISymlinkIfNeeded()
 
         if isFirstLaunch {
             // Gate showMainWindow on daemon readiness so the wake-up
@@ -708,42 +716,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // so status changes on the replacement client trigger icon updates.
         rebindConnectionStatusObserver()
 
-        // Show macOS notification when a reminder fires
-        daemonClient.onReminderFired = { msg in
-            let content = UNMutableNotificationContent()
-            content.title = "Reminder: \(msg.label)"
-            content.body = msg.message
-            content.sound = .default
-
-            let request = UNNotificationRequest(
-                identifier: "reminder-\(msg.reminderId)",
-                content: content,
-                trigger: nil
-            )
-            UNUserNotificationCenter.current().add(request) { error in
-                if let error {
-                    log.error("Failed to post reminder notification: \(error.localizedDescription)")
-                }
-            }
-        }
-
-        daemonClient.onScheduleComplete = { msg in
-            let content = UNMutableNotificationContent()
-            content.title = msg.name
-            content.sound = .default
-
-            let request = UNNotificationRequest(
-                identifier: "schedule-\(msg.scheduleId)",
-                content: content,
-                trigger: nil
-            )
-            UNUserNotificationCenter.current().add(request) { error in
-                if let error {
-                    log.error("Failed to post schedule notification: \(error.localizedDescription)")
-                }
-            }
-        }
-
         daemonClient.onNotificationIntent = { [weak self] msg in
             self?.deliverNotificationIntent(msg)
         }
@@ -799,30 +771,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             )
         }
 
-        // Guardian request threads — created when a voice call's ASK_GUARDIAN dispatches
-        // a question to the mac channel so the user can see and respond in chat.
-        daemonClient.onGuardianRequestThreadCreated = { [weak self] msg in
+        // Notification threads — created when the notification pipeline delivers
+        // to the vellum channel with start_new_conversation strategy.
+        daemonClient.onNotificationThreadCreated = { [weak self] msg in
             guard let self, !self.isAwaitingFirstLaunchReady else { return }
-            self.mainWindow?.threadManager.createGuardianRequestThread(
-                conversationId: msg.conversationId,
-                requestId: msg.requestId,
-                callSessionId: msg.callSessionId,
-                title: msg.title
-            )
-            if NSApp.isActive {
-                // App is in foreground — select thread and show window immediately
-                if let thread = self.mainWindow?.threadManager.threads.first(where: { $0.sessionId == msg.conversationId }) {
-                    self.mainWindow?.threadManager.activeThreadId = thread.id
-                }
-                self.showMainWindow()
-            } else {
-                // App is backgrounded — post native notification
-                self.deliverGuardianRequestNotification(
-                    title: msg.title,
-                    questionText: msg.questionText,
-                    conversationId: msg.conversationId
-                )
-            }
+            self.handleNotificationThreadCreated(msg)
         }
 
         // Handle escalation: text_qa -> computer_use via computer_use_request_control
@@ -942,6 +895,78 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.assistantCli.stop()
         }
         updateManager.startAutomaticChecks()
+    }
+
+    /// Installs a `/usr/local/bin/vellum` symlink pointing to the bundled
+    /// CLI binary so users can run `vellum` from their terminal.
+    ///
+    /// Skipped when dev mode is active (developers manage their own PATH)
+    /// or when `vellum` already resolves to a different executable
+    /// (avoids overwriting a developer's locally-built binary).
+    private func installCLISymlinkIfNeeded() {
+        guard !services.settingsStore.isDevMode else { return }
+
+        guard let execURL = Bundle.main.executableURL else { return }
+        let cliBinary = execURL.deletingLastPathComponent()
+            .appendingPathComponent("vellum-cli")
+        guard FileManager.default.fileExists(atPath: cliBinary.path) else { return }
+
+        let symlinkPath = "/usr/local/bin/vellum"
+        let fm = FileManager.default
+
+        // If the path exists, check whether it's our symlink or something else
+        if let attrs = try? fm.attributesOfItem(atPath: symlinkPath),
+           let type = attrs[.type] as? FileAttributeType {
+            if type == .typeSymbolicLink {
+                // Already a symlink — skip if it already points to our binary
+                if let dest = try? fm.destinationOfSymbolicLink(atPath: symlinkPath),
+                   dest == cliBinary.path {
+                    return
+                }
+            } else {
+                // Real file (not a symlink) — don't overwrite
+                return
+            }
+        }
+
+        // Check if `vellum` resolves elsewhere on PATH (developer's local build)
+        let whichProc = Process()
+        whichProc.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+        whichProc.arguments = ["vellum"]
+        let pipe = Pipe()
+        whichProc.standardOutput = pipe
+        whichProc.standardError = FileHandle.nullDevice
+        do {
+            try whichProc.run()
+            whichProc.waitUntilExit()
+            if whichProc.terminationStatus == 0 {
+                let resolved = String(
+                    data: pipe.fileHandleForReading.readDataToEndOfFile(),
+                    encoding: .utf8
+                )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if !resolved.isEmpty && resolved != symlinkPath {
+                    return
+                }
+            }
+        } catch {
+            // `which` failed to run — continue with symlink creation
+        }
+
+        // Create /usr/local/bin if needed, then create symlink
+        do {
+            let dir = (symlinkPath as NSString).deletingLastPathComponent
+            if !fm.fileExists(atPath: dir) {
+                try fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
+            }
+            // Remove stale symlink before creating a new one
+            if (try? fm.attributesOfItem(atPath: symlinkPath)) != nil {
+                try fm.removeItem(atPath: symlinkPath)
+            }
+            try fm.createSymbolicLink(atPath: symlinkPath, withDestinationPath: cliBinary.path)
+            log.info("Installed CLI symlink: \(symlinkPath) → \(cliBinary.path)")
+        } catch {
+            log.warning("Could not install CLI symlink at \(symlinkPath): \(error.localizedDescription)")
+        }
     }
 
     private func setupSurfaceManager() {

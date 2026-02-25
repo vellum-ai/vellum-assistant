@@ -197,41 +197,41 @@ describe('parseApprovalDecision', () => {
     expect(parseApprovalDecision(input)).toBeNull();
   });
 
-  // ── Run-reference tag extraction ────────────────────────────────
+  // ── Request-reference tag extraction ────────────────────────────────
 
-  test('extracts runId from [ref:...] tag with approve decision', () => {
-    const result = parseApprovalDecision('yes [ref:run-abc-123]');
+  test('extracts requestId from [ref:...] tag with approve decision', () => {
+    const result = parseApprovalDecision('yes [ref:req-abc-123]');
     expect(result).not.toBeNull();
     expect(result!.action).toBe('approve_once');
     expect(result!.source).toBe('plain_text');
-    expect(result!.runId).toBe('run-abc-123');
+    expect(result!.requestId).toBe('req-abc-123');
   });
 
-  test('extracts runId from [ref:...] tag with reject decision', () => {
-    const result = parseApprovalDecision('no [ref:run-xyz-456]');
+  test('extracts requestId from [ref:...] tag with reject decision', () => {
+    const result = parseApprovalDecision('no [ref:req-xyz-456]');
     expect(result).not.toBeNull();
     expect(result!.action).toBe('reject');
-    expect(result!.runId).toBe('run-xyz-456');
+    expect(result!.requestId).toBe('req-xyz-456');
   });
 
-  test('extracts runId from [ref:...] tag with always decision', () => {
-    const result = parseApprovalDecision('always [ref:run-789]');
+  test('extracts requestId from [ref:...] tag with always decision', () => {
+    const result = parseApprovalDecision('always [ref:req-789]');
     expect(result).not.toBeNull();
     expect(result!.action).toBe('approve_always');
-    expect(result!.runId).toBe('run-789');
+    expect(result!.requestId).toBe('req-789');
   });
 
   test('handles ref tag on separate line', () => {
-    const result = parseApprovalDecision('yes\n[ref:run-abc-123]');
+    const result = parseApprovalDecision('yes\n[ref:req-abc-123]');
     expect(result).not.toBeNull();
     expect(result!.action).toBe('approve_once');
-    expect(result!.runId).toBe('run-abc-123');
+    expect(result!.requestId).toBe('req-abc-123');
   });
 
-  test('decision without ref tag has no runId', () => {
+  test('decision without ref tag has no requestId', () => {
     const result = parseApprovalDecision('yes');
     expect(result).not.toBeNull();
-    expect(result!.runId).toBeUndefined();
+    expect(result!.requestId).toBeUndefined();
   });
 });
 

@@ -219,10 +219,12 @@ export function dismissPendingConflicts(
   const dismissed: DismissConflictsResult['details'] = [];
   const BATCH_SIZE = 1000;
 
-  // Fetch and dismiss in batches to handle arbitrarily large backlogs
+  // Cursor-based pagination: track last seen (createdAt, id) to advance past
+  // previously inspected rows. This ensures pattern mode scans all pending
+  // conflicts even when non-matching rows outnumber the batch size.
+  let cursor: { createdAt: number; id: string } | undefined;
   let batch = listPendingConflictDetails(scopeId, BATCH_SIZE);
   while (batch.length > 0) {
-    let batchHadMatch = false;
     for (const conflict of batch) {
       const matches = options.all
         || (options.pattern && (
@@ -231,7 +233,6 @@ export function dismissPendingConflicts(
         ));
       if (!matches) continue;
 
-      batchHadMatch = true;
       resolveConflict(conflict.id, {
         status: 'dismissed',
         resolutionNote: options.all
@@ -244,10 +245,11 @@ export function dismissPendingConflicts(
         candidateStatement: conflict.candidateStatement,
       });
     }
-    // If nothing matched in this batch, no point fetching more — remaining
-    // conflicts won't match either (pattern mode) or we already got them all.
-    if (!batchHadMatch) break;
-    batch = listPendingConflictDetails(scopeId, BATCH_SIZE);
+    // No more rows to inspect
+    if (batch.length < BATCH_SIZE) break;
+    const lastRow = batch[batch.length - 1];
+    cursor = { createdAt: lastRow.createdAt, id: lastRow.id };
+    batch = listPendingConflictDetails(scopeId, BATCH_SIZE, cursor);
   }
 
   // Get true remaining count via SQL to avoid batch-size truncation

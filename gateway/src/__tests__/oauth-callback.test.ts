@@ -291,7 +291,7 @@ describe("OAuth callback handler", () => {
     expect(callCount).toBe(2);
   });
 
-  test("returns 503 when consumed-state map is at capacity", async () => {
+  test("evicts oldest entry when consumed-state map is at capacity", async () => {
     fetchMock = mock(async () =>
       Response.json({ ok: true }, { status: 200 }),
     );
@@ -308,17 +308,16 @@ describe("OAuth callback handler", () => {
       await handler(req);
     }
 
-    // Next callback should be rejected with 503
+    // Next callback should succeed — LRU eviction drops the oldest entry
     const req = new Request(
       `http://localhost:7830/webhooks/oauth/callback?state=${VALID_STATE}&code=code`,
       { method: "GET" },
     );
     const res = await handler(req);
-    expect(res.status).toBe(503);
-    expect(await res.text()).toContain("Service temporarily unavailable");
+    expect(res.status).toBe(200);
 
-    // Verify the rejected state was NOT forwarded to the runtime
-    expect(fetchMock.mock.calls.length).toBe(MAX_CONSUMED_STATES);
+    // The new state was forwarded to the runtime
+    expect(fetchMock.mock.calls.length).toBe(MAX_CONSUMED_STATES + 1);
   });
 
   test("omits Authorization header when runtimeBearerToken is undefined", async () => {

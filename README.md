@@ -42,6 +42,8 @@ The platform has three main components:
 - **Native clients** (`clients/`): Swift Package with macOS and iOS apps sharing ~45-50% of code via `VellumAssistantShared`. The macOS app is a menu bar assistant with computer-use (accessibility + CGEvent). The iOS app is a chat client supporting standalone mode (direct Anthropic API) and connected-to-Mac mode (TCP proxy through the daemon).
 - **Gateway** (`gateway/`): Standalone Bun + TypeScript service that serves as the public ingress boundary for all external webhooks and callbacks. Owns Telegram integration end-to-end (receives webhooks, routes to assistants, delivers replies). Routes Twilio voice and SMS webhooks, handles OAuth callbacks, and optionally acts as an authenticated reverse proxy for the assistant runtime API (client → gateway → runtime).
 
+Architecture docs are split by ownership domain: [`ARCHITECTURE.md`](ARCHITECTURE.md), [`assistant/ARCHITECTURE.md`](assistant/ARCHITECTURE.md), [`gateway/ARCHITECTURE.md`](gateway/ARCHITECTURE.md), and [`clients/ARCHITECTURE.md`](clients/ARCHITECTURE.md).
+
 </details>
 
 <details>
@@ -206,7 +208,7 @@ The assistant can store and use credentials (API keys, tokens, passwords) withou
 - **One-time send**: When `secretDetection.allowOneTimeSend` is enabled (default: `false`), a "Send Once" button lets users provide a value for immediate use without persisting it.
 - **No plaintext read API**: There is no tool-layer function that returns a stored secret as plaintext. Secrets are only consumed by the broker for scoped tool execution.
 
-See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full security model and data flow diagrams.
+See [`assistant/docs/architecture/security.md`](assistant/docs/architecture/security.md) for the full security model and [`ARCHITECTURE.md`](ARCHITECTURE.md) for the cross-system map.
 
 #### Credential References
 
@@ -313,7 +315,7 @@ In strict mode, a **starter bundle** can be accepted to seed common safe rules (
 
 When `file_write`, `file_edit`, `host_file_write`, or `host_file_edit` targets a path inside a skill directory (managed, bundled, workspace, or extra), the operation is escalated to **high risk**. This prevents the agent from modifying skill code — which could alter its own capabilities — without explicit user consent. Note that mutations via `bash` are not covered by this escalation.
 
-See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full permission evaluation flow diagrams and [`assistant/docs/skills.md`](assistant/docs/skills.md) for detailed skills security documentation.
+See [`assistant/docs/architecture/security.md`](assistant/docs/architecture/security.md) for permission evaluation flow diagrams and [`assistant/docs/skills.md`](assistant/docs/skills.md) for detailed skills security documentation.
 
 </details>
 

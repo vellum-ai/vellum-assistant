@@ -79,7 +79,7 @@ extension ChatBubble {
         if !partitioned.videos.isEmpty {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 ForEach(partitioned.videos) { attachment in
-                    InlineVideoAttachmentView(attachment: attachment, resolveDaemonPort: resolveDaemonPort)
+                    InlineVideoAttachmentView(attachment: attachment, daemonHttpPort: daemonHttpPort)
                 }
             }
         }

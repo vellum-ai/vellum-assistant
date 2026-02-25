@@ -33,7 +33,7 @@ export interface ApprovalConversationResult {
   disposition: ApprovalConversationDisposition;
   replyText: string;
   /** Required when there are multiple pending approvals and the disposition is decision-bearing. */
-  targetRunId?: string;
+  targetRequestId?: string;
 }
 
 /** Input context for the approval conversation engine. */
@@ -41,7 +41,7 @@ export interface ApprovalConversationContext {
   toolName: string;
   allowedActions: string[];
   role: 'requester' | 'guardian';
-  pendingApprovals: Array<{ runId: string; toolName: string }>;
+  pendingApprovals: Array<{ requestId: string; toolName: string }>;
   userMessage: string;
 }
 

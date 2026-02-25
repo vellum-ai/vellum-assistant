@@ -115,6 +115,12 @@ export interface IntegrationDisconnectRequest {
   integrationId: string;
 }
 
+export interface OAuthConnectStartRequest {
+  type: 'oauth_connect_start';
+  service: string;
+  requestedScopes?: string[];
+}
+
 export interface LinkOpenRequest {
   type: 'link_open_request';
   url: string;
@@ -190,6 +196,7 @@ export interface TwilioConfigResponse {
   warning?: string;
   compliance?: {
     numberType?: string;
+    tollfreePhoneNumberSid?: string;
     verificationSid?: string;
     verificationStatus?: string;
     rejectionReason?: string;
@@ -265,6 +272,8 @@ export interface GuardianVerificationResponse {
   sendCount?: number;
   /** Telegram deep-link URL for bootstrap (M3 placeholder). */
   telegramBootstrapUrl?: string;
+  /** True when the outbound session is still in pending_bootstrap state (Telegram handle flow). Prevents the client from clearing the bootstrap URL during status polling. */
+  pendingBootstrap?: boolean;
 }
 
 export interface TwitterAuthResult {
@@ -305,6 +314,14 @@ export interface IntegrationConnectResult {
   setupHint?: string;
 }
 
+export interface OAuthConnectResultResponse {
+  type: 'oauth_connect_result';
+  success: boolean;
+  grantedScopes?: string[];
+  accountInfo?: string;
+  error?: string;
+}
+
 export interface OpenUrl {
   type: 'open_url';
   url: string;
@@ -328,6 +345,7 @@ export type _IntegrationsClientMessages =
   | IntegrationListRequest
   | IntegrationConnectRequest
   | IntegrationDisconnectRequest
+  | OAuthConnectStartRequest
   | LinkOpenRequest;
 
 export type _IntegrationsServerMessages =
@@ -344,4 +362,5 @@ export type _IntegrationsServerMessages =
   | TwitterAuthStatusResponse
   | IntegrationListResponse
   | IntegrationConnectResult
+  | OAuthConnectResultResponse
   | OpenUrl;

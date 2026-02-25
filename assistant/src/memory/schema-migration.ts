@@ -19,6 +19,7 @@ export {
   migrateMemoryItemsScopeSaltedFingerprints,
   migrateMemorySegmentsIndexes,
   migrateMessagesFtsBackfill,
+  migrateNotificationDeliveryPairingColumns,
   migrateNotificationTablesSchema,
   migrateRemainingTableIndexes,
   migrateRemoveAssistantIdColumns,

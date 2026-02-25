@@ -80,7 +80,7 @@ export async function deliverGeneratedApprovalPrompt(params: DeliverGeneratedApp
 
     // Embed the run reference so plain-text replies can disambiguate when
     // multiple approvals are pending for the same guardian chat.
-    const taggedFallback = `${plainTextFallback}\n[ref:${uiMetadata.runId}]`;
+    const taggedFallback = `${plainTextFallback}\n[ref:${uiMetadata.requestId}]`;
 
     try {
       await deliverChannelReply(replyCallbackUrl, {
@@ -105,7 +105,7 @@ export async function deliverGeneratedApprovalPrompt(params: DeliverGeneratedApp
   );
 
   // Embed the run reference for disambiguation in multi-pending scenarios.
-  const taggedPlainText = `${plainText}\n[ref:${uiMetadata.runId}]`;
+  const taggedPlainText = `${plainText}\n[ref:${uiMetadata.requestId}]`;
 
   try {
     await deliverChannelReply(replyCallbackUrl, {

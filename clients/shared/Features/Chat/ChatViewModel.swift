@@ -101,6 +101,10 @@ public final class ChatViewModel: ObservableObject {
         get { messageManager.refinementFailureDismissTask }
         set { messageManager.refinementFailureDismissTask = newValue }
     }
+    var refinementFlushTask: Task<Void, Never>? {
+        get { messageManager.refinementFlushTask }
+        set { messageManager.refinementFlushTask = newValue }
+    }
     /// Number of undo steps available for the active workspace surface.
     public var surfaceUndoCount: Int {
         get { messageManager.surfaceUndoCount }
@@ -199,6 +203,15 @@ public final class ChatViewModel: ObservableObject {
         }
     }
     private var reconnectObserver: NSObjectProtocol?
+    /// Debounces rapid-fire daemon reconnect notifications so only one history
+    /// reload is triggered per reconnect burst (500ms settle window).
+    private var reconnectDebounceTask: Task<Void, Never>?
+    /// Guards against overlapping reconnect history loads. Set true before
+    /// requesting history, cleared when `populateFromHistory` completes.
+    private var isReconnectHistoryLoading = false
+    /// Safety task that resets `isReconnectHistoryLoading` if the history
+    /// response never arrives (e.g. the request throws or is dropped).
+    private var reconnectLatchTimeoutTask: Task<Void, Never>?
     /// Set to true when daemonDidReconnect fires before sessionId is populated.
     /// Cleared and actioned in the sessionId didSet observer.
     private var needsOfflineFlush: Bool = false
@@ -206,6 +219,12 @@ public final class ChatViewModel: ObservableObject {
     /// Causes `populateFromHistory` to do a full message replace instead of
     /// prepending, so the missed assistant response is displayed.
     private var needsReconnectCatchUp: Bool = false
+    /// Snapshot of `pendingMessageIds` captured before clearing on reconnect.
+    /// Used by the reconnect catch-up path in `populateFromHistory` to dedup
+    /// local messages that were pending when the connection dropped (the live
+    /// `pendingMessageIds` is cleared immediately, but the debounced history
+    /// reload fires 500ms later).
+    private var reconnectPendingSnapshot: [UUID] = []
     /// Called when the SSE stream reconnects while a run was in progress.
     /// The store/restorer registers the sessionId in pendingHistoryBySessionId
     /// and sends a history request so the response is routed back properly.
@@ -404,6 +423,26 @@ public final class ChatViewModel: ObservableObject {
         displayedMessageCount = Self.messagePageSize
     }
 
+    // MARK: - Message Trimming
+
+    /// Threshold above which old messages have their heavy content stripped.
+    private static let trimThreshold = 200
+    /// Number of recent messages to keep untrimmed (images, attachments, surfaces intact).
+    private static let trimKeepRecent = 100
+
+    /// Strip heavyweight binary data (images, attachments, completed surface payloads)
+    /// from old messages when the total count exceeds `trimThreshold`. The most recent
+    /// `trimKeepRecent` messages are left intact so scrolling back a reasonable amount
+    /// still shows full content. Called after message mutations that increase count.
+    public func trimOldMessagesIfNeeded() {
+        let count = messages.count
+        guard count > Self.trimThreshold else { return }
+        let trimEnd = count - Self.trimKeepRecent
+        for i in 0..<trimEnd {
+            messages[i].stripHeavyContent()
+        }
+    }
+
     /// Surface the user is currently viewing in workspace mode.
     /// Set by MainWindowView when the dynamic workspace is expanded.
     public var activeSurfaceId: String? {
@@ -453,6 +492,15 @@ public final class ChatViewModel: ObservableObject {
             queue: nil
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
+                // Snapshot pendingMessageIds before clearing so the debounced
+                // reconnect catch-up (which fires 500ms later) can still dedup
+                // local messages that were pending when the connection dropped.
+                // Only take a new snapshot if no debounce task is in flight —
+                // a rapid second reconnect must not overwrite the snapshot to
+                // empty while the first debounce is still pending.
+                if self?.reconnectDebounceTask == nil {
+                    self?.reconnectPendingSnapshot = self?.pendingMessageIds ?? []
+                }
                 self?.pendingQueuedCount = 0
                 self?.pendingMessageIds.removeAll()
                 self?.requestIdToMessageId.removeAll()
@@ -467,14 +515,36 @@ public final class ChatViewModel: ObservableObject {
                 // client may have missed the messageComplete (or the full
                 // assistant response). Reset the spinner and re-fetch history
                 // so the UI catches up on anything that happened during the gap.
+                // Debounce: cancel any pending reconnect task and wait 500ms
+                // to coalesce rapid-fire reconnect notifications into one load.
                 if self?.isThinking == true || self?.isSending == true {
                     self?.isThinking = false
                     self?.isSending = false
                     self?.currentAssistantMessageId = nil
                     self?.discardStreamingBuffer()
-                    if let sessionId = self?.sessionId {
-                        self?.needsReconnectCatchUp = true
-                        self?.onReconnectHistoryNeeded?(sessionId)
+                    self?.reconnectDebounceTask?.cancel()
+                    self?.reconnectDebounceTask = Task { @MainActor [weak self] in
+                        defer { self?.reconnectDebounceTask = nil }
+                        try? await Task.sleep(nanoseconds: 500_000_000) // 500ms
+                        guard !Task.isCancelled else { return }
+                        guard let self, !self.isReconnectHistoryLoading else { return }
+                        if let sessionId = self.sessionId {
+                            self.isReconnectHistoryLoading = true
+                            self.needsReconnectCatchUp = true
+                            // Safety timeout: if the history response never arrives
+                            // (e.g. request throws or is dropped), reset the latch
+                            // so future reconnects aren't blocked forever.
+                            self.reconnectLatchTimeoutTask?.cancel()
+                            self.reconnectLatchTimeoutTask = Task { @MainActor [weak self] in
+                                try? await Task.sleep(nanoseconds: 10_000_000_000) // 10s
+                                guard !Task.isCancelled, let self, self.isReconnectHistoryLoading else { return }
+                                log.warning("Reconnect history latch timed out after 10s — resetting")
+                                self.isReconnectHistoryLoading = false
+                                self.needsReconnectCatchUp = false
+                                self.reconnectPendingSnapshot = []
+                            }
+                            self.onReconnectHistoryNeeded?(sessionId)
+                        }
                     }
                 }
                 // If we already have a session ID, flush immediately. Otherwise
@@ -1628,20 +1698,24 @@ public final class ChatViewModel: ObservableObject {
                     // Use sessionId from the view model (assumes history is for current session)
                     if let sessionId = self.sessionId,
                        let surface = Surface.from(surf, sessionId: sessionId) {
-                        // Reconstruct a UiSurfaceShowMessage so the card remains
+                        // Build a lightweight SurfaceRef so the card remains
                         // clickable after the app restarts (history restore).
-                        let reconstructedActions: [SurfaceActionData]? = surf.actions?.map { action in
-                            SurfaceActionData(id: action.id, label: action.label, style: action.style)
-                        }
-                        let reconstructedMessage = UiSurfaceShowMessage(
-                            sessionId: sessionId,
+                        // The full UiSurfaceShowMessage is not retained to avoid
+                        // keeping entire HTML payloads in memory.
+                        // Extract appId from DynamicPageSurfaceData so the
+                        // ref can re-open the real app via app_open_request.
+                        let appId: String? = {
+                            if case .dynamicPage(let dpData) = surface.data {
+                                return dpData.appId
+                            }
+                            return nil
+                        }()
+                        let ref = SurfaceRef(
                             surfaceId: surf.surfaceId,
+                            sessionId: sessionId,
                             surfaceType: surf.surfaceType,
                             title: surf.title,
-                            data: AnyCodable(surf.data.mapValues { $0.value }),
-                            actions: reconstructedActions,
-                            display: surf.display,
-                            messageId: item.id
+                            appId: appId
                         )
                         let inlineSurface = InlineSurfaceData(
                             id: surface.id,
@@ -1649,7 +1723,7 @@ public final class ChatViewModel: ObservableObject {
                             title: surface.title,
                             data: surface.data,
                             actions: surface.actions,
-                            surfaceMessage: reconstructedMessage
+                            surfaceRef: ref
                         )
                         inlineSurfaces.append(inlineSurface)
                     }
@@ -1695,6 +1769,12 @@ public final class ChatViewModel: ObservableObject {
             // anchor to it. This is the database ID from the daemon, not the
             // client-side UUID.
             chatMsg.daemonMessageId = item.id
+
+            // Drop base64 data from history attachments — the daemon already
+            // persisted them, so we only need thumbnails for display.
+            for i in chatMsg.attachments.indices {
+                chatMsg.attachments[i].data = ""
+            }
 
             // Populate inlineSurfaces from history
             chatMsg.inlineSurfaces = inlineSurfaces
@@ -1788,10 +1868,35 @@ public final class ChatViewModel: ObservableObject {
         if needsReconnectCatchUp {
             // Reconnect catch-up: the SSE stream dropped while a run was
             // in progress, so the client may have missed the assistant's
-            // response. Do a full replace with the server's authoritative
-            // message list instead of the normal prepend-only dedup.
+            // response. Use the server's authoritative message list, but
+            // preserve any genuinely unsent local messages. History items
+            // use daemon DB IDs while local messages use Swift UUIDs, so
+            // simple ID-based dedup won't work — use fuzzy matching instead
+            // (role + text prefix + timestamp ±2s).
             needsReconnectCatchUp = false
-            self.messages = chatMessages
+            // Use the snapshot captured at reconnect time, unioned with the
+            // current pendingMessageIds. The snapshot has IDs that were pending
+            // when the connection dropped (before clearing), while current
+            // pendingMessageIds captures any messages the user sent AFTER the
+            // reconnect but BEFORE this debounced handler ran.
+            let snapshotIds = self.reconnectPendingSnapshot
+            let allPendingIds = Set(snapshotIds).union(self.pendingMessageIds)
+            self.reconnectPendingSnapshot = []
+            let localCandidates = self.messages.filter {
+                allPendingIds.contains($0.id) || $0.status == .pendingOffline
+            }
+            var localOnly: [ChatMessage] = []
+            for local in localCandidates {
+                let isDuplicate = chatMessages.contains { server in
+                    server.role == local.role
+                    && server.text.hasPrefix(String(local.text.prefix(100)))
+                    && abs(server.timestamp.timeIntervalSince(local.timestamp)) < 2
+                }
+                if !isDuplicate { localOnly.append(local) }
+            }
+            self.messages = chatMessages + localOnly
+            self.reconnectLatchTimeoutTask?.cancel()
+            self.isReconnectHistoryLoading = false
         } else if messages.contains(where: { $0.role == .user }) {
             // History arrived after the user already sent messages.
             // The history payload includes ALL persisted messages — including
@@ -1815,10 +1920,16 @@ public final class ChatViewModel: ObservableObject {
         // Reset pagination so the view shows the most-recent page after history loads.
         self.displayedMessageCount = Self.messagePageSize
         // Surfaces are now included directly in the history response and populated above
+        // Strip heavy data from old messages after a (potentially large) history load.
+        trimOldMessagesIfNeeded()
     }
 
     deinit {
         messageLoopTask?.cancel()
+        streamingFlushTask?.cancel()
+        cancelTimeoutTask?.cancel()
+        reconnectLatchTimeoutTask?.cancel()
+        reconnectDebounceTask?.cancel()
         if let observer = reconnectObserver {
             NotificationCenter.default.removeObserver(observer)
         }

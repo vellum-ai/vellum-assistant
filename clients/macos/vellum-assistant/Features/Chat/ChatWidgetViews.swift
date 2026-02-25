@@ -16,15 +16,13 @@ struct RunningIndicator: View {
     /// Optional tap handler — when set, the indicator becomes a clickable button.
     var onTap: (() -> Void)?
 
-    @State private var phase: Int = 0
-    @State private var timer: Timer?
-    @State private var currentLabelIndex: Int = 0
-    @State private var labelTimer: Timer?
+    @State private var startDate: Date = Date()
     @State private var isHovered: Bool = false
 
-    private var displayLabel: String {
+    private func displayLabel(elapsed: TimeInterval) -> String {
         if progressiveLabels.isEmpty { return label }
-        return progressiveLabels[min(currentLabelIndex, progressiveLabels.count - 1)]
+        let index = min(Int(elapsed / labelInterval), progressiveLabels.count - 1)
+        return progressiveLabels[index]
     }
 
     var body: some View {
@@ -42,68 +40,48 @@ struct RunningIndicator: View {
     }
 
     private var indicatorContent: some View {
-        HStack(spacing: VSpacing.xs) {
-            if showIcon {
-                Image(systemName: "terminal")
-                    .font(.system(size: 10))
+        TimelineView(.periodic(from: .now, by: 0.4)) { context in
+            let elapsed = context.date.timeIntervalSince(startDate)
+            let phase = Int(elapsed / 0.4) % 3
+            let currentLabel = displayLabel(elapsed: elapsed)
+            let labelIndex = progressiveLabels.isEmpty ? 0 : min(Int(elapsed / labelInterval), progressiveLabels.count - 1)
+            HStack(spacing: VSpacing.xs) {
+                if showIcon {
+                    Image(systemName: "terminal")
+                        .font(.system(size: 10))
+                        .foregroundColor(VColor.textSecondary)
+                }
+
+                Text(currentLabel)
+                    .font(VFont.caption)
                     .foregroundColor(VColor.textSecondary)
+                    .animation(.easeInOut(duration: 0.3), value: labelIndex)
+
+                ForEach(0..<3, id: \.self) { index in
+                    Circle()
+                        .fill(VColor.textSecondary)
+                        .frame(width: 5, height: 5)
+                        .opacity(phase == index ? 1.0 : 0.4)
+                }
+
+                if onTap != nil {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(VColor.textMuted)
+                }
+
+                Spacer()
             }
-
-            Text(displayLabel)
-                .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
-                .animation(.easeInOut(duration: 0.3), value: currentLabelIndex)
-
-            ForEach(0..<3, id: \.self) { index in
-                Circle()
-                    .fill(VColor.textSecondary)
-                    .frame(width: 5, height: 5)
-                    .opacity(dotOpacity(for: index))
-            }
-
-            if onTap != nil {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundColor(VColor.textMuted)
-            }
-
-            Spacer()
+            .padding(.horizontal, VSpacing.sm)
+            .padding(.vertical, VSpacing.xs)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .fill(isHovered ? VColor.backgroundSubtle.opacity(0.6) : Color.clear)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: VRadius.lg))
         }
-        .padding(.horizontal, VSpacing.sm)
-        .padding(.vertical, VSpacing.xs)
-        .background(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(isHovered ? VColor.backgroundSubtle.opacity(0.6) : Color.clear)
-        )
-        .contentShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .onAppear {
-            startDotAnimation()
-            startLabelCycling()
-        }
-        .onDisappear {
-            timer?.invalidate()
-            labelTimer?.invalidate()
-        }
-    }
-
-    private func dotOpacity(for index: Int) -> Double {
-        phase == index ? 1.0 : 0.4
-    }
-
-    private func startDotAnimation() {
-        timer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { _ in
-            withAnimation(.easeInOut(duration: 0.3)) {
-                phase = (phase + 1) % 3
-            }
-        }
-    }
-
-    private func startLabelCycling() {
-        guard !progressiveLabels.isEmpty else { return }
-        labelTimer = Timer.scheduledTimer(withTimeInterval: labelInterval, repeats: true) { _ in
-            if currentLabelIndex < progressiveLabels.count - 1 {
-                currentLabelIndex += 1
-            }
+            startDate = Date()
         }
     }
 }

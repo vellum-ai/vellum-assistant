@@ -9,7 +9,6 @@
 import { RiskLevel } from '../permissions/types.js';
 import { accountManageTool } from './credentials/account-registry.js';
 import { credentialStoreTool } from './credentials/vault.js';
-import { cliDiscoverTool } from './host-terminal/cli-discover.js';
 import { memorySaveTool, memorySearchTool, memoryUpdateTool } from './memory/register.js';
 import type { LazyToolDescriptor } from './registry.js';
 import { vellumSkillsCatalogTool } from './skills/vellum-catalog.js';
@@ -32,9 +31,6 @@ export async function loadEagerModules(): Promise<void> {
   await import('./assets/search.js');
   await import('./assets/materialize.js');
   await import('./filesystem/view-image.js');
-  await import('./calls/call-start.js');
-  await import('./calls/call-status.js');
-  await import('./calls/call-end.js');
   await import('./system/version.js');
 }
 
@@ -55,9 +51,6 @@ export const eagerModuleToolNames: string[] = [
   'asset_search',
   'asset_materialize',
   'view_image',
-  'call_start',
-  'call_status',
-  'call_end',
   'version',
 ];
 
@@ -73,58 +66,12 @@ export const explicitTools: Tool[] = [
   accountManageTool,
   screenWatchTool,
   vellumSkillsCatalogTool,
-  cliDiscoverTool,
 ];
 
 // ── Lazy tool descriptors ───────────────────────────────────────────
 // Tools that defer module loading until first invocation.
 
 export const lazyTools: LazyToolDescriptor[] = [
-  {
-    name: 'evaluate_typescript_code',
-    description: 'Evaluate a TypeScript snippet in an isolated sandbox. Use this to test code before persisting it as a managed skill.',
-    category: 'terminal',
-    defaultRiskLevel: RiskLevel.High,
-    definition: {
-      name: 'evaluate_typescript_code',
-      description: 'Evaluate a TypeScript snippet in an isolated sandbox. Use this to test code before persisting it as a managed skill.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          code: {
-            type: 'string',
-            description: 'The TypeScript source code to evaluate. Must export a `default` or `run` function.',
-          },
-          mock_input_json: {
-            type: 'string',
-            description: 'Optional JSON string to pass as input. Defaults to "{}".',
-          },
-          timeout_seconds: {
-            type: 'number',
-            description: 'Optional timeout in seconds (1-20). Defaults to 10.',
-          },
-          filename: {
-            type: 'string',
-            description: 'Optional filename for the snippet (default: "snippet.ts").',
-          },
-          entrypoint: {
-            type: 'string',
-            enum: ['default', 'run'],
-            description: 'Which export to call: "default" or "run". Defaults to "default".',
-          },
-          max_output_chars: {
-            type: 'number',
-            description: 'Optional max output characters (1-25000). Defaults to 25000.',
-          },
-        },
-        required: ['code'],
-      },
-    },
-    loader: async () => {
-      const mod = await import('./terminal/evaluate-typescript.js');
-      return mod.evaluateTypescriptTool;
-    },
-  },
   {
     name: 'bash',
     description: 'Execute a shell command on the local machine',

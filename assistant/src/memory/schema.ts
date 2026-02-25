@@ -675,6 +675,8 @@ export const channelGuardianVerificationChallenges = sqliteTable('channel_guardi
   // Session configuration
   codeDigits: integer('code_digits').default(6),
   maxAttempts: integer('max_attempts').default(3),
+  // Telegram bootstrap deep-link token hash
+  bootstrapTokenHash: text('bootstrap_token_hash'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });
@@ -684,6 +686,7 @@ export const channelGuardianVerificationChallenges = sqliteTable('channel_guardi
 export const channelGuardianApprovalRequests = sqliteTable('channel_guardian_approval_requests', {
   id: text('id').primaryKey(),
   runId: text('run_id').notNull(),
+  requestId: text('request_id'),
   conversationId: text('conversation_id').notNull(),
   assistantId: text('assistant_id').notNull().default('self'),
   channel: text('channel').notNull(),
@@ -1011,6 +1014,12 @@ export const notificationDeliveries = sqliteTable('notification_deliveries', {
   errorCode: text('error_code'),
   errorMessage: text('error_message'),
   sentAt: integer('sent_at'),
+  conversationId: text('conversation_id'),
+  messageId: text('message_id'),
+  conversationStrategy: text('conversation_strategy'),
+  clientDeliveryStatus: text('client_delivery_status'),
+  clientDeliveryError: text('client_delivery_error'),
+  clientDeliveryAt: integer('client_delivery_at'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });

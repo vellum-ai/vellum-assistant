@@ -58,7 +58,6 @@ const baseConfig: GatewayConfig = {
 };
 
 const sampleApproval: ApprovalPayload = {
-  runId: "run-123",
   requestId: "req-456",
   actions: [
     { id: "approve_once", label: "Approve once" },
@@ -100,32 +99,30 @@ describe("buildInlineKeyboard", () => {
 
     expect(result.inline_keyboard).toHaveLength(3);
     expect(result.inline_keyboard[0]).toEqual([
-      { text: "Approve once", callback_data: "apr:run-123:approve_once" },
+      { text: "Approve once", callback_data: "apr:req-456:approve_once" },
     ]);
     expect(result.inline_keyboard[1]).toEqual([
-      { text: "Approve always", callback_data: "apr:run-123:approve_always" },
+      { text: "Approve always", callback_data: "apr:req-456:approve_always" },
     ]);
     expect(result.inline_keyboard[2]).toEqual([
-      { text: "Reject", callback_data: "apr:run-123:reject" },
+      { text: "Reject", callback_data: "apr:req-456:reject" },
     ]);
   });
 
   it("handles a single action", () => {
     const approval: ApprovalPayload = {
-      runId: "r1",
       requestId: "rq1",
       actions: [{ id: "ok", label: "OK" }],
       plainTextFallback: "ok",
     };
     const result = buildInlineKeyboard(approval);
     expect(result.inline_keyboard).toHaveLength(1);
-    expect(result.inline_keyboard[0][0].callback_data).toBe("apr:r1:ok");
+    expect(result.inline_keyboard[0][0].callback_data).toBe("apr:rq1:ok");
   });
 
-  it("uses compact callback data format apr:<runId>:<actionId>", () => {
+  it("uses compact callback data format apr:<requestId>:<actionId>", () => {
     const approval: ApprovalPayload = {
-      runId: "abc-def",
-      requestId: "req",
+      requestId: "abc-def",
       actions: [{ id: "my_action", label: "Do it" }],
       plainTextFallback: "do it",
     };
@@ -135,8 +132,7 @@ describe("buildInlineKeyboard", () => {
 
   it("throws when callback_data exceeds 64 bytes", () => {
     const approval: ApprovalPayload = {
-      runId: "r".repeat(60),
-      requestId: "req",
+      requestId: "r".repeat(60),
       actions: [{ id: "action", label: "Go" }],
       plainTextFallback: "go",
     };
@@ -144,18 +140,17 @@ describe("buildInlineKeyboard", () => {
   });
 
   it("accepts callback_data exactly at 64 bytes", () => {
-    // "apr:" = 4 bytes, ":" = 1 byte, so runId + actionId = 59 bytes
-    const runId = "r".repeat(50);
+    // "apr:" = 4 bytes, ":" = 1 byte, so requestId + actionId = 59 bytes
+    const requestId = "r".repeat(50);
     const actionId = "a".repeat(9);
     const approval: ApprovalPayload = {
-      runId,
-      requestId: "req",
+      requestId,
       actions: [{ id: actionId, label: "Go" }],
       plainTextFallback: "go",
     };
-    expect(Buffer.byteLength(`apr:${runId}:${actionId}`)).toBe(64);
+    expect(Buffer.byteLength(`apr:${requestId}:${actionId}`)).toBe(64);
     const result = buildInlineKeyboard(approval);
-    expect(result.inline_keyboard[0][0].callback_data).toBe(`apr:${runId}:${actionId}`);
+    expect(result.inline_keyboard[0][0].callback_data).toBe(`apr:${requestId}:${actionId}`);
   });
 });
 
@@ -183,7 +178,7 @@ describe("sendTelegramReply", () => {
       inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
     };
     expect(markup.inline_keyboard).toHaveLength(3);
-    expect(markup.inline_keyboard[0][0].callback_data).toBe("apr:run-123:approve_once");
+    expect(markup.inline_keyboard[0][0].callback_data).toBe("apr:req-456:approve_once");
   });
 
   it("attaches inline keyboard only to the last chunk for long messages", async () => {

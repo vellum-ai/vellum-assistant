@@ -29,17 +29,32 @@ public final class TraceStore: ObservableObject {
     // MARK: - State
 
     /// All events per session, in stable order.
-    @Published public private(set) var eventsBySession: [String: [StoredEvent]] = [:]
+    /// Not @Published — updates are coalesced via `schedulePublish()` to avoid
+    /// firing objectWillChange on every individual trace event during bursts.
+    public private(set) var eventsBySession: [String: [StoredEvent]] = [:]
 
     /// The ID of the most recently ingested event per session. Unlike `eventsBySession[sid]?.count`,
     /// this always changes on ingestion even when the retention cap holds count constant.
-    @Published public private(set) var latestEventIdBySession: [String: String] = [:]
+    public private(set) var latestEventIdBySession: [String: String] = [:]
 
     /// Set of seen eventIds per session for dedup.
     private var seenIds: [String: Set<String>] = [:]
 
     /// Monotonic counter for insertion ordering tiebreaks.
     private var nextInsertionIndex: Int = 0
+
+    /// Coalesces rapid objectWillChange notifications into a single publish
+    /// per 100ms window so SwiftUI doesn't re-evaluate on every trace event.
+    private var publishTask: Task<Void, Never>?
+
+    private func schedulePublish() {
+        guard publishTask == nil else { return }
+        publishTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            self?.objectWillChange.send()
+            self?.publishTask = nil
+        }
+    }
 
     /// Maximum events retained per session.
     public static let retentionCap = 5000
@@ -85,6 +100,7 @@ public final class TraceStore: ObservableObject {
 
         eventsBySession[sid] = events
         latestEventIdBySession[sid] = event.id
+        schedulePublish()
     }
 
     // MARK: - Queries
@@ -209,6 +225,7 @@ public final class TraceStore: ObservableObject {
         eventsBySession.removeValue(forKey: sessionId)
         latestEventIdBySession.removeValue(forKey: sessionId)
         seenIds.removeValue(forKey: sessionId)
+        schedulePublish()
     }
 
     /// Remove all events for all sessions.
@@ -217,6 +234,7 @@ public final class TraceStore: ObservableObject {
         latestEventIdBySession.removeAll()
         seenIds.removeAll()
         nextInsertionIndex = 0
+        schedulePublish()
     }
 
     // MARK: - Helpers

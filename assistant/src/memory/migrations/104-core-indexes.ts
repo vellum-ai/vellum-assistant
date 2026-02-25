@@ -54,10 +54,12 @@ export function createCoreIndexes(database: DrizzleDb): void {
   }
   database.run(/*sql*/ `DROP INDEX IF EXISTS idx_memory_embeddings_target`);
   database.run(/*sql*/ `DROP INDEX IF EXISTS idx_memory_embeddings_provider_model`);
-  // The table-level UNIQUE(target_type, target_id, provider, model) in 100-core-tables.ts already
-  // creates an autoindex that SQLite uses for ON CONFLICT upserts. Drop the explicit index if a
-  // previous run of this migration created it, to avoid a duplicate B-tree.
-  database.run(/*sql*/ `DROP INDEX IF EXISTS idx_memory_embeddings_target_provider_model`);
+  // Ensure a unique constraint exists on (target_type, target_id, provider, model).
+  // New databases get this via the table-level UNIQUE in 100-core-tables.ts (autoindex),
+  // but for pre-100 databases where CREATE TABLE IF NOT EXISTS was a no-op, the autoindex
+  // doesn't exist. Always create the named index — it's a no-op if it already exists and
+  // harmless if an autoindex also covers these columns.
+  database.run(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_embeddings_target_provider_model ON memory_embeddings(target_type, target_id, provider, model)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_embeddings_content_hash ON memory_embeddings(content_hash, provider, model)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_jobs_status_run_after ON memory_jobs(status, run_after)`);
   database.run(/*sql*/ `

@@ -5,7 +5,16 @@
  * depend on, plus the decision engine output contract.
  */
 
-export type NotificationChannel = 'vellum' | 'telegram';
+import type { ChannelId } from '../channels/types.js';
+import type { ChannelPolicies } from '../channels/config.js';
+
+/**
+ * Derived from the channel policy registry: only channels whose
+ * deliveryEnabled flag is true are valid notification channels.
+ */
+export type NotificationChannel = {
+  [K in keyof ChannelPolicies]: ChannelPolicies[K]['notification']['deliveryEnabled'] extends true ? K : never;
+}[keyof ChannelPolicies] & ChannelId;
 
 export type NotificationDeliveryStatus = 'pending' | 'sent' | 'failed' | 'skipped';
 
@@ -17,6 +26,9 @@ export interface NotificationDeliveryResult {
   errorCode?: string;
   errorMessage?: string;
   sentAt?: number;
+  conversationId?: string;
+  messageId?: string;
+  conversationStrategy?: string;
 }
 
 // -- Channel adapter interfaces -----------------------------------------------
@@ -39,6 +51,8 @@ export interface ChannelDestination {
  * plus contextual fields the adapters need for formatting and routing.
  */
 export interface ChannelDeliveryPayload {
+  /** Delivery audit record ID — passed through to the client for ack correlation. */
+  deliveryId?: string;
   sourceEventName: string;
   copy: RenderedChannelCopy;
   deepLinkTarget?: Record<string, unknown>;

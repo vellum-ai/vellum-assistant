@@ -74,7 +74,7 @@ export function requiredDecisionKeywords(actions: ApprovalUIMetadata['actions'])
 }
 
 // ---------------------------------------------------------------------------
-// Callback data parser — format: "apr:<runId>:<action>"
+// Callback data parser — format: "apr:<requestId>:<action>"
 // ---------------------------------------------------------------------------
 
 const VALID_ACTIONS: ReadonlySet<string> = new Set<string>([
@@ -86,11 +86,11 @@ const VALID_ACTIONS: ReadonlySet<string> = new Set<string>([
 export function parseCallbackData(data: string, sourceChannel?: string): ApprovalDecisionResult | null {
   const parts = data.split(':');
   if (parts.length < 3 || parts[0] !== 'apr') return null;
-  const runId = parts[1];
+  const requestId = parts[1];
   const action = parts.slice(2).join(':');
-  if (!runId || !VALID_ACTIONS.has(action)) return null;
+  if (!requestId || !VALID_ACTIONS.has(action)) return null;
   const source = sourceChannel === 'whatsapp' ? 'whatsapp_button' as const : 'telegram_button' as const;
-  return { action: action as ApprovalAction, source, runId };
+  return { action: action as ApprovalAction, source, requestId };
 }
 
 // ---------------------------------------------------------------------------

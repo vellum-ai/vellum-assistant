@@ -23,6 +23,7 @@ import {
   createVerificationSession,
   findActiveSession as storeFindActiveSession,
   findSessionByIdentity as storeFindSessionByIdentity,
+  findSessionByBootstrapTokenHash as storeFindSessionByBootstrapTokenHash,
   updateSessionStatus as storeUpdateSessionStatus,
   updateSessionDelivery as storeUpdateSessionDelivery,
   bindSessionIdentity as storeBindSessionIdentity,
@@ -386,6 +387,7 @@ export function createOutboundSession(params: {
   codeDigits?: number;
   maxAttempts?: number;
   sessionId?: string;
+  bootstrapTokenHash?: string;
 }): CreateOutboundSessionResult {
   const isVoice = params.channel === 'voice';
   const secret = isVoice ? generateVoiceSecret(params.codeDigits ?? 6) : randomBytes(32).toString('hex');
@@ -407,6 +409,7 @@ export function createOutboundSession(params: {
     destinationAddress: params.destinationAddress,
     codeDigits: params.codeDigits,
     maxAttempts: params.maxAttempts,
+    bootstrapTokenHash: params.bootstrapTokenHash,
   });
 
   return {
@@ -491,4 +494,17 @@ export function bindSessionIdentity(
   chatId: string,
 ): void {
   storeBindSessionIdentity(id, externalUserId, chatId);
+}
+
+/**
+ * Resolve a bootstrap token to a pending_bootstrap session.
+ * Hashes the raw token with SHA-256 and looks up the session.
+ */
+export function resolveBootstrapToken(
+  assistantId: string,
+  channel: string,
+  token: string,
+): VerificationChallenge | null {
+  const tokenHash = hashSecret(token);
+  return storeFindSessionByBootstrapTokenHash(assistantId, channel, tokenHash);
 }

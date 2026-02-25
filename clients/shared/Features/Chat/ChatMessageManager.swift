@@ -49,6 +49,9 @@ public final class ChatMessageManager: ObservableObject {
     /// after a refinement that produced no surface update.
     @Published public var refinementFailureText: String?
     public var refinementFailureDismissTask: Task<Void, Never>?
+    /// Coalesces refinement streaming text updates with a 50ms throttle,
+    /// preventing republishing the entire accumulated buffer on every token.
+    public var refinementFlushTask: Task<Void, Never>?
 
     // MARK: - Surface / undo
 

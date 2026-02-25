@@ -1,6 +1,7 @@
 import * as net from 'node:net';
 
 import type { ClientMessage } from '../ipc-protocol.js';
+import { updateDeliveryClientOutcome } from '../../notifications/deliveries-store.js';
 import { handleRideShotgunStart, handleRideShotgunStop } from '../ride-shotgun-handler.js';
 import { handleWatchObservation } from '../watch-handler.js';
 import { appHandlers } from './apps.js';
@@ -14,6 +15,7 @@ import { documentHandlers } from './documents.js';
 import { homeBaseHandlers } from './home-base.js';
 import { identityHandlers } from './identity.js';
 import { miscHandlers } from './misc.js';
+import { oauthConnectHandlers } from './oauth-connect.js';
 import { handleOpenBundle } from './open-bundle-handler.js';
 import { pairingHandlers } from './pairing.js';
 import { publishHandlers } from './publish.js';
@@ -100,6 +102,24 @@ const inlineHandlers = defineHandlers({
     ctx.send(socket, { type: 'assistant_inbox_response', success: false, error: 'Not yet implemented' });
   },
 
+  // Client ack for notification delivery outcome (UNUserNotificationCenter.add result).
+  notification_intent_result: (msg) => {
+    try {
+      const updated = updateDeliveryClientOutcome(
+        msg.deliveryId,
+        msg.success,
+        msg.errorMessage || msg.errorCode
+          ? { code: msg.errorCode, message: msg.errorMessage }
+          : undefined,
+      );
+      if (!updated) {
+        log.warn({ deliveryId: msg.deliveryId }, 'notification_intent_result: no delivery row found for deliveryId');
+      }
+    } catch (err) {
+      log.error({ err, deliveryId: msg.deliveryId }, 'notification_intent_result: failed to persist client delivery outcome');
+    }
+  },
+
 });
 
 const handlers = {
@@ -118,6 +138,7 @@ const handlers = {
   ...browserHandlers,
   ...signingHandlers,
   ...twitterAuthHandlers,
+  ...oauthConnectHandlers,
   ...workspaceFileHandlers,
   ...identityHandlers,
   ...dictationHandlers,

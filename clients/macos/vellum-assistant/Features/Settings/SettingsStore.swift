@@ -130,6 +130,28 @@ public final class SettingsStore: ObservableObject {
     @Published var voiceGuardianError: String?
     @Published var voiceGuardianAlreadyBound: Bool = false
 
+    // MARK: - Outbound Guardian Session State (Telegram)
+
+    @Published var telegramOutboundSessionId: String?
+    @Published var telegramOutboundExpiresAt: Date?
+    @Published var telegramOutboundNextResendAt: Date?
+    @Published var telegramOutboundSendCount: Int = 0
+    @Published var telegramBootstrapUrl: String?
+
+    // MARK: - Outbound Guardian Session State (SMS)
+
+    @Published var smsOutboundSessionId: String?
+    @Published var smsOutboundExpiresAt: Date?
+    @Published var smsOutboundNextResendAt: Date?
+    @Published var smsOutboundSendCount: Int = 0
+
+    // MARK: - Outbound Guardian Session State (Voice)
+
+    @Published var voiceOutboundSessionId: String?
+    @Published var voiceOutboundExpiresAt: Date?
+    @Published var voiceOutboundNextResendAt: Date?
+    @Published var voiceOutboundSendCount: Int = 0
+
     // MARK: - Email Integration State
 
     @Published var assistantEmail: String?
@@ -550,10 +572,15 @@ public final class SettingsStore: ObservableObject {
                 break
             }
 
+            // Handle outbound verification session state
             if response.success {
-                if response.secret != nil || response.instruction != nil {
+                if response.verificationSessionId != nil {
+                    self.applyOutboundResponseState(channel: channel, response: response)
+                    self.startGuardianStatusPolling(for: channel)
+                } else if response.secret != nil || response.instruction != nil {
                     self.startGuardianStatusPolling(for: channel)
                 } else if response.bound == true {
+                    self.clearOutboundState(for: channel)
                     self.stopGuardianStatusPolling(for: channel)
                 }
             } else {
@@ -1083,6 +1110,169 @@ public final class SettingsStore: ObservableObject {
             try daemonClient?.sendGuardianVerification(action: "revoke", channel: channel, assistantId: guardianAssistantScope)
         } catch {
             log.error("Failed to revoke \(channel) guardian: \(error)")
+        }
+    }
+
+    // MARK: - Outbound Guardian Actions
+
+    func startOutboundGuardianVerification(channel: String, destination: String) {
+        clearOutboundState(for: channel)
+        stopGuardianStatusPolling(for: channel)
+        switch channel {
+        case "telegram":
+            telegramGuardianVerificationInProgress = true
+            telegramGuardianError = nil
+            telegramGuardianAlreadyBound = false
+        case "sms":
+            smsGuardianVerificationInProgress = true
+            smsGuardianError = nil
+            smsGuardianAlreadyBound = false
+        case "voice":
+            voiceGuardianVerificationInProgress = true
+            voiceGuardianError = nil
+            voiceGuardianAlreadyBound = false
+        default:
+            return
+        }
+        do {
+            guard let daemonClient else {
+                switch channel {
+                case "telegram":
+                    telegramGuardianVerificationInProgress = false
+                    telegramGuardianError = "Daemon is not connected. Reconnect and try again."
+                case "sms":
+                    smsGuardianVerificationInProgress = false
+                    smsGuardianError = "Daemon is not connected. Reconnect and try again."
+                case "voice":
+                    voiceGuardianVerificationInProgress = false
+                    voiceGuardianError = "Daemon is not connected. Reconnect and try again."
+                default:
+                    break
+                }
+                return
+            }
+            try daemonClient.sendGuardianVerification(
+                action: "start_outbound",
+                channel: channel,
+                assistantId: guardianAssistantScope,
+                destination: destination
+            )
+        } catch {
+            log.error("Failed to start outbound \(channel) guardian verification: \(error)")
+            switch channel {
+            case "telegram":
+                telegramGuardianVerificationInProgress = false
+                telegramGuardianError = "Failed to start verification. Try again."
+            case "sms":
+                smsGuardianVerificationInProgress = false
+                smsGuardianError = "Failed to start verification. Try again."
+            case "voice":
+                voiceGuardianVerificationInProgress = false
+                voiceGuardianError = "Failed to start verification. Try again."
+            default:
+                break
+            }
+        }
+    }
+
+    func resendOutboundGuardian(channel: String) {
+        do {
+            try daemonClient?.sendGuardianVerification(
+                action: "resend_outbound",
+                channel: channel,
+                assistantId: guardianAssistantScope
+            )
+        } catch {
+            log.error("Failed to resend outbound \(channel) guardian verification: \(error)")
+        }
+    }
+
+    func cancelOutboundGuardian(channel: String) {
+        stopGuardianStatusPolling(for: channel)
+        clearOutboundState(for: channel)
+        switch channel {
+        case "telegram":
+            telegramGuardianVerificationInProgress = false
+        case "sms":
+            smsGuardianVerificationInProgress = false
+        case "voice":
+            voiceGuardianVerificationInProgress = false
+        default:
+            break
+        }
+        do {
+            try daemonClient?.sendGuardianVerification(
+                action: "cancel_outbound",
+                channel: channel,
+                assistantId: guardianAssistantScope
+            )
+        } catch {
+            log.error("Failed to cancel outbound \(channel) guardian verification: \(error)")
+        }
+    }
+
+    private func clearOutboundState(for channel: String) {
+        switch channel {
+        case "telegram":
+            telegramOutboundSessionId = nil
+            telegramOutboundExpiresAt = nil
+            telegramOutboundNextResendAt = nil
+            telegramOutboundSendCount = 0
+            telegramBootstrapUrl = nil
+        case "sms":
+            smsOutboundSessionId = nil
+            smsOutboundExpiresAt = nil
+            smsOutboundNextResendAt = nil
+            smsOutboundSendCount = 0
+        case "voice":
+            voiceOutboundSessionId = nil
+            voiceOutboundExpiresAt = nil
+            voiceOutboundNextResendAt = nil
+            voiceOutboundSendCount = 0
+        default:
+            break
+        }
+    }
+
+    private func applyOutboundResponseState(channel: String, response: GuardianVerificationResponseMessage) {
+        let sessionId = response.verificationSessionId
+        // Only update fields when the response includes them; partial payloads (e.g. resend
+        // success) omit fields like expiresAt, sendCount, and nextResendAt. Overwriting with
+        // nil/zero would lose countdown tracking and UI state.
+        let expiresAt = response.expiresAt.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000.0) }
+        let nextResendAt = response.nextResendAt.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000.0) }
+        let sendCount = response.sendCount
+        let bootstrapUrl = response.telegramBootstrapUrl
+
+        switch channel {
+        case "telegram":
+            telegramOutboundSessionId = sessionId
+            if let expiresAt { telegramOutboundExpiresAt = expiresAt }
+            if let nextResendAt { telegramOutboundNextResendAt = nextResendAt }
+            if let sendCount { telegramOutboundSendCount = sendCount }
+            if let bootstrapUrl {
+                telegramBootstrapUrl = bootstrapUrl
+            } else if response.pendingBootstrap == true {
+                // Session is still in pending_bootstrap state — preserve the
+                // existing bootstrap URL so the deep link stays visible. The
+                // status handler cannot reconstruct the URL (only the hash is
+                // stored), so we must not overwrite what we received earlier.
+            } else if sessionId != nil {
+                // Bootstrap complete — clear the URL so resend becomes available
+                telegramBootstrapUrl = nil
+            }
+        case "sms":
+            smsOutboundSessionId = sessionId
+            if let expiresAt { smsOutboundExpiresAt = expiresAt }
+            if let nextResendAt { smsOutboundNextResendAt = nextResendAt }
+            if let sendCount { smsOutboundSendCount = sendCount }
+        case "voice":
+            voiceOutboundSessionId = sessionId
+            if let expiresAt { voiceOutboundExpiresAt = expiresAt }
+            if let nextResendAt { voiceOutboundNextResendAt = nextResendAt }
+            if let sendCount { voiceOutboundSendCount = sendCount }
+        default:
+            break
         }
     }
 

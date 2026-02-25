@@ -758,6 +758,16 @@ exports[`IPC message snapshots ClientMessage types integration_disconnect serial
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types oauth_connect_start serializes to expected JSON 1`] = `
+{
+  "requestedScopes": [
+    "https://www.googleapis.com/auth/gmail.readonly",
+  ],
+  "service": "gmail",
+  "type": "oauth_connect_start",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types browser_cdp_response serializes to expected JSON 1`] = `
 {
   "sessionId": "test-session",
@@ -1778,15 +1788,6 @@ exports[`IPC message snapshots ServerMessage types message_queued_deleted serial
 }
 `;
 
-exports[`IPC message snapshots ServerMessage types reminder_fired serializes to expected JSON 1`] = `
-{
-  "label": "Call Sidd",
-  "message": "Remember to call Sidd about the project",
-  "reminderId": "rem-001",
-  "type": "reminder_fired",
-}
-`;
-
 exports[`IPC message snapshots ServerMessage types notification_intent serializes to expected JSON 1`] = `
 {
   "body": "Your assistant needs your input.",
@@ -1799,29 +1800,15 @@ exports[`IPC message snapshots ServerMessage types notification_intent serialize
 }
 `;
 
-exports[`IPC message snapshots ServerMessage types schedule_complete serializes to expected JSON 1`] = `
+exports[`IPC message snapshots ServerMessage types notification_thread_created serializes to expected JSON 1`] = `
 {
-  "name": "Daily backup",
-  "scheduleId": "sched-001",
-  "type": "schedule_complete",
+  "conversationId": "conv-notif-001",
+  "sourceEventName": "watcher.escalation",
+  "title": "Weather alert for your area",
+  "type": "notification_thread_created",
 }
 `;
 
-exports[`IPC message snapshots ServerMessage types watcher_notification serializes to expected JSON 1`] = `
-{
-  "body": "Disabled after 5 consecutive errors.",
-  "title": "Watcher disabled: My Gmail",
-  "type": "watcher_notification",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types watcher_escalation serializes to expected JSON 1`] = `
-{
-  "body": "Meeting rescheduled to 3pm today.",
-  "title": "Urgent email from Alice",
-  "type": "watcher_escalation",
-}
-`;
 
 exports[`IPC message snapshots ServerMessage types heartbeat_alert serializes to expected JSON 1`] = `
 {
@@ -2460,6 +2447,17 @@ exports[`IPC message snapshots ServerMessage types integration_connect_result se
 }
 `;
 
+exports[`IPC message snapshots ServerMessage types oauth_connect_result serializes to expected JSON 1`] = `
+{
+  "accountInfo": "user@example.com",
+  "grantedScopes": [
+    "https://www.googleapis.com/auth/gmail.readonly",
+  ],
+  "success": true,
+  "type": "oauth_connect_result",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types browser_cdp_request serializes to expected JSON 1`] = `
 {
   "sessionId": "test-session",
@@ -2715,17 +2713,6 @@ exports[`IPC message snapshots ServerMessage types task_run_thread_created seria
   "title": "Process report",
   "type": "task_run_thread_created",
   "workItemId": "wi-001",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types guardian_request_thread_created serializes to expected JSON 1`] = `
-{
-  "callSessionId": "call-001",
-  "conversationId": "conv-guardian-001",
-  "questionText": "What is the gate code?",
-  "requestId": "req-guardian-001",
-  "title": "Guardian action request",
-  "type": "guardian_request_thread_created",
 }
 `;
 

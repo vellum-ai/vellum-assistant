@@ -26,6 +26,8 @@ CLI / macOS app / iOS app
         └── Tracing (per-session event emitter)
 ```
 
+For assistant architecture deep dives, see [`ARCHITECTURE.md`](ARCHITECTURE.md) and [`docs/architecture/`](docs/architecture/).
+
 ## Setup
 
 ```bash
@@ -403,7 +405,7 @@ The `assistant_inbox_thread_state` table provides a denormalized view of per-con
 
 SQLite via Drizzle ORM, stored at `~/.vellum/workspace/data/db/assistant.db`. Key tables include conversations, messages, tool invocations, attachments, memory segments (with FTS5), memory items, entities, reminders, and recurrence schedules (cron + RRULE).
 
-> **Compatibility note:** The recurrence schedule system supports both cron expressions and iCalendar RRULE syntax. The legacy field names `cron_expression` and `cronExpression` remain supported in API inputs. New code should use the `expression` field with an explicit `syntax` discriminator. See [`ARCHITECTURE.md`](../ARCHITECTURE.md) for details.
+> **Compatibility note:** The recurrence schedule system supports both cron expressions and iCalendar RRULE syntax. The legacy field names `cron_expression` and `cronExpression` remain supported in API inputs. New code should use the `expression` field with an explicit `syntax` discriminator. See [`docs/architecture/scheduling.md`](docs/architecture/scheduling.md) for details.
 
 Run migrations:
 

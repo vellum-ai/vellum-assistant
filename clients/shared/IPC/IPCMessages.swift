@@ -1443,14 +1443,6 @@ public struct SessionErrorMessage: Decodable, Sendable {
     }
 }
 
-/// Reminder fired notification from daemon.
-/// Backed by generated `IPCReminderFired`.
-public typealias ReminderFiredMessage = IPCReminderFired
-
-/// Schedule complete notification from daemon.
-/// Backed by generated `IPCScheduleComplete`.
-public typealias ScheduleCompleteMessage = IPCScheduleComplete
-
 /// Generic notification intent from daemon.
 /// Backed by generated `IPCNotificationIntent`.
 public typealias NotificationIntentMessage = IPCNotificationIntent
@@ -2008,7 +2000,8 @@ extension IPCGuardianVerificationRequest {
         channel: String? = nil,
         sessionId: String? = nil,
         assistantId: String? = nil,
-        rebind: Bool? = nil
+        rebind: Bool? = nil,
+        destination: String? = nil
     ) {
         self.init(
             type: "guardian_verification",
@@ -2016,7 +2009,8 @@ extension IPCGuardianVerificationRequest {
             channel: channel,
             sessionId: sessionId,
             assistantId: assistantId,
-            rebind: rebind
+            rebind: rebind,
+            destination: destination
         )
     }
 }
@@ -2207,9 +2201,8 @@ public enum ServerMessage: Decodable, Sendable {
     case toolInputDelta(ToolInputDeltaMessage)
     case toolOutputChunk(ToolOutputChunkMessage)
     case toolResult(ToolResultMessage)
-    case reminderFired(ReminderFiredMessage)
     case notificationIntent(NotificationIntentMessage)
-    case scheduleComplete(ScheduleCompleteMessage)
+    case notificationThreadCreated(IPCNotificationThreadCreated)
     case watchStarted(WatchStartedMessage)
     case watchCompleteRequest(WatchCompleteRequestMessage)
     case traceEvent(TraceEventMessage)
@@ -2258,6 +2251,7 @@ public enum ServerMessage: Decodable, Sendable {
     case openUrl(OpenUrlMessage)
     case integrationListResponse(IPCIntegrationListResponse)
     case integrationConnectResult(IPCIntegrationConnectResult)
+    case oauthConnectResult(IPCOAuthConnectResultResponse)
     case appFilesChanged(AppFilesChangedMessage)
     case getSigningIdentity(IPCGetSigningIdentityRequest)
     case diagnosticsExportResponse(DiagnosticsExportResponseMessage)
@@ -2276,7 +2270,6 @@ public enum ServerMessage: Decodable, Sendable {
     case workItemApprovePermissionsResponse(IPCWorkItemApprovePermissionsResponse)
     case workItemCancelResponse(IPCWorkItemCancelResponse)
     case taskRunThreadCreated(IPCTaskRunThreadCreated)
-    case guardianRequestThreadCreated(IPCGuardianRequestThreadCreated)
     case openTasksWindow(OpenTasksWindowMessage)
     case subagentSpawned(IPCSubagentSpawned)
     case subagentStatusChanged(IPCSubagentStatusChanged)
@@ -2458,15 +2451,12 @@ public enum ServerMessage: Decodable, Sendable {
         case "tool_result":
             let message = try ToolResultMessage(from: decoder)
             self = .toolResult(message)
-        case "reminder_fired":
-            let message = try ReminderFiredMessage(from: decoder)
-            self = .reminderFired(message)
         case "notification_intent":
             let message = try NotificationIntentMessage(from: decoder)
             self = .notificationIntent(message)
-        case "schedule_complete":
-            let message = try ScheduleCompleteMessage(from: decoder)
-            self = .scheduleComplete(message)
+        case "notification_thread_created":
+            let message = try IPCNotificationThreadCreated(from: decoder)
+            self = .notificationThreadCreated(message)
         case "watch_started":
             let message = try WatchStartedMessage(from: decoder)
             self = .watchStarted(message)
@@ -2599,6 +2589,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "integration_connect_result":
             let message = try IPCIntegrationConnectResult(from: decoder)
             self = .integrationConnectResult(message)
+        case "oauth_connect_result":
+            let message = try IPCOAuthConnectResultResponse(from: decoder)
+            self = .oauthConnectResult(message)
         case "app_files_changed":
             let message = try AppFilesChangedMessage(from: decoder)
             self = .appFilesChanged(message)
@@ -2650,9 +2643,6 @@ public enum ServerMessage: Decodable, Sendable {
         case "task_run_thread_created":
             let message = try IPCTaskRunThreadCreated(from: decoder)
             self = .taskRunThreadCreated(message)
-        case "guardian_request_thread_created":
-            let message = try IPCGuardianRequestThreadCreated(from: decoder)
-            self = .guardianRequestThreadCreated(message)
         case "open_tasks_window":
             let message = try OpenTasksWindowMessage(from: decoder)
             self = .openTasksWindow(message)

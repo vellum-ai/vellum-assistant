@@ -13,6 +13,7 @@ import * as conversationStore from '../memory/conversation-store.js';
 import { provenanceFromGuardianContext } from '../memory/conversation-store.js';
 import { RateLimitProvider } from '../providers/ratelimit.js';
 import { getFailoverProvider, initializeProviders } from '../providers/registry.js';
+import * as pendingInteractions from '../runtime/pending-interactions.js';
 import { RunOrchestrator } from '../runtime/run-orchestrator.js';
 import { checkIngressForSecrets } from '../security/secret-ingress.js';
 import { cleanupRecordingsOnDisconnect } from './handlers/recording.js';
@@ -85,6 +86,41 @@ function resolveTurnInterface(sourceInterface?: string): InterfaceId {
   // Interface and channel are orthogonal dimensions; default explicitly
   // instead of deriving interface from channel.
   return 'vellum';
+}
+
+/**
+ * Build an onEvent callback that registers pending interactions when the agent
+ * loop emits confirmation_request or secret_request events. This ensures that
+ * channel approval interception can look up the session by requestId.
+ */
+function makePendingInteractionRegistrar(
+  session: Session,
+  conversationId: string,
+): (msg: ServerMessage) => void {
+  return (msg: ServerMessage) => {
+    if (msg.type === 'confirmation_request') {
+      pendingInteractions.register(msg.requestId, {
+        session,
+        conversationId,
+        kind: 'confirmation',
+        confirmationDetails: {
+          toolName: msg.toolName,
+          input: msg.input,
+          riskLevel: msg.riskLevel,
+          executionTarget: msg.executionTarget,
+          allowlistOptions: msg.allowlistOptions,
+          scopeOptions: msg.scopeOptions,
+          persistentDecisionsAllowed: msg.persistentDecisionsAllowed,
+        },
+      });
+    } else if (msg.type === 'secret_request') {
+      pendingInteractions.register(msg.requestId, {
+        session,
+        conversationId,
+        kind: 'secret',
+      });
+    }
+  };
 }
 
 export class DaemonServer {
@@ -767,7 +803,11 @@ export class DaemonServer {
     const requestId = crypto.randomUUID();
     const messageId = session.persistUserMessage(content, attachments, requestId);
 
-    session.runAgentLoop(content, messageId, () => {}, { isInteractive: false }).catch((err) => {
+    // Register pending interactions so channel approval interception can
+    // find the session by requestId when confirmation/secret events fire.
+    const onEvent = makePendingInteractionRegistrar(session, conversationId);
+
+    session.runAgentLoop(content, messageId, onEvent, { isInteractive: false }).catch((err) => {
       log.error({ err, conversationId }, 'Background agent loop failed');
     });
 
@@ -851,7 +891,11 @@ export class DaemonServer {
       throw err;
     }
 
-    await session.runAgentLoop(resolvedContent, messageId, () => {}, { isInteractive: false });
+    // Register pending interactions so channel approval interception can
+    // find the session by requestId when confirmation/secret events fire.
+    const onEvent = makePendingInteractionRegistrar(session, conversationId);
+
+    await session.runAgentLoop(resolvedContent, messageId, onEvent, { isInteractive: false });
 
     return { messageId };
   }

@@ -52,7 +52,10 @@ struct MainWindowView: View {
     @ObservedObject var threadManager: ThreadManager
     @ObservedObject var appListManager: AppListManager
     var zoomManager: ZoomManager
-    @ObservedObject var traceStore: TraceStore
+    /// Plain `let` instead of `@ObservedObject` so SwiftUI doesn't observe
+    /// TraceStore mutations when the DebugPanel isn't visible. DebugPanel
+    /// itself uses `@ObservedObject` and is only instantiated when shown.
+    let traceStore: TraceStore
     @ObservedObject var windowState: MainWindowState
     @State private var selectedThreadId: UUID?
     @State var sharing = SharingState()
@@ -499,7 +502,7 @@ struct MainWindowView: View {
                     threadManager.activeViewModel?.activeSurfaceId = surfaceId
                 }
             }
-            .onChange(of: threadManager.activeViewModel?.messages.map(\.id)) { _, _ in
+            .onChange(of: threadManager.activeViewModel?.messages.count) { _, _ in
                 // Bootstrap avatar: apply milestones based on assistant turn count
                 if let evoState = avatarEvolutionState, evoState.stage != .stabilized,
                    let viewModel = threadManager.activeViewModel {
@@ -742,6 +745,7 @@ struct MainWindowView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .openDynamicWorkspace)) { notification in
             if let msg = notification.userInfo?["surfaceMessage"] as? UiSurfaceShowMessage {
+                // Full message from daemon live IPC (AppDelegate path)
                 windowState.activeDynamicSurface = msg
                 windowState.activeDynamicParsedSurface = Surface.from(msg)
                 // Determine the app ID from the surface if available
@@ -760,6 +764,15 @@ struct MainWindowView: View {
                 } else {
                     windowState.selection = .app(msg.surfaceId)
                 }
+            } else if let ref = notification.userInfo?["surfaceRef"] as? SurfaceRef {
+                // Lightweight ref from inline surface click — the daemon will
+                // send a fresh ui_surface_show via live IPC with the full payload.
+                // Use the real appId for the app_open_request when available,
+                // because surfaceId is a daemon-generated identifier
+                // (e.g. "app-open-<uuid>") that doesn't match any real app.
+                let reopenId = ref.appId ?? ref.surfaceId
+                windowState.selection = .app(reopenId)
+                try? daemonClient.sendAppOpen(appId: reopenId)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .openDocumentEditor)) { notification in
@@ -1072,9 +1085,6 @@ struct MainWindowView: View {
             SidebarNavRow(icon: "sparkles", label: "Skills", isActive: windowState.activePanel == .agent) {
                 windowState.togglePanel(.agent)
             }
-            SidebarNavRow(icon: "tray.fill", label: "Inbox", isActive: windowState.activePanel == .assistantInbox) {
-                windowState.togglePanel(.assistantInbox)
-            }
             SidebarNavRow(icon: "square.grid.2x2", label: "Apps", isActive: windowState.activePanel == .apps) {
                 windowState.togglePanel(.apps)
             }
@@ -1186,9 +1196,6 @@ struct MainWindowView: View {
             }
             SidebarNavRow(icon: "sparkles", label: "Skills", isActive: windowState.activePanel == .agent, isExpanded: false) {
                 windowState.togglePanel(.agent)
-            }
-            SidebarNavRow(icon: "tray.fill", label: "Inbox", isActive: windowState.activePanel == .assistantInbox, isExpanded: false) {
-                windowState.togglePanel(.assistantInbox)
             }
             SidebarNavRow(icon: "square.grid.2x2", label: "Apps", isActive: windowState.activePanel == .apps, isExpanded: false) {
                 windowState.togglePanel(.apps)

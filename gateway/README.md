@@ -12,6 +12,8 @@ Client → gateway/ (Bearer auth) → Assistant Runtime (any path)
 
 The web app is **not** in the Telegram request path. When proxy mode is enabled, non-Telegram requests are forwarded to the assistant runtime with optional bearer token authentication.
 
+For ingress and channel architecture details, see [`ARCHITECTURE.md`](ARCHITECTURE.md) and [`docs/sms-twilio-parity-checklist.md`](docs/sms-twilio-parity-checklist.md).
+
 ## Setup
 
 ```bash

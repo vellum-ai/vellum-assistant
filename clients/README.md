@@ -2,6 +2,8 @@
 
 This directory contains native client applications for the Vellum Assistant, organized for code reuse between platforms.
 
+For client architecture details, see [`ARCHITECTURE.md`](ARCHITECTURE.md).
+
 ## Structure
 
 ```

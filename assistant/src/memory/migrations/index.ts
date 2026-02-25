@@ -24,6 +24,7 @@ export { migrateMemoryItemSourcesIndexes } from './023-memory-item-sources-index
 export { migrateEmbeddingVectorBlob } from './024-embedding-vector-blob.js';
 export { migrateMessagesFtsBackfill } from './025-messages-fts-backfill.js';
 export { migrateEmbeddingsNullableVectorJson } from './026-embeddings-nullable-vector-json.js';
+export { migrateNotificationDeliveryPairingColumns } from './027-notification-delivery-pairing-columns.js';
 export { createCoreTables } from './100-core-tables.js';
 export { createWatchersAndLogsTables } from './101-watchers-and-logs.js';
 export { addCoreColumns } from './102-alter-table-columns.js';
@@ -42,6 +43,7 @@ export { createNotificationTables } from './114-notifications.js';
 export { createSequenceTables } from './115-sequences.js';
 export { createMessagesFts } from './116-messages-fts.js';
 export { migrateGuardianVerificationSessions } from './026-guardian-verification-sessions.js';
+export { migrateGuardianBootstrapToken } from './027-guardian-bootstrap-token.js';
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

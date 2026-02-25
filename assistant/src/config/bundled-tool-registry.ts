@@ -108,7 +108,12 @@ import * as messagingRead from './bundled-skills/messaging/tools/messaging-read.
 import * as messagingReply from './bundled-skills/messaging/tools/messaging-reply.js';
 import * as messagingSearch from './bundled-skills/messaging/tools/messaging-search.js';
 import * as messagingSend from './bundled-skills/messaging/tools/messaging-send.js';
-import * as sendNotification from './bundled-skills/messaging/tools/send-notification.js';
+// ── notifications ───────────────────────────────────────────────────────────
+import * as sendNotification from './bundled-skills/notifications/tools/send-notification.js';
+// ── phone-calls ─────────────────────────────────────────────────────────────
+import * as callEnd from './bundled-skills/phone-calls/tools/call-end.js';
+import * as callStart from './bundled-skills/phone-calls/tools/call-start.js';
+import * as callStatus from './bundled-skills/phone-calls/tools/call-status.js';
 import * as sequenceAnalytics from './bundled-skills/messaging/tools/sequence-analytics.js';
 import * as sequenceCancel from './bundled-skills/messaging/tools/sequence-cancel.js';
 import * as sequenceCreate from './bundled-skills/messaging/tools/sequence-create.js';
@@ -250,7 +255,6 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ['messaging:tools/messaging-read.ts', messagingRead],
   ['messaging:tools/messaging-search.ts', messagingSearch],
   ['messaging:tools/messaging-send.ts', messagingSend],
-  ['messaging:tools/send-notification.ts', sendNotification],
   ['messaging:tools/messaging-reply.ts', messagingReply],
   ['messaging:tools/messaging-mark-read.ts', messagingMarkRead],
   ['messaging:tools/slack-add-reaction.ts', slackAddReaction],
@@ -289,6 +293,14 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ['messaging:tools/sequence-cancel.ts', sequenceCancel],
   ['messaging:tools/sequence-import.ts', sequenceImport],
   ['messaging:tools/sequence-analytics.ts', sequenceAnalytics],
+
+  // notifications
+  ['notifications:tools/send-notification.ts', sendNotification],
+
+  // phone-calls
+  ['phone-calls:tools/call-start.ts', callStart],
+  ['phone-calls:tools/call-status.ts', callStatus],
+  ['phone-calls:tools/call-end.ts', callEnd],
 
   // playbooks
   ['playbooks:tools/playbook-create.ts', playbookCreate],

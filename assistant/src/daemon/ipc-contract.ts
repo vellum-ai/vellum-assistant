@@ -45,7 +45,7 @@ import type { _InboxClientMessages, _InboxServerMessages } from './ipc-contract/
 import type { _IntegrationsClientMessages, _IntegrationsServerMessages } from './ipc-contract/integrations.js';
 import type { _MemoryServerMessages } from './ipc-contract/memory.js';
 import type { _MessagesClientMessages, _MessagesServerMessages } from './ipc-contract/messages.js';
-import type { _NotificationsServerMessages } from './ipc-contract/notifications.js';
+import type { _NotificationsClientMessages, _NotificationsServerMessages } from './ipc-contract/notifications.js';
 import type { _PairingClientMessages, _PairingServerMessages } from './ipc-contract/pairing.js';
 import type { _ParentalControlClientMessages, _ParentalControlServerMessages } from './ipc-contract/parental-control.js';
 import type { _SchedulesClientMessages, _SchedulesServerMessages } from './ipc-contract/schedules.js';
@@ -86,7 +86,8 @@ export type ClientMessage =
   | _DiagnosticsClientMessages
   | _ParentalControlClientMessages
   | _InboxClientMessages
-  | _PairingClientMessages;
+  | _PairingClientMessages
+  | _NotificationsClientMessages;
 
 // === Server -> Client aggregate union ===
 

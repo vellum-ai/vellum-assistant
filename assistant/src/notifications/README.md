@@ -5,9 +5,9 @@ Signal-driven notification architecture where producers emit free-form events an
 ## Lifecycle
 
 ```
-Producer → NotificationSignal → Decision Engine (LLM) → Deterministic Checks → Broadcaster → Adapters → Delivery
-                                       ↑                                                        ↓
-                               Preference Summary                              notification_intent IPC (vellum)
+Producer → NotificationSignal → Decision Engine (LLM) → Deterministic Checks → Broadcaster → Conversation Pairing → Adapters → Delivery
+                                       ↑                                                            ↓
+                               Preference Summary                                    notification_thread_created IPC
 ```
 
 ### 1. Signal
@@ -33,9 +33,74 @@ Hard invariants that the LLM cannot override (`deterministic-checks.ts`):
 
 `runtime-dispatch.ts` handles two early-exit cases (shouldNotify=false, no channels), then delegates to the broadcaster.
 
-### 5. Broadcast and Delivery
+### 5. Broadcast, Conversation Pairing, and Delivery
 
-The broadcaster (`broadcaster.ts`) iterates over selected channels, resolves destinations via `destination-resolver.ts`, pulls rendered copy from the decision (falling back to `copy-composer.ts` templates), and dispatches through channel adapters. Each delivery attempt is recorded in `notification_deliveries`.
+The broadcaster (`broadcaster.ts`) iterates over selected channels (vellum first for fast IPC push), resolves destinations via `destination-resolver.ts`, pairs each delivery with a conversation via `conversation-pairing.ts`, pulls rendered copy from the decision (falling back to `copy-composer.ts` templates), and dispatches through channel adapters. Each delivery attempt is recorded in `notification_deliveries` with `conversation_id`, `message_id`, and `conversation_strategy` columns.
+
+## Channel Policy Registry
+
+`../channels/config.ts` is the **single source of truth** for per-channel notification behavior. Every `ChannelId` must have an entry in the `CHANNEL_POLICIES` map. The TypeScript `satisfies Record<ChannelId, ChannelNotificationPolicy>` constraint ensures that adding a new `ChannelId` to `channels/types.ts` will cause a compile error until a policy entry is added.
+
+Each policy defines:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `notification.deliveryEnabled` | `boolean` | Whether the channel can receive notification deliveries |
+| `notification.conversationStrategy` | `ConversationStrategy` | How conversations are materialized for deliveries on this channel |
+
+### Conversation Strategy Types
+
+| Strategy | Behavior | Used by |
+|----------|----------|---------|
+| `start_new_conversation` | Creates a fresh conversation per delivery. The thread is surfaced via IPC. | `vellum` |
+| `continue_existing_conversation` | Appends to an existing channel-scoped conversation (future: lookup by binding key). Currently materializes a background audit conversation per delivery and records the intended strategy. | `telegram`, `sms`, `whatsapp`, `slack`, `email` |
+| `not_deliverable` | Channel cannot receive notifications. Pairing returns null IDs. | `voice` |
+
+### Helper Functions
+
+- `getDeliverableChannels()` -- returns all `ChannelId` values where `deliveryEnabled` is true
+- `getChannelPolicy(channelId)` -- returns the full policy object for a channel
+- `isNotificationDeliverable(channelId)` -- boolean check for delivery eligibility
+- `getConversationStrategy(channelId)` -- returns the conversation strategy for a channel
+
+### How to Add a New Channel
+
+1. Add the channel to `CHANNEL_IDS` in `channels/types.ts`.
+2. Add a policy entry in `CHANNEL_POLICIES` in `channels/config.ts`. The compiler will enforce this.
+3. If `deliveryEnabled: true`, add an adapter in `adapters/` and register it in `emit-signal.ts` `getBroadcaster()`.
+4. Add a connectivity check in `getConnectedChannels()` in `emit-signal.ts`.
+5. Add a destination resolver case in `destination-resolver.ts`.
+
+## Conversation Pairing Invariant
+
+**Every notification delivery gets a conversation.** Before the adapter sends a notification, `pairDeliveryWithConversation()` (in `conversation-pairing.ts`) materializes a conversation and seed message based on the channel's conversation strategy:
+
+- **`start_new_conversation`**: Creates a new conversation with `threadType: 'standard'` and `source: 'notification'`, plus an assistant message containing the notification copy. Memory indexing is skipped on the seed message to prevent notification copy from polluting conversational recall.
+- **`continue_existing_conversation`**: Currently materializes a background audit conversation per delivery (true continuation via binding key lookup is planned for a future PR). The audit trail records the intended strategy without adding visible sidebar threads.
+- **`not_deliverable`**: Returns `{ conversationId: null, messageId: null }`.
+
+The pairing function is resilient -- errors are caught and logged. A pairing failure never breaks the delivery pipeline.
+
+## Thread Surfacing via `notification_thread_created` IPC
+
+When a vellum notification thread is paired with a conversation (strategy `start_new_conversation`), the broadcaster emits a `notification_thread_created` IPC event **immediately**, before waiting for slower channel deliveries (e.g. Telegram). This avoids a race where a slow Telegram delivery delays the IPC push past the macOS deep-link retry window.
+
+The IPC event payload:
+
+```ts
+{
+  type: 'notification_thread_created',
+  conversationId: string,
+  title: string,
+  sourceEventName: string,
+}
+```
+
+The macOS/iOS client listens for this event and surfaces the thread in the sidebar, enabling deep-link navigation to the notification thread.
+
+### Per-Dispatch Thread Callback
+
+`emitNotificationSignal()` accepts an optional `onThreadCreated` callback. This lets producers run domain side effects (for example, creating cross-channel guardian delivery rows) as soon as vellum pairing occurs, without introducing a second thread-creation path.
 
 ## Channel Delivery Architecture
 
@@ -64,39 +129,31 @@ Connected channels are resolved at signal emission time by `getConnectedChannels
 
 ## Conversation Materialization
 
-The system supports two conversation materialization patterns:
+The system uses a single conversation materialization path for all notifications, including ASK_GUARDIAN:
 
-### 1. Generic notifications (notification_intent IPC)
+1. `emitNotificationSignal()` evaluates the signal and dispatches to channels.
+2. `NotificationBroadcaster` pairs each delivery with a conversation via `pairDeliveryWithConversation()`.
+3. For vellum deliveries, the broadcaster merges `conversationId` into `deepLinkMetadata` and emits `notification_thread_created`.
 
-The standard pipeline emits `notification_intent` via the Vellum adapter. The decision engine can include `deepLinkTarget` metadata in the decision, which is passed through to the adapter as `deepLinkMetadata`. This allows the client to deep-link to an existing conversation or context without the daemon creating a new conversation.
-
-### 2. Guardian dispatch (guardian_request_thread_created IPC)
-
-The guardian dispatch (`calls/guardian-dispatch.ts`) creates a dedicated server-side conversation **before** entering the notification pipeline:
-
-1. Creates a `guardian_action_request` row
-2. Fires `emitNotificationSignal()` (fire-and-forget) for the LLM decision engine
-3. Creates a conversation via `getOrCreateConversation()` with key `asst:${assistantId}:guardian:request:${request.id}`
-4. Persists the LLM-generated initial message and thread title
-5. Emits `guardian_request_thread_created` IPC event with `{ conversationId, requestId, callSessionId, title, questionText }`
-
-The macOS `ThreadManager` listens for this event and creates a visible thread bound to the conversation.
+Guardian dispatch follows this same path and uses the optional `onThreadCreated` callback to attach guardian-delivery bookkeeping to the canonical vellum conversation.
 
 ### Conversation Pairing Invariant
 
-For notification flows that create conversations (guardian dispatch, task runs), the conversation must be created **before** the IPC event is emitted. This ensures the macOS client can immediately fetch the conversation contents when it receives the thread-created event.
+For notification flows that create conversations, the conversation must be created **before** the IPC event is emitted. This ensures the macOS client can immediately fetch the conversation contents when it receives the thread-created event.
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
+| `../channels/config.ts` | Channel policy registry -- single source of truth for per-channel notification behavior |
 | `emit-signal.ts` | Single entry point for producers; orchestrates the full pipeline |
 | `signal.ts` | `NotificationSignal` and `AttentionHints` type definitions |
 | `types.ts` | Channel adapter interfaces, delivery types, decision output contract |
+| `conversation-pairing.ts` | Materializes conversation + message per delivery based on channel strategy |
 | `decision-engine.ts` | LLM-based routing with forced tool_choice; deterministic fallback |
 | `deterministic-checks.ts` | Pre-send gate checks (dedupe, source-active, channel availability) |
 | `runtime-dispatch.ts` | Dispatch gating (no-op decisions, empty channels) |
-| `broadcaster.ts` | Fan-out to channel adapters with delivery audit trail |
+| `broadcaster.ts` | Fan-out to channel adapters with delivery audit trail; emits `notification_thread_created` IPC |
 | `copy-composer.ts` | Template-based fallback copy when LLM copy is unavailable |
 | `destination-resolver.ts` | Resolves per-channel endpoints (vellum IPC, Telegram chat ID) |
 | `adapters/macos.ts` | Vellum adapter -- broadcasts `notification_intent` via IPC with deep-link metadata |
@@ -149,7 +206,25 @@ Three SQLite tables form the audit chain:
 
 - **`notification_events`** -- every signal that entered the pipeline, with attention hints and context payload
 - **`notification_decisions`** -- the routing decision for each event (shouldNotify, selectedChannels, reasoning, confidence, whether fallback was used)
-- **`notification_deliveries`** -- per-channel delivery attempts with status (pending/sent/failed/skipped), rendered copy, and error details
+- **`notification_deliveries`** -- per-channel delivery attempts with status (pending/sent/failed/skipped), rendered copy, error details, conversation pairing data (`conversation_id`, `message_id`, `conversation_strategy`), and client delivery outcome (`client_delivery_status`, `client_delivery_error`, `client_delivery_at`)
+
+### Client Delivery Ack
+
+For vellum (macOS/iOS) deliveries, the audit trail now extends past the IPC broadcast to the actual OS notification post. The `notification_intent` message carries an optional `deliveryId` that the client echoes back in a `notification_intent_result` ack after `UNUserNotificationCenter.add()` completes (or fails).
+
+The ack populates three columns on `notification_deliveries`:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `client_delivery_status` | TEXT | `'delivered'` if the OS accepted the notification, `'client_failed'` otherwise |
+| `client_delivery_error` | TEXT | Error description when the post failed (e.g. authorization denied) |
+| `client_delivery_at` | INTEGER | Epoch ms timestamp of when the client reported the outcome |
+
+This means the audit trail can now answer three questions for each vellum delivery:
+
+1. **Was the intent broadcast?** -- existing `status` column (`sent`)
+2. **Did the client attempt to post?** -- `client_delivery_status` is non-null
+3. **Did the OS post succeed or fail, and why?** -- `client_delivery_status` + `client_delivery_error`
 
 Query examples:
 
@@ -166,6 +241,18 @@ LIMIT 20;
 SELECT d.channel, d.error_message, d.rendered_title
 FROM notification_deliveries d
 WHERE d.status = 'failed'
+ORDER BY d.created_at DESC;
+
+-- Deliveries with conversation pairing
+SELECT d.channel, d.conversation_id, d.message_id, d.conversation_strategy, d.rendered_title
+FROM notification_deliveries d
+WHERE d.conversation_id IS NOT NULL
+ORDER BY d.created_at DESC;
+
+-- Vellum deliveries where the client failed to post the notification
+SELECT d.rendered_title, d.client_delivery_status, d.client_delivery_error, d.client_delivery_at
+FROM notification_deliveries d
+WHERE d.channel = 'vellum' AND d.client_delivery_status = 'client_failed'
 ORDER BY d.created_at DESC;
 ```
 

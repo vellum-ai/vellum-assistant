@@ -6,7 +6,7 @@ Bun + TypeScript monorepo with multiple packages:
 
 - `assistant/` — Main backend service (Bun + TypeScript)
 - `gateway/` — Telegram webhook gateway (Bun + TypeScript)
-- `clients/macos/` — Native macOS desktop app (Swift/SwiftUI, see `clients/macos/CLAUDE.md`)
+- `clients/` — Client apps (macOS/iOS/etc). See `clients/AGENTS.md` and platform docs like `clients/macos/CLAUDE.md`.
 - `scripts/` — Utility scripts
 - `.claude/` — Claude Code slash commands and helper scripts (see `.claude/README.md`)
 
@@ -43,7 +43,7 @@ Comments should explain **why** something is done and provide non-obvious contex
 
 ## Keep the Architecture Diagram up to date
 
-Whenever you introduce, remove, or significantly modify a service, module, or data flow, you MUST update `ARCHITECTURE.md` to reflect the change. The Mermaid diagrams should always accurately represent the current system architecture, including new services, IPC message types, storage locations, and data flows.
+Whenever you introduce, remove, or significantly modify a service, module, or data flow, you MUST update the relevant architecture docs to reflect the change. Keep the root `ARCHITECTURE.md` index aligned, and update impacted domain docs (for example `assistant/ARCHITECTURE.md`, `gateway/ARCHITECTURE.md`, `clients/ARCHITECTURE.md`, or `assistant/docs/architecture/*`). Mermaid diagrams should always accurately represent the current system architecture, including new services, IPC message types, storage locations, and data flows.
 
 ## Keep AGENTS.md up to date
 
@@ -245,6 +245,10 @@ Returning `undefined` is acceptable only for **lookup functions** where "not fou
 All notification producers **MUST** go through `emitNotificationSignal()` in `notifications/emit-signal.ts`. Do not bypass the pipeline by broadcasting IPC events directly -- the pipeline handles event persistence, deduplication, decision routing, and delivery audit.
 
 When a notification flow creates a server-side conversation (e.g. guardian question threads, task run threads), the conversation and initial message **MUST** be persisted before the IPC thread-created event is emitted. This ensures the macOS/iOS client can immediately fetch the conversation contents when it receives the event.
+
+## Guardian Verification Invariant
+
+Guardian verification consumption must be identity-bound to the expected recipient identity. Every outbound verification session stores the expected identity (phone E.164, Telegram user/chat ID), and the consume path rejects attempts where the responding actor's identity does not match.
 
 ## Memory Provenance Invariant
 

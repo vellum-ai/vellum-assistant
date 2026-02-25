@@ -42,6 +42,15 @@ struct SettingsConnectTab: View {
     // Guardian copy state (tracks which channel's command was just copied)
     @State private var guardianCommandCopiedChannel: String?
 
+    // Outbound guardian verification destination input (keyed by channel)
+    @State private var guardianDestinationText: [String: String] = [:]
+
+    // Countdown timer for outbound verification expiry (ref-counted so
+    // closing one channel row doesn't stop the timer for remaining rows)
+    @State private var countdownNow: Date = Date()
+    @State private var countdownTimer: Timer?
+    @State private var countdownTimerRefCount: Int = 0
+
     // Token regeneration state
     @State private var isRegeneratingToken: Bool = false
 
@@ -1027,6 +1036,39 @@ struct SettingsConnectTab: View {
             default: return false
             }
         }()
+        let outboundSessionId: String? = {
+            switch channel {
+            case "telegram": return store.telegramOutboundSessionId
+            case "sms": return store.smsOutboundSessionId
+            case "voice": return store.voiceOutboundSessionId
+            default: return nil
+            }
+        }()
+        let outboundExpiresAt: Date? = {
+            switch channel {
+            case "telegram": return store.telegramOutboundExpiresAt
+            case "sms": return store.smsOutboundExpiresAt
+            case "voice": return store.voiceOutboundExpiresAt
+            default: return nil
+            }
+        }()
+        let outboundNextResendAt: Date? = {
+            switch channel {
+            case "telegram": return store.telegramOutboundNextResendAt
+            case "sms": return store.smsOutboundNextResendAt
+            case "voice": return store.voiceOutboundNextResendAt
+            default: return nil
+            }
+        }()
+        let outboundSendCount: Int = {
+            switch channel {
+            case "telegram": return store.telegramOutboundSendCount
+            case "sms": return store.smsOutboundSendCount
+            case "voice": return store.voiceOutboundSendCount
+            default: return 0
+            }
+        }()
+        let bootstrapUrl: String? = channel == "telegram" ? store.telegramBootstrapUrl : nil
         let primaryIdentity = guardianPrimaryIdentity(channel: channel, identity: identity)
         let secondaryIdentity = guardianSecondaryIdentity(primary: primaryIdentity, identity: identity)
         let telegramProfileURL: URL? = channel == "telegram"
@@ -1075,32 +1117,27 @@ struct SettingsConnectTab: View {
                         store.revokeChannelGuardian(channel: channel)
                     }
                 }
-            } else if inProgress {
+            } else if inProgress && outboundSessionId == nil {
                 HStack(spacing: VSpacing.sm) {
                     guardianLabel
                     ProgressView()
                         .controlSize(.small)
-                    Text("Generating verification code...")
+                    Text("Sending verification...")
                         .font(VFont.caption)
                         .foregroundColor(VColor.textSecondary)
                 }
+            } else if outboundSessionId != nil {
+                guardianOutboundPendingView(
+                    channel: channel,
+                    expiresAt: outboundExpiresAt,
+                    nextResendAt: outboundNextResendAt,
+                    sendCount: outboundSendCount,
+                    bootstrapUrl: bootstrapUrl
+                )
             } else if let instruction {
                 guardianInstructionView(channel: channel, instruction: instruction)
             } else {
-                HStack(spacing: VSpacing.sm) {
-                    guardianLabel
-                    Image(systemName: "shield.slash")
-                        .foregroundColor(VColor.textMuted)
-                        .font(.system(size: 12))
-                    Text("Not verified")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textMuted)
-                        .lineLimit(1)
-                    Spacer()
-                    VButton(label: "Verify", style: .secondary) {
-                        store.startChannelGuardianVerification(channel: channel)
-                    }
-                }
+                guardianDestinationInputView(channel: channel)
             }
 
             if let error {
@@ -1117,6 +1154,173 @@ struct SettingsConnectTab: View {
                 .padding(.leading, 90 + VSpacing.sm)
             }
         }
+    }
+
+    // MARK: - Outbound Guardian Destination Input
+
+    @ViewBuilder
+    private func guardianDestinationInputView(channel: String) -> some View {
+        let destinationBinding = Binding<String>(
+            get: { guardianDestinationText[channel] ?? "" },
+            set: { guardianDestinationText[channel] = $0 }
+        )
+        let destination = destinationBinding.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let placeholder: String = {
+            switch channel {
+            case "telegram": return "@username or chat ID"
+            case "sms", "voice": return "+1234567890"
+            default: return "Destination"
+            }
+        }()
+
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            HStack(spacing: VSpacing.sm) {
+                guardianLabel
+                Image(systemName: "shield.slash")
+                    .foregroundColor(VColor.textMuted)
+                    .font(.system(size: 12))
+                Text("Not verified")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textMuted)
+                    .lineLimit(1)
+            }
+
+            HStack(spacing: VSpacing.sm) {
+                TextField(placeholder, text: destinationBinding)
+                    .font(VFont.body)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 200)
+
+                VButton(label: "Send verification", style: .secondary) {
+                    store.startOutboundGuardianVerification(channel: channel, destination: destination)
+                }
+                .disabled(destination.isEmpty)
+
+                Spacer()
+            }
+            .padding(.leading, 90 + VSpacing.sm)
+        }
+    }
+
+    // MARK: - Outbound Guardian Pending View
+
+    @ViewBuilder
+    private func guardianOutboundPendingView(
+        channel: String,
+        expiresAt: Date?,
+        nextResendAt: Date?,
+        sendCount: Int,
+        bootstrapUrl: String?
+    ) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            HStack(spacing: VSpacing.sm) {
+                guardianLabel
+                Image(systemName: "shield.lefthalf.filled")
+                    .foregroundColor(VColor.warning)
+                    .font(.system(size: 12))
+                Text("Verification sent")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.warning)
+                Spacer()
+                VButton(label: "Cancel", style: .tertiary) {
+                    store.cancelOutboundGuardian(channel: channel)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                // Countdown to expiry
+                if let expiresAt {
+                    let remaining = expiresAt.timeIntervalSince(countdownNow)
+                    if remaining > 0 {
+                        let minutes = Int(remaining) / 60
+                        let seconds = Int(remaining) % 60
+                        Text("Expires in \(minutes):\(String(format: "%02d", seconds))")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                    } else {
+                        Text("Verification expired")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.error)
+                    }
+                }
+
+                if sendCount > 0 {
+                    Text("Sent \(sendCount) time\(sendCount == 1 ? "" : "s")")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
+
+                // Resend button with cooldown
+                // Disable resend during bootstrap: when bootstrapUrl is set the session is
+                // in pending_bootstrap state and the daemon rejects resend attempts.
+                HStack(spacing: VSpacing.sm) {
+                    let canResend: Bool = {
+                        // Bootstrap sessions (Telegram handle-based) don't support resend
+                        if bootstrapUrl != nil { return false }
+                        guard let nextResendAt else { return true }
+                        return countdownNow >= nextResendAt
+                    }()
+                    let resendCooldownText: String? = {
+                        guard let nextResendAt, countdownNow < nextResendAt else { return nil }
+                        let remaining = Int(nextResendAt.timeIntervalSince(countdownNow))
+                        return "Resend in \(remaining)s"
+                    }()
+
+                    VButton(label: resendCooldownText ?? "Resend", style: .secondary) {
+                        store.resendOutboundGuardian(channel: channel)
+                    }
+                    .disabled(!canResend)
+                }
+
+                // Telegram bootstrap URL deep link
+                if let bootstrapUrl, let url = URL(string: bootstrapUrl) {
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        Text("Ask your guardian to open this link:")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+
+                        Button {
+                            NSWorkspace.shared.open(url)
+                        } label: {
+                            HStack(spacing: VSpacing.xs) {
+                                Image(systemName: "arrow.up.right.square")
+                                    .font(.system(size: 12))
+                                Text("Open in Telegram")
+                                    .font(VFont.caption)
+                            }
+                            .foregroundColor(VColor.accent)
+                        }
+                        .buttonStyle(.plain)
+                        .onHover { hovering in
+                            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                        }
+                    }
+                }
+            }
+            .padding(.leading, 90 + VSpacing.sm)
+        }
+        .onAppear { startCountdownTimer() }
+        .onDisappear { stopCountdownTimer() }
+    }
+
+    // MARK: - Countdown Timer
+
+    private func startCountdownTimer() {
+        countdownTimerRefCount += 1
+        guard countdownTimer == nil else { return }
+        countdownNow = Date()
+        countdownTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+            Task { @MainActor in
+                countdownNow = Date()
+            }
+        }
+    }
+
+    private func stopCountdownTimer() {
+        countdownTimerRefCount = max(countdownTimerRefCount - 1, 0)
+        guard countdownTimerRefCount == 0 else { return }
+        countdownTimer?.invalidate()
+        countdownTimer = nil
     }
 
     private func guardianInstructionSubtext(channel: String) -> String {
