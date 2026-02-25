@@ -168,6 +168,70 @@ jobs:
           echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Digest:** \`${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
 
+  push-gateway-image:
+    needs: bump-and-tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [dev, production]
+    environment: ${{ matrix.environment }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: "v${{ needs.bump-and-tag.outputs.version }}"
+
+      - name: Get release SHA
+        id: release-sha
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Configure Docker for GCR
+        run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Compute image tags
+        id: tags
+        run: |
+          IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}"
+          VERSION="${{ needs.bump-and-tag.outputs.version }}"
+          TAGS="${IMAGE}:${{ steps.release-sha.outputs.sha }}"
+          TAGS=$(printf "%s\n%s" "$TAGS" "${IMAGE}:v${VERSION}")
+          TAGS=$(printf "%s\n%s" "$TAGS" "${IMAGE}:latest")
+          echo "tags<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$TAGS" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: gateway
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Summary
+        run: |
+          echo "## Gateway Image Published (${{ matrix.environment }})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** \`${{ matrix.environment }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** \`${{ needs.bump-and-tag.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Digest:** \`${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+
   publish-npm:
     needs: bump-and-tag
     runs-on: ubuntu-latest
@@ -548,7 +612,7 @@ jobs:
           security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
 
   release:
-    needs: [bump-and-tag, publish-npm, publish-meta, build-macos, push-assistant-image]
+    needs: [bump-and-tag, publish-npm, publish-meta, build-macos, push-assistant-image, push-gateway-image]
     runs-on: ubuntu-latest
     steps:
       - name: Generate GitHub App token
@@ -768,7 +832,7 @@ jobs:
 
   notify:
     if: always() && !cancelled()
-    needs: [bump-and-tag, publish-npm, publish-meta, build-macos, push-assistant-image, release, update-platform, ci-assistant, ci-cli, ci-gateway]
+    needs: [bump-and-tag, publish-npm, publish-meta, build-macos, push-assistant-image, push-gateway-image, release, update-platform, ci-assistant, ci-cli, ci-gateway]
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
@@ -794,6 +858,7 @@ jobs:
             "${{ needs.publish-meta.result }}" \
             "${{ needs.build-macos.result }}" \
             "${{ needs.push-assistant-image.result }}" \
+            "${{ needs.push-gateway-image.result }}" \
             "${{ needs.release.result }}" \
             "${{ needs.update-platform.result }}"; do
             if [ "$result" = "failure" ]; then
@@ -817,9 +882,10 @@ jobs:
           C=$(ci_icon "${{ needs.ci-cli.outcome }}")
           G=$(ci_icon "${{ needs.ci-gateway.outcome }}")
           D=$(ci_icon "${{ needs.build-macos.result }}")
-          I=$(ci_icon "${{ needs.push-assistant-image.result }}")
+          AI=$(ci_icon "${{ needs.push-assistant-image.result }}")
+          GI=$(ci_icon "${{ needs.push-gateway-image.result }}")
 
-          CI_LINE="*CI Checks:*  ${A} assistant    ${C} cli    ${G} gateway    ${D} desktop    ${I} docker"
+          CI_LINE="*CI Checks:*  ${A} assistant    ${C} cli    ${G} gateway    ${D} desktop    ${AI} assistant-docker    ${GI} gateway-docker"
           META_LINE="*Version:* \`${VERSION}\`\n*Triggered by:* ${{ github.actor }}"
 
           # Fetch release notes from GitHub release
