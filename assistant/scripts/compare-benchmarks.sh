@@ -53,16 +53,16 @@ while IFS= read -r file; do
     continue
   fi
 
-  # Calculate percentage change: (current - baseline) / baseline * 100
-  pct_change=$(( (current_ms - baseline_ms) * 100 / baseline_ms ))
+  # Calculate percentage change with awk to avoid integer truncation
+  pct_change=$(awk "BEGIN { printf \"%.1f\", ($current_ms - $baseline_ms) / $baseline_ms * 100 }")
 
-  if [[ ${pct_change} -gt ${THRESHOLD} ]]; then
+  if awk "BEGIN { exit !($pct_change > $THRESHOLD) }"; then
     echo "  REGR ${file}: ${baseline_ms}ms -> ${current_ms}ms (+${pct_change}%)"
     regressions=$((regressions + 1))
-  elif [[ ${pct_change} -lt -${THRESHOLD} ]]; then
+  elif awk "BEGIN { exit !($pct_change < -$THRESHOLD) }"; then
     echo "  IMPR ${file}: ${baseline_ms}ms -> ${current_ms}ms (${pct_change}%)"
   else
-    echo "  OK   ${file}: ${baseline_ms}ms -> ${current_ms}ms (${pct_change:+${pct_change}}%)"
+    echo "  OK   ${file}: ${baseline_ms}ms -> ${current_ms}ms (${pct_change}%)"
   fi
 done < <(jq -r '.results[].file' "${CURRENT}")
 
