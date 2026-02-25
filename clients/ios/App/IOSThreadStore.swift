@@ -57,6 +57,9 @@ class IOSThreadStore: ObservableObject {
     @Published var isLoadingMoreThreads: Bool = false
     /// Whether the daemon indicated more sessions exist beyond what is currently loaded.
     @Published var hasMoreThreads: Bool = false
+    /// True while the first page of threads is being fetched from the daemon.
+    /// Used by the UI to show a loading indicator instead of a placeholder thread.
+    @Published var isLoadingInitialThreads: Bool = false
 
     /// ViewModels keyed by thread ID, created lazily on first access.
     private var viewModels: [UUID: ChatViewModel] = [:]
@@ -94,6 +97,7 @@ class IOSThreadStore: ObservableObject {
         if let daemon = daemonClient as? DaemonClient {
             // Connected mode — load threads from daemon
             isConnectedMode = true
+            isLoadingInitialThreads = true
             let defaultThread = IOSThread()
             threads = [defaultThread]
             setupDaemonCallbacks(daemon)
@@ -214,6 +218,7 @@ class IOSThreadStore: ObservableObject {
             // discarded by the handler (setupDaemonCallbacks will bump it again on
             // the fresh page-1 send, keeping expectedSessionListGeneration in sync).
             isConnectedMode = true
+            isLoadingInitialThreads = true
             threads = [IOSThread()]
             threadListOffset = 0
             sessionListGeneration += 1
@@ -250,12 +255,14 @@ class IOSThreadStore: ObservableObject {
         guard !filteredSessions.isEmpty || (response.hasMore == false && threadListOffset == 0) else {
             // Empty non-first page means nothing more to append.
             isLoadingMoreThreads = false
+            isLoadingInitialThreads = false
             hasMoreThreads = response.hasMore ?? false
             return
         }
 
         hasMoreThreads = response.hasMore ?? false
         isLoadingMoreThreads = false
+        isLoadingInitialThreads = false
 
         var restoredThreads: [IOSThread] = []
         for session in filteredSessions {
