@@ -8,6 +8,7 @@ const BASE_ENV = {
   TELEGRAM_BOT_TOKEN: "tok",
   TELEGRAM_WEBHOOK_SECRET: "wh-sec",
   ASSISTANT_RUNTIME_BASE_URL: "http://localhost:7821",
+  GATEWAY_DEFAULT_ASSISTANT_ID: "test-assistant",
 };
 
 function withEnv(overrides: Record<string, string | undefined>, fn: () => void) {

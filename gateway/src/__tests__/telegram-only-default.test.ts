@@ -13,6 +13,7 @@ const env: Record<string, string> = {
   TELEGRAM_WEBHOOK_SECRET: "wh-sec",
   ASSISTANT_RUNTIME_BASE_URL: "http://localhost:7821",
   GATEWAY_PORT: "7830",
+  GATEWAY_DEFAULT_ASSISTANT_ID: "test-assistant",
   // GATEWAY_RUNTIME_PROXY_ENABLED intentionally unset → defaults to false
 };
 

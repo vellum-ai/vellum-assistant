@@ -4,7 +4,7 @@ import { createRequire } from "module";
 import { homedir } from "os";
 import { dirname, join } from "path";
 
-import { loadAllAssistants, loadLatestAssistant } from "./assistant-config.js";
+import { loadLatestAssistant } from "./assistant-config.js";
 import { GATEWAY_PORT } from "./constants.js";
 import { stopProcessByPidFile } from "./process.js";
 
@@ -288,7 +288,7 @@ export async function startLocalDaemon(): Promise<void> {
   }
 }
 
-export async function startGateway(): Promise<string> {
+export async function startGateway(assistantId?: string): Promise<string> {
   const publicUrl = await discoverPublicUrl();
   if (publicUrl) {
     console.log(`   Public URL: ${publicUrl}`);
@@ -296,12 +296,12 @@ export async function startGateway(): Promise<string> {
 
   console.log("🌐 Starting gateway...");
 
-  // Only auto-configure default routing when the workspace has exactly one
-  // assistant.  In multi-assistant deployments, falling back to "default"
-  // would silently deliver unmapped Telegram chats to whichever assistant was
-  // most recently hatched — keep the "reject" policy instead.
-  const assistants = loadAllAssistants();
-  const isSingleAssistant = assistants.length === 1;
+  // Resolve the default assistant ID for the gateway. Prefer the explicitly
+  // provided assistantId (from hatch), then env override, then lockfile.
+  const resolvedAssistantId =
+    process.env.GATEWAY_DEFAULT_ASSISTANT_ID
+    || assistantId
+    || loadLatestAssistant()?.assistantId;
 
   // Read the bearer token so the gateway can authenticate proxied requests
   // (e.g. from paired iOS devices). Respect VELLUM_HTTP_TOKEN_PATH and
@@ -359,15 +359,10 @@ export async function startGateway(): Promise<string> {
 
   if (process.env.GATEWAY_UNMAPPED_POLICY) {
     gatewayEnv.GATEWAY_UNMAPPED_POLICY = process.env.GATEWAY_UNMAPPED_POLICY;
-  } else if (isSingleAssistant) {
-    gatewayEnv.GATEWAY_UNMAPPED_POLICY = "default";
   }
 
-  if (process.env.GATEWAY_DEFAULT_ASSISTANT_ID) {
-    gatewayEnv.GATEWAY_DEFAULT_ASSISTANT_ID = process.env.GATEWAY_DEFAULT_ASSISTANT_ID;
-  } else if (isSingleAssistant) {
-    gatewayEnv.GATEWAY_DEFAULT_ASSISTANT_ID =
-      assistants[0].assistantId || loadLatestAssistant()?.assistantId || "default";
+  if (resolvedAssistantId) {
+    gatewayEnv.GATEWAY_DEFAULT_ASSISTANT_ID = resolvedAssistantId;
   }
   const workspaceIngressPublicBaseUrl = readWorkspaceIngressPublicBaseUrl();
   const ingressPublicBaseUrl =

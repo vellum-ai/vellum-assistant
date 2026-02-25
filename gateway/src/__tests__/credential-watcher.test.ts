@@ -184,6 +184,7 @@ async function startGateway(): Promise<void> {
       ...process.env,
       BASE_DATA_DIR: testDir,
       GATEWAY_PORT: String(port),
+      GATEWAY_DEFAULT_ASSISTANT_ID: "test-assistant",
       // Ensure Telegram is NOT configured via env vars
       TELEGRAM_BOT_TOKEN: "",
       TELEGRAM_WEBHOOK_SECRET: "",
