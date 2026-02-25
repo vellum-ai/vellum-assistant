@@ -1251,6 +1251,11 @@ public final class SettingsStore: ObservableObject {
             telegramOutboundSendCount = sendCount
             if let bootstrapUrl {
                 telegramBootstrapUrl = bootstrapUrl
+            } else if response.pendingBootstrap == true {
+                // Session is still in pending_bootstrap state — preserve the
+                // existing bootstrap URL so the deep link stays visible. The
+                // status handler cannot reconstruct the URL (only the hash is
+                // stored), so we must not overwrite what we received earlier.
             } else if sessionId != nil {
                 // Bootstrap complete — clear the URL so resend becomes available
                 telegramBootstrapUrl = nil

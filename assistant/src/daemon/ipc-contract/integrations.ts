@@ -272,6 +272,8 @@ export interface GuardianVerificationResponse {
   sendCount?: number;
   /** Telegram deep-link URL for bootstrap (M3 placeholder). */
   telegramBootstrapUrl?: string;
+  /** True when the outbound session is still in pending_bootstrap state (Telegram handle flow). Prevents the client from clearing the bootstrap URL during status polling. */
+  pendingBootstrap?: boolean;
 }
 
 export interface TwitterAuthResult {

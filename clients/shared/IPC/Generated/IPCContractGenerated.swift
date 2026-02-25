@@ -1948,8 +1948,10 @@ public struct IPCGuardianVerificationResponse: Codable, Sendable {
     public let sendCount: Int?
     /// Telegram deep-link URL for bootstrap (M3 placeholder).
     public let telegramBootstrapUrl: String?
+    /// True when the outbound session is still in pending_bootstrap state (Telegram handle flow). Prevents the client from clearing the bootstrap URL during status polling.
+    public let pendingBootstrap: Bool?
 
-    public init(type: String, success: Bool, secret: String? = nil, instruction: String? = nil, bound: Bool? = nil, guardianExternalUserId: String? = nil, channel: String? = nil, assistantId: String? = nil, guardianDeliveryChatId: String? = nil, guardianUsername: String? = nil, guardianDisplayName: String? = nil, hasPendingChallenge: Bool? = nil, error: String? = nil, message: String? = nil, verificationSessionId: String? = nil, expiresAt: Int? = nil, nextResendAt: Int? = nil, sendCount: Int? = nil, telegramBootstrapUrl: String? = nil) {
+    public init(type: String, success: Bool, secret: String? = nil, instruction: String? = nil, bound: Bool? = nil, guardianExternalUserId: String? = nil, channel: String? = nil, assistantId: String? = nil, guardianDeliveryChatId: String? = nil, guardianUsername: String? = nil, guardianDisplayName: String? = nil, hasPendingChallenge: Bool? = nil, error: String? = nil, message: String? = nil, verificationSessionId: String? = nil, expiresAt: Int? = nil, nextResendAt: Int? = nil, sendCount: Int? = nil, telegramBootstrapUrl: String? = nil, pendingBootstrap: Bool? = nil) {
         self.type = type
         self.success = success
         self.secret = secret
@@ -1969,6 +1971,7 @@ public struct IPCGuardianVerificationResponse: Codable, Sendable {
         self.nextResendAt = nextResendAt
         self.sendCount = sendCount
         self.telegramBootstrapUrl = telegramBootstrapUrl
+        self.pendingBootstrap = pendingBootstrap
     }
 }
 

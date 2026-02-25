@@ -120,7 +120,7 @@ function rowToChallenge(row: typeof channelGuardianVerificationChallenges.$infer
     channel: row.channel,
     challengeHash: row.challengeHash,
     expiresAt: row.expiresAt,
-    status: row.status as ChallengeStatus,
+    status: row.status as SessionStatus,
     createdBySessionId: row.createdBySessionId,
     consumedByExternalUserId: row.consumedByExternalUserId,
     consumedByChatId: row.consumedByChatId,
@@ -340,8 +340,12 @@ export function findPendingChallengeByHash(
 }
 
 /**
- * Find any pending (non-expired) challenge for a given (assistantId, channel).
- * Used by relay setup to detect whether a voice verification session is active.
+ * Find any pending inbound (non-expired) challenge for a given (assistantId, channel).
+ * Scoped to 'pending' status only — this is the inbound verification path used by
+ * the relay-server to gate incoming voice calls. Outbound session states
+ * (pending_bootstrap, awaiting_response) are excluded so that an active outbound
+ * verification does not inadvertently force unrelated inbound callers into the
+ * guardian verification flow.
  */
 export function findPendingChallengeForChannel(
   assistantId: string,
@@ -357,7 +361,7 @@ export function findPendingChallengeForChannel(
       and(
         eq(channelGuardianVerificationChallenges.assistantId, assistantId),
         eq(channelGuardianVerificationChallenges.channel, channel),
-        inArray(channelGuardianVerificationChallenges.status, ['pending', 'pending_bootstrap', 'awaiting_response']),
+        eq(channelGuardianVerificationChallenges.status, 'pending'),
         gt(channelGuardianVerificationChallenges.expiresAt, now),
       ),
     )

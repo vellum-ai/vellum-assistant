@@ -88,6 +88,17 @@ function isTelegramChatId(destination: string): boolean {
 }
 
 /**
+ * Normalize a Telegram destination for consistent rate-limit lookups.
+ * Strips leading '@' and lowercases handles so that "@Username" and
+ * "@username" count against the same per-destination rate window.
+ * Numeric chat IDs are returned as-is.
+ */
+function normalizeTelegramDestination(destination: string): string {
+  if (isTelegramChatId(destination)) return destination;
+  return destination.replace(/^@/, '').toLowerCase();
+}
+
+/**
  * Get the Telegram bot username from credential metadata.
  * Falls back to process.env.TELEGRAM_BOT_USERNAME.
  */
@@ -178,9 +189,14 @@ export function handleGuardianVerification(
         outboundFields.expiresAt = activeOutboundSession.expiresAt;
         outboundFields.nextResendAt = activeOutboundSession.nextResendAt;
         outboundFields.sendCount = activeOutboundSession.sendCount;
-        // Note: telegramBootstrapUrl is NOT included because the plaintext
-        // token is not stored (only the hash). If the client restarts during
-        // bootstrap, the user must cancel and restart the flow.
+        // Signal to the client that the session is still in pending_bootstrap
+        // state so it does not clear the bootstrap URL during status polling.
+        // The plaintext token is NOT stored (only the hash), so the URL
+        // itself cannot be reconstructed; the client must preserve whatever
+        // URL it received from the initial start_outbound response.
+        if (activeOutboundSession.status === 'pending_bootstrap') {
+          outboundFields.pendingBootstrap = true;
+        }
       }
 
       ctx.send(socket, {
@@ -389,8 +405,13 @@ function handleStartOutboundTelegram(
     return;
   }
 
+  // Normalize destination for consistent rate-limit lookups. Strips
+  // leading '@' and lowercases handles so "@User" and "@user" share a
+  // single per-destination counter.
+  const normalizedDestination = normalizeTelegramDestination(destination);
+
   // Enforce per-destination rate limit across all sessions
-  const recentSendCount = countRecentSendsToDestination(channel, destination, DESTINATION_RATE_WINDOW_MS);
+  const recentSendCount = countRecentSendsToDestination(channel, normalizedDestination, DESTINATION_RATE_WINDOW_MS);
   if (recentSendCount >= MAX_SENDS_PER_DESTINATION_WINDOW) {
     ctx.send(socket, {
       type: 'guardian_verification_response',
@@ -422,7 +443,7 @@ function handleStartOutboundTelegram(
       channel,
       expectedChatId: destination,
       identityBindingStatus: 'bound',
-      destinationAddress: destination,
+      destinationAddress: normalizedDestination,
     });
 
     const telegramBody = composeVerificationTelegram(
@@ -473,7 +494,7 @@ function handleStartOutboundTelegram(
       assistantId,
       channel,
       identityBindingStatus: 'pending_bootstrap',
-      destinationAddress: destination,
+      destinationAddress: normalizedDestination,
       bootstrapTokenHash,
     });
 
