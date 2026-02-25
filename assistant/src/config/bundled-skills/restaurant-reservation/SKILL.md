@@ -2,13 +2,21 @@
 name: "Restaurant Reservation Booking"
 description: "Book reservations on OpenTable or Resy with explicit confirmations"
 user-invocable: true
-disable-model-invocation: false
+includes: ["browser"]
 metadata: {"vellum": {"emoji": "🍽️"}}
 ---
 
 Book restaurant reservations on OpenTable or Resy using browser automation.
 
-**Before starting:** Load the `browser` skill if not already loaded (`skill_load` with `skill: "browser"`).
+## Anti-Loop Guardrails
+
+Each step has a **retry budget of 3 attempts**. An attempt is one try at the step's primary action (e.g., clicking a button, filling a form, navigating a page). If a step fails after 3 attempts:
+
+1. **Stop trying.** Do not continue retrying the same approach.
+2. **Fall back to manual.** Tell the user what you were trying to do and ask them to complete that step manually in the browser. Give them the direct URL and clear instructions.
+3. **Resume automation** at the next step once the user confirms the manual step is done.
+
+If **two or more steps** require manual fallback, inform the user the automated flow is unreliable and offer to provide the remaining steps as text instructions with links.
 
 ## Booking Flow — Follow These Steps IN ORDER
 
@@ -28,7 +36,7 @@ Do not proceed until all required details have been provided.
 ### Step 2: Choose Provider
 
 - If the user hasn't specified a provider, ask them to choose between **OpenTable** and **Resy**.
-- If a specific restaurant is requested, check which provider has it before asking.
+- Do NOT attempt to browse provider sites to check restaurant availability before signing in — authentication is required first. If the user names a specific restaurant but isn't sure which provider has it, pick the more common one (OpenTable) and fall back to the other if it's not found after searching in Step 4.
 
 ### Step 3: Navigate and Sign In FIRST
 
@@ -62,6 +70,7 @@ This is the most important step. Reservation sites require authentication before
 2. **For Resy**, navigate to `https://resy.com/cities/<city>` and use the search/filter UI to find available reservations matching the collected details.
 3. If a specific restaurant was named, navigate directly to its page if possible (e.g. `https://www.opentable.com/r/<restaurant-slug>` or `https://resy.com/cities/<city>/venues/<restaurant-slug>`). **After landing on the restaurant page, reapply the user's date, time, and party size filters** — direct restaurant URLs often show default availability that may not match the user's request. Use the on-page date picker, time selector, and party size controls to set the correct values before reviewing slots.
 4. Take a `browser_snapshot` and review the results.
+5. **If the named restaurant is not found on this provider**, tell the user and offer to try the other provider (OpenTable <-> Resy). If they agree, go back to Step 3 to sign in to the other provider.
 
 ### Step 5: Present Available Slots
 
@@ -70,7 +79,7 @@ This is the most important step. Reservation sites require authentication before
 3. If **NO slots** match the requested time:
    - Offer nearby times on the same date.
    - Offer the same time on adjacent dates.
-   - Suggest trying the other provider (OpenTable ↔ Resy).
+   - Suggest trying the other provider (OpenTable <-> Resy).
 4. Let the user choose a slot.
 5. **Click the chosen slot on the page** to select it. Take a fresh `browser_snapshot` to confirm the slot is selected and the booking/confirmation form is now visible. Do not proceed to confirmation steps until the slot is actively selected in the site UI.
 
@@ -88,7 +97,7 @@ Before proceeding to book, show the user a summary:
 - Deposit requirements
 - Credit card hold amounts
 
-**If the restaurant charges a cancellation or no-show fee, call it out explicitly in a separate line** — do not bury it in other details. Example: "⚠️ This restaurant charges a $25/person no-show fee."
+**If the restaurant charges a cancellation or no-show fee, call it out explicitly in a separate line** — do not bury it in other details. Example: "This restaurant charges a $25/person no-show fee."
 
 Ask the user to confirm they want to proceed.
 
@@ -113,9 +122,10 @@ Only proceed after explicit user approval.
 
 - **ALWAYS sign in first.** Do not attempt to search or browse availability before signing in.
 - **NEVER tell the user to sign in themselves.** You handle ALL authentication using `browser_fill_credential` and `ui_show` for verification codes.
-- **NEVER give up.** If an interaction fails, take a fresh `browser_snapshot` and retry with updated element IDs.
+- **NEVER give up.** If an interaction fails, take a fresh `browser_snapshot` and retry with updated element IDs — within the 3-attempt budget per step.
 - **Target elements by `element_id`** from `browser_snapshot`. Never fabricate CSS selectors.
-- **Use arrow keys for dropdowns and date pickers.** Date selectors, time pickers, party size dropdowns, and autocomplete menus should be navigated with `ArrowDown`/`ArrowUp` + `Enter`, not clicks.
+- **Use `browser_select_option` for native `<select>` dropdowns** (e.g., party size selectors). For non-native dropdowns, ARIA listboxes, and date/time pickers, use `ArrowDown`/`ArrowUp` + `Enter` via `browser_press_key`.
+- **Use `browser_scroll`** to reveal off-screen time slots or search results before interacting with them.
 - **Handle CAPTCHAs:** If a Cloudflare/CAPTCHA challenge appears, wait a few seconds — it often auto-resolves. If it persists, the system will hand off to the user automatically.
 - **Fresh snapshots after every action** that changes the page. Element IDs go stale after navigation or DOM updates.
 - **Conserve context.** Browser flows are token-heavy. Avoid unnecessary snapshots — only take one when the page changes. Combine multiple actions efficiently. Do not narrate every step in detail.
@@ -124,7 +134,7 @@ Only proceed after explicit user approval.
 
 ## Error Handling
 
-- **Search returns no results:** Try alternate search terms, broaden the location, or check spelling. If still nothing, suggest the other provider (OpenTable ↔ Resy).
+- **Search returns no results:** Try alternate search terms, broaden the location, or check spelling. If still nothing, suggest the other provider (OpenTable <-> Resy).
 - **Expired OTP:** Never retry an old verification code. Always prompt the user for a fresh code via `ui_show` with `await_action: true`.
 - **Login fails repeatedly:** After 3 failed attempts, inform the user and ask if they want to try the other provider or handle login manually.
 - **Reservation submit fails:** Take a fresh `browser_snapshot`, read the error message, and report it to the user. Common causes: credit card required, party size changed, slot no longer available. Suggest rebooking if the slot was taken.
