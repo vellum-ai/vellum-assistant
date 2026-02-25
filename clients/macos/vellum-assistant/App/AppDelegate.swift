@@ -278,6 +278,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         authWindow?.close()
         authWindow = nil
 
+        if !isFirstLaunch && isBootstrapping {
+            log.warning("Stale bootstrap state detected on non-first-launch — resetting to complete")
+            transitionBootstrap(to: .complete)
+        }
+
         guard !hasSetupApp else {
             showMainWindow()
             return
@@ -330,6 +335,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 // Transition to pendingFirstReply — M3 will handle the
                 // .complete transition when the first assistant reply arrives.
                 transitionBootstrap(to: .pendingFirstReply)
+                // TODO(M3): Remove this — transition to .complete should happen when first assistant reply arrives
+                transitionBootstrap(to: .complete)
                 setupWakeWordCoordinator()
                 debugStateWriter.start(appDelegate: self)
             }
