@@ -2,6 +2,8 @@
 // Used by task/message handlers to intercept recording-related prompts
 // before they reach the classifier or create a CU session.
 
+export type RecordingIntentClass = 'start_only' | 'stop_only' | 'mixed' | 'none';
+
 // ─── Start recording patterns ────────────────────────────────────────────────
 
 const START_RECORDING_PATTERNS: RegExp[] = [
@@ -126,4 +128,63 @@ export function isStopRecordingOnly(taskText: string): boolean {
   // Also remove common polite/filler words that don't change the intent
   const withoutFillers = stripped.replace(FILLER_PATTERN, '');
   return withoutFillers.replace(/[.,;!?\s]+/g, '').length === 0;
+}
+
+// ─── Dynamic name normalization ─────────────────────────────────────────────
+
+/**
+ * Strips dynamic assistant name aliases from the beginning of text.
+ * Handles patterns like "Nova, ...", "Nova ...", "hey Nova, ...", "hey, Nova, ..." (case-insensitive).
+ */
+function stripDynamicNames(text: string, dynamicNames: string[]): string {
+  let result = text;
+  for (const name of dynamicNames) {
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // "hey <name>, ..." / "hey <name> ..." / "hey, <name>, ..."
+    const heyPattern = new RegExp(`^hey[,\\s]+${escaped}[,:]?\\s*`, 'i');
+    // "<name>, ..." or "<name> ..."
+    const namePattern = new RegExp(`^${escaped}[,:]?\\s*`, 'i');
+    result = result.replace(heyPattern, '');
+    result = result.replace(namePattern, '');
+  }
+  return result.trim();
+}
+
+// ─── Unified classification ─────────────────────────────────────────────────
+
+/**
+ * Classifies the recording intent of a user message into one of four categories:
+ * - 'start_only': the prompt is purely about starting a recording
+ * - 'stop_only': the prompt is purely about stopping a recording
+ * - 'mixed': the prompt contains recording intent mixed with other tasks,
+ *            or contains both start and stop recording patterns
+ * - 'none': no recording intent detected
+ *
+ * If `dynamicNames` are provided, they are stripped from the beginning of the
+ * text before classification (e.g., "Nova, record my screen" -> "record my screen").
+ */
+export function classifyRecordingIntent(
+  taskText: string,
+  dynamicNames?: string[],
+): RecordingIntentClass {
+  const normalized =
+    dynamicNames && dynamicNames.length > 0
+      ? stripDynamicNames(taskText, dynamicNames)
+      : taskText;
+
+  const hasStart = detectRecordingIntent(normalized);
+  const hasStop = detectStopRecordingIntent(normalized);
+
+  // Both start and stop patterns present -> mixed
+  if (hasStart && hasStop) return 'mixed';
+
+  if (hasStop) {
+    return isStopRecordingOnly(normalized) ? 'stop_only' : 'mixed';
+  }
+
+  if (hasStart) {
+    return isRecordingOnly(normalized) ? 'start_only' : 'mixed';
+  }
+
+  return 'none';
 }
