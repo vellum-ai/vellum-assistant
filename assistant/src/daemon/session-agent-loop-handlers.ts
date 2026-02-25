@@ -14,6 +14,7 @@ import type { AgentEvent } from '../agent/loop.js';
 import type { AgentLoopSessionContext } from './session-agent-loop.js';
 import type { DirectiveRequest } from './assistant-attachments.js';
 import * as conversationStore from '../memory/conversation-store.js';
+import { provenanceFromGuardianContext } from '../memory/conversation-store.js';
 import { classifySessionError, isContextTooLarge, buildSessionErrorMessage } from './session-error.js';
 import { isProviderOrderingError } from './session-slash.js';
 import { cleanAssistantContent, drainDirectiveDisplayBuffer } from './assistant-attachments.js';
@@ -275,6 +276,7 @@ export function handleMessageComplete(
       }),
     );
     const toolResultMetadata = {
+      ...provenanceFromGuardianContext(deps.ctx.guardianContext),
       userMessageChannel: deps.turnChannelContext.userMessageChannel,
       assistantMessageChannel: deps.turnChannelContext.assistantMessageChannel,
     };
@@ -317,6 +319,7 @@ export function handleMessageComplete(
   }
 
   const assistantChannelMetadata = {
+    ...provenanceFromGuardianContext(deps.ctx.guardianContext),
     userMessageChannel: deps.turnChannelContext.userMessageChannel,
     assistantMessageChannel: deps.turnChannelContext.assistantMessageChannel,
   };
