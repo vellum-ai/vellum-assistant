@@ -23,7 +23,7 @@ import {
   type ApprovalRequestStatus,
 } from '../../memory/channel-guardian-store.js';
 import { refreshThreadEscalation } from '../../memory/inbox-escalation-projection.js';
-import { addMessage, getMessages, provenanceFromGuardianContext } from '../../memory/conversation-store.js';
+import { addMessage, getMessages } from '../../memory/conversation-store.js';
 import { getBindingByConversation } from '../../memory/external-conversation-store.js';
 import { updateThreadActivity } from '../../memory/inbox-thread-store.js';
 import { getLatestStoredPayload } from '../../memory/channel-delivery-store.js';
@@ -478,7 +478,7 @@ async function executeDeny(
 
   // Store a system note about the denial in the conversation
   addMessage(conversationId, 'assistant', denialText, {
-    ...provenanceFromGuardianContext(null),
+    provenanceActorRole: 'guardian' as const,
     userMessageChannel: sourceChannel,
     assistantMessageChannel: sourceChannel,
   });
@@ -514,7 +514,7 @@ export function handleAssistantInboxReply(
       'assistant',
       content,
       {
-        ...provenanceFromGuardianContext(null),
+        provenanceActorRole: 'guardian' as const,
         ...(bindingChannel
           ? { userMessageChannel: bindingChannel, assistantMessageChannel: bindingChannel }
           : {}),
