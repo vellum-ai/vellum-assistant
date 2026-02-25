@@ -115,6 +115,9 @@ export function buildSystemPrompt(tier: ResponseTier = 'high'): string {
   parts.push(buildPostToolResponseSection());
   parts.push(buildExternalCommsIdentitySection());
   parts.push(buildChannelAwarenessSection());
+  // Parental controls are a safety boundary — always included regardless of tier.
+  const parentalSection = buildParentalControlSection();
+  if (parentalSection) parts.push(parentalSection);
 
   // ── Extended sections (medium + high) ──
   if (tier !== 'low') {
@@ -136,8 +139,6 @@ export function buildSystemPrompt(tier: ResponseTier = 'high'): string {
     parts.push(buildIntegrationSection());
     parts.push(buildWorkspaceReflectionSection());
     parts.push(buildLearningMemorySection());
-    const parentalSection = buildParentalControlSection();
-    if (parentalSection) parts.push(parentalSection);
   }
 
   // Skills catalog: include for medium+high, skip for low

@@ -121,11 +121,12 @@ export class AgentLoop {
         if (turnModel) {
           providerConfig.model = turnModel;
         }
-        if (this.config.thinking?.enabled) {
-          // Anthropic requires budget_tokens < max_tokens
+        if (this.config.thinking?.enabled && turnMaxTokens >= 4000) {
+          // Skip thinking when turnMaxTokens is too low (e.g. low tier) to
+          // avoid the thinking budget consuming nearly all output tokens.
           const budgetTokens = Math.min(
             this.config.thinking.budgetTokens,
-            turnMaxTokens - 1,
+            Math.floor(turnMaxTokens * 0.75),
           );
           providerConfig.thinking = {
             type: 'enabled',

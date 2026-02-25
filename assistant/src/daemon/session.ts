@@ -206,8 +206,26 @@ export class Session {
     const resolveTools = createResolveToolsCallback(toolDefs, this);
 
     const configuredMaxTokens = maxTokens;
-    // Matches runtime-injected XML context blocks (e.g. <channel_capabilities>, <dynamic-profile-context>, etc.)
-    const INJECTED_BLOCK_RE = /^<[a-z][a-z0-9_-]*[\s>]/;
+    // When a systemPromptOverride was provided, skip tier-based prompt
+    // rebuilding and use the override as-is — only scale maxTokens and model.
+    const hasSystemPromptOverride = systemPrompt !== buildSystemPrompt();
+
+    // Known runtime-injected XML context block prefixes. Using an explicit
+    // list avoids false-positives on user messages that start with HTML/XML.
+    const INJECTED_PREFIXES = [
+      '<channel_capabilities>',
+      '<channel_command_context>',
+      '<channel_turn_context>',
+      '<temporal_context>',
+      '<guardian_context>',
+      '<voice_call_control>',
+      '<workspace_top_level>',
+      '<active_workspace>',
+      '<active_dynamic_page>',
+      '<dynamic-profile-context>',
+      '<memory_recall',
+      '<system_notice>',
+    ];
 
     // Track the last user-message tier so tool-use continuation turns
     // (where user text is empty — only tool_result blocks) inherit it
@@ -224,7 +242,7 @@ export class Session {
         for (const block of lastUserMsg.content) {
           if (block.type === 'text') {
             const trimmed = block.text.trimStart();
-            if (!INJECTED_BLOCK_RE.test(trimmed)) {
+            if (!INJECTED_PREFIXES.some((p) => trimmed.startsWith(p))) {
               userText += block.text;
             }
           }
@@ -243,7 +261,7 @@ export class Session {
 
       const model = tierModel(tier, provider.name);
       return {
-        systemPrompt: buildSystemPrompt(tier),
+        systemPrompt: hasSystemPromptOverride ? systemPrompt : buildSystemPrompt(tier),
         maxTokens: tierMaxTokens(tier, configuredMaxTokens),
         model,
       };

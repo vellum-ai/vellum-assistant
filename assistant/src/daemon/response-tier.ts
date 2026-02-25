@@ -76,7 +76,7 @@ const TIER_SCALE: Record<ResponseTier, number> = {
  *
  * Examples with configuredMax = 16000:
  *   low    → 2000
- *   medium → 8000
+ *   medium → 6000
  *   high   → 16000
  */
 export function tierMaxTokens(tier: ResponseTier, configuredMax: number): number {
