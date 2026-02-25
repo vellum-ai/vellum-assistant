@@ -6,6 +6,7 @@ import {
   stripRecordingIntent,
   stripStopRecordingIntent,
   isStopRecordingOnly,
+  classifyRecordingIntent,
 } from '../daemon/recording-intent.js';
 
 // ─── detectRecordingIntent ──────────────────────────────────────────────────
@@ -261,5 +262,80 @@ describe('isStopRecordingOnly', () => {
     expect(isStopRecordingOnly('stop recording!')).toBe(true);
     expect(isStopRecordingOnly('stop recording.')).toBe(true);
     expect(isStopRecordingOnly('end the recording?')).toBe(true);
+  });
+});
+
+// ─── classifyRecordingIntent ────────────────────────────────────────────────
+
+describe('classifyRecordingIntent', () => {
+  // Basic classification
+  test.each([
+    ['record my screen', 'start_only'],
+    ['stop recording', 'stop_only'],
+    ['open Safari and record my screen', 'mixed'],
+    ['hello world', 'none'],
+    ['', 'none'],
+  ] as const)('basic: "%s" → %s', (text, expected) => {
+    expect(classifyRecordingIntent(text)).toBe(expected);
+  });
+
+  // Dynamic name stripping
+  test.each([
+    ['Nova, record my screen', ['Nova'], 'start_only'],
+    ['hey Nova, start recording', ['Nova'], 'start_only'],
+    ['Nova, stop recording', ['Nova'], 'stop_only'],
+    ['Nova, open Safari and record my screen', ['Nova'], 'mixed'],
+    ['Nova, hello', ['Nova'], 'none'],
+  ] as const)('dynamic names: "%s" with %j → %s', (text, names, expected) => {
+    expect(classifyRecordingIntent(text, [...names])).toBe(expected);
+  });
+
+  // No dynamic names (backwards compat)
+  test('works without dynamic names parameter', () => {
+    expect(classifyRecordingIntent('record my screen')).toBe('start_only');
+    expect(classifyRecordingIntent('stop recording')).toBe('stop_only');
+  });
+
+  // With fillers
+  test('handles filler words correctly', () => {
+    expect(classifyRecordingIntent('please record my screen')).toBe('start_only');
+    expect(classifyRecordingIntent('can you stop recording?')).toBe('stop_only');
+  });
+
+  // Both start and stop → mixed
+  test('classifies as mixed when both start and stop patterns are present', () => {
+    expect(classifyRecordingIntent('start recording and then stop recording')).toBe('mixed');
+    expect(classifyRecordingIntent('record my screen and stop recording')).toBe('mixed');
+  });
+
+  // Edge cases
+  test('classifies as mixed when stop-recording has additional task', () => {
+    expect(classifyRecordingIntent('stop recording and open Chrome')).toBe('mixed');
+  });
+
+  // Case insensitivity with dynamic names
+  test('dynamic name stripping is case-insensitive', () => {
+    expect(classifyRecordingIntent('nova, record my screen', ['Nova'])).toBe('start_only');
+    expect(classifyRecordingIntent('NOVA, stop recording', ['Nova'])).toBe('stop_only');
+    expect(classifyRecordingIntent('Hey NOVA, start recording', ['nova'])).toBe('start_only');
+  });
+
+  // Multiple dynamic names
+  test('handles multiple dynamic names', () => {
+    expect(classifyRecordingIntent('Jarvis, record my screen', ['Nova', 'Jarvis'])).toBe(
+      'start_only',
+    );
+    expect(classifyRecordingIntent('Nova, stop recording', ['Nova', 'Jarvis'])).toBe('stop_only');
+  });
+
+  // Empty dynamic names array
+  test('handles empty dynamic names array', () => {
+    expect(classifyRecordingIntent('record my screen', [])).toBe('start_only');
+    expect(classifyRecordingIntent('stop recording', [])).toBe('stop_only');
+  });
+
+  // Name with colon separator
+  test('handles colon separator after name', () => {
+    expect(classifyRecordingIntent('Nova: record my screen', ['Nova'])).toBe('start_only');
   });
 });
