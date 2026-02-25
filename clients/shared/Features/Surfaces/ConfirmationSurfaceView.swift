@@ -3,6 +3,7 @@ import SwiftUI
 public struct ConfirmationSurfaceView: View {
     public let data: ConfirmationSurfaceData
     public let actions: [SurfaceActionButton]
+    public let showCardChrome: Bool
     public let onAction: (String) -> Void
 
     private enum SelectedAction {
@@ -12,9 +13,10 @@ public struct ConfirmationSurfaceView: View {
 
     @State private var selectedAction: SelectedAction?
 
-    public init(data: ConfirmationSurfaceData, actions: [SurfaceActionButton], onAction: @escaping (String) -> Void) {
+    public init(data: ConfirmationSurfaceData, actions: [SurfaceActionButton], showCardChrome: Bool = false, onAction: @escaping (String) -> Void) {
         self.data = data
         self.actions = actions
+        self.showCardChrome = showCardChrome
         self.onAction = onAction
     }
 
@@ -40,10 +42,13 @@ public struct ConfirmationSurfaceView: View {
         Group {
             if let selectedAction {
                 selectedActionFeedback(selectedAction)
-            } else {
+            } else if showCardChrome {
                 pendingContent
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .inlineWidgetCard()
+            } else {
+                pendingContent
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .onChange(of: data) { _, _ in

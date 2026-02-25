@@ -50,7 +50,7 @@ public struct InlineSurfaceRouter: View {
             CompletedSurfaceChip(title: surface.title, summary: completion.summary)
         } else if case .confirmation(let data) = surface.data {
             // Confirmations manage their own card chrome — collapse to a chip after user acts
-            ConfirmationSurfaceView(data: data, actions: surface.actions) { actionId in
+            ConfirmationSurfaceView(data: data, actions: surface.actions, showCardChrome: true) { actionId in
                 onAction(surface.id, actionId, nil)
             }
             .frame(maxWidth: 540, alignment: .leading)
