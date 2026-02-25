@@ -3,7 +3,7 @@ import type { SwarmLimits } from './limits.js';
 import { getTimeoutForRole } from './limits.js';
 import type { SwarmWorkerBackend } from './worker-backend.js';
 import { runWorkerTask } from './worker-runner.js';
-import type { Provider } from '../providers/types.js';
+import type { Provider, ModelIntent } from '../providers/types.js';
 import { synthesizeResults } from './synthesizer.js';
 import { detectCycles } from './graph-utils.js';
 import { getLogger } from '../util/logger.js';
@@ -36,7 +36,7 @@ export interface ExecuteSwarmOptions {
   modelIntent?: string;
   /** Provider + model intent for final synthesis. */
   synthesisProvider?: Provider;
-  synthesisModelIntent?: string;
+  synthesisModelIntent?: ModelIntent;
   onStatus?: OrchestratorStatusCallback;
   signal?: AbortSignal;
   /** Stable identifier for this swarm run, used for checkpoint persistence. */
