@@ -127,6 +127,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var zoomManager: ZoomManager { services.zoomManager }
 
     let toolConfirmationNotificationService = ToolConfirmationNotificationService()
+    lazy var recordingManager: RecordingManager = RecordingManager(daemonClient: daemonClient)
+    var recordingPickerWindow: RecordingSourcePickerWindow?
+    var recordingHUDWindow: RecordingHUDWindow?
 
     private var onboardingWindow: OnboardingWindow?
     private var authWindow: NSWindow?
@@ -871,6 +874,21 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                         style: .error
                     )
                 }
+            }
+        }
+
+        // Handle recording_start from daemon: check permission, then start recording
+        daemonClient.onRecordingStart = { [weak self] msg in
+            guard let self else { return }
+            self.handleRecordingStart(msg)
+        }
+
+        // Handle recording_stop from daemon
+        daemonClient.onRecordingStop = { [weak self] msg in
+            guard let self else { return }
+            Task {
+                _ = await self.recordingManager.stop(sessionId: msg.recordingId)
+                self.recordingHUDWindow?.dismiss()
             }
         }
 
@@ -1849,6 +1867,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         surfaceManager.dismissAll()
         toolConfirmationNotificationService.dismissAll()
         secretPromptManager.dismissAll()
+        recordingManager.forceStop()
+        recordingHUDWindow?.dismiss()
         debugStateWriter.stop()
         assistantCli.stop()
     }
