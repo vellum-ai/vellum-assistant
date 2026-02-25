@@ -87,7 +87,7 @@ const WELL_KNOWN_OAUTH: Record<string, WellKnownOAuthConfig> = {
       'search:read', 'reactions:write',
     ],
     extraParams: {
-      user_scope: 'channels:read,channels:history,groups:read,groups:history,im:read,im:history,mpim:read,mpim:history,users:read,chat:write,search:read,reactions:write',
+      user_scope: 'channels:read,channels:history,groups:read,groups:history,im:read,im:history,im:write,mpim:read,mpim:history,users:read,chat:write,search:read,reactions:write',
     },
     callbackTransport: 'loopback',
     loopbackPort: 17322,
@@ -705,18 +705,29 @@ class CredentialStoreTool implements Tool {
           // Channel path: return the auth URL as text for the user to open manually.
           // Token storage happens asynchronously when the callback arrives.
           try {
-            const { loadConfig } = await import('../../config/loader.js');
-            const { getPublicBaseUrl } = await import('../../inbound/public-ingress-urls.js');
-            try {
-              getPublicBaseUrl(loadConfig());
-            } catch {
-              return {
-                content: 'Error: oauth2_connect from a non-interactive session requires a public ingress URL. Configure ingress.publicBaseUrl first.',
-                isError: true,
-              };
+            const callbackTransport = wellKnown?.callbackTransport ?? 'gateway';
+
+            // Gateway transport needs a public ingress URL; loopback runs locally
+            // on the daemon so it works regardless of ingress configuration.
+            if (callbackTransport !== 'loopback') {
+              const { loadConfig } = await import('../../config/loader.js');
+              const { getPublicBaseUrl } = await import('../../inbound/public-ingress-urls.js');
+              try {
+                getPublicBaseUrl(loadConfig());
+              } catch {
+                return {
+                  content: 'Error: oauth2_connect from a non-interactive session requires a public ingress URL. Configure ingress.publicBaseUrl first.',
+                  isError: true,
+                };
+              }
             }
 
-            const prepared = await prepareOAuth2Flow(oauthConfig);
+            const prepared = await prepareOAuth2Flow(
+              oauthConfig,
+              callbackTransport === 'loopback'
+                ? { callbackTransport, loopbackPort: wellKnown?.loopbackPort }
+                : undefined,
+            );
 
             // Fire-and-forget: when the callback arrives, store tokens in the background
             prepared.completion.then(async (result) => {

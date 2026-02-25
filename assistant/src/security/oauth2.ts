@@ -366,11 +366,24 @@ export interface OAuth2PreparedFlow {
  * the URL or blocking. Used by channel sessions where the LLM sends the auth
  * URL directly in chat and the callback arrives asynchronously via the gateway.
  *
- * Requires a public ingress URL (gateway transport).
+ * Supports two transports:
+ * - **gateway** (default): routes callbacks through the public ingress URL.
+ *   Requires `ingress.publicBaseUrl` to be configured.
+ * - **loopback**: starts a temporary localhost server to receive the callback.
+ *   Used for services like Slack that require pre-registered localhost redirect
+ *   URIs. The daemon is always local, so this works even in non-interactive
+ *   (channel) sessions.
  */
 export async function prepareOAuth2Flow(
   config: OAuth2Config,
+  options?: OAuth2FlowOptions,
 ): Promise<OAuth2PreparedFlow> {
+  const transport = options?.callbackTransport ?? 'gateway';
+
+  if (transport === 'loopback') {
+    return prepareLoopbackFlow(config, options?.loopbackPort);
+  }
+
   const { loadConfig } = await import('../config/loader.js');
   const { getOAuthCallbackUrl } = await import('../inbound/public-ingress-urls.js');
   const { registerPendingCallback } = await import('./oauth-callback-registry.js');
@@ -406,6 +419,140 @@ export async function prepareOAuth2Flow(
   log.debug({ transport: 'gateway', state }, 'Prepared deferred OAuth2 flow');
 
   return { authUrl, state, completion };
+}
+
+/**
+ * Prepare an OAuth2 flow using a loopback server. The server starts immediately
+ * and waits for the callback. The auth URL uses a localhost redirect URI
+ * matching the server's bound port.
+ */
+async function prepareLoopbackFlow(
+  config: OAuth2Config,
+  loopbackPort?: number,
+): Promise<OAuth2PreparedFlow> {
+  const codeVerifier = generateCodeVerifier();
+  const codeChallenge = generateCodeChallenge(codeVerifier);
+  const state = generateState();
+
+  const { redirectUri, codePromise } = await startLoopbackServerForPreparedFlow(
+    state, loopbackPort,
+  );
+
+  const authParams = new URLSearchParams({
+    ...config.extraParams,
+    client_id: config.clientId,
+    redirect_uri: redirectUri,
+    response_type: 'code',
+    scope: config.scopes.join(' '),
+    state,
+    code_challenge: codeChallenge,
+    code_challenge_method: 'S256',
+  });
+
+  const authUrl = `${config.authUrl}?${authParams}`;
+
+  const completion = codePromise.then(async (code) => {
+    return await exchangeCodeForTokens(config, code, redirectUri, codeVerifier);
+  });
+
+  log.debug({ transport: 'loopback', loopbackPort, state }, 'Prepared deferred OAuth2 flow (loopback)');
+
+  return { authUrl, state, completion };
+}
+
+/**
+ * Start a loopback server and return the redirect URI and a promise that
+ * resolves with the authorization code. Unlike startLoopbackServerAndWaitForCode,
+ * this does not open the browser — the caller is responsible for delivering
+ * the auth URL to the user.
+ */
+function startLoopbackServerForPreparedFlow(
+  state: string,
+  loopbackPort?: number,
+): Promise<{ redirectUri: string; codePromise: Promise<string> }> {
+  return new Promise((resolveSetup, rejectSetup) => {
+    let settled = false;
+    let codeResolve: (code: string) => void;
+    let codeReject: (err: Error) => void;
+    const codePromise = new Promise<string>((resolve, reject) => {
+      codeResolve = resolve;
+      codeReject = reject;
+    });
+
+    const server: Server = createServer((req, res) => {
+      if (settled) {
+        res.writeHead(400, { 'Content-Type': 'text/html' });
+        res.end(renderLoopbackPage('Authorization already completed', false));
+        return;
+      }
+
+      const url = new URL(req.url ?? '/', `http://127.0.0.1`);
+
+      if (url.pathname !== LOOPBACK_CALLBACK_PATH) {
+        res.writeHead(404, { 'Content-Type': 'text/plain' });
+        res.end('Not found');
+        return;
+      }
+
+      const callbackState = url.searchParams.get('state');
+      const code = url.searchParams.get('code');
+      const error = url.searchParams.get('error');
+
+      if (callbackState !== state) {
+        res.writeHead(400, { 'Content-Type': 'text/html' });
+        res.end(renderLoopbackPage('Invalid state parameter', false));
+        return;
+      }
+
+      settled = true;
+
+      if (error) {
+        const errorDesc = url.searchParams.get('error_description') ?? error;
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end(renderLoopbackPage(`Authorization failed: ${errorDesc}`, false));
+        cleanup();
+        codeReject(new Error(`OAuth2 authorization denied: ${error}`));
+        return;
+      }
+
+      if (!code) {
+        res.writeHead(400, { 'Content-Type': 'text/html' });
+        res.end(renderLoopbackPage('Missing authorization code', false));
+        cleanup();
+        codeReject(new Error('OAuth2 callback missing authorization code'));
+        return;
+      }
+
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(renderLoopbackPage('Authorization successful! You can close this tab.', true));
+      cleanup();
+      codeResolve(code);
+    });
+
+    const timeout = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        cleanup();
+        codeReject(new Error('OAuth2 loopback callback timed out'));
+      }
+    }, LOOPBACK_TIMEOUT_MS);
+    if (typeof timeout === 'object' && 'unref' in timeout) timeout.unref();
+
+    function cleanup() {
+      clearTimeout(timeout);
+      server.close();
+    }
+
+    server.listen(loopbackPort ?? 0, '127.0.0.1', () => {
+      const addr = server.address() as { port: number };
+      const redirectUri = `http://127.0.0.1:${addr.port}${LOOPBACK_CALLBACK_PATH}`;
+      resolveSetup({ redirectUri, codePromise });
+    });
+
+    server.on('error', (err) => {
+      rejectSetup(new Error(`OAuth2 loopback server error: ${err.message}`));
+    });
+  });
 }
 
 /**
