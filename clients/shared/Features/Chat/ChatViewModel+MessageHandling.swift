@@ -388,11 +388,13 @@ extension ChatViewModel {
     /// Flush any buffered streaming text into the messages array.
     /// Called on a timer and also eagerly on `messageComplete`.
     func flushStreamingBuffer() {
+        // Always clear the task reference so scheduleStreamingFlush() can
+        // schedule a new flush even if the buffer was empty this time.
+        streamingFlushTask?.cancel()
+        streamingFlushTask = nil
         guard !streamingDeltaBuffer.isEmpty else { return }
         let buffered = streamingDeltaBuffer
         streamingDeltaBuffer = ""
-        streamingFlushTask?.cancel()
-        streamingFlushTask = nil
 
         if let existingId = currentAssistantMessageId,
            let index = messages.firstIndex(where: { $0.id == existingId }) {
@@ -808,6 +810,9 @@ extension ChatViewModel {
             // handler below can reference the actual blocked text/attachments
             // rather than falling back to a potentially-wrong transcript lookup.
             let savedTurnUserText = currentTurnUserText
+            // Flush any buffered text so already-received tokens are preserved
+            // in the assistant message before we clear the turn state.
+            flushStreamingBuffer()
             // Mark current assistant message as no longer streaming
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
@@ -819,7 +824,6 @@ extension ChatViewModel {
             currentTurnUserText = nil
             currentAssistantHasText = false
             lastContentWasToolCall = false
-            discardStreamingBuffer()
             if !wasCancelling {
                 errorText = err.message
                 // When the backend blocks a message for containing secrets,
