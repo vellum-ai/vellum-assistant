@@ -283,6 +283,7 @@ describe('classifyRecordingIntent', () => {
   test.each([
     ['Nova, record my screen', ['Nova'], 'start_only'],
     ['hey Nova, start recording', ['Nova'], 'start_only'],
+    ['hey, Nova, start recording', ['Nova'], 'start_only'],
     ['Nova, stop recording', ['Nova'], 'stop_only'],
     ['Nova, open Safari and record my screen', ['Nova'], 'mixed'],
     ['Nova, hello', ['Nova'], 'none'],

@@ -134,14 +134,14 @@ export function isStopRecordingOnly(taskText: string): boolean {
 
 /**
  * Strips dynamic assistant name aliases from the beginning of text.
- * Handles patterns like "Nova, ...", "Nova ...", "hey Nova, ..." (case-insensitive).
+ * Handles patterns like "Nova, ...", "Nova ...", "hey Nova, ...", "hey, Nova, ..." (case-insensitive).
  */
 function stripDynamicNames(text: string, dynamicNames: string[]): string {
   let result = text;
   for (const name of dynamicNames) {
     const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    // "hey <name>, ..." or "hey <name> ..."
-    const heyPattern = new RegExp(`^hey\\s+${escaped}[,:]?\\s*`, 'i');
+    // "hey <name>, ..." / "hey <name> ..." / "hey, <name>, ..."
+    const heyPattern = new RegExp(`^hey[,\\s]+${escaped}[,:]?\\s*`, 'i');
     // "<name>, ..." or "<name> ..."
     const namePattern = new RegExp(`^${escaped}[,:]?\\s*`, 'i');
     result = result.replace(heyPattern, '');
