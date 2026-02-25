@@ -896,6 +896,17 @@ private final class ComposerNativeTextView: NSTextView {
                 return true
             }
         }
+
+        // Let zoom shortcuts propagate to the menu bar instead of being
+        // consumed by the text view. Cmd +/-/0 and Option+Cmd +/-/0 are
+        // handled by the View menu for conversation and window zoom.
+        if event.modifierFlags.contains(.command) {
+            let key = event.charactersIgnoringModifiers ?? ""
+            if key == "=" || key == "+" || key == "-" || key == "0" {
+                return false
+            }
+        }
+
         return super.performKeyEquivalent(with: event)
     }
 
