@@ -1247,9 +1247,9 @@ public final class SettingsStore: ObservableObject {
         pendingIngressUrl = previous
         // Reset stale health status so the UI doesn't show results from the old URL
         let previousReachable = ingressReachable
-        let previousLastChecked = gatewayLastChecked
+        let previousLastChecked = tunnelLastChecked
         ingressReachable = nil
-        gatewayLastChecked = nil
+        tunnelLastChecked = nil
         // Auto-enable ingress when a non-empty URL is saved, auto-disable when cleared.
         // The dedicated Public Ingress toggle was removed, so this is the only path
         // that controls the enabled flag.
@@ -1262,7 +1262,7 @@ public final class SettingsStore: ObservableObject {
             ingressPublicBaseUrl = previous
             pendingIngressUrl = nil
             ingressReachable = previousReachable
-            gatewayLastChecked = previousLastChecked
+            tunnelLastChecked = previousLastChecked
         }
     }
 
@@ -1294,10 +1294,7 @@ public final class SettingsStore: ObservableObject {
     /// Tests reachability of the public tunnel URL.
     func testTunnelOnly() async {
         isCheckingTunnel = true
-        defer {
-            isCheckingTunnel = false
-            tunnelLastChecked = Date()
-        }
+        defer { isCheckingTunnel = false }
         let trimmedUrl = ingressPublicBaseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmedUrl.isEmpty {
             ingressReachable = nil
@@ -1306,6 +1303,7 @@ public final class SettingsStore: ObservableObject {
                 baseUrl: trimmedUrl,
                 timeoutSeconds: 5
             )
+            tunnelLastChecked = Date()
         }
     }
 
