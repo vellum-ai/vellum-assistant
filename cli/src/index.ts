@@ -11,6 +11,7 @@ import { config } from "./commands/config";
 import { contacts } from "./commands/contacts";
 import { email } from "./commands/email";
 import { hatch } from "./commands/hatch";
+import { login, logout, whoami } from "./commands/login";
 import { ps } from "./commands/ps";
 import { recover } from "./commands/recover";
 import { retire } from "./commands/retire";
@@ -25,12 +26,15 @@ const commands = {
   contacts,
   email,
   hatch,
+  login,
+  logout,
   ps,
   recover,
   retire,
   sleep,
   ssh,
   wake,
+  whoami,
 } as const;
 
 type CommandName = keyof typeof commands;
@@ -75,12 +79,15 @@ async function main() {
     console.log("  contacts Manage the contact graph");
     console.log("  email    Email operations (status, create inbox)");
     console.log("  hatch    Create a new assistant instance");
+    console.log("  login    Log in to the Vellum platform");
+    console.log("  logout   Log out of the Vellum platform");
     console.log("  ps       List assistants (or processes for a specific assistant)");
     console.log("  recover  Restore a previously retired local assistant");
     console.log("  retire   Delete an assistant instance");
     console.log("  sleep    Stop the daemon process");
     console.log("  ssh      SSH into a remote assistant instance");
     console.log("  wake     Start the daemon and gateway");
+    console.log("  whoami   Show current logged-in user");
     process.exit(0);
   }
 
