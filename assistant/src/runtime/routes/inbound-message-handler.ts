@@ -35,6 +35,7 @@ import {
   handleChannelDecision,
 } from '../channel-approvals.js';
 import {
+  findActiveSession,
   getGuardianBinding,
   getPendingChallenge,
   validateAndConsumeChallenge,
@@ -196,16 +197,20 @@ export async function handleChannelInbound(
 
     if (!resolvedMember) {
       // Determine whether a /guardian_verify bypass is warranted: only allow
-      // when there is a pending (unconsumed, unexpired) challenge AND no
-      // active guardian binding for this (assistantId, channel).
+      // when there is a pending (unconsumed, unexpired) challenge or an
+      // active outbound session AND no active guardian binding for this
+      // (assistantId, channel). Outbound sessions (M1/M2) use statuses
+      // 'pending_bootstrap'/'awaiting_response' which getPendingChallenge
+      // (status='pending') does not match, so we check findActiveSession too.
       let denyNonMember = true;
       if (isGuardianVerifyCommand) {
         const hasActiveBinding = !!getGuardianBinding(canonicalAssistantId, sourceChannel);
         const hasPendingChallenge = !!getPendingChallenge(canonicalAssistantId, sourceChannel);
-        if (!hasActiveBinding && hasPendingChallenge) {
+        const hasActiveOutboundSession = !!findActiveSession(canonicalAssistantId, sourceChannel);
+        if (!hasActiveBinding && (hasPendingChallenge || hasActiveOutboundSession)) {
           denyNonMember = false;
         } else {
-          log.info({ sourceChannel, hasActiveBinding, hasPendingChallenge }, 'Ingress ACL: guardian_verify bypass denied');
+          log.info({ sourceChannel, hasActiveBinding, hasPendingChallenge, hasActiveOutboundSession }, 'Ingress ACL: guardian_verify bypass denied');
         }
       }
 

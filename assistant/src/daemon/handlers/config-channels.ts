@@ -246,6 +246,38 @@ function handleStartOutbound(
     return;
   }
 
+  // Enforce rate limits across repeated start_outbound calls by checking
+  // for an existing active session. Without this, callers could bypass
+  // per-session rate limits by creating fresh sessions each time.
+  const existingSession = findActiveSession(assistantId, channel);
+  let carryForwardSendCount = 0;
+  if (existingSession) {
+    if (existingSession.nextResendAt != null && Date.now() < existingSession.nextResendAt) {
+      ctx.send(socket, {
+        type: 'guardian_verification_response',
+        success: false,
+        error: 'rate_limited',
+        message: 'Please wait before requesting another verification code.',
+        channel,
+      });
+      return;
+    }
+
+    const currentSendCount = existingSession.sendCount ?? 0;
+    if (currentSendCount >= MAX_SENDS_PER_SESSION) {
+      ctx.send(socket, {
+        type: 'guardian_verification_response',
+        success: false,
+        error: 'max_sends_exceeded',
+        message: 'Maximum number of verification sends reached for this session.',
+        channel,
+      });
+      return;
+    }
+
+    carryForwardSendCount = currentSendCount;
+  }
+
   // Create outbound session with expected identity = E.164 destination
   const sessionResult = createOutboundSession({
     assistantId,
@@ -266,7 +298,7 @@ function handleStartOutbound(
 
   const now = Date.now();
   const nextResendAt = now + RESEND_COOLDOWN_MS;
-  const sendCount = 1;
+  const sendCount = carryForwardSendCount + 1;
 
   // Update session delivery tracking
   updateSessionDelivery(sessionResult.sessionId, now, sendCount, nextResendAt);

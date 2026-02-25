@@ -39,12 +39,12 @@ export interface GuardianVerifyTemplateVars {
 const templates: Record<GuardianVerifyTemplateKey, (vars: GuardianVerifyTemplateVars) => string> = {
   [GUARDIAN_VERIFY_TEMPLATE_KEYS.CHALLENGE_REQUEST]: (vars) => {
     const prefix = vars.assistantName ? `[${vars.assistantName}] ` : '';
-    return `${prefix}Your verification code is: ${vars.code}. It expires in ${vars.expiresInMinutes} minutes. Reply with this code to verify.`;
+    return `${prefix}Your verification code is: ${vars.code}. It expires in ${vars.expiresInMinutes} minutes. Reply with: /guardian_verify ${vars.code}`;
   },
 
   [GUARDIAN_VERIFY_TEMPLATE_KEYS.RESEND]: (vars) => {
     const prefix = vars.assistantName ? `[${vars.assistantName}] ` : '';
-    return `${prefix}Your verification code is: ${vars.code}. It expires in ${vars.expiresInMinutes} minutes. Reply with this code to verify. (resent)`;
+    return `${prefix}Your verification code is: ${vars.code}. It expires in ${vars.expiresInMinutes} minutes. Reply with: /guardian_verify ${vars.code} (resent)`;
   },
 
   [GUARDIAN_VERIFY_TEMPLATE_KEYS.ALREADY_VERIFIED]: (vars) => {
