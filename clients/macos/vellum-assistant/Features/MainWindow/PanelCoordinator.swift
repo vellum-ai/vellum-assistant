@@ -24,23 +24,6 @@ extension MainWindowView {
             chatView
         case .settings:
             SettingsPanel(onClose: { windowState.selection = nil }, store: settingsStore, daemonClient: daemonClient, threadManager: threadManager, authManager: authManager)
-        case .agent:
-            AgentPanel(onClose: { windowState.selection = nil }, onInvokeSkill: { skill in
-                if threadManager.activeViewModel == nil {
-                    threadManager.createThread()
-                }
-                if let viewModel = threadManager.activeViewModel {
-                    viewModel.pendingSkillInvocation = SkillInvocationData(
-                        name: skill.name,
-                        emoji: skill.emoji,
-                        description: skill.description
-                    )
-                    viewModel.inputText = "Use the \(skill.name) skill"
-                    viewModel.sendMessage()
-                    viewModel.pendingSkillInvocation = nil
-                }
-                windowState.selection = nil
-            }, daemonClient: daemonClient)
         case .debug:
             DebugPanel(
                 traceStore: traceStore,
@@ -89,11 +72,6 @@ extension MainWindowView {
             )
         case .threadList:
             sidebarView
-        case .identity:
-            IdentityPanel(onClose: { windowState.selection = nil }, onCustomizeAvatar: {
-                windowState.avatarCustomizationReturnPanel = .identity
-                windowState.selection = .panel(.avatarCustomization)
-            }, daemonClient: daemonClient)
         case .avatarCustomization:
             AvatarCustomizationPanel(onClose: { windowState.selection = .panel(windowState.avatarCustomizationReturnPanel) })
         case .voiceMode:
@@ -515,25 +493,6 @@ extension MainWindowView {
         case .settings:
             SettingsPanel(onClose: { windowState.dismissOverlay() }, store: settingsStore, daemonClient: daemonClient, threadManager: threadManager, authManager: authManager)
                 .background(adaptiveColor(light: Moss._50, dark: Moss._950))
-        case .agent:
-            AgentPanel(onClose: { windowState.dismissOverlay() }, onInvokeSkill: { skill in
-                if threadManager.activeViewModel == nil {
-                    threadManager.createThread()
-                }
-                if let viewModel = threadManager.activeViewModel {
-                    viewModel.pendingSkillInvocation = SkillInvocationData(
-                        name: skill.name,
-                        emoji: skill.emoji,
-                        description: skill.description
-                    )
-                    viewModel.inputText = "Use the \(skill.name) skill"
-                    viewModel.sendMessage()
-                    viewModel.pendingSkillInvocation = nil
-                }
-                windowState.dismissOverlay()
-            }, daemonClient: daemonClient)
-                .overlay(alignment: .topTrailing) { panelDismissButton }
-                .background(adaptiveColor(light: Moss._50, dark: Moss._950))
         case .debug:
             DebugPanel(
                 traceStore: traceStore,
@@ -542,12 +501,6 @@ extension MainWindowView {
                 onClose: { windowState.dismissOverlay() }
             )
             .overlay(alignment: .topTrailing) { panelDismissButton }
-        case .identity:
-            IdentityPanel(onClose: { windowState.dismissOverlay() }, onCustomizeAvatar: {
-                windowState.avatarCustomizationReturnPanel = .identity
-                windowState.selection = .panel(.avatarCustomization)
-            }, daemonClient: daemonClient)
-                .background(adaptiveColor(light: Color(hex: 0xF5F3EB), dark: Moss._900))
         case .avatarCustomization:
             AvatarCustomizationPanel(onClose: { windowState.selection = .panel(windowState.avatarCustomizationReturnPanel) })
         case .generated:

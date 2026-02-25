@@ -7,11 +7,11 @@ final class MainWindowAvatarRoutingTests: XCTestCase {
 
     // MARK: - Callback Wiring Tests
 
-    /// Constructs an IdentityPanel with the same closure pattern used in MainWindowView,
+    /// Constructs an IdentityPanel with the same closure pattern used in IntelligencePanel,
     /// then invokes the panel's onCustomizeAvatar callback and verifies it transitions state.
     func testIdentityPanelOnCustomizeAvatarTransitionsState() {
         let state = MainWindowState(hasAPIKey: false)
-        state.selection = .panel(.identity)
+        state.selection = .panel(.intelligence)
         let daemonClient = DaemonClient()
 
         let panel = IdentityPanel(
@@ -31,7 +31,7 @@ final class MainWindowAvatarRoutingTests: XCTestCase {
     /// Constructs an IdentityPanel and verifies the onClose callback clears selection.
     func testIdentityPanelOnCloseCallback() {
         let state = MainWindowState(hasAPIKey: false)
-        state.selection = .panel(.identity)
+        state.selection = .panel(.intelligence)
         let daemonClient = DaemonClient()
 
         let panel = IdentityPanel(
@@ -72,10 +72,10 @@ final class MainWindowAvatarRoutingTests: XCTestCase {
 
     // MARK: - State Transition Tests
 
-    func testAvatarCustomizationIsDistinctFromIdentity() {
-        let identity: ViewSelection = .panel(.identity)
+    func testAvatarCustomizationIsDistinctFromIntelligence() {
+        let intelligence: ViewSelection = .panel(.intelligence)
         let avatar: ViewSelection = .panel(.avatarCustomization)
-        XCTAssertNotEqual(identity, avatar)
+        XCTAssertNotEqual(intelligence, avatar)
     }
 
     func testAvatarCustomizationPanelTypeExists() {
