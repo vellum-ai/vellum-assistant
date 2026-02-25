@@ -33,7 +33,6 @@ export type TitleOrigin =
   | 'heartbeat'
   | 'ipc'
   | 'task_submit'
-  | 'sequence'
   | 'misc';
 
 export interface TitleContext {

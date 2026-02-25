@@ -29,7 +29,6 @@ import { registerAmazonCommand } from './cli/amazon.js';
 import { registerTwitterCommand } from './cli/twitter.js';
 import { registerMapCommand } from './cli/map.js';
 import { registerInfluencerCommand } from './cli/influencer.js';
-import { registerSequenceCommand } from './cli/sequence.js';
 
 const program = new Command();
 
@@ -58,6 +57,5 @@ registerCompletionsCommand(program);
 registerTwitterCommand(program);
 registerMapCommand(program);
 registerInfluencerCommand(program);
-registerSequenceCommand(program);
 
 program.parse();

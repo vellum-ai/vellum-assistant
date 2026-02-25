@@ -21,7 +21,6 @@ import {
   setWatcherConversationId,
 } from './watcher-store.js';
 import { MAX_CONSECUTIVE_ERRORS } from './constants.js';
-import { checkForSequenceReplies } from '../sequence/reply-matcher.js';
 
 const log = getLogger('watcher-engine');
 
@@ -91,7 +90,6 @@ export async function runWatchersOnce(
 
       // Store new events with dedup
       let newEvents = 0;
-      const newPayloads: Array<Record<string, unknown>> = [];
       for (const item of result.items) {
         const inserted = insertWatcherEvent({
           watcherId: watcher.id,
@@ -100,29 +98,11 @@ export async function runWatchersOnce(
           summary: item.summary,
           payloadJson: JSON.stringify(item.payload),
         });
-        if (inserted) {
-          newEvents++;
-          newPayloads.push(item.payload);
-        }
+        if (inserted) newEvents++;
       }
 
       if (newEvents > 0) {
         log.info({ watcherId: watcher.id, name: watcher.name, newEvents }, 'Detected new events');
-      }
-
-      // Check new events for replies to active sequence enrollments
-      if (newPayloads.length > 0) {
-        try {
-          const replyMatches = checkForSequenceReplies(newPayloads);
-          for (const match of replyMatches) {
-            notify({
-              title: `Sequence reply: ${match.sequenceName}`,
-              body: `${match.contactEmail} replied — enrollment auto-exited.`,
-            });
-          }
-        } catch (replyErr) {
-          log.warn({ err: replyErr, watcherId: watcher.id }, 'Reply matcher failed');
-        }
       }
 
       completeWatcherPoll(watcher.id, {

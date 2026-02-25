@@ -276,15 +276,6 @@ export function countActiveEnrollments(sequenceId: string): number {
   return rows.length;
 }
 
-/** Re-set nextStepAt without advancing the step counter (e.g., when re-scheduling after a pause). */
-export function rescheduleEnrollment(id: string, nextStepAt: number): void {
-  const db = getDb();
-  db.update(sequenceEnrollments)
-    .set({ nextStepAt, updatedAt: Date.now() })
-    .where(eq(sequenceEnrollments.id, id))
-    .run();
-}
-
 // ── Aggregate export matching the SequenceStore interface ───────────
 
 export const sqliteSequenceStore: SequenceStore = {
