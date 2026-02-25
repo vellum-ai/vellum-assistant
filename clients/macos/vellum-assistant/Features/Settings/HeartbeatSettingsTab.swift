@@ -23,6 +23,9 @@ struct HeartbeatSettingsTab: View {
     @State private var isRunning: Bool = false
     @State private var runError: String?
 
+    // -- Expansion state --
+    @State private var expandedRunId: String?
+
     // -- Loading --
     @State private var isLoading: Bool = true
 
@@ -195,20 +198,49 @@ struct HeartbeatSettingsTab: View {
                     .padding(.vertical, VSpacing.lg)
             } else {
                 ForEach(runs, id: \.id) { run in
-                    HStack(spacing: VSpacing.md) {
-                        resultBadge(run.result)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(run.title)
-                                .font(VFont.body)
-                                .foregroundColor(VColor.textPrimary)
-                                .lineLimit(1)
-                            Text(formatTimestamp(run.createdAt))
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
+                    Button {
+                        withAnimation(VAnimation.fast) {
+                            expandedRunId = expandedRunId == run.id ? nil : run.id
                         }
-                        Spacer()
+                    } label: {
+                        VStack(alignment: .leading, spacing: 0) {
+                            HStack(spacing: VSpacing.md) {
+                                resultBadge(run.result)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(run.title)
+                                        .font(VFont.body)
+                                        .foregroundColor(VColor.textPrimary)
+                                        .lineLimit(1)
+                                    Text(formatTimestamp(run.createdAt))
+                                        .font(VFont.caption)
+                                        .foregroundColor(VColor.textMuted)
+                                }
+                                Spacer()
+                                Image(systemName: expandedRunId == run.id ? "chevron.down" : "chevron.right")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundColor(VColor.textMuted)
+                            }
+                            .padding(VSpacing.sm)
+
+                            if expandedRunId == run.id {
+                                Text(run.summary ?? "No summary available")
+                                    .font(VFont.mono)
+                                    .foregroundColor(VColor.textSecondary)
+                                    .textSelection(.enabled)
+                                    .padding(VSpacing.sm)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(VColor.surface)
+                                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: VRadius.md)
+                                            .stroke(VColor.surfaceBorder, lineWidth: 1)
+                                    )
+                                    .padding(.horizontal, VSpacing.sm)
+                                    .padding(.bottom, VSpacing.sm)
+                            }
+                        }
                     }
-                    .padding(VSpacing.sm)
+                    .buttonStyle(.plain)
 
                     if run.id != runs.last?.id {
                         Divider().background(VColor.surfaceBorder)
