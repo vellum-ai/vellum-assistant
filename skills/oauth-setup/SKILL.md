@@ -6,7 +6,7 @@ includes: ["browser"]
 metadata: {"vellum": {"emoji": "🔑"}}
 ---
 
-You are helping the user connect an OAuth-based service to Vellum. This is a generic setup flow that works for any provider with a well-known OAuth config and setup metadata.
+You are helping the user connect an OAuth-based service to Vellum. This is a generic setup flow that works for any provider with a well-known OAuth config.
 
 **Tone:** Be friendly and reassuring throughout. Narrate what you're doing in plain language so the user always knows what's happening. After each step, briefly confirm what was accomplished before moving on.
 
@@ -17,33 +17,64 @@ You will be given a `service` name (e.g., "discord", "linear", "spotify"). If no
 ## Step 1: Read the service config
 
 Use `credential_store` with `action: "describe"` and `service: "<name>"` to get the well-known OAuth config. This returns:
+- `scopes` — permissions to request
+- `redirectUri` — the callback URL to register
+- `callbackTransport` — loopback or gateway
+- `requiresClientSecret` — whether a client secret is needed
+- `authUrl` / `tokenUrl` — OAuth endpoints
+
+It may also include a `setup` object with rich metadata:
 - `setup.displayName` — the provider's name
 - `setup.dashboardUrl` — where to create the app
 - `setup.appType` — what kind of app to create
 - `setup.requiresClientSecret` — whether a client secret is needed
 - `setup.notes` — provider-specific guidance
-- `scopes` — permissions to request
-- `redirectUri` — the callback URL to register
-- `callbackTransport` — loopback or gateway
 
 If no config is found, tell the user this service doesn't have a pre-configured setup and offer to help them configure it manually via `oauth2_connect`.
 
-## Step 2: Tell the user what's happening
+## Step 2: Choose the flow based on setup metadata
+
+### If `setup` metadata is present (rich flow)
+
+Continue to Step 3 (Rich Flow).
+
+### If `setup` metadata is absent (manual flow)
+
+The provider has OAuth config (endpoints, scopes) but no setup automation metadata. Guide the user through a manual app creation:
+
+1. Tell the user: "I have the OAuth endpoints and scopes for this service, but I don't have developer dashboard automation for it. You'll need to create an OAuth app manually."
+2. Provide the details they need:
+   - **Scopes to request:** list the `scopes` from the config
+   - **Redirect URI:** show the `redirectUri` value
+   - **Whether a client secret is required:** use the top-level `requiresClientSecret` field
+3. Ask the user to:
+   - Go to the provider's developer dashboard
+   - Create an OAuth app (name it "Vellum Assistant")
+   - Set the redirect URI
+   - Configure the required scopes
+   - Copy the Client ID (and Client Secret if required)
+4. Once they provide the credentials, skip to **Step 8: Connect**.
+
+---
+
+## Rich Flow (when `setup` is present)
+
+### Step 3: Tell the user what's happening
 
 Tell the user:
 - "I'll walk you through creating a {setup.appType} so Vellum can connect to {setup.displayName}. The whole process takes a few minutes."
 - "I'll be automating the {setup.displayName} developer dashboard in the browser — you'll be able to see everything I'm doing."
 - "I'll ask for your approval before each major step, so nothing happens without your say-so."
 
-## Step 3: Navigate to the developer dashboard
+### Step 4: Navigate to the developer dashboard
 
 Use `browser_navigate` to go to `setup.dashboardUrl`.
 
 Take a `browser_screenshot` and `browser_snapshot`:
 - **If a sign-in page appears:** Tell the user to sign in and wait for confirmation.
-- **If the dashboard loads:** Continue to Step 4.
+- **If the dashboard loads:** Continue to Step 5.
 
-## Step 4: Create an app
+### Step 5: Create an app
 
 **Ask for approval before proceeding.** Use `ui_show` with `surface_type: "confirmation"` explaining what you're about to create.
 
@@ -55,7 +86,7 @@ Once approved:
 
 Take a `browser_screenshot` to confirm.
 
-## Step 5: Configure scopes/permissions
+### Step 6: Configure scopes/permissions
 
 **Ask for approval before proceeding.** List the `scopes` from the config and explain what each grants.
 
@@ -63,22 +94,24 @@ Once approved, navigate to the OAuth/permissions section and add each scope. Fol
 
 Take a `browser_screenshot` after adding all scopes.
 
-## Step 6: Set redirect URL
+### Step 7: Set redirect URL
 
 Check the `redirectUri` from the config:
 - If it starts with `http://127.0.0.1:` — tell the user "This uses a local callback, no public URL needed" and enter the URL in the redirect URL field.
-- If it mentions `ingress.publicBaseUrl` — the user needs a public URL configured. Check if one is set; if not, load the `public-ingress` skill first.
+- If it mentions "not currently configured" or "INGRESS_PUBLIC_BASE_URL" — the user needs a public URL configured. Check if one is set; if not, load the `public-ingress` skill first.
 - If it says "automatic" — skip this step entirely (no redirect URI needed).
 
 Take a `browser_snapshot` to confirm.
 
-## Step 7: Extract credentials
+### Step 7b: Extract credentials
 
 Navigate to the app's credentials/settings section.
 
 Use `browser_extract` to read:
 1. **Client ID** (or equivalent)
-2. **Client Secret** (if `setup.requiresClientSecret` is true) — click "Show"/"Reveal" first if needed
+2. **Client Secret** (if `requiresClientSecret` is true) — click "Show"/"Reveal" first if needed
+
+---
 
 ## Step 8: Connect
 
@@ -97,7 +130,8 @@ Everything else (endpoints, scopes, params) is auto-filled from the well-known c
 ## Step 9: Celebrate!
 
 Once connected, tell the user:
-"**{setup.displayName} is connected!** You're all set."
+- If `setup` is present: "**{setup.displayName} is connected!** You're all set."
+- If `setup` is absent: "**{service} is connected!** You're all set."
 
 Summarize what was accomplished.
 
