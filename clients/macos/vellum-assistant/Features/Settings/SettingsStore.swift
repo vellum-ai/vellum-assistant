@@ -1260,6 +1260,7 @@ public final class SettingsStore: ObservableObject {
             if sessionId != telegramOutboundSessionId {
                 telegramOutboundNextResendAt = nil
                 telegramOutboundSendCount = 0
+                telegramOutboundCode = nil
             }
             telegramOutboundSessionId = sessionId
             if let expiresAt { telegramOutboundExpiresAt = expiresAt }
@@ -1281,6 +1282,7 @@ public final class SettingsStore: ObservableObject {
             if sessionId != smsOutboundSessionId {
                 smsOutboundNextResendAt = nil
                 smsOutboundSendCount = 0
+                smsOutboundCode = nil
             }
             smsOutboundSessionId = sessionId
             if let expiresAt { smsOutboundExpiresAt = expiresAt }
@@ -1291,6 +1293,7 @@ public final class SettingsStore: ObservableObject {
             if sessionId != voiceOutboundSessionId {
                 voiceOutboundNextResendAt = nil
                 voiceOutboundSendCount = 0
+                voiceOutboundCode = nil
             }
             voiceOutboundSessionId = sessionId
             if let expiresAt { voiceOutboundExpiresAt = expiresAt }
