@@ -486,15 +486,22 @@ class CredentialStoreTool implements Tool {
           ?? findStoredOAuthField(service, ['client_secret', 'oauth_client_secret']);
 
         // Early guardrails that stay in vault.ts (credential resolution is vault-specific)
-        const scopes = (input.scopes as string[] | undefined) ?? profile?.defaultScopes;
+        const inputScopes = input.scopes as string[] | undefined;
+
+        if (profile) {
+          // Profile-based provider (well-known like gmail, slack, twitter):
+          // Don't pass authUrl/tokenUrl — the orchestrator resolves those from the profile.
+          // Pass user-provided scopes as requestedScopes so the scope policy engine is invoked.
+          // If no scopes provided, pass neither — let the orchestrator use profile defaults via scope policy.
+        } else {
+          // Custom/unknown provider: require authUrl, tokenUrl, scopes from input
+          if (!input.auth_url) return { content: 'Error: auth_url is required for oauth2_connect action (no well-known config for this service)', isError: true };
+          if (!input.token_url) return { content: 'Error: token_url is required for oauth2_connect action (no well-known config for this service)', isError: true };
+          if (!inputScopes) return { content: 'Error: scopes is required for oauth2_connect action (no well-known config for this service)', isError: true };
+        }
+
         const authUrl = (input.auth_url as string | undefined) ?? profile?.authUrl;
         const tokenUrl = (input.token_url as string | undefined) ?? profile?.tokenUrl;
-        if (!authUrl) return { content: 'Error: auth_url is required for oauth2_connect action (no well-known config for this service)', isError: true };
-        if (!tokenUrl) return { content: 'Error: token_url is required for oauth2_connect action (no well-known config for this service)', isError: true };
-        // Scopes are optional — some providers (e.g. Notion) configure authorization at the integration
-        // level and don't use traditional scope strings. Reject only when scopes is entirely absent (not
-        // provided and no well-known config), not when it is an empty array.
-        if (!scopes) return { content: 'Error: scopes is required for oauth2_connect action (no well-known config for this service)', isError: true };
         if (!clientId) return { content: 'Error: client_id is required for oauth2_connect action. Provide it directly or store it first with credential_store.', isError: true };
 
         // Fail early when client_secret is required but missing — guide the
@@ -522,7 +529,10 @@ class CredentialStoreTool implements Tool {
         const tokenEndpointAuthMethod = (input.token_endpoint_auth_method as TokenEndpointAuthMethod | undefined)
           ?? profile?.tokenEndpointAuthMethod;
 
-        // Delegate to the shared orchestrator
+        // Delegate to the shared orchestrator.
+        // For profile-based providers, pass user scopes as requestedScopes so the
+        // scope policy engine (resolveScopes) is invoked. For custom providers,
+        // pass scopes directly as an explicit override.
         const result = await orchestrateOAuthConnect({
           service: rawService,
           clientId,
@@ -532,7 +542,16 @@ class CredentialStoreTool implements Tool {
           allowedTools: input.allowed_tools as string[] | undefined,
           authUrl,
           tokenUrl,
-          scopes,
+          ...(profile
+            ? {
+                // Profile-based: let orchestrator resolve scopes via policy engine.
+                // Only pass requestedScopes if the user explicitly provided scopes.
+                ...(inputScopes ? { requestedScopes: inputScopes } : {}),
+              }
+            : {
+                // Custom provider: explicit scopes override (bypasses policy engine)
+                scopes: inputScopes,
+              }),
           extraParams: (input.extra_params as Record<string, string> | undefined) ?? profile?.extraParams,
           userinfoUrl: (input.userinfo_url as string | undefined) ?? profile?.userinfoUrl,
           tokenEndpointAuthMethod,
