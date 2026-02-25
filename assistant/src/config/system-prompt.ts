@@ -573,7 +573,7 @@ function buildConfigSection(): string {
     '',
     '### Heartbeat',
     '',
-    'The heartbeat feature runs your `HEARTBEAT.md` checklist periodically in a background thread. To enable it, set `heartbeat.enabled: true` and `heartbeat.intervalMs` (default: 3600000 = 1 hour) in `config.yaml`. You can also set `heartbeat.activeHoursStart` and `heartbeat.activeHoursEnd` (0-23) to restrict runs to certain hours. When asked to set up a heartbeat, edit both the config and `HEARTBEAT.md` directly — no restart is needed for checklist changes, but toggling `heartbeat.enabled` requires a daemon restart.',
+    'The heartbeat feature runs your `HEARTBEAT.md` checklist periodically in a background thread. To enable it, set `heartbeat.enabled: true` and `heartbeat.intervalMs` (default: 3600000 = 1 hour) in `config.json`. You can also set `heartbeat.activeHoursStart` and `heartbeat.activeHoursEnd` (0-23) to restrict runs to certain hours. When asked to set up a heartbeat, edit both the config and `HEARTBEAT.md` directly — no restart is needed for checklist changes, but toggling `heartbeat.enabled` requires a daemon restart.',
     '',
     '### Proactive Workspace Editing',
     '',
