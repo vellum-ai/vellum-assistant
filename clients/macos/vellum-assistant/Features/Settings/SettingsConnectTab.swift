@@ -407,10 +407,6 @@ struct SettingsConnectTab: View {
 
     private var connectionsSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Connections")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
-
             mobileCard
             telegramCard
             twilioCard
@@ -1412,7 +1408,6 @@ struct SettingsConnectTab: View {
             let hasGateway = !store.resolvedIosGatewayUrl.isEmpty || LANIPHelper.currentLANAddress() != nil
             let trimmedOverrideToken = iosPairingTokenOverride.trimmingCharacters(in: .whitespacesAndNewlines)
             let hasToken = !bearerToken.isEmpty || !trimmedOverrideToken.isEmpty
-            let tokenFromDaemon = !bearerToken.isEmpty && trimmedOverrideToken.isEmpty
 
             if isRegeneratingToken {
                 HStack(spacing: VSpacing.sm) {
@@ -1421,25 +1416,6 @@ struct SettingsConnectTab: View {
                     Text("Restarting daemon with new token\u{2026}")
                         .font(VFont.body)
                         .foregroundColor(VColor.textSecondary)
-                }
-            } else if hasGateway && hasToken {
-                HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(VColor.success)
-                        .font(.system(size: 14))
-                    Text("Ready to pair")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.success)
-                    if tokenFromDaemon {
-                        Spacer()
-                        Button("Regenerate Token") {
-                            showingRegenerateConfirmation = true
-                        }
-                        .buttonStyle(.plain)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-                        .help("Replace the current token. Paired devices will need to reconnect.")
-                    }
                 }
             } else if !hasGateway {
                 HStack(spacing: VSpacing.sm) {
@@ -1450,7 +1426,7 @@ struct SettingsConnectTab: View {
                         .font(VFont.body)
                         .foregroundColor(VColor.warning)
                 }
-            } else {
+            } else if !hasToken {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     HStack(spacing: VSpacing.sm) {
                         Image(systemName: "exclamationmark.triangle.fill")
@@ -1543,13 +1519,6 @@ struct SettingsConnectTab: View {
                     }
                     .padding(.vertical, VSpacing.xs)
                 }
-
-                Button("Clear All") {
-                    store.clearAllApprovedDevices()
-                }
-                .font(VFont.caption)
-                .foregroundColor(VColor.error)
-                .buttonStyle(.borderless)
             }
         }
         .padding(VSpacing.lg)
