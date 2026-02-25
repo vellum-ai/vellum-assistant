@@ -36,6 +36,7 @@ mock.module('../config/env.js', () => ({
 mock.module('../notifications/emit-signal.js', () => ({
   emitNotificationSignal: async () => {},
   registerBroadcastFn: () => {},
+  getRegisteredBroadcastFn: () => null,
 }));
 
 let mockTelegramBinding: unknown = null;

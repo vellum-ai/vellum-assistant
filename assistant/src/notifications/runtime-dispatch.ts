@@ -30,6 +30,7 @@ export async function dispatchDecision(
   signal: NotificationSignal,
   decision: NotificationDecision,
   broadcaster: NotificationBroadcaster,
+  options?: { skipThreadPush?: boolean },
 ): Promise<DispatchResult> {
   // No-op when the decision engine says not to notify
   if (!decision.shouldNotify) {
@@ -58,7 +59,7 @@ export async function dispatchDecision(
   }
 
   // Dispatch through the broadcaster
-  const deliveryResults = await broadcaster.broadcastDecision(signal, decision);
+  const deliveryResults = await broadcaster.broadcastDecision(signal, decision, options);
 
   const sentCount = deliveryResults.filter((r) => r.status === 'sent').length;
   log.info(

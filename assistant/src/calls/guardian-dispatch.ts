@@ -16,7 +16,7 @@ import {
   createGuardianActionRequest,
   updateDeliveryStatus,
 } from '../memory/guardian-action-store.js';
-import { emitNotificationSignal } from '../notifications/emit-signal.js';
+import { emitNotificationSignal, getRegisteredBroadcastFn } from '../notifications/emit-signal.js';
 import { getLogger } from '../util/logger.js';
 import { getUserConsultationTimeoutMs } from './call-constants.js';
 import { generateGuardianCopy } from './guardian-question-copy.js';
@@ -64,8 +64,10 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
     );
 
     // Route through the generic notification pipeline — this handles
-    // conversation pairing, thread creation IPC (notification_thread_created),
-    // and multi-channel delivery automatically.
+    // multi-channel delivery automatically. We suppress the pipeline's
+    // notification_thread_created IPC event because guardian-dispatch creates
+    // its own vellum conversation with proper LLM copy and delivery linkage;
+    // the pipeline's conversation would be a separate, unlinked thread.
     void emitNotificationSignal({
       sourceEventName: 'guardian.question',
       sourceChannel: 'voice',
@@ -86,6 +88,7 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
         pendingQuestionId: pendingQuestion.id,
       },
       dedupeKey: `guardian:${request.id}`,
+      skipVellumThread: true,
     });
 
     // Determine delivery destinations
@@ -155,8 +158,19 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
           { userMessageChannel: 'voice', assistantMessageChannel: 'vellum', userMessageInterface: 'voice', assistantMessageInterface: 'vellum' },
         );
 
-        // Thread creation IPC is now handled by the generic notification
-        // pipeline (notification_thread_created) via emitNotificationSignal above.
+        // Emit notification_thread_created directly for the guardian's own
+        // vellum conversation — the pipeline's event was suppressed via
+        // skipVellumThread so the macOS client surfaces this thread instead.
+        const broadcastFn = getRegisteredBroadcastFn();
+        if (broadcastFn) {
+          broadcastFn({
+            type: 'notification_thread_created',
+            conversationId: macConversationId,
+            title: guardianCopy.threadTitle,
+            sourceEventName: 'guardian.question',
+          });
+        }
+
         updateDeliveryStatus(delivery.id, 'sent');
         log.info({ deliveryId: delivery.id, channel: 'vellum', macConversationId }, 'Vellum guardian delivery emitted');
       } else {
