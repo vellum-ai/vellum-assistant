@@ -214,8 +214,8 @@ If **two or more steps** require manual fallback, abandon the automated flow ent
 
 These actions are technically impossible in the browser automation environment. Attempting them wastes time and leads to loops:
 
-- **Downloading files.** `browser_click` on a Download button does not save files to disk. The downloaded file will not appear anywhere accessible.
-- **Reading masked/redacted values.** Google masks secrets with `****`. No amount of clicking, hovering, or inspecting will reveal them.
+- **Downloading files.** `browser_click` on a Download button does not save files to disk. The downloaded file will not appear anywhere accessible. There is NO JSON file to find at `~/Downloads` or anywhere else.
+- **Reading the Client Secret from a screenshot.** The Client Secret IS visible in the creation dialog, but you MUST NOT attempt to read it from a screenshot — it is too easy to misread characters, and the value must be exact. Always use the `credential_store prompt` approach to let the user copy-paste it accurately.
 - **Clipboard operations.** You cannot copy/paste via browser automation.
 - **Deleting and recreating OAuth clients** to get a fresh secret — this orphans the stored client_id and causes `invalid_client` errors.
 
@@ -228,7 +228,7 @@ Use `ui_show` with `surface_type: "confirmation"` and this message:
 > Here's what will happen:
 > 1. **A browser opens** — you sign in to your Google account
 > 2. **I automate everything** — project creation, APIs, OAuth config, credentials
-> 3. **One quick copy-paste** — you'll click a button to generate a secret and paste it (secure prompt — I never see it)
+> 3. **One quick copy-paste** — I'll create OAuth credentials and ask you to copy-paste the Client Secret from the dialog into a secure prompt
 > 4. **You authorize Vellum** with one click
 >
 > The whole thing takes 2-3 minutes. Ready?
@@ -316,11 +316,20 @@ Otherwise, work through the consent screen wizard. The wizard has multiple pages
 
 **Goal:** A "Desktop app" OAuth client exists, and both its Client ID and Client Secret are stored in the vault.
 
-**IMPORTANT — read before acting:** When you create the OAuth client, Google shows a dialog with the Client ID, Client Secret, and a Download button. You MUST handle this dialog correctly:
-- **Client ID**: Read it from the screen — it is visible and not masked.
-- **Client Secret**: You CANNOT read it, download it, or extract it in any way. It MUST come from the user via `credential_store prompt`. Present the prompt while the dialog is still open so the user can copy-paste from it.
-- **Download button**: Do NOT click it. File downloads do not work in this environment.
-- **Do NOT close the dialog** until the user has pasted the secret into the secure prompt.
+### CRITICAL — Credential Capture Protocol
+
+When you create the OAuth client, Google shows a **single dialog** with the Client ID, Client Secret, and a Download button. You MUST follow this exact sequence — **no improvisation**:
+
+1. Read the **Client ID** from the screen (it is visible and safe to read).
+2. Store the Client ID via `credential_store store`.
+3. **IMMEDIATELY** present a `credential_store prompt` for the Client Secret. This is your ONLY next action after storing the Client ID. Do not attempt anything else.
+4. Wait for the user to paste the secret.
+
+**Absolute prohibitions during this step:**
+- Do NOT click the Download button. There is no JSON file. Downloads do not work.
+- Do NOT try to read the Client Secret from the screenshot. It is visible on screen but must come from the user via secure prompt to ensure accuracy.
+- Do NOT navigate away from the dialog, close it, or interact with any other element until the user has pasted the secret.
+- Do NOT mention JSON files, downloads, or `~/Downloads` to the user — none of these exist.
 
 ### 6a: Create the credential
 
@@ -337,11 +346,11 @@ On the creation form:
 
 Submit the form.
 
-### 6b: Store Client ID
+### 6b: Read Client ID and IMMEDIATELY prompt for Client Secret
 
-After creation, a dialog or page will display the new Client ID. It looks like `123456789-xxxxx.apps.googleusercontent.com`. Read this value from the screen.
+After creation, a dialog will display the new Client ID and Client Secret. Handle **both** in this single step:
 
-Store it immediately:
+**First**, read the **Client ID** from the screen. It looks like `123456789-xxxxx.apps.googleusercontent.com`. Store it:
 
 ```
 credential_store store:
@@ -350,15 +359,11 @@ credential_store store:
   value: "<the Client ID you read from the screen>"
 ```
 
-### 6c: Capture Client Secret via secure prompt
+**Then IMMEDIATELY** — with no other actions in between — tell the user:
 
-**Do NOT close the creation dialog yet.** The Client Secret is visible in this dialog but will be masked after you close it.
+> "Got the Client ID! Now I need the Client Secret. In the dialog still open in the browser, you'll see the **Client Secret** value (starts with `GOCSPX-`). Please copy it and paste it into the secure prompt below."
 
-Tell the user:
-
-> "Almost done! I need the client secret to complete the connection. In the dialog that just appeared in the browser, you should see the **Client Secret** value. Copy it, then paste it into the secure prompt below."
-
-Then immediately present the secure prompt so it's ready:
+And present the secure prompt:
 
 ```
 credential_store prompt:
@@ -369,9 +374,9 @@ credential_store prompt:
   placeholder: "GOCSPX-..."
 ```
 
-Wait for the user to complete the prompt.
+Wait for the user to complete the prompt. Do not take any other action until they do.
 
-If the user has trouble, take a `browser_screenshot` and help them locate the Client Secret value on the page.
+If the user has trouble locating the secret, take a `browser_screenshot` and help them find it on the page — but do NOT attempt to read the secret value yourself.
 
 **Verify:** `credential_store list` shows both `client_id` and `client_secret` for `integration:gmail`.
 
