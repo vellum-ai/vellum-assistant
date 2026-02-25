@@ -47,6 +47,8 @@ final class SkillsManager: ObservableObject {
     private var lastSearchQuery: String?
     private var draftTask: Task<Void, Never>?
     private var createTask: Task<Void, Never>?
+    private var draftGeneration: Int = 0
+    private var createGeneration: Int = 0
 
     init(daemonClient: DaemonClient) {
         self.daemonClient = daemonClient
@@ -276,6 +278,8 @@ final class SkillsManager: ObservableObject {
         isDrafting = true
         draftError = nil
         draftResult = nil
+        draftGeneration += 1
+        let generation = draftGeneration
 
         draftTask = Task {
             let stream = daemonClient.subscribe()
@@ -283,13 +287,16 @@ final class SkillsManager: ObservableObject {
             do {
                 try daemonClient.draftSkill(sourceText: sourceText)
             } catch {
-                isDrafting = false
-                draftError = "Failed to send draft request"
+                if generation == self.draftGeneration {
+                    isDrafting = false
+                    draftError = "Failed to send draft request"
+                }
                 return
             }
 
             for await message in stream {
                 guard !Task.isCancelled else { break }
+                guard generation == self.draftGeneration else { break }
                 if case .skillsDraftResponse(let response) = message {
                     if response.success, let draft = response.draft {
                         draftResult = SkillDraftResult(
@@ -307,7 +314,9 @@ final class SkillsManager: ObservableObject {
                     return
                 }
             }
-            isDrafting = false
+            if generation == self.draftGeneration {
+                isDrafting = false
+            }
         }
     }
 
@@ -315,6 +324,8 @@ final class SkillsManager: ObservableObject {
         guard !isCreating else { return }
         isCreating = true
         createError = nil
+        createGeneration += 1
+        let generation = createGeneration
 
         createTask = Task {
             let stream = daemonClient.subscribe()
@@ -328,13 +339,16 @@ final class SkillsManager: ObservableObject {
                     bodyMarkdown: bodyMarkdown
                 )
             } catch {
-                isCreating = false
-                createError = "Failed to send create request"
+                if generation == self.createGeneration {
+                    isCreating = false
+                    createError = "Failed to send create request"
+                }
                 return
             }
 
             for await message in stream {
                 guard !Task.isCancelled else { break }
+                guard generation == self.createGeneration else { break }
                 if case .skillsOperationResponse(let response) = message,
                    response.operation == "create" {
                     if !response.success {
@@ -346,7 +360,9 @@ final class SkillsManager: ObservableObject {
                     return
                 }
             }
-            isCreating = false
+            if generation == self.createGeneration {
+                isCreating = false
+            }
         }
     }
 
@@ -360,5 +376,7 @@ final class SkillsManager: ObservableObject {
         draftError = nil
         isCreating = false
         createError = nil
+        draftGeneration += 1
+        createGeneration += 1
     }
 }
