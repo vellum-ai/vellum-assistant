@@ -344,12 +344,15 @@ export async function runDaemon(): Promise<void> {
   const workspaceHeartbeat = new WorkspaceHeartbeatService();
   workspaceHeartbeat.start();
 
+  const heartbeatConfig = config.heartbeat;
   const heartbeat = new HeartbeatService({
     processMessage: (conversationId, content) =>
       server.processMessage(conversationId, content),
     alerter: (alert) => server.broadcast(alert),
   });
   heartbeat.start();
+  server.setHeartbeatService(heartbeat);
+  log.info({ enabled: heartbeatConfig.enabled, intervalMs: heartbeatConfig.intervalMs }, 'Heartbeat service configured');
 
   installShutdownHandlers({
     server,

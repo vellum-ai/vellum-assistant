@@ -6,6 +6,7 @@ enum SettingsTab: String, CaseIterable {
     case integrations = "Integrations"
     case trust = "Trust"
     case reminders = "Schedules"
+    case heartbeat = "Heartbeat"
     case wakeWord = "Wake Word"
     case appearance = "Appearance"
     case advanced = "Advanced"
@@ -182,6 +183,8 @@ struct SettingsPanel: View {
             trustContent
         case .reminders:
             remindersContent
+        case .heartbeat:
+            HeartbeatSettingsTab(daemonClient: daemonClient)
         case .wakeWord:
             WakeWordSettingsView()
         case .appearance:

@@ -321,6 +321,21 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `twilio_config_response` message.
     public var onTwilioConfigResponse: ((TwilioConfigResponseMessage) -> Void)?
 
+    /// Called when the daemon sends a `heartbeat_config_response` message.
+    public var onHeartbeatConfigResponse: ((IPCHeartbeatConfigResponse) -> Void)?
+
+    /// Called when the daemon sends a `heartbeat_runs_list_response` message.
+    public var onHeartbeatRunsListResponse: ((IPCHeartbeatRunsListResponse) -> Void)?
+
+    /// Called when the daemon sends a `heartbeat_run_now_response` message.
+    public var onHeartbeatRunNowResponse: ((IPCHeartbeatRunNowResponse) -> Void)?
+
+    /// Called when the daemon sends a `heartbeat_checklist_response` message.
+    public var onHeartbeatChecklistResponse: ((IPCHeartbeatChecklistResponse) -> Void)?
+
+    /// Called when the daemon sends a `heartbeat_checklist_write_response` message.
+    public var onHeartbeatChecklistWriteResponse: ((IPCHeartbeatChecklistWriteResponse) -> Void)?
+
     /// Called when the daemon sends a `parental_control_get_response` message.
     public var onParentalControlGetResponse: ((ParentalControlGetResponseMessage) -> Void)?
 
@@ -1375,6 +1390,38 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             contentRestrictions: contentRestrictions,
             blockedToolCategories: blockedToolCategories
         ))
+    }
+
+    // MARK: - Heartbeat
+
+    /// Get the current heartbeat configuration.
+    public func sendHeartbeatConfigGet() throws {
+        try send(IPCHeartbeatConfig(type: "heartbeat_config", action: "get"))
+    }
+
+    /// Set heartbeat configuration fields.
+    public func sendHeartbeatConfigSet(enabled: Bool? = nil, intervalMs: Double? = nil, activeHoursStart: Double? = nil, activeHoursEnd: Double? = nil) throws {
+        try send(IPCHeartbeatConfig(type: "heartbeat_config", action: "set", enabled: enabled, intervalMs: intervalMs, activeHoursStart: activeHoursStart, activeHoursEnd: activeHoursEnd))
+    }
+
+    /// Request the list of recent heartbeat runs.
+    public func sendHeartbeatRunsList(limit: Int? = nil) throws {
+        try send(IPCHeartbeatRunsList(type: "heartbeat_runs_list", limit: limit.map { Double($0) }))
+    }
+
+    /// Trigger an immediate heartbeat run.
+    public func sendHeartbeatRunNow() throws {
+        try send(IPCHeartbeatRunNow(type: "heartbeat_run_now"))
+    }
+
+    /// Read the heartbeat checklist (HEARTBEAT.md).
+    public func sendHeartbeatChecklistRead() throws {
+        try send(IPCHeartbeatChecklistRead(type: "heartbeat_checklist_read"))
+    }
+
+    /// Write the heartbeat checklist (HEARTBEAT.md).
+    public func sendHeartbeatChecklistWrite(content: String) throws {
+        try send(IPCHeartbeatChecklistWrite(type: "heartbeat_checklist_write", content: content))
     }
 
     // MARK: - Pairing
