@@ -143,8 +143,8 @@ final class RecordingManager: ObservableObject {
                     log.warning("Source validation failed with promptForSource — re-showing source picker for session \(sessionId, privacy: .public)")
                     state = .idle
                     ownerSessionId = nil
-                    self.attachToConversationId = nil
                     onSourceValidationFailed?(sessionId, attachToConversationId)
+                    self.attachToConversationId = nil
                     return false
                 }
 

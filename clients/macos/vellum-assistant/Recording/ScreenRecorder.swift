@@ -296,47 +296,54 @@ final class ScreenRecorder: NSObject {
             registerDisplayReconfiguration(for: targetDisplay.displayID)
         }
 
-        let fallbackConfigs = Self.buildFallbackConfigs(primaryWidth: captureWidth, primaryHeight: captureHeight)
-        log.info("Encoder fallback chain: \(fallbackConfigs.map { "\($0.label)(\($0.width)x\($0.height))" }.joined(separator: " → "), privacy: .public)")
+        do {
+            let fallbackConfigs = Self.buildFallbackConfigs(primaryWidth: captureWidth, primaryHeight: captureHeight)
+            log.info("Encoder fallback chain: \(fallbackConfigs.map { "\($0.label)(\($0.width)x\($0.height))" }.joined(separator: " → "), privacy: .public)")
 
-        try Self.ensureRecordingsDirectory()
+            try Self.ensureRecordingsDirectory()
 
-        for (index, encodeConfig) in fallbackConfigs.enumerated() {
-            let isLastConfig = index == fallbackConfigs.count - 1
-            log.info("Trying encoder config [\(index + 1)/\(fallbackConfigs.count)]: \(encodeConfig.label, privacy: .public) — codec=\(encodeConfig.codec.rawValue, privacy: .public), \(encodeConfig.width)x\(encodeConfig.height)")
+            for (index, encodeConfig) in fallbackConfigs.enumerated() {
+                let isLastConfig = index == fallbackConfigs.count - 1
+                log.info("Trying encoder config [\(index + 1)/\(fallbackConfigs.count)]: \(encodeConfig.label, privacy: .public) — codec=\(encodeConfig.codec.rawValue, privacy: .public), \(encodeConfig.width)x\(encodeConfig.height)")
 
-            let attemptResult = await attemptStartWithConfig(
-                encodeConfig: encodeConfig,
-                filter: filter,
-                includeAudio: includeAudio,
-                includeMicrophone: includeMicrophone
-            )
+                let attemptResult = await attemptStartWithConfig(
+                    encodeConfig: encodeConfig,
+                    filter: filter,
+                    includeAudio: includeAudio,
+                    includeMicrophone: includeMicrophone
+                )
 
-            switch attemptResult {
-            case .success:
-                activeConfigLabel = encodeConfig.label
-                log.info("Encoder config '\(encodeConfig.label, privacy: .public)' succeeded")
-                return
-            case .writerSetupFailed(let reason):
-                log.warning("Encoder config '\(encodeConfig.label, privacy: .public)' failed: writer setup error — \(reason, privacy: .public)")
-                if isLastConfig {
-                    throw RecorderError.allFallbacksExhausted
-                }
-            case .noFramesReceived:
-                log.warning("Encoder config '\(encodeConfig.label, privacy: .public)' failed: no frames received within timeout")
-                if isLastConfig {
-                    throw RecorderError.allFallbacksExhausted
-                }
-            case .streamStartFailed(let reason):
-                log.warning("Encoder config '\(encodeConfig.label, privacy: .public)' failed: stream start error — \(reason, privacy: .public)")
-                if isLastConfig {
-                    throw RecorderError.allFallbacksExhausted
+                switch attemptResult {
+                case .success:
+                    activeConfigLabel = encodeConfig.label
+                    log.info("Encoder config '\(encodeConfig.label, privacy: .public)' succeeded")
+                    return
+                case .writerSetupFailed(let reason):
+                    log.warning("Encoder config '\(encodeConfig.label, privacy: .public)' failed: writer setup error — \(reason, privacy: .public)")
+                    if isLastConfig {
+                        throw RecorderError.allFallbacksExhausted
+                    }
+                case .noFramesReceived:
+                    log.warning("Encoder config '\(encodeConfig.label, privacy: .public)' failed: no frames received within timeout")
+                    if isLastConfig {
+                        throw RecorderError.allFallbacksExhausted
+                    }
+                case .streamStartFailed(let reason):
+                    log.warning("Encoder config '\(encodeConfig.label, privacy: .public)' failed: stream start error — \(reason, privacy: .public)")
+                    if isLastConfig {
+                        throw RecorderError.allFallbacksExhausted
+                    }
                 }
             }
-        }
 
-        // Should not reach here — the loop either returns on success or throws on last failure
-        throw RecorderError.allFallbacksExhausted
+            // Should not reach here — the loop either returns on success or throws on last failure
+            throw RecorderError.allFallbacksExhausted
+        } catch {
+            // If start() fails after registering the display reconfiguration callback,
+            // unregister it to avoid a dangling callback referencing this instance.
+            unregisterDisplayReconfiguration()
+            throw error
+        }
     }
 
     // MARK: - Fallback Attempt
