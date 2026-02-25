@@ -66,6 +66,7 @@ The sms-setup skill also includes optional **guardian verification** for SMS (in
 - If the user specifies a platform (e.g., "check my Slack"), pass it as the `platform` parameter.
 - If only one platform is connected, it is auto-selected.
 - If multiple platforms are connected and the user doesn't specify, ask which platform they mean — or search across all of them.
+- **Do not assume a specific provider.** When the user says "email" or "manage my email" without naming a provider, call `messaging_auth_test` for each email-capable platform to discover what's connected — don't default to Gmail or any other specific provider. Present whatever is connected; if nothing is, ask the user which email service they use and offer to set it up.
 
 ## Capabilities
 
