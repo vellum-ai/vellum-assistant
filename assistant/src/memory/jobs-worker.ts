@@ -8,6 +8,7 @@ import {
   deferMemoryJob,
   enqueueCleanupResolvedConflictsJob,
   enqueueCleanupStaleSupersededItemsJob,
+  enqueuePruneOldConversationsJob,
   failMemoryJob,
   type MemoryJob,
   resetRunningJobsToPending,
@@ -25,7 +26,7 @@ import { bumpMemoryVersion } from './recall-cache.js';
 import { embedSegmentJob, embedItemJob, embedSummaryJob } from './job-handlers/embedding.js';
 import { extractItemsJob, extractEntitiesJob } from './job-handlers/extraction.js';
 import { resolvePendingConflictsForMessageJob, cleanupResolvedConflictsJob } from './job-handlers/conflict.js';
-import { checkContradictionsJob, cleanupStaleSupersededItemsJob } from './job-handlers/cleanup.js';
+import { checkContradictionsJob, cleanupStaleSupersededItemsJob, pruneOldConversationsJob } from './job-handlers/cleanup.js';
 import { buildConversationSummaryJob, buildGlobalSummaryJob } from './job-handlers/summarization.js';
 import { backfillJob, backfillEntityRelationsJob } from './job-handlers/backfill.js';
 import { rebuildIndexJob, deleteQdrantVectorsJob } from './job-handlers/index-maintenance.js';
@@ -224,6 +225,9 @@ async function processJob(job: MemoryJob, config: AssistantConfig): Promise<void
     case 'cleanup_stale_superseded_items':
       cleanupStaleSupersededItemsJob(job, config);
       return;
+    case 'prune_old_conversations':
+      pruneOldConversationsJob(job, config);
+      return;
     case 'check_contradictions':
       await checkContradictionsJob(job);
       return;
@@ -276,13 +280,18 @@ export function maybeEnqueueScheduledCleanupJobs(config: AssistantConfig, nowMs 
 
   const resolvedConflictsJobId = enqueueCleanupResolvedConflictsJob(cleanup.resolvedConflictRetentionMs);
   const staleSupersededItemsJobId = enqueueCleanupStaleSupersededItemsJob(cleanup.supersededItemRetentionMs);
+  const pruneConversationsJobId = cleanup.conversationRetentionDays > 0
+    ? enqueuePruneOldConversationsJob(cleanup.conversationRetentionDays)
+    : null;
   lastScheduledCleanupEnqueueMs = nowMs;
   log.debug({
     resolvedConflictsJobId,
     staleSupersededItemsJobId,
+    pruneConversationsJobId,
     enqueueIntervalMs: cleanup.enqueueIntervalMs,
     resolvedConflictRetentionMs: cleanup.resolvedConflictRetentionMs,
     supersededItemRetentionMs: cleanup.supersededItemRetentionMs,
+    conversationRetentionDays: cleanup.conversationRetentionDays,
   }, 'Enqueued scheduled memory cleanup jobs');
   return true;
 }

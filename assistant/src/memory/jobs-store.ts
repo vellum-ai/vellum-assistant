@@ -13,6 +13,7 @@ export type MemoryJobType =
   | 'resolve_pending_conflicts_for_message'
   | 'cleanup_resolved_conflicts'
   | 'cleanup_stale_superseded_items'
+  | 'prune_old_conversations'
   | 'backfill_entity_relations'
   | 'check_contradictions'
   | 'refresh_weekly_summary'
@@ -203,6 +204,43 @@ export function enqueueCleanupStaleSupersededItemsJob(retentionMs?: number): str
     ? { retentionMs }
     : {};
   return enqueueMemoryJob('cleanup_stale_superseded_items', payload);
+}
+
+export function enqueuePruneOldConversationsJob(retentionDays?: number): string {
+  const db = getDb();
+  const existing = db
+    .select()
+    .from(memoryJobs)
+    .where(and(
+      eq(memoryJobs.type, 'prune_old_conversations'),
+      inArray(memoryJobs.status, ['pending', 'running']),
+    ))
+    .orderBy(asc(memoryJobs.createdAt))
+    .get();
+  if (existing) {
+    if (existing.status === 'pending' && typeof retentionDays === 'number' && Number.isFinite(retentionDays) && retentionDays >= 0) {
+      let payload: Record<string, unknown> = {};
+      try {
+        payload = JSON.parse(existing.payload) as Record<string, unknown>;
+      } catch {
+        payload = {};
+      }
+      if (payload.retentionDays !== retentionDays) {
+        db.update(memoryJobs)
+          .set({
+            payload: JSON.stringify({ ...payload, retentionDays }),
+            updatedAt: Date.now(),
+          })
+          .where(eq(memoryJobs.id, existing.id))
+          .run();
+      }
+    }
+    return existing.id;
+  }
+  const payload = typeof retentionDays === 'number' && Number.isFinite(retentionDays) && retentionDays >= 0
+    ? { retentionDays }
+    : {};
+  return enqueueMemoryJob('prune_old_conversations', payload);
 }
 
 export function claimMemoryJobs(limit: number): MemoryJob[] {
