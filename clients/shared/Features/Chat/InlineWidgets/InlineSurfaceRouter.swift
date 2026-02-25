@@ -6,6 +6,7 @@ public struct InlineSurfaceRouter: View {
     public let onAction: (String, String, [String: AnyCodable]?) -> Void
 
     @State private var selectionPayload: [String: AnyCodable]?
+    @State private var clickedActionLabel: String?
 
     public init(surface: InlineSurfaceData, onAction: @escaping (String, String, [String: AnyCodable]?) -> Void) {
         self.surface = surface
@@ -197,24 +198,46 @@ public struct InlineSurfaceRouter: View {
         }
     }
 
+    @ViewBuilder
     private var actionButtons: some View {
-        HStack(spacing: VSpacing.sm) {
-            Spacer()
-            ForEach(surface.actions) { action in
-                Button {
-                    onAction(surface.id, action.id, selectionPayload)
-                } label: {
-                    Text(action.label)
-                        .font(VFont.bodyMedium)
-                        .foregroundColor(buttonForeground(action.style))
-                        .padding(.horizontal, VSpacing.lg)
-                        .padding(.vertical, VSpacing.sm)
-                        .background(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .fill(buttonBackground(action.style))
-                        )
+        if let label = clickedActionLabel {
+            HStack(spacing: VSpacing.sm) {
+                Spacer()
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.success)
+                    Text(label)
+                        .font(VFont.captionMedium)
+                        .foregroundColor(VColor.textPrimary)
                 }
-                .buttonStyle(.plain)
+                .padding(.horizontal, VSpacing.md)
+                .padding(.vertical, VSpacing.sm)
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .fill(VColor.backgroundSubtle.opacity(0.5))
+                )
+            }
+        } else {
+            HStack(spacing: VSpacing.sm) {
+                Spacer()
+                ForEach(surface.actions) { action in
+                    Button {
+                        clickedActionLabel = action.label
+                        onAction(surface.id, action.id, selectionPayload)
+                    } label: {
+                        Text(action.label)
+                            .font(VFont.bodyMedium)
+                            .foregroundColor(buttonForeground(action.style))
+                            .padding(.horizontal, VSpacing.lg)
+                            .padding(.vertical, VSpacing.sm)
+                            .background(
+                                RoundedRectangle(cornerRadius: VRadius.md)
+                                    .fill(buttonBackground(action.style))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
     }
