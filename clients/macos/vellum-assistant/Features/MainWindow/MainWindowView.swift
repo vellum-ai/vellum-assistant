@@ -11,21 +11,9 @@ struct MainWindowView: View {
     @ObservedObject var windowState: MainWindowState
     @State private var selectedThreadId: UUID?
     @State var workspaceEditorContentHeight: CGFloat = 20
-    @State var showSharePicker = false
-    @State var isBundling = false
-    @State var shareFileURL: URL?
-    @State var isPublishing = false
-    @State var publishedUrl: String?
-    @State var publishError: String?
-    @State private var isHoveredThread: UUID?
-    @State private var isHoveredApp: String?
+    @State var sharingState = SharingState()
+    @State var sidebarState = SidebarInteractionState()
     @State private var requestedHomeBaseAtLaunch = false
-    @State private var threadPendingDeletion: UUID?
-    @State private var renamingThreadId: UUID?
-    @State private var renameText: String = ""
-    @State private var showAllThreads: Bool = false
-    @State private var showAllScheduleThreads: Bool = false
-    @State private var showAllApps: Bool = false
     @State private var showControlCenterDrawer: Bool = false
     @AppStorage("isAppChatOpen") var isAppChatOpen: Bool = false
     @State private var jitPermissionManager = JITPermissionManager()
@@ -102,53 +90,11 @@ struct MainWindowView: View {
     }
 
     func publishPage(html: String, title: String?, appId: String? = nil) {
-        guard !isPublishing else { return }
-        isPublishing = true
-        publishError = nil
-
-        Task { @MainActor in
-            daemonClient.onPublishPageResponse = { response in
-                isPublishing = false
-                if response.success, let url = response.publicUrl {
-                    publishedUrl = url
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(url, forType: .string)
-                } else if let error = response.error, error != "Cancelled" {
-                    publishError = error
-                    // Auto-dismiss error after 5 seconds
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
-                        if publishError == error {
-                            withAnimation(VAnimation.standard) { publishError = nil }
-                        }
-                    }
-                }
-            }
-
-            do {
-                try daemonClient.sendPublishPage(html: html, title: title, appId: appId)
-            } catch {
-                isPublishing = false
-            }
-        }
+        sharingState.publishPage(html: html, title: title, appId: appId, daemonClient: daemonClient)
     }
 
     func bundleAndShare(appId: String) {
-        guard !isBundling else { return }
-        isBundling = true
-
-        Task { @MainActor in
-            daemonClient.onBundleAppResponse = { response in
-                self.shareFileURL = URL(fileURLWithPath: response.bundlePath)
-                self.isBundling = false
-                self.showSharePicker = true
-            }
-
-            do {
-                try daemonClient.sendBundleApp(appId: appId)
-            } catch {
-                isBundling = false
-            }
-        }
+        sharingState.bundleAndShare(appId: appId, daemonClient: daemonClient)
     }
 
     /// Whether the BOOTSTRAP.md first-run ritual is still in progress.
@@ -444,7 +390,7 @@ struct MainWindowView: View {
                     }
                 }()
                 if oldIsApp && !newIsApp {
-                    showSharePicker = false
+                    sharingState.showSharePicker = false
                     windowState.activeDynamicSurface = nil
                     windowState.activeDynamicParsedSurface = nil
                 }
@@ -753,28 +699,23 @@ struct MainWindowView: View {
             // If a specific surfaceId was dismissed, only clear if it matches.
             if let surfaceId = notification.userInfo?["surfaceId"] as? String {
                 if windowState.activeDynamicSurface?.surfaceId == surfaceId {
-                    showSharePicker = false
+                    sharingState.showSharePicker = false
                     windowState.closeDynamicPanel()
                 }
             } else {
                 // Bulk dismiss (dismissAll) — only clear if currently showing an app workspace.
                 // Avoid kicking the user out of unrelated panels (Settings, Agent, etc.).
                 if case .app = windowState.selection {
-                    showSharePicker = false
+                    sharingState.showSharePicker = false
                     windowState.closeDynamicPanel()
                 } else if case .appEditing = windowState.selection {
-                    showSharePicker = false
+                    sharingState.showSharePicker = false
                     windowState.closeDynamicPanel()
                 }
             }
         }
-        .onChange(of: isHoveredThread) { _, newValue in
-            // Cancel pending archive when the user hovers a *different* thread.
-            // Skip clearing when newValue is nil (e.g. menu dismissal triggers
-            // a momentary hover-leave) so the Confirm button stays visible.
-            if let pending = threadPendingDeletion, let newValue, newValue != pending {
-                threadPendingDeletion = nil
-            }
+        .onChange(of: sidebarState.isHoveredThread) { _, newValue in
+            sidebarState.handleHoverChange(newValue: newValue)
         }
     }
 
@@ -790,7 +731,7 @@ struct MainWindowView: View {
             if case .appEditing(_, let threadId) = windowState.selection, threadId == thread.id { return true }
             return false
         }()
-        let isHovered = isHoveredThread == thread.id
+        let isHovered = sidebarState.isHoveredThread == thread.id
         Button(action: {
             if case .appEditing(let appId, _) = windowState.selection {
                 // Stay in editing mode, just switch the thread
@@ -835,10 +776,10 @@ struct MainWindowView: View {
         }
         .buttonStyle(.plain)
         .overlay(alignment: .trailing) {
-            if threadPendingDeletion == thread.id {
+            if sidebarState.threadPendingDeletion == thread.id {
                 Button {
                     threadManager.archiveThread(id: thread.id)
-                    threadPendingDeletion = nil
+                    sidebarState.threadPendingDeletion = nil
                 } label: {
                     Text("Confirm")
                         .font(VFont.caption)
@@ -874,7 +815,7 @@ struct MainWindowView: View {
 
                     if threadManager.visibleThreads.count > 1 {
                         Button {
-                            threadPendingDeletion = thread.id
+                            sidebarState.threadPendingDeletion = thread.id
                         } label: {
                             Image(systemName: "archivebox")
                                 .font(.system(size: 12, weight: .medium))
@@ -913,8 +854,8 @@ struct MainWindowView: View {
             }
             if thread.sessionId != nil {
                 Button {
-                    renamingThreadId = thread.id
-                    renameText = thread.title
+                    sidebarState.renamingThreadId = thread.id
+                    sidebarState.renameText = thread.title
                 } label: {
                     Label("Rename", systemImage: "pencil")
                 }
@@ -929,11 +870,11 @@ struct MainWindowView: View {
         }
         .onHover { hovering in
             if hovering {
-                isHoveredThread = thread.id
+                sidebarState.isHoveredThread = thread.id
                 NSCursor.pointingHand.push()
             } else {
-                if isHoveredThread == thread.id {
-                    isHoveredThread = nil
+                if sidebarState.isHoveredThread == thread.id {
+                    sidebarState.isHoveredThread = nil
                 }
                 NSCursor.pop()
             }
@@ -951,17 +892,17 @@ struct MainWindowView: View {
 
     private var displayedThreads: [ThreadModel] {
         let all = regularThreads
-        return showAllThreads ? all : Array(all.prefix(5))
+        return sidebarState.showAllThreads ? all : Array(all.prefix(5))
     }
 
     private var displayedScheduleThreads: [ThreadModel] {
         let all = scheduleThreads
-        return showAllScheduleThreads ? all : Array(all.prefix(3))
+        return sidebarState.showAllScheduleThreads ? all : Array(all.prefix(3))
     }
 
     private var displayedApps: [AppListManager.AppItem] {
         let all = appListManager.displayApps
-        return showAllApps ? all : Array(all.prefix(5))
+        return sidebarState.showAllApps ? all : Array(all.prefix(5))
     }
 
     private let sidebarOuterMargin: CGFloat = 16
@@ -981,23 +922,23 @@ struct MainWindowView: View {
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
         .clipped()
         .alert("Rename Thread", isPresented: Binding(
-            get: { renamingThreadId != nil },
-            set: { if !$0 { renamingThreadId = nil } }
+            get: { sidebarState.renamingThreadId != nil },
+            set: { if !$0 { sidebarState.renamingThreadId = nil } }
         )) {
-            TextField("Title", text: $renameText)
-            Button("Cancel", role: .cancel) { renamingThreadId = nil }
+            TextField("Title", text: $sidebarState.renameText)
+            Button("Cancel", role: .cancel) { sidebarState.renamingThreadId = nil }
             Button("Save") {
-                if let id = renamingThreadId, !renameText.isEmpty {
-                    threadManager.updateThreadTitle(id: id, title: renameText)
+                if let id = sidebarState.renamingThreadId, !sidebarState.renameText.isEmpty {
+                    threadManager.updateThreadTitle(id: id, title: sidebarState.renameText)
                     if let sessionId = threadManager.threads.first(where: { $0.id == id })?.sessionId {
                         try? daemonClient.send(IPCSessionRenameRequest(
                             type: "session_rename",
                             sessionId: sessionId,
-                            title: renameText
+                            title: sidebarState.renameText
                         ))
                     }
                 }
-                renamingThreadId = nil
+                sidebarState.renamingThreadId = nil
             }
         } message: {
             Text("Enter a new name for this thread")
@@ -1050,9 +991,9 @@ struct MainWindowView: View {
 
                     if regularThreads.count > 5 {
                         Button {
-                            withAnimation(VAnimation.standard) { showAllThreads.toggle() }
+                            withAnimation(VAnimation.standard) { sidebarState.showAllThreads.toggle() }
                         } label: {
-                            Text(showAllThreads ? "Show less" : "Show more")
+                            Text(sidebarState.showAllThreads ? "Show less" : "Show more")
                                 .font(VFont.caption)
                                 .foregroundColor(adaptiveColor(light: Forest._600, dark: Forest._400))
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1088,9 +1029,9 @@ struct MainWindowView: View {
 
                         if scheduleThreads.count > 3 {
                             Button {
-                                withAnimation(VAnimation.standard) { showAllScheduleThreads.toggle() }
+                                withAnimation(VAnimation.standard) { sidebarState.showAllScheduleThreads.toggle() }
                             } label: {
-                                Text(showAllScheduleThreads ? "Show less" : "Show more")
+                                Text(sidebarState.showAllScheduleThreads ? "Show less" : "Show more")
                                     .font(VFont.caption)
                                     .foregroundColor(adaptiveColor(light: Forest._600, dark: Forest._400))
                                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -1173,13 +1114,13 @@ struct MainWindowView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, VSpacing.sm)
             .padding(.vertical, VSpacing.sm)
-            .background(isHoveredApp == app.id ? VColor.hoverOverlay.opacity(0.08) : Color.clear)
+            .background(sidebarState.isHoveredApp == app.id ? VColor.hoverOverlay.opacity(0.08) : Color.clear)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .overlay(alignment: .trailing) {
-            if isHoveredApp == app.id {
+            if sidebarState.isHoveredApp == app.id {
                 Button {
                     if app.isPinned {
                         appListManager.unpinApp(id: app.id)
@@ -1209,11 +1150,11 @@ struct MainWindowView: View {
         .padding(.horizontal, VSpacing.sm)
         .onHover { hovering in
             if hovering {
-                isHoveredApp = app.id
+                sidebarState.isHoveredApp = app.id
                 NSCursor.pointingHand.push()
             } else {
-                if isHoveredApp == app.id {
-                    isHoveredApp = nil
+                if sidebarState.isHoveredApp == app.id {
+                    sidebarState.isHoveredApp = nil
                 }
                 NSCursor.pop()
             }
