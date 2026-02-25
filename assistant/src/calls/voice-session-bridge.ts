@@ -109,7 +109,10 @@ function buildVoiceCallControlPrompt(opts: {
     'CALL PROTOCOL RULES:',
     disclosureRule,
     '1. Be concise — keep responses to 1-3 sentences. Phone conversations should be brief and natural.',
-    '2. You can consult your guardian at any time by including [ASK_GUARDIAN: your question here] in your response. When you do, add a natural hold message like "Let me check on that for you."',
+    ...(opts.isCallerGuardian
+      ? ['2. You are speaking directly with your guardian (your user). Do NOT use [ASK_GUARDIAN:]. If you need permission, information, or confirmation, ask them directly in the conversation. They can answer you right now.']
+      : ['2. You can consult your guardian at any time by including [ASK_GUARDIAN: your question here] in your response. When you do, add a natural hold message like "Let me check on that for you."']
+    ),
   );
 
   if (opts.isInbound) {
