@@ -61,9 +61,11 @@ export const MemoryRerankingConfigSchema = z.object({
   enabled: z
     .boolean({ error: 'memory.retrieval.reranking.enabled must be a boolean' })
     .default(false),
-  model: z
-    .string({ error: 'memory.retrieval.reranking.model must be a string' })
-    .default('claude-haiku-4-5-20251001'),
+  modelIntent: z
+    .enum(['latency-optimized', 'quality-optimized', 'vision-optimized'], {
+      error: 'memory.retrieval.reranking.modelIntent must be a valid model intent',
+    })
+    .default('latency-optimized'),
   topK: z
     .number({ error: 'memory.retrieval.reranking.topK must be a number' })
     .int('memory.retrieval.reranking.topK must be an integer')
@@ -187,7 +189,7 @@ export const MemoryRetrievalConfigSchema = z.object({
     .default('prepend_user_block'),
   reranking: MemoryRerankingConfigSchema.default({
     enabled: false,
-    model: 'claude-haiku-4-5-20251001',
+    modelIntent: 'latency-optimized',
     topK: 20,
   }),
   freshness: MemoryFreshnessConfigSchema.default({
@@ -283,9 +285,11 @@ export const MemoryExtractionConfigSchema = z.object({
   useLLM: z
     .boolean({ error: 'memory.extraction.useLLM must be a boolean' })
     .default(true),
-  model: z
-    .string({ error: 'memory.extraction.model must be a string' })
-    .default('claude-haiku-4-5-20251001'),
+  modelIntent: z
+    .enum(['latency-optimized', 'quality-optimized', 'vision-optimized'], {
+      error: 'memory.extraction.modelIntent must be a valid model intent',
+    })
+    .default('latency-optimized'),
   extractFromAssistant: z
     .boolean({ error: 'memory.extraction.extractFromAssistant must be a boolean' })
     .default(true),
@@ -295,9 +299,11 @@ export const MemoryEntityConfigSchema = z.object({
   enabled: z
     .boolean({ error: 'memory.entity.enabled must be a boolean' })
     .default(true),
-  model: z
-    .string({ error: 'memory.entity.model must be a string' })
-    .default('claude-haiku-4-5-20251001'),
+  modelIntent: z
+    .enum(['latency-optimized', 'quality-optimized', 'vision-optimized'], {
+      error: 'memory.entity.modelIntent must be a valid model intent',
+    })
+    .default('latency-optimized'),
   extractRelations: z.object({
     enabled: z
       .boolean({ error: 'memory.entity.extractRelations.enabled must be a boolean' })
@@ -404,9 +410,11 @@ export const MemorySummarizationConfigSchema = z.object({
   useLLM: z
     .boolean({ error: 'memory.summarization.useLLM must be a boolean' })
     .default(true),
-  model: z
-    .string({ error: 'memory.summarization.model must be a string' })
-    .default('claude-haiku-4-5-20251001'),
+  modelIntent: z
+    .enum(['latency-optimized', 'quality-optimized', 'vision-optimized'], {
+      error: 'memory.summarization.modelIntent must be a valid model intent',
+    })
+    .default('latency-optimized'),
 });
 
 export const MemoryConfigSchema = z.object({
@@ -436,7 +444,7 @@ export const MemoryConfigSchema = z.object({
     injectionStrategy: 'prepend_user_block',
     reranking: {
       enabled: false,
-      model: 'claude-haiku-4-5-20251001',
+      modelIntent: 'latency-optimized',
       topK: 20,
     },
     freshness: {
@@ -479,16 +487,16 @@ export const MemoryConfigSchema = z.object({
   }),
   extraction: MemoryExtractionConfigSchema.default({
     useLLM: true,
-    model: 'claude-haiku-4-5-20251001',
+    modelIntent: 'latency-optimized',
     extractFromAssistant: true,
   }),
   summarization: MemorySummarizationConfigSchema.default({
     useLLM: true,
-    model: 'claude-haiku-4-5-20251001',
+    modelIntent: 'latency-optimized',
   }),
   entity: MemoryEntityConfigSchema.default({
     enabled: true,
-    model: 'claude-haiku-4-5-20251001',
+    modelIntent: 'latency-optimized',
     extractRelations: {
       enabled: true,
       backfillBatchSize: 200,

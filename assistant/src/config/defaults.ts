@@ -49,7 +49,7 @@ export const DEFAULT_CONFIG: AssistantConfig = {
       injectionStrategy: 'prepend_user_block' as const,
       reranking: {
         enabled: false,
-        model: 'claude-haiku-4-5-20251001',
+        modelIntent: 'latency-optimized',
         topK: 20,
       },
       freshness: {
@@ -92,16 +92,16 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     },
     extraction: {
       useLLM: true,
-      model: 'claude-haiku-4-5-20251001',
+      modelIntent: 'latency-optimized',
       extractFromAssistant: true,
     },
     summarization: {
       useLLM: true,
-      model: 'claude-haiku-4-5-20251001',
+      modelIntent: 'latency-optimized',
     },
     entity: {
       enabled: true,
-      model: 'claude-haiku-4-5-20251001',
+      modelIntent: 'latency-optimized',
       extractRelations: {
         enabled: true,
         backfillBatchSize: 200,
@@ -187,8 +187,8 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     maxRetriesPerTask: 1,
     workerTimeoutSec: 900,
     roleTimeoutsSec: {},
-    plannerModel: 'claude-haiku-4-5-20251001',
-    synthesizerModel: 'claude-sonnet-4-6',
+    plannerModelIntent: 'latency-optimized',
+    synthesizerModelIntent: 'quality-optimized',
   },
   skills: {
     entries: {},
@@ -292,6 +292,6 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     titleGenerationMaxTokens: 30,
   },
   notifications: {
-    decisionModel: 'claude-haiku-4-5-20251001',
+    decisionModelIntent: 'latency-optimized',
   },
 };

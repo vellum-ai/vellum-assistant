@@ -232,7 +232,7 @@ export const AssistantConfigSchema = z.object({
       injectionStrategy: 'prepend_user_block',
       reranking: {
         enabled: false,
-        model: 'claude-haiku-4-5-20251001',
+        modelIntent: 'latency-optimized',
         topK: 20,
       },
       freshness: {
@@ -275,16 +275,16 @@ export const AssistantConfigSchema = z.object({
     },
     extraction: {
       useLLM: true,
-      model: 'claude-haiku-4-5-20251001',
+      modelIntent: 'latency-optimized',
       extractFromAssistant: true,
     },
     summarization: {
       useLLM: true,
-      model: 'claude-haiku-4-5-20251001',
+      modelIntent: 'latency-optimized',
     },
     entity: {
       enabled: true,
-      model: 'claude-haiku-4-5-20251001',
+      modelIntent: 'latency-optimized',
       extractRelations: {
         enabled: true,
         backfillBatchSize: 200,
@@ -370,8 +370,8 @@ export const AssistantConfigSchema = z.object({
     maxRetriesPerTask: 1,
     workerTimeoutSec: 900,
     roleTimeoutsSec: {},
-    plannerModel: 'claude-haiku-4-5-20251001',
-    synthesizerModel: 'claude-sonnet-4-6',
+    plannerModelIntent: 'latency-optimized',
+    synthesizerModelIntent: 'quality-optimized',
   }),
   skills: SkillsConfigSchema.default({
     entries: {},
@@ -457,7 +457,7 @@ export const AssistantConfigSchema = z.object({
     titleGenerationMaxTokens: 30,
   }),
   notifications: NotificationsConfigSchema.default({
-    decisionModel: 'claude-haiku-4-5-20251001',
+    decisionModelIntent: 'latency-optimized',
   }),
 }).superRefine((config, ctx) => {
   if (config.contextWindow.targetInputTokens >= config.contextWindow.maxInputTokens) {

@@ -75,12 +75,16 @@ export const SwarmConfigSchema = z.object({
       reviewer: z.number().int().positive().optional(),
     })
     .default({}),
-  plannerModel: z
-    .string({ error: 'swarm.plannerModel must be a string' })
-    .default('claude-haiku-4-5-20251001'),
-  synthesizerModel: z
-    .string({ error: 'swarm.synthesizerModel must be a string' })
-    .default('claude-sonnet-4-6'),
+  plannerModelIntent: z
+    .enum(['latency-optimized', 'quality-optimized', 'vision-optimized'], {
+      error: 'swarm.plannerModelIntent must be a valid model intent',
+    })
+    .default('latency-optimized'),
+  synthesizerModelIntent: z
+    .enum(['latency-optimized', 'quality-optimized', 'vision-optimized'], {
+      error: 'swarm.synthesizerModelIntent must be a valid model intent',
+    })
+    .default('quality-optimized'),
 });
 
 export const WorkspaceGitConfigSchema = z.object({

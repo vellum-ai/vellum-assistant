@@ -172,7 +172,7 @@ async function extractItemsWithLLM(
         EXTRACTION_SYSTEM_PROMPT,
         {
           config: {
-            model: extractionConfig.model,
+            modelIntent: extractionConfig.modelIntent,
             max_tokens: 1024,
             tool_choice: { type: 'tool' as const, name: 'store_memory_items' },
           },

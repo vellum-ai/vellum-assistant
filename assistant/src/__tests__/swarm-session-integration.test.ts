@@ -31,8 +31,8 @@ mock.module('../config/loader.js', () => ({
       maxRetriesPerTask: 1,
       workerTimeoutSec: 900,
       roleTimeoutsSec: {},
-      plannerModel: 'claude-haiku-4-5-20251001',
-      synthesizerModel: 'claude-sonnet-4-6',
+      plannerModelIntent: 'latency-optimized',
+      synthesizerModelIntent: 'quality-optimized',
     },
   }),
 }));
