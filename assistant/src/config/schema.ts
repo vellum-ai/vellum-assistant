@@ -215,21 +215,24 @@ export const AssistantConfigSchema = z.object({
   daemon: DaemonConfigSchema.default({} as any),
   notifications: NotificationsConfigSchema.default({} as any),
 }).superRefine((config, ctx) => {
-  if (config.contextWindow.targetInputTokens >= config.contextWindow.maxInputTokens) {
+  if (config.contextWindow?.targetInputTokens != null && config.contextWindow?.maxInputTokens != null &&
+      config.contextWindow.targetInputTokens >= config.contextWindow.maxInputTokens) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['contextWindow', 'targetInputTokens'],
       message: 'contextWindow.targetInputTokens must be less than contextWindow.maxInputTokens',
     });
   }
-  if (config.memory.segmentation.overlapTokens >= config.memory.segmentation.targetTokens) {
+  const segmentation = config.memory?.segmentation;
+  if (segmentation && segmentation.overlapTokens >= segmentation.targetTokens) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['memory', 'segmentation', 'overlapTokens'],
       message: 'memory.segmentation.overlapTokens must be less than memory.segmentation.targetTokens',
     });
   }
-  if (config.memory.retrieval.dynamicBudget.minInjectTokens > config.memory.retrieval.dynamicBudget.maxInjectTokens) {
+  const dynamicBudget = config.memory?.retrieval?.dynamicBudget;
+  if (dynamicBudget && dynamicBudget.minInjectTokens > dynamicBudget.maxInjectTokens) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['memory', 'retrieval', 'dynamicBudget'],
