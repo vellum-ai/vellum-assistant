@@ -26,6 +26,7 @@ struct HeartbeatSettingsTab: View {
 
     // -- Loading --
     @State private var isLoading: Bool = true
+    @State private var isUpdatingFromServer: Bool = false
 
     private static let intervalOptions: [(label: String, ms: Double)] = [
         ("5 min", 300_000),
@@ -63,6 +64,7 @@ struct HeartbeatSettingsTab: View {
                     .toggleStyle(.switch)
                     .labelsHidden()
                     .onChange(of: isEnabled) { _, newValue in
+                        guard !isUpdatingFromServer else { return }
                         try? daemonClient?.sendHeartbeatConfigSet(enabled: newValue)
                     }
             }
@@ -84,6 +86,7 @@ struct HeartbeatSettingsTab: View {
                     .labelsHidden()
                     .fixedSize()
                     .onChange(of: intervalMs) { _, newValue in
+                        guard !isUpdatingFromServer else { return }
                         try? daemonClient?.sendHeartbeatConfigSet(intervalMs: newValue)
                     }
                 }
@@ -100,6 +103,7 @@ struct HeartbeatSettingsTab: View {
                         .toggleStyle(.switch)
                         .labelsHidden()
                         .onChange(of: useActiveHours) { _, newValue in
+                            guard !isUpdatingFromServer else { return }
                             if newValue {
                                 let start = activeHoursStart ?? 8
                                 let end = activeHoursEnd ?? 22
@@ -109,10 +113,10 @@ struct HeartbeatSettingsTab: View {
                             } else {
                                 activeHoursStart = nil
                                 activeHoursEnd = nil
-                                // Send nil to clear — use a special sentinel via the IPC
+                                // Send -1 sentinel to clear — Swift JSONEncoder omits nil optionals
                                 try? daemonClient?.sendHeartbeatConfigSet(
-                                    activeHoursStart: nil,
-                                    activeHoursEnd: nil
+                                    activeHoursStart: -1,
+                                    activeHoursEnd: -1
                                 )
                             }
                         }
@@ -338,6 +342,7 @@ struct HeartbeatSettingsTab: View {
     private func setupCallbacks() {
         daemonClient?.onHeartbeatConfigResponse = { response in
             Task { @MainActor in
+                self.isUpdatingFromServer = true
                 self.isEnabled = response.enabled
                 self.intervalMs = response.intervalMs
                 self.activeHoursStart = response.activeHoursStart
@@ -345,6 +350,7 @@ struct HeartbeatSettingsTab: View {
                 self.useActiveHours = response.activeHoursStart != nil && response.activeHoursEnd != nil
                 self.nextRunAt = response.nextRunAt
                 self.isLoading = false
+                self.isUpdatingFromServer = false
             }
         }
         daemonClient?.onHeartbeatChecklistResponse = { response in

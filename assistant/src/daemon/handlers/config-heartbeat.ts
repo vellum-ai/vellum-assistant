@@ -43,8 +43,12 @@ export function handleHeartbeatConfig(
       const hb = (raw?.heartbeat ?? {}) as Record<string, unknown>;
       if (msg.enabled !== undefined) hb.enabled = msg.enabled;
       if (msg.intervalMs !== undefined) hb.intervalMs = msg.intervalMs;
-      if (msg.activeHoursStart !== undefined) hb.activeHoursStart = msg.activeHoursStart ?? undefined;
-      if (msg.activeHoursEnd !== undefined) hb.activeHoursEnd = msg.activeHoursEnd ?? undefined;
+      if (msg.activeHoursStart !== undefined) {
+        hb.activeHoursStart = (msg.activeHoursStart === -1 ? undefined : msg.activeHoursStart) ?? undefined;
+      }
+      if (msg.activeHoursEnd !== undefined) {
+        hb.activeHoursEnd = (msg.activeHoursEnd === -1 ? undefined : msg.activeHoursEnd) ?? undefined;
+      }
 
       const wasSuppressed = ctx.suppressConfigReload;
       ctx.setSuppressConfigReload(true);
@@ -104,10 +108,10 @@ export function handleHeartbeatRunsList(
 ): void {
   try {
     const limit = msg.limit ?? 20;
-    // Get all conversations including background, then filter to background only
+    // Get background conversations and filter to heartbeat-origin only
     const all = conversationStore.listConversations(limit * 5, true);
     const bgConversations = all
-      .filter((c) => c.threadType === 'background')
+      .filter((c) => c.source === 'heartbeat')
       .slice(0, limit);
 
     const runs = bgConversations.map((conv) => {
