@@ -10,6 +10,8 @@ import { getAttachmentsForMessage, setAttachmentThumbnail } from '../../memory/a
 import { generateVideoThumbnail } from '../video-thumbnail.js';
 import type { UserMessageAttachment } from '../ipc-contract.js';
 import { normalizeThreadType } from '../ipc-protocol.js';
+import { isRecordingOnly, detectStopRecordingIntent } from '../recording-intent.js';
+import { handleRecordingStart, handleRecordingStop } from './recording.js';
 import type {
   UserMessage,
   ConfirmationResponse,
@@ -84,6 +86,27 @@ export async function handleUserMessage(
       status: 'info',
       attributes: { source: 'user_message' },
     });
+
+    // ── Standalone recording intent interception ──────────────────────────
+    const config = getConfig();
+    const messageText = msg.content ?? '';
+    if (config.daemon.standaloneRecording && messageText) {
+      if (detectStopRecordingIntent(messageText)) {
+        handleRecordingStop(msg.sessionId, ctx);
+        rlog.info('Recording stop intent intercepted in user_message');
+        ctx.send(socket, { type: 'assistant_text_delta', text: 'Stopping the recording.' });
+        ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
+        return;
+      }
+
+      if (isRecordingOnly(messageText)) {
+        handleRecordingStart(msg.sessionId, { promptForSource: true }, socket, ctx);
+        rlog.info('Recording-only intent intercepted in user_message');
+        ctx.send(socket, { type: 'assistant_text_delta', text: 'Starting screen recording.' });
+        ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
+        return;
+      }
+    }
 
     const ipcChannel = parseChannelId(msg.channel) ?? 'vellum';
     const queuedChannelMetadata = {
