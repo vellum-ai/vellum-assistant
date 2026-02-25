@@ -22,6 +22,8 @@ enum SidePanelType: Hashable, CaseIterable {
         case "assistantInbox": self = .assistantInbox
         case "apps": self = .apps
         case "intelligence": self = .intelligence
+        // Legacy values from older builds — map to the unified Intelligence panel
+        case "identity", "agent": self = .intelligence
         default: return nil
         }
     }
