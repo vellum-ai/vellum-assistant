@@ -7,7 +7,7 @@ import * as externalConversationStore from '../../memory/external-conversation-s
 import { checkIngressForSecrets } from '../../security/secret-ingress.js';
 import { classifySessionError, buildSessionErrorMessage } from '../session-error.js';
 import { getAttachmentsForMessage, setAttachmentThumbnail } from '../../memory/attachments-store.js';
-import { generateVideoThumbnail } from '../video-thumbnail.js';
+import { generateVideoThumbnail, generateVideoThumbnailFromFile } from '../video-thumbnail.js';
 import type { UserMessageAttachment } from '../ipc-contract.js';
 import { normalizeThreadType } from '../ipc-protocol.js';
 import type {
@@ -445,14 +445,19 @@ export function handleHistoryRequest(
         // the client, so non-video attachments always keep their inline data.
         const MAX_INLINE_B64_SIZE = 512 * 1024;
         attachments = linked.map((a) => {
-          const omit = a.mimeType.startsWith('video/') && a.dataBase64.length > MAX_INLINE_B64_SIZE;
+          // File-backed attachments (filePath set, dataBase64 empty) must always
+          // use lazy-load mode so the client fetches content via the HTTP endpoint.
+          const isFileBacked = !!a.filePath;
+          const omit = isFileBacked || (a.mimeType.startsWith('video/') && a.dataBase64.length > MAX_INLINE_B64_SIZE);
 
           // Lazily generate thumbnails for existing video attachments on first history load.
           if (a.mimeType.startsWith('video/') && !a.thumbnailBase64) {
             const attachmentId = a.id;
-            const base64 = a.dataBase64;
+            const thumbPromise = isFileBacked && a.filePath
+              ? generateVideoThumbnailFromFile(a.filePath)
+              : generateVideoThumbnail(a.dataBase64);
             silentlyWithLog(
-              generateVideoThumbnail(base64).then((thumb) => {
+              thumbPromise.then((thumb) => {
                 if (thumb) setAttachmentThumbnail(attachmentId, thumb);
               }),
               'video thumbnail generation',

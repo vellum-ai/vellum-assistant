@@ -131,3 +131,119 @@ export function handleGetAttachment(attachmentId: string): Response {
     data: attachment.dataBase64,
   });
 }
+
+/**
+ * Serve attachment content with Range header support for video seeking.
+ * File-backed attachments are streamed directly from disk; base64 attachments
+ * are decoded and served as binary.
+ */
+export function handleGetAttachmentContent(attachmentId: string, req: Request): Response {
+  const attachment = attachmentsStore.getAttachmentById(attachmentId);
+  if (!attachment) {
+    return Response.json({ error: 'Attachment not found' }, { status: 404 });
+  }
+
+  const contentType = attachment.mimeType;
+
+  // File-backed attachment: serve from disk with Range support
+  if (attachment.filePath) {
+    const file = Bun.file(attachment.filePath);
+    const fileSize = file.size;
+
+    if (fileSize === 0) {
+      return Response.json({ error: 'Attachment file is empty or missing' }, { status: 404 });
+    }
+
+    const rangeHeader = req.headers.get('Range');
+    if (!rangeHeader) {
+      return new Response(file, {
+        status: 200,
+        headers: {
+          'Content-Type': contentType,
+          'Content-Length': String(fileSize),
+          'Accept-Ranges': 'bytes',
+        },
+      });
+    }
+
+    const match = rangeHeader.match(/^bytes=(\d+)-(\d*)$/);
+    if (!match) {
+      return new Response('Invalid Range header', {
+        status: 416,
+        headers: { 'Content-Range': `bytes */${fileSize}` },
+      });
+    }
+
+    const start = parseInt(match[1], 10);
+    const rawEnd = match[2] ? parseInt(match[2], 10) : fileSize - 1;
+
+    // Per RFC 7233, only return 416 when start is beyond the resource.
+    // When end exceeds the resource, clamp it to the last byte.
+    if (start >= fileSize || start > rawEnd) {
+      return new Response('Range not satisfiable', {
+        status: 416,
+        headers: { 'Content-Range': `bytes */${fileSize}` },
+      });
+    }
+
+    const end = Math.min(rawEnd, fileSize - 1);
+    const contentLength = end - start + 1;
+    return new Response(file.slice(start, end + 1), {
+      status: 206,
+      headers: {
+        'Content-Type': contentType,
+        'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+        'Content-Length': String(contentLength),
+        'Accept-Ranges': 'bytes',
+      },
+    });
+  }
+
+  // Base64-backed attachment: decode and serve
+  const buffer = Buffer.from(attachment.dataBase64, 'base64');
+  const totalSize = buffer.length;
+
+  const rangeHeader = req.headers.get('Range');
+  if (!rangeHeader) {
+    return new Response(buffer, {
+      status: 200,
+      headers: {
+        'Content-Type': contentType,
+        'Content-Length': String(totalSize),
+        'Accept-Ranges': 'bytes',
+      },
+    });
+  }
+
+  const match = rangeHeader.match(/^bytes=(\d+)-(\d*)$/);
+  if (!match) {
+    return new Response('Invalid Range header', {
+      status: 416,
+      headers: { 'Content-Range': `bytes */${totalSize}` },
+    });
+  }
+
+  const start = parseInt(match[1], 10);
+  const rawEnd = match[2] ? parseInt(match[2], 10) : totalSize - 1;
+
+  // Per RFC 7233, only return 416 when start is beyond the resource.
+  // When end exceeds the resource, clamp it to the last byte.
+  if (start >= totalSize || start > rawEnd) {
+    return new Response('Range not satisfiable', {
+      status: 416,
+      headers: { 'Content-Range': `bytes */${totalSize}` },
+    });
+  }
+
+  const end = Math.min(rawEnd, totalSize - 1);
+  const contentLength = end - start + 1;
+  return new Response(buffer.subarray(start, end + 1), {
+    status: 206,
+    headers: {
+      'Content-Type': contentType,
+      'Content-Range': `bytes ${start}-${end}/${totalSize}`,
+      'Content-Length': String(contentLength),
+      'Accept-Ranges': 'bytes',
+    },
+  });
+}

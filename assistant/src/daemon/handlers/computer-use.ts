@@ -1,9 +1,15 @@
 import * as net from 'node:net';
+import { existsSync, statSync } from 'node:fs';
+import { basename } from 'node:path';
 import { getConfig } from '../../config/loader.js';
 import { getFailoverProvider } from '../../providers/registry.js';
 import { RateLimitProvider } from '../../providers/ratelimit.js';
 import { ComputerUseSession } from '../computer-use-session.js';
 import { readBlob, deleteBlob, validateBlobKindEncoding } from '../ipc-blob-store.js';
+import { uploadFileBackedAttachment, linkAttachmentToMessage } from '../../memory/attachments-store.js';
+import { getDb } from '../../memory/db.js';
+import { messages } from '../../memory/schema.js';
+import { eq, desc, and } from 'drizzle-orm';
 import type {
   CuSessionCreate,
   CuSessionAbort,
@@ -186,13 +192,6 @@ export function handleRecordingStatus(
   _socket: net.Socket,
   ctx: HandlerContext,
 ): void {
-  const session = ctx.cuSessions.get(msg.sessionId);
-  if (!session) {
-    // Session already cleaned up — still log the recording status for telemetry
-    log.info({ sessionId: msg.sessionId, status: msg.status, filePath: msg.filePath, durationMs: msg.durationMs }, 'Recording status for completed session');
-    return;
-  }
-
   log.info({
     sessionId: msg.sessionId,
     status: msg.status,
@@ -200,6 +199,49 @@ export function handleRecordingStatus(
     durationMs: msg.durationMs,
     error: msg.error,
   }, 'Recording status update');
+
+  // When recording stops with a file path, create a file-backed attachment
+  // and link it to the latest assistant message in the session's conversation.
+  if (msg.status === 'stopped' && msg.filePath) {
+    try {
+      if (!existsSync(msg.filePath)) {
+        log.error({ sessionId: msg.sessionId, filePath: msg.filePath }, 'Recording file does not exist');
+        return;
+      }
+
+      // Find the latest assistant message BEFORE creating the attachment to
+      // avoid orphaned attachment rows when no message exists to link to.
+      const conversationId = msg.sessionId;
+      const db = getDb();
+      const latestAssistantMsg = db
+        .select({ id: messages.id })
+        .from(messages)
+        .where(and(eq(messages.conversationId, conversationId), eq(messages.role, 'assistant')))
+        .orderBy(desc(messages.createdAt))
+        .get();
+
+      if (!latestAssistantMsg) {
+        log.warn({ sessionId: msg.sessionId }, 'No assistant message found in session to link recording attachment — skipping attachment creation');
+        return;
+      }
+
+      const stat = statSync(msg.filePath);
+      const sizeBytes = stat.size;
+      const filename = basename(msg.filePath);
+
+      // Infer MIME type from extension
+      const ext = filename.split('.').pop()?.toLowerCase();
+      const mimeType = ext === 'mov' ? 'video/quicktime' : ext === 'mp4' ? 'video/mp4' : 'video/mp4';
+
+      const attachment = uploadFileBackedAttachment(filename, mimeType, msg.filePath, sizeBytes);
+      log.info({ sessionId: msg.sessionId, attachmentId: attachment.id, sizeBytes, filePath: msg.filePath }, 'Created file-backed attachment for recording');
+
+      linkAttachmentToMessage(latestAssistantMsg.id, attachment.id, 0);
+      log.info({ sessionId: msg.sessionId, messageId: latestAssistantMsg.id, attachmentId: attachment.id }, 'Linked recording attachment to assistant message');
+    } catch (err) {
+      log.error({ err, sessionId: msg.sessionId, filePath: msg.filePath }, 'Failed to create attachment for recording');
+    }
+  }
 }
 
 export const computerUseHandlers = defineHandlers({

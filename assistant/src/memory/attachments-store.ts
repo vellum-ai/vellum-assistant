@@ -17,6 +17,7 @@ export interface StoredAttachment {
   sizeBytes: number;
   kind: string;
   thumbnailBase64: string | null;
+  filePath: string | null;
   createdAt: number;
 }
 
@@ -182,6 +183,7 @@ export function uploadAttachment(
       sizeBytes: attachments.sizeBytes,
       kind: attachments.kind,
       thumbnailBase64: attachments.thumbnailBase64,
+      filePath: attachments.filePath,
       createdAt: attachments.createdAt,
     })
     .from(attachments)
@@ -215,6 +217,48 @@ export function uploadAttachment(
     sizeBytes,
     kind,
     thumbnailBase64: null,
+    filePath: null,
+    createdAt: now,
+  };
+}
+
+/**
+ * Create a file-backed attachment record. The actual data lives on disk at
+ * `filePath`; `dataBase64` is stored as an empty string to satisfy the NOT NULL
+ * constraint while avoiding duplicating potentially large video files in SQLite.
+ */
+export function uploadFileBackedAttachment(
+  filename: string,
+  mimeType: string,
+  filePath: string,
+  sizeBytes: number,
+): StoredAttachment {
+  const db = getDb();
+  const now = Date.now();
+  const kind = classifyKind(mimeType);
+  const id = uuid();
+
+  db.insert(attachments)
+    .values({
+      id,
+      originalFilename: filename,
+      mimeType,
+      sizeBytes,
+      kind,
+      dataBase64: '',
+      filePath,
+      createdAt: now,
+    })
+    .run();
+
+  return {
+    id,
+    originalFilename: filename,
+    mimeType,
+    sizeBytes,
+    kind,
+    thumbnailBase64: null,
+    filePath,
     createdAt: now,
   };
 }
@@ -281,6 +325,7 @@ export function getAttachmentsByIds(
         sizeBytes: row.sizeBytes,
         kind: row.kind,
         thumbnailBase64: row.thumbnailBase64,
+        filePath: row.filePath,
         dataBase64: row.dataBase64,
         createdAt: row.createdAt,
       });
@@ -356,6 +401,7 @@ export function getAttachmentMetadataForMessage(
         sizeBytes: attachments.sizeBytes,
         kind: attachments.kind,
         thumbnailBase64: attachments.thumbnailBase64,
+        filePath: attachments.filePath,
         createdAt: attachments.createdAt,
       })
       .from(attachments)
