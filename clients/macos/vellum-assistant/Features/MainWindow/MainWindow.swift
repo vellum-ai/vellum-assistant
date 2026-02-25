@@ -145,6 +145,12 @@ final class MainWindow {
     /// Set by AppDelegate on first launch; consumed by MainWindowView.
     var pendingWakeUpMessage: String?
 
+    /// Callback fired after the wake-up message is actually dispatched (not just
+    /// queued). AppDelegate uses this to defer the bootstrap state transition to
+    /// `.pendingFirstReply` until the message has truly been sent, avoiding a gap
+    /// between window creation and actual send that could leave bootstrap stuck.
+    var onWakeUpSent: (() -> Void)?
+
     // Forwarding accessors — keeps existing references working while
     // ownership lives in the `services` container.
     private var daemonClient: DaemonClient { services.daemonClient }
@@ -278,6 +284,10 @@ final class MainWindow {
             viewModel.inputText = message
             viewModel.sendMessage()
             self.pendingWakeUpMessage = nil
+            // Notify AppDelegate that the wake-up message has actually been
+            // dispatched, so it can transition bootstrap state now.
+            self.onWakeUpSent?()
+            self.onWakeUpSent = nil
         } : nil
 
         let rootView = MainWindowView(threadManager: threadManager, appListManager: appListManager, zoomManager: zoomManager, traceStore: traceStore, daemonClient: daemonClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, authManager: services.authManager, windowState: windowState, documentManager: documentManager, avatarEvolutionState: avatarEvolutionState, onMicrophoneToggle: onMicrophoneToggle ?? {}, voiceModeManager: voiceModeManager, onSendWakeUp: wakeUpCallback)

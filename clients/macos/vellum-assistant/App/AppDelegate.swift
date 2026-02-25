@@ -570,14 +570,19 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             let greeting = wakeUpGreeting()
             showMainWindow(initialMessage: greeting, isFirstLaunch: true)
 
-            // Check if the message was sent by verifying the main window exists
-            // and has an active view model. The wake-up message is queued via
-            // pendingWakeUpMessage in MainWindow — if the window was created
-            // successfully, consider the send successful.
-            if mainWindow != nil {
-                log.info("Wake-up greeting sent successfully (attempt \(attempt + 1))")
-                transitionBootstrap(to: .pendingFirstReply)
-                wireBootstrapFirstReplyCallback()
+            // The wake-up message is deferred via pendingWakeUpMessage in
+            // MainWindow — the actual send happens after the "coming alive"
+            // animation completes. Transition to pendingFirstReply only after
+            // the message is truly dispatched to avoid a gap where bootstrap
+            // is stuck at pendingFirstReply without the message having been sent.
+            if let main = mainWindow {
+                log.info("MainWindow created — deferring pendingFirstReply until wake-up message is dispatched (attempt \(attempt + 1))")
+                main.onWakeUpSent = { [weak self] in
+                    guard let self else { return }
+                    log.info("Wake-up greeting actually sent — transitioning to pendingFirstReply")
+                    self.transitionBootstrap(to: .pendingFirstReply)
+                    self.wireBootstrapFirstReplyCallback()
+                }
                 setupWakeWordCoordinator()
                 debugStateWriter.start(appDelegate: self)
                 return
