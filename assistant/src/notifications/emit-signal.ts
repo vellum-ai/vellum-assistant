@@ -42,6 +42,12 @@ export function registerBroadcastFn(fn: BroadcastFn): void {
   broadcasterInstance = null;
 }
 
+/** Expose the registered broadcast function so external dispatchers
+ *  (e.g. guardian-dispatch) can emit IPC events directly. */
+export function getRegisteredBroadcastFn(): BroadcastFn | null {
+  return registeredBroadcastFn;
+}
+
 function getBroadcaster(): NotificationBroadcaster {
   if (!broadcasterInstance) {
     const adapters = [
@@ -123,6 +129,12 @@ export interface EmitSignalParams {
   contextPayload?: Record<string, unknown>;
   /** Optional deduplication key. */
   dedupeKey?: string;
+  /**
+   * When true, suppress the pipeline's notification_thread_created IPC event
+   * for the vellum channel. Used by callers (e.g. guardian-dispatch) that
+   * create their own vellum conversation and emit the event directly.
+   */
+  skipVellumThread?: boolean;
   /**
    * When true, rethrow pipeline errors to the caller instead of only logging.
    * Useful for direct user-invoked actions that must fail closed.
@@ -207,7 +219,12 @@ export async function emitNotificationSignal(params: EmitSignalParams): Promise<
     // than after all channel deliveries complete. This avoids a race where
     // slow Telegram delivery delays the push past the macOS deep-link retry.
     const broadcaster = getBroadcaster();
-    const dispatchResult = await dispatchDecision(signal, decision, broadcaster);
+    const dispatchResult = await dispatchDecision(
+      signal,
+      decision,
+      broadcaster,
+      params.skipVellumThread ? { skipThreadPush: true } : undefined,
+    );
 
     log.info(
       {

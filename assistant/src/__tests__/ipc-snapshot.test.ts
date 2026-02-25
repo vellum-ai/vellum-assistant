@@ -1753,14 +1753,6 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     workItemId: 'wi-001',
     title: 'Process report',
   },
-  guardian_request_thread_created: {
-    type: 'guardian_request_thread_created',
-    conversationId: 'conv-guardian-001',
-    requestId: 'req-guardian-001',
-    callSessionId: 'call-001',
-    title: 'Guardian action request',
-    questionText: 'What is the gate code?',
-  },
   subagent_spawned: {
     type: 'subagent_spawned',
     subagentId: 'sub-001',

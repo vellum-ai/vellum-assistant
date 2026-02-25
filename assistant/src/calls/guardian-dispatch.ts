@@ -3,13 +3,11 @@
  *
  * When a call controller detects ASK_GUARDIAN, this module:
  * 1. Creates a guardian_action_request
- * 2. Determines delivery destinations (telegram, sms, macos)
+ * 2. Routes through the generic notification pipeline (emitNotificationSignal)
  * 3. Creates guardian_action_delivery rows for each destination
- * 4. Sends HTTP POST to gateway for external channels
- * 5. Emits IPC events for the mac channel
+ * 4. Persists the vellum conversation + initial message for mac replies
  */
 
-import type { ServerMessage } from '../daemon/ipc-contract.js';
 import { getActiveBinding } from '../memory/channel-guardian-store.js';
 import { getOrCreateConversation } from '../memory/conversation-key-store.js';
 import { addMessage, updateConversationTitle } from '../memory/conversation-store.js';
@@ -18,7 +16,7 @@ import {
   createGuardianActionRequest,
   updateDeliveryStatus,
 } from '../memory/guardian-action-store.js';
-import { emitNotificationSignal } from '../notifications/emit-signal.js';
+import { emitNotificationSignal, getRegisteredBroadcastFn } from '../notifications/emit-signal.js';
 import { getLogger } from '../util/logger.js';
 import { getUserConsultationTimeoutMs } from './call-constants.js';
 import { generateGuardianCopy } from './guardian-question-copy.js';
@@ -31,8 +29,6 @@ export interface GuardianDispatchParams {
   conversationId: string;
   assistantId: string;
   pendingQuestion: CallPendingQuestion;
-  /** Broadcast function to emit IPC events to connected clients. */
-  broadcast?: (msg: ServerMessage) => void;
 }
 
 /**
@@ -45,7 +41,6 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
     conversationId,
     assistantId,
     pendingQuestion,
-    broadcast,
   } = params;
 
   try {
@@ -68,11 +63,11 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
       'Created guardian action request',
     );
 
-    // Emit notification signal through the unified pipeline (fire-and-forget).
-    // The existing guardian dispatch logic below handles the actual delivery
-    // to specific channels (telegram, sms, vellum), so this signal is
-    // supplementary — it lets the decision engine log and potentially route
-    // to additional channels in the future.
+    // Route through the generic notification pipeline — this handles
+    // multi-channel delivery automatically. We suppress the pipeline's
+    // notification_thread_created IPC event because guardian-dispatch creates
+    // its own vellum conversation with proper LLM copy and delivery linkage;
+    // the pipeline's conversation would be a separate, unlinked thread.
     void emitNotificationSignal({
       sourceEventName: 'guardian.question',
       sourceChannel: 'voice',
@@ -93,6 +88,7 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
         pendingQuestionId: pendingQuestion.id,
       },
       dedupeKey: `guardian:${request.id}`,
+      skipVellumThread: true,
     });
 
     // Determine delivery destinations
@@ -162,17 +158,19 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
           { userMessageChannel: 'voice', assistantMessageChannel: 'vellum', userMessageInterface: 'voice', assistantMessageInterface: 'vellum' },
         );
 
-        // Emit IPC event for the vellum client with the server-created conversation
-        if (broadcast) {
-          broadcast({
-            type: 'guardian_request_thread_created',
+        // Emit notification_thread_created directly for the guardian's own
+        // vellum conversation — the pipeline's event was suppressed via
+        // skipVellumThread so the macOS client surfaces this thread instead.
+        const broadcastFn = getRegisteredBroadcastFn();
+        if (broadcastFn) {
+          broadcastFn({
+            type: 'notification_thread_created',
             conversationId: macConversationId,
-            requestId: request.id,
-            callSessionId,
             title: guardianCopy.threadTitle,
-            questionText: request.questionText,
-          } as ServerMessage);
+            sourceEventName: 'guardian.question',
+          });
         }
+
         updateDeliveryStatus(delivery.id, 'sent');
         log.info({ deliveryId: delivery.id, channel: 'vellum', macConversationId }, 'Vellum guardian delivery emitted');
       } else {

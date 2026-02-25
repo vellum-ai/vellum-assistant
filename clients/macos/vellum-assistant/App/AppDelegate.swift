@@ -796,32 +796,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             )
         }
 
-        // Guardian request threads — created when a voice call's ASK_GUARDIAN dispatches
-        // a question to the mac channel so the user can see and respond in chat.
-        daemonClient.onGuardianRequestThreadCreated = { [weak self] msg in
-            guard let self, !self.isAwaitingFirstLaunchReady else { return }
-            self.mainWindow?.threadManager.createGuardianRequestThread(
-                conversationId: msg.conversationId,
-                requestId: msg.requestId,
-                callSessionId: msg.callSessionId,
-                title: msg.title
-            )
-            if NSApp.isActive {
-                // App is in foreground — select thread and show window immediately
-                if let thread = self.mainWindow?.threadManager.threads.first(where: { $0.sessionId == msg.conversationId }) {
-                    self.mainWindow?.threadManager.activeThreadId = thread.id
-                }
-                self.showMainWindow()
-            } else {
-                // App is backgrounded — post native notification
-                self.deliverGuardianRequestNotification(
-                    title: msg.title,
-                    questionText: msg.questionText,
-                    conversationId: msg.conversationId
-                )
-            }
-        }
-
         // Notification threads — created when the notification pipeline delivers
         // to the vellum channel with start_new_conversation strategy.
         daemonClient.onNotificationThreadCreated = { [weak self] msg in

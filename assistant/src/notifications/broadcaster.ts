@@ -64,6 +64,7 @@ export class NotificationBroadcaster {
   async broadcastDecision(
     signal: NotificationSignal,
     decision: NotificationDecision,
+    options?: { skipThreadPush?: boolean },
   ): Promise<NotificationDeliveryResult[]> {
     const destinations = resolveDestinations(signal.assistantId, decision.selectedChannels);
 
@@ -128,7 +129,7 @@ export class NotificationBroadcaster {
         // conversation is paired, BEFORE waiting for adapter send or other
         // channel deliveries. This avoids a race where slow Telegram delivery
         // delays the IPC push past the macOS deep-link retry window.
-        if (pairing.strategy === 'start_new_conversation' && this.onThreadCreated) {
+        if (pairing.strategy === 'start_new_conversation' && this.onThreadCreated && !options?.skipThreadPush) {
           const threadTitle =
             copy.threadTitle ??
             copy.title ??

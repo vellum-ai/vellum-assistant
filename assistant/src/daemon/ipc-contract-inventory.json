@@ -229,7 +229,6 @@
     "generation_cancelled",
     "generation_handoff",
     "get_signing_identity",
-    "guardian_request_thread_created",
     "guardian_verification_response",
     "history_response",
     "home_base_get_response",
