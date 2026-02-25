@@ -180,6 +180,17 @@ export function updateDeliveryClientOutcome(
   return (result.changes ?? 0) > 0;
 }
 
+/** Get a single delivery row by ID. */
+export function getDeliveryById(id: string): NotificationDeliveryRow | null {
+  const db = getDb();
+  const row = db
+    .select()
+    .from(notificationDeliveries)
+    .where(eq(notificationDeliveries.id, id))
+    .get();
+  return row ? rowToDelivery(row) : null;
+}
+
 /** List all delivery records for a given notification decision. */
 export function listDeliveries(decisionId: string): NotificationDeliveryRow[] {
   const db = getDb();

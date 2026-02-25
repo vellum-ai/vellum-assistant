@@ -220,6 +220,11 @@ The ack populates three columns on `notification_deliveries`:
 | `client_delivery_error` | TEXT | Error description when the post failed (e.g. authorization denied) |
 | `client_delivery_at` | INTEGER | Epoch ms timestamp of when the client reported the outcome |
 
+When the client reports `errorCode: "authorization_denied"` for a vellum
+delivery, the daemon appends an assistant fallback note to the paired
+notification conversation. This keeps the failure visible in the same thread
+even when the native macOS banner cannot be shown.
+
 This means the audit trail can now answer three questions for each vellum delivery:
 
 1. **Was the intent broadcast?** -- existing `status` column (`sent`)

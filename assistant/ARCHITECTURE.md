@@ -1426,6 +1426,12 @@ Notifications are delivered to two channel types:
 
 Connected channels are resolved at signal emission time: vellum is always included, and binding-based channels (Telegram) are included only when an active guardian binding exists for the assistant.
 
+For vellum deliveries, clients send `notification_intent_result` after
+`UNUserNotificationCenter.add()` succeeds or fails. The daemon persists this
+outcome on `notification_deliveries`; when the error code is
+`authorization_denied`, it appends an assistant fallback message to the paired
+notification conversation so the permission failure is visible in-thread.
+
 **Key modules:**
 
 | Module | Purpose |
@@ -1437,6 +1443,7 @@ Connected channels are resolved at signal emission time: vellum is always includ
 | `assistant/src/notifications/broadcaster.ts` | Dispatches decisions to channel adapters; emits `notification_thread_created` IPC |
 | `assistant/src/notifications/conversation-pairing.ts` | Materializes conversation + message per delivery based on channel strategy |
 | `assistant/src/notifications/adapters/macos.ts` | Vellum adapter — broadcasts `notification_intent` via IPC with deep-link metadata |
+| `assistant/src/notifications/intent-result-handler.ts` | Persists `notification_intent_result`; appends in-thread fallback note on authorization-denied client failures |
 | `assistant/src/notifications/adapters/telegram.ts` | Telegram adapter — POSTs to gateway `/deliver/telegram` |
 | `assistant/src/notifications/destination-resolver.ts` | Resolves per-channel endpoints (vellum IPC, Telegram chat ID from guardian binding) |
 | `assistant/src/notifications/copy-composer.ts` | Template-based fallback copy when LLM copy is unavailable |
