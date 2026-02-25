@@ -6,6 +6,7 @@ import type { Provider } from '../providers/types.js';
 import { synthesizeResults } from './synthesizer.js';
 import { detectCycles } from './graph-utils.js';
 import { getLogger } from '../util/logger.js';
+import { writeCheckpoint, loadCheckpoint, removeCheckpoint, isCheckpointCompatible } from './checkpoint.js';
 
 const log = getLogger('swarm-orchestrator');
 
@@ -37,6 +38,10 @@ export interface ExecuteSwarmOptions {
   synthesisModel?: string;
   onStatus?: OrchestratorStatusCallback;
   signal?: AbortSignal;
+  /** Stable identifier for this swarm run, used for checkpoint persistence. */
+  runId?: string;
+  /** When true, attempt to resume from the last checkpoint for this runId. */
+  resume?: boolean;
 }
 
 /**
@@ -44,7 +49,7 @@ export interface ExecuteSwarmOptions {
  * bounded concurrency, and per-task retries.
  */
 export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExecutionSummary> {
-  const { plan, limits, backend, workingDir, model, onStatus, signal } = opts;
+  const { plan, limits, backend, workingDir, model, onStatus, signal, runId, resume } = opts;
   const startTime = Date.now();
 
   // Safety net: reject cyclic plans even if the caller skipped validation
@@ -58,6 +63,25 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
   const results = new Map<string, SwarmTaskResult>();
   const blocked = new Set<string>();
 
+  // Restore from checkpoint if resuming
+  if (runId && resume) {
+    const checkpoint = loadCheckpoint(runId);
+    if (checkpoint && isCheckpointCompatible(checkpoint, plan)) {
+      for (const result of checkpoint.results) {
+        results.set(result.taskId, result);
+      }
+      for (const taskId of checkpoint.blockedTaskIds) {
+        blocked.add(taskId);
+      }
+      const restored = checkpoint.results.length;
+      const restoredBlocked = checkpoint.blockedTaskIds.length;
+      log.info({ runId, restored, restoredBlocked }, 'Resumed from checkpoint');
+      onStatus?.({ kind: 'plan_created', message: `Resumed ${restored} completed tasks from checkpoint` });
+    } else if (checkpoint) {
+      log.warn({ runId }, 'Checkpoint incompatible with current plan, starting fresh');
+    }
+  }
+
   // Build adjacency for dependency tracking
   const dependents = new Map<string, string[]>();
   for (const task of plan.tasks) {
@@ -69,17 +93,21 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
     }
   }
 
-  // Determine initial ready tasks (no dependencies)
+  // Determine initial ready tasks — skip tasks already completed or blocked
+  // from a restored checkpoint
   const ready: SwarmTaskNode[] = [];
   const remaining = new Map<string, SwarmTaskNode>();
   const pendingDeps = new Map<string, Set<string>>();
 
   for (const task of plan.tasks) {
+    if (results.has(task.id) || blocked.has(task.id)) continue;
     remaining.set(task.id, task);
-    if (task.dependencies.length === 0) {
+    // Remove already-completed dependencies from this task's pending set
+    const unresolvedDeps = task.dependencies.filter((d) => !results.has(d));
+    if (unresolvedDeps.length === 0) {
       ready.push(task);
     } else {
-      pendingDeps.set(task.id, new Set(task.dependencies));
+      pendingDeps.set(task.id, new Set(unresolvedDeps));
     }
   }
 
@@ -127,6 +155,10 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
     } else {
       onStatus?.({ kind: 'task_failed', taskId: result.taskId });
       blockDependents(result.taskId, dependents, blocked, onStatus);
+    }
+
+    if (runId) {
+      writeCheckpoint(runId, plan, results, blocked);
     }
   }
 
@@ -261,6 +293,12 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
   }
 
   const totalDurationMs = Date.now() - startTime;
+
+  // Clean up checkpoint on successful completion (not on abort, so it can be resumed)
+  if (runId && !signal?.aborted) {
+    removeCheckpoint(runId);
+  }
+
   onStatus?.({ kind: 'done', message: `Completed in ${totalDurationMs}ms` });
 
   return {
