@@ -89,16 +89,21 @@ public final class SubagentDetailStore: ObservableObject {
                let last = events.last,
                case .text = last.kind {
                 var content = events[events.count - 1].content
+                // Stop accumulating once text has been capped.
+                guard content.utf8.count <= Self.textByteCap else { return }
                 content += delta.text
                 // Cap text concatenation to prevent unbounded string accumulation.
-                // Use character-based prefix to safely truncate at character boundaries.
                 if content.utf8.count > Self.textByteCap {
-                    content = "[truncated] " + String(content.prefix(Self.textByteCap))
+                    content = String(content.prefix(Self.textByteCap)) + " [truncated]"
                 }
                 events[events.count - 1].content = content
                 eventsBySubagent[subagentId] = events
             } else {
-                let item = SubagentEventItem(timestamp: Date(), kind: .text, content: delta.text)
+                var text = delta.text
+                if text.utf8.count > Self.textByteCap {
+                    text = String(text.prefix(Self.textByteCap)) + " [truncated]"
+                }
+                let item = SubagentEventItem(timestamp: Date(), kind: .text, content: text)
                 eventsBySubagent[subagentId, default: []].append(item)
                 trimEvents(for: subagentId)
             }
