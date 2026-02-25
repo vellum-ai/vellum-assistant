@@ -14,6 +14,7 @@ import { documentHandlers } from './documents.js';
 import { homeBaseHandlers } from './home-base.js';
 import { identityHandlers } from './identity.js';
 import { miscHandlers } from './misc.js';
+import { oauthConnectHandlers } from './oauth-connect.js';
 import { handleOpenBundle } from './open-bundle-handler.js';
 import { pairingHandlers } from './pairing.js';
 import { publishHandlers } from './publish.js';
@@ -112,6 +113,7 @@ const handlers = {
   ...browserHandlers,
   ...signingHandlers,
   ...twitterAuthHandlers,
+  ...oauthConnectHandlers,
   ...workspaceFileHandlers,
   ...identityHandlers,
   ...dictationHandlers,
