@@ -44,6 +44,15 @@ export class HeartbeatService {
     }, config.intervalMs);
   }
 
+  /** Restart the timer with the latest config (e.g. after settings change). */
+  reconfigure(): void {
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+    this.start();
+  }
+
   async stop(): Promise<void> {
     if (this.timer) {
       clearInterval(this.timer);
@@ -58,9 +67,10 @@ export class HeartbeatService {
     log.info('Heartbeat service stopped');
   }
 
-  async runOnce(): Promise<void> {
+  /** Returns true if the heartbeat actually ran, false if skipped. */
+  async runOnce(): Promise<boolean> {
     const config = getConfig().heartbeat;
-    if (!config.enabled) return;
+    if (!config.enabled) return false;
 
     // Active hours guard — only applied when both bounds are set.
     // The schema rejects configs where only one bound is provided.
@@ -68,14 +78,14 @@ export class HeartbeatService {
       const hour = this.deps.getCurrentHour?.() ?? new Date().getHours();
       if (!isWithinActiveHours(hour, config.activeHoursStart, config.activeHoursEnd)) {
         log.debug({ hour, activeHoursStart: config.activeHoursStart, activeHoursEnd: config.activeHoursEnd }, 'Outside active hours, skipping');
-        return;
+        return false;
       }
     }
 
     // Overlap prevention
     if (this.activeRun) {
       log.debug('Previous heartbeat run still active, skipping');
-      return;
+      return false;
     }
 
     const run = this.executeRun();
@@ -85,6 +95,7 @@ export class HeartbeatService {
     } finally {
       this.activeRun = null;
     }
+    return true;
   }
 
   private async executeRun(): Promise<void> {
@@ -97,6 +108,7 @@ export class HeartbeatService {
       const conversation = createConversation({
         title: GENERATING_TITLE,
         threadType: 'background',
+        source: 'heartbeat',
       });
       queueGenerateConversationTitle({
         conversationId: conversation.id,

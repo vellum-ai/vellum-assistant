@@ -4,6 +4,7 @@ import * as net from 'node:net';
 import { v4 as uuid } from 'uuid';
 
 import { getConfig } from '../../config/loader.js';
+import type { HeartbeatService } from '../../heartbeat/heartbeat-service.js';
 import type { SecretPromptResult } from '../../permissions/secret-prompter.js';
 import type { DebouncerMap } from '../../util/debounce.js';
 import { getLogger } from '../../util/logger.js';
@@ -138,6 +139,8 @@ export interface HandlerContext {
   ): Promise<Session>;
   /** Refresh the eviction timestamp for a session that was accessed directly. */
   touchSession(sessionId: string): void;
+  /** Optional heartbeat service reference for "Run Now" support. */
+  heartbeatService?: HeartbeatService;
 }
 
 // ─── Typed dispatch ──────────────────────────────────────────────────────────

@@ -2289,6 +2289,11 @@ public enum ServerMessage: Decodable, Sendable {
     case approvedDeviceRemoveResponse(ApprovedDeviceRemoveResponseMessage)
     case recordingStart(IPCRecordingStart)
     case recordingStop(IPCRecordingStop)
+    case heartbeatConfigResponse(IPCHeartbeatConfigResponse)
+    case heartbeatRunsListResponse(IPCHeartbeatRunsListResponse)
+    case heartbeatRunNowResponse(IPCHeartbeatRunNowResponse)
+    case heartbeatChecklistResponse(IPCHeartbeatChecklistResponse)
+    case heartbeatChecklistWriteResponse(IPCHeartbeatChecklistWriteResponse)
     case pong
     case unknown(String)
 
@@ -2697,6 +2702,21 @@ public enum ServerMessage: Decodable, Sendable {
         case "recording_stop":
             let message = try IPCRecordingStop(from: decoder)
             self = .recordingStop(message)
+        case "heartbeat_config_response":
+            let message = try IPCHeartbeatConfigResponse(from: decoder)
+            self = .heartbeatConfigResponse(message)
+        case "heartbeat_runs_list_response":
+            let message = try IPCHeartbeatRunsListResponse(from: decoder)
+            self = .heartbeatRunsListResponse(message)
+        case "heartbeat_run_now_response":
+            let message = try IPCHeartbeatRunNowResponse(from: decoder)
+            self = .heartbeatRunNowResponse(message)
+        case "heartbeat_checklist_response":
+            let message = try IPCHeartbeatChecklistResponse(from: decoder)
+            self = .heartbeatChecklistResponse(message)
+        case "heartbeat_checklist_write_response":
+            let message = try IPCHeartbeatChecklistWriteResponse(from: decoder)
+            self = .heartbeatChecklistWriteResponse(message)
         case "pong":
             self = .pong
         default:
