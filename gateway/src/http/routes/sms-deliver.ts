@@ -142,10 +142,10 @@ export function createSmsDeliverHandler(config: GatewayConfig) {
       return Response.json({ error: "text is required" }, { status: 400 });
     }
 
-    // When an approval payload is present with a plainTextFallback, append it
-    // to the SMS body so the recipient knows how to approve/reject via text.
+    // plainTextFallback already includes the full prompt text plus reply
+    // instructions, so use it as the entire SMS body to avoid duplication.
     const smsBody = approval?.plainTextFallback && typeof approval.plainTextFallback === "string"
-      ? `${effectiveText}\n\n${approval.plainTextFallback}`
+      ? approval.plainTextFallback
       : effectiveText;
 
     const from = resolveFromNumber(config, assistantId);
