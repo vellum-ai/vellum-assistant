@@ -73,6 +73,9 @@ export function createChannelGuardianTables(database: DrizzleDb): void {
   // Existing rows default to 'self' for backward compatibility.
   try { database.run(/*sql*/ `ALTER TABLE channel_guardian_approval_requests ADD COLUMN assistant_id TEXT NOT NULL DEFAULT 'self'`); } catch { /* already exists */ }
 
+  // Migration: add request_id column for pending-interactions lookup (replaces run_id).
+  try { database.run(/*sql*/ `ALTER TABLE channel_guardian_approval_requests ADD COLUMN request_id TEXT`); } catch { /* already exists */ }
+
   database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS channel_guardian_rate_limits (
       id TEXT PRIMARY KEY,
