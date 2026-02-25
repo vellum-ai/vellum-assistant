@@ -173,7 +173,9 @@ function main() {
         url.pathname === "/deliver/whatsapp" ||
         url.pathname.startsWith("/pairing/") ||
         (url.pathname.startsWith("/v1/") &&
-          !url.pathname.startsWith("/v1/calls/twilio/") &&
+          url.pathname !== "/v1/calls/twilio/voice-webhook" &&
+          url.pathname !== "/v1/calls/twilio/status" &&
+          url.pathname !== "/v1/calls/twilio/connect-action" &&
           url.pathname !== "/v1/calls/relay");
       if (isAuthRoute) {
         const clientIp = getClientIp(req, svr, config.trustProxy);
