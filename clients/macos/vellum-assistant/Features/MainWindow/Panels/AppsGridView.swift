@@ -12,6 +12,7 @@ struct AppsGridView: View {
     @State private var searchText = ""
     @State private var hoveredAppId: String?
     @State private var recentVisibleCount = 10
+    @State private var editingApp: AppListManager.AppItem?
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: VSpacing.xl), count: 5)
 
@@ -51,6 +52,17 @@ struct AppsGridView: View {
             .padding(.bottom, VSpacing.xxl)
         }
         .background(VColor.backgroundSubtle)
+        .sheet(item: $editingApp) { app in
+            let iconInfo = resolvedIcon(for: app)
+            AppIconPickerSheet(
+                appName: app.name,
+                currentSymbol: iconInfo.sfSymbol,
+                currentColors: iconInfo.colors,
+                onSave: { symbol, colors in
+                    appListManager.updateAppIcon(id: app.id, sfSymbol: symbol, iconBackground: colors)
+                }
+            )
+        }
     }
 
     // MARK: - Search Bar
@@ -210,6 +222,9 @@ struct AppsGridView: View {
                 } else {
                     appListManager.pinApp(id: app.id)
                 }
+            }
+            Button("Change Icon") {
+                editingApp = app
             }
         }
         .accessibilityLabel(app.name)

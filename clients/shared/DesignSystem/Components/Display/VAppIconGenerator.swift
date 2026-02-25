@@ -7,7 +7,7 @@ public enum VAppIconGenerator {
     // MARK: - Gradient Palettes
 
     /// Curated gradient color pairs covering a range of hues.
-    static let gradientPalettes: [[String]] = [
+    public static let gradientPalettes: [[String]] = [
         ["#7C3AED", "#4F46E5"],  // violet
         ["#059669", "#10B981"],  // emerald
         ["#D97706", "#F59E0B"],  // amber
@@ -25,7 +25,7 @@ public enum VAppIconGenerator {
     // MARK: - SF Symbols
 
     /// Curated SF Symbols suitable for generic app icons.
-    static let symbols: [String] = [
+    public static let symbols: [String] = [
         "chart.line.uptrend.xyaxis",
         "doc.text",
         "globe",
