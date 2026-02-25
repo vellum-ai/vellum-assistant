@@ -63,16 +63,16 @@ struct ChatView: View {
     var connectionDiagnosticHint: String? = nil
 
     /// Triggers auto-scroll when the last message's text length changes (e.g. during streaming).
-    /// Sums utf8.count over each segment (O(1) per contiguous segment) instead of joining first,
-    /// which would allocate a new String and re-scan O(n) bytes every delta.
-    /// Uses total message text length (monotonically increasing) rather than the last segment's
-    /// length, which resets when a new text segment starts after a tool call.
+    /// Only inspects segment count and the last segment's length — O(1) instead of O(segments).
+    /// During streaming only the last segment grows; previous segments are immutable once a new
+    /// one starts after a tool call, so checking just the last segment captures all streaming deltas.
     private var streamingScrollTrigger: Int {
         // Use last non-queued message so streaming deltas still trigger
         // auto-scroll even when queued user messages sit at the array tail.
         let last = messages.last(where: { if case .queued = $0.status { return false }; return true })
-        let textLen = last?.textSegments.reduce(0) { $0 + $1.utf8.count } ?? 0
-        return textLen + (last?.toolCalls.count ?? 0) + (last?.inlineSurfaces.count ?? 0)
+        let segments = last?.textSegments ?? []
+        let lastSegmentLen = segments.last?.utf8.count ?? 0
+        return segments.count &* 31 &+ lastSegmentLen &+ (last?.toolCalls.count ?? 0) &+ (last?.inlineSurfaces.count ?? 0)
     }
 
     @State private var isNearBottom = true
