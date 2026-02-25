@@ -55,6 +55,16 @@ enum InteractionType {
     case textQA
 }
 
+/// Tracks the first-launch bootstrap sequence so the app can resume
+/// from the correct phase after a restart mid-bootstrap.
+/// Raw values are persisted in UserDefaults under `"bootstrapState"`.
+enum BootstrapState: String {
+    case pendingDaemon = "pendingDaemon"
+    case pendingWakeupSend = "pendingWakeupSend"
+    case pendingFirstReply = "pendingFirstReply"
+    case complete = "complete"
+}
+
 /// Carbon event handler for the Quick Input hotkey (Cmd+Shift+/).
 /// Must be a free function because Carbon callbacks are C function pointers.
 private func quickInputHotKeyHandler(
@@ -78,7 +88,7 @@ private func quickInputHotKeyHandler(
 
     Task { @MainActor in
         guard let appDelegate = AppDelegate.shared,
-              !appDelegate.isAwaitingFirstLaunchReady else { return }
+              !appDelegate.isBootstrapping else { return }
         appDelegate.toggleQuickInput()
     }
     return noErr
@@ -234,17 +244,44 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hasSetupApp = false
     private var hasSetupDaemon = false
 
-    /// True while the first-launch readiness gate (`awaitDaemonReady`) is in
-    /// progress.  Other entry points (`applicationShouldHandleReopen`,
-    /// hotkey handler, menu bar actions) must not call `showMainWindow()`
-    /// while this flag is set, because doing so would create the window
-    /// without the wake-up greeting.  The readiness task clears this flag
-    /// before it calls `showMainWindow(initialMessage:isFirstLaunch:)`.
-    var isAwaitingFirstLaunchReady = false
+    /// Tracks the current phase of the first-launch bootstrap sequence.
+    /// Persisted in UserDefaults (`"bootstrapState"`) so the app can
+    /// resume from the correct phase after a restart mid-bootstrap.
+    /// Defaults to `.complete` for non-first-launch scenarios.
+    var bootstrapState: BootstrapState = {
+        if let raw = UserDefaults.standard.string(forKey: "bootstrapState"),
+           let state = BootstrapState(rawValue: raw) {
+            return state
+        }
+        return .complete
+    }()
+
+    /// Whether the app is currently in the first-launch bootstrap sequence.
+    /// Other entry points (dock reopen, hotkey, menu bar) must not show
+    /// the main window while this is true — the bootstrap task will show
+    /// it with the wake-up greeting once sequencing completes.
+    var isBootstrapping: Bool { bootstrapState != .complete }
+
+    /// Persists the current bootstrap state to UserDefaults.
+    private func persistBootstrapState() {
+        UserDefaults.standard.set(bootstrapState.rawValue, forKey: "bootstrapState")
+    }
+
+    /// Transitions to a new bootstrap state and persists it.
+    private func transitionBootstrap(to newState: BootstrapState) {
+        log.info("Bootstrap state: \(self.bootstrapState.rawValue) → \(newState.rawValue)")
+        bootstrapState = newState
+        persistBootstrapState()
+    }
 
     private func proceedToApp(isFirstLaunch: Bool = false) {
         authWindow?.close()
         authWindow = nil
+
+        if !isFirstLaunch && isBootstrapping {
+            log.warning("Stale bootstrap state detected on non-first-launch — resetting to complete")
+            transitionBootstrap(to: .complete)
+        }
 
         guard !hasSetupApp else {
             showMainWindow()
@@ -277,14 +314,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         installCLISymlinkIfNeeded()
 
         if isFirstLaunch {
-            // Gate showMainWindow on daemon readiness so the wake-up
-            // message isn't sent before the daemon is connected.
-            // Set the flag so other entry points (dock reopen, hotkey)
-            // don't create the window prematurely and swallow the greeting.
-            isAwaitingFirstLaunchReady = true
+            // Enter the bootstrap state machine. The sequence is:
+            // pendingDaemon → pendingWakeupSend → pendingFirstReply → complete
+            // Each transition is persisted so a restart resumes correctly.
+            transitionBootstrap(to: .pendingDaemon)
             Task {
                 let ready = await awaitDaemonReady(timeout: 15)
-                isAwaitingFirstLaunchReady = false
+                transitionBootstrap(to: .pendingWakeupSend)
                 if ready {
                     showMainWindow(initialMessage: wakeUpGreeting(), isFirstLaunch: true)
                 } else {
@@ -295,6 +331,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                         style: .warning
                     )
                 }
+                // Wake-up message has been sent (or skipped on timeout).
+                // Transition to pendingFirstReply — M3 will handle the
+                // .complete transition when the first assistant reply arrives.
+                transitionBootstrap(to: .pendingFirstReply)
+                // TODO(M3): Remove this — transition to .complete should happen when first assistant reply arrives
+                transitionBootstrap(to: .complete)
                 setupWakeWordCoordinator()
                 debugStateWriter.start(appDelegate: self)
             }
@@ -763,7 +805,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // Automatically surface threads created by scheduled task runs so
         // the user sees them in the sidebar without restarting the app.
         daemonClient.onTaskRunThreadCreated = { [weak self] msg in
-            guard let self, !self.isAwaitingFirstLaunchReady else { return }
+            guard let self, !self.isBootstrapping else { return }
             self.mainWindow?.threadManager.createTaskRunThread(
                 conversationId: msg.conversationId,
                 workItemId: msg.workItemId,
@@ -774,7 +816,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // Notification threads — created when the notification pipeline delivers
         // to the vellum channel with start_new_conversation strategy.
         daemonClient.onNotificationThreadCreated = { [weak self] msg in
-            guard let self, !self.isAwaitingFirstLaunchReady else { return }
+            guard let self, !self.isBootstrapping else { return }
             self.handleNotificationThreadCreated(msg)
         }
 
@@ -1083,7 +1125,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Route dynamic pages to workspace
         surfaceManager.onDynamicPageShow = { [weak self] msg in
-            guard let self, !self.isAwaitingFirstLaunchReady else { return }
+            guard let self, !self.isBootstrapping else { return }
             self.showMainWindow()
             NotificationCenter.default.post(
                 name: .openDynamicWorkspace,
@@ -1207,10 +1249,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             return true
         }
 
-        // Don't create the main window while the first-launch readiness
-        // gate is in progress — the readiness task will create it with
-        // the wake-up greeting once the daemon is connected.
-        if isAwaitingFirstLaunchReady { return true }
+        // Don't create the main window while bootstrap is in progress —
+        // the bootstrap task will create it with the wake-up greeting
+        // once the daemon is connected.
+        if isBootstrapping { return true }
 
         showMainWindow()
         return true
@@ -1317,7 +1359,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 return event
             }
             Task { @MainActor in
-                guard self?.isAwaitingFirstLaunchReady != true else { return }
+                guard self?.isBootstrapping != true else { return }
                 self?.toggleQuickInput(aboveDock: true)
             }
             return nil // consume the event
@@ -1500,7 +1542,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             guard eventMods == targetModifiers,
                   event.charactersIgnoringModifiers?.lowercased() == targetKey.lowercased() else { return }
             Task { @MainActor in
-                guard self?.isAwaitingFirstLaunchReady != true else { return }
+                guard self?.isBootstrapping != true else { return }
                 self?.showMainWindow()
             }
         }
@@ -1788,6 +1830,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func showMainWindow(initialMessage: String? = nil, isFirstLaunch: Bool = false) {
+        // Centralized bootstrap guard: non-first-launch callers (dock reopen,
+        // hotkey, menu bar) must not create the window during bootstrap.
+        // The bootstrap task itself passes isFirstLaunch: true to bypass this.
+        if isBootstrapping && !isFirstLaunch { return }
+
         if let existing = mainWindow {
             existing.show()
             return
@@ -1877,7 +1924,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         if tasksWindow == nil {
             let window = TasksWindow(daemonClient: daemonClient)
             window.onOpenInChat = { [weak self] conversationId, workItemId, title in
-                guard let self, !self.isAwaitingFirstLaunchReady else { return }
+                guard let self, !self.isBootstrapping else { return }
                 self.mainWindow?.threadManager.createTaskRunThread(
                     conversationId: conversationId,
                     workItemId: workItemId,

@@ -356,7 +356,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         // Handle activity completion notifications
         if categoryId == "ACTIVITY_COMPLETE" {
             await MainActor.run {
-                guard !self.isAwaitingFirstLaunchReady else { return }
+                guard !self.isBootstrapping else { return }
                 self.showMainWindow()
             }
             return
@@ -377,7 +377,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
                 // Default action (clicked banner) — deny and bring app forward
                 decision = "deny"
                 await MainActor.run {
-                    guard !self.isAwaitingFirstLaunchReady else { return }
+                    guard !self.isBootstrapping else { return }
                     self.showMainWindow()
                 }
             }
@@ -390,7 +390,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         // Handle voice response complete notifications
         if categoryId == "VOICE_RESPONSE_COMPLETE" {
             await MainActor.run {
-                guard !self.isAwaitingFirstLaunchReady else { return }
+                guard !self.isBootstrapping else { return }
                 self.showMainWindow()
             }
             return
@@ -401,7 +401,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
                 response.notification.request.content.userInfo["conversationId"] as? String ??
                 response.notification.request.content.userInfo["conversation_id"] as? String
             await MainActor.run {
-                guard !self.isAwaitingFirstLaunchReady else { return }
+                guard !self.isBootstrapping else { return }
                 if let conversationId {
                     self.openConversationThread(conversationId: conversationId)
                 } else {
