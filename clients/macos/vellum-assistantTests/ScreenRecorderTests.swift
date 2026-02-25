@@ -194,7 +194,7 @@ final class ScreenRecorderTests: XCTestCase {
     // MARK: - Error Cases (Recording Hardening)
 
     func testWriterFailedErrorDescription() {
-        let error = RecorderError.writerFailed(status: 3)
+        let error = RecorderError.writerFailed(status: 3, underlyingError: nil)
         XCTAssertNotNil(error.errorDescription)
         XCTAssertTrue(error.errorDescription!.contains("3"), "Should include status code")
     }
@@ -212,7 +212,7 @@ final class ScreenRecorderTests: XCTestCase {
     // MARK: - Telemetry Categorization for New Error Cases
 
     func testWriterFailedCategorizesToWriter() {
-        let category = RecordingTelemetry.categorize(.writerFailed(status: 3))
+        let category = RecordingTelemetry.categorize(.writerFailed(status: 3, underlyingError: nil))
         XCTAssertEqual(category, .writer)
     }
 
@@ -254,7 +254,7 @@ final class ScreenRecorderTests: XCTestCase {
             .sourceUnavailable("test"),
             .permissionDenied,
             .sessionInterrupted("test"),
-            .writerFailed(status: 3),
+            .writerFailed(status: 3, underlyingError: nil),
             .invalidOutputFile,
         ]
 

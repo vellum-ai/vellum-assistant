@@ -33,7 +33,7 @@ enum RecorderError: Error, LocalizedError {
     case sourceUnavailable(String)
     case permissionDenied
     case sessionInterrupted(String)
-    case writerFailed(status: Int)
+    case writerFailed(status: Int, underlyingError: String?)
     case invalidOutputFile
 
     var errorDescription: String? {
@@ -49,7 +49,11 @@ enum RecorderError: Error, LocalizedError {
         case .sourceUnavailable(let reason): return "Recording source became unavailable: \(reason)"
         case .permissionDenied: return "Screen recording permission was not granted or has been revoked"
         case .sessionInterrupted(let reason): return "Recording session was interrupted: \(reason)"
-        case .writerFailed(let status): return "Video writer finished with non-completed status \(status)"
+        case .writerFailed(let status, let underlyingError):
+            if let underlyingError {
+                return "Video writer failed (status \(status)): \(underlyingError)"
+            }
+            return "Video writer finished with non-completed status \(status)"
         case .invalidOutputFile: return "Recording produced an invalid or unplayable file"
         }
     }
@@ -102,6 +106,31 @@ final class WriterContext: @unchecked Sendable {
     private var _startTime: CMTime?
     private var _lastVideoTime: CMTime?
     private var _hasLoggedFailure = false
+    private var _bufferCount: Int = 0
+
+    /// File handle for debug logging (writes to recordings/writer-debug.log).
+    /// Used because macOS unified logs are often purged/unavailable for diagnosis.
+    private let debugLogHandle: FileHandle?
+
+    private static func openDebugLog() -> FileHandle? {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let dir = appSupport.appendingPathComponent("vellum-assistant/recordings", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let logURL = dir.appendingPathComponent("writer-debug.log")
+        // Truncate on each new recording session so the file stays small
+        FileManager.default.createFile(atPath: logURL.path, contents: nil)
+        return FileHandle(forWritingAtPath: logURL.path)
+    }
+
+    func debugLog(_ message: String) {
+        guard let handle = debugLogHandle else { return }
+        let ts = String(format: "%.3f", Date().timeIntervalSince1970)
+        let line = "[\(ts)] \(message)\n"
+        if let data = line.data(using: .utf8) {
+            handle.seekToEndOfFile()
+            handle.write(data)
+        }
+    }
 
     /// Whether this context is still accepting buffers. Thread-safe.
     var isActive: Bool {
@@ -122,6 +151,12 @@ final class WriterContext: @unchecked Sendable {
         self.videoInput = videoInput
         self.audioInput = audioInput
         self.micInput = micInput
+        self.debugLogHandle = Self.openDebugLog()
+        debugLog("WriterContext init — output=\(writer.outputURL.lastPathComponent), video=true, audio=\(audioInput != nil), mic=\(micInput != nil)")
+    }
+
+    deinit {
+        debugLogHandle?.closeFile()
     }
 
     /// Prevent further buffer processing. Called from MainActor during
@@ -141,6 +176,17 @@ final class WriterContext: @unchecked Sendable {
         let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
         guard pts.isValid else { return }
 
+        // Early filter: skip video frames that carry no pixel data.
+        // ScreenCaptureKit delivers .idle, .blank, .started, .stopped status
+        // frames without an attached pixel buffer. Appending these to the
+        // writer causes the H.264 encoder to fail with error -16122.
+        // Filter these out BEFORE writer start so we don't initialize the
+        // writer session with a data-less buffer.
+        if type == .screen, CMSampleBufferGetImageBuffer(sampleBuffer) == nil {
+            // Don't increment buffer count for status-only frames
+            return
+        }
+
         lock.lock()
         guard _isActive else {
             lock.unlock()
@@ -148,16 +194,27 @@ final class WriterContext: @unchecked Sendable {
         }
         lock.unlock()
 
-        // Start the writer session on the first buffer (any type).
+        lock.lock()
+        _bufferCount += 1
+        let count = _bufferCount
+        lock.unlock()
+
+        // Start the writer session on the first buffer that carries data.
+        // Video status-only frames (no pixel buffer) are filtered out above,
+        // so any buffer reaching this point has actual data to process.
         // Safe to call here because the serial output queue guarantees
         // no concurrent appends or startSession calls.
         if writer.status == .unknown {
-            writer.startWriting()
-            writer.startSession(atSourceTime: pts)
-            lock.lock()
-            _startTime = pts
-            lock.unlock()
-            log.info("Writer: startWriting + startSession at pts=\(pts.seconds)s")
+            let ok = writer.startWriting()
+            debugLog("startWriting() returned \(ok), status=\(writer.status.rawValue), error=\(writer.error?.localizedDescription ?? "none")")
+            if ok {
+                writer.startSession(atSourceTime: pts)
+                lock.lock()
+                _startTime = pts
+                lock.unlock()
+                debugLog("startSession at pts=\(pts.seconds)s, type=\(type.debugLabel)")
+            }
+            log.info("Writer: startWriting=\(ok) + startSession at pts=\(pts.seconds)s")
         }
 
         guard writer.status == .writing else {
@@ -167,6 +224,9 @@ final class WriterContext: @unchecked Sendable {
             _hasLoggedFailure = true
             lock.unlock()
             if !alreadyLogged {
+                let errorDesc = writer.error?.localizedDescription ?? "none"
+                let fullError = (writer.error as NSError?)?.description ?? "none"
+                debugLog("WRITER FAILED at buffer #\(count): status=\(writer.status.rawValue), error=\(errorDesc), full=\(fullError)")
                 log.error("Writer not in writing state: status=\(self.writer.status.rawValue), error=\(self.writer.error?.localizedDescription ?? "none", privacy: .public)")
             }
             return
@@ -174,20 +234,59 @@ final class WriterContext: @unchecked Sendable {
 
         switch type {
         case .screen:
+            // Status-only frames (no pixel buffer) are already filtered at the
+            // top of this method — all video buffers here have valid pixel data.
             if videoInput.isReadyForMoreMediaData {
-                videoInput.append(sampleBuffer)
+                // Log pixel format of first few video frames for diagnosis
+                if count <= 5, let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) {
+                    let pixelFormat = CVPixelBufferGetPixelFormatType(pixelBuffer)
+                    let width = CVPixelBufferGetWidth(pixelBuffer)
+                    let height = CVPixelBufferGetHeight(pixelBuffer)
+                    let fourCC = String(format: "%c%c%c%c",
+                        (pixelFormat >> 24) & 0xFF,
+                        (pixelFormat >> 16) & 0xFF,
+                        (pixelFormat >> 8) & 0xFF,
+                        pixelFormat & 0xFF)
+                    debugLog("video #\(count): pixelFormat=\(fourCC)(\(pixelFormat)), size=\(width)x\(height), pts=\(pts.seconds)s")
+                }
+                let ok = videoInput.append(sampleBuffer)
+                if !ok {
+                    debugLog("VIDEO APPEND FAILED at #\(count), writerStatus=\(writer.status.rawValue), error=\((writer.error as NSError?)?.description ?? "none")")
+                }
                 lock.lock()
                 _hasReceivedVideoFrame = true
                 _lastVideoTime = pts
+                let videoCount = _bufferCount
                 lock.unlock()
+                // Log every 30th video frame (~1/sec at 30fps) to track progress
+                if videoCount % 30 == 0 {
+                    debugLog("video frame #\(videoCount) appended, pts=\(pts.seconds)s")
+                }
             }
         case .audio:
             if let aInput = audioInput, aInput.isReadyForMoreMediaData {
-                aInput.append(sampleBuffer)
+                // Log format description of first few audio buffers
+                if count <= 5 {
+                    let fd = CMSampleBufferGetFormatDescription(sampleBuffer)
+                    let numSamples = CMSampleBufferGetNumSamples(sampleBuffer)
+                    debugLog("audio #\(count): formatDesc=\(fd.map { "\($0)" } ?? "nil"), numSamples=\(numSamples), pts=\(pts.seconds)s")
+                }
+                let ok = aInput.append(sampleBuffer)
+                if !ok {
+                    debugLog("AUDIO APPEND FAILED at #\(count), writerStatus=\(writer.status.rawValue), error=\((writer.error as NSError?)?.description ?? "none")")
+                }
             }
         case .microphone:
             if let mInput = micInput, mInput.isReadyForMoreMediaData {
-                mInput.append(sampleBuffer)
+                if count <= 5 {
+                    let fd = CMSampleBufferGetFormatDescription(sampleBuffer)
+                    let numSamples = CMSampleBufferGetNumSamples(sampleBuffer)
+                    debugLog("mic #\(count): formatDesc=\(fd.map { "\($0)" } ?? "nil"), numSamples=\(numSamples), pts=\(pts.seconds)s")
+                }
+                let ok = mInput.append(sampleBuffer)
+                if !ok {
+                    debugLog("MIC APPEND FAILED at #\(count), writerStatus=\(writer.status.rawValue), error=\((writer.error as NSError?)?.description ?? "none")")
+                }
             }
         @unknown default:
             break
@@ -197,9 +296,21 @@ final class WriterContext: @unchecked Sendable {
     /// Mark all inputs as finished. Must be called on the output queue
     /// after all pending buffers have been processed.
     func markInputsFinished() {
+        debugLog("markInputsFinished — total buffers processed: \(_bufferCount)")
         videoInput.markAsFinished()
         audioInput?.markAsFinished()
         micInput?.markAsFinished()
+    }
+}
+
+private extension SCStreamOutputType {
+    var debugLabel: String {
+        switch self {
+        case .screen: return "screen"
+        case .audio: return "audio"
+        case .microphone: return "microphone"
+        @unknown default: return "unknown(\(rawValue))"
+        }
     }
 }
 
@@ -859,8 +970,12 @@ final class ScreenRecorder: NSObject {
 
         let writerStatus = writer.status
         if writerStatus == .completed {
+            ctx.debugLog("finishWriting completed successfully")
             log.info("Writer: finishWriting completed successfully")
         } else {
+            let errorDesc = writer.error?.localizedDescription ?? "none"
+            let fullError = (writer.error as NSError?)?.description ?? "none"
+            ctx.debugLog("FINISH FAILED: status=\(writerStatus.rawValue), error=\(errorDesc), full=\(fullError)")
             log.error("Writer: finishWriting ended with status=\(writerStatus.rawValue), error=\(writer.error?.localizedDescription ?? "none", privacy: .public)")
             // Writer did not complete successfully — the output file is likely corrupt.
             // Clean up and throw so RecordingManager sends status: "failed".
@@ -875,7 +990,7 @@ final class ScreenRecorder: NSObject {
             RecordingTelemetry.logStop(durationMs: durationMs, fileSize: fileSize, status: .error)
             cleanUpWriter()
             clearTelemetryState()
-            throw RecorderError.writerFailed(status: Int(writerStatus.rawValue))
+            throw RecorderError.writerFailed(status: Int(writerStatus.rawValue), underlyingError: writer.error?.localizedDescription)
         }
 
         // Playability integrity gate + atomic file publication.
