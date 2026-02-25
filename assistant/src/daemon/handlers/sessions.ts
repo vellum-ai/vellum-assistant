@@ -244,6 +244,7 @@ export function handleSessionList(socket: net.Socket, ctx: HandlerContext, offse
     sessions: conversations.map((c) => {
       const binding = bindings.get(c.id);
       const originChannel = parseChannelId(c.originChannel);
+      const originInterface = parseInterfaceId(c.originInterface);
       return {
         id: c.id,
         title: c.title ?? 'Untitled',
@@ -260,6 +261,7 @@ export function handleSessionList(socket: net.Socket, ctx: HandlerContext, offse
           },
         } : {}),
         ...(originChannel ? { conversationOriginChannel: originChannel } : {}),
+        ...(originInterface ? { conversationOriginInterface: originInterface } : {}),
       };
     }),
     hasMore: offset + conversations.length < totalCount,

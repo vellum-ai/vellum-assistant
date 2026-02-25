@@ -73,6 +73,7 @@ export async function handleInbound(
       routing.assistantId,
       {
         sourceChannel: event.sourceChannel,
+        interface: event.sourceChannel,
         externalChatId: event.message.externalChatId,
         externalMessageId: event.message.externalMessageId,
         content: event.message.content,
