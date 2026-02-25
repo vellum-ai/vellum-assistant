@@ -862,10 +862,35 @@ private final class ComposerNativeTextView: NSTextView {
         super.keyDown(with: event)
     }
 
+    /// Returns true when the pasteboard contains image content (file URLs
+    /// pointing to image files, or raw PNG/TIFF data).
+    private var pasteboardHasImageContent: Bool {
+        let pasteboard = NSPasteboard.general
+        let hasImageFile = (pasteboard.readObjects(forClasses: [NSURL.self], options: [
+            .urlReadingFileURLsOnly: true,
+        ]) as? [URL])?.contains { url in
+            let ext = url.pathExtension.lowercased()
+            return ["png", "jpg", "jpeg", "gif", "webp", "heic", "tiff", "bmp"].contains(ext)
+        } ?? false
+        let hasImageData = pasteboard.data(forType: .png) != nil || pasteboard.data(forType: .tiff) != nil
+        return hasImageFile || hasImageData
+    }
+
+    override func paste(_ sender: Any?) {
+        if pasteboardHasImageContent {
+            onPaste?()
+            return
+        }
+        super.paste(sender)
+    }
+
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if event.modifierFlags.contains(.command),
            event.charactersIgnoringModifiers?.lowercased() == "v" {
-            onPaste?()
+            if pasteboardHasImageContent {
+                onPaste?()
+                return true
+            }
         }
         return super.performKeyEquivalent(with: event)
     }

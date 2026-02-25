@@ -217,9 +217,7 @@ struct MessageListView: View {
                             RunningIndicator(
                                 label: !hasEverSentMessage && displayMessages.contains(where: { $0.role == .user })
                                     ? "Waking up..."
-                                    : completedConversationCount <= 5 && identity?.name != nil
-                                        ? "\(identity!.name) is thinking"
-                                        : "Thinking",
+                                    : "Thinking",
                                 showIcon: false
                             )
                         }
