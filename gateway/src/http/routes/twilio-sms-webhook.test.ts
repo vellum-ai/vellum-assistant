@@ -18,6 +18,7 @@ mock.module("../../handlers/handle-inbound.js", () => ({
 
 mock.module("../../runtime/client.js", () => ({
   resetConversation: resetConversationMock,
+  CircuitBreakerOpenError: class extends Error {},
 }));
 
 mock.module("../../twilio/send-sms.js", () => ({

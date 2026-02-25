@@ -31,6 +31,7 @@ mock.module("../../runtime/client.js", () => ({
   resetConversation: resetConversationMock,
   uploadAttachment: mock(() => Promise.resolve({ id: "att-1" })),
   AttachmentValidationError: class extends Error {},
+  CircuitBreakerOpenError: class extends Error {},
 }));
 
 mock.module("../../telegram/verify.js", () => ({

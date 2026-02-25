@@ -14,10 +14,12 @@ mock.module('../../handlers/handle-inbound.js', () => ({
 
 mock.module('../../runtime/client.js', () => ({
   resetConversation: resetConversationMock,
+  CircuitBreakerOpenError: class extends Error {},
 }));
 
 mock.module('../../whatsapp/send.js', () => ({
   sendWhatsAppReply: sendWhatsAppReplyMock,
+  sendWhatsAppAttachments: mock(() => Promise.resolve({ allFailed: false, failureCount: 0, totalCount: 0 })),
 }));
 
 mock.module('../../whatsapp/api.js', () => ({
