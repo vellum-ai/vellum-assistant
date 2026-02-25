@@ -105,12 +105,11 @@ GATEWAY_SRC_DIR="$SCRIPT_DIR/../../gateway"
 build_bun_binary() {
     local src_dir="$1" entry="$2" out_dir="$3" out_name="$4"
     shift 4
-    local extra_flags=("$@")
 
     mkdir -p "$out_dir"
     (cd "$src_dir" && bun install --frozen-lockfile 2>/dev/null || bun install)
 
-    local build_flags=(--compile "${extra_flags[@]}")
+    local build_flags=(--compile "$@")
 
     if [ "$UNIVERSAL_BUILD" = true ]; then
         echo "Building $out_name (universal)..."
