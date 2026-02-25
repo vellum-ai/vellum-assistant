@@ -495,7 +495,12 @@ public final class ChatViewModel: ObservableObject {
                 // Snapshot pendingMessageIds before clearing so the debounced
                 // reconnect catch-up (which fires 500ms later) can still dedup
                 // local messages that were pending when the connection dropped.
-                self?.reconnectPendingSnapshot = self?.pendingMessageIds ?? []
+                // Only take a new snapshot if no debounce task is in flight —
+                // a rapid second reconnect must not overwrite the snapshot to
+                // empty while the first debounce is still pending.
+                if self?.reconnectDebounceTask == nil {
+                    self?.reconnectPendingSnapshot = self?.pendingMessageIds ?? []
+                }
                 self?.pendingQueuedCount = 0
                 self?.pendingMessageIds.removeAll()
                 self?.requestIdToMessageId.removeAll()
@@ -534,6 +539,8 @@ public final class ChatViewModel: ObservableObject {
                                 guard !Task.isCancelled, let self, self.isReconnectHistoryLoading else { return }
                                 log.warning("Reconnect history latch timed out after 10s — resetting")
                                 self.isReconnectHistoryLoading = false
+                                self.needsReconnectCatchUp = false
+                                self.reconnectPendingSnapshot = []
                             }
                             self.onReconnectHistoryNeeded?(sessionId)
                         }
@@ -1866,13 +1873,16 @@ public final class ChatViewModel: ObservableObject {
             // simple ID-based dedup won't work — use fuzzy matching instead
             // (role + text prefix + timestamp ±2s).
             needsReconnectCatchUp = false
-            // Use the snapshot captured at reconnect time — the live
-            // pendingMessageIds was already cleared when the reconnect
-            // observer fired, before this debounced handler ran.
+            // Use the snapshot captured at reconnect time, unioned with the
+            // current pendingMessageIds. The snapshot has IDs that were pending
+            // when the connection dropped (before clearing), while current
+            // pendingMessageIds captures any messages the user sent AFTER the
+            // reconnect but BEFORE this debounced handler ran.
             let snapshotIds = self.reconnectPendingSnapshot
+            let allPendingIds = Set(snapshotIds).union(self.pendingMessageIds)
             self.reconnectPendingSnapshot = []
             let localCandidates = self.messages.filter {
-                snapshotIds.contains($0.id) || $0.status == .pendingOffline
+                allPendingIds.contains($0.id) || $0.status == .pendingOffline
             }
             var localOnly: [ChatMessage] = []
             for local in localCandidates {
