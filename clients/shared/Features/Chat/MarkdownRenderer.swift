@@ -263,7 +263,7 @@ public struct MarkdownRenderer: View {
             CodeBlockView(lang: lang, code: code)
 
         case .list(let ordered, let items):
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
                 ForEach(Array(items.enumerated()), id: \.offset) { index, item in
                     HStack(alignment: .top, spacing: VSpacing.xs) {
                         Text(ordered ? "\(index + 1)." : "•")

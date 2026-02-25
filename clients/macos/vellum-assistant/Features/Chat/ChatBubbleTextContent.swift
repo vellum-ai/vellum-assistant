@@ -22,6 +22,7 @@ extension ChatBubble {
                 let attributed = Self.cachedInlineMarkdown(for: segmentText)
                 Text(attributed)
                     .font(.system(size: 13))
+                    .lineSpacing(3)
                     .foregroundColor(VColor.textPrimary)
                     .tint(VColor.accent)
                     .textSelection(.enabled)
