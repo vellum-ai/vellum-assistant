@@ -31,28 +31,51 @@ export class GmailApiError extends Error {
   }
 }
 
+const MAX_RETRIES = 3;
+const INITIAL_BACKOFF_MS = 1000;
+
+function isRetryable(status: number): boolean {
+  return status === 429 || (status >= 500 && status < 600);
+}
+
 async function request<T>(token: string, path: string, options?: RequestInit): Promise<T> {
   const url = `${GMAIL_API_BASE}${path}`;
-  const resp = await fetch(url, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      ...options?.headers,
-    },
-  });
-  if (!resp.ok) {
-    const body = await resp.text().catch(() => '');
-    throw new GmailApiError(resp.status, resp.statusText, `Gmail API ${resp.status}: ${body}`);
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const resp = await fetch(url, {
+      ...options,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        ...options?.headers,
+      },
+    });
+
+    if (!resp.ok) {
+      if (isRetryable(resp.status) && attempt < MAX_RETRIES) {
+        const retryAfter = resp.headers.get('retry-after');
+        const delayMs = retryAfter
+          ? parseInt(retryAfter, 10) * 1000
+          : INITIAL_BACKOFF_MS * Math.pow(2, attempt);
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        continue;
+      }
+      const body = await resp.text().catch(() => '');
+      throw new GmailApiError(resp.status, resp.statusText, `Gmail API ${resp.status}: ${body}`);
+    }
+
+    // Some endpoints (e.g. batchModify) return empty success responses
+    const contentLength = resp.headers.get('content-length');
+    if (resp.status === 204 || contentLength === '0') {
+      return undefined as T;
+    }
+    const text = await resp.text();
+    if (!text) return undefined as T;
+    return JSON.parse(text) as T;
   }
-  // Some endpoints (e.g. batchModify) return empty success responses
-  const contentLength = resp.headers.get('content-length');
-  if (resp.status === 204 || contentLength === '0') {
-    return undefined as T;
-  }
-  const text = await resp.text();
-  if (!text) return undefined as T;
-  return JSON.parse(text) as T;
+
+  // Unreachable — the loop always returns or throws — but TypeScript needs this
+  throw new Error('Unreachable: retry loop exited without returning or throwing');
 }
 
 /** List messages matching a query. */
