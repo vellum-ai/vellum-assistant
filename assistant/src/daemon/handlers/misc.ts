@@ -110,6 +110,7 @@ export async function handleTaskSubmit(
           ctx.send(socket, { type: 'task_routed', sessionId: conversation.id, interactionType: 'text_qa' });
           ctx.send(socket, { type: 'assistant_text_delta', text: 'Starting screen recording.', sessionId: conversation.id });
         } else {
+          ctx.send(socket, { type: 'task_routed', sessionId: conversation.id, interactionType: 'text_qa' });
           ctx.send(socket, { type: 'assistant_text_delta', text: 'A recording is already active.', sessionId: conversation.id });
         }
         ctx.send(socket, { type: 'message_complete', sessionId: conversation.id });

@@ -146,7 +146,7 @@ describe('handleRecordingStart', () => {
 
     const recordingId = handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
 
-    expect(recordingId).toBeTruthy();
+    expect(recordingId).not.toBeNull();
     // UUID v4 format
     expect(recordingId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
 
@@ -201,14 +201,15 @@ describe('handleRecordingStop', () => {
 
     // Start a recording first
     const recordingId = handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
+    expect(recordingId).not.toBeNull();
     sent.length = 0; // Clear the start message
 
     const result = handleRecordingStop(conversationId, ctx);
 
-    expect(result).toBe(recordingId);
+    expect(result).toBe(recordingId!);
     expect(sent).toHaveLength(1);
     expect(sent[0].type).toBe('recording_stop');
-    expect(sent[0].recordingId).toBe(recordingId);
+    expect(sent[0].recordingId).toBe(recordingId!);
   });
 
   test('returns undefined when no active recording exists', () => {
@@ -249,10 +250,11 @@ describe('recordingHandlers.recording_status', () => {
     const conversationId = 'conv-status-1';
 
     const recordingId = handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
+    expect(recordingId).not.toBeNull();
 
     const statusMsg: RecordingStatus = {
       type: 'recording_status',
-      sessionId: recordingId,
+      sessionId: recordingId!,
       status: 'started',
     };
 
@@ -270,6 +272,7 @@ describe('recordingHandlers.recording_status', () => {
     ctx.socketToSession.set(fakeSocket, conversationId);
 
     const recordingId = handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
+    expect(recordingId).not.toBeNull();
     sent.length = 0;
 
     // Add a mock assistant message for the attachment to link to
@@ -277,7 +280,7 @@ describe('recordingHandlers.recording_status', () => {
 
     const statusMsg: RecordingStatus = {
       type: 'recording_status',
-      sessionId: recordingId,
+      sessionId: recordingId!,
       status: 'stopped',
       filePath: '/tmp/recording.mov',
       durationMs: 5000,
@@ -308,13 +311,14 @@ describe('recordingHandlers.recording_status', () => {
     ctx.socketToSession.set(fakeSocket, conversationId);
 
     const recordingId = handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
+    expect(recordingId).not.toBeNull();
     sent.length = 0;
 
     // No existing messages, handler should create one
 
     const statusMsg: RecordingStatus = {
       type: 'recording_status',
-      sessionId: recordingId,
+      sessionId: recordingId!,
       status: 'stopped',
       filePath: '/tmp/recording.mp4',
       durationMs: 3000,
@@ -336,11 +340,12 @@ describe('recordingHandlers.recording_status', () => {
     mockFileExists = false;
 
     const recordingId = handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
+    expect(recordingId).not.toBeNull();
     sent.length = 0;
 
     const statusMsg: RecordingStatus = {
       type: 'recording_status',
-      sessionId: recordingId,
+      sessionId: recordingId!,
       status: 'stopped',
       filePath: '/tmp/nonexistent.mov',
       durationMs: 1000,
@@ -362,11 +367,12 @@ describe('recordingHandlers.recording_status', () => {
     ctx.socketToSession.set(fakeSocket, conversationId);
 
     const recordingId = handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
+    expect(recordingId).not.toBeNull();
     sent.length = 0;
 
     const statusMsg: RecordingStatus = {
       type: 'recording_status',
-      sessionId: recordingId,
+      sessionId: recordingId!,
       status: 'failed',
       error: 'Permission denied',
     };
@@ -390,11 +396,12 @@ describe('recordingHandlers.recording_status', () => {
     ctx.socketToSession.set(fakeSocket, conversationId);
 
     const recordingId = handleRecordingStart(conversationId, undefined, fakeSocket, ctx);
+    expect(recordingId).not.toBeNull();
     sent.length = 0;
 
     const statusMsg: RecordingStatus = {
       type: 'recording_status',
-      sessionId: recordingId,
+      sessionId: recordingId!,
       status: 'failed',
     };
 
