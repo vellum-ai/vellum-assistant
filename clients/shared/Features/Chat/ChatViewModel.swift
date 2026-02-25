@@ -1565,6 +1565,17 @@ public final class ChatViewModel: ObservableObject {
         self.suggestion = nil
     }
 
+    /// Strip the voice mode instruction prefix from user messages so it
+    /// doesn't clutter the chat when conversations are reloaded from history.
+    private static let voicePrefixPattern = /^\[Voice conversation\s—[^\]]*\]\n\n/
+
+    private func stripVoicePrefix(_ text: String) -> String {
+        if let match = text.prefixMatch(of: Self.voicePrefixPattern) {
+            return String(text[match.range.upperBound...])
+        }
+        return text
+    }
+
     /// Populate messages from history data returned by the daemon.
     /// If the user hasn't sent any messages yet, replaces messages entirely.
     /// If the user already sent messages (late history_response), prepends
@@ -1640,13 +1651,16 @@ public final class ChatViewModel: ObservableObject {
             if item.text.isEmpty && toolCalls.isEmpty && attachments.isEmpty && inlineSurfaces.isEmpty { continue }
             let timestamp = Date(timeIntervalSince1970: TimeInterval(item.timestamp) / 1000.0)
 
+            // Strip voice mode instruction prefix from user messages
+            let displayText = role == .user ? stripVoicePrefix(item.text) : item.text
+
             // Use the database message ID if available (for matching surfaces)
             var chatMsg: ChatMessage
             if let dbId = item.id, let uuid = UUID(uuidString: dbId) {
                 chatMsg = ChatMessage(
                     id: uuid,
                     role: role,
-                    text: item.text,
+                    text: displayText,
                     timestamp: timestamp,
                     attachments: attachments,
                     toolCalls: toolCalls
@@ -1654,7 +1668,7 @@ public final class ChatViewModel: ObservableObject {
             } else {
                 chatMsg = ChatMessage(
                     role: role,
-                    text: item.text,
+                    text: displayText,
                     timestamp: timestamp,
                     attachments: attachments,
                     toolCalls: toolCalls
