@@ -55,6 +55,17 @@ final class HTTPTransport {
         return "vellum"
     }
 
+    /// Platform-derived default interface identifier.
+    private static var defaultInterface: String {
+        #if os(macOS)
+        return "macos"
+        #elseif os(iOS)
+        return "ios"
+        #else
+        return "vellum"
+        #endif
+    }
+
     /// Currently active SSE task.
     private var sseTask: Task<Void, Never>?
 
@@ -309,7 +320,7 @@ final class HTTPTransport {
         var body: [String: Any] = [
             "conversationKey": conversationKey,
             "sourceChannel": sourceChannel,
-            "interface": "macos"
+            "interface": Self.defaultInterface
         ]
         if let content, !content.isEmpty {
             body["content"] = content
