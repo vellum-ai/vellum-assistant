@@ -25,6 +25,7 @@ import { identityHandlers } from './identity.js';
 import { dictationHandlers } from './dictation.js';
 import { inboxInviteHandlers } from './config-inbox.js';
 import { pairingHandlers } from './pairing.js';
+import { recordingHandlers } from './recording.js';
 
 // Re-export types and utilities for backwards compatibility
 export type {
@@ -40,6 +41,11 @@ export {
   renderHistoryContent,
   mergeToolResults,
 } from './shared.js';
+
+export {
+  handleRecordingStart,
+  handleRecordingStop,
+} from './recording.js';
 
 // ─── Typed dispatch ──────────────────────────────────────────────────────────
 
@@ -95,10 +101,6 @@ const inlineHandlers = defineHandlers({
     ctx.send(socket, { type: 'assistant_inbox_response', success: false, error: 'Not yet implemented' });
   },
 
-  // Stub: recording lifecycle updates from the client. Server-side handling
-  // will be wired in a follow-up milestone (M4).
-  recording_status: () => { /* no-op — standalone recording finalization not yet implemented */ },
-
 });
 
 const handlers = {
@@ -122,6 +124,7 @@ const handlers = {
   ...dictationHandlers,
   ...inboxInviteHandlers,
   ...pairingHandlers,
+  ...recordingHandlers,
   ...inlineHandlers,
 } satisfies DispatchMap;
 
