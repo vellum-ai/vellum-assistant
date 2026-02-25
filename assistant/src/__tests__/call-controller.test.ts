@@ -49,6 +49,18 @@ mock.module('../config/loader.js', () => ({
   }),
 }));
 
+// ── Call constants mock ──────────────────────────────────────────────
+
+let mockConsultationTimeoutMs = 90_000;
+
+mock.module('../calls/call-constants.js', () => ({
+  getMaxCallDurationMs: () => 12 * 60 * 1000,
+  getUserConsultationTimeoutMs: () => mockConsultationTimeoutMs,
+  SILENCE_TIMEOUT_MS: 30_000,
+  MAX_CALL_DURATION_MS: 3600 * 1000,
+  USER_CONSULTATION_TIMEOUT_MS: 120 * 1000,
+}));
+
 // ── Voice session bridge mock ────────────────────────────────────────
 
 /**
@@ -213,6 +225,8 @@ describe('call-controller', () => {
     resetTables();
     // Reset the bridge mock to default behaviour
     mockStartVoiceTurn.mockImplementation(createMockVoiceTurn(['Hello', ' there']));
+    // Reset consultation timeout to the default (long) value
+    mockConsultationTimeoutMs = 90_000;
   });
 
   // ── handleCallerUtterance ─────────────────────────────────────────
@@ -951,6 +965,87 @@ describe('call-controller', () => {
     const events = getCallEvents(session.id);
     const instructionEvents = events.filter((e) => e.eventType === 'user_instruction_relayed');
     expect(instructionEvents.length).toBe(1);
+
+    controller.destroy();
+  });
+
+  // ── Post-end-call drain guard ───────────────────────────────────
+
+  test('handleUserAnswer: queued caller utterances are discarded (not processed) when answer turn ends the call', async () => {
+    // Trigger ASK_GUARDIAN to enter waiting_on_user state
+    mockStartVoiceTurn.mockImplementation(createMockVoiceTurn(
+      ['Checking. [ASK_GUARDIAN: Confirm cancellation?]'],
+    ));
+    const { session, relay, controller } = setupController();
+    await controller.handleCallerUtterance('I want to cancel');
+    expect(controller.getState()).toBe('waiting_on_user');
+
+    // Queue a caller utterance while waiting
+    await controller.handleCallerUtterance('Never mind, just cancel it');
+
+    // Set up mock so the answer turn ends the call with [END_CALL]
+    let turnContents: string[] = [];
+    mockStartVoiceTurn.mockImplementation(async (opts: { content: string; onTextDelta: (t: string) => void; onComplete: () => void }) => {
+      turnContents.push(opts.content);
+      opts.onTextDelta('Alright, your appointment is cancelled. Goodbye! [END_CALL]');
+      opts.onComplete();
+      return { runId: `run-${turnContents.length}`, abort: () => {} };
+    });
+
+    const accepted = await controller.handleUserAnswer('Yes, cancel it');
+    expect(accepted).toBe(true);
+
+    // Give fire-and-forget turns time to complete
+    await new Promise((r) => setTimeout(r, 100));
+
+    // The answer turn should have fired
+    expect(turnContents.some((c) => c.includes('[USER_ANSWERED: Yes, cancel it]'))).toBe(true);
+    // The queued caller utterance should NOT have been processed — only the answer turn
+    expect(turnContents.length).toBe(1);
+
+    // Call should be completed
+    const updatedSession = getCallSession(session.id);
+    expect(updatedSession!.status).toBe('completed');
+    expect(relay.endCalled).toBe(true);
+
+    controller.destroy();
+  });
+
+  // ── Consultation timeout with merged instructions + utterances ──
+
+  test('consultation timeout: merges pending instructions and caller utterances into a single turn', async () => {
+    // Use a short consultation timeout so we can wait for it in the test
+    mockConsultationTimeoutMs = 50;
+
+    // Trigger ASK_GUARDIAN to enter waiting_on_user state
+    mockStartVoiceTurn.mockImplementation(createMockVoiceTurn(
+      ['Let me check. [ASK_GUARDIAN: What time works?]'],
+    ));
+    const { controller } = setupController();
+    await controller.handleCallerUtterance('Book me in');
+    expect(controller.getState()).toBe('waiting_on_user');
+
+    // Queue an instruction and a caller utterance while waiting
+    await controller.handleUserInstruction('Suggest morning slots');
+    await controller.handleCallerUtterance('Actually, I prefer 10am');
+
+    // Set up mock to capture what content the merged turn receives
+    let turnContents: string[] = [];
+    mockStartVoiceTurn.mockImplementation(async (opts: { content: string; onTextDelta: (t: string) => void; onComplete: () => void }) => {
+      turnContents.push(opts.content);
+      opts.onTextDelta('Got it, let me check 10am availability.');
+      opts.onComplete();
+      return { runId: `run-${turnContents.length}`, abort: () => {} };
+    });
+
+    // Wait for the short consultation timeout to fire
+    await new Promise((r) => setTimeout(r, 200));
+
+    // A single merged turn should have been fired containing both the
+    // instruction marker and the caller utterance
+    expect(turnContents.length).toBe(1);
+    expect(turnContents[0]).toContain('[USER_INSTRUCTION: Suggest morning slots]');
+    expect(turnContents[0]).toContain('Actually, I prefer 10am');
 
     controller.destroy();
   });
