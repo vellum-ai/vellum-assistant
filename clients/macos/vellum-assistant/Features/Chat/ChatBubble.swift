@@ -869,6 +869,17 @@ struct ChatBubble: View {
             RoundedRectangle(cornerRadius: VRadius.sm)
                 .fill(isUser ? VColor.userBubbleText.opacity(0.15) : VColor.surfaceBorder.opacity(0.5))
         )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            saveFileAttachment(attachment)
+        }
+        .onHover { hovering in
+            if hovering {
+                NSCursor.pointingHand.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
     }
 
     private func nsImage(for attachment: ChatAttachment) -> NSImage? {
@@ -896,6 +907,17 @@ struct ChatBubble: View {
             NSWorkspace.shared.open(fileURL)
         } catch {
             // Silently fail — not critical
+        }
+    }
+
+    private func saveFileAttachment(_ attachment: ChatAttachment) {
+        guard let data = Data(base64Encoded: attachment.data) else { return }
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = (attachment.filename as NSString).lastPathComponent
+        panel.canCreateDirectories = true
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            try? data.write(to: url)
         }
     }
 
