@@ -499,7 +499,15 @@ extension ChatViewModel {
             guard !isCancelling else { return }
             if isWorkspaceRefinementInFlight {
                 refinementTextBuffer += delta.text
-                refinementStreamingText = refinementTextBuffer
+                // Throttle refinement streaming updates with 50ms coalescing
+                // to prevent republishing the entire accumulated buffer on
+                // every single token (same pattern as message streaming flush).
+                refinementFlushTask?.cancel()
+                refinementFlushTask = Task { @MainActor [weak self] in
+                    try? await Task.sleep(nanoseconds: 50_000_000)
+                    guard !Task.isCancelled, let self else { return }
+                    self.refinementStreamingText = self.refinementTextBuffer
+                }
                 return
             }
             // Haptic on first text chunk (thinking → streaming transition)
@@ -556,6 +564,13 @@ extension ChatViewModel {
                 #if os(iOS)
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                 #endif
+            }
+            // Cancel the throttled refinement flush and do a final immediate
+            // flush so the complete buffer is available for the logic below.
+            refinementFlushTask?.cancel()
+            refinementFlushTask = nil
+            if wasRefinement {
+                refinementStreamingText = refinementTextBuffer
             }
             // Surface the AI's text response when a refinement produced no update
             if wasRefinement {
@@ -684,6 +699,8 @@ extension ChatViewModel {
             }
             pendingVoiceMessage = false
             isWorkspaceRefinementInFlight = false
+            refinementFlushTask?.cancel()
+            refinementFlushTask = nil
             refinementMessagePreview = nil
             refinementStreamingText = nil
             cancelledDuringRefinement = false
@@ -817,6 +834,8 @@ extension ChatViewModel {
                 return
             }
             isWorkspaceRefinementInFlight = false
+            refinementFlushTask?.cancel()
+            refinementFlushTask = nil
             refinementMessagePreview = nil
             refinementStreamingText = nil
             cancelledDuringRefinement = false
@@ -1242,6 +1261,8 @@ extension ChatViewModel {
             guard sessionId != nil, belongsToSession(msg.sessionId) else { return }
             log.error("Session error [\(msg.code.rawValue, privacy: .public)]: \(msg.userMessage, privacy: .private)")
             isWorkspaceRefinementInFlight = false
+            refinementFlushTask?.cancel()
+            refinementFlushTask = nil
             refinementMessagePreview = nil
             refinementStreamingText = nil
             cancelledDuringRefinement = false

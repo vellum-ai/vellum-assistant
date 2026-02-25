@@ -101,6 +101,10 @@ public final class ChatViewModel: ObservableObject {
         get { messageManager.refinementFailureDismissTask }
         set { messageManager.refinementFailureDismissTask = newValue }
     }
+    var refinementFlushTask: Task<Void, Never>? {
+        get { messageManager.refinementFlushTask }
+        set { messageManager.refinementFlushTask = newValue }
+    }
     /// Number of undo steps available for the active workspace surface.
     public var surfaceUndoCount: Int {
         get { messageManager.surfaceUndoCount }
@@ -1851,6 +1855,10 @@ public final class ChatViewModel: ObservableObject {
 
     deinit {
         messageLoopTask?.cancel()
+        streamingFlushTask?.cancel()
+        cancelTimeoutTask?.cancel()
+        refinementFailureDismissTask?.cancel()
+        refinementFlushTask?.cancel()
         reconnectDebounceTask?.cancel()
         if let observer = reconnectObserver {
             NotificationCenter.default.removeObserver(observer)
