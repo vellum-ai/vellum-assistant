@@ -290,6 +290,28 @@ final class ScreenRecorder: NSObject {
         }
     }
 
+    /// Cancel the active recording synchronously, discarding the output file.
+    ///
+    /// Uses `AVAssetWriter.cancelWriting()` which is synchronous and safe to
+    /// call during `applicationWillTerminate` where async work cannot complete.
+    func cancelRecording() {
+        guard isRecordingActive else { return }
+
+        // Stop the stream synchronously (best-effort — stopCapture is async but
+        // we nil it out so no more buffers arrive).
+        stream = nil
+
+        assetWriter?.cancelWriting()
+
+        // Remove the partial file to avoid leaving corrupted output
+        if let outputURL = assetWriter?.outputURL {
+            try? FileManager.default.removeItem(at: outputURL)
+            log.info("Cancelled recording — removed partial file \(outputURL.path, privacy: .public)")
+        }
+
+        cleanUpWriter()
+    }
+
     private func cleanUpWriter() {
         isRecordingActive = false
         assetWriter = nil

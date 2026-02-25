@@ -74,31 +74,33 @@ extension AppDelegate {
         )
     }
 
-    /// Start recording and show the recording HUD.
+    /// Start recording and show the recording HUD only after recording is confirmed.
     private func startRecording(
         recordingId: String,
         options: IPCRecordingOptions?,
         attachToConversationId: String?
     ) {
-        let started = recordingManager.start(
-            sessionId: recordingId,
-            options: options,
-            attachToConversationId: attachToConversationId
-        )
+        Task {
+            let started = await recordingManager.start(
+                sessionId: recordingId,
+                options: options,
+                attachToConversationId: attachToConversationId
+            )
 
-        guard started else { return }
+            guard started else { return }
 
-        // Show the recording HUD
-        if recordingHUDWindow == nil {
-            recordingHUDWindow = RecordingHUDWindow()
-        }
-
-        recordingHUDWindow?.show(onStop: { [weak self] in
-            guard let self else { return }
-            Task {
-                _ = await self.recordingManager.stop(sessionId: recordingId)
-                self.recordingHUDWindow?.dismiss()
+            // Show the recording HUD only after recording is confirmed
+            if recordingHUDWindow == nil {
+                recordingHUDWindow = RecordingHUDWindow()
             }
-        })
+
+            recordingHUDWindow?.show(onStop: { [weak self] in
+                guard let self else { return }
+                Task {
+                    _ = await self.recordingManager.stop(sessionId: recordingId)
+                    self.recordingHUDWindow?.dismiss()
+                }
+            })
+        }
     }
 }
