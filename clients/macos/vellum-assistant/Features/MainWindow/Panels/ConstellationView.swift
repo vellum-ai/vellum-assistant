@@ -419,7 +419,7 @@ struct ConstellationView: View {
     @State private var zoomScale: CGFloat = 1.0
     @State private var baseZoomScale: CGFloat = 1.0
     @State private var selectedSkillItem: OrbitItem?
-    @State private var popoverAnchor: CGPoint = .zero
+    @State private var selectedHexCoord: HexCoord?
 
     // Uniform hex size for both positioning and rendering — hubs are
     // visually distinguished via styling (heavier border, higher fill
@@ -576,18 +576,22 @@ struct ConstellationView: View {
                         .onTapGesture {
                             withAnimation(VAnimation.fast) {
                                 selectedSkillItem = nil
+                                selectedHexCoord = nil
                             }
                         }
                 }
 
-                // Skill popover overlay — transform anchor from canvas space
-                // into the outer coordinate space. scaleEffect scales around
-                // the view center, so offset the anchor relative to center,
-                // scale, then re-add center and pan offset.
-                if let selected = selectedSkillItem {
+                // Skill popover overlay — recompute pixel position from the
+                // stored hex coord each render cycle so the popover tracks the
+                // correct hex even after window resize or geometry changes.
+                if let selected = selectedSkillItem, let coord = selectedHexCoord {
+                    let canvasCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height * 0.5)
+                    let pixelPos = coord.toPixel(size: hexSize, gap: hexGap)
+                    let anchorInCanvas = CGPoint(x: canvasCenter.x + pixelPos.x, y: canvasCenter.y + pixelPos.y)
+
                     let viewCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
-                    let scaledX = viewCenter.x + (popoverAnchor.x - viewCenter.x) * zoomScale + totalOffset.width
-                    let scaledY = viewCenter.y + (popoverAnchor.y - viewCenter.y) * zoomScale + totalOffset.height - 80
+                    let scaledX = viewCenter.x + (anchorInCanvas.x - viewCenter.x) * zoomScale + totalOffset.width
+                    let scaledY = viewCenter.y + (anchorInCanvas.y - viewCenter.y) * zoomScale + totalOffset.height - 80
 
                     SkillPopoverView(item: selected)
                         .position(x: scaledX, y: scaledY)
@@ -630,6 +634,7 @@ struct ConstellationView: View {
                     if selectedSkillItem != nil {
                         withAnimation(VAnimation.fast) {
                             selectedSkillItem = nil
+                            selectedHexCoord = nil
                         }
                         return .handled
                     }
@@ -686,9 +691,10 @@ struct ConstellationView: View {
                                     withAnimation(VAnimation.fast) {
                                         if selectedSkillItem?.id == item.id {
                                             selectedSkillItem = nil
+                                            selectedHexCoord = nil
                                         } else {
                                             selectedSkillItem = item
-                                            popoverAnchor = position
+                                            selectedHexCoord = hex.coord
                                         }
                                     }
                                 }
