@@ -102,16 +102,16 @@ export async function handleTaskSubmit(
         const conversation = conversationStore.createConversation(msg.task);
         ctx.socketToSession.set(socket, conversation.id);
 
-        handleRecordingStart(conversation.id, { promptForSource: true }, socket, ctx);
+        const recordingId = handleRecordingStart(conversation.id, { promptForSource: true }, socket, ctx);
 
-        ctx.send(socket, {
-          type: 'task_routed',
-          sessionId: conversation.id,
-          interactionType: 'text_qa',
-        });
-        rlog.info({ sessionId: conversation.id }, 'Recording-only intent intercepted — routed to standalone recording');
-        ctx.send(socket, { type: 'assistant_text_delta', text: 'Starting screen recording.', sessionId: conversation.id });
+        if (recordingId) {
+          ctx.send(socket, { type: 'task_routed', sessionId: conversation.id, interactionType: 'text_qa' });
+          ctx.send(socket, { type: 'assistant_text_delta', text: 'Starting screen recording.', sessionId: conversation.id });
+        } else {
+          ctx.send(socket, { type: 'assistant_text_delta', text: 'A recording is already active.', sessionId: conversation.id });
+        }
         ctx.send(socket, { type: 'message_complete', sessionId: conversation.id });
+        rlog.info({ sessionId: conversation.id }, 'Recording-only intent intercepted — routed to standalone recording');
         return;
       }
     }
