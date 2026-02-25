@@ -228,6 +228,7 @@ class IOSThreadStore: ObservableObject {
         } else {
             // Switched back to standalone mode — reload persisted threads.
             isConnectedMode = false
+            isLoadingInitialThreads = false
             let loaded = Self.load()
             if loaded.isEmpty {
                 let thread = IOSThread()
@@ -373,14 +374,27 @@ class IOSThreadStore: ObservableObject {
     /// Return the ChatViewModel for the given thread, creating it if necessary.
     func viewModel(for threadId: UUID) -> ChatViewModel {
         if let existing = viewModels[threadId] {
+            wireReconnectCallback(vm: existing, threadId: threadId)
             observeForActivityTracking(vm: existing, threadId: threadId)
             return existing
         }
         let vm = ChatViewModel(daemonClient: daemonClient)
         viewModels[threadId] = vm
+        wireReconnectCallback(vm: vm, threadId: threadId)
         observeForTitleGeneration(vm: vm, threadId: threadId)
         observeForActivityTracking(vm: vm, threadId: threadId)
         return vm
+    }
+
+    /// Wire the reconnect history callback so the store registers in
+    /// pendingHistoryBySessionId and the response is properly routed back.
+    private func wireReconnectCallback(vm: ChatViewModel, threadId: UUID) {
+        guard vm.onReconnectHistoryNeeded == nil else { return }
+        vm.onReconnectHistoryNeeded = { [weak self, weak vm] sessionId in
+            guard let self, let _ = vm, let daemon = self.daemonClient as? DaemonClient else { return }
+            self.pendingHistoryBySessionId[sessionId] = threadId
+            try? daemon.sendHistoryRequest(sessionId: sessionId)
+        }
     }
 
     /// Watch for the first completed assistant reply to auto-title the thread.
