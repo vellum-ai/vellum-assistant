@@ -7,7 +7,7 @@ import { applyDictionary, expandSnippets } from '../dictation-text-processing.js
 import { defineHandlers, type HandlerContext, log } from './shared.js';
 
 // Action verbs that signal the user wants a full agent session rather than inline text
-const ACTION_VERBS = ['slack', 'email', 'send', 'create', 'open', 'search', 'find'];
+const ACTION_VERBS = ['slack', 'email', 'send', 'create', 'open', 'search', 'find', 'message', 'text', 'tell', 'call', 'reply', 'schedule', 'remind', 'set', 'launch', 'close', 'switch', 'navigate', 'go', 'play', 'pause', 'stop', 'mute', 'unmute'];
 
 const MAX_WINDOW_TITLE_LENGTH = 100;
 

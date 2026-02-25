@@ -102,6 +102,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var overlayWindow: SessionOverlayWindow?
     var currentSession: ComputerUseSession?
     var currentTextSession: TextSession?
+    /// text_qa session IDs that should auto-enable CU auto-approve if they escalate.
+    var autoApproveEscalationSessionIds: Set<String> = []
     var isStartingSession = false
     var startSessionTask: Task<Void, Never>?
     var textResponseWindow: TextResponseWindow?
@@ -1104,7 +1106,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             Task { @MainActor in
                 // Auto-approve low/medium risk tool confirmations during CU sessions
-                if self.currentSession?.autoApproveTools == true,
+                // or voice-initiated text_qa sessions pending escalation
+                let isVoiceAutoApprove = msg.sessionId.map { self.autoApproveEscalationSessionIds.contains($0) } ?? false
+                if (self.currentSession?.autoApproveTools == true || isVoiceAutoApprove),
                    msg.riskLevel == "low" || msg.riskLevel == "medium" {
                     do {
                         try self.daemonClient.sendConfirmationResponse(
@@ -1588,7 +1592,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         voiceInput?.onActionModeTriggered = { [weak self] text in
             guard let self else { return }
             log.info("Action mode triggered from voice dictation — submitting task")
-            self.startSession(task: text, source: "voice_action")
+            self.startSession(task: text, source: TaskSubmission.voiceActionSource)
         }
         voiceInput?.onRecordingStateChanged = { [weak self] isRecording in
             // Check if main window is actively in the foreground (not just existing behind other apps)

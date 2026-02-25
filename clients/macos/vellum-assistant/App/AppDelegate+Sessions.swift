@@ -32,6 +32,9 @@ extension AppDelegate {
     /// Handle escalation from an active text_qa session to foreground computer use.
     func handleEscalationToComputerUse(routed: TaskRoutedMessage) {
         Task { @MainActor in
+            let shouldAutoApproveTools = routed.escalatedFrom
+                .map { self.autoApproveEscalationSessionIds.contains($0) } ?? false
+
             guard await waitForAccessibilityPermission() else {
                 log.error("Accessibility permission denied — cannot start computer use session \(routed.sessionId)")
                 do {
@@ -56,6 +59,10 @@ extension AppDelegate {
                 skipSessionCreate: true,
                 notificationService: self.services.activityNotificationService
             )
+            session.autoApproveTools = shouldAutoApproveTools
+            if let sourceSessionId = routed.escalatedFrom {
+                self.autoApproveEscalationSessionIds.remove(sourceSessionId)
+            }
             // Don't bind relatedViewModel for escalated sessions — the active view model
             // may be unrelated if the user switched threads. Tool calls for escalated
             // sessions are tracked by the daemon session, not by ChatViewModel.
@@ -174,6 +181,7 @@ extension AppDelegate {
             thinking.close()
             self.thinkingWindow = nil
 
+            let shouldAutoApproveTools = submission.isVoiceAction
             switch routed.interactionType {
             case "computer_use":
                 guard await self.waitForAccessibilityPermission() else {
@@ -196,6 +204,7 @@ extension AppDelegate {
                     skipSessionCreate: true,
                     notificationService: self.services.activityNotificationService
                 )
+                session.autoApproveTools = shouldAutoApproveTools
                 // Don't bind relatedViewModel — sessions started via startSession() don't
                 // originate from a chat thread, so there's no ChatViewModel to extract
                 // tool calls from. Tool calls are tracked by the daemon session itself.
@@ -212,6 +221,10 @@ extension AppDelegate {
                 self.ambientAgent.resume()
 
             default: // text_qa
+                if shouldAutoApproveTools {
+                    self.autoApproveEscalationSessionIds.insert(routed.sessionId)
+                }
+                let routedSessionId = routed.sessionId
                 let session = TextSession(
                     task: effectiveTask,
                     daemonClient: self.daemonClient,
@@ -229,6 +242,7 @@ extension AppDelegate {
 
                 // Clean up when the user closes the panel
                 window.onClose = { [weak self] in
+                    self?.autoApproveEscalationSessionIds.remove(routedSessionId)
                     self?.currentTextSession?.cancel()
                     self?.textResponseWindow = nil
                     self?.currentTextSession = nil
@@ -236,6 +250,7 @@ extension AppDelegate {
                 }
 
                 await session.run()
+                self.autoApproveEscalationSessionIds.remove(routedSessionId)
             }
         }
     }
