@@ -203,6 +203,7 @@ final class ComputerUseSession: ObservableObject {
                 log.error("Failed to send session abort message: \(error)")
             }
             logger.finishSession(result: "failed: no window")
+            await stopRecorderIfNeeded()
             return
         }
 
@@ -287,20 +288,28 @@ final class ComputerUseSession: ObservableObject {
         }
 
         // Stop recording if it was started
-        if requiresRecording && recordingState == .started {
-            if let recorder = screenRecorder {
-                do {
-                    let result = try await recorder.stop()
-                    updateRecordingStopped(filePath: result.filePath, durationMs: result.durationMs)
-                } catch {
-                    log.error("Failed to stop screen recording: \(error.localizedDescription)")
-                    updateRecordingState(.failed(reason: error.localizedDescription))
-                }
-            } else {
-                updateRecordingState(.stopped)
-            }
-            screenRecorder = nil
+        if requiresRecording {
+            await stopRecorderIfNeeded()
         }
+    }
+
+    // MARK: - Recording Cleanup
+
+    /// Ensures the screen recorder is stopped and cleaned up.
+    /// Safe to call even when no recorder is active.
+    private func stopRecorderIfNeeded() async {
+        guard let recorder = screenRecorder, recorder.isRecording else {
+            screenRecorder = nil
+            return
+        }
+        do {
+            let result = try await recorder.stop()
+            updateRecordingStopped(filePath: result.filePath, durationMs: result.durationMs)
+        } catch {
+            log.error("Failed to stop screen recording during cleanup: \(error.localizedDescription)")
+            updateRecordingState(.failed(reason: error.localizedDescription))
+        }
+        screenRecorder = nil
     }
 
     // MARK: - Action Handler
