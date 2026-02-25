@@ -475,7 +475,7 @@ export async function handleChannelInbound(
 
   // Extract channel command intent (e.g. /start from Telegram)
   const rawCommandIntent = sourceMetadata?.commandIntent;
-  const commandIntent = rawCommandIntent && typeof rawCommandIntent === 'object' && !Array.isArray(rawCommandIntent)
+  let commandIntent = rawCommandIntent && typeof rawCommandIntent === 'object' && !Array.isArray(rawCommandIntent)
     ? rawCommandIntent as Record<string, unknown>
     : undefined;
 
@@ -487,11 +487,15 @@ export async function handleChannelInbound(
   const replyCallbackUrl = body.replyCallbackUrl;
 
   // ── Guardian verification command intercept ──
-  // Handled before normal message processing so it never enters the agent loop.
+  // Validate/consume the challenge synchronously so side effects (member
+  // upsert, binding creation) happen before the message enters the agent
+  // loop. Instead of composing a canned reply and short-circuiting, inject
+  // the verification result as a commandIntent so the full assistant
+  // generates a dynamic, context-aware response.
+  let guardianVerifyOutcome: 'verified' | 'failed' | undefined;
   if (
     !result.duplicate &&
     guardianVerifyCode !== undefined &&
-    replyCallbackUrl &&
     body.senderExternalUserId
   ) {
     const verifyResult = validateAndConsumeChallenge(
@@ -516,35 +520,19 @@ export async function handleChannelInbound(
         username: body.senderUsername,
       });
       log.info({ sourceChannel, externalUserId: body.senderExternalUserId }, 'Guardian verified: auto-upserted ingress member');
+      guardianVerifyOutcome = 'verified';
+    } else {
+      guardianVerifyOutcome = 'failed';
     }
 
-    const replyText = verifyResult.success
-      ? await composeApprovalMessageGenerative({
-        scenario: 'guardian_verify_success',
-        channel: sourceChannel,
-      }, {}, approvalCopyGenerator)
-      : await composeApprovalMessageGenerative({
-        scenario: 'guardian_verify_failed',
-        channel: sourceChannel,
-        failureReason: stripVerificationFailurePrefix(verifyResult.reason),
-      }, {}, approvalCopyGenerator);
-
-    try {
-      await deliverChannelReply(replyCallbackUrl, {
-        chatId: externalChatId,
-        text: replyText,
-        assistantId,
-      }, bearerToken);
-    } catch (err) {
-      log.error({ err, externalChatId }, 'Failed to deliver guardian verification reply');
-    }
-
-    return Response.json({
-      accepted: true,
-      duplicate: false,
-      eventId: result.eventId,
-      guardianVerification: verifyResult.success ? 'verified' : 'failed',
-    });
+    // Override commandIntent so the assistant sees the verification result
+    // and can generate a natural, personalized response.
+    commandIntent = {
+      type: 'guardian_verify',
+      payload: verifyResult.success
+        ? 'success: The user has been verified and is now set as the guardian for this channel.'
+        : `failed: ${stripVerificationFailurePrefix(verifyResult.reason)}`,
+    };
   }
 
   // ── Guardian action answer interception ──
@@ -814,6 +802,7 @@ export async function handleChannelInbound(
     accepted: result.accepted,
     duplicate: result.duplicate,
     eventId: result.eventId,
+    ...(guardianVerifyOutcome ? { guardianVerification: guardianVerifyOutcome } : {}),
   });
 }
 

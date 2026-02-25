@@ -1610,7 +1610,7 @@ describe('SMS channel approval decisions', () => {
 describe('SMS guardian verify intercept', () => {
   test('/guardian_verify command works with sourceChannel sms', async () => {
     // Set up a guardian verification challenge for SMS
-    const { createVerificationChallenge } = await import('../runtime/channel-guardian-service.js');
+    const { createVerificationChallenge, getGuardianBinding } = await import('../runtime/channel-guardian-service.js');
     const { secret } = createVerificationChallenge('self', 'sms');
 
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
@@ -1637,19 +1637,24 @@ describe('SMS guardian verify intercept', () => {
     expect(body.accepted).toBe(true);
     expect(body.guardianVerification).toBe('verified');
 
-    // Verify the reply was delivered
-    expect(deliverSpy).toHaveBeenCalled();
-    const replyArgs = deliverSpy.mock.calls[0];
-    const replyPayload = replyArgs[1] as { chatId: string; text: string };
-    expect(replyPayload.chatId).toBe('sms-chat-verify');
-    expect(typeof replyPayload.text).toBe('string');
-    expect(replyPayload.text.toLowerCase()).toContain('guardian');
-    expect(replyPayload.text.toLowerCase()).toContain('verif');
+    // Verification side effects: guardian binding should be created
+    const binding = getGuardianBinding('self', 'sms');
+    expect(binding).not.toBeNull();
+    expect(binding!.guardianExternalUserId).toBe('sms-user-42');
+
+    // The message now flows through processMessage (the assistant generates
+    // the response dynamically) instead of composing a canned reply.
+    expect(noopProcessMessage).toHaveBeenCalled();
 
     deliverSpy.mockRestore();
   });
 
   test('/guardian_verify with invalid token returns failed via SMS', async () => {
+    // Create a pending challenge so the ACL bypass is granted for the
+    // non-member user, allowing the verify intercept to evaluate the code.
+    const { createVerificationChallenge } = await import('../runtime/channel-guardian-service.js');
+    createVerificationChallenge('self', 'sms');
+
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
 
     const req = new Request('http://localhost/channels/inbound', {
@@ -1674,12 +1679,9 @@ describe('SMS guardian verify intercept', () => {
     expect(body.accepted).toBe(true);
     expect(body.guardianVerification).toBe('failed');
 
-    expect(deliverSpy).toHaveBeenCalled();
-    const replyArgs = deliverSpy.mock.calls[0];
-    const replyPayload = replyArgs[1] as { chatId: string; text: string };
-    expect(typeof replyPayload.text).toBe('string');
-    expect(replyPayload.text.toLowerCase()).toContain('verif');
-    expect(replyPayload.text.toLowerCase()).toContain('failed');
+    // The message flows through processMessage with a guardian_verify
+    // commandIntent so the assistant generates a failure response.
+    expect(noopProcessMessage).toHaveBeenCalled();
 
     deliverSpy.mockRestore();
   });
@@ -2919,6 +2921,9 @@ describe('assistant-scoped guardian verification via handleChannelInbound', () =
     expect(body.accepted).toBe(true);
     expect(body.guardianVerification).toBe('verified');
 
+    // The message is processed by the assistant instead of composing a canned reply
+    expect(noopProcessMessage).toHaveBeenCalled();
+
     deliverSpy.mockRestore();
   });
 
@@ -2954,8 +2959,13 @@ describe('assistant-scoped guardian verification via handleChannelInbound', () =
   test('cross-assistant challenge verification fails', async () => {
     const { createVerificationChallenge } = await import('../runtime/channel-guardian-service.js');
 
-    // Create challenge for asst-A
+    // Create challenge for asst-A — also creates a pending challenge so
+    // the ACL bypass is available for this channel.
     const { secret } = createVerificationChallenge('asst-A-cross', 'telegram');
+    // Create a pending challenge for asst-B-cross so the ACL guardian_verify
+    // bypass lets the non-member through (bypass requires a pending challenge
+    // for the target assistant).
+    createVerificationChallenge('asst-B-cross', 'telegram');
 
     const deliverSpy = spyOn(gatewayClient, 'deliverChannelReply').mockResolvedValue(undefined);
 
