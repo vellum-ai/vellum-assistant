@@ -107,10 +107,11 @@ export async function handleTwitterAuthStart(
     });
 
     if (!result.success) {
+      log.error({ error: result.error }, 'Twitter OAuth orchestrator returned error');
       ctx.send(socket, {
         type: 'twitter_auth_result',
         success: false,
-        error: result.error,
+        error: sanitizeTwitterAuthError(result.error),
       });
       return;
     }

@@ -3,9 +3,24 @@ import * as net from 'node:net';
 import { orchestrateOAuthConnect } from '../../oauth/connect-orchestrator.js';
 import { getProviderProfile, resolveService } from '../../oauth/provider-profiles.js';
 import { getSecureKey } from '../../security/secure-keys.js';
-import { assertMetadataWritable } from '../../tools/credentials/metadata-store.js';
+import { assertMetadataWritable, getCredentialMetadata } from '../../tools/credentials/metadata-store.js';
 import type { OAuthConnectStartRequest } from '../ipc-protocol.js';
 import { defineHandlers, type HandlerContext, log } from './shared.js';
+
+/** Map raw orchestrator/provider error messages to user-friendly strings. */
+function sanitizeOAuthError(message: string): string {
+  const lower = message.toLowerCase();
+  if (lower.includes('timed out')) {
+    return 'OAuth authentication timed out. Please try again.';
+  }
+  if (lower.includes('user_cancelled') || lower.includes('cancelled')) {
+    return 'OAuth authentication was cancelled.';
+  }
+  if (lower.includes('denied') || lower.includes('invalid_grant')) {
+    return 'The authorization request was denied. Please try again.';
+  }
+  return 'OAuth authentication failed. Please try again.';
+}
 
 export async function handleOAuthConnectStart(
   msg: OAuthConnectStartRequest,
@@ -48,6 +63,15 @@ export async function handleOAuthConnectStart(
         getSecureKey(`credential:${msg.service}:oauth_client_id`);
     }
 
+    // Fall back to credential metadata for legacy installs where client
+    // credentials were stored only in metadata (not in the keychain).
+    if (!clientId) {
+      const meta = getCredentialMetadata(resolvedService, 'access_token');
+      if (meta?.oauth2ClientId) {
+        clientId = meta.oauth2ClientId;
+      }
+    }
+
     if (!clientId) {
       ctx.send(socket, {
         type: 'oauth_connect_result',
@@ -67,6 +91,14 @@ export async function handleOAuthConnectStart(
         getSecureKey(`credential:${msg.service}:client_secret`) ??
         getSecureKey(`credential:${msg.service}:oauth_client_secret`) ??
         undefined;
+    }
+
+    // Fall back to credential metadata for legacy installs
+    if (!clientSecret) {
+      const meta = getCredentialMetadata(resolvedService, 'access_token');
+      if (meta?.oauth2ClientSecret) {
+        clientSecret = meta.oauth2ClientSecret;
+      }
     }
 
     // Fail early when client_secret is required but missing — guide the
@@ -96,10 +128,11 @@ export async function handleOAuthConnectStart(
     });
 
     if (!result.success) {
+      log.error({ error: result.error, service: msg.service }, 'OAuth connect orchestrator returned error');
       ctx.send(socket, {
         type: 'oauth_connect_result',
         success: false,
-        error: result.error,
+        error: sanitizeOAuthError(result.error),
       });
       return;
     }
@@ -125,22 +158,10 @@ export async function handleOAuthConnectStart(
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err, service: msg.service }, 'OAuth connect flow failed');
 
-    let userError: string;
-    const lower = message.toLowerCase();
-    if (lower.includes('timed out')) {
-      userError = 'OAuth authentication timed out. Please try again.';
-    } else if (lower.includes('user_cancelled') || lower.includes('cancelled')) {
-      userError = 'OAuth authentication was cancelled.';
-    } else if (lower.includes('denied') || lower.includes('invalid_grant')) {
-      userError = 'The authorization request was denied. Please try again.';
-    } else {
-      userError = 'OAuth authentication failed. Please try again.';
-    }
-
     ctx.send(socket, {
       type: 'oauth_connect_result',
       success: false,
-      error: userError,
+      error: sanitizeOAuthError(message),
     });
   }
 }
