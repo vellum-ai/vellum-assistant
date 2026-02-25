@@ -382,6 +382,8 @@ export async function handleChannelInbound(
     { sourceMessageId, assistantId: canonicalAssistantId },
   );
 
+  const replyCallbackUrl = body.replyCallbackUrl;
+
   // ── Retry pending verification reply on duplicate ──
   // If a previous verification delivery failed and stored a pending reply,
   // gateway retries (duplicates) re-attempt delivery here. On success the
@@ -513,8 +515,6 @@ export async function handleChannelInbound(
   const sourceLanguageCode = typeof sourceMetadata?.languageCode === 'string' && sourceMetadata.languageCode.trim().length > 0
     ? sourceMetadata.languageCode.trim()
     : undefined;
-
-  const replyCallbackUrl = body.replyCallbackUrl;
 
   // ── Telegram bootstrap deep-link handling ──
   // Intercept /start gv_<token> commands BEFORE the guardian_verify intercept.
