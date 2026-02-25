@@ -23,7 +23,7 @@ export interface RecordingCleanupWorker {
 }
 
 function sweepExpiredRecordings(config: RecordingConfig): void {
-  if (config.defaultRetentionDays === 0) return;
+  if (config.defaultRetentionDays <= 0) return;
 
   const cutoffMs = Date.now() - config.defaultRetentionDays * 86_400_000;
 
@@ -63,8 +63,8 @@ function sweepExpiredRecordings(config: RecordingConfig): void {
 }
 
 export function startRecordingCleanupWorker(config: RecordingConfig): RecordingCleanupWorker {
-  if (config.defaultRetentionDays === 0) {
-    log.info('Recording retention set to 0 (keep forever) — cleanup worker disabled');
+  if (config.defaultRetentionDays <= 0) {
+    log.info('Recording retention set to 0 or negative (keep forever) — cleanup worker disabled');
     return { stop() {} };
   }
 

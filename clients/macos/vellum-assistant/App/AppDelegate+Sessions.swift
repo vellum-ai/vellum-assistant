@@ -142,6 +142,7 @@ extension AppDelegate {
 
             let storedMaxSteps = UserDefaults.standard.integer(forKey: "maxStepsPerSession")
             let maxSteps = storedMaxSteps > 0 ? storedMaxSteps : 50
+            let escalationConversationId = self.mainWindow?.threadManager?.activeThread?.sessionId
             let session = ComputerUseSession(
                 task: routed.task ?? "Escalated task",
                 daemonClient: self.daemonClient,
@@ -150,7 +151,8 @@ extension AppDelegate {
                 skipSessionCreate: true,
                 notificationService: self.services.activityNotificationService,
                 requiresRecording: escalationRequiresRecording,
-                recordingOptions: resolvedRecordingOptions
+                recordingOptions: resolvedRecordingOptions,
+                attachToConversationId: escalationConversationId
             )
             // Don't bind relatedViewModel for escalated sessions — the active view model
             // may be unrelated if the user switched threads. Tool calls for escalated
@@ -318,7 +320,8 @@ extension AppDelegate {
                     skipSessionCreate: true,
                     notificationService: self.services.activityNotificationService,
                     requiresRecording: sessionRequiresRecording,
-                    recordingOptions: resolvedRecordingOptions
+                    recordingOptions: resolvedRecordingOptions,
+                    attachToConversationId: activeConversationId
                 )
                 // Don't bind relatedViewModel — sessions started via startSession() don't
                 // originate from a chat thread, so there's no ChatViewModel to extract

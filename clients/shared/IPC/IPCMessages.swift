@@ -340,8 +340,8 @@ extension IPCCuSessionAbort {
 public typealias RecordingStatusMessage = IPCRecordingStatus
 
 extension IPCRecordingStatus {
-    public init(sessionId: String, status: String, filePath: String? = nil, durationMs: Double? = nil, error: String? = nil) {
-        self.init(type: "recording_status", sessionId: sessionId, status: status, filePath: filePath, durationMs: durationMs, error: error)
+    public init(sessionId: String, status: String, filePath: String? = nil, durationMs: Double? = nil, error: String? = nil, attachToConversationId: String? = nil) {
+        self.init(type: "recording_status", sessionId: sessionId, status: status, filePath: filePath, durationMs: durationMs, error: error, attachToConversationId: attachToConversationId)
     }
 }
 

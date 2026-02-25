@@ -65,6 +65,7 @@ final class RecordingSourcePickerViewModel: ObservableObject {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         enumerateDisplays()
+        enumerateWindows()
     }
 
     // MARK: - Computed Properties

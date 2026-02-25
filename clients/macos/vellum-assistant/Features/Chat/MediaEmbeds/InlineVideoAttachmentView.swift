@@ -95,6 +95,9 @@ struct InlineVideoAttachmentView: View {
             player?.pause()
             player = nil
             isPlaying = false
+            // Clean up temp file written by thumbnail generation or playback
+            let tempURL = safeTempURL()
+            try? FileManager.default.removeItem(at: tempURL)
         }
     }
 

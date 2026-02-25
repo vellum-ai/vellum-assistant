@@ -154,6 +154,8 @@ final class ScreenRecorder: NSObject {
 
         // If no video frames were ever captured, the output file is invalid
         guard output.didCaptureFrames else {
+            // Cancel the asset writer to release the file handle before deletion
+            output.assetWriter.cancelWriting()
             // Clean up the empty output file
             if let url = outputFileURL {
                 try? FileManager.default.removeItem(at: url)
@@ -177,6 +179,7 @@ final class ScreenRecorder: NSObject {
 
         // Clean up references
         streamOutput = nil
+        outputFileURL = nil
 
         log.info("Recording stopped — duration: \(durationMs)ms, file: \(filePath)")
 
@@ -200,8 +203,9 @@ final class ScreenRecorder: NSObject {
                 throw RecorderError.noMatchingWindow
             }
             let filter = SCContentFilter(desktopIndependentWindow: window)
-            let width = Int(window.frame.width) * 2 // Retina
-            let height = Int(window.frame.height) * 2
+            let scaleFactor = Int(NSScreen.main?.backingScaleFactor ?? 2.0)
+            let width = Int(window.frame.width) * scaleFactor
+            let height = Int(window.frame.height) * scaleFactor
             return (filter, max(width, 1), max(height, 1))
         }
 
@@ -309,7 +313,7 @@ final class ScreenRecorder: NSObject {
 private final class RecorderStreamOutput: NSObject, SCStreamOutput, @unchecked Sendable {
     let queue = DispatchQueue(label: "com.vellum.vellum-assistant.screen-recorder", qos: .userInitiated)
 
-    private let assetWriter: AVAssetWriter
+    let assetWriter: AVAssetWriter
     private let videoInput: AVAssetWriterInput
     private let audioInput: AVAssetWriterInput?
 

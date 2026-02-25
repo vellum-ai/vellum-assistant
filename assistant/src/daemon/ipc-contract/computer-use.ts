@@ -117,6 +117,8 @@ export interface RecordingStatus {
   durationMs?: number;
   /** Error description (populated on failure). */
   error?: string;
+  /** Conversation ID to attach the recording to (resilient to session cleanup races). */
+  attachToConversationId?: string;
 }
 
 // === Server → Client ===

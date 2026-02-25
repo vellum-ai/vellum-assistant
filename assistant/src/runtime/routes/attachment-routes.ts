@@ -1,6 +1,7 @@
 /**
  * Route handlers for attachment upload, download, and deletion.
  */
+import { existsSync } from 'node:fs';
 import * as attachmentsStore from '../../memory/attachments-store.js';
 import { validateAttachmentUpload, AttachmentUploadError } from '../../memory/attachments-store.js';
 
@@ -175,6 +176,9 @@ export function handleGetAttachmentContent(attachmentId: string, req: Request): 
 
   // File-backed attachment: serve from disk with Range support
   if (attachment.filePath) {
+    if (!existsSync(attachment.filePath)) {
+      return Response.json({ error: 'Attachment file not found on disk' }, { status: 404 });
+    }
     const file = Bun.file(attachment.filePath);
     const fileSize = file.size;
 

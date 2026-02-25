@@ -5,6 +5,7 @@
  * data. Provides upload, delete, and message-linkage operations.
  */
 
+import { unlinkSync } from 'node:fs';
 import { eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb, rawRun } from './db.js';
@@ -297,6 +298,20 @@ export function deleteAttachment(attachmentId: string): DeleteAttachmentResult {
     .length;
 
   if (refCount > 0) return 'still_referenced';
+
+  // Delete the backing file on disk if this is a file-backed attachment
+  const record = db
+    .select({ filePath: attachments.filePath })
+    .from(attachments)
+    .where(eq(attachments.id, attachmentId))
+    .get();
+  if (record?.filePath) {
+    try {
+      unlinkSync(record.filePath);
+    } catch {
+      // Ignore missing file — DB cleanup should still proceed
+    }
+  }
 
   db.delete(attachments)
     .where(eq(attachments.id, attachmentId))

@@ -3078,14 +3078,17 @@ public struct IPCRecordingStatus: Codable, Sendable {
     public let durationMs: Double?
     /// Error description (populated on failure).
     public let error: String?
+    /// Conversation ID to attach the recording to (resilient to session cleanup races).
+    public let attachToConversationId: String?
 
-    public init(type: String, sessionId: String, status: String, filePath: String? = nil, durationMs: Double? = nil, error: String? = nil) {
+    public init(type: String, sessionId: String, status: String, filePath: String? = nil, durationMs: Double? = nil, error: String? = nil, attachToConversationId: String? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.status = status
         self.filePath = filePath
         self.durationMs = durationMs
         self.error = error
+        self.attachToConversationId = attachToConversationId
     }
 }
 

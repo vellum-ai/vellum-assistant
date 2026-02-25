@@ -50,6 +50,8 @@ final class ComputerUseSession: ObservableObject {
     let requiresRecording: Bool
     /// Recording source/options selected by the user (e.g., display, window, audio).
     let recordingOptions: IPCRecordingOptions?
+    /// Conversation ID to attach recording artifacts to (sent with recording_status messages).
+    let attachToConversationId: String?
     /// Current recording lifecycle state.
     @Published private(set) var recordingState: RecordingState = .pending
 
@@ -96,7 +98,8 @@ final class ComputerUseSession: ObservableObject {
         skipSessionCreate: Bool = false,
         notificationService: ActivityNotificationServiceProtocol? = nil,
         requiresRecording: Bool = false,
-        recordingOptions: IPCRecordingOptions? = nil
+        recordingOptions: IPCRecordingOptions? = nil,
+        attachToConversationId: String? = nil
     ) {
         self.id = sessionId ?? UUID().uuidString
         self.task = task
@@ -113,6 +116,7 @@ final class ComputerUseSession: ObservableObject {
         self.notificationService = notificationService
         self.requiresRecording = requiresRecording
         self.recordingOptions = recordingOptions
+        self.attachToConversationId = attachToConversationId
         self.verifier = ActionVerifier(maxSteps: maxSteps)
         self.logger = SessionLogger(task: task, attachments: attachments)
     }
@@ -1108,7 +1112,8 @@ final class ComputerUseSession: ObservableObject {
                 status: statusString,
                 filePath: filePath,
                 durationMs: durationMs,
-                error: errorString
+                error: errorString,
+                attachToConversationId: attachToConversationId
             ))
         } catch {
             log.error("Failed to send recording status '\(statusString)': \(error)")
@@ -1126,7 +1131,8 @@ final class ComputerUseSession: ObservableObject {
                 sessionId: id,
                 status: "stopped",
                 filePath: filePath,
-                durationMs: durationMs
+                durationMs: durationMs,
+                attachToConversationId: attachToConversationId
             ))
         } catch {
             log.error("Failed to send recording stopped status: \(error)")

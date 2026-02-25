@@ -218,7 +218,7 @@ export function handleRecordingStatus(
         return;
       }
 
-      const conversationId = cuSessionAttachConversationId.get(msg.sessionId);
+      const conversationId = msg.attachToConversationId ?? cuSessionAttachConversationId.get(msg.sessionId);
       if (!conversationId) {
         log.warn({ sessionId: msg.sessionId }, 'No attachToConversationId found for session — cannot link recording');
         return;
