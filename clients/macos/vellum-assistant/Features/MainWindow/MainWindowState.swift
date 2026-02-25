@@ -32,7 +32,7 @@ final class MainWindowState: ObservableObject {
     @Published var persistentThreadId: UUID?
 
     /// Tracks which panel originated the avatar customization flow so we can return to it.
-    @Published var avatarCustomizationReturnPanel: SidePanelType = .identity
+    @Published var avatarCustomizationReturnPanel: SidePanelType = .intelligence
 
     @Published var selectedSubagentId: String?
     @Published var activeDynamicSurface: UiSurfaceShowMessage?

@@ -728,7 +728,7 @@ struct MainWindowView: View {
                     break
                 }
             }
-            if case .panel(.identity) = windowState.selection {
+            if case .panel(.intelligence) = windowState.selection {
                 windowState.selection = nil
             }
             // Clear subagent detail panel on thread switch
@@ -1069,12 +1069,7 @@ struct MainWindowView: View {
             SidebarNavRow(icon: "brain.head.profile", label: "Intelligence", isActive: windowState.activePanel == .intelligence) {
                 windowState.togglePanel(.intelligence)
             }
-            SidebarNavRow(icon: "person.crop.circle", label: "Identity", isActive: windowState.activePanel == .identity) {
-                windowState.togglePanel(.identity)
-            }
-            SidebarNavRow(icon: "sparkles", label: "Skills", isActive: windowState.activePanel == .agent) {
-                windowState.togglePanel(.agent)
-            }
+
             SidebarNavRow(icon: "tray.fill", label: "Inbox", isActive: windowState.activePanel == .assistantInbox) {
                 windowState.togglePanel(.assistantInbox)
             }
@@ -1187,12 +1182,7 @@ struct MainWindowView: View {
             SidebarNavRow(icon: "brain.head.profile", label: "Intelligence", isActive: windowState.activePanel == .intelligence, isExpanded: false) {
                 windowState.togglePanel(.intelligence)
             }
-            SidebarNavRow(icon: "person.crop.circle", label: "Identity", isActive: windowState.activePanel == .identity, isExpanded: false) {
-                windowState.togglePanel(.identity)
-            }
-            SidebarNavRow(icon: "sparkles", label: "Skills", isActive: windowState.activePanel == .agent, isExpanded: false) {
-                windowState.togglePanel(.agent)
-            }
+
             SidebarNavRow(icon: "tray.fill", label: "Inbox", isActive: windowState.activePanel == .assistantInbox, isExpanded: false) {
                 windowState.togglePanel(.assistantInbox)
             }

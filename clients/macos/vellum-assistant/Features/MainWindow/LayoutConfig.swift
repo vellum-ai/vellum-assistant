@@ -3,8 +3,28 @@ import VellumAssistantShared
 
 // MARK: - Domain Types
 
-public enum NativePanelId: String, Codable, Equatable, Sendable {
-    case chat, threadList, settings, agent, debug, directory, generated, identity, avatarCustomization, voiceMode, assistantInbox, apps, intelligence
+public enum NativePanelId: String, Equatable, Sendable {
+    case chat, threadList, settings, debug, directory, generated, avatarCustomization, voiceMode, assistantInbox, apps, intelligence
+}
+
+extension NativePanelId: Codable {
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let rawValue = try container.decode(String.self)
+        // Legacy values from older builds — map to the unified Intelligence panel
+        switch rawValue {
+        case "identity", "agent":
+            self = .intelligence
+        default:
+            guard let value = NativePanelId(rawValue: rawValue) else {
+                throw DecodingError.dataCorruptedError(
+                    in: container,
+                    debugDescription: "Unknown NativePanelId: \(rawValue)"
+                )
+            }
+            self = value
+        }
+    }
 }
 
 public enum SlotContent: Equatable, Sendable {
@@ -103,7 +123,16 @@ extension SlotContent {
     static func from(wire: SlotContentWire) -> SlotContent? {
         switch wire.type {
         case "native":
-            guard let panel = wire.panel, let id = NativePanelId(rawValue: panel) else { return nil }
+            guard let panel = wire.panel else { return nil }
+            // Handle legacy panel IDs that were renamed to intelligence
+            let id: NativePanelId
+            switch panel {
+            case "identity", "agent":
+                id = .intelligence
+            default:
+                guard let parsed = NativePanelId(rawValue: panel) else { return nil }
+                id = parsed
+            }
             return .native(id)
         case "surface":
             guard let surfaceId = wire.surfaceId else { return nil }
