@@ -65,10 +65,17 @@ export async function handleOAuthConnectStart(
 
     // Fall back to credential metadata for legacy installs where client
     // credentials were stored only in metadata (not in the keychain).
+    // Check both canonical and alias service keys, matching the keychain
+    // lookup pattern above.
     if (!clientId) {
       const meta = getCredentialMetadata(resolvedService, 'access_token');
       if (meta?.oauth2ClientId) {
         clientId = meta.oauth2ClientId;
+      } else if (resolvedService !== msg.service) {
+        const aliasMeta = getCredentialMetadata(msg.service, 'access_token');
+        if (aliasMeta?.oauth2ClientId) {
+          clientId = aliasMeta.oauth2ClientId;
+        }
       }
     }
 
@@ -93,11 +100,17 @@ export async function handleOAuthConnectStart(
         undefined;
     }
 
-    // Fall back to credential metadata for legacy installs
+    // Fall back to credential metadata for legacy installs — check both
+    // canonical and alias service keys, matching the keychain lookup pattern.
     if (!clientSecret) {
       const meta = getCredentialMetadata(resolvedService, 'access_token');
       if (meta?.oauth2ClientSecret) {
         clientSecret = meta.oauth2ClientSecret;
+      } else if (resolvedService !== msg.service) {
+        const aliasMeta = getCredentialMetadata(msg.service, 'access_token');
+        if (aliasMeta?.oauth2ClientSecret) {
+          clientSecret = aliasMeta.oauth2ClientSecret;
+        }
       }
     }
 
@@ -128,11 +141,16 @@ export async function handleOAuthConnectStart(
     });
 
     if (!result.success) {
-      log.error({ error: result.error, service: msg.service }, 'OAuth connect orchestrator returned error');
+      // Use `err` field (covered by logger redaction serializers) rather than
+      // `error` to avoid logging potentially secret-bearing strings verbatim.
+      log.error({ err: result.error, service: msg.service }, 'OAuth connect orchestrator returned error');
       ctx.send(socket, {
         type: 'oauth_connect_result',
         success: false,
-        error: sanitizeOAuthError(result.error),
+        // Safe orchestrator errors (scope violations, missing config, etc.) are
+        // passed through as-is. Errors that may contain raw provider responses
+        // are sanitized before surfacing to the user.
+        error: result.safeError ? result.error : sanitizeOAuthError(result.error),
       });
       return;
     }

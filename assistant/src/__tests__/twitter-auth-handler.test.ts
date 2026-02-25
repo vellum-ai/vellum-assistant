@@ -324,6 +324,7 @@ describe('Twitter auth handler', () => {
       orchestratorResult = {
         success: false,
         error: 'Failed to verify Twitter identity. Please try again.',
+        safeError: true,
       };
 
       const msg: TwitterAuthStartRequest = { type: 'twitter_auth_start' };

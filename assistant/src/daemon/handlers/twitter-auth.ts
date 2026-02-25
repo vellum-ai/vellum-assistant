@@ -107,11 +107,15 @@ export async function handleTwitterAuthStart(
     });
 
     if (!result.success) {
-      log.error({ error: result.error }, 'Twitter OAuth orchestrator returned error');
+      // Use `err` field (covered by logger redaction serializers) rather than
+      // `error` to avoid logging potentially secret-bearing strings verbatim.
+      log.error({ err: result.error }, 'Twitter OAuth orchestrator returned error');
       ctx.send(socket, {
         type: 'twitter_auth_result',
         success: false,
-        error: sanitizeTwitterAuthError(result.error),
+        // Safe orchestrator errors are passed through as-is. Errors that may
+        // contain raw provider responses are sanitized before surfacing.
+        error: result.safeError ? result.error : sanitizeTwitterAuthError(result.error),
       });
       return;
     }
