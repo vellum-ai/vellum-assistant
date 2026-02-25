@@ -670,8 +670,18 @@ export function stripMemoryRecallMessages<T extends { role: 'user' | 'assistant'
   }
   if (targetIndex === -1) return messages;
 
+  // Strip the adjacent assistant ack when the injection strategy used a
+  // separate context message (or is unknown). This mirrors the canonical
+  // pair removal above but covers repair-merged cases where the user
+  // message has multiple content blocks.
+  const ackIndex =
+    injectionStrategy !== 'prepend_user_block' && targetIndex + 1 < messages.length && isAck(messages[targetIndex + 1])
+      ? targetIndex + 1
+      : -1;
+
   const cleaned: T[] = [];
   for (let i = 0; i < messages.length; i++) {
+    if (i === ackIndex) continue;
     if (i !== targetIndex) {
       cleaned.push(messages[i]);
       continue;
