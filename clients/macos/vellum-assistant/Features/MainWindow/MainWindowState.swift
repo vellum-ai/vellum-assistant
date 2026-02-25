@@ -80,6 +80,17 @@ final class MainWindowState: ObservableObject {
         }
     }
 
+    /// Whether a conversation is visible — true for thread mode and
+    /// app-editing mode (which shows a chat dock alongside the app).
+    /// Used by zoom intent routing to decide whether Cmd+/- should
+    /// target conversation text zoom or fall through to window zoom.
+    var isConversationVisible: Bool {
+        switch selection {
+        case .thread, .none, .appEditing: return true
+        default: return false
+        }
+    }
+
     /// Whether the dynamic workspace (app view) is expanded.
     var isDynamicExpanded: Bool {
         get {
