@@ -35,10 +35,18 @@ export async function handleOAuthConnectStart(
 
     const resolvedService = resolveService(msg.service);
 
-    // Look up client credentials from the keychain
-    const clientId =
+    // Look up client credentials from the keychain under the canonical
+    // service name first, then fall back to the original (alias) name
+    // in case the user stored credentials under the unresolved key.
+    let clientId =
       getSecureKey(`credential:${resolvedService}:client_id`) ??
       getSecureKey(`credential:${resolvedService}:oauth_client_id`);
+
+    if (!clientId && resolvedService !== msg.service) {
+      clientId =
+        getSecureKey(`credential:${msg.service}:client_id`) ??
+        getSecureKey(`credential:${msg.service}:oauth_client_id`);
+    }
 
     if (!clientId) {
       ctx.send(socket, {
@@ -49,10 +57,17 @@ export async function handleOAuthConnectStart(
       return;
     }
 
-    const clientSecret =
+    let clientSecret =
       getSecureKey(`credential:${resolvedService}:client_secret`) ??
       getSecureKey(`credential:${resolvedService}:oauth_client_secret`) ??
       undefined;
+
+    if (!clientSecret && resolvedService !== msg.service) {
+      clientSecret =
+        getSecureKey(`credential:${msg.service}:client_secret`) ??
+        getSecureKey(`credential:${msg.service}:oauth_client_secret`) ??
+        undefined;
+    }
 
     // Fail early when client_secret is required but missing — guide the
     // user to collect it from the keychain rather than letting the OAuth

@@ -97,6 +97,12 @@ export const PROVIDER_PROFILES: Record<string, OAuthProviderProfile> = {
     scopePolicy: DEFAULT_SCOPE_POLICY,
     tokenEndpointAuthMethod: 'client_secret_basic',
     callbackTransport: 'gateway',
+    setup: {
+      displayName: 'Twitter / X',
+      dashboardUrl: 'https://developer.x.com/en/portal/dashboard',
+      appType: 'App',
+      requiresClientSecret: false,
+    },
     identityVerifier: async (accessToken: string): Promise<string | undefined> => {
       try {
         const resp = await fetch('https://api.x.com/2/users/me', {
