@@ -866,4 +866,181 @@ describe('web_fetch tool', () => {
     expect(result.status).toContain('Followed 1 redirect(s).');
     expect(callCount).toBe(2);
   });
+
+  test('Accept header includes text/markdown with highest priority', async () => {
+    let capturedAcceptHeader = '';
+
+    const result = await executeWithMockFetch(
+      { url: 'https://example.com/doc' },
+      {
+        resolveHostAddresses: async () => ['93.184.216.34'],
+        requestExecutor: async (_url, requestOptions) => {
+          capturedAcceptHeader = requestOptions.headers['Accept'] ?? '';
+          return new Response('ok', {
+            status: 200,
+            headers: { 'content-type': 'text/plain; charset=utf-8' },
+          });
+        },
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    // text/markdown should appear first (highest priority, no q-value)
+    expect(capturedAcceptHeader.startsWith('text/markdown')).toBe(true);
+    // text/html should have a lower q-value
+    expect(capturedAcceptHeader).toContain('text/html;q=0.9');
+  });
+
+  test('markdown responses pass through without HTML conversion', async () => {
+    const markdownContent = [
+      '# Title',
+      '',
+      'Some **bold** text and `inline code`.',
+      '',
+      '```javascript',
+      'const x = 42;',
+      '```',
+      '',
+      '[Link text](https://example.com)',
+    ].join('\n');
+
+    const result = await executeWithMockFetch(
+      { url: 'https://example.com/readme.md' },
+      {
+        resolveHostAddresses: async () => ['93.184.216.34'],
+        requestExecutor: async () =>
+          new Response(markdownContent, {
+            status: 200,
+            headers: { 'content-type': 'text/markdown; charset=utf-8' },
+          }),
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('# Title');
+    expect(result.content).toContain('**bold**');
+    expect(result.content).toContain('```javascript');
+    expect(result.content).toContain('const x = 42;');
+    expect(result.content).toContain('[Link text](https://example.com)');
+    expect(result.content).toContain('Mode: markdown');
+  });
+
+  test('markdown responses preserve indentation', async () => {
+    const markdownContent = [
+      '# Code Examples',
+      '',
+      '    indented code block',
+      '    with multiple lines',
+      '',
+      '- top item',
+      '  - sub-item',
+      '    - deep sub-item',
+      '',
+      '```python',
+      '  def hello():',
+      '      print("world")',
+      '```',
+    ].join('\n');
+
+    const result = await executeWithMockFetch(
+      { url: 'https://example.com/docs.md' },
+      {
+        resolveHostAddresses: async () => ['93.184.216.34'],
+        requestExecutor: async () =>
+          new Response(markdownContent, {
+            status: 200,
+            headers: { 'content-type': 'text/markdown' },
+          }),
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    // normalizeMarkdown preserves indentation unlike normalizeText
+    expect(result.content).toContain('    indented code block');
+    expect(result.content).toContain('    with multiple lines');
+    expect(result.content).toContain('  - sub-item');
+    expect(result.content).toContain('    - deep sub-item');
+    expect(result.content).toContain('  def hello():');
+    expect(result.content).toContain('      print("world")');
+  });
+
+  test('x-markdown-tokens header is surfaced in output', async () => {
+    const result = await executeWithMockFetch(
+      { url: 'https://example.com/doc.md' },
+      {
+        resolveHostAddresses: async () => ['93.184.216.34'],
+        requestExecutor: async () =>
+          new Response('# Hello', {
+            status: 200,
+            headers: {
+              'content-type': 'text/markdown',
+              'x-markdown-tokens': '3150',
+            },
+          }),
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Markdown-Tokens: 3150');
+  });
+
+  test('non-markdown responses still get HTML extraction as before', async () => {
+    globalThis.fetch = (async () =>
+      new Response(
+        [
+          '<html><head>',
+          '<title>HTML Page</title>',
+          '</head><body>',
+          '<script>window.evil = "ignore me";</script>',
+          '<h1>Hello</h1><p>World</p>',
+          '</body></html>',
+        ].join(''),
+        {
+          status: 200,
+          headers: { 'content-type': 'text/html; charset=utf-8' },
+        },
+      )
+    ) as any;
+
+    const result = await executeWithMockFetch({ url: 'https://example.com' });
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Title: HTML Page');
+    expect(result.content).toContain('Hello');
+    expect(result.content).toContain('World');
+    expect(result.content).not.toContain('window.evil');
+    expect(result.content).toContain('Mode: extracted');
+  });
+
+  test('markdown responses skip HTML metadata extraction', async () => {
+    const markdownWithHtmlLikeStrings = [
+      '# My Document',
+      '',
+      'This mentions a <title>Fake Title</title> tag in markdown.',
+      '',
+      '<meta name="description" content="Fake Description">',
+      '',
+      'Regular markdown content.',
+    ].join('\n');
+
+    const result = await executeWithMockFetch(
+      { url: 'https://example.com/doc.md' },
+      {
+        resolveHostAddresses: async () => ['93.184.216.34'],
+        requestExecutor: async () =>
+          new Response(markdownWithHtmlLikeStrings, {
+            status: 200,
+            headers: { 'content-type': 'text/markdown; charset=utf-8' },
+          }),
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Mode: markdown');
+    // No Title/Description metadata should be extracted from markdown content
+    expect(result.content).not.toContain('Title: Fake Title');
+    expect(result.content).not.toContain('Description: Fake Description');
+    // The raw markdown content should still be present
+    expect(result.content).toContain('<title>Fake Title</title>');
+    expect(result.content).toContain('Regular markdown content.');
+  });
 });
