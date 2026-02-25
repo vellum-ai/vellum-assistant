@@ -365,13 +365,23 @@ export function handleSurfaceAction(ctx: SurfaceSessionContext, surfaceId: strin
     shouldRelayPrompt && typeof data?.prompt === 'string'
       ? data.prompt.trim()
       : '';
-  const content = prompt || JSON.stringify({
-    surfaceAction: true,
-    surfaceId,
-    surfaceType: pending.surfaceType,
-    actionId,
-    data: data ?? {},
-  });
+
+  // Build a human-readable summary for confirmation surfaces so the LLM
+  // clearly understands the user's decision instead of parsing raw JSON.
+  let fallbackContent: string;
+  if (pending.surfaceType === 'confirmation') {
+    const summary = buildCompletionSummary('confirmation', actionId, data);
+    fallbackContent = `[User action on confirmation surface: ${summary}]`;
+  } else {
+    fallbackContent = JSON.stringify({
+      surfaceAction: true,
+      surfaceId,
+      surfaceType: pending.surfaceType,
+      actionId,
+      data: data ?? {},
+    });
+  }
+  const content = prompt || fallbackContent;
 
   const requestId = uuid();
   const onEvent = (msg: ServerMessage) => ctx.sendToClient(msg);
@@ -564,7 +574,7 @@ export async function surfaceProxyResolver(
       content: JSON.stringify({
         surfaceId,
         status: 'awaiting_user_action',
-        message: 'File upload dialog displayed. The uploaded file data will arrive as a follow-up message.',
+        message: 'File upload dialog displayed and the user can see it. The uploaded file data will arrive as a follow-up message. Do not output any waiting message — just stop here.',
       }),
       isError: false,
     };
@@ -622,7 +632,7 @@ export async function surfaceProxyResolver(
         content: JSON.stringify({
           surfaceId,
           status: 'awaiting_user_action',
-          message: 'Surface displayed. The user\'s response will arrive as a follow-up message.',
+          message: 'Surface displayed and the user can see it. Their response will arrive as a follow-up message. Do not output any waiting message — just stop here.',
         }),
         isError: false,
       };
