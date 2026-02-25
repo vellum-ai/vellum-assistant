@@ -3,6 +3,7 @@ import * as net from 'node:net';
 import { orchestrateOAuthConnect } from '../../oauth/connect-orchestrator.js';
 import { resolveService } from '../../oauth/provider-profiles.js';
 import { getSecureKey } from '../../security/secure-keys.js';
+import { assertMetadataWritable } from '../../tools/credentials/metadata-store.js';
 import type { OAuthConnectStartRequest } from '../ipc-protocol.js';
 import { defineHandlers, type HandlerContext, log } from './shared.js';
 
@@ -11,6 +12,17 @@ export async function handleOAuthConnectStart(
   socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
+  try {
+    assertMetadataWritable();
+  } catch {
+    ctx.send(socket, {
+      type: 'oauth_connect_result',
+      success: false,
+      error: 'Credential metadata file has an unrecognized version. Cannot store OAuth credentials.',
+    });
+    return;
+  }
+
   try {
     if (!msg.service) {
       ctx.send(socket, {
