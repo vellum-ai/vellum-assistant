@@ -223,3 +223,33 @@ export interface GuardianRequestThreadCreated {
   title: string;
   questionText: string;
 }
+
+// --- Domain-level union aliases (consumed by the barrel file) ---
+
+export type _WorkItemsClientMessages =
+  | WorkItemsListRequest
+  | WorkItemGetRequest
+  | WorkItemUpdateRequest
+  | WorkItemCompleteRequest
+  | WorkItemDeleteRequest
+  | WorkItemRunTaskRequest
+  | WorkItemOutputRequest
+  | WorkItemPreflightRequest
+  | WorkItemApprovePermissionsRequest
+  | WorkItemCancelRequest;
+
+export type _WorkItemsServerMessages =
+  | WorkItemsListResponse
+  | WorkItemGetResponse
+  | WorkItemUpdateResponse
+  | WorkItemDeleteResponse
+  | WorkItemRunTaskResponse
+  | WorkItemOutputResponse
+  | WorkItemPreflightResponse
+  | WorkItemApprovePermissionsResponse
+  | WorkItemCancelResponse
+  | WorkItemStatusChanged
+  | TaskRunThreadCreated
+  | GuardianRequestThreadCreated
+  | TasksChanged
+  | OpenTasksWindow;

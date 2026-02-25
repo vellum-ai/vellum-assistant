@@ -95,3 +95,22 @@ export interface AgentHeartbeatAlert {
   title: string;
   body: string;
 }
+
+// --- Domain-level union aliases (consumed by the barrel file) ---
+
+export type _SchedulesClientMessages =
+  | SchedulesList
+  | ScheduleToggle
+  | ScheduleRemove
+  | ScheduleRunNow
+  | RemindersList
+  | ReminderCancel;
+
+export type _SchedulesServerMessages =
+  | SchedulesListResponse
+  | RemindersListResponse
+  | ReminderFired
+  | ScheduleComplete
+  | WatcherNotification
+  | WatcherEscalation
+  | AgentHeartbeatAlert;
