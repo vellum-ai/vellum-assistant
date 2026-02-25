@@ -318,14 +318,10 @@ struct MessageListView: View {
                 }
             }
             .onChange(of: conversationZoomScale) {
-                // Re-anchor scroll position after zoom changes to avoid jarring
-                // jumps caused by reflowing text at a different scale.
                 if isNearBottom {
                     proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
-                } else if let lastVisibleId = messages.last?.id {
-                    // Mid-scroll: anchor to the last message to keep content stable.
-                    proxy.scrollTo(lastVisibleId, anchor: .bottom)
                 }
+                // When mid-scroll, do nothing — let SwiftUI handle the text reflow naturally.
             }
         }
         .id(threadId)
