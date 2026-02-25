@@ -50,6 +50,11 @@ public struct SubagentUsageStats {
 /// Stores subagent detail data (events, objectives, usage) for display in the side panel.
 @MainActor
 public final class SubagentDetailStore: ObservableObject {
+    /// Maximum number of events retained per subagent to prevent unbounded memory growth.
+    static let eventRetentionCap = 500
+    /// Maximum UTF-8 byte count for accumulated text content before truncation.
+    static let textByteCap = 50_000
+
     @Published public var eventsBySubagent: [String: [SubagentEventItem]] = [:]
     @Published public var objectives: [String: String] = [:]
     @Published public var usageStats: [String: SubagentUsageStats] = [:]
@@ -83,11 +88,19 @@ public final class SubagentDetailStore: ObservableObject {
             if var events = eventsBySubagent[subagentId],
                let last = events.last,
                case .text = last.kind {
-                events[events.count - 1].content += delta.text
+                var content = events[events.count - 1].content
+                content += delta.text
+                // Cap text concatenation to prevent unbounded string accumulation.
+                // Use character-based prefix to safely truncate at character boundaries.
+                if content.utf8.count > Self.textByteCap {
+                    content = "[truncated] " + String(content.prefix(Self.textByteCap))
+                }
+                events[events.count - 1].content = content
                 eventsBySubagent[subagentId] = events
             } else {
                 let item = SubagentEventItem(timestamp: Date(), kind: .text, content: delta.text)
                 eventsBySubagent[subagentId, default: []].append(item)
+                trimEvents(for: subagentId)
             }
 
         case .toolUseStart(let msg):
@@ -97,6 +110,7 @@ public final class SubagentDetailStore: ObservableObject {
                 content: summarizeToolInput(msg.input)
             )
             eventsBySubagent[subagentId, default: []].append(item)
+            trimEvents(for: subagentId)
 
         case .toolResult(let msg):
             let truncated = msg.result.count > 500 ? String(msg.result.prefix(497)) + "..." : msg.result
@@ -106,6 +120,7 @@ public final class SubagentDetailStore: ObservableObject {
                 content: truncated
             )
             eventsBySubagent[subagentId, default: []].append(item)
+            trimEvents(for: subagentId)
 
         case .error(let err):
             let item = SubagentEventItem(
@@ -114,10 +129,19 @@ public final class SubagentDetailStore: ObservableObject {
                 content: err.message
             )
             eventsBySubagent[subagentId, default: []].append(item)
+            trimEvents(for: subagentId)
 
         default:
             break
         }
+    }
+
+    /// Trim events for a subagent to stay within the retention cap.
+    private func trimEvents(for subagentId: String) {
+        guard var events = eventsBySubagent[subagentId],
+              events.count > Self.eventRetentionCap else { return }
+        events.removeFirst(events.count - Self.eventRetentionCap)
+        eventsBySubagent[subagentId] = events
     }
 
     /// Populate events from a lazy-loaded `subagent_detail_response`.
