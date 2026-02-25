@@ -4,7 +4,7 @@
 import { getOrCreateConversation } from '../../memory/conversation-key-store.js';
 import * as attachmentsStore from '../../memory/attachments-store.js';
 import * as runsStore from '../../memory/runs-store.js';
-import { CHANNEL_IDS, parseChannelId } from '../../channels/types.js';
+import { CHANNEL_IDS, INTERFACE_IDS, parseChannelId, parseInterfaceId } from '../../channels/types.js';
 import { addRule } from '../../permissions/trust-store.js';
 import { getTool } from '../../tools/registry.js';
 import { getLogger } from '../../util/logger.js';
@@ -21,6 +21,7 @@ export async function handleCreateRun(
     content?: string;
     attachmentIds?: string[];
     sourceChannel?: string;
+    interface?: string;
   };
 
   const { conversationKey, content, attachmentIds } = body;
@@ -34,6 +35,24 @@ export async function handleCreateRun(
       { error: `Invalid sourceChannel: ${body.sourceChannel}. Valid values: ${CHANNEL_IDS.join(', ')}` },
       { status: 400 },
     );
+  }
+
+  // When `interface` is missing, fall back to deriving from sourceChannel
+  // (then to 'vellum') for backward compatibility with HTTP clients that
+  // don't send it yet (e.g. HTTPDaemonClient.swift before M8). Only reject
+  // when an explicit but invalid value is provided.
+  let sourceInterface: import('../../channels/types.js').InterfaceId;
+  if (body.interface == null || body.interface === '') {
+    sourceInterface = parseInterfaceId(sourceChannel) ?? 'vellum';
+  } else {
+    const parsed = parseInterfaceId(body.interface);
+    if (!parsed) {
+      return Response.json(
+        { error: `Invalid interface: ${body.interface}. Valid values: ${INTERFACE_IDS.join(', ')}` },
+        { status: 400 },
+      );
+    }
+    sourceInterface = parsed;
   }
 
   if (!conversationKey) {
@@ -70,7 +89,7 @@ export async function handleCreateRun(
       mapping.conversationId,
       content ?? '',
       hasAttachments ? attachmentIds : undefined,
-      { sourceChannel },
+      { sourceChannel, sourceInterface },
     );
     return Response.json({
       id: run.id,
