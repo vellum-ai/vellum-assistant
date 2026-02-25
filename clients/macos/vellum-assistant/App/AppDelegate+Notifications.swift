@@ -7,6 +7,7 @@ import os
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate+Notifications")
 private let fallbackDedupWindowMs: Double = 30_000
 private let fallbackDelayNs: UInt64 = 750_000_000
+private let notificationPermissionToastCooldownMs: Double = 30_000
 
 extension AppDelegate {
 
@@ -17,13 +18,7 @@ extension AppDelegate {
         let center = UNUserNotificationCenter.current()
         center.delegate = self
 
-        center.requestAuthorization(options: [.alert, .sound]) { granted, error in
-            if granted {
-                log.info("Notification authorization granted")
-            } else {
-                log.warning("Notification authorization denied (error: \(error?.localizedDescription ?? "none"))")
-            }
-        }
+        requestNotificationAuthorization(trigger: "app_launch", showDeniedToast: false)
 
         let viewAction = UNNotificationAction(
             identifier: "VIEW_ACTIVITY",
@@ -98,6 +93,73 @@ extension AppDelegate {
         ])
     }
 
+    /// Handles notification permission when a notification thread arrives while
+    /// the app is active. This provides user-visible context for the OS prompt
+    /// and gives an immediate recovery path when the app is already denied.
+    func maybePromptNotificationAuthorizationForThreadCreated() {
+        Task { @MainActor in
+            let settings = await UNUserNotificationCenter.current().notificationSettings()
+            switch settings.authorizationStatus {
+            case .authorized, .provisional, .ephemeral:
+                return
+            case .notDetermined:
+                guard !hasRequestedNotificationAuthorizationFromThreadSignal else { return }
+                hasRequestedNotificationAuthorizationFromThreadSignal = true
+                log.info("Requesting notification authorization from notification_thread_created signal")
+                requestNotificationAuthorization(trigger: "notification_thread_created", showDeniedToast: true)
+            case .denied:
+                showNotificationPermissionSettingsToastIfNeeded()
+            @unknown default:
+                return
+            }
+        }
+    }
+
+    private func requestNotificationAuthorization(trigger: String, showDeniedToast: Bool) {
+        let center = UNUserNotificationCenter.current()
+        center.requestAuthorization(options: [.alert, .sound]) { granted, error in
+            if granted {
+                log.info("Notification authorization granted (\(trigger))")
+                return
+            }
+
+            log.warning("Notification authorization denied (\(trigger), error: \(error?.localizedDescription ?? "none"))")
+            guard showDeniedToast else { return }
+
+            Task { @MainActor in
+                self.showNotificationPermissionSettingsToastIfNeeded()
+            }
+        }
+    }
+
+    private func showNotificationPermissionSettingsToastIfNeeded() {
+        let nowMs = Date().timeIntervalSince1970 * 1000
+        guard nowMs - lastNotificationPermissionToastAtMs > notificationPermissionToastCooldownMs else { return }
+        lastNotificationPermissionToastAtMs = nowMs
+
+        mainWindow?.windowState.showToast(
+            message: "Notifications are off for Vellum. Turn them on in System Settings to receive banners.",
+            style: .warning,
+            primaryAction: VToastAction(label: "Open Settings") { [weak self] in
+                self?.openNotificationSettings()
+            }
+        )
+    }
+
+    private func openNotificationSettings() {
+        let candidates = [
+            "x-apple.systempreferences:com.apple.preference.notifications?id=\(Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant")",
+            "x-apple.systempreferences:com.apple.preference.notifications",
+        ]
+        for candidate in candidates {
+            guard let url = URL(string: candidate) else { continue }
+            if NSWorkspace.shared.open(url) {
+                return
+            }
+        }
+        log.warning("Failed to open macOS Notification settings URL")
+    }
+
     private func normalizeNotificationUserInfoValue(_ value: Any?) -> Any? {
         switch value {
         case nil:
@@ -161,6 +223,9 @@ extension AppDelegate {
             return true
         case .denied:
             log.warning("Notification authorization status is denied — skipping notification post")
+            if NSApp.isActive {
+                showNotificationPermissionSettingsToastIfNeeded()
+            }
             return false
         case .notDetermined:
             log.info("Notification authorization status is notDetermined — attempting post anyway")

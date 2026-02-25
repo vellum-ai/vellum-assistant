@@ -251,6 +251,10 @@ extension AppDelegate {
             sourceEventName: msg.sourceEventName
         )
 
+        if NSApp.isActive {
+            maybePromptNotificationAuthorizationForThreadCreated()
+        }
+
         // Guardian questions get foregrounded immediately when the app is active.
         if msg.sourceEventName == "guardian.question" && NSApp.isActive {
             openConversationThread(conversationId: msg.conversationId)

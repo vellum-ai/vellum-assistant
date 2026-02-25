@@ -164,6 +164,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// conversationId. Incoming notification_intent for the same conversation
     /// inside a short window is treated as a duplicate and suppressed.
     var fallbackDeliveredAtMs: [String: Double] = [:]
+    /// Guard to avoid repeatedly re-requesting notification authorization when
+    /// multiple notification threads are created in quick succession.
+    var hasRequestedNotificationAuthorizationFromThreadSignal = false
+    /// Last time we surfaced the denied-notification permission toast.
+    var lastNotificationPermissionToastAtMs: Double = 0
 
     /// Whether the current assistant runs remotely (cloud != "local").
     /// When true, local daemon hatching is skipped.
