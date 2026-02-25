@@ -15,6 +15,10 @@ final class AppListManager: ObservableObject {
         var lastOpenedAt: Date
         var isPinned: Bool = false
         var pinnedOrder: Int? = nil
+        /// SF Symbol name for the generated app icon (e.g., "chart.line.uptrend.xyaxis")
+        var sfSymbol: String? = nil
+        /// Pair of hex color strings for the gradient background (e.g., ["#7C3AED", "#4F46E5"])
+        var iconBackground: [String]? = nil
     }
 
     @Published var apps: [AppItem] = []
