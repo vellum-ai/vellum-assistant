@@ -94,7 +94,7 @@ mock.module('node:fs', () => {
 
 // ─── Imports (after mocks) ──────────────────────────────────────────────────
 
-import { handleRecordingStart, handleRecordingStop, recordingHandlers } from '../daemon/handlers/recording.js';
+import { handleRecordingStart, handleRecordingStop, recordingHandlers, __resetRecordingState } from '../daemon/handlers/recording.js';
 import type { HandlerContext } from '../daemon/handlers/shared.js';
 import type { RecordingStatus } from '../daemon/ipc-contract/computer-use.js';
 import { DebouncerMap } from '../util/debounce.js';
@@ -132,6 +132,7 @@ function createCtx(): { ctx: HandlerContext; sent: Array<{ type: string; [k: str
 
 describe('handleRecordingStart', () => {
   beforeEach(() => {
+    __resetRecordingState();
     mockMessages.length = 0;
     mockAttachments.length = 0;
     mockMessageIdCounter = 0;
@@ -180,10 +181,27 @@ describe('handleRecordingStart', () => {
     expect(sent[0].type).toBe('recording_start');
     expect(sent[0].recordingId).toBe(id1);
   });
+
+  test('returns null when a different conversation already has an active recording (global guard)', () => {
+    const { ctx, sent, fakeSocket } = createCtx();
+
+    const id1 = handleRecordingStart('conv-global-a', undefined, fakeSocket, ctx);
+    expect(id1).toBeTruthy();
+
+    // A second start from a different conversation should be rejected
+    const id2 = handleRecordingStart('conv-global-b', undefined, fakeSocket, ctx);
+    expect(id2).toBeNull();
+
+    // Only the first call sends recording_start
+    expect(sent).toHaveLength(1);
+    expect(sent[0].type).toBe('recording_start');
+    expect(sent[0].recordingId).toBe(id1);
+  });
 });
 
 describe('handleRecordingStop', () => {
   beforeEach(() => {
+    __resetRecordingState();
     mockMessages.length = 0;
     mockAttachments.length = 0;
     mockMessageIdCounter = 0;
@@ -237,6 +255,7 @@ describe('handleRecordingStop', () => {
 
 describe('recordingHandlers.recording_status', () => {
   beforeEach(() => {
+    __resetRecordingState();
     mockMessages.length = 0;
     mockAttachments.length = 0;
     mockMessageIdCounter = 0;
