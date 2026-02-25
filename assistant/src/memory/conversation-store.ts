@@ -230,7 +230,7 @@ export function getLatestConversation(): ConversationRow | null {
   return row ? parseConversation(row) : null;
 }
 
-export function addMessage(conversationId: string, role: string, content: string, metadata?: Record<string, unknown>) {
+export function addMessage(conversationId: string, role: string, content: string, metadata?: Record<string, unknown>, opts?: { skipIndexing?: boolean }) {
   const db = getDb();
   const messageId = uuid();
 
@@ -287,22 +287,24 @@ export function addMessage(conversationId: string, role: string, content: string
   }
   const message = { id: messageId, conversationId, role, content, createdAt: now, ...(metadataStr ? { metadata: metadataStr } : {}) };
 
-  try {
-    const config = getConfig();
-    const scopeId = getConversationMemoryScopeId(conversationId);
-    const parsed = metadata ? messageMetadataSchema.safeParse(metadata) : null;
-    const provenanceActorRole = parsed?.success ? parsed.data.provenanceActorRole : undefined;
-    indexMessageNow({
-      messageId: message.id,
-      conversationId: message.conversationId,
-      role: message.role,
-      content: message.content,
-      createdAt: message.createdAt,
-      scopeId,
-      provenanceActorRole,
-    }, config.memory);
-  } catch (err) {
-    log.warn({ err, conversationId, messageId: message.id }, 'Failed to index message for memory');
+  if (!opts?.skipIndexing) {
+    try {
+      const config = getConfig();
+      const scopeId = getConversationMemoryScopeId(conversationId);
+      const parsed = metadata ? messageMetadataSchema.safeParse(metadata) : null;
+      const provenanceActorRole = parsed?.success ? parsed.data.provenanceActorRole : undefined;
+      indexMessageNow({
+        messageId: message.id,
+        conversationId: message.conversationId,
+        role: message.role,
+        content: message.content,
+        createdAt: message.createdAt,
+        scopeId,
+        provenanceActorRole,
+      }, config.memory);
+    } catch (err) {
+      log.warn({ err, conversationId, messageId: message.id }, 'Failed to index message for memory');
+    }
   }
 
   return message;

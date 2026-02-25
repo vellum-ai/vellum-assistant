@@ -57,12 +57,14 @@ export function pairDeliveryWithConversation(
 
     const conversation = createConversation({
       title,
-      threadType: 'standard',
+      threadType: 'background',
       source: 'notification',
     });
 
     const messageContent = copy.threadSeedMessage ?? `${copy.title}\n\n${copy.body}`;
-    const message = addMessage(conversation.id, 'assistant', messageContent);
+    // Skip memory indexing — notification audit messages are not conversational
+    // memory and should not pollute recall or incur embedding/extraction overhead.
+    const message = addMessage(conversation.id, 'assistant', messageContent, undefined, { skipIndexing: true });
 
     log.info(
       {
