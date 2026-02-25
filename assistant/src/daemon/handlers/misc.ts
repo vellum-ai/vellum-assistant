@@ -110,10 +110,18 @@ export async function handleTaskSubmit(
           ctx.send(socket, { type: 'task_routed', sessionId: conversation.id, interactionType: 'text_qa' });
           ctx.send(socket, { type: 'assistant_text_delta', text: 'Starting screen recording.', sessionId: conversation.id });
         } else {
+          // Recording was rejected (already active) — clean up the orphaned conversation
           ctx.send(socket, { type: 'task_routed', sessionId: conversation.id, interactionType: 'text_qa' });
           ctx.send(socket, { type: 'assistant_text_delta', text: 'A recording is already active.', sessionId: conversation.id });
         }
         ctx.send(socket, { type: 'message_complete', sessionId: conversation.id });
+
+        if (!recordingId) {
+          // Delete the conversation since no recording was started — prevents empty orphans
+          conversationStore.deleteConversation(conversation.id);
+          ctx.socketToSession.delete(socket);
+        }
+
         rlog.info({ sessionId: conversation.id }, 'Recording-only intent intercepted — routed to standalone recording');
         return;
       }
