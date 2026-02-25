@@ -344,6 +344,7 @@ class IOSThreadStore: ObservableObject {
                 for var restored in restoredThreads {
                     if let local = localOverrides[restored.sessionId ?? ""] {
                         restored = IOSThread(
+                            id: restored.id,
                             title: local.title,
                             createdAt: restored.createdAt,
                             lastActivityAt: restored.lastActivityAt,
