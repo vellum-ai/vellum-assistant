@@ -82,10 +82,9 @@ function createMockVoiceTurn(tokens: string[]) {
       opts.onComplete();
     }
 
-    let aborted = false;
     return {
       runId: `run-${Date.now()}`,
-      abort: () => { aborted = true; },
+      abort: () => {},
     };
   };
 }
