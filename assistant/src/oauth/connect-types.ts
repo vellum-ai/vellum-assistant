@@ -1,0 +1,116 @@
+/**
+ * Shared types for the OAuth provider extensibility layer.
+ *
+ * These types are consumed by the provider profile registry, the token
+ * persistence module, and the credential vault orchestrator.
+ */
+
+import type { TokenEndpointAuthMethod } from '../security/oauth2.js';
+import type { CredentialInjectionTemplate } from '../tools/credentials/policy-types.js';
+
+// ---------------------------------------------------------------------------
+// Scope policy
+// ---------------------------------------------------------------------------
+
+/** Controls which additional scopes may be requested beyond the default set. */
+export interface OAuthScopePolicy {
+  /** Whether callers may request scopes not listed in defaultScopes. */
+  allowAdditionalScopes: boolean;
+  /** Scopes that may optionally be added beyond the defaults. */
+  allowedOptionalScopes: string[];
+  /** Scopes that must never be requested, regardless of other settings. */
+  forbiddenScopes: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Provider profile
+// ---------------------------------------------------------------------------
+
+/** Full configuration profile for a well-known OAuth provider. */
+export interface OAuthProviderProfile {
+  /** Canonical service key (e.g. "integration:twitter"). */
+  service: string;
+  /** OAuth2 authorization endpoint. */
+  authUrl: string;
+  /** OAuth2 token endpoint. */
+  tokenUrl: string;
+  /** Default scopes requested during authorization. */
+  defaultScopes: string[];
+  /** Policy governing additional/forbidden scopes. */
+  scopePolicy: OAuthScopePolicy;
+  /** How to send client credentials at the token endpoint. */
+  tokenEndpointAuthMethod?: TokenEndpointAuthMethod;
+  /** Force a specific callback transport. */
+  callbackTransport?: 'loopback' | 'gateway';
+  /** Fixed port for loopback transport (e.g. Slack). */
+  loopbackPort?: number;
+  /** Endpoint to fetch user identity info after authorization. */
+  userinfoUrl?: string;
+  /** Extra query parameters appended to the authorization URL. */
+  extraParams?: Record<string, string>;
+  /**
+   * Async function that verifies the user's identity after a successful
+   * token exchange. Returns a human-readable account identifier (e.g.
+   * email or @username) or undefined if verification is not possible.
+   */
+  identityVerifier?: (accessToken: string) => Promise<string | undefined>;
+  /** ID of a post-connect hook to run after token storage. */
+  postConnectHookId?: string;
+  /** Injection templates auto-applied to the access_token credential. */
+  injectionTemplates?: CredentialInjectionTemplate[];
+  /**
+   * Metadata for the generic OAuth setup skill. When present, the
+   * assistant can guide users through app creation and OAuth connection.
+   */
+  setup?: {
+    /** Human-readable provider name (e.g. "Discord", "Linear"). */
+    displayName: string;
+    /** URL of the developer dashboard where the user creates an app. */
+    dashboardUrl: string;
+    /** What the provider calls its apps (e.g. "Discord Application"). */
+    appType: string;
+    /** Whether the provider requires a client_secret for token exchange. */
+    requiresClientSecret: boolean;
+    /** Provider-specific notes the LLM should follow during setup. */
+    notes?: string[];
+  };
+  /**
+   * Bundled skill ID that contains provider-specific setup instructions.
+   * When present, the guardrail for missing client_secret directs the
+   * agent to load this skill rather than embedding instructions inline.
+   */
+  setupSkillId?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Connect result
+// ---------------------------------------------------------------------------
+
+/** Outcome of an OAuth connect attempt. */
+export type OAuthConnectResult =
+  | OAuthConnectInteractiveResult
+  | OAuthConnectDeferredResult
+  | OAuthConnectErrorResult;
+
+/** Successful interactive flow — tokens stored, ready to use. */
+export interface OAuthConnectInteractiveResult {
+  success: true;
+  deferred: false;
+  grantedScopes: string[];
+  accountInfo?: string;
+}
+
+/** Successful deferred flow — auth URL returned for the user to open. */
+export interface OAuthConnectDeferredResult {
+  success: true;
+  deferred: true;
+  authUrl: string;
+  state: string;
+  service: string;
+}
+
+/** Failed connect attempt. */
+export interface OAuthConnectErrorResult {
+  success: false;
+  error: string;
+}

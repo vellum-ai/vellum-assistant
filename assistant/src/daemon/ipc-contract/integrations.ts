@@ -115,6 +115,12 @@ export interface IntegrationDisconnectRequest {
   integrationId: string;
 }
 
+export interface OAuthConnectStartRequest {
+  type: 'oauth_connect_start';
+  service: string;
+  requestedScopes?: string[];
+}
+
 export interface LinkOpenRequest {
   type: 'link_open_request';
   url: string;
@@ -306,6 +312,14 @@ export interface IntegrationConnectResult {
   setupHint?: string;
 }
 
+export interface OAuthConnectResultResponse {
+  type: 'oauth_connect_result';
+  success: boolean;
+  grantedScopes?: string[];
+  accountInfo?: string;
+  error?: string;
+}
+
 export interface OpenUrl {
   type: 'open_url';
   url: string;
@@ -329,6 +343,7 @@ export type _IntegrationsClientMessages =
   | IntegrationListRequest
   | IntegrationConnectRequest
   | IntegrationDisconnectRequest
+  | OAuthConnectStartRequest
   | LinkOpenRequest;
 
 export type _IntegrationsServerMessages =
@@ -345,4 +360,5 @@ export type _IntegrationsServerMessages =
   | TwitterAuthStatusResponse
   | IntegrationListResponse
   | IntegrationConnectResult
+  | OAuthConnectResultResponse
   | OpenUrl;

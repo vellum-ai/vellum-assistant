@@ -1,20 +1,45 @@
 import * as net from 'node:net';
 
-import { loadConfig,loadRawConfig } from '../../config/loader.js';
+import { loadConfig, loadRawConfig } from '../../config/loader.js';
 import { getPublicBaseUrl } from '../../inbound/public-ingress-urls.js';
-import type { OAuth2Config } from '../../security/oauth2.js';
-import { startOAuth2Flow } from '../../security/oauth2.js';
-import { deleteSecureKey,getSecureKey, setSecureKey } from '../../security/secure-keys.js';
-import { getCredentialMetadata,upsertCredentialMetadata } from '../../tools/credentials/metadata-store.js';
+import { orchestrateOAuthConnect } from '../../oauth/connect-orchestrator.js';
+import { getSecureKey } from '../../security/secure-keys.js';
+import { assertMetadataWritable, getCredentialMetadata, upsertCredentialMetadata } from '../../tools/credentials/metadata-store.js';
 import { ConfigError } from '../../util/errors.js';
 import type { TwitterAuthStartRequest, TwitterAuthStatusRequest } from '../ipc-protocol.js';
-import { defineHandlers, type HandlerContext,log } from './shared.js';
+import { defineHandlers, type HandlerContext, log } from './shared.js';
+
+/** Map raw orchestrator/provider error messages to user-friendly strings. */
+function sanitizeTwitterAuthError(message: string): string {
+  const lower = message.toLowerCase();
+  if (lower.includes('timed out')) {
+    return 'Twitter authentication timed out. Please try again.';
+  }
+  if (lower.includes('user_cancelled') || lower.includes('cancelled')) {
+    return 'Twitter authentication was cancelled.';
+  }
+  if (lower.includes('denied') || lower.includes('invalid_grant')) {
+    return 'Twitter denied the authorization request. Please try again.';
+  }
+  return 'Twitter authentication failed. Please try again.';
+}
 
 export async function handleTwitterAuthStart(
   _msg: TwitterAuthStartRequest,
   socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
+  try {
+    assertMetadataWritable();
+  } catch {
+    ctx.send(socket, {
+      type: 'twitter_auth_result',
+      success: false,
+      error: 'Credential metadata file has an unrecognized version. Cannot store OAuth credentials.',
+    });
+    return;
+  }
+
   try {
     const raw = loadRawConfig();
     const mode = (raw.twitterIntegrationMode as string | undefined) ?? 'local_byo';
@@ -27,7 +52,9 @@ export async function handleTwitterAuthStart(
       return;
     }
 
-    const clientId = getSecureKey('credential:integration:twitter:oauth_client_id');
+    // Read canonical key first, fall back to legacy for backward compatibility
+    const clientId = getSecureKey('credential:integration:twitter:client_id')
+      ?? getSecureKey('credential:integration:twitter:oauth_client_id');
     if (!clientId) {
       ctx.send(socket, {
         type: 'twitter_auth_result',
@@ -37,7 +64,9 @@ export async function handleTwitterAuthStart(
       return;
     }
 
-    const clientSecret = getSecureKey('credential:integration:twitter:oauth_client_secret') || undefined;
+    const clientSecret = (getSecureKey('credential:integration:twitter:client_secret')
+      ?? getSecureKey('credential:integration:twitter:oauth_client_secret'))
+      || undefined;
 
     // Fail fast if no public ingress URL is configured — Twitter OAuth
     // callbacks must route through the gateway, never via loopback.
@@ -66,103 +95,60 @@ export async function handleTwitterAuthStart(
       return;
     }
 
-    const oauthConfig: OAuth2Config = {
-      authUrl: 'https://twitter.com/i/oauth2/authorize',
-      tokenUrl: 'https://api.x.com/2/oauth2/token',
-      scopes: ['tweet.read', 'tweet.write', 'users.read', 'offline.access'],
+    const result = await orchestrateOAuthConnect({
+      service: 'integration:twitter',
       clientId,
       clientSecret,
-      extraParams: {},
-      tokenEndpointAuthMethod: clientSecret ? 'client_secret_basic' : undefined,
-    };
-
-    const result = await startOAuth2Flow(oauthConfig, {
+      isInteractive: true,
       openUrl: (url: string) => {
         ctx.send(socket, { type: 'open_url', url });
       },
-    }, { callbackTransport: 'gateway' });
+      allowedTools: ['twitter_post'],
+    });
 
-    // Verify identity via Twitter API before persisting any tokens
-    let accountInfo: string;
-    try {
-      const userResp = await fetch('https://api.x.com/2/users/me', {
-        headers: { Authorization: `Bearer ${result.tokens.accessToken}` },
-      });
-      if (!userResp.ok) {
-        log.error({ status: userResp.status }, 'Twitter identity verification returned non-2xx');
-        ctx.send(socket, {
-          type: 'twitter_auth_result',
-          success: false,
-          error: 'Failed to verify Twitter identity. Please try again.',
-        });
-        return;
-      }
-      const userData = (await userResp.json()) as { data?: { username?: string } };
-      if (!userData.data?.username) {
-        log.error({ userData }, 'Twitter identity verification returned no username');
-        ctx.send(socket, {
-          type: 'twitter_auth_result',
-          success: false,
-          error: 'Failed to verify Twitter identity. Please try again.',
-        });
-        return;
-      }
-      accountInfo = `@${userData.data.username}`;
-    } catch (err) {
-      log.error({ err }, 'Twitter identity verification fetch failed');
+    if (!result.success) {
       ctx.send(socket, {
         type: 'twitter_auth_result',
         success: false,
-        error: 'Failed to verify Twitter identity. Please try again.',
+        error: result.error,
       });
       return;
     }
 
-    // Persist tokens only after successful verification
-    setSecureKey('credential:integration:twitter:access_token', result.tokens.accessToken);
-    if (result.tokens.refreshToken) {
-      setSecureKey('credential:integration:twitter:refresh_token', result.tokens.refreshToken);
-    } else {
-      deleteSecureKey('credential:integration:twitter:refresh_token');
+    if (result.deferred) {
+      ctx.send(socket, {
+        type: 'twitter_auth_result',
+        success: false,
+        error: `OAuth flow was deferred unexpectedly. Open this URL to authorize: ${result.authUrl}`,
+      });
+      return;
     }
 
-    upsertCredentialMetadata('integration:twitter', 'access_token', {
-      accountInfo,
-      allowedTools: ['twitter_post'],
-      allowedDomains: [],
-      oauth2TokenUrl: 'https://api.x.com/2/oauth2/token',
-      oauth2ClientId: clientId,
-      oauth2ClientSecret: clientSecret ?? null,
-      oauth2TokenEndpointAuthMethod: clientSecret ? 'client_secret_basic' : undefined,
-      grantedScopes: result.grantedScopes,
-      expiresAt: result.tokens.expiresIn ? Date.now() + result.tokens.expiresIn * 1000 : null,
-    });
+    // Persist accountInfo to credential metadata so twitter_auth_status
+    // can display the @username on subsequent checks.
+    if (result.accountInfo) {
+      try {
+        upsertCredentialMetadata('integration:twitter', 'access_token', {
+          accountInfo: result.accountInfo,
+        });
+      } catch {
+        // Non-fatal — auth succeeded even if metadata write fails
+      }
+    }
 
     ctx.send(socket, {
       type: 'twitter_auth_result',
       success: true,
-      accountInfo,
+      accountInfo: result.accountInfo,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, 'Twitter OAuth flow failed');
 
-    let userError: string;
-    const lower = message.toLowerCase();
-    if (lower.includes('timed out')) {
-      userError = 'Twitter authentication timed out. Please try again.';
-    } else if (lower.includes('user_cancelled') || lower.includes('cancelled')) {
-      userError = 'Twitter authentication was cancelled.';
-    } else if (lower.includes('denied') || lower.includes('invalid_grant')) {
-      userError = 'Twitter denied the authorization request. Please try again.';
-    } else {
-      userError = 'Twitter authentication failed. Please try again.';
-    }
-
     ctx.send(socket, {
       type: 'twitter_auth_result',
       success: false,
-      error: userError,
+      error: sanitizeTwitterAuthError(message),
     });
   }
 }

@@ -758,6 +758,16 @@ exports[`IPC message snapshots ClientMessage types integration_disconnect serial
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types oauth_connect_start serializes to expected JSON 1`] = `
+{
+  "requestedScopes": [
+    "https://www.googleapis.com/auth/gmail.readonly",
+  ],
+  "service": "gmail",
+  "type": "oauth_connect_start",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types browser_cdp_response serializes to expected JSON 1`] = `
 {
   "sessionId": "test-session",
@@ -1808,6 +1818,7 @@ exports[`IPC message snapshots ServerMessage types notification_thread_created s
 }
 `;
 
+
 exports[`IPC message snapshots ServerMessage types schedule_complete serializes to expected JSON 1`] = `
 {
   "name": "Daily backup",
@@ -2466,6 +2477,17 @@ exports[`IPC message snapshots ServerMessage types integration_connect_result se
   "integrationId": "gmail",
   "success": true,
   "type": "integration_connect_result",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types oauth_connect_result serializes to expected JSON 1`] = `
+{
+  "accountInfo": "user@example.com",
+  "grantedScopes": [
+    "https://www.googleapis.com/auth/gmail.readonly",
+  ],
+  "success": true,
+  "type": "oauth_connect_result",
 }
 `;
 

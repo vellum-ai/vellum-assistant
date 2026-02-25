@@ -2713,37 +2713,44 @@ Twitter uses a standalone OAuth2 flow separate from the unified messaging layer.
 
 #### Twitter OAuth2 Flow
 
+Twitter's OAuth2 flow delegates to the shared **connect orchestrator** (`oauth/connect-orchestrator.ts`). The Twitter provider profile in the registry defines auth/token URLs, default scopes, and an identity verifier. The daemon handler (`daemon/handlers/oauth-connect.ts`) resolves credentials from the keychain using canonical names (`client_id`, `client_secret`) with fallback to legacy names (`oauth_client_id`, `oauth_client_secret`), then calls `orchestrateOAuthConnect()`.
+
 ```mermaid
 sequenceDiagram
     participant UI as Settings UI (Swift)
     participant IPC as IPC Socket
-    participant Handler as twitter-auth handler
+    participant Handler as oauth-connect handler
+    participant Orchestrator as ConnectOrchestrator
+    participant ScopePolicy as Scope Policy
     participant OAuth as OAuth2 PKCE Flow
     participant Browser as System Browser
     participant Twitter as Twitter OAuth Server
     participant Vault as Credential Vault
     participant API as X API (v2)
 
-    Note over UI,API: Connection Flow (local_byo mode)
-    UI->>IPC: twitter_auth_start
+    Note over UI,API: Connection Flow (via generic orchestrator)
+    UI->>IPC: oauth_connect_start {service: "twitter"}
     IPC->>Handler: dispatch
-    Handler->>Handler: load config (twitterIntegrationMode)
-    Handler->>Vault: getSecureKey (oauth_client_id)
-    Handler->>OAuth: startOAuth2Flow(config)
+    Handler->>Handler: resolve client_id / client_secret from keychain
+    Handler->>Orchestrator: orchestrateOAuthConnect(options)
+    Orchestrator->>Orchestrator: resolveService("twitter") → "integration:twitter"
+    Orchestrator->>Orchestrator: getProviderProfile("integration:twitter")
+    Orchestrator->>ScopePolicy: resolveScopes(profile, requestedScopes)
+    ScopePolicy-->>Orchestrator: {ok: true, scopes}
+    Orchestrator->>OAuth: startOAuth2Flow(config)
     OAuth->>OAuth: generate code_verifier + code_challenge (S256)
-    OAuth->>OAuth: start Bun.serve on random port
     OAuth->>IPC: open_url (twitter.com/i/oauth2/authorize)
     IPC->>Browser: open URL
     Browser->>Twitter: user authorizes
     Twitter->>OAuth: callback with auth code
     OAuth->>Twitter: exchange code + code_verifier at api.x.com/2/oauth2/token
     Twitter-->>OAuth: access + refresh tokens
-    OAuth-->>Handler: tokens + grantedScopes
-    Handler->>API: GET /2/users/me (verify identity)
-    API-->>Handler: username
-    Handler->>Vault: setSecureKey (access + refresh tokens)
-    Handler->>Vault: upsertCredentialMetadata
-    Handler->>IPC: twitter_auth_result {success, accountInfo: "@username"}
+    OAuth-->>Orchestrator: tokens + grantedScopes
+    Orchestrator->>API: identityVerifier → GET /2/users/me
+    API-->>Orchestrator: username
+    Orchestrator->>Vault: storeOAuth2Tokens (access + refresh + metadata)
+    Orchestrator-->>Handler: {success, grantedScopes, accountInfo: "@username"}
+    Handler->>IPC: oauth_connect_result {success, accountInfo}
     IPC->>UI: show connected state
 ```
 
@@ -2780,13 +2787,13 @@ The strategy is persisted in the Vellum config file as `twitterOperationStrategy
 
 | Aspect | Detail |
 |--------|--------|
-| Auth URL | `https://twitter.com/i/oauth2/authorize` |
-| Token URL | `https://api.x.com/2/oauth2/token` |
-| Flow | PKCE (S256), optional client secret |
-| Requested scopes | `tweet.read`, `tweet.write`, `users.read`, `offline.access` |
-| Identity verification | `GET https://api.x.com/2/users/me` with Bearer token, before persisting tokens |
-| Integration mode | `local_byo` — user provides their own Twitter app Client ID |
-| IPC messages | `twitter_auth_start`, `twitter_auth_status` / `twitter_auth_result`, `twitter_auth_status_response` |
+| Auth URL | `https://twitter.com/i/oauth2/authorize` (from provider profile) |
+| Token URL | `https://api.x.com/2/oauth2/token` (from provider profile) |
+| Flow | PKCE (S256), optional client secret, via connect orchestrator |
+| Default scopes | `tweet.read`, `tweet.write`, `users.read`, `offline.access` (from provider profile) |
+| Identity verification | Provider profile `identityVerifier` → `GET https://api.x.com/2/users/me` with Bearer token |
+| Credential names | Canonical: `client_id`, `client_secret`; reads fall back to legacy `oauth_client_id`, `oauth_client_secret` |
+| IPC messages | `oauth_connect_start` / `oauth_connect_result` (generic), plus legacy `twitter_auth_start` / `twitter_auth_status` |
 
 #### Twitter Credential Metadata Structure
 
@@ -2836,6 +2843,8 @@ Note: OAuth2 scopes (`tweet.read`, `tweet.write`, `users.read`, `offline.access`
 | Decision | Rationale |
 |----------|-----------|
 | PKCE by default, optional client_secret | Desktop apps prefer PKCE; some providers (Slack) require a secret, which is stored in credential metadata for autonomous refresh |
+| Shared connect orchestrator | All OAuth providers route through `orchestrateOAuthConnect()`, which resolves profiles, enforces scope policy, runs the flow, stores tokens, and verifies identity. Adding a provider is a declarative profile entry, not new orchestration code |
+| Canonical credential naming | Writes use `client_id`/`client_secret`; reads fall back to legacy `oauth_client_id`/`oauth_client_secret` for backward compatibility |
 | Gateway callback transport | OAuth callbacks are now routed through the gateway at `${ingress.publicBaseUrl}/webhooks/oauth/callback` instead of a loopback redirect URI. This enables OAuth flows to work in remote and tunneled deployments. |
 | Unified `MessagingProvider` interface | All platforms implement the same contract; generic tools work immediately for new providers |
 | Twitter outside unified messaging | Twitter is a broadcast/read platform, not a conversation platform — it doesn't fit the `MessagingProvider` contract |
@@ -2865,13 +2874,100 @@ Note: OAuth2 scopes (`tweet.read`, `tweet.write`, `users.read`, `offline.access`
 | `assistant/src/watcher/providers/gmail.ts` | Gmail watcher using History API |
 | `assistant/src/watcher/providers/github.ts` | GitHub watcher for PRs, issues, review requests, and mentions |
 | `assistant/src/watcher/providers/linear.ts` | Linear watcher for assigned issues, status changes, and @mentions |
-| `assistant/src/daemon/handlers/twitter-auth.ts` | Twitter OAuth2 flow handlers (`twitter_auth_start`, `twitter_auth_status`) |
+| `assistant/src/oauth/provider-profiles.ts` | Provider profile registry: auth URLs, token URLs, scopes, policies, identity verifiers |
+| `assistant/src/oauth/connect-orchestrator.ts` | Shared OAuth connect orchestrator: profile resolution, scope policy, flow execution, token storage |
+| `assistant/src/oauth/scope-policy.ts` | Deterministic scope resolution and policy enforcement |
+| `assistant/src/oauth/connect-types.ts` | Shared types: `OAuthProviderProfile`, `OAuthScopePolicy`, `OAuthConnectResult` |
+| `assistant/src/oauth/token-persistence.ts` | Token storage helper: persists tokens, metadata, and runs post-connect hooks |
+| `assistant/src/daemon/handlers/oauth-connect.ts` | Generic OAuth connect IPC handler (`oauth_connect_start` / `oauth_connect_result`) |
+| `assistant/src/daemon/handlers/twitter-auth.ts` | Legacy Twitter OAuth2 flow handlers (`twitter_auth_start`, `twitter_auth_status`) |
 | `assistant/src/twitter/client.ts` | Twitter CDP client: GraphQL mutations/queries via Chrome DevTools Protocol |
 | `assistant/src/twitter/oauth-client.ts` | OAuth-backed Twitter client: X API v2 post/reply via stored tokens using `withValidToken()` |
 | `assistant/src/twitter/router.ts` | Strategy router: selects OAuth or browser path based on `twitterOperationStrategy` config |
 | `assistant/src/twitter/session.ts` | Twitter browser session persistence (cookie import/export) |
 | `assistant/src/cli/twitter.ts` | `vellum x` CLI command group (post, reply, strategy, refresh, status, login, logout, and read operations) |
 | `assistant/src/config/bundled-skills/twitter/SKILL.md` | X (Twitter) bundled skill instructions |
+
+---
+
+## OAuth Extensibility — Provider Profiles, Scope Policy, and Connect Orchestrator
+
+The OAuth extensibility layer makes adding a new OAuth provider a declarative operation. Instead of writing custom auth handlers, new providers are added as entries in the **provider profile registry**. The shared **connect orchestrator** handles the full flow from profile resolution through token storage.
+
+### Provider Profile Registry
+
+`assistant/src/oauth/provider-profiles.ts` contains the `PROVIDER_PROFILES` map — a canonical registry of well-known OAuth providers. Each profile (`OAuthProviderProfile`) declares:
+
+| Field | Purpose |
+|-------|---------|
+| `authUrl` / `tokenUrl` | OAuth2 authorization and token endpoints |
+| `defaultScopes` | Scopes requested on every connect attempt |
+| `scopePolicy` | Controls whether additional scopes are allowed (see Scope Policy below) |
+| `callbackTransport` | `'loopback'` (local redirect) or `'gateway'` (public ingress) |
+| `identityVerifier` | Async function that fetches human-readable account info (e.g. `@username`, email) after token exchange |
+| `setup` | Optional metadata for the generic OAuth setup skill (display name, dashboard URL, app type) |
+| `injectionTemplates` | Auto-applied credential injection rules for the script proxy |
+
+Registered providers: `integration:gmail`, `integration:slack`, `integration:notion`, `integration:twitter`. Short aliases (e.g. `gmail`, `twitter`) are resolved via `SERVICE_ALIASES`.
+
+### Scope Policy Engine
+
+`assistant/src/oauth/scope-policy.ts` exports `resolveScopes(profile, requestedScopes)`, which deterministically computes the final scope set:
+
+1. No requested scopes → returns `defaultScopes`.
+2. Requested scopes provided → starts with defaults, then validates each additional scope:
+   - Rejected if in `forbiddenScopes`.
+   - Rejected if `allowAdditionalScopes` is `false`.
+   - Rejected if not in `allowedOptionalScopes`.
+   - Accepted otherwise, added to the union.
+
+Returns `{ ok: true, scopes }` or `{ ok: false, error, allowedScopes }`.
+
+### Connect Orchestrator
+
+`assistant/src/oauth/connect-orchestrator.ts` exports `orchestrateOAuthConnect(options)`, which runs the full OAuth2 flow:
+
+1. **Resolve service** — alias expansion via `resolveService()`.
+2. **Load profile** — `getProviderProfile()` from the registry.
+3. **Compute scopes** — `resolveScopes()` with scope policy enforcement.
+4. **Build OAuth config** — merge profile defaults with caller overrides.
+5. **Run flow** — interactive (opens browser, blocks until completion) or deferred (returns auth URL for the caller to deliver).
+6. **Verify identity** — runs the profile's `identityVerifier` if defined.
+7. **Store tokens** — `storeOAuth2Tokens()` persists access/refresh tokens, client credentials, and metadata.
+
+Result is a discriminated union: `{ success, deferred, grantedScopes, accountInfo }` or `{ success: false, error }`.
+
+### Generic Daemon IPC
+
+`assistant/src/daemon/handlers/oauth-connect.ts` handles `oauth_connect_start` messages. The handler:
+
+1. Resolves client credentials from the keychain using canonical names (`client_id`, `client_secret`) with fallback to legacy names (`oauth_client_id`, `oauth_client_secret`).
+2. Validates that required credentials exist (including `client_secret` when the provider requires it).
+3. Delegates to `orchestrateOAuthConnect()`.
+4. Sends `oauth_connect_result` back to the client.
+
+This replaces provider-specific IPC handlers — any provider in the registry can be connected through the same message pair.
+
+### Adding a New OAuth Provider
+
+1. **Declare a profile** in `PROVIDER_PROFILES` (`oauth/provider-profiles.ts`):
+   - Set `authUrl`, `tokenUrl`, `defaultScopes`, `scopePolicy`, and `callbackTransport`.
+   - Add a `SERVICE_ALIASES` entry if a shorthand name is desired.
+2. **Optional: add an identity verifier** — an async function on the profile that fetches the user's account info from the provider's API.
+3. **Optional: add setup metadata** — `setup.displayName`, `setup.dashboardUrl`, `setup.appType` enable the generic OAuth setup skill to guide users through app creation.
+4. **Optional: add injection templates** — for providers whose tokens should be auto-injected by the script proxy.
+5. **No handler code needed** — the generic `oauth_connect_start` IPC handler and the connect orchestrator handle the flow automatically.
+
+### Key Source Files
+
+| File | Role |
+|------|------|
+| `assistant/src/oauth/provider-profiles.ts` | Provider profile registry and alias resolution |
+| `assistant/src/oauth/scope-policy.ts` | Scope resolution and policy enforcement (pure, no I/O) |
+| `assistant/src/oauth/connect-orchestrator.ts` | Shared connect orchestrator (profile → scopes → flow → tokens) |
+| `assistant/src/oauth/connect-types.ts` | Shared types (`OAuthProviderProfile`, `OAuthScopePolicy`, `OAuthConnectResult`) |
+| `assistant/src/oauth/token-persistence.ts` | Token storage: keychain writes, metadata upsert, post-connect hooks |
+| `assistant/src/daemon/handlers/oauth-connect.ts` | Generic `oauth_connect_start` / `oauth_connect_result` IPC handler |
 
 ---
 
