@@ -19,7 +19,7 @@ import {
 } from '../workspace/git-service.js';
 import {
   _resetHeartbeatState,
-  HeartbeatService,
+  WorkspaceHeartbeatService,
 } from '../workspace/heartbeat-service.js';
 import { commitTurnChanges } from '../workspace/turn-commit.js';
 
@@ -263,7 +263,7 @@ describe('Commit guarantees', () => {
       const services = new Map<string, WorkspaceGitService>();
       services.set(testDir, service);
 
-      const heartbeat = new HeartbeatService({
+      const heartbeat = new WorkspaceHeartbeatService({
         getServices: () => services,
       });
 
@@ -297,7 +297,7 @@ describe('Commit guarantees', () => {
       const uninitService = new WorkspaceGitService(uninitDir);
       services.set(uninitDir, uninitService);
 
-      const heartbeat = new HeartbeatService({
+      const heartbeat = new WorkspaceHeartbeatService({
         getServices: () => services,
       });
 
@@ -319,7 +319,7 @@ describe('Commit guarantees', () => {
       const services = new Map<string, WorkspaceGitService>();
       services.set(testDir, service);
 
-      const heartbeat = new HeartbeatService({
+      const heartbeat = new WorkspaceHeartbeatService({
         getServices: () => services,
       });
 

@@ -13,7 +13,7 @@ mock.module('../util/platform.js', () => ({
 
 // Mock config loader
 let mockConfig = {
-  agentHeartbeat: {
+  heartbeat: {
     enabled: true,
     intervalMs: 60_000,
     activeHoursStart: undefined as number | undefined,
@@ -55,14 +55,14 @@ mock.module('../memory/conversation-title-service.js', () => ({
 }));
 
 // Import after mocks are set up
-const { AgentHeartbeatService } = await import('../agent-heartbeat/agent-heartbeat-service.js');
+const { HeartbeatService } = await import('../heartbeat/heartbeat-service.js');
 
-describe('AgentHeartbeatService', () => {
+describe('HeartbeatService', () => {
   let processMessageCalls: Array<{ conversationId: string; content: string }>;
   let alerterCalls: Array<{ type: string; title: string; body: string }>;
 
   beforeEach(() => {
-    testWorkspaceDir = join(tmpdir(), `vellum-agent-hb-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    testWorkspaceDir = join(tmpdir(), `vellum-hb-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
     mkdirSync(testWorkspaceDir, { recursive: true });
 
     processMessageCalls = [];
@@ -71,7 +71,7 @@ describe('AgentHeartbeatService', () => {
     conversationIdCounter = 0;
 
     mockConfig = {
-      agentHeartbeat: {
+      heartbeat: {
         enabled: true,
         intervalMs: 60_000,
         activeHoursStart: undefined,
@@ -84,7 +84,7 @@ describe('AgentHeartbeatService', () => {
     processMessage?: (id: string, content: string) => Promise<{ messageId: string }>;
     getCurrentHour?: () => number;
   }) {
-    return new AgentHeartbeatService({
+    return new HeartbeatService({
       processMessage: overrides?.processMessage ?? (async (conversationId: string, content: string) => {
         processMessageCalls.push({ conversationId, content });
         return { messageId: 'msg-1' };
@@ -138,8 +138,8 @@ describe('AgentHeartbeatService', () => {
   });
 
   test('active hours guard skips outside window', async () => {
-    mockConfig.agentHeartbeat.activeHoursStart = 9;
-    mockConfig.agentHeartbeat.activeHoursEnd = 17;
+    mockConfig.heartbeat.activeHoursStart = 9;
+    mockConfig.heartbeat.activeHoursEnd = 17;
 
     const service = createService({ getCurrentHour: () => 3 });
     await service.runOnce();
@@ -148,8 +148,8 @@ describe('AgentHeartbeatService', () => {
   });
 
   test('active hours guard allows within window', async () => {
-    mockConfig.agentHeartbeat.activeHoursStart = 9;
-    mockConfig.agentHeartbeat.activeHoursEnd = 17;
+    mockConfig.heartbeat.activeHoursStart = 9;
+    mockConfig.heartbeat.activeHoursEnd = 17;
 
     const service = createService({ getCurrentHour: () => 12 });
     await service.runOnce();
@@ -158,8 +158,8 @@ describe('AgentHeartbeatService', () => {
   });
 
   test('active hours handles overnight window', async () => {
-    mockConfig.agentHeartbeat.activeHoursStart = 22;
-    mockConfig.agentHeartbeat.activeHoursEnd = 6;
+    mockConfig.heartbeat.activeHoursStart = 22;
+    mockConfig.heartbeat.activeHoursEnd = 6;
 
     // 23:00 should be within the window
     const service = createService({ getCurrentHour: () => 23 });
@@ -203,7 +203,7 @@ describe('AgentHeartbeatService', () => {
   });
 
   test('disabled config prevents start', () => {
-    mockConfig.agentHeartbeat.enabled = false;
+    mockConfig.heartbeat.enabled = false;
     const service = createService();
     service.start();
     // No error, just a no-op. We can verify by calling stop which should also be a no-op.
@@ -212,7 +212,7 @@ describe('AgentHeartbeatService', () => {
   });
 
   test('disabled config prevents runOnce', async () => {
-    mockConfig.agentHeartbeat.enabled = false;
+    mockConfig.heartbeat.enabled = false;
     const service = createService();
     await service.runOnce();
 
@@ -229,8 +229,8 @@ describe('AgentHeartbeatService', () => {
     await service.runOnce();
 
     expect(alerterCalls).toHaveLength(1);
-    expect(alerterCalls[0].type).toBe('agent_heartbeat_alert');
-    expect(alerterCalls[0].title).toBe('Agent Heartbeat Failed');
+    expect(alerterCalls[0].type).toBe('heartbeat_alert');
+    expect(alerterCalls[0].title).toBe('Heartbeat Failed');
     expect(alerterCalls[0].body).toBe('LLM timeout');
   });
 

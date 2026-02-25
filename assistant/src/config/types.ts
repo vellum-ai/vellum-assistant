@@ -1,5 +1,4 @@
 export type {
-  AgentHeartbeatConfig,
   AssistantConfig,
   AuditLogConfig,
   CallerIdentityConfig,
@@ -11,6 +10,7 @@ export type {
   ContextWindowConfig,
   DaemonConfig,
   DockerConfig,
+  HeartbeatConfig,
   IngressConfig,
   LogFileConfig,
   MemoryConfig,

@@ -1,25 +1,25 @@
 import { z } from 'zod';
 
-export const AgentHeartbeatConfigSchema = z.object({
+export const HeartbeatConfigSchema = z.object({
   enabled: z
-    .boolean({ error: 'agentHeartbeat.enabled must be a boolean' })
+    .boolean({ error: 'heartbeat.enabled must be a boolean' })
     .default(false),
   intervalMs: z
-    .number({ error: 'agentHeartbeat.intervalMs must be a number' })
-    .int('agentHeartbeat.intervalMs must be an integer')
-    .positive('agentHeartbeat.intervalMs must be a positive integer')
+    .number({ error: 'heartbeat.intervalMs must be a number' })
+    .int('heartbeat.intervalMs must be an integer')
+    .positive('heartbeat.intervalMs must be a positive integer')
     .default(3_600_000),
   activeHoursStart: z
-    .number({ error: 'agentHeartbeat.activeHoursStart must be a number' })
-    .int('agentHeartbeat.activeHoursStart must be an integer')
-    .min(0, 'agentHeartbeat.activeHoursStart must be >= 0')
-    .max(23, 'agentHeartbeat.activeHoursStart must be <= 23')
+    .number({ error: 'heartbeat.activeHoursStart must be a number' })
+    .int('heartbeat.activeHoursStart must be an integer')
+    .min(0, 'heartbeat.activeHoursStart must be >= 0')
+    .max(23, 'heartbeat.activeHoursStart must be <= 23')
     .optional(),
   activeHoursEnd: z
-    .number({ error: 'agentHeartbeat.activeHoursEnd must be a number' })
-    .int('agentHeartbeat.activeHoursEnd must be an integer')
-    .min(0, 'agentHeartbeat.activeHoursEnd must be >= 0')
-    .max(23, 'agentHeartbeat.activeHoursEnd must be <= 23')
+    .number({ error: 'heartbeat.activeHoursEnd must be a number' })
+    .int('heartbeat.activeHoursEnd must be an integer')
+    .min(0, 'heartbeat.activeHoursEnd must be >= 0')
+    .max(23, 'heartbeat.activeHoursEnd must be <= 23')
     .optional(),
 }).superRefine((config, ctx) => {
   const hasStart = config.activeHoursStart != null;
@@ -28,14 +28,14 @@ export const AgentHeartbeatConfigSchema = z.object({
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: [hasStart ? 'activeHoursEnd' : 'activeHoursStart'],
-      message: 'agentHeartbeat.activeHoursStart and agentHeartbeat.activeHoursEnd must both be set or both be omitted',
+      message: 'heartbeat.activeHoursStart and heartbeat.activeHoursEnd must both be set or both be omitted',
     });
   }
   if (hasStart && hasEnd && config.activeHoursStart === config.activeHoursEnd) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['activeHoursEnd'],
-      message: 'agentHeartbeat.activeHoursStart and agentHeartbeat.activeHoursEnd must not be equal (would create an empty window)',
+      message: 'heartbeat.activeHoursStart and heartbeat.activeHoursEnd must not be equal (would create an empty window)',
     });
   }
 });
@@ -167,6 +167,6 @@ export const WorkspaceGitConfigSchema = z.object({
   }).default({} as any),
 });
 
-export type AgentHeartbeatConfig = z.infer<typeof AgentHeartbeatConfigSchema>;
+export type HeartbeatConfig = z.infer<typeof HeartbeatConfigSchema>;
 export type SwarmConfig = z.infer<typeof SwarmConfigSchema>;
 export type WorkspaceGitConfig = z.infer<typeof WorkspaceGitConfigSchema>;
