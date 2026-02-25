@@ -38,6 +38,7 @@ import {
   updateSessionStatus,
   updateSessionDelivery,
 } from '../channel-guardian-service.js';
+import { RESEND_COOLDOWN_MS } from '../../daemon/handlers/config-channels.js';
 import { deliverChannelReply } from '../gateway-client.js';
 import {
   composeChannelVerifyReply,
@@ -564,7 +565,7 @@ export async function handleChannelInbound(
 
       // Update delivery tracking
       const now = Date.now();
-      updateSessionDelivery(newSession.sessionId, now, 1, now + 60_000);
+      updateSessionDelivery(newSession.sessionId, now, 1, now + RESEND_COOLDOWN_MS);
 
       return Response.json({
         accepted: true,

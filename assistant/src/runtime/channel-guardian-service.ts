@@ -373,8 +373,8 @@ export interface CreateOutboundSessionResult {
  * Create an outbound verification session with expected identity pre-set.
  * Returns session info including the secret for outbound delivery.
  *
- * For voice channels, generates a numeric code with the specified digit count.
- * For text channels (SMS, Telegram), generates a hex secret.
+ * All outbound channels (SMS, Telegram, voice) use 6-digit numeric codes
+ * for consistency and ease of entry.
  */
 export function createOutboundSession(params: {
   assistantId: string;
@@ -389,8 +389,7 @@ export function createOutboundSession(params: {
   sessionId?: string;
   bootstrapTokenHash?: string;
 }): CreateOutboundSessionResult {
-  const isVoice = params.channel === 'voice';
-  const secret = isVoice ? generateVoiceSecret(params.codeDigits ?? 6) : randomBytes(32).toString('hex');
+  const secret = generateVoiceSecret(params.codeDigits ?? 6);
   const challengeHash = hashSecret(secret);
   const sessionId = params.sessionId ?? uuid();
   const expiresAt = Date.now() + CHALLENGE_TTL_MS;
