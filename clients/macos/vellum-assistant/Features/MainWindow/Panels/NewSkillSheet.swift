@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import VellumAssistantShared
 
 struct NewSkillSheet: View {
@@ -7,6 +8,9 @@ struct NewSkillSheet: View {
 
     // Input state
     @State private var sourceText = ""
+    @State private var droppedFileName: String?
+    @State private var isDropTargeted = false
+    @State private var dropError: String?
 
     // Editable draft fields (populated after draft generation)
     @State private var skillId = ""
@@ -16,6 +20,8 @@ struct NewSkillSheet: View {
     @State private var bodyMarkdown = ""
     @State private var hasDraft = false
     @State private var warnings: [String] = []
+
+    private static let allowedExtensions: Set<String> = ["md", "txt", "markdown"]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -38,8 +44,9 @@ struct NewSkillSheet: View {
 
             footer
         }
-        .frame(width: 560, height: 520)
+        .frame(width: 560, height: 560)
         .background(VColor.background)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .onChange(of: skillsManager.draftResult?.skillId) {
             if let result = skillsManager.draftResult {
                 skillId = result.skillId
@@ -64,44 +71,115 @@ struct NewSkillSheet: View {
     // MARK: - Header
 
     private var header: some View {
-        HStack {
+        HStack(spacing: VSpacing.sm) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(Forest._400)
             Text("New Skill")
-                .font(VFont.headline)
+                .font(VFont.display)
                 .foregroundColor(VColor.textPrimary)
             Spacer()
             Button {
                 dismiss()
             } label: {
                 Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundColor(VColor.textMuted)
+                    .frame(width: 24, height: 24)
+                    .background(VColor.ghostHover)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Close")
         }
-        .padding(VSpacing.xl)
+        .padding(.horizontal, VSpacing.xl)
+        .padding(.vertical, VSpacing.lg)
     }
 
-    // MARK: - Input Section (paste text)
+    // MARK: - Input Section (paste text or drop file)
 
     private var inputSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Paste your skill text or SKILL.md content below:")
-                .font(VFont.body)
-                .foregroundColor(VColor.textSecondary)
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
+            // Drop zone
+            dropZone
 
-            TextEditor(text: $sourceText)
-                .font(VFont.mono)
-                .foregroundColor(VColor.textPrimary)
-                .scrollContentBackground(.hidden)
-                .background(VColor.surfaceSubtle)
-                .cornerRadius(VRadius.md)
-                .frame(minHeight: 240)
+            // Divider with "or"
+            HStack(spacing: VSpacing.md) {
+                Rectangle()
+                    .fill(VColor.surfaceBorder)
+                    .frame(height: 1)
+                Text("or paste content")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+                Rectangle()
+                    .fill(VColor.surfaceBorder)
+                    .frame(height: 1)
+            }
+
+            // Text editor
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                TextEditor(text: $sourceText)
+                    .font(VFont.mono)
+                    .foregroundColor(VColor.textPrimary)
+                    .scrollContentBackground(.hidden)
+                    .padding(VSpacing.sm)
+                    .background(VColor.surfaceSubtle)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .stroke(VColor.surfaceBorder, lineWidth: 1)
+                    )
+                    .frame(minHeight: 140)
+            }
+
+            if let error = dropError {
+                errorLabel(error)
+            }
 
             if let error = skillsManager.draftError {
-                Text(error)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.error)
+                errorLabel(error)
             }
+        }
+    }
+
+    private var dropZone: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .fill(isDropTargeted ? Forest._900.opacity(0.3) : VColor.surfaceSubtle)
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .strokeBorder(
+                    isDropTargeted ? Forest._500 : VColor.surfaceBorder,
+                    style: StrokeStyle(lineWidth: isDropTargeted ? 2 : 1, dash: [6, 4])
+                )
+
+            VStack(spacing: VSpacing.md) {
+                Image(systemName: isDropTargeted ? "arrow.down.doc.fill" : "doc.text")
+                    .font(.system(size: 28, weight: .light))
+                    .foregroundColor(isDropTargeted ? Forest._400 : VColor.textMuted)
+
+                VStack(spacing: VSpacing.xs) {
+                    Text("Drop a .md or .txt file here")
+                        .font(VFont.bodyMedium)
+                        .foregroundColor(isDropTargeted ? Forest._300 : VColor.textSecondary)
+
+                    if let fileName = droppedFileName {
+                        HStack(spacing: VSpacing.xs) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 11))
+                                .foregroundColor(VColor.success)
+                            Text(fileName)
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                        }
+                    }
+                }
+            }
+            .padding(VSpacing.xl)
+        }
+        .frame(height: 120)
+        .animation(VAnimation.fast, value: isDropTargeted)
+        .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
+            handleDrop(providers)
         }
     }
 
@@ -137,15 +215,18 @@ struct NewSkillSheet: View {
                     .font(VFont.mono)
                     .foregroundColor(VColor.textPrimary)
                     .scrollContentBackground(.hidden)
+                    .padding(VSpacing.sm)
                     .background(VColor.surfaceSubtle)
-                    .cornerRadius(VRadius.md)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .stroke(VColor.surfaceBorder, lineWidth: 1)
+                    )
                     .frame(minHeight: 200)
             }
 
             if let error = skillsManager.createError {
-                Text(error)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.error)
+                errorLabel(error)
             }
         }
     }
@@ -159,9 +240,13 @@ struct NewSkillSheet: View {
                     hasDraft = false
                     skillsManager.resetDraftState()
                 } label: {
-                    Text("Back")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
+                    HStack(spacing: VSpacing.xs) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 10, weight: .medium))
+                        Text("Back")
+                            .font(VFont.bodyMedium)
+                    }
+                    .foregroundColor(VColor.textSecondary)
                 }
                 .buttonStyle(.plain)
             }
@@ -171,7 +256,9 @@ struct NewSkillSheet: View {
             if !hasDraft {
                 VButton(
                     label: skillsManager.isDrafting ? "Generating..." : "Generate Draft",
+                    leftIcon: skillsManager.isDrafting ? nil : "wand.and.stars",
                     style: .primary,
+                    size: .medium,
                     isDisabled: sourceText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || skillsManager.isDrafting
                 ) {
                     skillsManager.draftSkill(sourceText: sourceText)
@@ -179,7 +266,9 @@ struct NewSkillSheet: View {
             } else {
                 VButton(
                     label: skillsManager.isCreating ? "Creating..." : "Create Skill",
+                    leftIcon: skillsManager.isCreating ? nil : "plus.circle.fill",
                     style: .primary,
+                    size: .medium,
                     isDisabled: !isFormValid || skillsManager.isCreating
                 ) {
                     skillsManager.createSkillFromDraft(
@@ -192,7 +281,51 @@ struct NewSkillSheet: View {
                 }
             }
         }
-        .padding(VSpacing.xl)
+        .padding(.horizontal, VSpacing.xl)
+        .padding(.vertical, VSpacing.lg)
+    }
+
+    // MARK: - Drag & Drop
+
+    private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
+        dropError = nil
+        guard let provider = providers.first else { return false }
+
+        provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+            guard let data = item as? Data,
+                  let url = URL(dataRepresentation: data, relativeTo: nil) else {
+                DispatchQueue.main.async { dropError = "Could not read the dropped file." }
+                return
+            }
+
+            let ext = url.pathExtension.lowercased()
+            guard Self.allowedExtensions.contains(ext) else {
+                DispatchQueue.main.async {
+                    dropError = "Unsupported file type \".\(ext)\". Please drop a .md or .txt file."
+                }
+                return
+            }
+
+            do {
+                let contents = try String(contentsOf: url, encoding: .utf8)
+                let trimmed = contents.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else {
+                    DispatchQueue.main.async { dropError = "The dropped file is empty." }
+                    return
+                }
+
+                DispatchQueue.main.async {
+                    sourceText = trimmed
+                    droppedFileName = url.lastPathComponent
+                    // Auto-trigger draft generation
+                    skillsManager.draftSkill(sourceText: trimmed)
+                }
+            } catch {
+                DispatchQueue.main.async { dropError = "Failed to read file: \(error.localizedDescription)" }
+            }
+        }
+
+        return true
     }
 
     // MARK: - Helpers
@@ -202,6 +335,17 @@ struct NewSkillSheet: View {
         !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
         !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
         !bodyMarkdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func errorLabel(_ text: String) -> some View {
+        HStack(spacing: VSpacing.xs) {
+            Image(systemName: "exclamationmark.circle.fill")
+                .font(.system(size: 11))
+                .foregroundColor(VColor.error)
+            Text(text)
+                .font(VFont.caption)
+                .foregroundColor(VColor.error)
+        }
     }
 
     private func formField(label: String, text: Binding<String>, placeholder: String) -> some View {
@@ -215,7 +359,11 @@ struct NewSkillSheet: View {
                 .foregroundColor(VColor.textPrimary)
                 .padding(VSpacing.sm)
                 .background(VColor.surfaceSubtle)
-                .cornerRadius(VRadius.sm)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.sm)
+                        .stroke(VColor.surfaceBorder, lineWidth: 1)
+                )
         }
     }
 }
