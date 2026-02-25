@@ -216,6 +216,12 @@ export function createManagedSkill(params: CreateManagedSkillParams): CreateMana
 
   if (params.version) {
     writeVersionMeta(params.id, params.version);
+  } else {
+    // Remove stale version metadata when overwriting without a version
+    const metaPath = getVersionMetaPath(params.id);
+    if (existsSync(metaPath)) {
+      rmSync(metaPath);
+    }
   }
 
   log.info({ id: params.id, path: skillFilePath, version: params.version }, 'Created managed skill');
