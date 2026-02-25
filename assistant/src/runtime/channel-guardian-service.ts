@@ -80,14 +80,16 @@ function hashSecret(secret: string): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Generate a six-digit numeric secret for voice channel challenges.
- * Uses cryptographic randomness to pick a number in [100000, 999999].
+ * Generate a numeric secret for voice channel challenges.
+ * Uses cryptographic randomness to pick a number with the specified
+ * number of digits (defaults to 6). The result is always zero-padded
+ * to exactly `digits` characters.
  */
-function generateVoiceSecret(): string {
+function generateVoiceSecret(digits: number = 6): string {
   const buf = randomBytes(4);
   const num = buf.readUInt32BE(0);
-  // Map to the range [100000, 999999] (900000 possible values)
-  return String(100000 + (num % 900000));
+  const max = 10 ** digits;
+  return String(num % max).padStart(digits, '0');
 }
 
 /**
@@ -389,7 +391,7 @@ export function createOutboundSession(params: {
   sessionId?: string;
 }): CreateOutboundSessionResult {
   const isVoice = params.channel === 'voice';
-  const secret = isVoice ? generateVoiceSecret() : randomBytes(32).toString('hex');
+  const secret = isVoice ? generateVoiceSecret(params.codeDigits ?? 6) : randomBytes(32).toString('hex');
   const challengeHash = hashSecret(secret);
   const sessionId = params.sessionId ?? uuid();
   const expiresAt = Date.now() + CHALLENGE_TTL_MS;

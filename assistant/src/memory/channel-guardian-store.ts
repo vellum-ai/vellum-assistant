@@ -486,6 +486,12 @@ export function findSessionByIdentity(
   chatId?: string,
   phoneE164?: string,
 ): VerificationChallenge | null {
+  // Require at least one identity parameter to avoid accidentally matching
+  // an unrelated session when the caller has no parsed identity fields.
+  if (!externalUserId && !chatId && !phoneE164) {
+    return null;
+  }
+
   const db = getDb();
   const now = Date.now();
 
