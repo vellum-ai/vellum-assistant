@@ -135,7 +135,7 @@ export function enrollContact(input: EnrollContactInput): SequenceEnrollment {
   const row = {
     id: uuid(),
     sequenceId: input.sequenceId,
-    contactEmail: input.contactEmail,
+    contactEmail: input.contactEmail.toLowerCase(),
     contactName: input.contactName ?? null,
     currentStep: 0,
     status: 'active' as const,

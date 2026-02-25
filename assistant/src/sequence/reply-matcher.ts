@@ -3,8 +3,8 @@
  * sequence enrollments and auto-exits them.
  *
  * Called from the watcher engine after new events are stored.
- * Matches by sender email against active enrollment contact_email,
- * with thread_id confirmation when available.
+ * Matches by sender email against active enrollment contact_email
+ * AND thread_id — both must match for a reply to trigger an exit.
  */
 
 import { getLogger } from '../util/logger.js';
@@ -58,11 +58,13 @@ export function checkForSequenceReplies(
       const seq = getSequence(enrollment.sequenceId);
       if (!seq || !seq.exitOnReply) continue;
 
-      // Primary match: thread ID matches enrollment's thread.
-      // Fallback: if no thread ID is set on the enrollment yet (first step
-      // hasn't been sent), match by email alone.
-      const threadMatch = !enrollment.threadId
-        || enrollment.threadId === payload.threadId;
+      // Only match when the enrollment has a thread ID and it matches the
+      // incoming payload. Enrollments that haven't sent their first email
+      // yet (threadId is null) are not eligible for reply-based exit —
+      // otherwise any unrelated inbound email from the contact would
+      // prematurely kill the enrollment.
+      const threadMatch = enrollment.threadId != null
+        && enrollment.threadId === payload.threadId;
 
       if (!threadMatch) continue;
 
