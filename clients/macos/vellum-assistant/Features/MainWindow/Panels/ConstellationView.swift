@@ -404,6 +404,33 @@ private struct SkillPopoverView: View {
     }
 }
 
+// MARK: - Viewport Toolbar Button
+
+private struct ViewportToolbarButton: View {
+    let icon: String
+    let accessibilityLabel: String
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(isHovered ? VColor.textPrimary : VColor.textSecondary)
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.1)) {
+                isHovered = hovering
+            }
+        }
+        .accessibilityLabel(accessibilityLabel)
+    }
+}
+
 // MARK: - Constellation View
 
 struct ConstellationView: View {
@@ -411,6 +438,7 @@ struct ConstellationView: View {
     let skills: [SkillInfo]
     let workspaceFiles: [WorkspaceFileNode]
     var onFileSelected: ((String) -> Void)?
+    @Binding var isFullscreen: Bool
     @State private var appearance = AvatarAppearanceManager.shared
 
     @State private var phase: AnimationPhase = .hidden
@@ -556,6 +584,72 @@ struct ConstellationView: View {
         return result
     }
 
+    /// Computes zoom and pan to fit all hexes in the viewport with padding.
+    private func fitAll(viewSize: CGSize) {
+        let hexes = positionedHexes
+
+        // When no skills/files are loaded the center avatar is still rendered.
+        // Reset to default viewport so the user can recover after drag/zoom.
+        guard !hexes.isEmpty else {
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
+                zoomScale = 1.0
+                baseZoomScale = 1.0
+                panOffset = .zero
+                dragOffset = .zero
+            }
+            return
+        }
+
+        // Compute bounding box of all hex pixel positions
+        var minX = CGFloat.infinity
+        var maxX = -CGFloat.infinity
+        var minY = CGFloat.infinity
+        var maxY = -CGFloat.infinity
+
+        for hex in hexes {
+            let pos = hex.coord.toPixel(size: hexSize, gap: hexGap)
+            minX = min(minX, pos.x)
+            maxX = max(maxX, pos.x)
+            minY = min(minY, pos.y)
+            maxY = max(maxY, pos.y)
+        }
+        // Also include center hex at (0,0)
+        minX = min(minX, 0)
+        maxX = max(maxX, 0)
+        minY = min(minY, 0)
+        maxY = max(maxY, 0)
+
+        // Add padding around the bounding box
+        let padding = hexSize * 2
+        let contentWidth = (maxX - minX) + padding * 2
+        let contentHeight = (maxY - minY) + padding * 2
+
+        guard contentWidth > 0, contentHeight > 0 else { return }
+
+        let fitZoom = min(viewSize.width / contentWidth, viewSize.height / contentHeight)
+        let clampedZoom = max(0.4, min(3.0, fitZoom))
+
+        // Center of the bounding box in canvas-local coords (relative to
+        // the canvas center, which is at viewSize/2). The hex pixel positions
+        // are already relative to the canvas center, so the content centroid
+        // offset is just the midpoint of the bounding box.
+        let contentCenterX = (minX + maxX) / 2
+        let contentCenterY = (minY + maxY) / 2
+
+        // Pan offset to re-center the content centroid in the viewport.
+        // After scaling, the centroid is at (contentCenter * zoom) from the
+        // view center, so we pan by the negative of that.
+        let targetPanX = -contentCenterX * clampedZoom
+        let targetPanY = -contentCenterY * clampedZoom
+
+        withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
+            zoomScale = clampedZoom
+            baseZoomScale = clampedZoom
+            panOffset = CGSize(width: targetPanX, height: targetPanY)
+            dragOffset = .zero
+        }
+    }
+
     var body: some View {
         GeometryReader { proxy in
             let totalOffset = CGSize(
@@ -601,6 +695,10 @@ struct ConstellationView: View {
                 .frame(width: proxy.size.width, height: proxy.size.height)
                 .clipped()
                 .contentShape(Rectangle())
+                .overlay(alignment: .bottomTrailing) {
+                    viewportToolbar(viewSize: proxy.size)
+                        .padding(VSpacing.lg)
+                }
                 .gesture(
                     DragGesture()
                         .onChanged { value in
@@ -642,6 +740,51 @@ struct ConstellationView: View {
                 }
                 #endif
         }
+    }
+
+    // MARK: - Viewport Toolbar
+
+    @ViewBuilder
+    private func viewportToolbar(viewSize: CGSize) -> some View {
+        HStack(spacing: VSpacing.xxs) {
+            ViewportToolbarButton(icon: "plus.magnifyingglass", accessibilityLabel: "Zoom in") {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                    zoomScale = min(3.0, zoomScale + 0.25)
+                    baseZoomScale = zoomScale
+                }
+            }
+
+            ViewportToolbarButton(icon: "minus.magnifyingglass", accessibilityLabel: "Zoom out") {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                    zoomScale = max(0.4, zoomScale - 0.25)
+                    baseZoomScale = zoomScale
+                }
+            }
+
+            ViewportToolbarButton(icon: "arrow.up.left.and.arrow.down.right", accessibilityLabel: "Fit all") {
+                fitAll(viewSize: viewSize)
+            }
+
+            ViewportToolbarButton(
+                icon: isFullscreen
+                    ? "arrow.down.right.and.arrow.up.left"
+                    : "arrow.up.left.and.arrow.down.right.square",
+                accessibilityLabel: isFullscreen ? "Exit fullscreen" : "Enter fullscreen"
+            ) {
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                    isFullscreen.toggle()
+                }
+            }
+        }
+        .padding(VSpacing.sm)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .fill(VColor.surface.opacity(0.85))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .stroke(VColor.surfaceBorder, lineWidth: 1)
+        )
     }
 
     // MARK: - Canvas
