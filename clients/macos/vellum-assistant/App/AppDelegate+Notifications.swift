@@ -163,8 +163,8 @@ extension AppDelegate {
             log.warning("Notification authorization status is denied — skipping notification post")
             return false
         case .notDetermined:
-            log.warning("Notification authorization status is notDetermined — skipping notification post")
-            return false
+            log.info("Notification authorization status is notDetermined — attempting post anyway")
+            return true
         @unknown default:
             log.warning("Notification authorization status is unknown (\(settings.authorizationStatus.rawValue)) — skipping notification post")
             return false
@@ -265,6 +265,10 @@ extension AppDelegate {
             if let deliveredAt = fallbackDeliveredAtMs.removeValue(forKey: conversationId),
                nowMs - deliveredAt <= fallbackDedupWindowMs {
                 log.info("Suppressing duplicate notification_intent for conversation \(conversationId) (fallback already delivered)")
+                // Ack the suppressed intent so the delivery audit trail is complete
+                if let deliveryId = msg.deliveryId {
+                    sendNotificationIntentResult(deliveryId: deliveryId, success: true, errorMessage: nil, errorCode: nil)
+                }
                 return
             }
 
