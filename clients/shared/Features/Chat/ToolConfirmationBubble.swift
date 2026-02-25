@@ -196,9 +196,6 @@ public struct ToolConfirmationBubble: View {
             RoundedRectangle(cornerRadius: VRadius.sm)
                 .fill(VColor.accent.opacity(0.08))
         )
-        .onDisappear {
-            hasSeenCommandExplanation = true
-        }
     }
 
     @ViewBuilder
@@ -391,14 +388,14 @@ public struct ToolConfirmationBubble: View {
                 isPrimary: true,
                 isDanger: false,
                 isKeyboardSelected: keyboardModel?.selectedAction == .allowOnce
-            ) { onAllow() }
+            ) { markCommandExplanationSeen(); onAllow() }
             if hasRuleOptions && confirmation.persistentDecisionsAllowed { alwaysAllowInlineButton }
             confirmationButton(
                 "Don\u{2019}t Allow",
                 isPrimary: false,
                 isDanger: false,
                 isKeyboardSelected: keyboardModel?.selectedAction == .dontAllow
-            ) { onDeny() }
+            ) { markCommandExplanationSeen(); onDeny() }
             Spacer()
         }
         .onAppear {
@@ -598,8 +595,20 @@ public struct ToolConfirmationBubble: View {
     }
     #endif
 
+    /// Persist the command explanation banner dismissal so it only shows once.
+    /// Called when the user takes any action on the confirmation (approve, deny,
+    /// or always-allow) rather than on view disappearance, because `onDisappear`
+    /// fires on scroll/recycle in a `LazyVStack` and would dismiss the banner
+    /// before the user has actually seen it.
+    private func markCommandExplanationSeen() {
+        if isCommandTool && !hasSeenCommandExplanation {
+            hasSeenCommandExplanation = true
+        }
+    }
+
     /// Trigger the callback for a given top-level action.
     private func activateAction(_ action: ToolConfirmationKeyboardModel.Action) {
+        markCommandExplanationSeen()
         switch action {
         case .allowOnce:
             onAllow()
@@ -628,6 +637,7 @@ public struct ToolConfirmationBubble: View {
     /// Shared logic for the single-option Always Allow action, used by both the
     /// inline button click handler and keyboard Enter activation.
     private func handleSingleOptionAlwaysAllow() {
+        markCommandExplanationSeen()
         let pattern = confirmation.allowlistOptions.first?.pattern ?? ""
         if pattern.isEmpty {
             onAllow()
