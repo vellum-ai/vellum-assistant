@@ -73,7 +73,7 @@ extension MainWindowView {
             )
         case .generated:
             GeneratedPanel(
-                onClose: { showSharePicker = false; windowState.closeDynamicPanel() },
+                onClose: { sharing.showSharePicker = false; windowState.closeDynamicPanel() },
                 isExpanded: Binding(
                     get: { windowState.isDynamicExpanded },
                     set: { windowState.isDynamicExpanded = $0 }
@@ -176,7 +176,7 @@ extension MainWindowView {
             } else {
                 // Gallery mode fallback
                 GeneratedPanel(
-                    onClose: { showSharePicker = false; windowState.closeDynamicPanel() },
+                    onClose: { sharing.showSharePicker = false; windowState.closeDynamicPanel() },
                     isExpanded: Binding(
                         get: { windowState.isDynamicExpanded },
                         set: { windowState.isDynamicExpanded = $0 }
@@ -497,13 +497,7 @@ extension MainWindowView {
                 daemonClient: daemonClient,
                 trafficLightPadding: trafficLightPadding,
                 isSidebarOpen: sidebarExpanded,
-                isPublishing: $isPublishing,
-                publishedUrl: $publishedUrl,
-                publishError: $publishError,
-                isBundling: $isBundling,
-                showSharePicker: $showSharePicker,
-                shareFileURL: $shareFileURL,
-                workspaceEditorContentHeight: $workspaceEditorContentHeight,
+                sharing: sharing,
                 onPublishPage: publishPage,
                 onBundleAndShare: bundleAndShare,
                 isChatDockOpen: windowState.isChatDockOpen,
@@ -729,13 +723,7 @@ struct DynamicWorkspaceWrapper: View {
     let daemonClient: DaemonClient
     let trafficLightPadding: CGFloat
     let isSidebarOpen: Bool
-    @Binding var isPublishing: Bool
-    @Binding var publishedUrl: String?
-    @Binding var publishError: String?
-    @Binding var isBundling: Bool
-    @Binding var showSharePicker: Bool
-    @Binding var shareFileURL: URL?
-    @Binding var workspaceEditorContentHeight: CGFloat
+    var sharing: SharingState
     let onPublishPage: (String, String?, String?) -> Void
     let onBundleAndShare: (String) -> Void
     let isChatDockOpen: Bool
@@ -831,11 +819,11 @@ struct DynamicWorkspaceWrapper: View {
                             .accessibilityLabel("Version history")
                         }
 
-                        if isPublishing {
+                        if sharing.isPublishing {
                             ProgressView()
                                 .controlSize(.small)
                                 .frame(height: 24)
-                        } else if let url = publishedUrl {
+                        } else if let url = sharing.publishedUrl {
                             VButton(label: "Copied!", icon: "checkmark", style: .tertiary) {
                                 NSPasteboard.general.clearContents()
                                 NSPasteboard.general.setString(url, forType: .string)
@@ -849,7 +837,7 @@ struct DynamicWorkspaceWrapper: View {
                         }
 
                         VButton(label: "X", style: .tertiary) {
-                            showSharePicker = false
+                            sharing.showSharePicker = false
                             windowState.activeDynamicSurface = nil
                             windowState.activeDynamicParsedSurface = nil
                             windowState.dismissOverlay()
@@ -866,7 +854,7 @@ struct DynamicWorkspaceWrapper: View {
                         .clipShape(UnevenRoundedRectangle(topLeadingRadius: VRadius.lg, topTrailingRadius: VRadius.lg))
                 )
 
-                if let error = publishError {
+                if let error = sharing.publishError {
                     HStack {
                         Spacer()
                         Text(error)
