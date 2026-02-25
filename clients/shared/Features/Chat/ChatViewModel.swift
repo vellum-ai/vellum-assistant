@@ -199,6 +199,12 @@ public final class ChatViewModel: ObservableObject {
         }
     }
     private var reconnectObserver: NSObjectProtocol?
+    /// Debounces rapid-fire daemon reconnect notifications so only one history
+    /// reload is triggered per reconnect burst (500ms settle window).
+    private var reconnectDebounceTask: Task<Void, Never>?
+    /// Guards against overlapping reconnect history loads. Set true before
+    /// requesting history, cleared when `populateFromHistory` completes.
+    private var isReconnectHistoryLoading = false
     /// Set to true when daemonDidReconnect fires before sessionId is populated.
     /// Cleared and actioned in the sessionId didSet observer.
     private var needsOfflineFlush: Bool = false
@@ -467,14 +473,23 @@ public final class ChatViewModel: ObservableObject {
                 // client may have missed the messageComplete (or the full
                 // assistant response). Reset the spinner and re-fetch history
                 // so the UI catches up on anything that happened during the gap.
+                // Debounce: cancel any pending reconnect task and wait 500ms
+                // to coalesce rapid-fire reconnect notifications into one load.
                 if self?.isThinking == true || self?.isSending == true {
                     self?.isThinking = false
                     self?.isSending = false
                     self?.currentAssistantMessageId = nil
                     self?.discardStreamingBuffer()
-                    if let sessionId = self?.sessionId {
-                        self?.needsReconnectCatchUp = true
-                        self?.onReconnectHistoryNeeded?(sessionId)
+                    self?.reconnectDebounceTask?.cancel()
+                    self?.reconnectDebounceTask = Task { @MainActor [weak self] in
+                        try? await Task.sleep(nanoseconds: 500_000_000) // 500ms
+                        guard !Task.isCancelled else { return }
+                        guard let self, !self.isReconnectHistoryLoading else { return }
+                        if let sessionId = self.sessionId {
+                            self.isReconnectHistoryLoading = true
+                            self.needsReconnectCatchUp = true
+                            self.onReconnectHistoryNeeded?(sessionId)
+                        }
                     }
                 }
                 // If we already have a session ID, flush immediately. Otherwise
@@ -1788,10 +1803,26 @@ public final class ChatViewModel: ObservableObject {
         if needsReconnectCatchUp {
             // Reconnect catch-up: the SSE stream dropped while a run was
             // in progress, so the client may have missed the assistant's
-            // response. Do a full replace with the server's authoritative
-            // message list instead of the normal prepend-only dedup.
+            // response. Use the server's authoritative message list, but
+            // preserve any genuinely unsent local messages. History items
+            // use daemon DB IDs while local messages use Swift UUIDs, so
+            // simple ID-based dedup won't work — use fuzzy matching instead
+            // (role + text prefix + timestamp ±2s).
             needsReconnectCatchUp = false
-            self.messages = chatMessages
+            let localCandidates = self.messages.filter {
+                pendingMessageIds.contains($0.id) || $0.status == .pendingOffline
+            }
+            var localOnly: [ChatMessage] = []
+            for local in localCandidates {
+                let isDuplicate = chatMessages.contains { server in
+                    server.role == local.role
+                    && server.text.hasPrefix(String(local.text.prefix(100)))
+                    && abs(server.timestamp.timeIntervalSince(local.timestamp)) < 2
+                }
+                if !isDuplicate { localOnly.append(local) }
+            }
+            self.messages = chatMessages + localOnly
+            self.isReconnectHistoryLoading = false
         } else if messages.contains(where: { $0.role == .user }) {
             // History arrived after the user already sent messages.
             // The history payload includes ALL persisted messages — including
@@ -1819,6 +1850,7 @@ public final class ChatViewModel: ObservableObject {
 
     deinit {
         messageLoopTask?.cancel()
+        reconnectDebounceTask?.cancel()
         if let observer = reconnectObserver {
             NotificationCenter.default.removeObserver(observer)
         }
