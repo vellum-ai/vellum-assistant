@@ -188,6 +188,10 @@ struct AppsGridView: View {
         let iconInfo = resolvedIcon(for: app)
 
         return Button {
+            appListManager.recordAppOpen(
+                id: app.id, name: app.name, icon: app.icon,
+                previewBase64: app.previewBase64, appType: app.appType
+            )
             onOpenApp(app.id)
         } label: {
             VStack(spacing: VSpacing.sm) {
