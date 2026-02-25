@@ -209,6 +209,9 @@ public final class ChatViewModel: ObservableObject {
     /// Guards against overlapping reconnect history loads. Set true before
     /// requesting history, cleared when `populateFromHistory` completes.
     private var isReconnectHistoryLoading = false
+    /// Safety task that resets `isReconnectHistoryLoading` if the history
+    /// response never arrives (e.g. the request throws or is dropped).
+    private var reconnectLatchTimeoutTask: Task<Void, Never>?
     /// Set to true when daemonDidReconnect fires before sessionId is populated.
     /// Cleared and actioned in the sessionId didSet observer.
     private var needsOfflineFlush: Bool = false
@@ -216,6 +219,12 @@ public final class ChatViewModel: ObservableObject {
     /// Causes `populateFromHistory` to do a full message replace instead of
     /// prepending, so the missed assistant response is displayed.
     private var needsReconnectCatchUp: Bool = false
+    /// Snapshot of `pendingMessageIds` captured before clearing on reconnect.
+    /// Used by the reconnect catch-up path in `populateFromHistory` to dedup
+    /// local messages that were pending when the connection dropped (the live
+    /// `pendingMessageIds` is cleared immediately, but the debounced history
+    /// reload fires 500ms later).
+    private var reconnectPendingSnapshot: [UUID] = []
     /// Called when the SSE stream reconnects while a run was in progress.
     /// The store/restorer registers the sessionId in pendingHistoryBySessionId
     /// and sends a history request so the response is routed back properly.
@@ -483,6 +492,10 @@ public final class ChatViewModel: ObservableObject {
             queue: nil
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
+                // Snapshot pendingMessageIds before clearing so the debounced
+                // reconnect catch-up (which fires 500ms later) can still dedup
+                // local messages that were pending when the connection dropped.
+                self?.reconnectPendingSnapshot = self?.pendingMessageIds ?? []
                 self?.pendingQueuedCount = 0
                 self?.pendingMessageIds.removeAll()
                 self?.requestIdToMessageId.removeAll()
@@ -512,6 +525,16 @@ public final class ChatViewModel: ObservableObject {
                         if let sessionId = self.sessionId {
                             self.isReconnectHistoryLoading = true
                             self.needsReconnectCatchUp = true
+                            // Safety timeout: if the history response never arrives
+                            // (e.g. request throws or is dropped), reset the latch
+                            // so future reconnects aren't blocked forever.
+                            self.reconnectLatchTimeoutTask?.cancel()
+                            self.reconnectLatchTimeoutTask = Task { @MainActor [weak self] in
+                                try? await Task.sleep(nanoseconds: 10_000_000_000) // 10s
+                                guard !Task.isCancelled, let self, self.isReconnectHistoryLoading else { return }
+                                log.warning("Reconnect history latch timed out after 10s — resetting")
+                                self.isReconnectHistoryLoading = false
+                            }
                             self.onReconnectHistoryNeeded?(sessionId)
                         }
                     }
@@ -1834,8 +1857,13 @@ public final class ChatViewModel: ObservableObject {
             // simple ID-based dedup won't work — use fuzzy matching instead
             // (role + text prefix + timestamp ±2s).
             needsReconnectCatchUp = false
+            // Use the snapshot captured at reconnect time — the live
+            // pendingMessageIds was already cleared when the reconnect
+            // observer fired, before this debounced handler ran.
+            let snapshotIds = self.reconnectPendingSnapshot
+            self.reconnectPendingSnapshot = []
             let localCandidates = self.messages.filter {
-                pendingMessageIds.contains($0.id) || $0.status == .pendingOffline
+                snapshotIds.contains($0.id) || $0.status == .pendingOffline
             }
             var localOnly: [ChatMessage] = []
             for local in localCandidates {
@@ -1847,6 +1875,7 @@ public final class ChatViewModel: ObservableObject {
                 if !isDuplicate { localOnly.append(local) }
             }
             self.messages = chatMessages + localOnly
+            self.reconnectLatchTimeoutTask?.cancel()
             self.isReconnectHistoryLoading = false
         } else if messages.contains(where: { $0.role == .user }) {
             // History arrived after the user already sent messages.
@@ -1881,6 +1910,7 @@ public final class ChatViewModel: ObservableObject {
         cancelTimeoutTask?.cancel()
         refinementFailureDismissTask?.cancel()
         refinementFlushTask?.cancel()
+        reconnectLatchTimeoutTask?.cancel()
         reconnectDebounceTask?.cancel()
         if let observer = reconnectObserver {
             NotificationCenter.default.removeObserver(observer)
