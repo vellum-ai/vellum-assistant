@@ -78,6 +78,14 @@ final class RecordingManager: ObservableObject {
         self.attachToConversationId = attachToConversationId
         self.state = .starting
 
+        // Clear any stale stream error callback from a previous session.
+        // If the prior recording ended via stream error, the old callback
+        // (capturing the old sessionId) is never cleared. Without this,
+        // a stream error during this session's startup fallback chain could
+        // fire the stale callback, sending a failure status for the wrong
+        // session and corrupting this session's state.
+        recorder.onStreamError = nil
+
         do {
             try await recorder.start(
                 captureScope: options?.captureScope ?? "display",
