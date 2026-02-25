@@ -36,7 +36,8 @@ const TRACKING_LANGUAGE_PATTERN = /\b(?:this pr|that issue|while we wait|current
 // Statements about needing clarification are transient conversational artifacts
 // extracted from previous conflict-gate interactions — not durable facts.
 // Allowing them into the conflict pipeline creates self-reinforcing loops.
-const META_CLARIFICATION_PATTERN = /\b(?:needs? clarification|unclear which|user should (?:specify|clarify|choose)|which (?:one|option) (?:to|should)|conflicting (?:notes|instructions))\b/i;
+// Patterns are kept narrow to avoid filtering legitimate durable instructions.
+const META_CLARIFICATION_PATTERN = /\b(?:needs? clarification|unclear which (?:version|value|setting)|user should (?:specify|clarify)|conflicting (?:notes|instructions) (?:about|regarding|for))\b/i;
 
 /**
  * Returns true when a statement looks like a transient tracking note
