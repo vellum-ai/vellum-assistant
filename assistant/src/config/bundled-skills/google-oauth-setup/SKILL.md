@@ -304,7 +304,7 @@ Close the creation dialog. Do NOT try to read the client secret from this dialog
 
 **Important context:** Google's Cloud Console no longer displays client secret values after initial creation, and "Download JSON" does not work in headless/automated browsers. The reliable approach is to generate a new secret, which Google shows exactly once.
 
-Navigate to the credential detail page. From the credentials list (`https://console.cloud.google.com/apis/credentials?project=PROJECT_ID`), click on the "Vellum Assistant" OAuth client you just created.
+Navigate to the credential detail page. From the credentials list (`https://console.cloud.google.com/apis/credentials?project=PROJECT_ID`), find the OAuth client whose **Client ID** matches the one you captured and stored in Step 6 (e.g., `123456789-xxxxx.apps.googleusercontent.com`). Click on that client to open its detail page. Do not rely on the display name alone — there may be multiple clients named "Vellum Assistant".
 
 Tell the user:
 
