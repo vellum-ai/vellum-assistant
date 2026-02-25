@@ -108,27 +108,28 @@ jobs:
           app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
           private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
 
-      - name: Comment failure on latest open PR
+      - name: Comment failure on branch PR
         if: steps.tests.outcome == 'failure'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          RECORDING_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          BRANCH="${{ github.ref_name }}"
 
-          # Find the most recent open PR that touches playwright/
-          PR_NUMBER=$(gh pr list --state open --json number,headRefName --jq '.[0].number' 2>/dev/null || echo "")
+          # Find the open PR for this specific branch
+          PR_NUMBER=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number' 2>/dev/null || echo "")
 
           if [ -n "$PR_NUMBER" ]; then
             gh pr comment "$PR_NUMBER" --body "## Playwright Test Failure
 
-          The Playwright test run [failed]($RECORDING_URL).
+          The Playwright test run [failed]($RUN_URL).
 
-          Screenshots from the test have been uploaded as a [workflow artifact]($RECORDING_URL#artifacts). Download the \`playwright-screenshots\` artifact to review.
+          Screenshots from the test have been uploaded as a [workflow artifact]($RUN_URL#artifacts). Download the \`playwright-screenshots\` artifact to review.
 
           **Commit:** \`${{ github.sha }}\`
-          **Branch:** \`${{ github.ref_name }}\`"
+          **Branch:** \`$BRANCH\`"
           else
-            echo "No open PR found — skipping comment."
+            echo "No open PR found for branch $BRANCH — skipping comment."
           fi
 
       - name: Fail workflow if tests failed
