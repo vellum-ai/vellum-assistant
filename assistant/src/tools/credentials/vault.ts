@@ -13,7 +13,7 @@ import { upsertCredentialMetadata, deleteCredentialMetadata, getCredentialMetada
 import { validatePolicyInput, toPolicyFromInput } from './policy-validate.js';
 import type { CredentialPolicyInput, CredentialInjectionTemplate } from './policy-types.js';
 import { credentialBroker } from './broker.js';
-import { startOAuth2Flow, type TokenEndpointAuthMethod } from '../../security/oauth2.js';
+import { startOAuth2Flow, prepareOAuth2Flow, type OAuth2FlowResult, type TokenEndpointAuthMethod } from '../../security/oauth2.js';
 import { runPostConnectHook } from './post-connect-hooks.js';
 import { getConfig } from '../../config/loader.js';
 import { getLogger } from '../../util/logger.js';
@@ -141,6 +141,87 @@ function findStoredOAuthField(service: string, fieldNames: string[]): string | u
   }
 
   return undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Shared helper: store OAuth2 tokens + metadata after a successful flow.
+// Used by both the interactive (desktop) and deferred (channel) paths.
+// ---------------------------------------------------------------------------
+
+interface StoreOAuth2TokensParams {
+  service: string;
+  tokens: OAuth2FlowResult['tokens'];
+  grantedScopes: string[];
+  rawTokenResponse: Record<string, unknown>;
+  clientId: string;
+  clientSecret?: string;
+  tokenUrl: string;
+  tokenEndpointAuthMethod?: TokenEndpointAuthMethod;
+  userinfoUrl?: string;
+  allowedTools?: string[];
+  wellKnownInjectionTemplates?: CredentialInjectionTemplate[];
+}
+
+async function storeOAuth2Tokens(params: StoreOAuth2TokensParams): Promise<{ accountInfo?: string }> {
+  const { service, tokens, grantedScopes, rawTokenResponse, clientId, clientSecret, tokenUrl, tokenEndpointAuthMethod, userinfoUrl, allowedTools, wellKnownInjectionTemplates } = params;
+
+  const tokenStored = setSecureKey(`credential:${service}:access_token`, tokens.accessToken);
+  if (!tokenStored) {
+    throw new Error('Failed to store access token in secure storage');
+  }
+
+  const expiresAt = tokens.expiresIn ? Date.now() + tokens.expiresIn * 1000 : null;
+
+  let accountInfo: string | undefined;
+  if (userinfoUrl && grantedScopes.some((s) => s.includes('userinfo'))) {
+    try {
+      const resp = await fetch(userinfoUrl, {
+        headers: { Authorization: `Bearer ${tokens.accessToken}` },
+      });
+      if (resp.ok) {
+        const info = await resp.json() as { email?: string };
+        accountInfo = info.email;
+      }
+    } catch {
+      // Non-fatal
+    }
+  }
+
+  // Persist client credentials in keychain for defense in depth
+  const clientIdStored = setSecureKey(`credential:${service}:client_id`, clientId);
+  if (!clientIdStored) {
+    throw new Error('Failed to store client_id in secure storage');
+  }
+  if (clientSecret) {
+    const clientSecretStored = setSecureKey(`credential:${service}:client_secret`, clientSecret);
+    if (!clientSecretStored) {
+      throw new Error('Failed to store client_secret in secure storage');
+    }
+  }
+
+  upsertCredentialMetadata(service, 'access_token', {
+    allowedTools: allowedTools ?? [],
+    expiresAt,
+    grantedScopes,
+    accountInfo: accountInfo ?? null,
+    oauth2TokenUrl: tokenUrl,
+    oauth2ClientId: clientId,
+    ...(clientSecret ? { oauth2ClientSecret: clientSecret } : {}),
+    ...(tokenEndpointAuthMethod ? { oauth2TokenEndpointAuthMethod: tokenEndpointAuthMethod } : {}),
+    ...(wellKnownInjectionTemplates ? { injectionTemplates: wellKnownInjectionTemplates } : {}),
+  });
+
+  if (tokens.refreshToken) {
+    const refreshStored = setSecureKey(`credential:${service}:refresh_token`, tokens.refreshToken);
+    if (refreshStored) {
+      upsertCredentialMetadata(service, 'refresh_token', {});
+    }
+  }
+
+  // Run any provider-specific post-connect actions (e.g. Slack welcome DM)
+  await runPostConnectHook({ service, rawTokenResponse });
+
+  return { accountInfo };
 }
 
 class CredentialStoreTool implements Tool {
@@ -586,21 +667,68 @@ class CredentialStoreTool implements Tool {
         if (!scopes) return { content: 'Error: scopes is required for oauth2_connect action (no well-known config for this service)', isError: true };
         if (!clientId) return { content: 'Error: client_id is required for oauth2_connect action. Provide it directly or store it first with credential_store.', isError: true };
 
-        if (!context.isInteractive) {
-          return { content: 'Error: oauth2_connect action requires an interactive client session', isError: true };
-        }
-
         try {
           assertMetadataWritable();
         } catch {
           return { content: 'Error: credential metadata file has an unrecognized version; cannot store credentials', isError: true };
         }
 
-        try {
-          const allowedTools = input.allowed_tools as string[] | undefined;
+        const allowedTools = input.allowed_tools as string[] | undefined;
+        const wellKnownInjectionTemplates = wellKnown?.injectionTemplates;
+        const oauthConfig = { authUrl, tokenUrl, scopes, clientId, clientSecret, extraParams, userinfoUrl, tokenEndpointAuthMethod };
+        const storageParams = {
+          service, clientId, clientSecret, tokenUrl, tokenEndpointAuthMethod,
+          userinfoUrl, allowedTools, wellKnownInjectionTemplates,
+        };
 
+        if (!context.isInteractive) {
+          // Channel path: return the auth URL as text for the user to open manually.
+          // Token storage happens asynchronously when the callback arrives.
+          try {
+            const { loadConfig } = await import('../../config/loader.js');
+            const { getPublicBaseUrl } = await import('../../inbound/public-ingress-urls.js');
+            try {
+              getPublicBaseUrl(loadConfig());
+            } catch {
+              return {
+                content: 'Error: oauth2_connect from a non-interactive session requires a public ingress URL. Configure ingress.publicBaseUrl first.',
+                isError: true,
+              };
+            }
+
+            const prepared = await prepareOAuth2Flow(oauthConfig);
+
+            // Fire-and-forget: when the callback arrives, store tokens in the background
+            prepared.completion.then(async (result) => {
+              try {
+                const { accountInfo } = await storeOAuth2Tokens({
+                  ...storageParams,
+                  tokens: result.tokens,
+                  grantedScopes: result.grantedScopes,
+                  rawTokenResponse: result.rawTokenResponse,
+                });
+                log.info({ service, accountInfo }, 'Deferred OAuth2 flow completed — tokens stored');
+              } catch (err) {
+                log.error({ err, service }, 'Failed to store tokens from deferred OAuth2 flow');
+              }
+            }).catch((err) => {
+              log.error({ err, service }, 'Deferred OAuth2 flow failed');
+            });
+
+            return {
+              content: `To connect ${rawService}, open this link and authorize access:\n\n${prepared.authUrl}\n\nOnce you authorize, the connection will be set up automatically. You can verify by asking me to check your inbox.`,
+              isError: false,
+            };
+          } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : 'Unknown error preparing OAuth flow';
+            return { content: `Error connecting "${service}": ${message}`, isError: true };
+          }
+        }
+
+        // Interactive path (desktop): open browser and wait for completion
+        try {
           const { tokens, grantedScopes, rawTokenResponse } = await startOAuth2Flow(
-            { authUrl, tokenUrl, scopes, clientId, clientSecret, extraParams, userinfoUrl, tokenEndpointAuthMethod },
+            oauthConfig,
             {
               openUrl: (url) => {
                 context.sendToClient?.({ type: 'open_url', url, title: `Connect ${service}` });
@@ -609,65 +737,12 @@ class CredentialStoreTool implements Tool {
             wellKnown?.callbackTransport ? { callbackTransport: wellKnown.callbackTransport } : undefined,
           );
 
-          const tokenStored = setSecureKey(`credential:${service}:access_token`, tokens.accessToken);
-          if (!tokenStored) {
-            return { content: 'Error: failed to store access token in secure storage', isError: true };
-          }
-
-          const expiresAt = tokens.expiresIn ? Date.now() + tokens.expiresIn * 1000 : null;
-
-          let accountInfo: string | undefined;
-          if (userinfoUrl && grantedScopes.some((s) => s.includes('userinfo'))) {
-            try {
-              const resp = await fetch(userinfoUrl, {
-                headers: { Authorization: `Bearer ${tokens.accessToken}` },
-              });
-              if (resp.ok) {
-                const info = await resp.json() as { email?: string };
-                accountInfo = info.email;
-              }
-            } catch {
-              // Non-fatal
-            }
-          }
-
-          // Persist client credentials in keychain for defense in depth
-          const clientIdStored = setSecureKey(`credential:${service}:client_id`, clientId);
-          if (!clientIdStored) {
-            return { content: 'Error: failed to store client_id in secure storage', isError: true };
-          }
-          if (clientSecret) {
-            const clientSecretStored = setSecureKey(`credential:${service}:client_secret`, clientSecret);
-            if (!clientSecretStored) {
-              return { content: 'Error: failed to store client_secret in secure storage', isError: true };
-            }
-          }
-
-          // Well-known configs may supply injection templates (e.g. auto-inject Bearer header for
-          // api.notion.com) so that bash/network_mode=proxied works without manual setup.
-          const wellKnownInjectionTemplates = wellKnown?.injectionTemplates;
-
-          upsertCredentialMetadata(service, 'access_token', {
-            allowedTools: allowedTools ?? [],
-            expiresAt,
+          const { accountInfo } = await storeOAuth2Tokens({
+            ...storageParams,
+            tokens,
             grantedScopes,
-            accountInfo: accountInfo ?? null,
-            oauth2TokenUrl: tokenUrl,
-            oauth2ClientId: clientId,
-            ...(clientSecret ? { oauth2ClientSecret: clientSecret } : {}),
-            ...(tokenEndpointAuthMethod ? { oauth2TokenEndpointAuthMethod: tokenEndpointAuthMethod } : {}),
-            ...(wellKnownInjectionTemplates ? { injectionTemplates: wellKnownInjectionTemplates } : {}),
+            rawTokenResponse,
           });
-
-          if (tokens.refreshToken) {
-            const refreshStored = setSecureKey(`credential:${service}:refresh_token`, tokens.refreshToken);
-            if (refreshStored) {
-              upsertCredentialMetadata(service, 'refresh_token', {});
-            }
-          }
-
-          // Run any provider-specific post-connect actions (e.g. Slack welcome DM)
-          await runPostConnectHook({ service, rawTokenResponse });
 
           return {
             content: `Successfully connected "${service}"${accountInfo ? ` as ${accountInfo}` : ''}. The service is now ready to use.`,

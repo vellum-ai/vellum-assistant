@@ -346,6 +346,60 @@ function renderLoopbackPage(message: string, success: boolean): string {
 // Public API
 // ---------------------------------------------------------------------------
 
+export interface OAuth2PreparedFlow {
+  authUrl: string;
+  state: string;
+  /** Resolves when the user completes authorization and tokens are exchanged. */
+  completion: Promise<OAuth2FlowResult>;
+}
+
+/**
+ * Build an OAuth2 auth URL and register a pending callback, without opening
+ * the URL or blocking. Used by channel sessions where the LLM sends the auth
+ * URL directly in chat and the callback arrives asynchronously via the gateway.
+ *
+ * Requires a public ingress URL (gateway transport).
+ */
+export async function prepareOAuth2Flow(
+  config: OAuth2Config,
+): Promise<OAuth2PreparedFlow> {
+  const { loadConfig } = await import('../config/loader.js');
+  const { getOAuthCallbackUrl } = await import('../inbound/public-ingress-urls.js');
+  const { registerPendingCallback } = await import('./oauth-callback-registry.js');
+
+  const appConfig = loadConfig();
+  const redirectUri = getOAuthCallbackUrl(appConfig);
+
+  const codeVerifier = generateCodeVerifier();
+  const codeChallenge = generateCodeChallenge(codeVerifier);
+  const state = generateState();
+
+  const codePromise = new Promise<string>((resolve, reject) => {
+    registerPendingCallback(state, resolve, reject);
+  });
+
+  const authParams = new URLSearchParams({
+    ...config.extraParams,
+    client_id: config.clientId,
+    redirect_uri: redirectUri,
+    response_type: 'code',
+    scope: config.scopes.join(' '),
+    state,
+    code_challenge: codeChallenge,
+    code_challenge_method: 'S256',
+  });
+
+  const authUrl = `${config.authUrl}?${authParams}`;
+
+  const completion = codePromise.then(async (code) => {
+    return await exchangeCodeForTokens(config, code, redirectUri, codeVerifier);
+  });
+
+  log.debug({ transport: 'gateway', state }, 'Prepared deferred OAuth2 flow');
+
+  return { authUrl, state, completion };
+}
+
 /**
  * Run a full OAuth2 authorization code flow with PKCE support.
  *

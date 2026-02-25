@@ -10,11 +10,171 @@ You are helping your user set up Google Cloud OAuth credentials so Gmail and Goo
 
 ## Client Check
 
-If the user is on Telegram (or any non-macOS client without browser automation):
+Determine whether the user has browser automation available (macOS desktop app) or is on a non-interactive channel (Telegram, SMS, etc.).
 
-> "Gmail setup requires browser automation, which is available on the macOS app. Please open the Vellum app on your Mac and ask me to connect Gmail there — I'll handle the rest automatically."
+- **macOS desktop app**: Follow the **Automated Setup** path below (Steps 1-9).
+- **Telegram or other channel** (no browser automation): Follow the **Manual Setup for Channels** path below.
 
-Stop here. Do not attempt a manual walkthrough.
+---
+
+# Path A: Manual Setup for Channels (Telegram, SMS, etc.)
+
+When the user is on Telegram or any non-macOS client, walk them through a text-based setup. No browser automation is used — the user follows links and performs each action manually.
+
+### Channel Step 1: Confirm and Explain
+
+Tell the user:
+
+> **Setting up Gmail & Calendar from Telegram**
+>
+> Since I can't automate the browser from here, I'll walk you through each step with direct links. You'll need:
+> 1. A Google account with access to Google Cloud Console
+> 2. About 5 minutes
+>
+> Ready to start?
+
+If the user declines, acknowledge and stop.
+
+### Channel Step 2: Create a Google Cloud Project
+
+Tell the user:
+
+> **Step 1: Create a Google Cloud project**
+>
+> Open this link to create a new project:
+> https://console.cloud.google.com/projectcreate
+>
+> Set the project name to **"Vellum Assistant"** and click **Create**.
+>
+> Let me know when it's done (or if you already have a project you'd like to use — just tell me the project ID).
+
+Wait for confirmation. Note the project ID for subsequent steps.
+
+### Channel Step 3: Enable APIs
+
+Tell the user:
+
+> **Step 2: Enable Gmail and Calendar APIs**
+>
+> Open each link below and click **Enable**:
+>
+> 1. Gmail API: `https://console.cloud.google.com/apis/library/gmail.googleapis.com?project=PROJECT_ID`
+> 2. Calendar API: `https://console.cloud.google.com/apis/library/calendar-json.googleapis.com?project=PROJECT_ID`
+>
+> Let me know when both are enabled.
+
+(Substitute the actual project ID into the URLs.)
+
+### Channel Step 4: Configure OAuth Consent Screen
+
+Tell the user:
+
+> **Step 3: Configure the OAuth consent screen**
+>
+> Open: `https://console.cloud.google.com/apis/credentials/consent?project=PROJECT_ID`
+>
+> 1. Select **"External"** user type, click **Create**
+> 2. Fill in:
+>    - App name: **Vellum Assistant**
+>    - User support email: **your email**
+>    - Developer contact email: **your email**
+> 3. Click **Save and Continue**
+> 4. On the Scopes page, click **Add or Remove Scopes** and add these:
+>    - `https://www.googleapis.com/auth/gmail.readonly`
+>    - `https://www.googleapis.com/auth/gmail.modify`
+>    - `https://www.googleapis.com/auth/gmail.send`
+>    - `https://www.googleapis.com/auth/calendar.readonly`
+>    - `https://www.googleapis.com/auth/calendar.events`
+>    - `https://www.googleapis.com/auth/userinfo.email`
+>    - Click **Update**, then **Save and Continue**
+> 5. On the Test users page, add **your email**, click **Save and Continue**
+> 6. On the Summary page, click **Back to Dashboard**
+>
+> Let me know when the consent screen is configured.
+
+### Channel Step 5: Create OAuth Credentials (Web Application)
+
+Tell the user:
+
+> **Step 4: Create OAuth credentials**
+>
+> Open: `https://console.cloud.google.com/apis/credentials?project=PROJECT_ID`
+>
+> 1. Click **+ Create Credentials** → **OAuth client ID**
+> 2. Application type: Select **"Web application"** (not Desktop app)
+> 3. Name: **Vellum Assistant**
+> 4. Under **Authorized redirect URIs**, click **Add URI** and enter:
+>    `GATEWAY_OAUTH_CALLBACK_URL`
+> 5. Click **Create**
+>
+> A dialog will show your **Client ID** and **Client Secret**. Copy both values — you'll need them in the next step.
+
+(Substitute the actual gateway OAuth callback URL. This is obtained from `getOAuthCallbackUrl(loadConfig())` — the skill should compute and insert this URL.)
+
+**Important:** Channel users must use **"Web application"** credentials (not Desktop app) because the OAuth callback goes through the gateway's public URL, not localhost.
+
+### Channel Step 6: Store Credentials
+
+Tell the user to send the Client ID first:
+
+> **Step 5: Store your credentials**
+>
+> Please send me the **Client ID** from the dialog (it looks like `123456789-xxxxx.apps.googleusercontent.com`).
+
+When the user provides the Client ID, store it:
+
+```
+credential_store store:
+  service: "integration:gmail"
+  field: "client_id"
+  value: "<the value the user sent>"
+```
+
+Then ask for the Client Secret:
+
+> Now send me the **Client Secret** (it starts with `GOCSPX-...`).
+
+When the user provides it, store it:
+
+```
+credential_store store:
+  service: "integration:gmail"
+  field: "client_secret"
+  value: "<the value the user sent>"
+```
+
+**Note:** These values are stored securely in the vault and are not logged or exposed after storage. However, since the user sent them in chat, advise them that the credentials were visible in the conversation and they can revoke/regenerate them in GCP if concerned.
+
+### Channel Step 7: Authorize
+
+Tell the user:
+
+> **Step 6: Authorize access**
+>
+> I'll now generate an authorization link for you.
+
+Use `credential_store` with:
+
+```
+action: "oauth2_connect"
+service: "integration:gmail"
+```
+
+This will return an auth URL (since the session is non-interactive). Send the URL to the user:
+
+> Open this link to authorize Vellum to access your Gmail and Calendar. After you click **Allow**, the connection will be set up automatically.
+
+**If the user sees a "This app isn't verified" warning:** Tell them this is normal for apps in testing mode. Click "Advanced" then "Go to Vellum Assistant (unsafe)" to proceed.
+
+### Channel Step 8: Done!
+
+After the user authorizes (they'll come back and say so, or you can suggest they verify):
+
+> **Gmail and Calendar are connected!** Try asking me to check your inbox or show your upcoming events to verify everything is working.
+
+---
+
+# Path B: Automated Setup (macOS Desktop App)
 
 ## Step 1: Single Upfront Confirmation
 
