@@ -217,6 +217,8 @@ public final class ChatViewModel: ObservableObject {
     public var pendingVoiceMessage: Bool = false
     /// Called when a voice-triggered assistant response completes, with the response text.
     public var onVoiceResponseComplete: ((String) -> Void)?
+    /// Called when any assistant response completes, with a summary of the response text.
+    public var onResponseComplete: ((String) -> Void)?
     /// Called with each streaming text delta during a voice-triggered response, for real-time TTS.
     public var onVoiceTextDelta: ((String) -> Void)?
     /// When true, messages are prefixed with a concise-response instruction for voice conversations.

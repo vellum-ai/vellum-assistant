@@ -18,6 +18,8 @@ final class QuickInputTextModel: ObservableObject {
     /// When set, the user has selected an existing thread to continue.
     @Published var selectedThreadId: UUID?
     @Published var selectedThreadTitle: String?
+    /// Whether to send a notification when the assistant response completes.
+    @Published var notifyOnComplete: Bool = UserDefaults.standard.object(forKey: "quickInputNotifyOnComplete") as? Bool ?? true
 }
 
 /// A borderless, floating NSPanel that hosts the Quick Input text field.
@@ -43,12 +45,17 @@ final class QuickInputWindow {
     var onSubmitToThread: ((String, Data?) -> Void)?
     /// Callback invoked when the user taps the microphone button.
     var onMicrophoneToggle: (() -> Void)?
+    /// Callback invoked when the user toggles the notification bell.
+    var onNotificationToggle: (() -> Void)?
     /// Callback invoked when the user selects an existing thread (navigates to it).
     var onSelectThread: ((UUID) -> Void)?
     /// Recent threads to show in the dropdown.
     var recentThreads: [QuickInputThread] = []
     /// When true, show a screen recording permission prompt below the bar.
     var showScreenPermissionPrompt = false
+
+    /// Whether to send a notification when the assistant response completes.
+    var notifyOnComplete: Bool { textModel.notifyOnComplete }
 
     /// Shared text model for voice input injection.
     private let textModel = QuickInputTextModel()
@@ -164,7 +171,7 @@ final class QuickInputWindow {
                 } else {
                     self?.onSubmit?(message, self?.attachedImageData)
                 }
-                self?.dismiss(restorePreviousApp: false)
+                self?.dismiss(restorePreviousApp: true)
             },
             onDismiss: { [weak self] in
                 self?.dismiss()
@@ -184,6 +191,11 @@ final class QuickInputWindow {
                 self?.dismiss()
             },
             onMicrophoneToggle: onMicrophoneToggle,
+            onNotificationToggle: { [weak self] in
+                guard let self else { return }
+                self.textModel.notifyOnComplete.toggle()
+                UserDefaults.standard.set(self.textModel.notifyOnComplete, forKey: "quickInputNotifyOnComplete")
+            },
             recentThreads: recentThreads,
             attachedImage: attachedImage,
             showScreenPermissionPrompt: showScreenPermissionPrompt
