@@ -299,8 +299,8 @@ export async function startGateway(assistantId?: string): Promise<string> {
   // Resolve the default assistant ID for the gateway. Prefer the explicitly
   // provided assistantId (from hatch), then env override, then lockfile.
   const resolvedAssistantId =
-    process.env.GATEWAY_DEFAULT_ASSISTANT_ID
-    || assistantId
+    assistantId
+    || process.env.GATEWAY_DEFAULT_ASSISTANT_ID
     || loadLatestAssistant()?.assistantId;
 
   // Read the bearer token so the gateway can authenticate proxied requests
@@ -359,6 +359,8 @@ export async function startGateway(assistantId?: string): Promise<string> {
 
   if (process.env.GATEWAY_UNMAPPED_POLICY) {
     gatewayEnv.GATEWAY_UNMAPPED_POLICY = process.env.GATEWAY_UNMAPPED_POLICY;
+  } else {
+    gatewayEnv.GATEWAY_UNMAPPED_POLICY = "default";
   }
 
   if (resolvedAssistantId) {

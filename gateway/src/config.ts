@@ -138,7 +138,7 @@ export function loadConfig(): GatewayConfig {
   const defaultAssistantId =
     process.env.GATEWAY_DEFAULT_ASSISTANT_ID || undefined;
 
-  const unmappedPolicyRaw = process.env.GATEWAY_UNMAPPED_POLICY || "default";
+  const unmappedPolicyRaw = process.env.GATEWAY_UNMAPPED_POLICY || "reject";
   if (unmappedPolicyRaw !== "reject" && unmappedPolicyRaw !== "default") {
     throw new Error(
       `GATEWAY_UNMAPPED_POLICY must be "reject" or "default", got "${unmappedPolicyRaw}"`,
