@@ -103,6 +103,8 @@ export async function run(
     const importChannelMetadata = {
       userMessageChannel: 'vellum',
       assistantMessageChannel: 'vellum',
+      userMessageInterface: 'vellum',
+      assistantMessageInterface: 'vellum',
     } as const;
 
     for (const msg of conv.messages) {

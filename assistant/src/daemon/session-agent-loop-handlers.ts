@@ -8,7 +8,7 @@
 
 import type pino from 'pino';
 import type { ContentBlock, ImageContent } from '../providers/types.js';
-import type { TurnChannelContext } from '../channels/types.js';
+import type { TurnChannelContext, TurnInterfaceContext } from '../channels/types.js';
 import type { ServerMessage } from './ipc-protocol.js';
 import type { AgentEvent } from '../agent/loop.js';
 import type { AgentLoopSessionContext } from './session-agent-loop.js';
@@ -60,6 +60,7 @@ export interface EventHandlerDeps {
   readonly shouldGenerateTitle: boolean;
   readonly rlog: pino.Logger;
   readonly turnChannelContext: TurnChannelContext;
+  readonly turnInterfaceContext: TurnInterfaceContext;
 }
 
 // ── Factory ──────────────────────────────────────────────────────────
@@ -281,6 +282,8 @@ export function handleMessageComplete(
       ...provenanceFromGuardianContext(deps.ctx.guardianContext),
       userMessageChannel: deps.turnChannelContext.userMessageChannel,
       assistantMessageChannel: deps.turnChannelContext.assistantMessageChannel,
+      userMessageInterface: deps.turnInterfaceContext.userMessageInterface,
+      assistantMessageInterface: deps.turnInterfaceContext.assistantMessageInterface,
     };
     conversationStore.addMessage(
       deps.ctx.conversationId,
@@ -324,6 +327,8 @@ export function handleMessageComplete(
     ...provenanceFromGuardianContext(deps.ctx.guardianContext),
     userMessageChannel: deps.turnChannelContext.userMessageChannel,
     assistantMessageChannel: deps.turnChannelContext.assistantMessageChannel,
+    userMessageInterface: deps.turnInterfaceContext.userMessageInterface,
+    assistantMessageInterface: deps.turnInterfaceContext.assistantMessageInterface,
   };
   const assistantMsg = conversationStore.addMessage(
     deps.ctx.conversationId,

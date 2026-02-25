@@ -174,7 +174,7 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
           macConversationId,
           'assistant',
           JSON.stringify([{ type: 'text', text: guardianCopy.initialMessage }]),
-          { userMessageChannel: 'voice', assistantMessageChannel: 'vellum' },
+          { userMessageChannel: 'voice', assistantMessageChannel: 'vellum', userMessageInterface: 'voice', assistantMessageInterface: 'vellum' },
         );
 
         // Emit IPC event for the vellum client with the server-created conversation

@@ -186,6 +186,9 @@ export function drainQueue(session: ProcessSessionContext, reason: QueueDrainRea
         ...(queuedTurnCtx
           ? { userMessageChannel: queuedTurnCtx.userMessageChannel, assistantMessageChannel: queuedTurnCtx.assistantMessageChannel }
           : {}),
+        ...(queuedInterfaceCtx
+          ? { userMessageInterface: queuedInterfaceCtx.userMessageInterface, assistantMessageInterface: queuedInterfaceCtx.assistantMessageInterface }
+          : {}),
       };
       const userMsg = createUserMessage(next.content, next.attachments);
       conversationStore.addMessage(
@@ -323,7 +326,7 @@ export async function processMessage(
   if (guardianDelivery) {
     const guardianRequest = getGuardianActionRequest(guardianDelivery.requestId);
     if (guardianRequest && guardianRequest.status === 'pending') {
-      const guardianChannelMeta = { userMessageChannel: 'vellum' as const, assistantMessageChannel: 'vellum' as const, provenanceActorRole: 'guardian' as const };
+      const guardianChannelMeta = { userMessageChannel: 'vellum' as const, assistantMessageChannel: 'vellum' as const, userMessageInterface: 'vellum' as const, assistantMessageInterface: 'vellum' as const, provenanceActorRole: 'guardian' as const };
       const userMsg = createUserMessage(content, attachments);
       const persisted = conversationStore.addMessage(
         session.conversationId,
@@ -379,11 +382,15 @@ export async function processMessage(
   // so that a failed write never leaves an unpersisted message in memory.
   if (slashResult.kind === 'unknown') {
     const pmTurnCtx = session.getTurnChannelContext();
+    const pmInterfaceCtx = session.getTurnInterfaceContext();
     const pmProvenance = provenanceFromGuardianContext(session.guardianContext);
     const pmChannelMeta = {
       ...pmProvenance,
       ...(pmTurnCtx
         ? { userMessageChannel: pmTurnCtx.userMessageChannel, assistantMessageChannel: pmTurnCtx.assistantMessageChannel }
+        : {}),
+      ...(pmInterfaceCtx
+        ? { userMessageInterface: pmInterfaceCtx.userMessageInterface, assistantMessageInterface: pmInterfaceCtx.assistantMessageInterface }
         : {}),
     };
     const userMsg = createUserMessage(content, attachments);

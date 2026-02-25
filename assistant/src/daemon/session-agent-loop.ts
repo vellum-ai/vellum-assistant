@@ -266,6 +266,8 @@ export async function runAgentLoopImpl(
         ...provenanceFromGuardianContext(ctx.guardianContext),
         userMessageChannel: capturedTurnChannelContext.userMessageChannel,
         assistantMessageChannel: capturedTurnChannelContext.assistantMessageChannel,
+        userMessageInterface: capturedTurnInterfaceContext.userMessageInterface,
+        assistantMessageInterface: capturedTurnInterfaceContext.assistantMessageInterface,
       };
       const assistantMessage = createAssistantMessage(memoryResult.conflictClarification);
       conversationStore.addMessage(
@@ -375,6 +377,7 @@ export async function runAgentLoopImpl(
       shouldGenerateTitle,
       rlog,
       turnChannelContext: capturedTurnChannelContext,
+      turnInterfaceContext: capturedTurnInterfaceContext,
     };
     const eventHandler = (event: AgentEvent) => dispatchAgentEvent(state, deps, event);
 
@@ -564,6 +567,8 @@ export async function runAgentLoopImpl(
         ...provenanceFromGuardianContext(ctx.guardianContext),
         userMessageChannel: capturedTurnChannelContext.userMessageChannel,
         assistantMessageChannel: capturedTurnChannelContext.assistantMessageChannel,
+        userMessageInterface: capturedTurnInterfaceContext.userMessageInterface,
+        assistantMessageInterface: capturedTurnInterfaceContext.assistantMessageInterface,
       };
       conversationStore.addMessage(
         ctx.conversationId,
@@ -587,6 +592,8 @@ export async function runAgentLoopImpl(
         ...provenanceFromGuardianContext(ctx.guardianContext),
         userMessageChannel: capturedTurnChannelContext.userMessageChannel,
         assistantMessageChannel: capturedTurnChannelContext.assistantMessageChannel,
+        userMessageInterface: capturedTurnInterfaceContext.userMessageInterface,
+        assistantMessageInterface: capturedTurnInterfaceContext.assistantMessageInterface,
       };
       const errorAssistantMessage = createAssistantMessage(state.providerErrorUserMessage);
       conversationStore.addMessage(
