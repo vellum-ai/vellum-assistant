@@ -215,6 +215,14 @@ Channel approval flows use `requestId` (not `runId`) as the primary identifier:
 - Do NOT create run status tracking (queued/running/completed/failed) — clients observe progress via SSE events.
 - Do NOT use `runId` as an identifier for approval flows — use `requestId`.
 
+## HTTP-First for New Endpoints
+
+New configuration and control endpoints MUST be exposed over HTTP on the runtime server (`assistant/src/runtime/http-server.ts`), not as IPC-only message types. The runtime HTTP server is the canonical API surface — IPC is a legacy transport being phased out.
+
+Existing IPC-only handlers should be migrated to HTTP when touched. The pattern: extract business logic into a shared function, add an HTTP route handler in `assistant/src/runtime/routes/`, keep the IPC handler as a thin wrapper that calls the same logic.
+
+When writing skills that need to call daemon configuration endpoints, use `curl` with the runtime HTTP API (bearer-authenticated via `~/.vellum/http-token`) rather than describing IPC socket protocol details. The assistant already knows how to use `curl`.
+
 ## Error Handling Conventions
 
 Use the right error signaling mechanism for the situation. The codebase has three patterns — pick the one that matches the failure mode:
