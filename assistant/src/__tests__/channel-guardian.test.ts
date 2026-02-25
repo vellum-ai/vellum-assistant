@@ -2771,12 +2771,12 @@ describe('outbound SMS verification', () => {
     expect(alreadySms).toContain('already verified');
   });
 
-  test('start_outbound rejects non-SMS channels', () => {
+  test('start_outbound rejects unsupported channels', () => {
     const { ctx, lastResponse } = createMockCtx();
     handleGuardianVerification({
       type: 'guardian_verification',
       action: 'start_outbound',
-      channel: 'telegram',
+      channel: 'slack',
       assistantId: 'self',
       destination: '@some_user',
     }, mockSocket, ctx);

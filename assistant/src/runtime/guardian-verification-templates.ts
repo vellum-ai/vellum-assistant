@@ -63,7 +63,7 @@ const templates: Record<GuardianVerifyTemplateKey, (vars: GuardianVerifyTemplate
 
   [GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_RESEND]: (vars) => {
     const prefix = vars.assistantName ? `[${vars.assistantName}] ` : '';
-    return `${prefix}Your verification code is: ${vars.code}. Reply with: /guardian_verify ${vars.code} (resent)`;
+    return `${prefix}Your verification code is: ${vars.code}. (resent)\nReply with: /guardian_verify ${vars.code}`;
   },
 };
 

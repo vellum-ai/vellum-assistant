@@ -230,10 +230,19 @@ export async function handleChannelInbound(
         }
       }
 
-      // Bootstrap deep-link commands bypass ACL — the user hasn't been
-      // verified yet and needs to complete the bootstrap handshake first.
+      // Bootstrap deep-link commands bypass ACL only when the token
+      // resolves to a real pending_bootstrap session. Without this check,
+      // any `/start gv_<garbage>` would bypass the not_a_member gate and
+      // fall through to normal /start processing.
       if (isBootstrapCommand) {
-        denyNonMember = false;
+        const bootstrapPayload = (rawCommandIntentForAcl as Record<string, unknown>).payload as string;
+        const bootstrapTokenForAcl = bootstrapPayload.slice(3); // strip 'gv_' prefix
+        const bootstrapSessionForAcl = resolveBootstrapToken(canonicalAssistantId, sourceChannel, bootstrapTokenForAcl);
+        if (bootstrapSessionForAcl && bootstrapSessionForAcl.status === 'pending_bootstrap') {
+          denyNonMember = false;
+        } else {
+          log.info({ sourceChannel, hasValidBootstrapSession: false }, 'Ingress ACL: bootstrap command bypass denied — no valid pending_bootstrap session');
+        }
       }
 
       if (denyNonMember) {
