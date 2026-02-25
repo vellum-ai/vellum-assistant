@@ -30,6 +30,7 @@ export type TitleOrigin =
   | 'task'
   | 'watcher'
   | 'subagent'
+  | 'sequence'
   | 'heartbeat'
   | 'ipc'
   | 'task_submit'
