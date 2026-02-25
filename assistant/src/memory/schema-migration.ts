@@ -25,4 +25,5 @@ export {
   migrateRemainingTableIndexes,
   migrateAddOriginInterface,
   migrateMemoryItemSourcesIndexes,
+  migrateEmbeddingVectorBlob,
 } from './migrations/index.js';

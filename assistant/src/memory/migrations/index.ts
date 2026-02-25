@@ -27,6 +27,7 @@ export { migrateRenameChannelToVellum } from './020-rename-macos-ios-channel-to-
 export { migrateConversationStatusIndexes } from './021-conversation-status-indexes.js';
 export { migrateAddOriginInterface } from './022-add-origin-interface.js';
 export { migrateMemoryItemSourcesIndexes } from './023-memory-item-sources-indexes.js';
+export { migrateEmbeddingVectorBlob } from './024-embedding-vector-blob.js';
 export { createCoreTables } from './100-core-tables.js';
 export { createWatchersAndLogsTables } from './101-watchers-and-logs.js';
 export { addCoreColumns } from './102-alter-table-columns.js';
