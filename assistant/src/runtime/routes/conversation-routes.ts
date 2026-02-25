@@ -329,6 +329,10 @@ export async function handleSendMessage(
     }
 
     // Session is idle — persist and fire agent loop immediately
+    session.setTurnChannelContext({
+      userMessageChannel: sourceChannel,
+      assistantMessageChannel: sourceChannel,
+    });
     session.setTurnInterfaceContext({
       userMessageInterface: sourceInterface,
       assistantMessageInterface: sourceInterface,
