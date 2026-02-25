@@ -674,6 +674,8 @@ struct MainWindowView: View {
             daemonClient.startSSE()
         }
         .onDisappear {
+            copyThreadConfirmationTimer?.cancel()
+            copyThreadConfirmationTimer = nil
             daemonClient.stopSSE()
         }
         .onReceive(NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)) { _ in
