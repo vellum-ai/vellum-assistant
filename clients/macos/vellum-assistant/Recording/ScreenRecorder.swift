@@ -89,10 +89,6 @@ final class ScreenRecorder: NSObject {
 
         let shareable = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
 
-        // Exclude our own app's windows from capture
-        let selfBundleId = Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant"
-        let excludedApps = shareable.applications.filter { $0.bundleIdentifier == selfBundleId }
-
         let filter: SCContentFilter
         let captureWidth: Int
         let captureHeight: Int
@@ -118,7 +114,7 @@ final class ScreenRecorder: NSObject {
                 }
                 targetDisplay = mainDisplay
             }
-            filter = SCContentFilter(display: targetDisplay, excludingApplications: excludedApps, exceptingWindows: [])
+            filter = SCContentFilter(display: targetDisplay, excludingApplications: [], exceptingWindows: [])
             captureWidth = Int(targetDisplay.width) * 2  // Retina
             captureHeight = Int(targetDisplay.height) * 2
         }
