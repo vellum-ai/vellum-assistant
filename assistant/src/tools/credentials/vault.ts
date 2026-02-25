@@ -51,6 +51,7 @@ const WELL_KNOWN_OAUTH: Record<string, WellKnownOAuthConfig> = {
       'https://www.googleapis.com/auth/calendar.readonly',
       'https://www.googleapis.com/auth/calendar.events',
       'https://www.googleapis.com/auth/userinfo.email',
+      'https://www.googleapis.com/auth/contacts.readonly',
     ],
     userinfoUrl: 'https://www.googleapis.com/oauth2/v2/userinfo',
     extraParams: { access_type: 'offline', prompt: 'consent' },
