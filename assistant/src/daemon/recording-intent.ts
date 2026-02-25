@@ -45,6 +45,10 @@ const RECORDING_CLAUSE_PATTERNS: RegExp[] = [
   /\brecord\s+(my\s+|the\s+)?screen\s+while\b/i,
 ];
 
+/** Common polite/filler words stripped before checking intent-only status. */
+const FILLER_PATTERN =
+  /\b(please|pls|plz|can\s+you|could\s+you|would\s+you|now|right\s+now|thanks|thank\s+you|thx|ty|for\s+me|ok(ay)?|hey|hi|just)\b/gi;
+
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 /**
@@ -66,9 +70,11 @@ export function isRecordingOnly(taskText: string): boolean {
 
   // Strip the recording clause and check if anything substantive remains
   const stripped = stripRecordingIntent(taskText);
-  // If after removing the recording clause, only whitespace/punctuation remains,
-  // this is a recording-only prompt.
-  return stripped.replace(/[.,;!?\s]+/g, '').length === 0;
+  // Also remove common polite/filler words that don't change the intent
+  const withoutFillers = stripped.replace(FILLER_PATTERN, '');
+  // If after removing the recording clause and fillers, only whitespace/punctuation
+  // remains, this is a recording-only prompt.
+  return withoutFillers.replace(/[.,;!?\s]+/g, '').length === 0;
 }
 
 /**
@@ -117,5 +123,7 @@ export function isStopRecordingOnly(taskText: string): boolean {
   if (!detectStopRecordingIntent(taskText)) return false;
 
   const stripped = stripStopRecordingIntent(taskText);
-  return stripped.replace(/[.,;!?\s]+/g, '').length === 0;
+  // Also remove common polite/filler words that don't change the intent
+  const withoutFillers = stripped.replace(FILLER_PATTERN, '');
+  return withoutFillers.replace(/[.,;!?\s]+/g, '').length === 0;
 }
