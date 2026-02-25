@@ -82,7 +82,7 @@ export async function ssh(): Promise<void> {
       { stdio: "inherit" },
     );
   } else if (cloud === "vellum") {
-    console.error("SSH to Vellum-managed instances is not supported from the assistant CLI. Use `vel ssh` instead.");
+    console.error("SSH to Vellum-managed instances is not yet supported.");
     process.exit(1);
   } else if (cloud === "custom") {
     const host = extractHostFromUrl(entry.runtimeUrl);
