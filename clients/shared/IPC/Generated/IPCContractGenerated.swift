@@ -4326,8 +4326,12 @@ public struct IPCTelegramConfigResponse: Codable, Sendable {
     public let hasWebhookSecret: Bool
     public let lastError: String?
     public let error: String?
+    /// Names of bot commands that were registered (present after set_commands or setup).
+    public let commandsRegistered: [String]?
+    /// Non-fatal warning (e.g. commands registration failed during setup but token was configured).
+    public let warning: String?
 
-    public init(type: String, success: Bool, hasBotToken: Bool, botUsername: String? = nil, connected: Bool, hasWebhookSecret: Bool, lastError: String? = nil, error: String? = nil) {
+    public init(type: String, success: Bool, hasBotToken: Bool, botUsername: String? = nil, connected: Bool, hasWebhookSecret: Bool, lastError: String? = nil, error: String? = nil, commandsRegistered: [String]? = nil, warning: String? = nil) {
         self.type = type
         self.success = success
         self.hasBotToken = hasBotToken
@@ -4336,6 +4340,8 @@ public struct IPCTelegramConfigResponse: Codable, Sendable {
         self.hasWebhookSecret = hasWebhookSecret
         self.lastError = lastError
         self.error = error
+        self.commandsRegistered = commandsRegistered
+        self.warning = warning
     }
 }
 
