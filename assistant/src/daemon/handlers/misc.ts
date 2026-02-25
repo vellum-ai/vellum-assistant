@@ -10,7 +10,7 @@ import { checkIngressForSecrets } from '../../security/secret-ingress.js';
 import { parseSlashCandidate } from '../../skills/slash-commands.js';
 import { classifySessionError, buildSessionErrorMessage } from '../session-error.js';
 import { resolveBlobPath, deleteBlob, isValidBlobId } from '../ipc-blob-store.js';
-import { GENERATING_TITLE } from '../../memory/conversation-title-service.js';
+import { GENERATING_TITLE, queueGenerateConversationTitle } from '../../memory/conversation-title-service.js';
 import type {
   TaskSubmit,
   SuggestionRequest,
@@ -93,6 +93,10 @@ export async function handleTaskSubmit(
     } else {
       // Create text QA session and immediately start processing
       const conversation = conversationStore.createConversation(GENERATING_TITLE);
+      queueGenerateConversationTitle({
+        conversationId: conversation.id,
+        context: { origin: 'task_submit', triggerTextSnippet: msg.task },
+      });
       ctx.socketToSession.set(socket, conversation.id);
       const session = await ctx.getOrCreateSession(conversation.id, socket, true);
 
