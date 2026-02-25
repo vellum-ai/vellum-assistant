@@ -4,7 +4,7 @@
 import { getOrCreateConversation } from '../../memory/conversation-key-store.js';
 import * as attachmentsStore from '../../memory/attachments-store.js';
 import * as runsStore from '../../memory/runs-store.js';
-import { CHANNEL_IDS, parseChannelId } from '../../channels/types.js';
+import { CHANNEL_IDS, INTERFACE_IDS, parseChannelId, parseInterfaceId } from '../../channels/types.js';
 import { addRule } from '../../permissions/trust-store.js';
 import { getTool } from '../../tools/registry.js';
 import { getLogger } from '../../util/logger.js';
@@ -21,6 +21,7 @@ export async function handleCreateRun(
     content?: string;
     attachmentIds?: string[];
     sourceChannel?: string;
+    interface?: string;
   };
 
   const { conversationKey, content, attachmentIds } = body;
@@ -32,6 +33,18 @@ export async function handleCreateRun(
   if (!sourceChannel) {
     return Response.json(
       { error: `Invalid sourceChannel: ${body.sourceChannel}. Valid values: ${CHANNEL_IDS.join(', ')}` },
+      { status: 400 },
+    );
+  }
+
+  if (!body.interface || typeof body.interface !== 'string') {
+    return Response.json({ error: 'interface is required' }, { status: 400 });
+  }
+  const sourceInterface = parseInterfaceId(body.interface);
+
+  if (!sourceInterface) {
+    return Response.json(
+      { error: `Invalid interface: ${body.interface}. Valid values: ${INTERFACE_IDS.join(', ')}` },
       { status: 400 },
     );
   }
@@ -70,7 +83,7 @@ export async function handleCreateRun(
       mapping.conversationId,
       content ?? '',
       hasAttachments ? attachmentIds : undefined,
-      { sourceChannel },
+      { sourceChannel, sourceInterface },
     );
     return Response.json({
       id: run.id,

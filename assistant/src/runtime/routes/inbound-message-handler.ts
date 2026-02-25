@@ -3,8 +3,8 @@
  * messages from all channels. Handles ingress ACL, edits, guardian
  * verification, guardian action answers, and approval interception.
  */
-import { isChannelId, CHANNEL_IDS } from '../../channels/types.js';
-import type { ChannelId } from '../../channels/types.js';
+import { isChannelId, CHANNEL_IDS, parseInterfaceId } from '../../channels/types.js';
+import type { ChannelId, InterfaceId } from '../../channels/types.js';
 import * as conversationStore from '../../memory/conversation-store.js';
 import * as attachmentsStore from '../../memory/attachments-store.js';
 import * as channelDeliveryStore from '../../memory/channel-delivery-store.js';
@@ -87,6 +87,7 @@ export async function handleChannelInbound(
 
   const body = await req.json() as {
     sourceChannel?: string;
+    interface?: string;
     externalChatId?: string;
     externalMessageId?: string;
     content?: string;
@@ -123,6 +124,11 @@ export async function handleChannelInbound(
   }
 
   const sourceChannel = body.sourceChannel;
+
+  // Validate and narrow the interface field. Fall back to sourceChannel for
+  // backward compatibility with gateway versions that don't send `interface`.
+  const sourceInterface: InterfaceId = parseInterfaceId(body.interface) ?? sourceChannel;
+
   if (!externalChatId || typeof externalChatId !== 'string') {
     return Response.json({ error: 'externalChatId is required' }, { status: 400 });
   }
@@ -741,6 +747,7 @@ export async function handleChannelInbound(
         attachmentIds: hasAttachments ? attachmentIds : undefined,
         externalChatId,
         sourceChannel,
+        sourceInterface,
         replyCallbackUrl,
         bearerToken,
         guardianCtx,
@@ -761,6 +768,7 @@ export async function handleChannelInbound(
         content: content ?? '',
         attachmentIds: hasAttachments ? attachmentIds : undefined,
         sourceChannel,
+        sourceInterface,
         externalChatId,
         guardianCtx,
         metadataHints,
@@ -792,6 +800,7 @@ interface BackgroundProcessingParams {
   content: string;
   attachmentIds?: string[];
   sourceChannel: ChannelId;
+  sourceInterface: InterfaceId;
   externalChatId: string;
   guardianCtx: GuardianContext;
   metadataHints: string[];
@@ -811,6 +820,7 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
     content,
     attachmentIds,
     sourceChannel,
+    sourceInterface,
     externalChatId,
     guardianCtx,
     metadataHints,
@@ -842,7 +852,7 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
           ...(cmdIntent ? { commandIntent: cmdIntent } : {}),
         },
         sourceChannel,
-        sourceChannel, // Channel inbound: interface matches channel
+        sourceInterface,
       );
       channelDeliveryStore.linkMessage(eventId, userMessageId);
       channelDeliveryStore.markProcessed(eventId);
@@ -875,6 +885,7 @@ interface ApprovalProcessingParams {
   attachmentIds?: string[];
   externalChatId: string;
   sourceChannel: ChannelId;
+  sourceInterface: InterfaceId;
   replyCallbackUrl: string;
   bearerToken?: string;
   guardianCtx: GuardianContext;
@@ -907,6 +918,7 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
     attachmentIds,
     externalChatId,
     sourceChannel,
+    sourceInterface,
     replyCallbackUrl,
     bearerToken,
     guardianCtx,
@@ -939,6 +951,7 @@ function processChannelMessageWithApprovals(params: ApprovalProcessingParams): v
         {
           ...((isNonGuardian || isUnverifiedChannel) ? { forceStrictSideEffects: true } : {}),
           sourceChannel,
+          sourceInterface,
           hints: metadataHints.length > 0 ? metadataHints : undefined,
           uxBrief: metadataUxBrief,
           assistantId,
