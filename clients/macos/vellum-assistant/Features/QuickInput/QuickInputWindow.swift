@@ -218,7 +218,7 @@ final class QuickInputWindow {
             Task { @MainActor in
                 // Don't dismiss while screen capture is in progress
                 guard self?.isCapturingScreen != true else { return }
-                self?.dismiss(restorePreviousApp: true)
+                self?.dismiss(restorePreviousApp: false)
             }
         }
 
