@@ -139,7 +139,7 @@ export function setRelayBroadcast(fn: (msg: import('../daemon/ipc-contract.js').
 /**
  * Manages a single WebSocket connection for one call.
  */
-export type RelayConnectionState = 'connected' | 'verification_pending';
+export type RelayConnectionState = 'connected' | 'verification_pending' | 'disconnecting';
 
 export class RelayConnection {
   private ws: ServerWebSocket<RelayWebSocketData>;
@@ -653,6 +653,10 @@ export class RelayConnection {
       if (isOutbound) {
         // Outbound guardian verification: play success and hang up.
         // There is no normal conversation to transition to.
+        // Set disconnecting to ignore any further DTMF/speech input
+        // during the brief delay before the session ends.
+        this.connectionState = 'disconnecting';
+
         const successText = composeVerificationVoice(
           GUARDIAN_VERIFY_TEMPLATE_KEYS.VOICE_SUCCESS,
           { codeDigits },
@@ -740,6 +744,10 @@ export class RelayConnection {
   }
 
   private async handlePrompt(msg: RelayPromptMessage): Promise<void> {
+    if (this.connectionState === 'disconnecting') {
+      return;
+    }
+
     if (!msg.last) {
       // Partial transcript, wait for final
       return;
@@ -851,6 +859,10 @@ export class RelayConnection {
   }
 
   private handleDtmf(msg: RelayDtmfMessage): void {
+    if (this.connectionState === 'disconnecting') {
+      return;
+    }
+
     log.info(
       { callSessionId: this.callSessionId, digit: msg.digit },
       'DTMF digit received',

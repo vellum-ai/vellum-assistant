@@ -594,6 +594,8 @@ export async function startGuardianVerificationCall(
     return { ok: false, error: 'phone_number must be in E.164 format', status: 400 };
   }
 
+  let sessionId: string | null = null;
+
   try {
     const config = loadConfig();
     const provider = new TwilioConversationRelayProvider();
@@ -617,6 +619,7 @@ export async function startGuardianVerificationCall(
       toNumber: phoneNumber,
       assistantId,
     });
+    sessionId = session.id;
 
     const webhookUrl = getTwilioVoiceWebhookUrl(config, session.id);
     const statusCallbackUrl = getTwilioStatusCallbackUrl(config);
@@ -642,6 +645,15 @@ export async function startGuardianVerificationCall(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err, phoneNumber, guardianVerificationSessionId }, 'Failed to initiate guardian verification call');
+
+    if (sessionId) {
+      updateCallSession(sessionId, {
+        status: 'failed',
+        endedAt: Date.now(),
+        lastError: msg,
+      });
+    }
+
     return { ok: false, error: `Error initiating guardian verification call: ${msg}`, status: 500 };
   }
 }
