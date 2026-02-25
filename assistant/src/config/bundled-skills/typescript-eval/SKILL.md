@@ -7,14 +7,16 @@ metadata: {"vellum": {"emoji": "🧪"}}
 
 # TypeScript Evaluation
 
-When you need to test a TypeScript snippet before persisting it as a managed skill, use `file_write` and `bash` directly.
+When you need to test a TypeScript snippet before persisting it as a managed skill, use `bash` directly.
 
 ## Workflow
 
 ### 1. Write the snippet to a temp file
 
 ```
-file_write path=/tmp/vellum-eval/snippet.ts content="<your code here>"
+bash command="mkdir -p /tmp/vellum-eval && cat > /tmp/vellum-eval/snippet.ts << 'SNIPPET_EOF'
+<your code here>
+SNIPPET_EOF"
 ```
 
 ### 2. Run it with bun
@@ -28,12 +30,13 @@ bash command="bun run /tmp/vellum-eval/snippet.ts" timeout_seconds=10
 If the snippet exports a `default` or `run` function, write a runner script:
 
 ```
-file_write path=/tmp/vellum-eval/runner.ts content="
-import fn from './snippet.ts';
+bash command="cat > /tmp/vellum-eval/runner.ts << 'RUNNER_EOF'
+import * as mod from './snippet.ts';
+const fn = (mod as any).default ?? (mod as any).run;
 const input = {}; // mock input
 const result = await fn(input);
 console.log(JSON.stringify(result, null, 2));
-"
+RUNNER_EOF"
 ```
 
 Then run the runner:
