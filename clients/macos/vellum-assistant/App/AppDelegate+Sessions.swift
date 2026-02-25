@@ -257,10 +257,11 @@ extension AppDelegate {
             return
         }
 
-        // When the app is in the background (or for non-guardian events even when
-        // active), schedule a fallback notification. notification_intent is normally
-        // emitted moments later by the vellum adapter; if it arrives in time the
-        // fallback is cancelled to prevent duplicates.
+        // When the app is in the background, schedule a fallback notification.
+        // notification_intent is normally emitted moments later by the vellum
+        // adapter; if it arrives in time the fallback is cancelled to prevent
+        // duplicates. When active, the thread is already visible in the sidebar
+        // so no fallback is needed.
         guard !NSApp.isActive else { return }
 
         scheduleNotificationFallback(
