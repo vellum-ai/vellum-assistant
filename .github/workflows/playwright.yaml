@@ -13,29 +13,136 @@ concurrency:
   group: playwright-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  id-token: write
+  actions: read
+
 jobs:
   playwright:
     if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'preview')
     name: Playwright Tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: playwright
+    runs-on: macos-14
+    timeout-minutes: 60
+    env:
+      APP_DISPLAY_NAME: Vellum
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Select Xcode 16.2
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Fetch Anthropic API key from Secret Manager
+        id: secrets
+        uses: google-github-actions/get-secretmanager-secrets@v2
+        with:
+          secrets: |-
+            ANTHROPIC_API_KEY:vellum-nonprod/ANTHROPIC_API_KEY
+
+      - name: Set Anthropic API key in env
+        run: echo "ANTHROPIC_API_KEY=${{ steps.secrets.outputs.ANTHROPIC_API_KEY }}" >> "$GITHUB_ENV"
+
+      - name: Cache SPM build artifacts
+        uses: actions/cache@v4
+        with:
+          path: clients/.build
+          key: macos-spm-${{ hashFiles('clients/Package.resolved') }}-${{ hashFiles('clients/**/*.swift') }}
+          restore-keys: |
+            macos-spm-${{ hashFiles('clients/Package.resolved') }}-
+            macos-spm-
 
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
-      - name: Install dependencies
+      - name: Build daemon binary
+        working-directory: assistant
+        run: |
+          bun install
+          bun build --compile --target=bun-darwin-arm64 src/daemon/main.ts \
+            --external electron --external "chromium-bidi/*" \
+            --outfile ../clients/macos/daemon-bin/vellum-daemon
+          chmod +x ../clients/macos/daemon-bin/vellum-daemon
+          cp node_modules/web-tree-sitter/web-tree-sitter.wasm ../clients/macos/daemon-bin/
+          cp node_modules/tree-sitter-bash/tree-sitter-bash.wasm ../clients/macos/daemon-bin/
+          cp -R src/config/bundled-skills ../clients/macos/daemon-bin/bundled-skills
+
+      - name: Build CLI binary
+        working-directory: cli
+        run: |
+          bun install
+          bun build --compile --target=bun-darwin-arm64 src/index.ts \
+            --external react-devtools-core \
+            --outfile ../clients/macos/cli-bin/vellum-cli
+          chmod +x ../clients/macos/cli-bin/vellum-cli
+
+      - name: Build macOS app
+        working-directory: clients/macos
+        run: |
+          SKIP_CLEAN=1 \
+          BUNDLE_DISPLAY_NAME="$APP_DISPLAY_NAME" \
+          SIGN_IDENTITY="-" \
+          ./build.sh build
+
+      - name: Install Playwright dependencies
+        working-directory: playwright
         run: bun install
 
-      - name: Install Playwright browsers
-        run: bunx playwright install --with-deps chromium
-
       - name: Run Playwright tests
+        id: tests
+        working-directory: playwright
+        continue-on-error: true
         run: bun run test
+
+      - name: Upload screenshots on failure
+        if: steps.tests.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-screenshots
+          path: playwright/test-results/screenshots/
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Generate GitHub App token
+        if: steps.tests.outcome == 'failure'
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
+      - name: Comment failure on branch PR
+        if: steps.tests.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          BRANCH="${{ github.ref_name }}"
+
+          # Find the open PR for this specific branch
+          PR_NUMBER=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number' 2>/dev/null || echo "")
+
+          if [ -n "$PR_NUMBER" ]; then
+            gh pr comment "$PR_NUMBER" --body "## Playwright Test Failure
+
+          The Playwright test run [failed]($RUN_URL).
+
+          Screenshots from the test have been uploaded as a [workflow artifact]($RUN_URL#artifacts). Download the \`playwright-screenshots\` artifact to review.
+
+          **Commit:** \`${{ github.sha }}\`
+          **Branch:** \`$BRANCH\`"
+          else
+            echo "No open PR found for branch $BRANCH — skipping comment."
+          fi
+
+      - name: Fail workflow if tests failed
+        if: steps.tests.outcome == 'failure'
+        run: exit 1
