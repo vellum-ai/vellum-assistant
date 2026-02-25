@@ -7,6 +7,13 @@ import { log, findSocketForSession, defineHandlers, type HandlerContext } from '
 import * as conversationStore from '../../memory/conversation-store.js';
 import { uploadFileBackedAttachment, linkAttachmentToMessage } from '../../memory/attachments-store.js';
 
+// ─── Constants ───────────────────────────────────────────────────────────────
+
+/** How long to wait (ms) for a client to acknowledge a recording_stop before
+ *  automatically cleaning up stale map entries. Prevents a missing client ack
+ *  from permanently blocking all future recordings. */
+const STOP_ACK_TIMEOUT_MS = 30_000;
+
 // ─── Deterministic maps ──────────────────────────────────────────────────────
 // These ensure stop resolves the exact active recording for a conversation,
 // prevent ambiguous cross-thread stop behavior, and maintain conversation
@@ -17,6 +24,9 @@ const standaloneRecordingConversationId = new Map<string, string>();
 
 /** Maps conversationId -> recordingId (active recording). */
 const recordingOwnerByConversation = new Map<string, string>();
+
+/** Pending stop-acknowledgement timeouts keyed by recordingId. */
+const pendingStopTimeouts = new Map<string, NodeJS.Timeout>();
 
 // ─── Start ───────────────────────────────────────────────────────────────────
 
@@ -110,11 +120,30 @@ export function handleRecordingStop(
     recordingId,
   });
 
+  // Start a timeout so that if the client never acknowledges the stop (e.g.
+  // client bug, app freeze), we automatically clean up the maps and unblock
+  // future recordings.
+  const timeoutHandle = setTimeout(() => {
+    pendingStopTimeouts.delete(recordingId);
+    log.warn({ recordingId, conversationId: ownerConversationId, timeoutMs: STOP_ACK_TIMEOUT_MS }, 'Stop-acknowledgement timeout fired — cleaning up stale recording state');
+    cleanupMaps(recordingId, ownerConversationId);
+  }, STOP_ACK_TIMEOUT_MS);
+  pendingStopTimeouts.set(recordingId, timeoutHandle);
+
   log.info({ recordingId, conversationId }, 'Standalone recording stop sent');
   return recordingId;
 }
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
+
+/** Cancel a pending stop-acknowledgement timeout for a recording, if any. */
+function cancelStopTimeout(recordingId: string): void {
+  const handle = pendingStopTimeouts.get(recordingId);
+  if (handle) {
+    clearTimeout(handle);
+    pendingStopTimeouts.delete(recordingId);
+  }
+}
 
 /** Remove a recording from both deterministic maps. */
 function cleanupMaps(recordingId: string, conversationId: string | undefined): void {
@@ -150,6 +179,9 @@ function handleRecordingStatus(
     log.warn({ recordingId }, 'Ignoring recording_status for unknown recording ID with no attachToConversationId');
     return;
   }
+
+  // The client acknowledged this recording — cancel any pending stop timeout.
+  cancelStopTimeout(recordingId);
 
   // Use the reporting socket (which delivered this message) as the primary
   // recipient. Fall back to session-based lookup if the user switched sessions.
@@ -319,6 +351,7 @@ export function cleanupRecordingsOnDisconnect(
     // or if the owner conversation has no socket bound at all.
     if (!ownerSocket || ownerSocket === disconnectedSocket) {
       log.warn({ conversationId: convId, recordingId: recId }, 'Cleaning up recording state for disconnected socket');
+      cancelStopTimeout(recId);
       standaloneRecordingConversationId.delete(recId);
       recordingOwnerByConversation.delete(convId);
     }
@@ -329,6 +362,10 @@ export function cleanupRecordingsOnDisconnect(
 
 /** Reset module-level state. Only for use in tests. */
 export function __resetRecordingState(): void {
+  for (const handle of pendingStopTimeouts.values()) {
+    clearTimeout(handle);
+  }
+  pendingStopTimeouts.clear();
   standaloneRecordingConversationId.clear();
   recordingOwnerByConversation.clear();
 }
