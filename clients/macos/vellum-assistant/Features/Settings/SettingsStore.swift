@@ -133,6 +133,7 @@ public final class SettingsStore: ObservableObject {
     // MARK: - Platform Config State
 
     @Published var platformBaseUrl: String = ""
+    private var pendingPlatformUrl: String?
 
     // MARK: - Ingress Config State
 
@@ -379,6 +380,16 @@ public final class SettingsStore: ObservableObject {
             if response.success {
                 self.platformBaseUrl = response.baseUrl
                 AuthService.shared.configuredBaseURL = response.baseUrl
+            } else {
+                // Revert optimistic state on failure
+                if let previous = self.pendingPlatformUrl {
+                    self.platformBaseUrl = previous
+                    AuthService.shared.configuredBaseURL = previous
+                    self.pendingPlatformUrl = nil
+                }
+                if let error = response.error {
+                    log.error("Platform config update failed: \(error)")
+                }
             }
         }
 
@@ -1178,6 +1189,7 @@ public final class SettingsStore: ObservableObject {
     func savePlatformBaseUrl(_ raw: String) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         let previous = platformBaseUrl
+        pendingPlatformUrl = previous
         platformBaseUrl = trimmed
         vellumPlatformReachable = nil
         vellumPlatformError = nil
@@ -1185,6 +1197,7 @@ public final class SettingsStore: ObservableObject {
         do {
             try daemonClient?.send(PlatformConfigRequestMessage(action: "set", baseUrl: trimmed))
         } catch {
+            pendingPlatformUrl = nil
             platformBaseUrl = previous
             AuthService.shared.configuredBaseURL = previous
             log.error("Failed to send platform config set: \(error)")

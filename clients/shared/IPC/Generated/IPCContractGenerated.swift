@@ -2980,6 +2980,32 @@ public struct IPCPingMessage: Codable, Sendable {
     }
 }
 
+public struct IPCPlatformConfigRequest: Codable, Sendable {
+    public let type: String
+    public let action: String
+    public let baseUrl: String?
+
+    public init(type: String, action: String, baseUrl: String? = nil) {
+        self.type = type
+        self.action = action
+        self.baseUrl = baseUrl
+    }
+}
+
+public struct IPCPlatformConfigResponse: Codable, Sendable {
+    public let type: String
+    public let baseUrl: String
+    public let success: Bool
+    public let error: String?
+
+    public init(type: String, baseUrl: String, success: Bool, error: String? = nil) {
+        self.type = type
+        self.baseUrl = baseUrl
+        self.success = success
+        self.error = error
+    }
+}
+
 public struct IPCPongMessage: Codable, Sendable {
     public let type: String
 

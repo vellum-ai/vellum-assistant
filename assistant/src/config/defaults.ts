@@ -264,7 +264,7 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     phoneNumber: '',
   },
   platform: {
-    baseUrl: '',
+    baseUrl: 'https://dev-platform.vellum.ai',
   },
   ingress: {
     enabled: undefined,

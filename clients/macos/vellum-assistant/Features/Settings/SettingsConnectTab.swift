@@ -199,7 +199,7 @@ struct SettingsConnectTab: View {
                 .help(store.vellumPlatformError ?? "")
 
                 HStack(spacing: VSpacing.sm) {
-                    TextField("https://platform.vellum.ai", text: $platformUrlText)
+                    TextField("https://dev-platform.vellum.ai", text: $platformUrlText)
                         .focused($isPlatformUrlFocused)
                         .vInputStyle()
                         .font(VFont.mono)
