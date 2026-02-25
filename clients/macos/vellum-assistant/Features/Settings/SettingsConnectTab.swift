@@ -972,6 +972,14 @@ struct SettingsConnectTab: View {
             default: return nil
             }
         }()
+        let alreadyBound: Bool = {
+            switch channel {
+            case "telegram": return store.telegramGuardianAlreadyBound
+            case "sms": return store.smsGuardianAlreadyBound
+            case "voice": return store.voiceGuardianAlreadyBound
+            default: return false
+            }
+        }()
         let primaryIdentity = guardianPrimaryIdentity(channel: channel, identity: identity)
         let secondaryIdentity = guardianSecondaryIdentity(primary: primaryIdentity, identity: identity)
         let telegramProfileURL: URL? = channel == "telegram"
@@ -1049,10 +1057,17 @@ struct SettingsConnectTab: View {
             }
 
             if let error {
-                Text(error)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.error)
-                    .padding(.leading, 90 + VSpacing.sm)
+                HStack(spacing: VSpacing.sm) {
+                    Text(error)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.error)
+                    if alreadyBound {
+                        VButton(label: "Replace", style: .secondary) {
+                            store.startChannelGuardianVerification(channel: channel, rebind: true)
+                        }
+                    }
+                }
+                .padding(.leading, 90 + VSpacing.sm)
             }
         }
     }
