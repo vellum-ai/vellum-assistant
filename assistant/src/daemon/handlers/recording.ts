@@ -29,6 +29,12 @@ export function handleRecordingStart(
 ): string {
   const recordingId = uuid();
 
+  const existingRecordingId = recordingOwnerByConversation.get(conversationId);
+  if (existingRecordingId) {
+    log.warn({ conversationId, existingRecordingId }, 'Overwriting active recording for conversation');
+    standaloneRecordingConversationId.delete(existingRecordingId);
+  }
+
   standaloneRecordingConversationId.set(recordingId, conversationId);
   recordingOwnerByConversation.set(conversationId, recordingId);
 
@@ -68,6 +74,8 @@ export function handleRecordingStop(
   const socket = findSocketForSession(conversationId, ctx);
   if (!socket) {
     log.warn({ conversationId, recordingId }, 'Cannot send recording_stop: no socket bound to conversation');
+    standaloneRecordingConversationId.delete(recordingId);
+    recordingOwnerByConversation.delete(conversationId);
     return undefined;
   }
 
