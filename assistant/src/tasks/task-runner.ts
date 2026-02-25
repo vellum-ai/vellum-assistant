@@ -1,6 +1,7 @@
 import { getLogger } from '../util/logger.js';
 import { createConversation } from '../memory/conversation-store.js';
 import { GENERATING_TITLE, queueGenerateConversationTitle } from '../memory/conversation-title-service.js';
+import { markConversationFailed } from '../memory/failed-conversations.js';
 import { invalidateAssistantInferredItemsForConversation } from '../memory/task-memory-cleanup.js';
 import { getTask, createTaskRun, updateTaskRun } from './task-store.js';
 import { buildTaskRules, setTaskRunRules, clearTaskRunRules } from './ephemeral-permissions.js';
@@ -83,6 +84,10 @@ export async function runTask(
     log.warn({ err, taskId: task.id, taskRunId: run.id }, 'Task execution failed');
 
     updateTaskRun(run.id, { status: 'failed', error: errorMessage, finishedAt: Date.now() });
+
+    // Mark before invalidation so any in-flight or future extraction jobs
+    // for this conversation are skipped by the memory worker.
+    markConversationFailed(conversation.id);
 
     try {
       invalidateAssistantInferredItemsForConversation(conversation.id);

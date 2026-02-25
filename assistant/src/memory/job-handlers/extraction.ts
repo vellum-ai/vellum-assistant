@@ -10,6 +10,7 @@ import {
   upsertEntity,
   upsertEntityRelation,
 } from '../entity-extractor.js';
+import { isConversationFailed } from '../failed-conversations.js';
 import { extractAndUpsertMemoryItemsForMessage } from '../items-extractor.js';
 import { enqueueMemoryJob, type MemoryJob } from '../jobs-store.js';
 import { asString } from '../job-utils.js';
@@ -21,6 +22,22 @@ const log = getLogger('memory-jobs-worker');
 export async function extractItemsJob(job: MemoryJob): Promise<void> {
   const messageId = asString(job.payload.messageId);
   if (!messageId) return;
+
+  // Guard: skip extraction for messages belonging to failed conversations.
+  // The owning task/schedule marks the conversation as failed before the
+  // one-shot invalidation runs, so any extraction jobs still in the queue
+  // (or retrying) are caught here and silently dropped.
+  const db = getDb();
+  const msg = db
+    .select({ conversationId: messages.conversationId })
+    .from(messages)
+    .where(eq(messages.id, messageId))
+    .get();
+  if (msg && isConversationFailed(msg.conversationId)) {
+    log.debug({ messageId, conversationId: msg.conversationId }, 'Skipping extraction — conversation marked as failed');
+    return;
+  }
+
   // Backward compat: old payloads may lack scopeId — default to 'default'
   const scopeId = typeof job.payload.scopeId === 'string' && job.payload.scopeId
     ? job.payload.scopeId
@@ -38,6 +55,19 @@ export async function extractEntitiesJob(job: MemoryJob, config: AssistantConfig
   if (!messageId) return;
 
   const db = getDb();
+
+  // Guard: skip entity extraction for failed conversations (same rationale
+  // as extractItemsJob — entities linked to failed task output are stale).
+  const msgRow = db
+    .select({ conversationId: messages.conversationId })
+    .from(messages)
+    .where(eq(messages.id, messageId))
+    .get();
+  if (msgRow && isConversationFailed(msgRow.conversationId)) {
+    log.debug({ messageId, conversationId: msgRow.conversationId }, 'Skipping entity extraction — conversation marked as failed');
+    return;
+  }
+
   const message = db
     .select({
       id: messages.id,
