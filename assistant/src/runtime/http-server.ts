@@ -42,6 +42,11 @@ import {
   handleListPendingInteractions,
 } from './routes/approval-routes.js';
 import {
+  handleListContacts,
+  handleGetContact,
+  handleMergeContacts,
+} from './routes/contact-routes.js';
+import {
   handleDeleteConversation,
   handleChannelInbound,
   handleChannelDeliveryAck,
@@ -578,6 +583,12 @@ export class RuntimeHttpServer {
       if (endpoint === 'secret' && req.method === 'POST') return await handleSecret(req);
       if (endpoint === 'trust-rules' && req.method === 'POST') return await handleTrustRule(req);
       if (endpoint === 'pending-interactions' && req.method === 'GET') return handleListPendingInteractions(url);
+
+      // Contacts
+      if (endpoint === 'contacts' && req.method === 'GET') return handleListContacts(url);
+      if (endpoint === 'contacts/merge' && req.method === 'POST') return await handleMergeContacts(req);
+      const contactMatch = endpoint.match(/^contacts\/([^/]+)$/);
+      if (contactMatch && req.method === 'GET') return handleGetContact(contactMatch[1]);
 
       if (endpoint === 'attachments' && req.method === 'POST') return await handleUploadAttachment(req);
       if (endpoint === 'attachments' && req.method === 'DELETE') return await handleDeleteAttachment(req);

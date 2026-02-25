@@ -22,7 +22,6 @@ import {
 } from './cli/config-commands.js';
 import { registerHooksCommand } from './hooks/cli.js';
 import { registerEmailCommand } from './cli/email.js';
-import { registerContactsCommand } from './cli/contacts.js';
 import { registerDoordashCommand } from './cli/doordash.js';
 import { registerAmazonCommand } from './cli/amazon.js';
 import { registerTwitterCommand } from './cli/twitter.js';
@@ -48,7 +47,6 @@ registerAuditCommand(program);
 registerDoctorCommand(program);
 registerHooksCommand(program);
 registerEmailCommand(program);
-registerContactsCommand(program);
 registerDoordashCommand(program);
 registerAmazonCommand(program);
 registerCompletionsCommand(program);
