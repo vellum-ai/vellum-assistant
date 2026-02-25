@@ -32,6 +32,8 @@ export interface CuSessionCreate {
   requiresRecording?: boolean;
   /** Recording source/options selected by the client or requested by the daemon. */
   recordingOptions?: RecordingOptions;
+  /** Conversation ID to attach recording artifacts (e.g., screen recordings) to. */
+  attachToConversationId?: string;
 }
 
 export interface CuSessionAbort {
@@ -71,6 +73,8 @@ export interface TaskSubmit {
   screenHeight: number;
   attachments?: UserMessageAttachment[];
   source?: 'voice' | 'text';
+  /** The conversation ID of the active thread when the task was submitted. */
+  conversationId?: string;
 }
 
 export interface RideShotgunStart {
