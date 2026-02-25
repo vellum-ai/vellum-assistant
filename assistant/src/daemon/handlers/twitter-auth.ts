@@ -9,6 +9,21 @@ import { ConfigError } from '../../util/errors.js';
 import type { TwitterAuthStartRequest, TwitterAuthStatusRequest } from '../ipc-protocol.js';
 import { defineHandlers, type HandlerContext, log } from './shared.js';
 
+/** Map raw orchestrator/provider error messages to user-friendly strings. */
+function sanitizeTwitterAuthError(message: string): string {
+  const lower = message.toLowerCase();
+  if (lower.includes('timed out')) {
+    return 'Twitter authentication timed out. Please try again.';
+  }
+  if (lower.includes('user_cancelled') || lower.includes('cancelled')) {
+    return 'Twitter authentication was cancelled.';
+  }
+  if (lower.includes('denied') || lower.includes('invalid_grant')) {
+    return 'Twitter denied the authorization request. Please try again.';
+  }
+  return 'Twitter authentication failed. Please try again.';
+}
+
 export async function handleTwitterAuthStart(
   _msg: TwitterAuthStartRequest,
   socket: net.Socket,
@@ -91,7 +106,7 @@ export async function handleTwitterAuthStart(
       ctx.send(socket, {
         type: 'twitter_auth_result',
         success: false,
-        error: result.error,
+        error: sanitizeTwitterAuthError(result.error),
       });
       return;
     }
@@ -114,22 +129,10 @@ export async function handleTwitterAuthStart(
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, 'Twitter OAuth flow failed');
 
-    let userError: string;
-    const lower = message.toLowerCase();
-    if (lower.includes('timed out')) {
-      userError = 'Twitter authentication timed out. Please try again.';
-    } else if (lower.includes('user_cancelled') || lower.includes('cancelled')) {
-      userError = 'Twitter authentication was cancelled.';
-    } else if (lower.includes('denied') || lower.includes('invalid_grant')) {
-      userError = 'Twitter denied the authorization request. Please try again.';
-    } else {
-      userError = 'Twitter authentication failed. Please try again.';
-    }
-
     ctx.send(socket, {
       type: 'twitter_auth_result',
       success: false,
-      error: userError,
+      error: sanitizeTwitterAuthError(message),
     });
   }
 }
