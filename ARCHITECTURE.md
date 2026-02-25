@@ -3876,7 +3876,43 @@ sequenceDiagram
     GW->>TG: sendMessage: "You are now the guardian"
 ```
 
-The raw secret is shown only once in the desktop UI. Only the SHA-256 hash is persisted. Challenges expire after 10 minutes. Consumed challenges cannot be reused.
+The raw secret is shown only once in the desktop UI. Only the SHA-256 hash is persisted. Challenges expire after 10 minutes. Consumed challenges cannot be reused. Rate limiting (5 invalid attempts per 15-minute window, 30-minute lockout) protects against brute-force attacks.
+
+#### Inbound Message Decision Chain
+
+The channel inbound handler (`inbound-message-handler.ts`) evaluates incoming messages through a strict decision chain. Ingress ACL enforcement runs first, before guardian role resolution and message processing:
+
+```mermaid
+flowchart TD
+    MSG["Inbound message arrives<br/>POST /channels/inbound"] --> GW_CHECK{"Gateway-origin<br/>proof valid?"}
+    GW_CHECK -- No --> REJECT_403["403 GATEWAY_ORIGIN_REQUIRED"]
+    GW_CHECK -- Yes --> HAS_SENDER{"senderExternalUserId<br/>present?"}
+
+    HAS_SENDER -- Yes --> ACL_LOOKUP["Look up ingress member<br/>by (channel, userId/chatId)"]
+    HAS_SENDER -- No --> RECORD["Record inbound event"]
+
+    ACL_LOOKUP --> HAS_MEMBER{"Member record<br/>found?"}
+    HAS_MEMBER -- No --> DENY_MEMBER["Deny: not_a_member"]
+    HAS_MEMBER -- Yes --> STATUS_CHECK{"Member status<br/>= active?"}
+    STATUS_CHECK -- No --> DENY_STATUS["Deny: member_{status}"]
+    STATUS_CHECK -- Yes --> POLICY_CHECK{"Member policy?"}
+
+    POLICY_CHECK -- deny --> DENY_POLICY["Deny: policy_deny"]
+    POLICY_CHECK -- allow --> RECORD
+    POLICY_CHECK -- escalate --> RECORD
+
+    RECORD --> ESCALATE_CHECK{"Policy = escalate?"}
+    ESCALATE_CHECK -- Yes --> HAS_BINDING{"Guardian binding<br/>exists?"}
+    HAS_BINDING -- No --> DENY_ESCALATE["Deny: escalate_no_guardian"]
+    HAS_BINDING -- Yes --> CREATE_APPROVAL["Create approval request<br/>+ notify guardian (dual-surface)"]
+
+    ESCALATE_CHECK -- No --> VERIFY_CHECK{"Starts with<br/>/guardian_verify?"}
+    VERIFY_CHECK -- Yes --> VERIFY["Validate challenge<br/>→ create guardian binding"]
+    VERIFY_CHECK -- No --> ROLE_RESOLVE["Resolve actor role<br/>(guardian-context-resolver)"]
+    ROLE_RESOLVE --> APPROVAL_INTERCEPT["Approval interception<br/>+ message processing"]
+```
+
+This ordering ensures that ingress ACL decisions are finalized before any agent processing occurs. The `/guardian_verify` command is intercepted after ACL enforcement but before the agent loop, so it never triggers inference.
 
 #### Actor Role Resolution
 
@@ -3926,7 +3962,9 @@ The `channelGuardianApprovalRequests` table tracks per-run approval state. Each 
 |--------|---------|
 | `assistant/src/memory/channel-guardian-store.ts` | CRUD for guardian bindings, verification challenges, and approval requests (all scoped by `assistantId`) |
 | `assistant/src/runtime/channel-guardian-service.ts` | Challenge creation/validation, guardian identity checks (`isGuardian()`, `getGuardianBinding()`) -- all accept `assistantId` |
-| `assistant/src/runtime/routes/channel-routes.ts` | Guardian verification intercept (`/guardian_verify` command), actor role resolution, approval routing to guardian, proactive expiry sweep (`sweepExpiredGuardianApprovals`, `startGuardianExpirySweep`) |
+| `assistant/src/runtime/guardian-context-resolver.ts` | Actor role classification: guardian / non-guardian / unverified_channel based on binding state + sender identity |
+| `assistant/src/runtime/routes/inbound-message-handler.ts` | Ingress ACL enforcement, `/guardian_verify` command intercept, escalation creation, actor role resolution |
+| `assistant/src/runtime/routes/channel-routes.ts` | Approval routing to guardian, proactive expiry sweep (`sweepExpiredGuardianApprovals`, `startGuardianExpirySweep`) |
 | `assistant/src/calls/guardian-dispatch.ts` | Cross-channel ASK_GUARDIAN dispatch: creates guardian_action_requests, fans out to mac/telegram/sms, manages deliveries |
 | `assistant/src/calls/guardian-action-sweep.ts` | Periodic 60s sweep for expired guardian action requests; sends expiry notices to delivery channels |
 | `assistant/src/memory/guardian-action-store.ts` | CRUD for guardian_action_requests and guardian_action_deliveries tables; first-writer-wins resolution via atomic status check |
@@ -3937,13 +3975,16 @@ The assistant inbox extends the guardian security model to support controlled cr
 
 #### Ingress Membership ACL
 
-The channel inbound handler (`channel-routes.ts`) enforces an access control layer between message receipt and agent processing:
+The channel inbound handler (`inbound-message-handler.ts`) enforces an access control layer between message receipt and agent processing. The ACL runs at the top of the handler, before guardian role resolution or `/guardian_verify` command interception (see [Inbound Message Decision Chain](#inbound-message-decision-chain) for the full ordering):
 
-1. When `senderExternalUserId` is present and the sender is not the guardian, the handler looks up the sender in `assistant_ingress_members` by `(sourceChannel, externalUserId)`.
+1. When `senderExternalUserId` is present, the handler looks up the sender in `assistant_ingress_members` by `(sourceChannel, externalUserId)` or `(sourceChannel, externalChatId)`.
 2. If no member record exists, the message is denied (`not_a_member`).
-3. If a member exists, their individual `policy` field determines behavior (allow, deny, or escalate).
+3. If a member exists but is not `active` (e.g., `revoked`, `blocked`), the message is denied.
+4. If the member's `policy` is `deny`, the message is rejected. If `allow`, the message proceeds to normal processing. If `escalate`, the message is held for guardian approval.
 
-Invite tokens are created via the `ingress_invite` IPC contract. Each token is SHA-256 hashed before storage — the raw token is returned exactly once at creation time. External users redeem invites by sending the token as a channel message, which creates a member record with `allow` policy.
+**Invite-based onboarding:** Invite tokens are created via the `ingress_invite` IPC contract. Each token is SHA-256 hashed before storage — the raw token is returned exactly once at creation time. External users redeem invites by sending the token as a channel message, which atomically creates a member record with `active` status and `allow` policy.
+
+**Relationship to guardian verification:** Guardian verification and ingress membership are independent systems. Guardian verification establishes who controls the assistant on a channel (the trust anchor for approvals and escalations). Ingress membership controls who can interact with the assistant. Escalation (`policy=escalate`) depends on a guardian binding existing for the channel — without one, escalated messages are denied (fail-closed).
 
 #### Escalation Data Flow
 
