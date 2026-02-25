@@ -495,7 +495,7 @@ describe('Session message queue', () => {
     expect(sessionErr).toBeDefined();
 
     // Should also emit generic error for backward compatibility
-    // (RunOrchestrator relies on error events to detect failures)
+    // (callers rely on error events to detect failures)
     const genericErr = events.find((e) => e.type === 'error');
     expect(genericErr).toBeDefined();
   });

@@ -281,9 +281,6 @@ graph LR
         C13["conversation_search<br/>query, limit?,<br/>maxMessagesPerConversation?"]
         C14["ingress_invite<br/>create / list / revoke / redeem"]
         C15["ingress_member<br/>list / upsert / revoke / block"]
-        C16["assistant_inbox<br/>list_threads / get_thread_messages"]
-        C17["assistant_inbox_escalation<br/>list / decide"]
-        C18["assistant_inbox_reply<br/>conversationId, content"]
     end
 
     SOCKET["Unix Socket<br/>~/.vellum/vellum.sock<br/>───────────────<br/>Newline-delimited JSON<br/>Max 96MB per message<br/>Ping/pong every 30s<br/>Auto-reconnect<br/>1s → 30s backoff"]
@@ -316,9 +313,6 @@ graph LR
         S23["conversation_search_response<br/>query, results[]: conversationId,<br/>title, updatedAt, matchingMessages[]"]
         S24["ingress_invite_response<br/>invite / invites"]
         S25["ingress_member_response<br/>member / members"]
-        S26["assistant_inbox_response<br/>threads / messages"]
-        S27["assistant_inbox_escalation_response<br/>escalations / decision"]
-        S28["assistant_inbox_reply_response<br/>messageId"]
     end
 
     C0 --> SOCKET
@@ -337,9 +331,6 @@ graph LR
     C13 --> SOCKET
     C14 --> SOCKET
     C15 --> SOCKET
-    C16 --> SOCKET
-    C17 --> SOCKET
-    C18 --> SOCKET
 
     SOCKET --> S0
     SOCKET --> S1
@@ -366,9 +357,6 @@ graph LR
     SOCKET --> S22
     SOCKET --> S24
     SOCKET --> S25
-    SOCKET --> S26
-    SOCKET --> S27
-    SOCKET --> S28
 ```
 
 ---
@@ -1402,7 +1390,7 @@ The pairing function (`pairDeliveryWithConversation`) is resilient — errors ar
 The notification pipeline uses a single conversation materialization path across producers:
 
 1. **Canonical pipeline** (`emitNotificationSignal` → decision engine → broadcaster → conversation pairing → adapters): The broadcaster pairs each delivery with a conversation, then dispatches a `notification_intent` IPC event via the Vellum adapter. The IPC payload includes `deepLinkMetadata` (e.g. `{ conversationId }`) so the macOS/iOS client can deep-link to the relevant context when the user taps the notification.
-2. **Guardian bookkeeping** (`dispatchGuardianQuestion`): Guardian dispatch still creates `guardian_action_request` / `guardian_action_delivery` audit rows, but those rows are now derived from pipeline delivery results and the per-dispatch `onThreadCreated` callback instead of a second custom thread-creation path.
+2. **Guardian bookkeeping** (`dispatchGuardianQuestion`): Guardian dispatch creates `guardian_action_request` / `guardian_action_delivery` audit rows derived from pipeline delivery results and the per-dispatch `onThreadCreated` callback — there is no separate thread-creation path.
 
 ### Thread Surfacing via `notification_thread_created` IPC
 
@@ -1490,7 +1478,6 @@ Connected channels are resolved at signal emission time: vellum is always includ
 | Guardian approval requests | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; decision outcome retained |
 | Ingress invites | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; token hash stored, raw token never persisted |
 | Ingress members | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; revoked/blocked members retained |
-| Inbox thread state | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; denormalized projection of per-contact threads |
 | Notification events | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; deduplicated by dedupeKey |
 | Notification decisions | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; FK to notification_events |
 | Notification deliveries | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; FK to notification_decisions |

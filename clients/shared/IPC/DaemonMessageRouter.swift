@@ -250,12 +250,6 @@ extension DaemonClient {
             onParentalControlSetPinResponse?(msg)
         case .parentalControlUpdateResponse(let msg):
             onParentalControlUpdateResponse?(msg)
-        case .assistantInboxResponse(let msg):
-            onAssistantInboxResponse?(msg)
-        case .assistantInboxReplyResponse(let msg):
-            onAssistantInboxReplyResponse?(msg)
-        case .assistantInboxEscalationResponse(let msg):
-            onAssistantInboxEscalationResponse?(msg)
         case .pairingApprovalRequest(let msg):
             onPairingApprovalRequest?(msg)
         case .approvedDevicesListResponse(let msg):

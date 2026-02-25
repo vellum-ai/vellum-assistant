@@ -19,7 +19,6 @@ import {
   getPendingDeliveriesByDestination,
   resolveGuardianActionRequest,
 } from '../../memory/guardian-action-store.js';
-import { refreshThreadEscalation } from '../../memory/inbox-escalation-projection.js';
 import { findMember, updateLastSeen, upsertMember } from '../../memory/ingress-member-store.js';
 import { emitNotificationSignal } from '../../notifications/emit-signal.js';
 import { checkIngressForSecrets } from '../../security/secret-ingress.js';
@@ -434,9 +433,6 @@ export async function handleChannelInbound(
       reason: 'Ingress policy requires guardian approval',
       expiresAt: Date.now() + GUARDIAN_APPROVAL_TTL_MS,
     });
-
-    // Update inbox thread escalation state so the desktop UI badge is accurate
-    refreshThreadEscalation(result.conversationId, canonicalAssistantId);
 
     // Emit notification signal through the unified pipeline (fire-and-forget).
     // This lets the decision engine route escalation alerts to all configured

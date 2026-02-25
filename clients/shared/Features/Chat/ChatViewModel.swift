@@ -524,7 +524,7 @@ public final class ChatViewModel: ObservableObject {
                     self?.discardStreamingBuffer()
                     self?.reconnectDebounceTask?.cancel()
                     self?.reconnectDebounceTask = Task { @MainActor [weak self] in
-                        defer { self?.reconnectDebounceTask = nil }
+                        defer { if !Task.isCancelled { self?.reconnectDebounceTask = nil } }
                         try? await Task.sleep(nanoseconds: 500_000_000) // 500ms
                         guard !Task.isCancelled else { return }
                         guard let self, !self.isReconnectHistoryLoading else { return }
@@ -1928,6 +1928,10 @@ public final class ChatViewModel: ObservableObject {
         messageLoopTask?.cancel()
         streamingFlushTask?.cancel()
         cancelTimeoutTask?.cancel()
+        // refinementFailureDismissTask and refinementFlushTask are accessed via
+        // @MainActor computed properties (forwarded from ChatMessageManager), which
+        // cannot be referenced from nonisolated deinit. Both tasks use [weak self],
+        // so they will exit naturally when self is deallocated.
         reconnectLatchTimeoutTask?.cancel()
         reconnectDebounceTask?.cancel()
         if let observer = reconnectObserver {

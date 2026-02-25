@@ -7,7 +7,7 @@ import { config as dotenvConfig } from 'dotenv';
 import { reconcileCallsOnStartup } from '../calls/call-recovery.js';
 import { setRelayBroadcast } from '../calls/relay-server.js';
 import { TwilioConversationRelayProvider } from '../calls/twilio-provider.js';
-import { setVoiceBridgeOrchestrator } from '../calls/voice-session-bridge.js';
+import { setVoiceBridgeDeps } from '../calls/voice-session-bridge.js';
 import {
   getQdrantUrlEnv,
   getRuntimeHttpHost,
@@ -23,6 +23,7 @@ import { installTemplates } from '../hooks/templates.js';
 import { initSentry } from '../instrument.js';
 import { initLogfire } from '../logfire.js';
 import * as attachmentsStore from '../memory/attachments-store.js';
+import * as conversationStore from '../memory/conversation-store.js';
 import { initializeDb } from '../memory/db.js';
 import { startMemoryJobsWorker } from '../memory/jobs-worker.js';
 import { initQdrantClient } from '../memory/qdrant-client.js';
@@ -267,8 +268,6 @@ export async function runDaemon(): Promise<void> {
 
   const hostname = getRuntimeHttpHost();
 
-  const runOrchestrator = server.createRunOrchestrator();
-
   runtimeHttp = new RuntimeHttpServer({
     port: httpPort,
     hostname,
@@ -277,7 +276,6 @@ export async function runDaemon(): Promise<void> {
       server.processMessage(conversationId, content, attachmentIds, options, sourceChannel, sourceInterface),
     persistAndProcessMessage: (conversationId, content, attachmentIds, options, sourceChannel, sourceInterface) =>
       server.persistAndProcessMessage(conversationId, content, attachmentIds, options, sourceChannel, sourceInterface),
-    runOrchestrator,
     interfacesDir: getInterfacesDir(),
     approvalCopyGenerator: createApprovalCopyGenerator(),
     approvalConversationGenerator: createApprovalConversationGenerator(),
@@ -295,10 +293,23 @@ export async function runDaemon(): Promise<void> {
     },
   });
 
-  // Inject the voice bridge orchestrator BEFORE attempting to start the HTTP
-  // server. The bridge only needs the RunOrchestrator instance (already created
-  // above) and must be available even when the HTTP server fails to bind.
-  setVoiceBridgeOrchestrator(runOrchestrator);
+  // Inject voice bridge deps BEFORE attempting to start the HTTP server.
+  // The bridge must be available even when the HTTP server fails to bind.
+  setVoiceBridgeDeps({
+    getOrCreateSession: (conversationId, transport) =>
+      server.getSessionForMessages(conversationId),
+    resolveAttachments: (attachmentIds) =>
+      attachmentsStore.getAttachmentsByIds(attachmentIds).map((a) => ({
+        id: a.id,
+        filename: a.originalFilename,
+        mimeType: a.mimeType,
+        data: a.dataBase64,
+      })),
+    deriveDefaultStrictSideEffects: (conversationId) => {
+      const threadType = conversationStore.getConversationThreadType(conversationId);
+      return threadType === 'private';
+    },
+  });
   try {
     await runtimeHttp.start();
     setRelayBroadcast((msg) => server.broadcast(msg));
