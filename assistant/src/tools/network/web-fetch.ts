@@ -277,6 +277,16 @@ function normalizeText(text: string): string {
     .trim();
 }
 
+// Lighter normalization for markdown that preserves indentation, multiple spaces,
+// and trailing whitespace — all of which carry semantic meaning in markdown
+// (code blocks, nested lists, table alignment, line breaks).
+function normalizeMarkdown(text: string): string {
+  return text
+    .replace(/\r/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 function htmlToText(html: string): string {
   let text = html;
   text = text.replace(/<!--[\s\S]*?-->/g, ' ');
@@ -625,7 +635,9 @@ export async function executeWebFetch(
     const markdownTokens = response.headers.get('x-markdown-tokens') ?? undefined;
 
     let processed = body.text.replace(/\0/g, '');
-    if (html && !rawMode) {
+    if (markdown) {
+      processed = normalizeMarkdown(processed);
+    } else if (html && !rawMode) {
       processed = htmlToText(processed);
     } else {
       processed = normalizeText(processed);
