@@ -42,3 +42,6 @@ export type { OrchestratorEventKind, OrchestratorEvent, OrchestratorStatusCallba
 export { executeSwarm } from './orchestrator.js';
 
 export { synthesizeResults } from './synthesizer.js';
+
+export type { SwarmCheckpoint } from './checkpoint.js';
+export { writeCheckpoint, loadCheckpoint, removeCheckpoint, isCheckpointCompatible } from './checkpoint.js';
