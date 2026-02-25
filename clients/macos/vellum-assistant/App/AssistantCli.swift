@@ -359,6 +359,13 @@ final class AssistantCli {
         proc.standardOutput = stdoutPipe
         proc.standardError = stderrPipe
 
+        var tmpFilesToCleanup: [URL] = []
+        defer {
+            for url in tmpFilesToCleanup {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+
         var env = ProcessInfo.processInfo.environment
         env["HOME"] = FileManager.default.homeDirectoryForCurrentUser.path
         env["VELLUM_DESKTOP_APP"] = "1"
@@ -382,6 +389,7 @@ final class AssistantCli {
                 let tmpKeyPath = FileManager.default.temporaryDirectory
                     .appendingPathComponent("vellum-sa-key-\(ProcessInfo.processInfo.processIdentifier).json")
                 try config.gcpServiceAccountKey.write(to: tmpKeyPath, atomically: true, encoding: .utf8)
+                tmpFilesToCleanup.append(tmpKeyPath)
                 env["GOOGLE_APPLICATION_CREDENTIALS"] = tmpKeyPath.path
                 env["CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE"] = tmpKeyPath.path
 
@@ -411,6 +419,7 @@ final class AssistantCli {
                 let tmpKeyPath = FileManager.default.temporaryDirectory
                     .appendingPathComponent("vellum-ssh-key-\(ProcessInfo.processInfo.processIdentifier)")
                 try config.sshPrivateKey.write(to: tmpKeyPath, atomically: true, encoding: .utf8)
+                tmpFilesToCleanup.append(tmpKeyPath)
                 try FileManager.default.setAttributes(
                     [.posixPermissions: 0o600],
                     ofItemAtPath: tmpKeyPath.path
