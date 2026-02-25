@@ -29,14 +29,13 @@ struct MessageListView: View {
     @State private var appearance = AvatarAppearanceManager.shared
 
     /// Triggers auto-scroll when the last message's text length changes (e.g. during streaming).
-    /// Only inspects segment count and the last segment's length — O(1) instead of O(segments).
-    /// During streaming only the last segment grows; previous segments are immutable once a new
-    /// one starts after a tool call, so checking just the last segment captures all streaming deltas.
+    /// Uses total text length (monotonically increasing) so the trigger never produces the same
+    /// value when a new text segment starts after a tool call — unlike a hash of segment count +
+    /// last segment length, which can collide and miss scroll events.
     private var streamingScrollTrigger: Int {
         let last = messages.last(where: { if case .queued = $0.status { return false }; return true })
-        let segments = last?.textSegments ?? []
-        let lastSegmentLen = segments.last?.utf8.count ?? 0
-        return segments.count &* 31 &+ lastSegmentLen &+ (last?.toolCalls.count ?? 0) &+ (last?.inlineSurfaces.count ?? 0)
+        let textLen = last?.textSegments.reduce(0) { $0 + $1.utf8.count } ?? 0
+        return textLen + (last?.toolCalls.count ?? 0) + (last?.inlineSurfaces.count ?? 0)
     }
 
     private func shouldShowTimestamp(at index: Int, in list: [ChatMessage]) -> Bool {
