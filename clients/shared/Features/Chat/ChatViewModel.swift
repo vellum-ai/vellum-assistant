@@ -468,6 +468,7 @@ public final class ChatViewModel: ObservableObject {
                     self?.isThinking = false
                     self?.isSending = false
                     self?.currentAssistantMessageId = nil
+                    self?.discardStreamingBuffer()
                     if let sessionId = self?.sessionId {
                         self?.needsReconnectCatchUp = true
                         self?.onReconnectHistoryNeeded?(sessionId)
@@ -862,6 +863,7 @@ public final class ChatViewModel: ObservableObject {
                     self?.messages[index].isStreaming = false
                 }
                 self?.currentAssistantMessageId = nil
+                self?.discardStreamingBuffer()
                 // If a send-direct was pending when the stream dropped,
                 // dispatch it now so the message isn't silently lost.
                 self?.dispatchPendingSendDirect()
@@ -996,6 +998,7 @@ public final class ChatViewModel: ObservableObject {
             currentTurnUserText = nil
             currentAssistantHasText = false
             lastContentWasToolCall = false
+            discardStreamingBuffer()
             pendingQueuedCount = 0
             pendingMessageIds = []
             requestIdToMessageId = [:]
@@ -1040,6 +1043,7 @@ public final class ChatViewModel: ObservableObject {
             currentTurnUserText = nil
             currentAssistantHasText = false
             lastContentWasToolCall = false
+            discardStreamingBuffer()
             pendingQueuedCount = 0
             pendingMessageIds = []
             requestIdToMessageId = [:]
@@ -1097,6 +1101,7 @@ public final class ChatViewModel: ObservableObject {
             self.currentTurnUserText = nil
             self.currentAssistantHasText = false
             self.lastContentWasToolCall = false
+            self.discardStreamingBuffer()
             self.pendingQueuedCount = 0
             self.pendingMessageIds = []
             self.requestIdToMessageId = [:]

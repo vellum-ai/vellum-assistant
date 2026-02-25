@@ -137,11 +137,14 @@ struct MarkdownSegmentView: View {
     /// Builds (or retrieves from cache) a single AttributedString from
     /// consecutive text-selectable segments.
     private func buildCombinedAttributedString(from segments: [MarkdownSegment]) -> AttributedString {
-        // Build a stable cache key from the segment contents.
+        // Build a stable cache key from the segment contents and style
+        // inputs that affect the output (e.g. secondaryTextColor for list
+        // prefix coloring) so different visual contexts don't share entries.
         var hasher = Hasher()
         for segment in segments {
             hasher.combine(String(describing: segment))
         }
+        hasher.combine(secondaryTextColor.description)
         let cacheKey = hasher.finalize()
 
         if let cached = Self.attributedStringCache[cacheKey] {

@@ -375,6 +375,16 @@ extension ChatViewModel {
 
     // MARK: - Streaming Delta Throttle
 
+    /// Cancel any pending flush and discard buffered text.
+    /// Called on every path that clears `currentAssistantMessageId` without
+    /// a normal `messageComplete` (cancel, error, handoff, reconnect, etc.)
+    /// to prevent a stale flush from creating an orphan assistant message.
+    func discardStreamingBuffer() {
+        streamingFlushTask?.cancel()
+        streamingFlushTask = nil
+        streamingDeltaBuffer = ""
+    }
+
     /// Flush any buffered streaming text into the messages array.
     /// Called on a timer and also eagerly on `messageComplete`.
     func flushStreamingBuffer() {
@@ -639,6 +649,7 @@ extension ChatViewModel {
             currentTurnUserText = nil
             currentAssistantHasText = false
             lastContentWasToolCall = false
+            discardStreamingBuffer()
 
         case .generationCancelled(let cancelled):
             guard belongsToSession(cancelled.sessionId) else { return }
@@ -683,6 +694,7 @@ extension ChatViewModel {
             currentTurnUserText = nil
             currentAssistantHasText = false
             lastContentWasToolCall = false
+            discardStreamingBuffer()
             // Reset processing messages to sent
             for i in messages.indices {
                 if messages[i].role == .user && messages[i].status == .processing {
@@ -753,6 +765,9 @@ extension ChatViewModel {
         case .generationHandoff(let handoff):
             guard belongsToSession(handoff.sessionId) else { return }
             isThinking = false
+            // Flush buffered text so it lands on the current assistant message
+            // before we clear the ID and hand off to the next queued turn.
+            flushStreamingBuffer()
             // Must run before currentAssistantMessageId is cleared so attachments land on the right message
             ingestAssistantAttachments(handoff.attachments)
             // Keep isSending = true — daemon is handing off to next queued message
@@ -804,6 +819,7 @@ extension ChatViewModel {
             currentTurnUserText = nil
             currentAssistantHasText = false
             lastContentWasToolCall = false
+            discardStreamingBuffer()
             if !wasCancelling {
                 errorText = err.message
                 // When the backend blocks a message for containing secrets,
@@ -1219,6 +1235,7 @@ extension ChatViewModel {
             currentTurnUserText = nil
             currentAssistantHasText = false
             lastContentWasToolCall = false
+            discardStreamingBuffer()
             // When the user intentionally cancelled, suppress the error.
             // Otherwise, insert an inline error message so errors are visually
             // distinct from normal assistant replies (rendered with a red box).
