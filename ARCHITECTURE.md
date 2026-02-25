@@ -4227,7 +4227,7 @@ sequenceDiagram
     alt ASK_GUARDIAN pattern detected
         Ctrl->>CallStore: createPendingQuestion()
         Ctrl->>GuardianDispatch: dispatchGuardianQuestion()
-        GuardianDispatch->>Mac: guardian_request_thread_created IPC
+        GuardianDispatch->>Mac: notification_thread_created IPC
         GuardianDispatch->>TG/SMS: POST /deliver/{channel}
         Note over Mac,TG/SMS: First channel to respond wins
         Mac/TG/SMS->>Routes: guardian answer
@@ -4409,7 +4409,7 @@ When the LLM emits `[ASK_GUARDIAN: question]` during a voice call, the controlle
 1. **Request creation**: A `guardian_action_request` row is created with a unique 6-character hex request code, the question text, a `pending` status, and an expiry timestamp.
 
 2. **Delivery fan-out**: Deliveries are created for each configured channel:
-   - **Mac (always)**: A server-side conversation is created with key `asst:${assistantId}:guardian:request:${request.id}`. The dispatch engine emits a `guardian_request_thread_created` IPC event so the desktop UI can display the question thread.
+   - **Mac (always)**: A server-side conversation is created with key `asst:${assistantId}:guardian:request:${request.id}`. The dispatch engine emits a `notification_thread_created` IPC event (via the notification pipeline's broadcast function) so the desktop UI can display the question thread.
    - **Telegram/SMS (if guardian binding exists)**: A `POST /deliver/{channel}` request is sent to the gateway with the question text and request code.
 
 3. **Answer resolution**: The first channel to respond wins. Answer resolution uses an atomic `WHERE status = 'pending'` check on the `guardian_action_requests` table -- only the first writer succeeds in transitioning the request to `answered` status. The winning answer text and responding channel are recorded on the request row.
@@ -4689,27 +4689,57 @@ Keep-alive heartbeats (every 30 s by default):
 The notification module (`assistant/src/notifications/`) uses a signal-based architecture where producers emit free-form events and an LLM-backed decision engine determines whether, where, and how to notify the user. See `assistant/src/notifications/README.md` for the full developer guide.
 
 ```
-Producer → NotificationSignal → Decision Engine (LLM) → Deterministic Checks → Broadcaster → Adapters → Delivery
-                                       ↑
-                               Preference Summary
+Producer → NotificationSignal → Decision Engine (LLM) → Deterministic Checks → Broadcaster → Conversation Pairing → Adapters → Delivery
+                                       ↑                                                            ↓
+                               Preference Summary                                    notification_thread_created IPC
 ```
+
+### Channel Policy Registry
+
+`assistant/src/channels/config.ts` is the **single source of truth** for per-channel notification behavior. Every `ChannelId` must have an entry in the `CHANNEL_POLICIES` map (enforced at compile time via `satisfies Record<ChannelId, ChannelNotificationPolicy>`). Each policy defines:
+
+- **`deliveryEnabled`** — whether the channel can receive notification deliveries. The `NotificationChannel` type is derived from this flag: only channels with `deliveryEnabled: true` are valid notification targets.
+- **`conversationStrategy`** — how the notification pipeline materializes conversations for the channel:
+  - `start_new_conversation` — creates a fresh conversation per delivery (e.g. vellum desktop/mobile threads)
+  - `continue_existing_conversation` — appends to an existing channel-scoped conversation (e.g. Telegram)
+  - `not_deliverable` — channel cannot receive notifications (e.g. voice)
+
+Helper functions: `getDeliverableChannels()`, `getChannelPolicy()`, `isNotificationDeliverable()`, `getConversationStrategy()`.
+
+### Conversation Pairing
+
+Every notification delivery materializes a conversation + seed message **before** the adapter sends it (`conversation-pairing.ts`). This ensures:
+
+1. Every delivery has an auditable conversation trail in the conversations table
+2. The macOS/iOS client can deep-link directly into the notification thread
+3. Delivery audit rows in `notification_deliveries` carry `conversation_id`, `message_id`, and `conversation_strategy` columns
+
+The pairing function (`pairDeliveryWithConversation`) is resilient — errors are caught and logged without breaking the delivery pipeline.
+
+### Thread Surfacing via `notification_thread_created` IPC
+
+When a vellum notification thread is paired with a conversation, the broadcaster emits a `notification_thread_created` IPC event **immediately** (before waiting for slower channel deliveries like Telegram). This pushes the thread to the macOS/iOS client so it can display the notification thread in the sidebar and deep-link to it.
+
+Callers that manage their own vellum conversations (e.g. `guardian-dispatch`) pass `skipVellumThread: true` to `emitNotificationSignal()` and emit `notification_thread_created` directly via the registered broadcast function.
 
 **Key modules:**
 
 | Module | Purpose |
 |--------|---------|
+| `assistant/src/channels/config.ts` | Channel policy registry — single source of truth for per-channel notification behavior |
 | `assistant/src/notifications/emit-signal.ts` | Single entry point for all producers; orchestrates the full pipeline |
 | `assistant/src/notifications/decision-engine.ts` | LLM-based routing decisions with deterministic fallback |
 | `assistant/src/notifications/deterministic-checks.ts` | Hard invariant checks (dedupe, source-active suppression, channel availability) |
-| `assistant/src/notifications/broadcaster.ts` | Dispatches decisions to channel adapters |
-| `assistant/src/notifications/adapters/` | Per-channel delivery (macOS IPC, Telegram gateway) |
+| `assistant/src/notifications/broadcaster.ts` | Dispatches decisions to channel adapters; emits `notification_thread_created` IPC |
+| `assistant/src/notifications/conversation-pairing.ts` | Materializes conversation + message per delivery |
+| `assistant/src/notifications/adapters/` | Per-channel delivery (vellum IPC, Telegram gateway) |
 | `assistant/src/notifications/preference-extractor.ts` | Detects preference statements in conversation messages |
 | `assistant/src/notifications/preferences-store.ts` | CRUD for user notification preferences |
 | `assistant/src/config/bundled-skills/messaging/tools/send-notification.ts` | Explicit producer tool for user-requested notifications; emits signals into the same routing pipeline |
 
-**Audit trail (SQLite):** `notification_events` → `notification_decisions` → `notification_deliveries`
+**Audit trail (SQLite):** `notification_events` → `notification_decisions` → `notification_deliveries` (with `conversation_id`, `message_id`, `conversation_strategy`)
 
-**Configuration:** `notifications.decisionModel` in `config.json`.
+**Configuration:** `notifications.decisionModelIntent` in `config.json`.
 
 ---
 

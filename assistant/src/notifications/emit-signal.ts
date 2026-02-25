@@ -85,6 +85,9 @@ function getBroadcaster(): NotificationBroadcaster {
 function getConnectedChannels(assistantId: string): NotificationChannel[] {
   const channels: NotificationChannel[] = [];
 
+  // getDeliverableChannels() returns ChannelId[] but every returned channel
+  // has deliveryEnabled: true, making it a valid NotificationChannel at
+  // runtime. We iterate over the broad type and narrow via the switch.
   for (const channel of getDeliverableChannels()) {
     switch (channel) {
       case 'vellum':
@@ -93,7 +96,6 @@ function getConnectedChannels(assistantId: string): NotificationChannel[] {
         channels.push(channel);
         break;
       case 'telegram':
-      case 'sms':
         // Only report binding-based channels as connected when there is
         // an active guardian binding for this assistant. Without a
         // binding, the destination resolver will fail to resolve a
@@ -105,6 +107,8 @@ function getConnectedChannels(assistantId: string): NotificationChannel[] {
         }
         break;
       default:
+        // Future deliverable channels — skip until a connectivity check
+        // is implemented for them.
         break;
     }
   }
