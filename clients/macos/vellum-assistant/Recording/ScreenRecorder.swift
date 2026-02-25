@@ -731,25 +731,40 @@ final class ScreenRecorder: NSObject {
             throw RecorderError.writerFailed(status: Int(writerStatus.rawValue))
         }
 
-        // Playability integrity gate: validate that the output file has a positive
-        // duration, catching corrupt files that exist on disk but aren't playable.
-        let asset = AVURLAsset(url: outputURL)
-        let duration = try await asset.load(.duration)
-        guard duration.seconds > 0 else {
-            log.error("Stop: output file has zero or negative duration — discarding as invalid")
+        // Playability integrity gate + atomic file publication.
+        // Both asset.load(.duration) and moveItem can throw — ensure
+        // cleanup (file removal, writer/telemetry reset) always runs
+        // on error so we don't leak .tmp.mov files or stale state.
+        let finalURL: URL
+        do {
+            let asset = AVURLAsset(url: outputURL)
+            let duration = try await asset.load(.duration)
+            guard duration.seconds > 0 else {
+                log.error("Stop: output file has zero or negative duration — discarding as invalid")
+                try? FileManager.default.removeItem(at: outputURL)
+                cleanUpWriter()
+                clearTelemetryState()
+                throw RecorderError.invalidOutputFile
+            }
+
+            // Atomic file publication: rename from .tmp.mov to .mov now that the
+            // file is validated. Clients observing the recordings directory will
+            // only see the final file after it is complete and playable.
+            let dest = outputURL.deletingPathExtension().deletingPathExtension()
+                .appendingPathExtension("mov")
+            try FileManager.default.moveItem(at: outputURL, to: dest)
+            log.info("Atomically renamed recording: \(outputURL.lastPathComponent, privacy: .public) → \(dest.lastPathComponent, privacy: .public)")
+            finalURL = dest
+        } catch let error as RecorderError {
+            // RecorderError.invalidOutputFile already cleaned up above — rethrow as-is.
+            throw error
+        } catch {
+            log.error("Stop: post-write validation/rename failed — \(error.localizedDescription, privacy: .public)")
             try? FileManager.default.removeItem(at: outputURL)
             cleanUpWriter()
             clearTelemetryState()
             throw RecorderError.invalidOutputFile
         }
-
-        // Atomic file publication: rename from .tmp.mov to .mov now that the
-        // file is validated. Clients observing the recordings directory will
-        // only see the final file after it is complete and playable.
-        let finalURL = outputURL.deletingPathExtension().deletingPathExtension()
-            .appendingPathExtension("mov")
-        try FileManager.default.moveItem(at: outputURL, to: finalURL)
-        log.info("Atomically renamed recording: \(outputURL.lastPathComponent, privacy: .public) → \(finalURL.lastPathComponent, privacy: .public)")
 
         let durationMs: Int
         if let startDate = recordingStartDate {
