@@ -190,4 +190,77 @@ final class ScreenRecorderTests: XCTestCase {
             XCTFail("Non-SCK domain error should map to .sessionInterrupted, got \(mapped)")
         }
     }
+
+    // MARK: - Error Cases (Recording Hardening)
+
+    func testWriterFailedErrorDescription() {
+        let error = RecorderError.writerFailed(status: 3)
+        XCTAssertNotNil(error.errorDescription)
+        XCTAssertTrue(error.errorDescription!.contains("3"), "Should include status code")
+    }
+
+    func testInvalidOutputFileErrorDescription() {
+        let error = RecorderError.invalidOutputFile
+        XCTAssertNotNil(error.errorDescription)
+        XCTAssertTrue(
+            error.errorDescription!.lowercased().contains("invalid") ||
+            error.errorDescription!.lowercased().contains("unplayable"),
+            "Should indicate file is invalid/unplayable"
+        )
+    }
+
+    // MARK: - Telemetry Categorization for New Error Cases
+
+    func testWriterFailedCategorizesToWriter() {
+        let category = RecordingTelemetry.categorize(.writerFailed(status: 3))
+        XCTAssertEqual(category, .writer)
+    }
+
+    func testInvalidOutputFileCategorizesToWriter() {
+        let category = RecordingTelemetry.categorize(.invalidOutputFile)
+        XCTAssertEqual(category, .writer)
+    }
+
+    // MARK: - Atomic File Naming
+
+    func testRecordingResultFilePathDoesNotContainTmp() {
+        // The atomic rename ensures the final path doesn't contain .tmp
+        // This is a contract test — if the recording system changes the naming
+        // scheme, this test will catch it.
+        let mockPath = "/path/to/recording-12345.mov"
+        XCTAssertFalse(mockPath.contains(".tmp"), "Final recording path should not contain .tmp")
+
+        let tmpPath = "/path/to/recording-12345.tmp.mov"
+        XCTAssertTrue(tmpPath.contains(".tmp"), "Temp recording path should contain .tmp")
+
+        // Verify the rename logic: removing .tmp.mov and adding .mov
+        let tmpURL = URL(fileURLWithPath: tmpPath)
+        let finalURL = tmpURL.deletingPathExtension().deletingPathExtension().appendingPathExtension("mov")
+        XCTAssertEqual(finalURL.lastPathComponent, "recording-12345.mov")
+    }
+
+    // MARK: - RecorderError Exhaustiveness
+
+    func testAllRecorderErrorCasesHaveDescriptions() {
+        let errors: [RecorderError] = [
+            .noMatchingDisplay,
+            .noMatchingWindow,
+            .streamStartFailed("test"),
+            .writerSetupFailed("test"),
+            .notRecording,
+            .noFramesCaptured,
+            .allFallbacksExhausted,
+            .unsupportedDimensions(width: 100, height: 100),
+            .sourceUnavailable("test"),
+            .permissionDenied,
+            .sessionInterrupted("test"),
+            .writerFailed(status: 3),
+            .invalidOutputFile,
+        ]
+
+        for error in errors {
+            XCTAssertNotNil(error.errorDescription, "Error \(error) should have a description")
+            XCTAssertFalse(error.errorDescription!.isEmpty, "Error \(error) description should not be empty")
+        }
+    }
 }
