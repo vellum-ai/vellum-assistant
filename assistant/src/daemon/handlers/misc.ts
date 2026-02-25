@@ -75,15 +75,22 @@ export async function handleTaskSubmit(
       if (isStopRecordingOnly(msg.task)) {
         // Find the active session for this socket so we can resolve the
         // conversation that owns the recording.
-        const activeSessionId = ctx.socketToSession.get(socket);
+        let activeSessionId = ctx.socketToSession.get(socket);
         let stopped = false;
         if (activeSessionId) {
           stopped = handleRecordingStop(activeSessionId, ctx) !== undefined;
+        }
+        // Ensure we have a sessionId for message_complete even if no prior session exists
+        if (!activeSessionId) {
+          const conversation = conversationStore.createConversation(msg.task);
+          activeSessionId = conversation.id;
+          ctx.socketToSession.set(socket, activeSessionId);
         }
         rlog.info('Recording stop intent intercepted');
         ctx.send(socket, {
           type: 'assistant_text_delta',
           text: stopped ? 'Stopping the recording.' : 'No active recording to stop.',
+          sessionId: activeSessionId,
         });
         ctx.send(socket, { type: 'message_complete', sessionId: activeSessionId });
         return;
@@ -102,7 +109,7 @@ export async function handleTaskSubmit(
           interactionType: 'text_qa',
         });
         rlog.info({ sessionId: conversation.id }, 'Recording-only intent intercepted — routed to standalone recording');
-        ctx.send(socket, { type: 'assistant_text_delta', text: 'Starting screen recording.' });
+        ctx.send(socket, { type: 'assistant_text_delta', text: 'Starting screen recording.', sessionId: conversation.id });
         ctx.send(socket, { type: 'message_complete', sessionId: conversation.id });
         return;
       }

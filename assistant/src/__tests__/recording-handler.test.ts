@@ -165,17 +165,22 @@ describe('handleRecordingStart', () => {
     expect(sent[0].options).toEqual(options);
   });
 
-  test('overwrites previous recording for the same conversation', () => {
+  test('returns early with existing recordingId when recording already active', () => {
     const { ctx, sent, fakeSocket } = createCtx();
 
     const id1 = handleRecordingStart('conv-3', undefined, fakeSocket, ctx);
     const id2 = handleRecordingStart('conv-3', undefined, fakeSocket, ctx);
 
-    expect(id1).not.toBe(id2);
-    // Both start messages were sent
-    expect(sent).toHaveLength(2);
+    // Should return the same recording ID (no overwrite)
+    expect(id2).toBe(id1);
+    // First call: recording_start; second call: assistant_text_delta + message_complete
+    expect(sent).toHaveLength(3);
+    expect(sent[0].type).toBe('recording_start');
     expect(sent[0].recordingId).toBe(id1);
-    expect(sent[1].recordingId).toBe(id2);
+    expect(sent[1].type).toBe('assistant_text_delta');
+    expect(sent[1].text).toBe('A recording is already active.');
+    expect(sent[2].type).toBe('message_complete');
+    expect(sent[2].sessionId).toBe('conv-3');
   });
 });
 
