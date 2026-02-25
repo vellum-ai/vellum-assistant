@@ -98,7 +98,20 @@ The response includes a `compliance` object with `numberType`, `verificationSid`
 | Opt-in type | `optInType` | `VERBAL`, `WEB_FORM`, `PAPER_FORM`, `VIA_TEXT`, `MOBILE_QR_CODE` |
 | Opt-in image URL | `optInImageUrls` | Array of URLs showing opt-in mechanism (can be website URL) |
 
-The `tollfreePhoneNumberSid` can be obtained from the `sms_compliance_status` response (which resolves the configured phone number to its Twilio SID). Do NOT ask for EIN, business registration number, or business registration authority. Explain that Twilio labels some fields as "business" fields even for individual submitters.
+The `tollfreePhoneNumberSid` is **not** returned by `sms_compliance_status` (that response only contains verification metadata). To obtain it, look up the configured phone number's SID using the `getPhoneNumberSid` helper via the IPC client:
+
+```bash
+cd "$(git rev-parse --show-toplevel)/assistant" && bun -e '
+import { getPhoneNumberSid } from "./src/calls/twilio-rest.js";
+import { getSecureKey } from "./src/security/secure-keys.js";
+const sid = getSecureKey("credential:twilio:account_sid");
+const token = getSecureKey("credential:twilio:auth_token");
+const phoneSid = await getPhoneNumberSid(sid!, token!, "<configured phone number>");
+console.log(phoneSid);
+'
+```
+
+Replace `<configured phone number>` with the `phoneNumber` from the `sms_compliance_status` response. Do NOT ask for EIN, business registration number, or business registration authority. Explain that Twilio labels some fields as "business" fields even for individual submitters.
 
 **Step 3c: Submit verification:**
 
@@ -107,7 +120,7 @@ The `tollfreePhoneNumberSid` can be obtained from the `sms_compliance_status` re
   "type": "twilio_config",
   "action": "sms_submit_tollfree_verification",
   "verificationParams": {
-    "tollfreePhoneNumberSid": "<PN SID from sms_compliance_status or use the daemon to resolve it>",
+    "tollfreePhoneNumberSid": "<PN SID from getPhoneNumberSid lookup above>",
     "businessName": "...",
     "businessWebsite": "...",
     "notificationEmail": "...",
