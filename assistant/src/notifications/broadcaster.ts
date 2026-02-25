@@ -27,14 +27,28 @@ import type {
 
 const log = getLogger('notif-broadcaster');
 
+/** Callback invoked immediately when a vellum notification thread is created. */
+export interface ThreadCreatedInfo {
+  conversationId: string;
+  title: string;
+  sourceEventName: string;
+}
+export type OnThreadCreatedFn = (info: ThreadCreatedInfo) => void;
+
 export class NotificationBroadcaster {
   private adapters: Map<NotificationChannel, ChannelAdapter>;
+  private onThreadCreated: OnThreadCreatedFn | null = null;
 
   constructor(adapters: ChannelAdapter[]) {
     this.adapters = new Map();
     for (const adapter of adapters) {
       this.adapters.set(adapter.channel, adapter);
     }
+  }
+
+  /** Register a callback that fires immediately when a vellum conversation is paired. */
+  setOnThreadCreated(fn: OnThreadCreatedFn): void {
+    this.onThreadCreated = fn;
   }
 
   /**
@@ -99,6 +113,22 @@ export class NotificationBroadcaster {
       let deepLinkTarget = decision.deepLinkTarget;
       if (channel === 'vellum' && pairing.conversationId) {
         deepLinkTarget = { ...deepLinkTarget, conversationId: pairing.conversationId };
+
+        // Emit notification_thread_created immediately when the vellum
+        // conversation is paired, BEFORE waiting for adapter send or other
+        // channel deliveries. This avoids a race where slow Telegram delivery
+        // delays the IPC push past the macOS deep-link retry window.
+        if (pairing.strategy === 'start_new_conversation' && this.onThreadCreated) {
+          const threadTitle =
+            copy.threadTitle ??
+            copy.title ??
+            signal.sourceEventName;
+          this.onThreadCreated({
+            conversationId: pairing.conversationId,
+            title: threadTitle,
+            sourceEventName: signal.sourceEventName,
+          });
+        }
       }
 
       const payload: ChannelDeliveryPayload = {
