@@ -565,6 +565,22 @@
       "execution_target": "host"
     },
     {
+      "name": "gmail_sender_digest",
+      "description": "Scan Gmail and group messages by sender to identify high-volume senders (e.g. newsletters). Returns top senders sorted by message count with metadata for bulk cleanup.",
+      "category": "messaging",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "description": "Gmail search query (default 'has:unsubscribe newer_than:90d')" },
+          "max_messages": { "type": "number", "description": "Maximum messages to scan (default 500, cap 2000)" },
+          "max_senders": { "type": "number", "description": "Maximum senders to return (default 30)" }
+        }
+      },
+      "executor": "tools/gmail-sender-digest.ts",
+      "execution_target": "host"
+    },
+    {
       "name": "google_contacts",
       "description": "List or search Google Contacts. Requires contacts.readonly scope (re-authorization may be needed).",
       "category": "messaging",
