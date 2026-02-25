@@ -7,7 +7,7 @@ import { getConfig } from '../config/loader.js';
 import { indexMessageNow } from './indexer.js';
 import { parseChannelId, parseInterfaceId } from '../channels/types.js';
 import type { ChannelId, InterfaceId } from '../channels/types.js';
-import { isChannelId, CHANNEL_IDS, isInterfaceId, INTERFACE_IDS } from '../channels/types.js';
+import { isChannelId, CHANNEL_IDS, INTERFACE_IDS } from '../channels/types.js';
 import { getLogger } from '../util/logger.js';
 import { deleteOrphanAttachments } from './attachments-store.js';
 import { createRowMapper } from '../util/row-mapper.js';

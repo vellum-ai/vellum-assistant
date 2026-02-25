@@ -28,7 +28,7 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
       lines.push(`    Enrolled: ${m.totalEnrollments}  Active: ${m.activeEnrollments}  Sends: ${m.sends}`);
       lines.push(`    Replied: ${m.replies}  Completed: ${m.completions}  Failed: ${m.failures}  Cancelled: ${m.cancellations}`);
       lines.push(`    Reply rate: ${(m.replyRate * 100).toFixed(1)}%  Completion rate: ${(m.completionRate * 100).toFixed(1)}%`);
-      if (m.avgTimeToReplyMs !== null) {
+      if (m.avgTimeToReplyMs != null) {
         const hours = Math.round(m.avgTimeToReplyMs / (1000 * 60 * 60));
         lines.push(`    Avg time to reply: ${hours}h`);
       }

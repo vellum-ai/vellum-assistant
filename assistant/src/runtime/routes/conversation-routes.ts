@@ -2,7 +2,6 @@
  * Route handlers for conversation messages and suggestions.
  */
 import { CHANNEL_IDS, INTERFACE_IDS, parseChannelId, parseInterfaceId } from '../../channels/types.js';
-import type { InterfaceId } from '../../channels/types.js';
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import {
