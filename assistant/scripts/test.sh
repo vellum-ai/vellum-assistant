@@ -10,10 +10,14 @@ set -uo pipefail
 # To avoid order-dependent CI flakes, run each test file in its own Bun process.
 #
 # Files run in parallel (configurable via TEST_WORKERS, default: CPU count).
+#
+# Coverage: set COVERAGE=true to generate per-file lcov reports, merged into
+# coverage/lcov.info at the end.
 # ---------------------------------------------------------------------------
 
 EXCLUDE_EXPERIMENTAL="${EXCLUDE_EXPERIMENTAL:-false}"
 WORKERS="${TEST_WORKERS:-$(sysctl -n hw.logicalcpu 2>/dev/null || nproc 2>/dev/null || echo 8)}"
+COVERAGE="${COVERAGE:-false}"
 
 EXPERIMENTAL_FILES=(
   "skill-load-tool.test.ts"
@@ -55,22 +59,36 @@ echo "Running ${#test_files[@]} test files (${WORKERS} workers)"
 results_dir="$(mktemp -d)"
 trap 'rm -rf "${results_dir}"' EXIT
 
+# When coverage is enabled, each test file writes lcov to its own subdirectory
+if [[ "${COVERAGE}" == "true" ]]; then
+  coverage_base="$(pwd)/coverage"
+  rm -rf "${coverage_base}"
+  mkdir -p "${coverage_base}"
+fi
+
 # Run tests in parallel, capturing output per file
 printf '%s\n' "${test_files[@]}" | xargs -P "${WORKERS}" -I {} bash -c '
   test_file="$1"
   results_dir="$2"
   exclude_exp="$3"
+  coverage_enabled="$4"
 
   safe_name="$(echo "${test_file}" | tr "/" "_")"
   out_file="${results_dir}/${safe_name}.out"
-  time_file="${results_dir}/${safe_name}.time"
+
+  coverage_args=""
+  if [[ "${coverage_enabled}" == "true" ]]; then
+    cov_dir="${results_dir}/cov_${safe_name}"
+    mkdir -p "${cov_dir}"
+    coverage_args="--coverage --coverage-reporter=lcov --coverage-dir=${cov_dir}"
+  fi
 
   start_ms=$(perl -MTime::HiRes=time -e "printf \"%d\", time*1000")
 
   if [[ "${exclude_exp}" == "true" ]]; then
-    bun test --test-name-pattern "^(?!.*\\[experimental\\])" "${test_file}" > "${out_file}" 2>&1
+    bun test ${coverage_args} --test-name-pattern "^(?!.*\\[experimental\\])" "${test_file}" > "${out_file}" 2>&1
   else
-    bun test "${test_file}" > "${out_file}" 2>&1
+    bun test ${coverage_args} "${test_file}" > "${out_file}" 2>&1
   fi
   exit_code=$?
 
@@ -84,7 +102,7 @@ printf '%s\n' "${test_files[@]}" | xargs -P "${WORKERS}" -I {} bash -c '
   else
     echo "  ✓ ${base} (${elapsed}ms)"
   fi
-' _ {} "${results_dir}" "${EXCLUDE_EXPERIMENTAL}"
+' _ {} "${results_dir}" "${EXCLUDE_EXPERIMENTAL}" "${COVERAGE}"
 xargs_exit=$?
 
 # Verify tests actually ran — catch xargs startup failures (e.g. invalid TEST_WORKERS)
@@ -122,6 +140,22 @@ if [[ -f "${results_dir}/failures" ]]; then
   done < "${results_dir}/failures"
   echo "========================================"
   exit 1
+fi
+
+# Merge per-file lcov reports into a single coverage/lcov.info
+if [[ "${COVERAGE}" == "true" ]]; then
+  merged="${coverage_base}/lcov.info"
+  : > "${merged}"
+  for lcov_file in "${results_dir}"/cov_*/lcov.info; do
+    if [[ -f "${lcov_file}" ]]; then
+      cat "${lcov_file}" >> "${merged}"
+    fi
+  done
+  if [[ -s "${merged}" ]]; then
+    echo "Coverage report written to coverage/lcov.info"
+  else
+    echo "Warning: no coverage data was generated"
+  fi
 fi
 
 echo "All ${#test_files[@]} test files passed"
