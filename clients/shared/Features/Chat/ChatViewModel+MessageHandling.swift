@@ -625,10 +625,19 @@ extension ChatViewModel {
             // exists, so cancellation-acknowledgement completions that
             // carry no assistant text don't prematurely close the gate.
             if let callback = onFirstAssistantReply {
-                let hasAssistantContent = messages.contains { $0.role == .assistant && !$0.text.isEmpty }
-                if hasAssistantContent {
+                if let firstAssistant = messages.first(where: { $0.role == .assistant && !$0.text.isEmpty }) {
+                    let replyText = firstAssistant.text
                     onFirstAssistantReply = nil
-                    callback()
+                    callback(replyText)
+
+                    // Check naming intent and fire the lacks-naming callback
+                    // once. The didSendNamingNudge flag prevents looping if
+                    // the corrective follow-up also lacks naming keywords.
+                    if !didSendNamingNudge && !ChatViewModel.replyContainsNamingIntent(replyText) {
+                        didSendNamingNudge = true
+                        onFirstReplyLacksNamingIntent?()
+                        onFirstReplyLacksNamingIntent = nil
+                    }
                 }
             }
             var completedToolCalls: [ToolCallData]?
