@@ -13,7 +13,7 @@ import { getPendingConfirmationsByConversation } from '../../memory/runs-store.j
 import { checkIngressForSecrets } from '../../security/secret-ingress.js';
 import { IngressBlockedError } from '../../util/errors.js';
 import { getLogger } from '../../util/logger.js';
-import { findMember, updateLastSeen } from '../../memory/ingress-member-store.js';
+import { findMember, updateLastSeen, upsertMember } from '../../memory/ingress-member-store.js';
 import {
   getGuardianBinding,
   validateAndConsumeChallenge,
@@ -434,6 +434,20 @@ export async function handleChannelInbound(
         body.senderUsername,
         body.senderName,
       );
+
+      if (verifyResult.success) {
+        upsertMember({
+          assistantId,
+          sourceChannel,
+          externalUserId: body.senderExternalUserId,
+          externalChatId,
+          status: 'active',
+          policy: 'allow',
+          displayName: body.senderName,
+          username: body.senderUsername,
+        });
+        log.info({ sourceChannel, externalUserId: body.senderExternalUserId }, 'Guardian verified: auto-upserted ingress member');
+      }
 
       const replyText = verifyResult.success
         ? await composeApprovalMessageGenerative({
