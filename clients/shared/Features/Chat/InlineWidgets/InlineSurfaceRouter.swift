@@ -47,6 +47,7 @@ public struct InlineSurfaceRouter: View {
     }
 
     public var body: some View {
+        Group {
         if let completion = surface.completionState {
             CompletedSurfaceChip(title: surface.title, summary: completion.summary)
         } else if case .confirmation(let data) = surface.data {
@@ -121,6 +122,10 @@ public struct InlineSurfaceRouter: View {
         }
         // Consistent width for all widget cards; dynamic page previews and document previews are more compact.
         .frame(maxWidth: isDynamicPreview || isDocumentPreview ? 350 : 540, alignment: .leading)
+        }
+        }
+        .onChange(of: surface) { _, _ in
+            clickedActionLabel = nil
         }
     }
 
