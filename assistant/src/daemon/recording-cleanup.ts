@@ -39,9 +39,16 @@ function sweepExpiredRecordings(config: RecordingConfig): void {
   for (const att of expired) {
     try {
       unlinkSync(att.filePath);
-    } catch (err) {
-      // File may already be deleted or moved; log and continue
-      log.debug({ err, filePath: att.filePath, attachmentId: att.id }, 'Could not delete recording file (may already be removed)');
+    } catch (err: unknown) {
+      const code = err instanceof Error && 'code' in err ? (err as NodeJS.ErrnoException).code : undefined;
+      if (code === 'ENOENT') {
+        // File already gone — safe to clean up DB records
+        log.debug({ err, filePath: att.filePath, attachmentId: att.id }, 'Recording file already removed');
+      } else {
+        // Transient or permission error — skip DB cleanup so next sweep retries
+        log.warn({ err, filePath: att.filePath, attachmentId: att.id }, 'Could not delete recording file; will retry on next sweep');
+        continue;
+      }
     }
 
     try {
