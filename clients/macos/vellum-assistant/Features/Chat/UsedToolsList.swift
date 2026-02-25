@@ -84,8 +84,17 @@ private struct UsedToolsRow: View {
     @State private var isImageHovered = false
     @Environment(\.displayScale) private var displayScale
 
+    /// Lazily resolved full input text. If `inputFull` was deferred during history
+    /// load, compute it from the raw dictionary on first access (when the user
+    /// expands the row) instead of during `populateFromHistory`.
+    private var resolvedInputFull: String {
+        if !toolCall.inputFull.isEmpty { return toolCall.inputFull }
+        if let dict = toolCall.inputRawDict { return ToolCallData.formatAllToolInput(dict) }
+        return ""
+    }
+
     private var hasDetails: Bool {
-        !toolCall.inputFull.isEmpty ||
+        !toolCall.inputFull.isEmpty || toolCall.inputRawDict != nil ||
         (toolCall.result != nil && !(toolCall.result?.isEmpty ?? true)) ||
         toolCall.cachedImage != nil ||
         !toolCall.claudeCodeSteps.isEmpty
@@ -158,8 +167,8 @@ private struct UsedToolsRow: View {
                             Text(toolCall.friendlyName)
                                 .font(VFont.captionMedium)
                                 .foregroundColor(VColor.textSecondary)
-                            if !toolCall.inputFull.isEmpty {
-                                Text(toolCall.inputFull)
+                            if !resolvedInputFull.isEmpty {
+                                Text(resolvedInputFull)
                                     .font(VFont.monoSmall)
                                     .foregroundColor(VColor.textSecondary)
                                     .textSelection(.enabled)
