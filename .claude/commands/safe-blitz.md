@@ -285,9 +285,144 @@ Repeat steps 1-5 until the exit condition: either `approved` aggregate status, 3
 
 This step runs after the per-milestone feedback loop exits — either because all reviews are approved, or the maximum feedback cycle limit (3) was reached. This is the review-before-merge gate.
 
-Since feedback was pushed directly to the milestone branch (no intermediate feedback PRs to merge), simply merge the milestone PR:
+Before merging, check whether the feature branch has diverged from main in a way that creates merge conflicts. Resolving these proactively keeps the feature branch mergeable and avoids compounding conflicts across milestones.
 
-1. Merge the milestone PR into the feature branch:
+**Step 1: Check for merge conflicts between the feature branch and main.**
+
+```bash
+git fetch origin main <feature-branch-name>
+git merge-tree --write-tree origin/<feature-branch-name> origin/main > /dev/null 2>&1
+```
+
+- If exit code is **0**: No conflicts between the feature branch and main. Skip to Step 4.
+- If exit code is **non-zero**: Conflicts exist. Proceed to Step 2.
+
+**Step 2: Resolve feature-branch-vs-main conflicts in a worktree.**
+
+1. Create a worktree from the feature branch:
+   ```bash
+   .claude/worktree create swarm/<namespace>/resolve-main-M<N> origin/<feature-branch-name>
+   ```
+
+2. Spawn a `general-purpose` agent to merge main into the feature branch and resolve all conflicts. Use this prompt:
+
+   ```
+   You are resolving merge conflicts between the feature branch and main.
+
+   ## Project context
+   Read AGENTS.md in the repo root for project conventions and structure.
+
+   ## Repo-specific gotchas
+   - `tail` and `head` may not be available in the shell. Don't pipe to them.
+
+   ## Your worktree
+   <absolute path to worktree>
+   ALL work happens here. Do NOT touch the main repo.
+
+   ## Your task
+   Merge `origin/main` into the current branch (which is the feature branch `<feature-branch-name>`) and resolve all merge conflicts.
+
+   ## Workflow
+   1. In the worktree, merge main:
+      ```bash
+      cd <worktree>
+      git merge origin/main
+      ```
+   2. Resolve all merge conflicts. Examine each conflicted file, understand the intent of both sides, and produce a correct resolution that preserves all intended changes.
+   3. After resolving all conflicts, stage and commit:
+      ```bash
+      git add -A
+      git commit --no-edit
+      ```
+   4. Push the resolved feature branch:
+      ```bash
+      git push origin HEAD:<feature-branch-name>
+      ```
+   5. Send a message to "lead" with:
+      - A summary of which files had conflicts and how they were resolved
+      - Any concerns about the resolution
+   ```
+
+3. When the agent finishes, remove the worktree:
+   ```bash
+   .claude/worktree remove swarm/<namespace>/resolve-main-M<N> --delete-branch
+   ```
+
+4. Fetch the updated feature branch:
+   ```bash
+   git fetch origin <feature-branch-name>
+   ```
+
+**Step 3: Rebase the milestone branch on the updated feature branch.**
+
+After the feature branch has been updated with main, the milestone branch may now conflict with it. Rebase the milestone branch to incorporate the feature branch updates.
+
+1. Fetch the milestone branch:
+   ```bash
+   git fetch origin <milestone-pr-branch>
+   ```
+
+2. Create a worktree from the milestone branch:
+   ```bash
+   .claude/worktree create swarm/<namespace>/rebase-M<N> origin/<milestone-pr-branch>
+   ```
+
+3. Spawn a `general-purpose` agent to rebase and resolve any conflicts. Use this prompt:
+
+   ```
+   You are rebasing a milestone branch onto the updated feature branch.
+
+   ## Project context
+   Read AGENTS.md in the repo root for project conventions and structure.
+
+   ## Repo-specific gotchas
+   - `tail` and `head` may not be available in the shell. Don't pipe to them.
+
+   ## Your worktree
+   <absolute path to worktree>
+   ALL work happens here. Do NOT touch the main repo.
+
+   ## Your task
+   Rebase the current branch (`<milestone-pr-branch>`) onto `origin/<feature-branch-name>` and resolve any conflicts.
+
+   ## Workflow
+   1. In the worktree, rebase onto the updated feature branch:
+      ```bash
+      cd <worktree>
+      git rebase origin/<feature-branch-name>
+      ```
+   2. If there are conflicts, resolve each one:
+      - Examine each conflicted file and understand the intent of both sides
+      - Produce a correct resolution that preserves the milestone's changes on top of the updated feature branch
+      - Stage resolved files and continue the rebase:
+        ```bash
+        git add -A
+        git rebase --continue
+        ```
+      - Repeat for each conflicting commit
+   3. After the rebase completes (whether clean or with resolved conflicts), force-push the milestone branch:
+      ```bash
+      git push --force-with-lease origin HEAD:<milestone-pr-branch>
+      ```
+   4. Send a message to "lead" with:
+      - Whether the rebase was clean or had conflicts
+      - A summary of which files had conflicts and how they were resolved
+      - Any concerns about the resolution
+   ```
+
+4. When the agent finishes, remove the worktree:
+   ```bash
+   .claude/worktree remove swarm/<namespace>/rebase-M<N> --delete-branch
+   ```
+
+5. Fetch the updated milestone branch:
+   ```bash
+   git fetch origin <milestone-pr-branch>
+   ```
+
+**Step 4: Merge the milestone PR into the feature branch.**
+
+1. Merge the milestone PR:
    ```bash
    gh pr merge <milestone-pr-number> --squash
    ```
