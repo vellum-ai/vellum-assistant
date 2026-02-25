@@ -292,15 +292,17 @@ function handleRecordingStatus(
 // ─── Socket disconnect cleanup ───────────────────────────────────────────────
 
 /**
- * Clean up recording state for a disconnected session. Called when the client
- * socket closes to prevent stale entries from blocking future recordings.
+ * Clean up all recording state when a client socket disconnects. Since only
+ * one recording can be active globally, this clears all entries rather than
+ * looking up a single session ID. This avoids missing recordings started in
+ * a different conversation than the socket's current session.
  */
-export function cleanupRecordingForSession(sessionId: string): void {
-  const recordingId = recordingOwnerByConversation.get(sessionId);
-  if (recordingId) {
-    log.warn({ sessionId, recordingId }, 'Cleaning up recording state for disconnected session');
-    standaloneRecordingConversationId.delete(recordingId);
-    recordingOwnerByConversation.delete(sessionId);
+export function cleanupRecordingsOnDisconnect(): void {
+  if (recordingOwnerByConversation.size === 0) return;
+  for (const [convId, recId] of [...recordingOwnerByConversation.entries()]) {
+    log.warn({ conversationId: convId, recordingId: recId }, 'Cleaning up recording state for disconnected socket');
+    standaloneRecordingConversationId.delete(recId);
+    recordingOwnerByConversation.delete(convId);
   }
 }
 

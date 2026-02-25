@@ -15,7 +15,7 @@ import { RateLimitProvider } from '../providers/ratelimit.js';
 import { getFailoverProvider, initializeProviders } from '../providers/registry.js';
 import { RunOrchestrator } from '../runtime/run-orchestrator.js';
 import { checkIngressForSecrets } from '../security/secret-ingress.js';
-import { cleanupRecordingForSession } from './handlers/recording.js';
+import { cleanupRecordingsOnDisconnect } from './handlers/recording.js';
 import { getSubagentManager } from '../subagent/index.js';
 import { IngressBlockedError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
@@ -460,8 +460,11 @@ export class DaemonServer {
           session.abort();
         }
         getSubagentManager().abortAllForParent(sessionId);
-        cleanupRecordingForSession(sessionId);
       }
+      // Clean up all recording state for the disconnected socket. Runs outside
+      // the sessionId check because recordings may be keyed to a different
+      // conversation than the socket's current session.
+      cleanupRecordingsOnDisconnect();
       this.socketToSession.delete(socket);
       const cuSessionIds = this.socketToCuSession.get(socket);
       if (cuSessionIds) {

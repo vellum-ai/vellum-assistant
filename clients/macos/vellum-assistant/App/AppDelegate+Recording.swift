@@ -82,22 +82,35 @@ extension AppDelegate {
         attachToConversationId: String?
     ) {
         Task {
-            // Check microphone permission if microphone is requested
-            if options?.includeMicrophone == true {
+            // Check microphone permission if requested; disable mic if denied
+            // so the recording starts without mic rather than failing.
+            var micAllowed = options?.includeMicrophone ?? false
+            if micAllowed {
                 let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
                 if micStatus == .notDetermined {
                     let granted = await AVCaptureDevice.requestAccess(for: .audio)
                     if !granted {
                         log.warning("Microphone permission denied — recording without microphone")
+                        micAllowed = false
                     }
                 } else if micStatus == .denied || micStatus == .restricted {
                     log.warning("Microphone permission denied — recording without microphone")
+                    micAllowed = false
                 }
             }
+            // Rebuild options with the resolved mic permission
+            let effectiveOptions = IPCRecordingOptions(
+                captureScope: options?.captureScope,
+                displayId: options?.displayId,
+                windowId: options?.windowId,
+                includeAudio: options?.includeAudio,
+                includeMicrophone: micAllowed,
+                promptForSource: options?.promptForSource
+            )
 
             let started = await recordingManager.start(
                 sessionId: recordingId,
-                options: options,
+                options: effectiveOptions,
                 attachToConversationId: attachToConversationId
             )
 
