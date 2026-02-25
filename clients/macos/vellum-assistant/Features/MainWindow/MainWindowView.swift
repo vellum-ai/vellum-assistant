@@ -52,6 +52,7 @@ struct MainWindowView: View {
     @ObservedObject var threadManager: ThreadManager
     @ObservedObject var appListManager: AppListManager
     var zoomManager: ZoomManager
+    var conversationZoomManager: ConversationZoomManager
     /// Plain `let` instead of `@ObservedObject` so SwiftUI doesn't observe
     /// TraceStore mutations when the DebugPanel isn't visible. DebugPanel
     /// itself uses `@ObservedObject` and is only instantiated when shown.
@@ -96,10 +97,11 @@ struct MainWindowView: View {
     /// Whether the "coming alive" overlay is currently showing.
     @State private var showComingAlive: Bool
 
-    init(threadManager: ThreadManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, avatarEvolutionState: AvatarEvolutionState? = nil, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager = VoiceModeManager(), onSendWakeUp: (() -> Void)? = nil) {
+    init(threadManager: ThreadManager, appListManager: AppListManager, zoomManager: ZoomManager, conversationZoomManager: ConversationZoomManager, traceStore: TraceStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, avatarEvolutionState: AvatarEvolutionState? = nil, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager = VoiceModeManager(), onSendWakeUp: (() -> Void)? = nil) {
         self.threadManager = threadManager
         self.appListManager = appListManager
         self.zoomManager = zoomManager
+        self.conversationZoomManager = conversationZoomManager
         self.traceStore = traceStore
         self.daemonClient = daemonClient
         self.surfaceManager = surfaceManager
@@ -1327,21 +1329,31 @@ struct MainWindowView: View {
 
 }
 
-private struct ZoomIndicatorView: View {
+struct ZoomIndicatorView: View {
     let percentage: Int
+    /// Optional prefix shown before the percentage (e.g. "Text" → "Text 125%").
+    var label: String? = nil
 
     var body: some View {
-        Text("\(percentage)%")
-            .font(VFont.bodyMedium)
-            .foregroundStyle(VColor.textPrimary)
-            .padding(.horizontal, VSpacing.lg)
-            .padding(.vertical, VSpacing.sm)
-            .background(VColor.surface)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-            .overlay(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .stroke(VColor.surfaceBorder, lineWidth: 1)
-            )
+        HStack(spacing: VSpacing.xs) {
+            if let label {
+                Text(label)
+                    .font(VFont.caption)
+                    .foregroundStyle(VColor.textSecondary)
+            }
+            Text("\(percentage)%")
+                .font(VFont.bodyMedium)
+                .foregroundStyle(VColor.textPrimary)
+        }
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.vertical, VSpacing.sm)
+        .background(VColor.surface)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .stroke(VColor.surfaceBorder, lineWidth: 1)
+        )
+        .accessibilityLabel("Zoom \(percentage) percent")
     }
 }
 

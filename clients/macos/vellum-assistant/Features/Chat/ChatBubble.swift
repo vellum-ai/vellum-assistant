@@ -30,6 +30,8 @@ struct ChatBubble: View {
     /// manager publishes any change (the "thundering herd" problem).
     var activeSurfaceId: String?
 
+    @Environment(\.conversationZoomScale) var conversationZoomScale
+
     var isUser: Bool { message.role == .user }
     private var canReportMessage: Bool {
         !isUser && onReportMessage != nil
@@ -282,11 +284,11 @@ struct ChatBubble: View {
                 if message.isError && hasText {
                     HStack(alignment: .top, spacing: VSpacing.sm) {
                         Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 13, weight: .medium))
+                            .font(.system(size: 13 * conversationZoomScale, weight: .medium))
                             .foregroundColor(VColor.error)
                             .padding(.top, 1)
                         Text(message.text)
-                            .font(.system(size: 13))
+                            .font(.system(size: 13 * conversationZoomScale))
                             .foregroundColor(VColor.textPrimary)
                             .textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true)
@@ -312,7 +314,7 @@ struct ChatBubble: View {
                         )
                     } else {
                         Text(markdownText)
-                            .font(.system(size: 13))
+                            .font(.system(size: 13 * conversationZoomScale))
                             .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
                             .tint(isUser ? VColor.userBubbleText : VColor.accent)
                             .textSelection(.enabled)

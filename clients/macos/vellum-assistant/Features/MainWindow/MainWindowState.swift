@@ -16,6 +16,7 @@ final class MainWindowState: ObservableObject {
     @AppStorage("lastActivePanel") private var lastActivePanelString: String?
     @AppStorage("homeBaseDashboardDefaultEnabled") private var homeBaseDashboardDefaultEnabled: Bool = false
     @AppStorage("chatDockOpen") private var chatDockOpen = false
+    @AppStorage("isAppChatOpen") private var isAppChatOpen = false
 
     /// The single source of truth for what the main content area displays.
     @Published var selection: ViewSelection? {
@@ -76,6 +77,27 @@ final class MainWindowState: ObservableObject {
     var isShowingChat: Bool {
         switch selection {
         case .thread, .none: return true
+        default: return false
+        }
+    }
+
+    /// Whether a conversation is visible — true for thread mode,
+    /// app-editing mode (which shows a chat dock alongside the app),
+    /// and panel mode when the chat bubble is enabled (split-view with
+    /// a live conversation alongside the panel).
+    /// Used by zoom intent routing to decide whether Cmd+/- should
+    /// target conversation text zoom or fall through to window zoom.
+    var isConversationVisible: Bool {
+        switch selection {
+        case .thread, .none, .appEditing: return true
+        case .panel(let panelType):
+            // Voice mode and document editor have dedicated layouts that
+            // always include chat; other panels show chat only when the
+            // chat bubble toggle is active.
+            switch panelType {
+            case .voiceMode, .documentEditor: return true
+            default: return isAppChatOpen
+            }
         default: return false
         }
     }
