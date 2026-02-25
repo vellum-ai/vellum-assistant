@@ -1042,7 +1042,7 @@ struct MainWindowView: View {
             Spacer().frame(height: 0)
 
             // MARK: Nav Items (fixed)
-            SidebarNavRow(icon: "square.grid.2x2", label: "Home Base", isActive: windowState.activePanel == .directory) {
+            SidebarNavRow(icon: "house.fill", label: "Home Base", isActive: windowState.activePanel == .directory) {
                 windowState.togglePanel(.directory)
             }
             SidebarNavRow(icon: "person.crop.circle", label: "Identity", isActive: windowState.activePanel == .identity) {
@@ -1053,6 +1053,9 @@ struct MainWindowView: View {
             }
             SidebarNavRow(icon: "tray.fill", label: "Inbox", isActive: windowState.activePanel == .assistantInbox) {
                 windowState.togglePanel(.assistantInbox)
+            }
+            SidebarNavRow(icon: "square.grid.2x2", label: "Apps", isActive: windowState.activePanel == .apps) {
+                windowState.togglePanel(.apps)
             }
 
             // Divider between nav items and threads
@@ -1154,7 +1157,7 @@ struct MainWindowView: View {
         VStack(spacing: VSpacing.sm) {
             Spacer().frame(height: 0)
 
-            SidebarNavRow(icon: "square.grid.2x2", label: "Home Base", isActive: windowState.activePanel == .directory, isExpanded: false) {
+            SidebarNavRow(icon: "house.fill", label: "Home Base", isActive: windowState.activePanel == .directory, isExpanded: false) {
                 windowState.togglePanel(.directory)
             }
             SidebarNavRow(icon: "person.crop.circle", label: "Identity", isActive: windowState.activePanel == .identity, isExpanded: false) {
@@ -1165,6 +1168,9 @@ struct MainWindowView: View {
             }
             SidebarNavRow(icon: "tray.fill", label: "Inbox", isActive: windowState.activePanel == .assistantInbox, isExpanded: false) {
                 windowState.togglePanel(.assistantInbox)
+            }
+            SidebarNavRow(icon: "square.grid.2x2", label: "Apps", isActive: windowState.activePanel == .apps, isExpanded: false) {
+                windowState.togglePanel(.apps)
             }
 
             VColor.divider
