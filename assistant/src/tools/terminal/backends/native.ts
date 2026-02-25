@@ -90,7 +90,7 @@ function getProfilePath(workingDir: string): string {
   const hash = createHash('sha256').update(workingDir).digest('hex').slice(0, HASH_DISPLAY_LENGTH);
   const path = join(dir, `sandbox-profile-${hash}.sb`);
 
-  const profile = SANDBOX_PROFILE.replace(/__WORKING_DIR__/g, escapeSBPL(workingDir));
+  const profile = SANDBOX_PROFILE.replace(/__WORKING_DIR__/g, () => escapeSBPL(workingDir));
   writeFileSync(path, profile + '\n');
   return path;
 }
