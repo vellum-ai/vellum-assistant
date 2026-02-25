@@ -73,7 +73,7 @@ enum RecordingTelemetry {
             recording.start: \
             displayID=\(displayID.map { String($0) } ?? "window", privacy: .public), \
             sourceSize=\(sourceWidth)x\(sourceHeight), \
-            scaleFactor=\(String(format: "%.1f", scaleFactor)), \
+            scaleFactor=\(String(format: "%.1f", scaleFactor), privacy: .public), \
             encodeSize=\(encodeWidth)x\(encodeHeight), \
             config=\(configLabel, privacy: .public), \
             usedFallback=\(usedFallback)
