@@ -243,7 +243,7 @@ export async function regenerateConversationTitle(
 
   const textBlock = response.content.find((b) => b.type === 'text');
   if (textBlock && textBlock.type === 'text') {
-    let title = normalizeTitle(textBlock.text);
+    const title = normalizeTitle(textBlock.text);
     if (!title) {
       return { title: conversation.title ?? UNTITLED_FALLBACK, updated: false };
     }

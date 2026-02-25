@@ -5,6 +5,8 @@ import type { NotificationChannel } from '../../../../notifications/types.js';
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
 import { err, ok } from './shared.js';
 
+const INVALID = Symbol('invalid');
+
 const VALID_URGENCY = new Set<AttentionHints['urgency']>(['low', 'medium', 'high']);
 const VALID_CHANNEL_HINTS = new Set<NotificationChannel>(['vellum', 'telegram']);
 
@@ -18,30 +20,30 @@ function parseBool(value: unknown, defaultValue: boolean): boolean {
   return typeof value === 'boolean' ? value : defaultValue;
 }
 
-function parseDeadlineAt(value: unknown): number | undefined | null {
-  if (value === undefined || value === null) return undefined;
+function parseDeadlineAt(value: unknown): number | undefined | typeof INVALID {
+  if (value == null) return undefined;
   if (typeof value === 'number' && Number.isFinite(value)) return Math.trunc(value);
   if (typeof value === 'string') {
     const parsed = Number(value);
     if (Number.isFinite(parsed)) return Math.trunc(parsed);
   }
-  return null;
+  return INVALID;
 }
 
-function parseObject(value: unknown): Record<string, unknown> | undefined | null {
+function parseObject(value: unknown): Record<string, unknown> | undefined | typeof INVALID {
   if (value === undefined) return undefined;
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return INVALID;
   return value as Record<string, unknown>;
 }
 
-function parsePreferredChannels(value: unknown): NotificationChannel[] | undefined | null {
+function parsePreferredChannels(value: unknown): NotificationChannel[] | undefined | typeof INVALID {
   if (value === undefined) return undefined;
-  if (!Array.isArray(value)) return null;
+  if (!Array.isArray(value)) return INVALID;
 
   const channels: NotificationChannel[] = [];
   for (const item of value) {
     if (typeof item !== 'string' || !VALID_CHANNEL_HINTS.has(item as NotificationChannel)) {
-      return null;
+      return INVALID;
     }
     channels.push(item as NotificationChannel);
   }
@@ -61,17 +63,17 @@ export async function run(input: Record<string, unknown>, context: ToolContext):
   const urgency = (urgencyInput as AttentionHints['urgency'] | undefined) ?? 'medium';
 
   const deadlineAt = parseDeadlineAt(input.deadline_at);
-  if (deadlineAt === null) {
+  if (deadlineAt === INVALID) {
     return err('deadline_at must be a valid epoch timestamp (milliseconds).');
   }
 
   const deepLinkMetadata = parseObject(input.deep_link_metadata);
-  if (deepLinkMetadata === null) {
+  if (deepLinkMetadata === INVALID) {
     return err('deep_link_metadata must be an object.');
   }
 
   const preferredChannels = parsePreferredChannels(input.preferred_channels);
-  if (preferredChannels === null) {
+  if (preferredChannels === INVALID) {
     return err('preferred_channels must be an array containing only "vellum" or "telegram".');
   }
 

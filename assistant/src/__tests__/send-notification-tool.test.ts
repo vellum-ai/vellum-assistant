@@ -9,7 +9,7 @@ const getConfigMock = mock(() => ({
 }));
 
 mock.module('../config/loader.js', () => ({
-  getConfig: () => getConfigMock() as any,
+  getConfig: () => getConfigMock() as ReturnType<typeof getConfigMock>,
 }));
 
 mock.module('../notifications/emit-signal.js', () => ({

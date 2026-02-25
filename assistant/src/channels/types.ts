@@ -24,7 +24,7 @@ export function parseChannelId(value: unknown): ChannelId | null {
 
 export function assertChannelId(value: unknown, field: string): ChannelId {
   const parsed = parseChannelId(value);
-  if (parsed === null) {
+  if (!parsed) {
     throw new Error(`Invalid channel ID for ${field}: ${String(value)}. Valid values: ${CHANNEL_IDS.join(', ')}`);
   }
   return parsed;

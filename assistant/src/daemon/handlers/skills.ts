@@ -649,7 +649,7 @@ export async function handleSkillsDraft(
             const jsonMatch = /\{[\s\S]*?\}/.exec(responseText);
             if (jsonMatch) {
               const generated = JSON.parse(jsonMatch[0]);
-              if (typeof generated === 'object' && generated !== null) {
+              if (typeof generated === 'object' && generated) {
                 if (!skillId && typeof generated.skillId === 'string') skillId = generated.skillId;
                 if (!name && typeof generated.name === 'string') name = generated.name;
                 if (!description && typeof generated.description === 'string') description = generated.description;

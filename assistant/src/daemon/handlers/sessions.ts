@@ -28,7 +28,7 @@ import type {
   ConversationSearchRequest,
 } from '../ipc-protocol.js';
 import { getConfig } from '../../config/loader.js';
-import { GENERATING_TITLE, queueGenerateConversationTitle, isReplaceableTitle, UNTITLED_FALLBACK } from '../../memory/conversation-title-service.js';
+import { GENERATING_TITLE, queueGenerateConversationTitle, UNTITLED_FALLBACK } from '../../memory/conversation-title-service.js';
 import { getSubagentManager } from '../../subagent/index.js';
 import {
   log,

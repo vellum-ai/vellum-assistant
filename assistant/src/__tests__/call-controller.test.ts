@@ -846,7 +846,7 @@ describe('call-controller', () => {
     mockStartVoiceTurn.mockImplementation(createMockVoiceTurn(
       ['Checking. [ASK_GUARDIAN: Confirm appointment?]'],
     ));
-    const { relay, controller } = setupController();
+    const { controller } = setupController();
     await controller.handleCallerUtterance('I want to schedule');
     expect(controller.getState()).toBe('waiting_on_user');
 
@@ -854,7 +854,7 @@ describe('call-controller', () => {
     await controller.handleCallerUtterance('Actually make it 4pm');
 
     // Set up mocks for the answer turn and subsequent queued utterance turn
-    let turnContents: string[] = [];
+    const turnContents: string[] = [];
     mockStartVoiceTurn.mockImplementation(async (opts: { content: string; onTextDelta: (t: string) => void; onComplete: () => void }) => {
       turnContents.push(opts.content);
       if (opts.content.includes('[USER_ANSWERED:')) {
@@ -885,7 +885,7 @@ describe('call-controller', () => {
     mockStartVoiceTurn.mockImplementation(createMockVoiceTurn(
       ['Let me ask. [ASK_GUARDIAN: Preferred date?]'],
     ));
-    const { session, controller } = setupController();
+    const { controller } = setupController();
     await controller.handleCallerUtterance('Schedule please');
     expect(controller.getState()).toBe('waiting_on_user');
 
@@ -983,7 +983,7 @@ describe('call-controller', () => {
     await controller.handleCallerUtterance('Never mind, just cancel it');
 
     // Set up mock so the answer turn ends the call with [END_CALL]
-    let turnContents: string[] = [];
+    const turnContents: string[] = [];
     mockStartVoiceTurn.mockImplementation(async (opts: { content: string; onTextDelta: (t: string) => void; onComplete: () => void }) => {
       turnContents.push(opts.content);
       opts.onTextDelta('Alright, your appointment is cancelled. Goodbye! [END_CALL]');
@@ -1029,7 +1029,7 @@ describe('call-controller', () => {
     await controller.handleCallerUtterance('Actually, I prefer 10am');
 
     // Set up mock to capture what content the merged turn receives
-    let turnContents: string[] = [];
+    const turnContents: string[] = [];
     mockStartVoiceTurn.mockImplementation(async (opts: { content: string; onTextDelta: (t: string) => void; onComplete: () => void }) => {
       turnContents.push(opts.content);
       opts.onTextDelta('Got it, let me check 10am availability.');
