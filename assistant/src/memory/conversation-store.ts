@@ -5,9 +5,9 @@ import { getDb, rawGet, rawExec } from './db.js';
 import { conversations, messages, toolInvocations, messageRuns, channelInboundEvents, memoryItemSources, memoryItems, memoryEmbeddings, memoryItemEntities, memorySegments, messageAttachments, llmRequestLogs } from './schema.js';
 import { getConfig } from '../config/loader.js';
 import { indexMessageNow } from './indexer.js';
-import { parseChannelId } from '../channels/types.js';
-import type { ChannelId } from '../channels/types.js';
-import { isChannelId, CHANNEL_IDS } from '../channels/types.js';
+import { parseChannelId, parseInterfaceId } from '../channels/types.js';
+import type { ChannelId, InterfaceId } from '../channels/types.js';
+import { isChannelId, CHANNEL_IDS, isInterfaceId, INTERFACE_IDS } from '../channels/types.js';
 import { getLogger } from '../util/logger.js';
 import { deleteOrphanAttachments } from './attachments-store.js';
 import { createRowMapper } from '../util/row-mapper.js';
@@ -20,6 +20,7 @@ const log = getLogger('conversation-store');
 // extra keys are allowed via passthrough so callers can attach ad-hoc data.
 
 const channelIdSchema = z.enum(CHANNEL_IDS);
+const interfaceIdSchema = z.enum(INTERFACE_IDS);
 
 const subagentNotificationSchema = z.object({
   subagentId: z.string(),
@@ -32,6 +33,8 @@ const subagentNotificationSchema = z.object({
 export const messageMetadataSchema = z.object({
   userMessageChannel: channelIdSchema.optional(),
   assistantMessageChannel: channelIdSchema.optional(),
+  userMessageInterface: interfaceIdSchema.optional(),
+  assistantMessageInterface: interfaceIdSchema.optional(),
   subagentNotification: subagentNotificationSchema.optional(),
   // Provenance fields for trust-aware memory gating (M3)
   provenanceActorRole: z.enum(['guardian', 'non-guardian', 'unverified_channel']).optional(),
@@ -73,6 +76,7 @@ export interface ConversationRow {
   source: string;
   memoryScopeId: string;
   originChannel: string | null;
+  originInterface: string | null;
 }
 
 const parseConversation = createRowMapper<typeof conversations.$inferSelect, ConversationRow>({
@@ -90,6 +94,7 @@ const parseConversation = createRowMapper<typeof conversations.$inferSelect, Con
   source: 'source',
   memoryScopeId: 'memoryScopeId',
   originChannel: 'originChannel',
+  originInterface: 'originInterface',
 });
 
 export interface MessageRow {
@@ -788,4 +793,21 @@ export function getConversationOriginChannel(conversationId: string): ChannelId 
     .where(eq(conversations.id, conversationId))
     .get();
   return parseChannelId(row?.originChannel) ?? null;
+}
+
+export function setConversationOriginInterfaceIfUnset(conversationId: string, interfaceId: InterfaceId): void {
+  const db = getDb();
+  db.update(conversations)
+    .set({ originInterface: interfaceId })
+    .where(and(eq(conversations.id, conversationId), isNull(conversations.originInterface)))
+    .run();
+}
+
+export function getConversationOriginInterface(conversationId: string): InterfaceId | null {
+  const db = getDb();
+  const row = db.select({ originInterface: conversations.originInterface })
+    .from(conversations)
+    .where(eq(conversations.id, conversationId))
+    .get();
+  return parseInterfaceId(row?.originInterface) ?? null;
 }

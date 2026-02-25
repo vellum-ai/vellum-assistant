@@ -15,6 +15,7 @@ export const conversations = sqliteTable('conversations', {
   source: text('source').notNull().default('user'),
   memoryScopeId: text('memory_scope_id').notNull().default('default'),
   originChannel: text('origin_channel'),
+  originInterface: text('origin_interface'),
 });
 
 export const messages = sqliteTable('messages', {
