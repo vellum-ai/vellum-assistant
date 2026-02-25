@@ -208,7 +208,7 @@ Each step has a **retry budget of 3 attempts**. An attempt is one try at the ste
 2. **Fall back to manual.** Tell the user what you were trying to do and ask them to complete that step manually in the browser. Give them the direct URL and clear text instructions.
 3. **Resume automation** at the next step once the user confirms the manual step is done.
 
-If **two or more steps** require manual fallback, abandon the automated flow entirely and switch to giving the user the remaining steps as text instructions with links (same format as Path A).
+If **two or more steps** require manual fallback, abandon the automated flow entirely and switch to giving the user the remaining steps as clear text instructions with links — using the correct OAuth type for the current flow (Desktop app for macOS, Web application for channels).
 
 ## Things That Do Not Work — Do Not Attempt
 
