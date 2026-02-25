@@ -663,7 +663,7 @@ final class ScreenRecorder: NSObject {
     // MARK: - Stream Error Handling
 
     /// Map an NSError from SCStream to a specific RecorderError case.
-    static func mapStreamError(_ nsError: NSError) -> RecorderError {
+    nonisolated static func mapStreamError(_ nsError: NSError) -> RecorderError {
         let domain = nsError.domain
         let code = nsError.code
 
@@ -697,7 +697,7 @@ final class ScreenRecorder: NSObject {
         Task { @MainActor in
             guard isRecordingActive else { return }
 
-            log.error("Stream error during active recording — cleaning up (error=\(recorderError.localizedDescription ?? "unknown", privacy: .public))")
+            log.error("Stream error during active recording — cleaning up (error=\(recorderError.localizedDescription, privacy: .public))")
 
             // Cancel the writer and remove the partial file
             assetWriter?.cancelWriting()
