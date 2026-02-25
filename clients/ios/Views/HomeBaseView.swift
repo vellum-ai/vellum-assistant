@@ -835,7 +835,7 @@ struct HomeBaseView: View {
                 .font(VFont.title)
                 .foregroundColor(VColor.textPrimary)
 
-            Text("Home Base is available when connected to your assistant.")
+            Text("Home Base is available when connected to your Assistant.")
                 .font(VFont.body)
                 .foregroundColor(VColor.textSecondary)
                 .multilineTextAlignment(.center)

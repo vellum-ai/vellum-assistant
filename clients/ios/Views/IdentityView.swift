@@ -407,7 +407,7 @@ struct IdentityView: View {
                 .font(VFont.title)
                 .foregroundColor(VColor.textPrimary)
 
-            Text("Identity information is available when connected to your assistant.")
+            Text("Identity information is available when connected to your Assistant.")
                 .font(VFont.body)
                 .foregroundColor(VColor.textSecondary)
                 .multilineTextAlignment(.center)

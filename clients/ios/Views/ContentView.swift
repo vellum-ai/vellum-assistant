@@ -165,7 +165,7 @@ struct ContentView: View {
         VStack(spacing: VSpacing.lg) {
             ProgressView()
                 .scaleEffect(1.5)
-            Text("Connecting to your assistant...")
+            Text("Connecting to your Assistant...")
                 .font(VFont.body)
                 .foregroundColor(VColor.textSecondary)
         }
@@ -184,7 +184,7 @@ struct ContentView: View {
                 .font(VFont.title)
                 .foregroundColor(VColor.textPrimary)
 
-            Text("Unable to reach your assistant's gateway. This could mean your assistant is offline, the tunnel is down, or the gateway is not active.")
+            Text("Unable to reach your Assistant's gateway. This could mean your Assistant is offline, the tunnel is down, or the gateway is not active.")
                 .font(VFont.body)
                 .foregroundColor(VColor.textSecondary)
                 .multilineTextAlignment(.center)
