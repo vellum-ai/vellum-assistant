@@ -8,7 +8,6 @@ const log = getLogger('logfire');
 type LogfireModule = typeof import('@pydantic/logfire-node');
 
 const LOGFIRE_ENABLED: boolean =
-  APP_VERSION === '0.0.0-dev' &&
   !!getLogfireToken() &&
   isMonitoringEnabled();
 
