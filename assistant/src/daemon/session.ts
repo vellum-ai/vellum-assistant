@@ -262,7 +262,10 @@ export class Session {
             }
           }
         }
-        isToolResultOnly = hasToolResult && userText.trim().length === 0;
+        // Inherit previous tier when there's no real user text — either
+        // tool_result-only messages or system nudges where all text was
+        // filtered out as injected context.
+        isToolResultOnly = userText.trim().length === 0;
       }
 
       // Temporary: log what the classifier sees
