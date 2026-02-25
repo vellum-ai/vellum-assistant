@@ -4941,6 +4941,48 @@ Connected channels are resolved at signal emission time: vellum is always includ
 
 ---
 
+## Guardian Verification
+
+Guardian verification binds a trusted human identity to a channel so the assistant can route approval requests and notifications to the right person.
+
+### Outbound Verification Session State Machine
+
+```
+          start_outbound
+               |
+               v
+     pending_bootstrap ──(Telegram only: guardian opens deep link)──> awaiting_response
+               |                                                           |
+               v                                                           v
+     awaiting_response ──(guardian replies with code)──────────────> verified
+               |                                                           |
+               +──(session expires)──────────────────────────────> expired
+               +──(guardian or user cancels)──────────────────────> revoked
+               +──(too many failed attempts)─────────────────────> locked
+```
+
+### Channel-Specific Flows
+
+- **SMS**: User provides guardian's E.164 phone number. Daemon sends an outbound SMS with a verification code. Guardian replies to the assistant's Twilio number with the code. Session binds on code match.
+- **Telegram**: User provides guardian's Telegram handle or chat ID. Daemon generates a bootstrap deep-link URL (`https://t.me/<bot>?start=gv_<token>`). Guardian opens the link and sends the code to the bot. Session binds on code match.
+- **Voice**: User provides guardian's E.164 phone number. Daemon initiates an outbound call via Twilio ConversationRelay. Guardian answers and provides the code via DTMF or speech. Session binds on code match.
+
+### Identity Binding
+
+Every outbound verification session stores the expected recipient identity (E.164 phone for SMS/voice, Telegram user/chat ID for Telegram). When the guardian responds with the verification code, the consume path validates that the responding actor's identity matches the stored expected identity. This prevents a different user from consuming a verification session intended for someone else.
+
+### Rate Limiting
+
+- **Per-session send cap**: Each session tracks `sendCount` and enforces a maximum number of outbound sends (e.g., 5).
+- **Resend cooldown**: `nextResendAt` prevents rapid-fire resends; the UI disables the resend button until the cooldown passes.
+- **Per-destination window**: A sliding window rate limit prevents abuse by limiting how many sessions can be created for a given destination within a time period.
+
+### Template-Only Outbound Copy Policy
+
+All outbound messages (SMS, Telegram, voice prompts) use server-side templates. The user-facing copy is never customizable by the end user to prevent social engineering or phishing through assistant-sent messages.
+
+---
+
 ## Storage Summary
 
 | What | Where | Format | ORM/Driver | Retention |

@@ -15,6 +15,7 @@ import {
   createSequenceTables,
   createTasksAndWorkItemsTables,
   createWatchersAndLogsTables,
+  migrateGuardianBootstrapToken,
   migrateGuardianVerificationSessions,
   migrateMessagesFtsBackfill,
   runComplexMigrations,
@@ -60,6 +61,9 @@ export function initializeDb(): void {
 
   // 11b. Guardian verification session columns (outbound identity binding)
   migrateGuardianVerificationSessions(database);
+
+  // 11c. Guardian bootstrap token hash column (Telegram deep-link flow)
+  migrateGuardianBootstrapToken(database);
 
   // 12. Media assets
   createMediaAssetsTables(database);
