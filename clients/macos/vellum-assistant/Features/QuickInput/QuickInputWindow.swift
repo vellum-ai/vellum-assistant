@@ -149,8 +149,13 @@ final class QuickInputWindow {
     // MARK: - Panel Creation & Presentation
 
     private func makePanel() -> NSPanel {
-        // Remember the frontmost app so we can restore focus on dismiss
-        previousApp = NSWorkspace.shared.frontmostApplication
+        // Remember the frontmost app so we can restore focus on dismiss.
+        // Only capture on first invocation — panel recreation (e.g. after
+        // screenshot capture) happens while Vellum is frontmost, so
+        // overwriting would lose the original app reference.
+        if previousApp == nil {
+            previousApp = NSWorkspace.shared.frontmostApplication
+        }
 
         if let existing = panel {
             existing.makeKeyAndOrderFront(nil)
