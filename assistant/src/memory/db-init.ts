@@ -11,6 +11,7 @@ import {
   createTasksAndWorkItemsTables,
   createExternalConversationBindingsTables,
   createChannelGuardianTables,
+  migrateGuardianVerificationSessions,
   createMediaAssetsTables,
   createAssistantInboxTables,
   runLateMigrations,
@@ -56,6 +57,9 @@ export function initializeDb(): void {
 
   // 11. Channel guardian
   createChannelGuardianTables(database);
+
+  // 11b. Guardian verification session columns (outbound identity binding)
+  migrateGuardianVerificationSessions(database);
 
   // 12. Media assets
   createMediaAssetsTables(database);
