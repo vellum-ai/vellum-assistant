@@ -549,7 +549,9 @@ export function handleHistoryRequest(
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
-  const limit = msg.limit ?? 50;
+  // Default to unlimited when callers don't specify a limit, preserving
+  // backward-compatible behavior of returning full conversation history.
+  const limit = msg.limit;
 
   // Resolve include flags: explicit flags override mode, mode provides defaults.
   // Default mode is 'light' when no mode and no include flags are specified.
@@ -562,6 +564,7 @@ export function handleHistoryRequest(
     msg.sessionId,
     limit,
     msg.beforeTimestamp,
+    msg.beforeMessageId,
   );
 
   const parsed: ParsedHistoryMessage[] = dbMessages.map((m) => {
@@ -694,6 +697,9 @@ export function handleHistoryRequest(
   });
 
   const oldestTimestamp = historyMessages.length > 0 ? historyMessages[0].timestamp : undefined;
+  // Provide the oldest message ID as a tie-breaker cursor so clients can
+  // paginate without skipping same-millisecond messages at page boundaries.
+  const oldestMessageId = historyMessages.length > 0 ? historyMessages[0].id : undefined;
 
   ctx.send(socket, {
     type: 'history_response',
@@ -701,6 +707,7 @@ export function handleHistoryRequest(
     messages: historyMessages,
     hasMore,
     ...(oldestTimestamp !== undefined ? { oldestTimestamp } : {}),
+    ...(oldestMessageId ? { oldestMessageId } : {}),
   });
 
   // Surfaces are now included directly in the history_response message (in the surfaces array),
