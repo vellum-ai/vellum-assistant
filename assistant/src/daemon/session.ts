@@ -18,13 +18,15 @@
 import type { Message } from '../providers/types.js';
 import type { TurnChannelContext, TurnInterfaceContext } from '../channels/types.js';
 import type { ServerMessage, UsageStats, UserMessageAttachment, SurfaceType, SurfaceData } from './ipc-protocol.js';
-import { AgentLoop } from '../agent/loop.js';
+import { AgentLoop, type ResolvedSystemPrompt } from '../agent/loop.js';
 import type { Provider } from '../providers/types.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
 import { SecretPrompter } from '../permissions/secret-prompter.js';
 import { ToolExecutor } from '../tools/executor.js';
 import type { UserDecision } from '../permissions/types.js';
 import { getConfig } from '../config/loader.js';
+import { buildSystemPrompt } from '../config/system-prompt.js';
+import { classifyResponseTier, tierMaxTokens, tierModel } from './response-tier.js';
 import { TraceEmitter } from './trace-emitter.js';
 import { EventBus } from '../events/bus.js';
 import type { AssistantDomainEvents } from '../events/domain-events.js';
@@ -203,6 +205,50 @@ export class Session {
     this.streamThinking = config.thinking.streamThinking ?? false;
     const resolveTools = createResolveToolsCallback(toolDefs, this);
 
+    const configuredMaxTokens = maxTokens;
+    // Matches runtime-injected XML context blocks (e.g. <channel_capabilities>, <dynamic-profile-context>, etc.)
+    const INJECTED_BLOCK_RE = /^<[a-z][a-z0-9_-]*[\s>]/;
+
+    // Track the last user-message tier so tool-use continuation turns
+    // (where user text is empty — only tool_result blocks) inherit it
+    // instead of falling to 'low'.
+    let lastUserMessageTier: import('./response-tier.js').ResponseTier = 'high';
+
+    const resolveSystemPromptCallback = (history: import('../providers/types.js').Message[]): ResolvedSystemPrompt => {
+      // Extract last user message text, ignoring runtime-injected context blocks
+      const lastUserMsg = [...history].reverse().find((m) => m.role === 'user');
+      let userText = '';
+      let isToolResultOnly = false;
+      if (lastUserMsg) {
+        const hasToolResult = lastUserMsg.content.some((b) => b.type === 'tool_result');
+        for (const block of lastUserMsg.content) {
+          if (block.type === 'text') {
+            const trimmed = block.text.trimStart();
+            if (!INJECTED_BLOCK_RE.test(trimmed)) {
+              userText += block.text;
+            }
+          }
+        }
+        isToolResultOnly = hasToolResult && userText.trim().length === 0;
+      }
+
+      // Tool-use continuation: inherit previous tier
+      const tier = isToolResultOnly
+        ? lastUserMessageTier
+        : classifyResponseTier(userText, this.turnCount);
+
+      if (!isToolResultOnly) {
+        lastUserMessageTier = tier;
+      }
+
+      const model = tierModel(tier, provider.name);
+      return {
+        systemPrompt: buildSystemPrompt(tier),
+        maxTokens: tierMaxTokens(tier, configuredMaxTokens),
+        model,
+      };
+    };
+
     this.agentLoop = new AgentLoop(
       provider,
       systemPrompt,
@@ -210,6 +256,7 @@ export class Session {
       toolDefs.length > 0 ? toolDefs : undefined,
       toolDefs.length > 0 ? toolExecutor : undefined,
       resolveTools,
+      resolveSystemPromptCallback,
     );
     this.contextWindowManager = new ContextWindowManager(
       provider,

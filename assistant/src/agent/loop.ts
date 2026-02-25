@@ -49,12 +49,19 @@ const PROGRESS_CHECK_REMINDER = 'You have been using tools for several turns. Ch
 const APPROACHING_LIMIT_OFFSET = 5;
 const APPROACHING_LIMIT_WARNING = 'You are approaching the tool-use turn limit. You have {remaining} turns remaining. Wrap up your current task — summarize progress and present results to the user. If you cannot finish, explain what remains and ask the user how to proceed.';
 
+export interface ResolvedSystemPrompt {
+  systemPrompt: string;
+  maxTokens?: number;
+  model?: string;
+}
+
 export class AgentLoop {
   private provider: Provider;
   private systemPrompt: string;
   private config: AgentLoopConfig;
   private tools: ToolDefinition[];
   private resolveTools: ((history: Message[]) => ToolDefinition[]) | null;
+  private resolveSystemPrompt: ((history: Message[]) => ResolvedSystemPrompt) | null;
   private toolExecutor: ((name: string, input: Record<string, unknown>, onOutput?: (chunk: string) => void) => Promise<{ content: string; isError: boolean; diff?: { filePath: string; oldContent: string; newContent: string; isNewFile: boolean }; status?: string; contentBlocks?: ContentBlock[] }>) | null;
 
   constructor(
@@ -64,12 +71,14 @@ export class AgentLoop {
     tools?: ToolDefinition[],
     toolExecutor?: (name: string, input: Record<string, unknown>, onOutput?: (chunk: string) => void) => Promise<{ content: string; isError: boolean; diff?: { filePath: string; oldContent: string; newContent: string; isNewFile: boolean }; status?: string; contentBlocks?: ContentBlock[] }>,
     resolveTools?: (history: Message[]) => ToolDefinition[],
+    resolveSystemPrompt?: (history: Message[]) => ResolvedSystemPrompt,
   ) {
     this.provider = provider;
     this.systemPrompt = systemPrompt;
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.tools = tools ?? [];
     this.resolveTools = resolveTools ?? null;
+    this.resolveSystemPrompt = resolveSystemPrompt ?? null;
     this.toolExecutor = toolExecutor ?? null;
   }
 
@@ -100,12 +109,23 @@ export class AgentLoop {
           ? this.resolveTools(history)
           : this.tools;
 
-        const providerConfig: Record<string, unknown> = { max_tokens: this.config.maxTokens };
+        // Resolve system prompt, per-turn maxTokens, and model
+        const resolved = this.resolveSystemPrompt
+          ? this.resolveSystemPrompt(history)
+          : null;
+        const turnSystemPrompt = resolved?.systemPrompt ?? this.systemPrompt;
+        const turnMaxTokens = resolved?.maxTokens ?? this.config.maxTokens;
+        const turnModel = resolved?.model;
+
+        const providerConfig: Record<string, unknown> = { max_tokens: turnMaxTokens };
+        if (turnModel) {
+          providerConfig.model = turnModel;
+        }
         if (this.config.thinking?.enabled) {
           // Anthropic requires budget_tokens < max_tokens
           const budgetTokens = Math.min(
             this.config.thinking.budgetTokens,
-            this.config.maxTokens - 1,
+            turnMaxTokens - 1,
           );
           providerConfig.thinking = {
             type: 'enabled',
@@ -119,7 +139,7 @@ export class AgentLoop {
 
         if (debug) {
           rlog.debug({
-            systemPrompt: truncateForLog(this.systemPrompt, 200),
+            systemPrompt: truncateForLog(turnSystemPrompt, 200),
             messageCount: history.length,
             lastMessage: history.length > 0
               ? summarizeMessage(history[history.length - 1])
@@ -130,7 +150,7 @@ export class AgentLoop {
         }
 
         const preLlmResult = await getHookManager().trigger('pre-llm-call', {
-          systemPrompt: this.systemPrompt,
+          systemPrompt: turnSystemPrompt,
           messages: history,
           toolCount: currentTools.length,
         });
@@ -161,7 +181,7 @@ export class AgentLoop {
         const response = await this.provider.sendMessage(
           providerHistory,
           currentTools.length > 0 ? currentTools : undefined,
-          this.systemPrompt,
+          turnSystemPrompt,
           {
             config: providerConfig,
             onEvent: (event) => {
