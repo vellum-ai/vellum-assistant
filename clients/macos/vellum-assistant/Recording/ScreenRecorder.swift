@@ -73,8 +73,9 @@ final class ScreenRecorder: NSObject {
     ///
     /// Tries `NSScreen.backingScaleFactor` for the matching screen first,
     /// then falls back to computing the ratio from `CGDisplayPixelsWide`
-    /// (native pixels) vs the logical width. Returns 2 as a last resort.
-    private static func scaleFactor(for displayID: CGDirectDisplayID, logicalWidth: Int) -> CGFloat {
+    /// (native pixels) vs `CGDisplayBounds` logical width. Returns 2 as
+    /// a last resort.
+    private static func scaleFactor(for displayID: CGDirectDisplayID) -> CGFloat {
         if let screen = NSScreen.screens.first(where: {
             // NSScreen's deviceDescription contains the CGDirectDisplayID under the "NSScreenNumber" key
             ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID) == displayID
@@ -82,8 +83,9 @@ final class ScreenRecorder: NSObject {
             return screen.backingScaleFactor
         }
 
-        // Fallback: derive scale from native pixel width vs logical width
+        // Fallback: derive scale from native pixel width vs display logical width
         let nativeWidth = CGDisplayPixelsWide(displayID)
+        let logicalWidth = Int(CGDisplayBounds(displayID).width)
         if logicalWidth > 0 && nativeWidth > 0 {
             return CGFloat(nativeWidth) / CGFloat(logicalWidth)
         }
@@ -137,7 +139,7 @@ final class ScreenRecorder: NSObject {
                     break
                 }
             }
-            let windowScale = Self.scaleFactor(for: windowDisplayID, logicalWidth: Int(window.frame.width))
+            let windowScale = Self.scaleFactor(for: windowDisplayID)
             captureWidth = Int(CGFloat(window.frame.width) * windowScale)
             captureHeight = Int(CGFloat(window.frame.height) * windowScale)
             log.info("Window capture: windowID=\(windowId), displayID=\(windowDisplayID), scaleFactor=\(windowScale), sourceSize=\(Int(window.frame.width))x\(Int(window.frame.height)), streamSize=\(captureWidth)x\(captureHeight)")
@@ -156,7 +158,7 @@ final class ScreenRecorder: NSObject {
                 targetDisplay = mainDisplay
             }
             filter = SCContentFilter(display: targetDisplay, excludingApplications: [], exceptingWindows: [])
-            let displayScale = Self.scaleFactor(for: targetDisplay.displayID, logicalWidth: Int(targetDisplay.width))
+            let displayScale = Self.scaleFactor(for: targetDisplay.displayID)
             captureWidth = Int(CGFloat(targetDisplay.width) * displayScale)
             captureHeight = Int(CGFloat(targetDisplay.height) * displayScale)
             log.info("Display capture: displayID=\(targetDisplay.displayID), scaleFactor=\(displayScale), sourceSize=\(targetDisplay.width)x\(targetDisplay.height), streamSize=\(captureWidth)x\(captureHeight)")
