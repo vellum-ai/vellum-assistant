@@ -590,7 +590,7 @@ struct ActiveChatViewWrapper: View {
             isRetryableError: viewModel.isRetryableError,
             onRetryError: { viewModel.retryLastMessage() },
             isConnectionError: viewModel.isConnectionError,
-            hasRetryPayload: viewModel.lastFailedMessageText != nil,
+            hasRetryPayload: viewModel.hasRetryPayload,
             isSecretBlockError: viewModel.isSecretBlockError,
             onSendAnyway: { viewModel.sendAnyway() },
             onAcceptSuggestion: viewModel.acceptSuggestion,

@@ -1308,6 +1308,8 @@ public final class ChatViewModel: ObservableObject {
     /// button to actual send failures and prevents unrelated errors (attachment
     /// validation, confirmation response failures, regenerate errors) from
     /// offering to resend a stale cached message.
+    public var hasRetryPayload: Bool { lastFailedMessageText != nil }
+
     public var isRetryableError: Bool {
         lastFailedMessageText != nil && lastFailedSendError != nil && !isConnectionError
     }
