@@ -149,3 +149,28 @@ export interface SkillsInspectResponse {
   };
   error?: string;
 }
+
+// --- Domain-level union aliases (consumed by the barrel file) ---
+
+export type _SkillsClientMessages =
+  | SkillsListRequest
+  | SkillDetailRequest
+  | SkillsEnableRequest
+  | SkillsDisableRequest
+  | SkillsConfigureRequest
+  | SkillsInstallRequest
+  | SkillsUninstallRequest
+  | SkillsUpdateRequest
+  | SkillsCheckUpdatesRequest
+  | SkillsSearchRequest
+  | SkillsInspectRequest
+  | SkillsDraftRequest
+  | SkillsCreateRequest;
+
+export type _SkillsServerMessages =
+  | SkillsListResponse
+  | SkillDetailResponse
+  | SkillStateChanged
+  | SkillsOperationResponse
+  | SkillsInspectResponse
+  | SkillsDraftResponse;

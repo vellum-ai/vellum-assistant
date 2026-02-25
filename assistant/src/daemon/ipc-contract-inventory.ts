@@ -85,7 +85,50 @@ function extractWireType(
 }
 
 /**
+ * Resolve a type alias to its union member names. If the name is a type
+ * alias whose body is a union of type references, returns those reference
+ * names. Otherwise returns the name itself (it's likely an interface).
+ */
+function resolveTypeAlias(
+  sourceFiles: ts.SourceFile[],
+  aliasName: string,
+): string[] {
+  for (const sourceFile of sourceFiles) {
+    let resolved: string[] | null = null;
+    ts.forEachChild(sourceFile, (node) => {
+      if (
+        ts.isTypeAliasDeclaration(node) &&
+        node.name.text === aliasName
+      ) {
+        if (ts.isUnionTypeNode(node.type)) {
+          resolved = [];
+          for (const member of node.type.types) {
+            if (ts.isTypeReferenceNode(member)) {
+              const name = member.typeName;
+              if (ts.isIdentifier(name)) {
+                resolved.push(name.text);
+              }
+            }
+          }
+        } else if (ts.isTypeReferenceNode(node.type)) {
+          // Single type alias (e.g. `type _X = SomeInterface`)
+          const name = node.type.typeName;
+          if (ts.isIdentifier(name)) {
+            resolved = [name.text];
+          }
+        }
+      }
+    });
+    if (resolved) return resolved;
+  }
+  // Not a type alias -- treat as a direct interface name
+  return [aliasName];
+}
+
+/**
  * Extract wire type literals for all members of a union type.
+ * Handles both direct interface references and type alias unions
+ * (domain-level aliases like _SessionsClientMessages).
  */
 function extractWireTypes(
   sourceFiles: ts.SourceFile[],
@@ -93,8 +136,12 @@ function extractWireTypes(
 ): string[] {
   const wireTypes: string[] = [];
   for (const name of memberNames) {
-    const wt = extractWireType(sourceFiles, name);
-    if (wt) wireTypes.push(wt);
+    // Resolve type aliases to their constituent interface names
+    const resolved = resolveTypeAlias(sourceFiles, name);
+    for (const interfaceName of resolved) {
+      const wt = extractWireType(sourceFiles, interfaceName);
+      if (wt) wireTypes.push(wt);
+    }
   }
   return wireTypes.sort();
 }
