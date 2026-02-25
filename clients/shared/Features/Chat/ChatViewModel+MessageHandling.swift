@@ -648,12 +648,17 @@ extension ChatViewModel {
             currentAssistantHasText = false
             lastContentWasToolCall = false
             // Reset processing messages to sent and drop attachment base64 data
-            // since the daemon has persisted it at this point.
+            // for lazy-loadable attachments (sizeBytes != nil means the daemon can
+            // re-serve them). Locally-added attachments (sizeBytes == nil) keep their
+            // data because openImageInPreview / saveFileAttachment rely on it.
             for i in messages.indices {
                 if messages[i].role == .user && messages[i].status == .processing {
                     messages[i].status = .sent
                     for j in messages[i].attachments.indices {
-                        messages[i].attachments[j].data = ""
+                        if messages[i].attachments[j].sizeBytes != nil {
+                            messages[i].attachments[j].data = ""
+                            messages[i].attachments[j].dataLength = 0
+                        }
                     }
                 }
             }
@@ -1160,7 +1165,7 @@ extension ChatViewModel {
                 title: surface.title,
                 data: surface.data,
                 actions: surface.actions,
-                surfaceRef: SurfaceRef(from: msg)
+                surfaceRef: SurfaceRef(from: msg, surface: surface)
             )
 
             // If messageId is provided, attach to that specific message (rarely used now that

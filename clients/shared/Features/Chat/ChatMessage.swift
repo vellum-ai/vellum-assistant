@@ -978,20 +978,31 @@ public struct SurfaceRef: Equatable {
     public let sessionId: String
     public let surfaceType: String
     public let title: String?
+    /// The real app ID from DynamicPageSurfaceData. Used for app_open_request
+    /// because surfaceId is a daemon-generated identifier (e.g. "app-open-<uuid>")
+    /// that doesn't match any real app.
+    public let appId: String?
 
-    public init(surfaceId: String, sessionId: String, surfaceType: String, title: String?) {
+    public init(surfaceId: String, sessionId: String, surfaceType: String, title: String?, appId: String? = nil) {
         self.surfaceId = surfaceId
         self.sessionId = sessionId
         self.surfaceType = surfaceType
         self.title = title
+        self.appId = appId
     }
 
-    /// Build from a UiSurfaceShowMessage, discarding the heavy data payload.
-    public init(from msg: UiSurfaceShowMessage) {
+    /// Build from a UiSurfaceShowMessage + parsed Surface, discarding the heavy data payload.
+    /// Extracts appId from DynamicPageSurfaceData when available.
+    public init(from msg: UiSurfaceShowMessage, surface: Surface? = nil) {
         self.surfaceId = msg.surfaceId
         self.sessionId = msg.sessionId
         self.surfaceType = msg.surfaceType
         self.title = msg.title
+        if let surface, case .dynamicPage(let dpData) = surface.data {
+            self.appId = dpData.appId
+        } else {
+            self.appId = nil
+        }
     }
 }
 
@@ -1056,7 +1067,8 @@ public struct ChatAttachment: Identifiable {
     /// Pre-computed length of `data` to avoid O(n) String.count during rendering.
     /// Swift's String.count iterates the entire string to count grapheme clusters,
     /// which is expensive for multi-MB base64 strings on every SwiftUI render pass.
-    public let dataLength: Int
+    /// Mutable so it can be zeroed when `data` is cleared for lazy-loadable attachments.
+    public var dataLength: Int
     /// Original file size in bytes. Non-nil when `data` is empty because the
     /// attachment was too large to inline in the history response.
     public let sizeBytes: Int?
@@ -1239,6 +1251,7 @@ public struct ChatMessage: Identifiable {
         }
         for i in attachments.indices {
             attachments[i].data = ""
+            attachments[i].dataLength = 0
         }
         for i in inlineSurfaces.indices {
             if inlineSurfaces[i].completionState != nil {

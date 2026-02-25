@@ -767,10 +767,12 @@ struct MainWindowView: View {
             } else if let ref = notification.userInfo?["surfaceRef"] as? SurfaceRef {
                 // Lightweight ref from inline surface click — the daemon will
                 // send a fresh ui_surface_show via live IPC with the full payload.
-                // Open by surfaceId to trigger the workspace view.
-                windowState.selection = .app(ref.surfaceId)
-                // Request the daemon to re-show the surface
-                try? daemonClient.sendAppOpen(appId: ref.surfaceId)
+                // Use the real appId for the app_open_request when available,
+                // because surfaceId is a daemon-generated identifier
+                // (e.g. "app-open-<uuid>") that doesn't match any real app.
+                let reopenId = ref.appId ?? ref.surfaceId
+                windowState.selection = .app(reopenId)
+                try? daemonClient.sendAppOpen(appId: reopenId)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .openDocumentEditor)) { notification in
