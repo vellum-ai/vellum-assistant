@@ -5,6 +5,7 @@ enum SidePanelType: Hashable, CaseIterable {
     case directory
     case debug
     case identity
+    case intelligence
     case documentEditor
     case avatarCustomization
     case voiceMode
@@ -19,6 +20,7 @@ enum SidePanelType: Hashable, CaseIterable {
         case "directory": self = .directory
         case "debug": self = .debug
         case "identity": self = .identity
+        case "intelligence": self = .intelligence
         case "documentEditor": self = .documentEditor
         case "avatarCustomization": self = .avatarCustomization
         case "voiceMode": self = .voiceMode

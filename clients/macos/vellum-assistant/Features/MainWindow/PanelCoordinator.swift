@@ -91,6 +91,28 @@ extension MainWindowView {
             sidebarView
         case .identity:
             IdentityPanel(onClose: { windowState.selection = nil }, onCustomizeAvatar: { windowState.selection = .panel(.avatarCustomization) }, daemonClient: daemonClient)
+        case .intelligence:
+            IntelligencePanel(
+                onClose: { windowState.selection = nil },
+                onInvokeSkill: { skill in
+                    if threadManager.activeViewModel == nil {
+                        threadManager.createThread()
+                    }
+                    if let viewModel = threadManager.activeViewModel {
+                        viewModel.pendingSkillInvocation = SkillInvocationData(
+                            name: skill.name,
+                            emoji: skill.emoji,
+                            description: skill.description
+                        )
+                        viewModel.inputText = "Use the \(skill.name) skill"
+                        viewModel.sendMessage()
+                        viewModel.pendingSkillInvocation = nil
+                    }
+                    windowState.selection = nil
+                },
+                onCustomizeAvatar: { windowState.selection = .panel(.avatarCustomization) },
+                daemonClient: daemonClient
+            )
         case .avatarCustomization:
             AvatarCustomizationPanel(onClose: { windowState.selection = .panel(.identity) })
         case .voiceMode:

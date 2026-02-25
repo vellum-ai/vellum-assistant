@@ -1,10 +1,14 @@
 import SwiftUI
 import VellumAssistantShared
 
-struct IdentityPanel: View {
-    let onClose: () -> Void
+// MARK: - Identity Panel Content (embeddable)
+
+/// The identity content, usable standalone (e.g. inside IntelligencePanel)
+/// or wrapped by IdentityPanel.
+struct IdentityPanelContent: View {
     let onCustomizeAvatar: () -> Void
     let daemonClient: DaemonClient
+    var showTitle: Bool = false
     @State private var appearance = AvatarAppearanceManager.shared
 
     @State private var identity: IdentityInfo?
@@ -17,19 +21,19 @@ struct IdentityPanel: View {
     @State private var isFullscreen: Bool = false
 
     private let sidebarWidth: CGFloat = 260
-
     private let panelPadding: CGFloat = VSpacing.xl
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
-            // Left sidebar: title, avatar, ID card — hidden in fullscreen
+            // Left sidebar: avatar, ID card — hidden in fullscreen
             if !isFullscreen {
                 VStack(alignment: .leading, spacing: 0) {
-                    // Header
-                    Text("Identity")
-                        .font(VFont.panelTitle)
-                        .foregroundColor(VColor.textPrimary)
-                        .padding(.bottom, VSpacing.lg)
+                    if showTitle {
+                        Text("Identity")
+                            .font(VFont.panelTitle)
+                            .foregroundColor(VColor.textPrimary)
+                            .padding(.bottom, VSpacing.lg)
+                    }
 
                     // Card wrapping avatar + ID fields
                     VStack(spacing: 0) {
@@ -204,6 +208,18 @@ struct IdentityPanel: View {
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
         return formatter.string(from: date)
+    }
+}
+
+// MARK: - Identity Panel (standalone wrapper)
+
+struct IdentityPanel: View {
+    let onClose: () -> Void
+    let onCustomizeAvatar: () -> Void
+    let daemonClient: DaemonClient
+
+    var body: some View {
+        IdentityPanelContent(onCustomizeAvatar: onCustomizeAvatar, daemonClient: daemonClient, showTitle: true)
     }
 }
 

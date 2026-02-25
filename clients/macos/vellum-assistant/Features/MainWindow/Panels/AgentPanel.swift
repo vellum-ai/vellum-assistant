@@ -1,6 +1,12 @@
 import SwiftUI
 import VellumAssistantShared
 
+// MARK: - Skills Tab Enum
+
+enum SkillsTab {
+    case installed, available
+}
+
 // MARK: - Agent Panel Content (embeddable)
 
 /// The skills management content, usable standalone (e.g. inside IdentityPanel)
@@ -9,24 +15,23 @@ struct AgentPanelContent: View {
     var onInvokeSkill: ((SkillInfo) -> Void)?
     var onSkillsChanged: (() -> Void)?
     let daemonClient: DaemonClient
+    let showTabBar: Bool
 
     @StateObject private var skillsManager: SkillsManager
-    @State private var selectedTab: SkillsTab = .installed
+    @Binding var selectedTab: SkillsTab
     @State private var expandedSkillId: String?
     @State private var selectedSkillSlug: String?
     @State private var selectedInstalledSkillId: String?
     @State private var skillToDelete: SkillInfo?
     @State private var showNewSkillSheet = false
 
-    private enum SkillsTab {
-        case installed, available
-    }
-
-    init(onInvokeSkill: ((SkillInfo) -> Void)? = nil, onSkillsChanged: (() -> Void)? = nil, daemonClient: DaemonClient) {
+    init(onInvokeSkill: ((SkillInfo) -> Void)? = nil, onSkillsChanged: (() -> Void)? = nil, daemonClient: DaemonClient, selectedTab: Binding<SkillsTab>? = nil, showTabBar: Bool = true) {
         self.onInvokeSkill = onInvokeSkill
         self.onSkillsChanged = onSkillsChanged
         self.daemonClient = daemonClient
+        self.showTabBar = showTabBar
         _skillsManager = StateObject(wrappedValue: SkillsManager(daemonClient: daemonClient))
+        _selectedTab = selectedTab ?? .constant(.installed)
     }
 
     var body: some View {
@@ -56,29 +61,31 @@ struct AgentPanelContent: View {
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .padding(.bottom, VSpacing.lg)
 
-            // Tab bar
-            VStack(spacing: 0) {
-                HStack(spacing: VSpacing.xl) {
-                    tabButton(installedTabTitle, tab: .installed)
-                    tabButton(availableTabTitle, tab: .available)
-                    Spacer()
-                    Button {
-                        showNewSkillSheet = true
-                    } label: {
-                        HStack(spacing: VSpacing.xs) {
-                            Image(systemName: "plus")
-                            Text("New Skill")
+            // Tab bar (hidden when controlled externally, e.g. from IntelligencePanel)
+            if showTabBar {
+                VStack(spacing: 0) {
+                    HStack(spacing: VSpacing.xl) {
+                        tabButton(installedTabTitle, tab: .installed)
+                        tabButton(availableTabTitle, tab: .available)
+                        Spacer()
+                        Button {
+                            showNewSkillSheet = true
+                        } label: {
+                            HStack(spacing: VSpacing.xs) {
+                                Image(systemName: "plus")
+                                Text("New Skill")
+                            }
+                            .font(VFont.body)
+                            .foregroundColor(VColor.accent)
                         }
-                        .font(VFont.body)
-                        .foregroundColor(VColor.accent)
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("New Skill")
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("New Skill")
-                }
 
-                Divider().background(VColor.surfaceBorder)
+                    Divider().background(VColor.surfaceBorder)
+                }
+                .padding(.bottom, VSpacing.lg)
             }
-            .padding(.bottom, VSpacing.lg)
 
             // Tab content
             switch selectedTab {
@@ -1001,6 +1008,8 @@ struct AgentPanel: View {
     var onInvokeSkill: ((SkillInfo) -> Void)?
     let daemonClient: DaemonClient
 
+    @State private var selectedTab: SkillsTab = .installed
+
     /// Maximum width of the centered content area.
     private let maxContentWidth: CGFloat = 1100
 
@@ -1020,7 +1029,7 @@ struct AgentPanel: View {
                 Divider().background(VColor.surfaceBorder)
                     .padding(.bottom, VSpacing.xl)
 
-                AgentPanelContent(onInvokeSkill: onInvokeSkill, daemonClient: daemonClient)
+                AgentPanelContent(onInvokeSkill: onInvokeSkill, daemonClient: daemonClient, selectedTab: $selectedTab)
             }
             .frame(maxWidth: maxContentWidth)
             .padding(.horizontal, VSpacing.xxl)
