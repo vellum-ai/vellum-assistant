@@ -254,7 +254,12 @@ final class WriterContext: @unchecked Sendable {
                     debugLog("VIDEO APPEND FAILED at #\(count), writerStatus=\(writer.status.rawValue), error=\((writer.error as NSError?)?.description ?? "none")")
                 }
                 lock.lock()
-                _hasReceivedVideoFrame = true
+                // Only mark first frame on successful append — a failed append
+                // means the encoder is broken and the fallback chain should try
+                // the next config rather than declaring startup success.
+                if ok {
+                    _hasReceivedVideoFrame = true
+                }
                 _lastVideoTime = pts
                 let videoCount = _bufferCount
                 lock.unlock()
@@ -385,6 +390,10 @@ final class ScreenRecorder: NSObject {
     private var writerContext: WriterContext?
     private var recordingStartDate: Date?
     private var isRecordingActive = false
+    /// Captures the stream error from `handleStreamError` during startup so
+    /// `attemptStartWithConfig` can propagate the typed error (e.g. permission
+    /// denied, source unavailable) instead of collapsing it to `.noFramesReceived`.
+    private var pendingStreamError: RecorderError?
 
     /// The display being recorded (nil for window captures). Used by the
     /// display reconfiguration callback to detect removal or resolution changes.
@@ -739,6 +748,7 @@ final class ScreenRecorder: NSObject {
         // Clean up any previous attempt state
         cleanUpWriter()
         stream = nil
+        pendingStreamError = nil
 
         let encoderWidth = encodeConfig.width
         let encoderHeight = encodeConfig.height
@@ -900,6 +910,18 @@ final class ScreenRecorder: NSObject {
         // and that the recorder wasn't torn down by a concurrent stream error.
         if ctx.hasReceivedVideoFrame && isRecordingActive {
             return .success
+        }
+
+        // If handleStreamError fired, it already tore down the writer/stream.
+        // Propagate the typed error (e.g. permission denied, source unavailable)
+        // instead of collapsing it to the generic .noFramesReceived path.
+        if let streamError = pendingStreamError {
+            log.warning("Startup attempt failed with stream error for config '\(encodeConfig.label, privacy: .public)': \(streamError.localizedDescription ?? "unknown", privacy: .public)")
+            // handleStreamError already cleaned up writer/stream/file — just
+            // clean up the output file if it wasn't already removed.
+            try? FileManager.default.removeItem(at: outputURL)
+            pendingStreamError = nil
+            return .streamStartFailed(streamError.localizedDescription ?? "Stream error during startup")
         }
 
         // No frames arrived — tear down this attempt
@@ -1141,6 +1163,10 @@ final class ScreenRecorder: NSObject {
             guard isRecordingActive else { return }
 
             log.error("Stream error during active recording — cleaning up (error=\(recorderError.localizedDescription, privacy: .public))")
+
+            // Store for attemptStartWithConfig to propagate typed errors
+            // instead of collapsing them to .noFramesReceived.
+            pendingStreamError = recorderError
 
             RecordingTelemetry.logError(
                 category: RecordingTelemetry.categorize(recorderError),
