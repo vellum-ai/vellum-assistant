@@ -99,6 +99,8 @@ extension DaemonClient {
             onSkillsOperationResponse?(msg)
         case .skillsInspectResponse(let msg):
             onSkillsInspectResponse?(msg)
+        case .skillsDraftResponse(let msg):
+            onSkillsDraftResponse?(msg)
         case .appsListResponse(let msg):
             onAppsListResponse?(msg)
         case .homeBaseGetResponse(let msg):

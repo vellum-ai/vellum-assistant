@@ -15,6 +15,11 @@ final class SkillsManager: ObservableObject {
     @Published var installResult: InstallResult?
     @Published var uninstallResult: UninstallResult?
     @Published var isUninstalling = false
+    @Published var draftResult: SkillDraftResult?
+    @Published var isDrafting = false
+    @Published var draftError: String?
+    @Published var isCreating = false
+    @Published var createError: String?
 
     struct InstallResult {
         let slug: String
@@ -28,9 +33,22 @@ final class SkillsManager: ObservableObject {
         let error: String?
     }
 
+    struct SkillDraftResult {
+        let skillId: String
+        let name: String
+        let description: String
+        let emoji: String?
+        let bodyMarkdown: String
+        let warnings: [String]
+    }
+
     private let daemonClient: DaemonClient
     private var currentInspectSlug: String?
     private var lastSearchQuery: String?
+    private var draftTask: Task<Void, Never>?
+    private var createTask: Task<Void, Never>?
+    private var draftGeneration: Int = 0
+    private var createGeneration: Int = 0
 
     init(daemonClient: DaemonClient) {
         self.daemonClient = daemonClient
@@ -251,5 +269,114 @@ final class SkillsManager: ObservableObject {
         inspectedSkill = nil
         isInspecting = false
         inspectError = nil
+    }
+
+    // MARK: - Skill Drafting & Creation
+
+    func draftSkill(sourceText: String) {
+        guard !isDrafting else { return }
+        isDrafting = true
+        draftError = nil
+        draftResult = nil
+        draftGeneration += 1
+        let generation = draftGeneration
+
+        draftTask = Task {
+            let stream = daemonClient.subscribe()
+
+            do {
+                try daemonClient.draftSkill(sourceText: sourceText)
+            } catch {
+                if generation == self.draftGeneration {
+                    isDrafting = false
+                    draftError = "Failed to send draft request"
+                }
+                return
+            }
+
+            for await message in stream {
+                guard !Task.isCancelled else { break }
+                guard generation == self.draftGeneration else { break }
+                if case .skillsDraftResponse(let response) = message {
+                    if response.success, let draft = response.draft {
+                        draftResult = SkillDraftResult(
+                            skillId: draft.skillId,
+                            name: draft.name,
+                            description: draft.description,
+                            emoji: draft.emoji,
+                            bodyMarkdown: draft.bodyMarkdown,
+                            warnings: response.warnings ?? []
+                        )
+                    } else {
+                        draftError = response.error ?? "Draft generation failed"
+                    }
+                    isDrafting = false
+                    return
+                }
+            }
+            if generation == self.draftGeneration {
+                isDrafting = false
+            }
+        }
+    }
+
+    func createSkillFromDraft(skillId: String, name: String, description: String, emoji: String?, bodyMarkdown: String) {
+        guard !isCreating else { return }
+        isCreating = true
+        createError = nil
+        createGeneration += 1
+        let generation = createGeneration
+
+        createTask = Task {
+            let stream = daemonClient.subscribe()
+
+            do {
+                try daemonClient.createSkill(
+                    skillId: skillId,
+                    name: name,
+                    description: description,
+                    emoji: emoji,
+                    bodyMarkdown: bodyMarkdown
+                )
+            } catch {
+                if generation == self.createGeneration {
+                    isCreating = false
+                    createError = "Failed to send create request"
+                }
+                return
+            }
+
+            for await message in stream {
+                guard !Task.isCancelled else { break }
+                guard generation == self.createGeneration else { break }
+                if case .skillsOperationResponse(let response) = message,
+                   response.operation == "create" {
+                    if !response.success {
+                        createError = response.error ?? "Failed to create skill"
+                    } else {
+                        fetchSkills(force: true)
+                    }
+                    isCreating = false
+                    return
+                }
+            }
+            if generation == self.createGeneration {
+                isCreating = false
+            }
+        }
+    }
+
+    func resetDraftState() {
+        draftTask?.cancel()
+        createTask?.cancel()
+        draftTask = nil
+        createTask = nil
+        draftResult = nil
+        isDrafting = false
+        draftError = nil
+        isCreating = false
+        createError = nil
+        draftGeneration += 1
+        createGeneration += 1
     }
 }

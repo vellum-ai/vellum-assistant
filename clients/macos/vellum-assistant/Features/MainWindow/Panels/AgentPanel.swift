@@ -16,6 +16,7 @@ struct AgentPanelContent: View {
     @State private var selectedSkillSlug: String?
     @State private var selectedInstalledSkillId: String?
     @State private var skillToDelete: SkillInfo?
+    @State private var showNewSkillSheet = false
 
     private enum SkillsTab {
         case installed, available
@@ -61,6 +62,18 @@ struct AgentPanelContent: View {
                     tabButton(installedTabTitle, tab: .installed)
                     tabButton(availableTabTitle, tab: .available)
                     Spacer()
+                    Button {
+                        showNewSkillSheet = true
+                    } label: {
+                        HStack(spacing: VSpacing.xs) {
+                            Image(systemName: "plus")
+                            Text("New Skill")
+                        }
+                        .font(VFont.body)
+                        .foregroundColor(VColor.accent)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("New Skill")
                 }
 
                 Divider().background(VColor.surfaceBorder)
@@ -112,6 +125,9 @@ struct AgentPanelContent: View {
                     skillToDelete = nil
                 }
             )
+        }
+        .sheet(isPresented: $showNewSkillSheet) {
+            NewSkillSheet(skillsManager: skillsManager)
         }
     }
 

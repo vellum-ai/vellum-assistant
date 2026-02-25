@@ -33,7 +33,7 @@ export * from './ipc-contract/notifications.js';
 import type { AuthMessage, PingMessage, CancelRequest, DeleteQueuedMessage, ModelGetRequest, ModelSetRequest, ImageGenModelSetRequest, HistoryRequest, UndoRequest, RegenerateRequest, UsageRequest, SandboxSetRequest, SessionListRequest, SessionCreateRequest, SessionSwitchRequest, SessionRenameRequest, SessionsClearRequest, ConversationSearchRequest } from './ipc-contract/sessions.js';
 import type { UserMessage, ConfirmationResponse, SecretResponse, SuggestionRequest } from './ipc-contract/messages.js';
 import type { UiSurfaceAction, UiSurfaceUndoRequest } from './ipc-contract/surfaces.js';
-import type { SkillsListRequest, SkillDetailRequest, SkillsEnableRequest, SkillsDisableRequest, SkillsConfigureRequest, SkillsInstallRequest, SkillsUninstallRequest, SkillsUpdateRequest, SkillsCheckUpdatesRequest, SkillsSearchRequest, SkillsInspectRequest } from './ipc-contract/skills.js';
+import type { SkillsListRequest, SkillDetailRequest, SkillsEnableRequest, SkillsDisableRequest, SkillsConfigureRequest, SkillsInstallRequest, SkillsUninstallRequest, SkillsUpdateRequest, SkillsCheckUpdatesRequest, SkillsSearchRequest, SkillsInspectRequest, SkillsDraftRequest, SkillsCreateRequest } from './ipc-contract/skills.js';
 import type { AddTrustRule, TrustRulesList, RemoveTrustRule, UpdateTrustRule, AcceptStarterBundle } from './ipc-contract/trust.js';
 import type { AppDataRequest, AppsListRequest, HomeBaseGetRequest, AppOpenRequest, SharedAppsListRequest, SharedAppDeleteRequest, ForkSharedAppRequest, BundleAppRequest, OpenBundleRequest, SignBundlePayloadResponse, GetSigningIdentityResponse, GalleryListRequest, GalleryInstallRequest, AppHistoryRequest, AppDiffRequest, AppFileAtVersionRequest, AppRestoreRequest, ShareAppCloudRequest, ShareToSlackRequest, AppUpdatePreviewRequest, AppPreviewRequest, PublishPageRequest, UnpublishPageRequest } from './ipc-contract/apps.js';
 import type { SlackWebhookConfigRequest, IngressConfigRequest, VercelApiConfigRequest, TwitterIntegrationConfigRequest, TelegramConfigRequest, TwilioConfigRequest, ChannelReadinessRequest, GuardianVerificationRequest, TwitterAuthStartRequest, TwitterAuthStatusRequest, IntegrationListRequest, IntegrationConnectRequest, IntegrationDisconnectRequest, LinkOpenRequest } from './ipc-contract/integrations.js';
@@ -49,7 +49,7 @@ import type { DiagnosticsExportRequest, EnvVarsRequest, IpcBlobProbe, DictationR
 import type { AuthResult, PongMessage, DaemonStatusMessage, GenerationCancelled, GenerationHandoff, ModelInfo, HistoryResponse, UndoComplete, UsageUpdate, UsageResponse, ContextCompacted, SessionErrorMessage, SessionInfo, SessionTitleUpdated, SessionListResponse, SessionsClearResponse, ConversationSearchResponse } from './ipc-contract/sessions.js';
 import type { UserMessageEcho, AssistantTextDelta, AssistantThinkingDelta, ToolUseStart, ToolOutputChunk, ToolInputDelta, ToolResult, ConfirmationRequest, SecretRequest, MessageComplete, ErrorMessage, SecretDetected, MessageQueued, MessageDequeued, MessageQueuedDeleted, SuggestionResponse, TraceEvent } from './ipc-contract/messages.js';
 import type { UiSurfaceShow, UiSurfaceUpdate, UiSurfaceDismiss, UiSurfaceComplete, UiSurfaceUndoResult } from './ipc-contract/surfaces.js';
-import type { SkillsListResponse, SkillDetailResponse, SkillStateChanged, SkillsOperationResponse, SkillsInspectResponse } from './ipc-contract/skills.js';
+import type { SkillsListResponse, SkillDetailResponse, SkillStateChanged, SkillsOperationResponse, SkillsInspectResponse, SkillsDraftResponse } from './ipc-contract/skills.js';
 import type { TrustRulesListResponse, AcceptStarterBundleResponse } from './ipc-contract/trust.js';
 import type { AppDataResponse, AppsListResponse, HomeBaseGetResponse, SharedAppsListResponse, SharedAppDeleteResponse, ForkSharedAppResponse, BundleAppResponse, OpenBundleResponse, SignBundlePayloadRequest, GetSigningIdentityRequest, ShareAppCloudResponse, GalleryListResponse, GalleryInstallResponse, AppHistoryResponse, AppDiffResponse, AppFileAtVersionResponse, AppRestoreResponse, ShareToSlackResponse, AppUpdatePreviewResponse, AppPreviewResponse, PublishPageResponse, UnpublishPageResponse, AppFilesChanged } from './ipc-contract/apps.js';
 import type { SlackWebhookConfigResponse, IngressConfigResponse, VercelApiConfigResponse, TwitterIntegrationConfigResponse, TelegramConfigResponse, TwilioConfigResponse, ChannelReadinessResponse, GuardianVerificationResponse, TwitterAuthResult, TwitterAuthStatusResponse, IntegrationListResponse, IntegrationConnectResult, OpenUrl } from './ipc-contract/integrations.js';
@@ -119,6 +119,8 @@ export type ClientMessage =
   | SkillsCheckUpdatesRequest
   | SkillsSearchRequest
   | SkillsInspectRequest
+  | SkillsDraftRequest
+  | SkillsCreateRequest
   | SuggestionRequest
   | AddTrustRule
   | TrustRulesList
@@ -265,6 +267,7 @@ export type ServerMessage =
   | SkillStateChanged
   | SkillsOperationResponse
   | SkillsInspectResponse
+  | SkillsDraftResponse
   | SuggestionResponse
   | MessageQueued
   | MessageDequeued
