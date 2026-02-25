@@ -56,7 +56,7 @@ When the user triggers a Twitter operation and no strategy has been configured y
 
 ### OAuth Setup Sequence
 
-When the user chooses OAuth, collect their X developer credentials conversationally using the secure UI. The OAuth flow delegates to the generic connect orchestrator via `oauth_connect_start`.
+When the user chooses OAuth, collect their X developer credentials conversationally using the secure UI. The OAuth flow delegates to the generic connect orchestrator via the `twitter_auth_start` IPC message (which internally uses the shared orchestrator while preserving Twitter-specific guards like integration-mode checks and refresh-token cleanup).
 
 1. **Collect the Client ID securely:**
    Call `credential_store` with `action: "prompt"`, `service: "integration:twitter"`, `field: "client_id"`, `label: "X (Twitter) OAuth Client ID"`, `description: "Enter the Client ID from your X Developer App"`, and `placeholder: "your-client-id"`.
@@ -65,7 +65,7 @@ When the user chooses OAuth, collect their X developer credentials conversationa
    Ask the user if their X app uses a confidential client (has a Client Secret). If yes, call `credential_store` with `action: "prompt"`, `service: "integration:twitter"`, `field: "client_secret"`, `label: "X (Twitter) OAuth Client Secret"`, `description: "Enter the Client Secret from your X Developer App (leave blank if using a public client)"`, and `placeholder: "your-client-secret"`.
 
 3. **Initiate the OAuth flow:**
-   Send the `oauth_connect_start` IPC message with `service: "twitter"`. The generic connect orchestrator resolves the Twitter provider profile, computes scopes via policy, opens the X authorization page in the user's browser, verifies the user's identity, and stores tokens. Wait for the `oauth_connect_result` response.
+   Send the `twitter_auth_start` IPC message. The handler delegates to the shared connect orchestrator, which resolves the Twitter provider profile, computes scopes via policy, opens the X authorization page in the user's browser, verifies the user's identity, and stores tokens. The handler also manages stale refresh-token cleanup and enforces integration-mode guards. Wait for the `twitter_auth_result` response.
 
 4. **Confirm success:**
    Tell the user: "Great, your X account is connected! You can always update these credentials from the Settings page."
