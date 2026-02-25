@@ -7,7 +7,7 @@ metadata: {"vellum": {"emoji": "🔍"}}
 
 # CLI Discovery
 
-When you need to discover what CLI tools are available on the system, use `bash` or `host_bash` to check directly.
+When you need to discover what CLI tools are available on the system, use `host_bash` to check directly. Do not use sandboxed `bash` for discovery — it may not see host-installed CLIs or auth state, leading to false negatives.
 
 ## Checking if a CLI exists
 
