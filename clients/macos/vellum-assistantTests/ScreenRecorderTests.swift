@@ -1,6 +1,14 @@
 import XCTest
 @testable import VellumAssistantLib
 
+/// Automated tests for ScreenRecorder's pure/deterministic logic:
+/// dimension normalization, fallback config building, and SCStream error
+/// code mapping. These run without hardware or screen recording permission.
+///
+/// Scenarios that require real displays, hardware encoders, or runtime events
+/// (hot-plug, sleep/wake, mixed-DPI capture, cross-display window moves) are
+/// covered by the manual QA checklist in
+/// `Recording/RECORDING_TEST_MATRIX.md`.
 @MainActor
 final class ScreenRecorderTests: XCTestCase {
 

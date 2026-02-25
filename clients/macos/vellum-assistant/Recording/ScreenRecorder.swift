@@ -64,6 +64,58 @@ struct NormalizedDimensions {
 /// Records display or window content to .mov files with H.264 video and
 /// optional AAC audio. Stores recordings in the app's Application Support
 /// directory under `recordings/`.
+///
+/// ## Encoder Fallback Chain
+///
+/// When starting a recording, the encoder tries up to four configurations in
+/// order. Each attempt waits 3 seconds for the first video frame before
+/// falling through to the next:
+///
+///   1. **Primary** — H.264 at the source display's native pixel dimensions.
+///   2. **Halved** — H.264 at half the source dimensions (2x downscale).
+///   3. **HEVC** — HEVC at primary dimensions (only offered when hardware
+///      decode is available, used as a proxy for hardware encode support).
+///   4. **720p** — H.264 at 1280x720 as a conservative safe fallback.
+///
+/// If all four fail (writer setup error or no frames within 3s each), the
+/// recorder throws `allFallbacksExhausted`.
+///
+/// ## Dimension Constraints
+///
+/// All encoder configurations pass through `normalizeDimensions`, which
+/// enforces:
+///   - **Even dimensions** — H.264/HEVC require macroblock-aligned (even)
+///     width and height. Odd values are rounded up.
+///   - **Minimum 128px** per axis — the H.264 spec's practical lower bound.
+///   - **Maximum 4096px** per axis — real-time encoding limit. Dimensions
+///     exceeding this are scaled down proportionally to preserve aspect ratio.
+///   - Extreme aspect ratios can push the shorter axis below 128px after
+///     downscaling (e.g. 8192x128 → 4096x64), so the minimum is re-applied.
+///
+/// ## Scale Factor Detection
+///
+/// `scaleFactor(for:)` determines how many native pixels map to one logical
+/// point for a given display:
+///   1. Tries `NSScreen.backingScaleFactor` for the matching screen (most
+///      reliable — accounts for user-configured scaling).
+///   2. Falls back to `CGDisplayPixelsWide / CGDisplayBounds.width` (works
+///      when NSScreen is unavailable, e.g. headless or lid-closed setups).
+///   3. Defaults to 2x as a last resort.
+///
+/// ## Display Reconfiguration Monitoring
+///
+/// During display recordings (not window captures), the recorder registers a
+/// `CGDisplayRegisterReconfigurationCallback`. This detects:
+///   - **Display removal** (hot-unplug) — cancels the recording, removes the
+///     partial file, and notifies via `onStreamError(.sourceUnavailable)`.
+///   - **Mode/arrangement changes** — logged for diagnostics but not acted
+///     upon, since ScreenCaptureKit handles resolution changes internally.
+///
+/// The callback is unregistered on stop, cancel, or stream error to avoid
+/// dangling references.
+///
+/// For the full manual QA validation matrix covering monitor configurations,
+/// see `RECORDING_TEST_MATRIX.md` in this directory.
 @MainActor
 final class ScreenRecorder: NSObject {
 
