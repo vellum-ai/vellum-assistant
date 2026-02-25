@@ -92,7 +92,7 @@ export async function storeOAuth2Tokens(params: StoreOAuth2TokensParams): Promis
     accountInfo: accountInfo ?? params.identityAccountInfo ?? null,
     oauth2TokenUrl: tokenUrl,
     oauth2ClientId: clientId,
-    ...(clientSecret ? { oauth2ClientSecret: clientSecret } : {}),
+    oauth2ClientSecret: clientSecret ?? null,
     ...(tokenEndpointAuthMethod ? { oauth2TokenEndpointAuthMethod: tokenEndpointAuthMethod } : {}),
     ...(wellKnownInjectionTemplates ? { injectionTemplates: wellKnownInjectionTemplates } : {}),
   });
