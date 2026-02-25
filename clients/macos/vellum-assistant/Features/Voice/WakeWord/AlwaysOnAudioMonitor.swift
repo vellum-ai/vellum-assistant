@@ -106,8 +106,20 @@ final class AlwaysOnAudioMonitor: ObservableObject {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
+
+                // Handle keyword changes
                 let newKeyword = UserDefaults.standard.string(forKey: "wakeWordKeyword") ?? "computer"
                 self.engine.updateKeyword(newKeyword)
+
+                // Handle enabled/disabled toggle
+                let enabled = UserDefaults.standard.bool(forKey: "wakeWordEnabled")
+                if enabled && !self.isListening {
+                    log.info("Wake word enabled via settings — starting monitoring")
+                    self.startMonitoring()
+                } else if !enabled && self.isListening {
+                    log.info("Wake word disabled via settings — stopping monitoring")
+                    self.stopMonitoring()
+                }
             }
         }
     }
