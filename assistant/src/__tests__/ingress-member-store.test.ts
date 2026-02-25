@@ -23,7 +23,7 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
-import { initializeDb, resetDb } from '../memory/db.js';
+import { initializeDb, resetDb, getSqlite } from '../memory/db.js';
 import {
   upsertMember,
   findMember,
@@ -39,9 +39,7 @@ afterAll(() => {
 });
 
 function resetMembersTable() {
-  const { getDb } = require('../memory/db.js');
-  const db = getDb();
-  db.run('DELETE FROM assistant_ingress_members');
+  getSqlite().run('DELETE FROM assistant_ingress_members');
 }
 
 describe('ingress-member-store: multi-assistant isolation', () => {

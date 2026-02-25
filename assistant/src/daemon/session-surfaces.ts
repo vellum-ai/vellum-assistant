@@ -94,6 +94,10 @@ function normalizeTaskProgressCardPatch(existingCard: CardSurfaceData, patch: Re
  */
 export interface SurfaceSessionContext {
   readonly conversationId: string;
+  readonly channelCapabilities?: {
+    channel: string;
+    supportsDynamicUi: boolean;
+  };
   readonly traceEmitter: {
     emit(type: string, message: string, meta?: Record<string, unknown>): void;
   };
@@ -361,13 +365,23 @@ export function handleSurfaceAction(ctx: SurfaceSessionContext, surfaceId: strin
     shouldRelayPrompt && typeof data?.prompt === 'string'
       ? data.prompt.trim()
       : '';
-  const content = prompt || JSON.stringify({
-    surfaceAction: true,
-    surfaceId,
-    surfaceType: pending.surfaceType,
-    actionId,
-    data: data ?? {},
-  });
+
+  // Build a human-readable summary for confirmation surfaces so the LLM
+  // clearly understands the user's decision instead of parsing raw JSON.
+  let fallbackContent: string;
+  if (pending.surfaceType === 'confirmation') {
+    const summary = buildCompletionSummary('confirmation', actionId, data);
+    fallbackContent = `[User action on confirmation surface: ${summary}]`;
+  } else {
+    fallbackContent = JSON.stringify({
+      surfaceAction: true,
+      surfaceId,
+      surfaceType: pending.surfaceType,
+      actionId,
+      data: data ?? {},
+    });
+  }
+  const content = prompt || fallbackContent;
 
   const requestId = uuid();
   const onEvent = (msg: ServerMessage) => ctx.sendToClient(msg);
@@ -482,7 +496,11 @@ export function refreshSurfacesForApp(ctx: SurfaceSessionContext, appId: string,
 
 export function buildCompletionSummary(surfaceType: string | undefined, actionId: string, data?: Record<string, unknown>): string {
   if (surfaceType === 'confirmation') {
-    return actionId === 'cancel' ? 'Cancelled' : 'Confirmed';
+    if (actionId === 'cancel') return 'Cancelled';
+    if (actionId === 'confirm') return 'Confirmed';
+    // Preserve the actual action ID so the LLM knows the user's exact choice
+    // (e.g. "deny", "no", "reject") rather than misreporting it as confirmed.
+    return `User selected: ${actionId}`;
   }
   if (surfaceType === 'form') {
     return 'Submitted';
@@ -509,6 +527,20 @@ export async function surfaceProxyResolver(
   toolName: string,
   input: Record<string, unknown>,
 ): Promise<ToolExecutionResult> {
+  if (toolName === 'ui_show' || toolName === 'ui_update') {
+    const caps = ctx.channelCapabilities;
+    if (caps && !caps.supportsDynamicUi) {
+      log.info(
+        { toolName, channel: caps.channel, conversationId: ctx.conversationId },
+        'Blocked UI surface tool on channel without dynamic UI support',
+      );
+      return {
+        content: `${toolName} is unavailable on channel "${caps.channel}" because this channel cannot render dynamic UI surfaces. Use text responses or a messaging/notification tool instead.`,
+        isError: true,
+      };
+    }
+  }
+
   if (toolName === 'request_file') {
     const surfaceId = uuid();
     const prompt = typeof input.prompt === 'string' ? input.prompt : 'Please share a file';
@@ -546,7 +578,7 @@ export async function surfaceProxyResolver(
       content: JSON.stringify({
         surfaceId,
         status: 'awaiting_user_action',
-        message: 'File upload dialog displayed. The uploaded file data will arrive as a follow-up message.',
+        message: 'File upload dialog displayed and the user can see it. The uploaded file data will arrive as a follow-up message. Do not output any waiting message — just stop here.',
       }),
       isError: false,
     };
@@ -604,7 +636,7 @@ export async function surfaceProxyResolver(
         content: JSON.stringify({
           surfaceId,
           status: 'awaiting_user_action',
-          message: 'Surface displayed. The user\'s response will arrive as a follow-up message.',
+          message: 'Surface displayed and the user can see it. Their response will arrive as a follow-up message. Do not output any waiting message — just stop here.',
         }),
         isError: false,
       };

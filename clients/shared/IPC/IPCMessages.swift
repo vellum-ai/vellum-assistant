@@ -652,6 +652,29 @@ extension IPCSkillsInspectRequest {
     }
 }
 
+/// Draft a skill from source text.
+/// Backed by generated `IPCSkillsDraftRequest`.
+public typealias SkillsDraftRequestMessage = IPCSkillsDraftRequest
+
+extension IPCSkillsDraftRequest {
+    public init(sourceText: String) {
+        self.init(type: "skills_draft", sourceText: sourceText)
+    }
+}
+
+/// Create a managed skill.
+/// Backed by generated `IPCSkillsCreateRequest`.
+public typealias SkillsCreateMessage = IPCSkillsCreateRequest
+
+extension IPCSkillsCreateRequest {
+    public init(skillId: String, name: String, description: String, emoji: String? = nil, bodyMarkdown: String, userInvocable: Bool? = nil, disableModelInvocation: Bool? = nil, overwrite: Bool? = nil) {
+        self.init(type: "skills_create", skillId: skillId, name: name, description: description, emoji: emoji, bodyMarkdown: bodyMarkdown, userInvocable: userInvocable, disableModelInvocation: disableModelInvocation, overwrite: overwrite)
+    }
+}
+
+/// Backed by generated `IPCSkillsDraftResponse`.
+public typealias SkillsDraftResponseMessage = IPCSkillsDraftResponse
+
 /// Response to a sign_bundle_payload request from the daemon.
 /// Backed by generated `IPCSignBundlePayloadResponse`.
 public typealias SignBundlePayloadResponseMessage = IPCSignBundlePayloadResponse
@@ -1816,6 +1839,40 @@ extension IngressConfigResponseMessage: Decodable {
     }
 }
 
+// MARK: - Platform Config Messages
+
+public struct PlatformConfigRequestMessage: Encodable, Sendable {
+    public let type = "platform_config"
+    public let action: String
+    public let baseUrl: String?
+
+    public init(action: String, baseUrl: String? = nil) {
+        self.action = action
+        self.baseUrl = baseUrl
+    }
+}
+
+public struct PlatformConfigResponseMessage: Sendable {
+    public let type: String
+    public let baseUrl: String
+    public let success: Bool
+    public let error: String?
+}
+
+extension PlatformConfigResponseMessage: Decodable {
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        type = try container.decode(String.self, forKey: .type)
+        baseUrl = try container.decodeIfPresent(String.self, forKey: .baseUrl) ?? ""
+        success = try container.decode(Bool.self, forKey: .success)
+        error = try container.decodeIfPresent(String.self, forKey: .error)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case type, baseUrl, success, error
+    }
+}
+
 // MARK: - Model Config Messages
 
 /// Request the current model/provider configuration.
@@ -1934,14 +1991,16 @@ extension IPCGuardianVerificationRequest {
         action: String,
         channel: String? = nil,
         sessionId: String? = nil,
-        assistantId: String? = nil
+        assistantId: String? = nil,
+        rebind: Bool? = nil
     ) {
         self.init(
             type: "guardian_verification",
             action: action,
             channel: channel,
             sessionId: sessionId,
-            assistantId: assistantId
+            assistantId: assistantId,
+            rebind: rebind
         )
     }
 }
@@ -2126,6 +2185,7 @@ public enum ServerMessage: Decodable, Sendable {
     case skillStateChanged(SkillStateChangedMessage)
     case skillsOperationResponse(SkillsOperationResponseMessage)
     case skillsInspectResponse(SkillsInspectResponseMessage)
+    case skillsDraftResponse(SkillsDraftResponseMessage)
     case suggestionResponse(SuggestionResponseMessage)
     case toolUseStart(ToolUseStartMessage)
     case toolInputDelta(ToolInputDeltaMessage)
@@ -2160,6 +2220,7 @@ public enum ServerMessage: Decodable, Sendable {
     case shareToSlackResponse(ShareToSlackResponseMessage)
     case slackWebhookConfigResponse(SlackWebhookConfigResponseMessage)
     case ingressConfigResponse(IngressConfigResponseMessage)
+    case platformConfigResponse(PlatformConfigResponseMessage)
     case vercelApiConfigResponse(VercelApiConfigResponseMessage)
     case guardianVerificationResponse(GuardianVerificationResponseMessage)
     case telegramConfigResponse(TelegramConfigResponseMessage)
@@ -2361,6 +2422,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "skills_inspect_response":
             let message = try SkillsInspectResponseMessage(from: decoder)
             self = .skillsInspectResponse(message)
+        case "skills_draft_response":
+            let message = try SkillsDraftResponseMessage(from: decoder)
+            self = .skillsDraftResponse(message)
         case "suggestion_response":
             let message = try SuggestionResponseMessage(from: decoder)
             self = .suggestionResponse(message)
@@ -2460,6 +2524,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "ingress_config_response":
             let message = try IngressConfigResponseMessage(from: decoder)
             self = .ingressConfigResponse(message)
+        case "platform_config_response":
+            let message = try PlatformConfigResponseMessage(from: decoder)
+            self = .platformConfigResponse(message)
         case "vercel_api_config_response":
             let message = try VercelApiConfigResponseMessage(from: decoder)
             self = .vercelApiConfigResponse(message)

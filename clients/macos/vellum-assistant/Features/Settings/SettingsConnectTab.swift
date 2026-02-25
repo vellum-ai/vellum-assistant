@@ -13,6 +13,8 @@ struct SettingsConnectTab: View {
 
     @State private var gatewayUrlText: String = ""
     @FocusState private var isGatewayUrlFocused: Bool
+    @State private var platformUrlText: String = ""
+    @FocusState private var isPlatformUrlFocused: Bool
     @State private var bearerToken: String = ""
     @State private var tokenRevealed: Bool = false
     @State private var tokenCopied: Bool = false
@@ -58,11 +60,13 @@ struct SettingsConnectTab: View {
         }
         .onAppear {
             Task { await authManager.checkSession() }
+            store.refreshPlatformConfig()
             if store.isDevMode { Task { await store.checkVellumPlatform() } }
             store.refreshIngressConfig()
             store.refreshAssistantEmail()
             store.refreshApprovedDevices()
             gatewayUrlText = store.ingressPublicBaseUrl
+            platformUrlText = store.platformBaseUrl
             refreshBearerToken()
             store.refreshChannelGuardianStatus(channel: "telegram")
             store.refreshChannelGuardianStatus(channel: "sms")
@@ -77,6 +81,16 @@ struct SettingsConnectTab: View {
         .onChange(of: isGatewayUrlFocused) { _, focused in
             if !focused {
                 gatewayUrlText = store.ingressPublicBaseUrl
+            }
+        }
+        .onChange(of: store.platformBaseUrl) { _, newValue in
+            if !isPlatformUrlFocused {
+                platformUrlText = newValue
+            }
+        }
+        .onChange(of: isPlatformUrlFocused) { _, focused in
+            if !focused {
+                platformUrlText = store.platformBaseUrl
             }
         }
         .onChange(of: store.twilioHasCredentials) { _, hasCredentials in
@@ -173,14 +187,30 @@ struct SettingsConnectTab: View {
             if store.isDevMode {
                 Divider().background(VColor.surfaceBorder)
 
-                channelStatusRow(
-                    label: "Platform URL",
-                    icon: platformHealthIcon,
-                    iconColor: platformHealthIconColor,
-                    value: AuthService.shared.baseURL,
-                    valueFont: VFont.mono
-                )
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: platformHealthIcon)
+                        .foregroundColor(platformHealthIconColor)
+                        .font(.system(size: 12))
+                    Text("Platform URL")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                }
                 .help(store.vellumPlatformError ?? "")
+
+                HStack(spacing: VSpacing.sm) {
+                    TextField("https://platform.vellum.ai", text: $platformUrlText)
+                        .focused($isPlatformUrlFocused)
+                        .vInputStyle()
+                        .font(VFont.mono)
+                        .onSubmit {
+                            store.savePlatformBaseUrl(platformUrlText)
+                            Task { await store.checkVellumPlatform() }
+                        }
+                    VButton(label: "Save", style: .primary) {
+                        store.savePlatformBaseUrl(platformUrlText)
+                        Task { await store.checkVellumPlatform() }
+                    }
+                }
             }
         }
         .padding(VSpacing.lg)
@@ -972,6 +1002,14 @@ struct SettingsConnectTab: View {
             default: return nil
             }
         }()
+        let alreadyBound: Bool = {
+            switch channel {
+            case "telegram": return store.telegramGuardianAlreadyBound
+            case "sms": return store.smsGuardianAlreadyBound
+            case "voice": return store.voiceGuardianAlreadyBound
+            default: return false
+            }
+        }()
         let primaryIdentity = guardianPrimaryIdentity(channel: channel, identity: identity)
         let secondaryIdentity = guardianSecondaryIdentity(primary: primaryIdentity, identity: identity)
         let telegramProfileURL: URL? = channel == "telegram"
@@ -1049,10 +1087,17 @@ struct SettingsConnectTab: View {
             }
 
             if let error {
-                Text(error)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.error)
-                    .padding(.leading, 90 + VSpacing.sm)
+                HStack(spacing: VSpacing.sm) {
+                    Text(error)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.error)
+                    if alreadyBound {
+                        VButton(label: "Replace", style: .secondary) {
+                            store.startChannelGuardianVerification(channel: channel, rebind: true)
+                        }
+                    }
+                }
+                .padding(.leading, 90 + VSpacing.sm)
             }
         }
     }

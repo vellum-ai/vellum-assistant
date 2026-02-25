@@ -9,6 +9,7 @@ export const DEFAULT_CONFIG: AssistantConfig = {
   webSearchProvider: 'perplexity',
   providerOrder: [],
   maxTokens: 16000,
+  maxToolUseTurns: 60,
   thinking: {
     enabled: false,
     budgetTokens: 10000,
@@ -264,6 +265,9 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     enabled: false,
     provider: 'twilio' as const,
     phoneNumber: '',
+  },
+  platform: {
+    baseUrl: 'https://platform.vellum.ai',
   },
   ingress: {
     enabled: undefined,

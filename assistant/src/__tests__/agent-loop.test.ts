@@ -426,6 +426,40 @@ describe('AgentLoop', () => {
     expect(limitText).toBeDefined();
   });
 
+  test('injects approaching-limit warning before the hard stop', async () => {
+    // maxToolUseTurns: 8, soft warning at turn 3 (8 - 5 = 3)
+    const responses: ProviderResponse[] = [];
+    for (let i = 0; i < 8; i++) {
+      responses.push(toolUseResponse(`t${i}`, 'read_file', { path: `/${i}.txt` }));
+    }
+    responses.push(textResponse('done'));
+    const { provider, calls } = createMockProvider(responses);
+    const toolExecutor = async () => ({ content: 'data', isError: false });
+    const loop = new AgentLoop(
+      provider,
+      'system',
+      { maxToolUseTurns: 8 },
+      dummyTools,
+      toolExecutor,
+    );
+
+    const events: AgentEvent[] = [];
+    await loop.run([userMessage], collectEvents(events));
+
+    // Should have stopped at turn 8 (hard limit)
+    expect(calls).toHaveLength(8);
+
+    // Check that the approaching-limit warning was injected at turn 3 (8 - 5 = 3)
+    // The warning would appear in the messages sent to the provider on turn 4 (the call after turn 3)
+    const turn4Messages = calls[3].messages;
+    const lastMsg = turn4Messages[turn4Messages.length - 1];
+    const warningBlock = lastMsg.content.find(
+      (b): b is Extract<ContentBlock, { type: 'text' }> =>
+        b.type === 'text' && b.text.includes('approaching the tool-use turn limit'),
+    );
+    expect(warningBlock).toBeDefined();
+  });
+
   // 9. Tool executor error results are forwarded correctly
   test('forwards tool error results to provider', async () => {
     const { provider, calls } = createMockProvider([

@@ -19,11 +19,7 @@ extension ChatBubble {
             if hasRichContent {
                 MarkdownSegmentView(segments: segments)
             } else {
-                let options = AttributedString.MarkdownParsingOptions(
-                    interpretedSyntax: .inlineOnlyPreservingWhitespace
-                )
-                let attributed = (try? AttributedString(markdown: segmentText, options: options))
-                    ?? AttributedString(segmentText)
+                let attributed = Self.cachedInlineMarkdown(for: segmentText)
                 Text(attributed)
                     .font(.system(size: 13))
                     .foregroundColor(VColor.textPrimary)
@@ -35,27 +31,43 @@ extension ChatBubble {
         }
     }
 
+    /// Cached inline markdown AttributedString to avoid re-parsing on every render.
+    /// Uses `inlineMarkdownCache` (not `markdownCache`) to avoid cross-contamination
+    /// with `markdownText`, which applies slash-command highlighting before caching.
+    static func cachedInlineMarkdown(for text: String) -> AttributedString {
+        if let cached = inlineMarkdownCache[text] { return cached }
+        let options = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace
+        )
+        let result = (try? AttributedString(markdown: text, options: options))
+            ?? AttributedString(text)
+        if inlineMarkdownCache.count >= maxCacheSize {
+            // Dictionary iteration order is unspecified; this evicts an arbitrary entry.
+            if let first = inlineMarkdownCache.keys.first { inlineMarkdownCache.removeValue(forKey: first) }
+        }
+        inlineMarkdownCache[text] = result
+        return result
+    }
+
     /// Cached markdown segment parser to avoid re-parsing on every render.
     static func cachedSegments(for text: String) -> [MarkdownSegment] {
-        let key = text.hashValue
-        if let cached = segmentCache[key] { return cached }
+        if let cached = segmentCache[text] { return cached }
         let result = parseMarkdownSegments(text)
         if segmentCache.count >= maxCacheSize {
+            // Dictionary iteration order is unspecified; this evicts an arbitrary entry.
             if let first = segmentCache.keys.first { segmentCache.removeValue(forKey: first) }
         }
-        segmentCache[key] = result
+        segmentCache[text] = result
         return result
     }
 
     /// Cached markdown parser to avoid re-parsing on every render.
-    /// Uses the message text hash as the cache key.
     var markdownText: AttributedString {
         let textToRender = message.text
         let trimmed = textToRender.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cacheKey = trimmed.hashValue
 
         // Return cached value if available
-        if let cached = Self.markdownCache[cacheKey] {
+        if let cached = Self.markdownCache[trimmed] {
             return cached
         }
 
@@ -77,12 +89,12 @@ extension ChatBubble {
 
         // Store in cache (with size limit to prevent unbounded growth)
         if Self.markdownCache.count >= Self.maxCacheSize {
-            // Simple FIFO eviction - remove first entry
+            // Dictionary iteration order is unspecified; this evicts an arbitrary entry.
             if let firstKey = Self.markdownCache.keys.first {
                 Self.markdownCache.removeValue(forKey: firstKey)
             }
         }
-        Self.markdownCache[cacheKey] = parsed
+        Self.markdownCache[trimmed] = parsed
 
         return parsed
     }

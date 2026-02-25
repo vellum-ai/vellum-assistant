@@ -252,6 +252,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `skills_inspect_response` message.
     public var onSkillsInspectResponse: ((SkillsInspectResponseMessage) -> Void)?
 
+    /// Called when the daemon sends a `skills_draft_response` message.
+    public var onSkillsDraftResponse: ((SkillsDraftResponseMessage) -> Void)?
+
     /// Called when the daemon sends a `trace_event` message.
     public var onTraceEvent: ((TraceEventMessage) -> Void)?
 
@@ -305,6 +308,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// Called when the daemon sends an `ingress_config_response` message.
     public var onIngressConfigResponse: ((IngressConfigResponseMessage) -> Void)?
+
+    /// Called when the daemon sends a `platform_config_response` message.
+    public var onPlatformConfigResponse: ((PlatformConfigResponseMessage) -> Void)?
 
     /// Called when the daemon sends a `vercel_api_config_response` message.
     public var onVercelApiConfigResponse: ((VercelApiConfigResponseMessage) -> Void)?
@@ -912,6 +918,16 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(SkillsConfigureMessage(name: name, env: env, apiKey: apiKey, config: config))
     }
 
+    /// Draft metadata for a skill from source text.
+    public func draftSkill(sourceText: String) throws {
+        try send(SkillsDraftRequestMessage(sourceText: sourceText))
+    }
+
+    /// Create a new managed skill.
+    public func createSkill(skillId: String, name: String, description: String, emoji: String? = nil, bodyMarkdown: String, userInvocable: Bool? = nil, disableModelInvocation: Bool? = nil, overwrite: Bool? = nil) throws {
+        try send(SkillsCreateMessage(skillId: skillId, name: name, description: description, emoji: emoji, bodyMarkdown: bodyMarkdown, userInvocable: userInvocable, disableModelInvocation: disableModelInvocation, overwrite: overwrite))
+    }
+
     // MARK: - Queue Management
 
     /// Delete a specific queued message by its requestId.
@@ -1025,13 +1041,15 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         action: String,
         channel: String? = nil,
         sessionId: String? = nil,
-        assistantId: String? = nil
+        assistantId: String? = nil,
+        rebind: Bool? = nil
     ) throws {
         try send(GuardianVerificationRequestMessage(
             action: action,
             channel: channel,
             sessionId: sessionId,
-            assistantId: assistantId
+            assistantId: assistantId,
+            rebind: rebind
         ))
     }
 

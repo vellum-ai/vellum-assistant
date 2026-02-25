@@ -108,6 +108,31 @@ public final class ToolConfirmationNotificationService {
     }
 
     private func formatBody(_ message: ConfirmationRequestMessage) -> String {
+        // For shell commands, show both the human-readable reason and the raw command
+        if message.toolName == "bash" || message.toolName == "host_bash" {
+            let command = commandPreview(toolName: message.toolName, input: message.input)
+            if let reason = message.input["reason"]?.value as? String, !reason.isEmpty {
+                let capitalizedReason = reason.prefix(1).uppercased() + reason.dropFirst()
+                // Don't append a dangling "$ " when command is empty
+                guard !command.isEmpty else {
+                    return capitalizedReason.count > 200 ? String(capitalizedReason.prefix(197)) + "..." : capitalizedReason
+                }
+                let commandLine = "$ \(command)"
+                let body = "\(capitalizedReason)\n\(commandLine)"
+                if body.count <= 200 { return body }
+                // Truncate reason first to preserve the command
+                let commandBudget = min(commandLine.count, 200)
+                let reasonBudget = 200 - commandBudget - 1 // 1 for newline
+                if reasonBudget >= 4 {
+                    let truncatedReason = String(capitalizedReason.prefix(reasonBudget - 3)) + "..."
+                    let truncatedBody = "\(truncatedReason)\n\(commandLine)"
+                    if truncatedBody.count <= 200 { return truncatedBody }
+                }
+                // Command alone exceeds the limit — truncate it
+                return commandLine.count > 200 ? String(commandLine.prefix(197)) + "..." : commandLine
+            }
+            return command.count > 200 ? String(command.prefix(197)) + "..." : command
+        }
         let preview = commandPreview(toolName: message.toolName, input: message.input)
         if preview.count > 200 {
             return String(preview.prefix(197)) + "..."
@@ -119,7 +144,7 @@ public final class ToolConfirmationNotificationService {
         switch toolName {
         case "file_write":      return "Write File"
         case "file_edit":       return "Edit File"
-        case "bash":            return "Run Command"
+        case "bash", "host_bash": return "Run Command"
         case "web_fetch":       return "Fetch URL"
         case "schedule_create": return "Create Schedule"
         case "schedule_update": return "Update Schedule"
@@ -134,7 +159,7 @@ public final class ToolConfirmationNotificationService {
 
     private func commandPreview(toolName: String, input: [String: AnyCodable]) -> String {
         switch toolName {
-        case "bash":
+        case "bash", "host_bash":
             return (input["command"]?.value as? String) ?? ""
         case "file_read":
             return "read \((input["path"]?.value as? String) ?? "")"

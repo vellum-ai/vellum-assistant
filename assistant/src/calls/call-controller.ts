@@ -299,6 +299,9 @@ export class CallController {
       this.relay.sendTextToken('', true);
     }
     this.state = 'idle';
+    // Restart silence detection so a barge-in that never yields a
+    // follow-up utterance doesn't leave the call without a watchdog.
+    this.resetSilenceTimer();
   }
 
   /**
@@ -504,58 +507,72 @@ export class CallController {
       const askMatch = responseText.match(ASK_GUARDIAN_CAPTURE_REGEX);
       if (askMatch) {
         const questionText = askMatch[1];
-        const pendingQuestion = createPendingQuestion(this.callSessionId, questionText);
-        this.state = 'waiting_on_user';
-        updateCallSession(this.callSessionId, { status: 'waiting_on_user' });
-        recordCallEvent(this.callSessionId, 'user_question_asked', { question: questionText });
 
-        // Notify the conversation that a question was asked
-        const session = getCallSession(this.callSessionId);
-        if (session) {
-          fireCallQuestionNotifier(session.conversationId, this.callSessionId, questionText);
+        if (this.isCallerGuardian()) {
+          // Caller IS the guardian — don't dispatch cross-channel.
+          // Queue an instruction so the next turn asks them directly.
+          log.info({ callSessionId: this.callSessionId }, 'Caller is guardian — skipping ASK_GUARDIAN dispatch, asking directly');
+          this.pendingInstructions.push(`You just tried to use [ASK_GUARDIAN] but the person on the phone IS your guardian. Ask them directly: "${questionText}"`);
+          // Fall through to normal turn completion (idle + flushPendingInstructions)
+        } else {
+          const pendingQuestion = createPendingQuestion(this.callSessionId, questionText);
+          this.state = 'waiting_on_user';
+          updateCallSession(this.callSessionId, { status: 'waiting_on_user' });
+          recordCallEvent(this.callSessionId, 'user_question_asked', { question: questionText });
 
-          // Dispatch guardian action request to all configured channels
-          void dispatchGuardianQuestion({
-            callSessionId: this.callSessionId,
-            conversationId: session.conversationId,
-            assistantId: this.assistantId,
-            pendingQuestion,
-            broadcast: this.broadcast,
-          });
-        }
+          // Notify the conversation that a question was asked
+          const session = getCallSession(this.callSessionId);
+          if (session) {
+            fireCallQuestionNotifier(session.conversationId, this.callSessionId, questionText);
 
-        // Set a consultation timeout
-        this.consultationTimer = setTimeout(() => {
-          if (this.state === 'waiting_on_user') {
-            log.info({ callSessionId: this.callSessionId }, 'User consultation timed out');
-            this.relay.sendTextToken(
-              'I\'m sorry, I wasn\'t able to get that information in time. Let me move on.',
-              true,
-            );
-            this.state = 'idle';
-            updateCallSession(this.callSessionId, { status: 'in_progress' });
-            expirePendingQuestions(this.callSessionId);
-
-            const hasInstructions = this.pendingInstructions.length > 0;
-            const hasUtterances = this.pendingCallerUtterances.length > 0;
-
-            if (hasInstructions && hasUtterances) {
-              // Merge both queues into a single turn to avoid the race where
-              // flushPendingInstructions fires a turn that gets aborted by
-              // drainPendingCallerUtterances, losing the instructions.
-              const instructionPrefix = this.pendingInstructions
-                .map((instr) => `[USER_INSTRUCTION: ${instr}]`)
-                .join('\n');
-              this.pendingInstructions = [];
-              this.drainPendingCallerUtterances(instructionPrefix);
-            } else if (hasInstructions) {
-              this.flushPendingInstructions();
-            } else if (hasUtterances) {
-              this.drainPendingCallerUtterances();
-            }
+            // Dispatch guardian action request to all configured channels
+            void dispatchGuardianQuestion({
+              callSessionId: this.callSessionId,
+              conversationId: session.conversationId,
+              assistantId: this.assistantId,
+              pendingQuestion,
+              broadcast: this.broadcast,
+            });
           }
-        }, getUserConsultationTimeoutMs());
-        return;
+
+          // Set a consultation timeout
+          this.consultationTimer = setTimeout(() => {
+            if (this.state === 'waiting_on_user') {
+              log.info({ callSessionId: this.callSessionId }, 'User consultation timed out');
+              this.relay.sendTextToken(
+                'I\'m sorry, I wasn\'t able to get that information in time. Let me move on.',
+                true,
+              );
+              this.state = 'idle';
+              updateCallSession(this.callSessionId, { status: 'in_progress' });
+              expirePendingQuestions(this.callSessionId);
+              // Restart silence detection now that we're back to idle.
+              // flushPendingInstructions / drainPendingCallerUtterances will
+              // reset it again when they start a new turn, but we need the
+              // fallback in case neither queue has work.
+              this.resetSilenceTimer();
+
+              const hasInstructions = this.pendingInstructions.length > 0;
+              const hasUtterances = this.pendingCallerUtterances.length > 0;
+
+              if (hasInstructions && hasUtterances) {
+                // Merge both queues into a single turn to avoid the race where
+                // flushPendingInstructions fires a turn that gets aborted by
+                // drainPendingCallerUtterances, losing the instructions.
+                const instructionPrefix = this.pendingInstructions
+                  .map((instr) => `[USER_INSTRUCTION: ${instr}]`)
+                  .join('\n');
+                this.pendingInstructions = [];
+                this.drainPendingCallerUtterances(instructionPrefix);
+              } else if (hasInstructions) {
+                this.flushPendingInstructions();
+              } else if (hasUtterances) {
+                this.drainPendingCallerUtterances();
+              }
+            }
+          }, getUserConsultationTimeoutMs());
+          return;
+        }
       }
 
       // Check for END_CALL marker
@@ -628,12 +645,15 @@ export class CallController {
   private isExpectedAbortError(err: unknown): boolean {
     if (!(err instanceof Error)) return false;
     return err.name === 'AbortError'
-      || err.name === 'APIUserAbortError'
-      || err.message === 'Session is already processing a message';
+      || err.name === 'APIUserAbortError';
   }
 
   private isCurrentRun(runVersion: number): boolean {
     return runVersion === this.llmRunVersion;
+  }
+
+  private isCallerGuardian(): boolean {
+    return this.guardianContext?.actorRole === 'guardian';
   }
 
   /**

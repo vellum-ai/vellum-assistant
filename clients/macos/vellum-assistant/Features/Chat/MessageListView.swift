@@ -27,6 +27,10 @@ struct MessageListView: View {
     @AppStorage("completedConversationCount") private var completedConversationCount: Int = 0
     @State private var identity: IdentityInfo? = IdentityInfo.load()
     @State private var appearance = AvatarAppearanceManager.shared
+    /// Read once at the list level and passed down to each ChatBubble so that
+    /// individual bubbles don't each subscribe to the shared ObservableObject.
+    @ObservedObject private var taskProgressOverlay = TaskProgressOverlayManager.shared
+    private var activeSurfaceId: String? { taskProgressOverlay.activeSurfaceId }
 
     /// Triggers auto-scroll when the last message's text length changes (e.g. during streaming).
     /// Uses total text length (monotonically increasing) so the trigger never produces the same
@@ -145,7 +149,8 @@ struct MessageListView: View {
                                 mediaEmbedSettings: mediaEmbedSettings,
                                 daemonHttpPort: daemonHttpPort,
                                 showAvatar: !previousIsAssistant,
-                                isLatestAssistantMessage: message.role == .assistant && displayMessages.last(where: { $0.role == .assistant })?.id == message.id
+                                isLatestAssistantMessage: message.role == .assistant && displayMessages.last(where: { $0.role == .assistant })?.id == message.id,
+                                activeSurfaceId: activeSurfaceId
                             )
                                 .id(message.id)
                                 .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -217,9 +222,7 @@ struct MessageListView: View {
                             RunningIndicator(
                                 label: !hasEverSentMessage && displayMessages.contains(where: { $0.role == .user })
                                     ? "Waking up..."
-                                    : completedConversationCount <= 5 && identity?.name != nil
-                                        ? "\(identity!.name) is thinking"
-                                        : "Thinking",
+                                    : "Thinking",
                                 showIcon: false
                             )
                         }

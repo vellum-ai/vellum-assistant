@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 
 /// Utilities for converting between the string shortcut representation
 /// (e.g. "cmd+shift+space") and macOS modifier flags / display symbols.
@@ -63,6 +64,16 @@ enum ShortcutHelper {
     /// produce {"shift", "cmd", "g"}).
     static func normalizeShortcut(_ shortcut: String) -> Set<String> {
         Set(shortcut.lowercased().split(separator: "+").map(String.init))
+    }
+
+    /// Converts NSEvent modifier flags to the Carbon modifier mask used by `RegisterEventHotKey`.
+    static func carbonModifiers(from flags: NSEvent.ModifierFlags) -> UInt32 {
+        var mods: UInt32 = 0
+        if flags.contains(.command) { mods |= UInt32(cmdKey) }
+        if flags.contains(.shift) { mods |= UInt32(shiftKey) }
+        if flags.contains(.option) { mods |= UInt32(optionKey) }
+        if flags.contains(.control) { mods |= UInt32(controlKey) }
+        return mods
     }
 
     // MARK: - Private

@@ -215,13 +215,27 @@ Instead of using the full sweep+swarm machinery (which creates new PRs), per-mil
 
 Maintain an internal counter for worktree naming (e.g., `fix-1`, `fix-2`, ...) and a **cycle counter** starting at 0. The maximum number of feedback cycles is **3** — after 3 full rounds of addressing feedback, merge the milestone PR regardless.
 
+**Determining aggregate review status from `check-pr-reviews` output:**
+
+The `check-pr-reviews` script returns **per-reviewer** statuses at `codex.status` and `devin.status` — there is no top-level `status` field. Derive an aggregate status as follows:
+- **approved**: Both `codex.status` and `devin.status` are `approved` (or `skipped` for Devin).
+- **pending**: Either reviewer is `pending`.
+- **rate_limited**: Either reviewer is `rate_limited` (and the other is not `changes_requested`).
+- **changes_requested**: Either reviewer has `changes_requested` (and neither is `pending`).
+
+Use this aggregate status in the feedback loop below.
+
+**Handling stale `changes_requested` from old reviews:**
+
+The `check-pr-reviews` script reports **cumulative** review status — it counts all reviews ever posted, not just unresolved ones. After fixes are pushed and threads are resolved, old reviews still exist in the GitHub API, so `check-pr-reviews` may still return `changes_requested` even though the feedback has been addressed. To avoid infinite loops, maintain a `last_fix_push_time` timestamp and use the `gh api` to check whether any reviews were posted **after** that timestamp before treating `changes_requested` as actionable.
+
 **Feedback loop:**
 
-1. **Check for reviews**: Poll `.claude/check-pr-reviews <milestone-pr-number>` to check review status.
-   - If status is `pending`, wait 60 seconds and poll again.
-   - If status is `rate_limited`, wait 120 seconds and poll again.
-   - If status is `approved`, proceed to Phase 4c.5.
-   - If status is `changes_requested`, proceed to step 2.
+1. **Check for reviews**: Poll `.claude/check-pr-reviews <milestone-pr-number>` to get per-reviewer statuses. Derive the aggregate status (see above).
+   - If aggregate status is `pending`, wait 60 seconds and poll again.
+   - If aggregate status is `rate_limited`, wait 120 seconds and poll again.
+   - If aggregate status is `approved`, proceed to Phase 4c.5.
+   - If aggregate status is `changes_requested`, proceed to step 2.
 
 2. **Check cycle limit**: If the cycle counter has reached 3, log: `"Reached maximum feedback cycles (3) for milestone PR #<milestone-pr-number>. Merging as-is."` and proceed to Phase 4c.5.
 
@@ -241,6 +255,7 @@ Maintain an internal counter for worktree naming (e.g., `fix-1`, `fix-2`, ...) a
       git fetch origin <milestone-pr-branch>
       LATEST_COMMIT=$(git rev-parse origin/<milestone-pr-branch>)
       ```
+   f. Record the current UTC time as `last_fix_push_time` (e.g., `date -u +%Y-%m-%dT%H:%M:%SZ`).
 
 4. **Re-request reviews**: After fixes are pushed, explicitly tag both reviewers to re-request their review by posting two separate comments on the milestone PR:
    ```bash
@@ -249,22 +264,165 @@ Maintain an internal counter for worktree naming (e.g., `fix-1`, `fix-2`, ...) a
    ```
    Log: `"Re-requested reviews from Codex and Devin on milestone PR #<milestone-pr-number> (cycle <cycle-counter>/3, commit $LATEST_COMMIT)."`
 
-5. **Wait for fresh reviews**: Poll for new reviews on the milestone PR:
-   - Poll `.claude/check-pr-reviews <milestone-pr-number>` every 60 seconds.
-   - If status is `pending`, wait 60 seconds and poll again.
-   - If status is `rate_limited`, wait 120 seconds and poll again.
-   - If status is `changes_requested`, return to step 2 (which checks the cycle limit).
-   - If status is `approved`, proceed to Phase 4c.5.
+5. **Wait for fresh reviews**: After fixes are pushed, poll for **new** reviews posted after `last_fix_push_time`:
+   - Poll every 60 seconds for up to **3 minutes**.
+   - On each poll, use `gh api` to check for reviews and inline comments posted after `last_fix_push_time`:
+     ```bash
+     gh api "repos/{owner}/{repo}/pulls/<milestone-pr-number>/reviews" \
+       --jq '[.[] | select(.submitted_at > "'$last_fix_push_time'")] | length'
+     gh api "repos/{owner}/{repo}/pulls/<milestone-pr-number>/comments" \
+       --jq '[.[] | select(.created_at > "'$last_fix_push_time'")] | length'
+     ```
+   - If new reviews exist, run `.claude/check-pr-reviews <milestone-pr-number>` and derive the aggregate status:
+     - If aggregate status is `approved`, proceed to Phase 4c.5.
+     - If aggregate status is `changes_requested`, return to step 2 (which checks the cycle limit).
+     - If aggregate status is `pending` or `rate_limited`, continue polling.
+   - If **3 minutes** pass with no new reviews (zero new reviews/comments since `last_fix_push_time`), proceed to Phase 4c.5. Log: `"No new reviews within 3 minutes after fixes pushed. Proceeding to merge."`
 
-Repeat steps 1-5 until the exit condition: either `approved` status, or the cycle counter has reached 3.
+Repeat steps 1-5 until the exit condition: either `approved` aggregate status, 3-minute timeout with no new reviews after a fix push, or the cycle counter has reached 3.
 
 #### 4c.5. Merge milestone PR into feature branch
 
 This step runs after the per-milestone feedback loop exits — either because all reviews are approved, or the maximum feedback cycle limit (3) was reached. This is the review-before-merge gate.
 
-Since feedback was pushed directly to the milestone branch (no intermediate feedback PRs to merge), simply merge the milestone PR:
+Before merging, check whether the feature branch has diverged from main in a way that creates merge conflicts. Resolving these proactively keeps the feature branch mergeable and avoids compounding conflicts across milestones.
 
-1. Merge the milestone PR into the feature branch:
+**Step 1: Check for merge conflicts between the feature branch and main.**
+
+```bash
+git fetch origin main <feature-branch-name>
+git merge-tree --write-tree origin/<feature-branch-name> origin/main > /dev/null 2>&1
+```
+
+- If exit code is **0**: No conflicts between the feature branch and main. Skip to Step 4.
+- If exit code is **non-zero**: Conflicts exist. Proceed to Step 2.
+
+**Step 2: Resolve feature-branch-vs-main conflicts in a worktree.**
+
+1. Create a worktree from the feature branch:
+   ```bash
+   .claude/worktree create swarm/<namespace>/resolve-main-M<N> origin/<feature-branch-name>
+   ```
+
+2. Spawn a `general-purpose` agent to merge main into the feature branch and resolve all conflicts. Use this prompt:
+
+   ```
+   You are resolving merge conflicts between the feature branch and main.
+
+   ## Project context
+   Read AGENTS.md in the repo root for project conventions and structure.
+
+   ## Repo-specific gotchas
+   - `tail` and `head` may not be available in the shell. Don't pipe to them.
+
+   ## Your worktree
+   <absolute path to worktree>
+   ALL work happens here. Do NOT touch the main repo.
+
+   ## Your task
+   Merge `origin/main` into the current branch (which is the feature branch `<feature-branch-name>`) and resolve all merge conflicts.
+
+   ## Workflow
+   1. In the worktree, merge main:
+      ```bash
+      cd <worktree>
+      git merge origin/main
+      ```
+   2. Resolve all merge conflicts. Examine each conflicted file, understand the intent of both sides, and produce a correct resolution that preserves all intended changes.
+   3. After resolving all conflicts, stage and commit:
+      ```bash
+      git add -A
+      git commit --no-edit
+      ```
+   4. Push the resolved feature branch:
+      ```bash
+      git push origin HEAD:<feature-branch-name>
+      ```
+   5. Send a message to "lead" with:
+      - A summary of which files had conflicts and how they were resolved
+      - Any concerns about the resolution
+   ```
+
+3. When the agent finishes, remove the worktree:
+   ```bash
+   .claude/worktree remove swarm/<namespace>/resolve-main-M<N> --delete-branch
+   ```
+
+4. Fetch the updated feature branch:
+   ```bash
+   git fetch origin <feature-branch-name>
+   ```
+
+**Step 3: Rebase the milestone branch on the updated feature branch.**
+
+After the feature branch has been updated with main, the milestone branch may now conflict with it. Rebase the milestone branch to incorporate the feature branch updates.
+
+1. Fetch the milestone branch:
+   ```bash
+   git fetch origin <milestone-pr-branch>
+   ```
+
+2. Create a worktree from the milestone branch:
+   ```bash
+   .claude/worktree create swarm/<namespace>/rebase-M<N> origin/<milestone-pr-branch>
+   ```
+
+3. Spawn a `general-purpose` agent to rebase and resolve any conflicts. Use this prompt:
+
+   ```
+   You are rebasing a milestone branch onto the updated feature branch.
+
+   ## Project context
+   Read AGENTS.md in the repo root for project conventions and structure.
+
+   ## Repo-specific gotchas
+   - `tail` and `head` may not be available in the shell. Don't pipe to them.
+
+   ## Your worktree
+   <absolute path to worktree>
+   ALL work happens here. Do NOT touch the main repo.
+
+   ## Your task
+   Rebase the current branch (`<milestone-pr-branch>`) onto `origin/<feature-branch-name>` and resolve any conflicts.
+
+   ## Workflow
+   1. In the worktree, rebase onto the updated feature branch:
+      ```bash
+      cd <worktree>
+      git rebase origin/<feature-branch-name>
+      ```
+   2. If there are conflicts, resolve each one:
+      - Examine each conflicted file and understand the intent of both sides
+      - Produce a correct resolution that preserves the milestone's changes on top of the updated feature branch
+      - Stage resolved files and continue the rebase:
+        ```bash
+        git add -A
+        git rebase --continue
+        ```
+      - Repeat for each conflicting commit
+   3. After the rebase completes (whether clean or with resolved conflicts), force-push the milestone branch:
+      ```bash
+      git push --force-with-lease origin HEAD:<milestone-pr-branch>
+      ```
+   4. Send a message to "lead" with:
+      - Whether the rebase was clean or had conflicts
+      - A summary of which files had conflicts and how they were resolved
+      - Any concerns about the resolution
+   ```
+
+4. When the agent finishes, remove the worktree:
+   ```bash
+   .claude/worktree remove swarm/<namespace>/rebase-M<N> --delete-branch
+   ```
+
+5. Fetch the updated milestone branch:
+   ```bash
+   git fetch origin <milestone-pr-branch>
+   ```
+
+**Step 4: Merge the milestone PR into the feature branch.**
+
+1. Merge the milestone PR:
    ```bash
    gh pr merge <milestone-pr-number> --squash
    ```

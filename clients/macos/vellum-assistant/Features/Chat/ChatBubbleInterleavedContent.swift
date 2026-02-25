@@ -65,7 +65,7 @@ extension ChatBubble {
                 EmptyView()
             case .surface(let i):
                 if i < message.inlineSurfaces.count,
-                   message.inlineSurfaces[i].id != taskProgressOverlay.activeSurfaceId {
+                   message.inlineSurfaces[i].id != activeSurfaceId {
                     InlineSurfaceRouter(surface: message.inlineSurfaces[i], onAction: onSurfaceAction)
                 }
             }

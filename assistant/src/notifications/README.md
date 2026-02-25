@@ -83,7 +83,7 @@ await emitNotificationSignal({
 
 3. Optionally add a fallback copy template in `copy-composer.ts` keyed by your `sourceEventName`. Without a template, the generic fallback produces a human-readable version of the event name.
 
-The call is fire-and-forget safe -- errors are caught and logged internally.
+The call is fire-and-forget safe by default -- errors are caught and logged internally unless you pass `throwOnError: true`.
 
 ## Audit Trail
 

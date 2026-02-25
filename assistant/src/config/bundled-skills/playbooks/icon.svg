@@ -1,0 +1,31 @@
+<svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="16" height="16" fill="#f0f0f0"/>
+  
+  <!-- Book/Playbook outline -->
+  <rect x="2" y="2" width="12" height="12" fill="#ffffff" stroke="#2c3e50" stroke-width="1"/>
+  
+  <!-- Book spine -->
+  <rect x="2" y="2" width="1" height="12" fill="#34495e"/>
+  
+  <!-- Lines representing text/rules -->
+  <rect x="4" y="3" width="8" height="1" fill="#2c3e50"/>
+  <rect x="4" y="5" width="8" height="1" fill="#2c3e50"/>
+  <rect x="4" y="7" width="8" height="1" fill="#2c3e50"/>
+  <rect x="4" y="9" width="8" height="1" fill="#2c3e50"/>
+  <rect x="4" y="11" width="8" height="1" fill="#2c3e50"/>
+  
+  <!-- Arrow indicating action/automation -->
+  <rect x="6" y="4" width="1" height="1" fill="#e74c3c"/>
+  <rect x="7" y="4" width="1" height="1" fill="#e74c3c"/>
+  <rect x="8" y="4" width="1" height="1" fill="#e74c3c"/>
+  <rect x="8" y="3" width="1" height="1" fill="#e74c3c"/>
+  <rect x="8" y="5" width="1" height="1" fill="#e74c3c"/>
+  
+  <!-- Second trigger-action pair -->
+  <rect x="6" y="8" width="1" height="1" fill="#27ae60"/>
+  <rect x="7" y="8" width="1" height="1" fill="#27ae60"/>
+  <rect x="8" y="8" width="1" height="1" fill="#27ae60"/>
+  <rect x="8" y="7" width="1" height="1" fill="#27ae60"/>
+  <rect x="8" y="9" width="1" height="1" fill="#27ae60"/>
+</svg>

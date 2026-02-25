@@ -204,6 +204,10 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         threads.remove(at: index)
         chatViewModels.removeValue(forKey: id)
 
+        // Reclaim memory held by static caches that may reference
+        // messages from the closed thread.
+        Self.clearRenderCaches()
+
         // If the closed thread was active, select an adjacent thread
         if activeThreadId == id {
             // Prefer the thread at the same index (next), otherwise fall back to last
@@ -269,6 +273,10 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                 createThread()
             }
         }
+
+        // Reclaim memory held by static caches that may reference
+        // messages from the archived thread.
+        Self.clearRenderCaches()
 
         log.info("Archived thread \(id)")
     }
@@ -353,6 +361,21 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     func selectThread(id: UUID) {
         guard threads.contains(where: { $0.id == id }) else { return }
         activeThreadId = id
+        // Switching threads is a natural point to shed cached render
+        // artefacts from the previous conversation.
+        Self.clearRenderCaches()
+    }
+
+    // MARK: - Render Cache Management
+
+    /// Clears static render caches used by chat bubble and markdown views.
+    /// Called on thread close, archive, and switch to prevent unbounded
+    /// growth of cached `AttributedString` / segment data across conversations.
+    private static func clearRenderCaches() {
+        ChatBubble.segmentCache.removeAll()
+        ChatBubble.markdownCache.removeAll()
+        ChatBubble.inlineMarkdownCache.removeAll()
+        MarkdownSegmentView.clearAttributedStringCache()
     }
 
     /// Returns true if the thread has at least one user message.

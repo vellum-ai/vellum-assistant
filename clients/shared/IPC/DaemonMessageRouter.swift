@@ -99,6 +99,8 @@ extension DaemonClient {
             onSkillsOperationResponse?(msg)
         case .skillsInspectResponse(let msg):
             onSkillsInspectResponse?(msg)
+        case .skillsDraftResponse(let msg):
+            onSkillsDraftResponse?(msg)
         case .appsListResponse(let msg):
             onAppsListResponse?(msg)
         case .homeBaseGetResponse(let msg):
@@ -137,6 +139,8 @@ extension DaemonClient {
             onSlackWebhookConfigResponse?(msg)
         case .ingressConfigResponse(let msg):
             onIngressConfigResponse?(msg)
+        case .platformConfigResponse(let msg):
+            onPlatformConfigResponse?(msg)
         case .vercelApiConfigResponse(let msg):
             onVercelApiConfigResponse?(msg)
         case .guardianVerificationResponse(let msg):

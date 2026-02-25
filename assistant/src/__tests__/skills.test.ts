@@ -585,9 +585,10 @@ describe('bundled public-ingress skill', () => {
 describe('ingress-dependent setup skills declare public-ingress', () => {
   const FRONTMATTER_REGEX = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
   const VELLUM_SKILLS_DIR = join(import.meta.dir, '..', 'config', 'vellum-skills');
+  const BUNDLED_SKILLS_DIR = join(import.meta.dir, '..', 'config', 'bundled-skills');
 
-  function readVellumSkillIncludes(skillId: string): string[] | undefined {
-    const content = readFileSync(join(VELLUM_SKILLS_DIR, skillId, 'SKILL.md'), 'utf-8');
+  function readSkillIncludes(dir: string, skillId: string): string[] | undefined {
+    const content = readFileSync(join(dir, skillId, 'SKILL.md'), 'utf-8');
     const match = content.match(FRONTMATTER_REGEX);
     if (!match) return undefined;
     for (const line of match[1].split(/\r?\n/)) {
@@ -605,19 +606,19 @@ describe('ingress-dependent setup skills declare public-ingress', () => {
   }
 
   test('telegram-setup includes public-ingress', () => {
-    const includes = readVellumSkillIncludes('telegram-setup');
+    const includes = readSkillIncludes(VELLUM_SKILLS_DIR, 'telegram-setup');
     expect(includes).toBeDefined();
     expect(includes).toContain('public-ingress');
   });
 
   test('google-oauth-setup includes public-ingress', () => {
-    const includes = readVellumSkillIncludes('google-oauth-setup');
+    const includes = readSkillIncludes(BUNDLED_SKILLS_DIR, 'google-oauth-setup');
     expect(includes).toBeDefined();
     expect(includes).toContain('public-ingress');
   });
 
   test('slack-oauth-setup includes public-ingress', () => {
-    const includes = readVellumSkillIncludes('slack-oauth-setup');
+    const includes = readSkillIncludes(VELLUM_SKILLS_DIR, 'slack-oauth-setup');
     expect(includes).toBeDefined();
     expect(includes).toContain('public-ingress');
   });

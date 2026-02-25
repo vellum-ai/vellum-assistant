@@ -25,7 +25,10 @@ struct ChatBubble: View {
     @State private var copyConfirmationTimer: DispatchWorkItem?
     @State private var mediaEmbedIntents: [MediaEmbedIntent] = []
     @State var stepsExpanded = false
-    @ObservedObject var taskProgressOverlay = TaskProgressOverlayManager.shared
+    /// Injected from the parent instead of observing the shared singleton directly.
+    /// This avoids every ChatBubble in the list re-rendering whenever the overlay
+    /// manager publishes any change (the "thundering herd" problem).
+    var activeSurfaceId: String?
 
     var isUser: Bool { message.role == .user }
     private var canReportMessage: Bool {
@@ -124,7 +127,7 @@ struct ChatBubble: View {
     private var shouldShowBubble: Bool {
         if isUser { return true }
         // Filter out the surface shown in the floating overlay
-        let visibleSurfaces = message.inlineSurfaces.filter { $0.id != taskProgressOverlay.activeSurfaceId }
+        let visibleSurfaces = message.inlineSurfaces.filter { $0.id != activeSurfaceId }
         if !visibleSurfaces.isEmpty {
             // Show bubble text when all visible surfaces are completed (collapsed to chips)
             let allCompleted = visibleSurfaces.allSatisfy { $0.completionState != nil }
@@ -152,7 +155,7 @@ struct ChatBubble: View {
                         // Inline surfaces render below the bubble as full-width cards
                         // Skip surfaces that are currently shown in the floating overlay
                         if !message.inlineSurfaces.isEmpty {
-                            ForEach(message.inlineSurfaces.filter { $0.id != taskProgressOverlay.activeSurfaceId }) { surface in
+                            ForEach(message.inlineSurfaces.filter { $0.id != activeSurfaceId }) { surface in
                                 InlineSurfaceRouter(surface: surface, onAction: onSurfaceAction)
                             }
                         }
@@ -379,7 +382,12 @@ struct ChatBubble: View {
 
     // MARK: - Caches
 
-    static var segmentCache = [Int: [MarkdownSegment]]()
-    static var markdownCache = [Int: AttributedString]()
+    @MainActor static var segmentCache = [String: [MarkdownSegment]]()
+    @MainActor static var markdownCache = [String: AttributedString]()
+    /// Separate cache for inline markdown (used by interleaved text segments).
+    /// Kept distinct from `markdownCache` because `markdownText` applies
+    /// slash-command highlighting before caching, which would contaminate
+    /// inline results (and vice versa) if they shared a dictionary.
+    @MainActor static var inlineMarkdownCache = [String: AttributedString]()
     static let maxCacheSize = 100
 }

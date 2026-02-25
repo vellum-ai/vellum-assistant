@@ -258,6 +258,12 @@ Guardian bindings, verification challenges, and approval requests are all scoped
 
 The channel guardian service generates verification challenge instructions with channel-appropriate wording. The `channelLabel()` function maps `sourceChannel` values to human-readable labels (e.g., `"telegram"` -> `"Telegram"`, `"sms"` -> `"SMS"`), so challenge prompts reference the correct channel name.
 
+### Operator Notes
+
+- **Verify command formats:** The `/guardian_verify` command accepts both `/guardian_verify <code>` and `/guardian_verify@BotName <code>` (Telegram appends the bot username in group chats). The handler normalizes both formats automatically.
+- **Rebind requirement:** Creating a new guardian challenge when a binding already exists requires `rebind: true` in the IPC request. Without it, the daemon returns `already_bound`. This prevents accidental guardian replacement.
+- **Takeover prevention:** Verification is rejected when an active binding exists for a different external user. Same-user re-verification is allowed.
+
 ## Guardian Verification and Ingress ACL
 
 This section documents the end-to-end flow from guardian verification through ingress membership enforcement, showing how the two systems work together to gate channel access.

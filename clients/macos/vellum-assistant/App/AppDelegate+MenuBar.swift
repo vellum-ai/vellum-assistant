@@ -10,11 +10,22 @@ extension AppDelegate {
     // MARK: - Menu Bar
 
     func setupMenuBar() {
+        if statusItem != nil {
+            NSStatusBar.system.removeStatusItem(statusItem)
+            statusItem = nil
+        }
+
+        // Set saved position to right side of menu bar (visible area, right of notch)
+        UserDefaults.standard.set(1200, forKey: "NSStatusItem Preferred Position VellumMenuBar")
+
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        statusItem.autosaveName = "VellumMenuBar"
+        statusItem.isVisible = true
         if let button = statusItem.button {
             configureMenuBarIcon(button)
             button.action = #selector(statusBarButtonClicked(_:))
             button.target = self
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
 
         rebindConnectionStatusObserver()
@@ -85,13 +96,18 @@ extension AppDelegate {
         let dotSize: CGFloat = 6
         let dotPadding: CGFloat = 0.5
 
-        let appIcon = ResourceBundle.bundle.image(forResource: "MenuBarIcon")
-            ?? NSImage(named: "MenuBarIcon")
-            ?? NSApp.applicationIconImage
-        guard let appIcon else {
-            button.image = NSImage(systemSymbolName: "sparkles", accessibilityDescription: "Vellum")
-            return
-        }
+        let appIcon: NSImage = {
+            let bundle = ResourceBundle.bundle
+            if let url = bundle.url(
+                forResource: "icon-64",
+                withExtension: "png",
+                subdirectory: "Assets.xcassets/MenuBarIcon.imageset"
+            ), let img = NSImage(contentsOf: url) {
+                return img
+            }
+            return NSImage(systemSymbolName: "sparkles", accessibilityDescription: "Vellum")
+                ?? NSImage()
+        }()
 
         let status = currentAssistantStatus
         let dotColor = status.statusColor
@@ -158,7 +174,17 @@ extension AppDelegate {
     }
 
     @objc func statusBarButtonClicked(_ sender: NSStatusBarButton) {
-        showStatusMenu()
+        guard let event = NSApp.currentEvent else {
+            showStatusMenu()
+            return
+        }
+        if event.type == .rightMouseUp || event.modifierFlags.contains(.control) {
+            showStatusMenu()
+        } else if PermissionManager.screenRecordingStatus() == .granted {
+            startScreenCapture()
+        } else {
+            toggleQuickInput(aboveDock: true, requestScreenPermission: true)
+        }
     }
 
     func showStatusMenu() {

@@ -50,6 +50,7 @@ import {
   startGuardianExpirySweep,
   stopGuardianExpirySweep,
 } from './routes/channel-routes.js';
+import { canonicalChannelAssistantId } from './routes/channel-route-shared.js';
 import {
   startGuardianActionSweep,
   stopGuardianActionSweep,
@@ -419,7 +420,7 @@ export class RuntimeHttpServer {
       return Response.json({ error: 'Not found', source: 'runtime' }, { status: 404 });
     }
 
-    const assistantId = match[1];
+    const assistantId = canonicalChannelAssistantId(match[1]);
     const endpoint = match[2];
     log.warn({ endpoint, assistantId }, '[deprecated] /v1/assistants/:assistantId/... route used; migrate to /v1/...');
     return this.dispatchEndpoint(endpoint, req, url, assistantId);

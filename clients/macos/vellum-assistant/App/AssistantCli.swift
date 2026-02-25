@@ -192,8 +192,8 @@ final class AssistantCli {
             ]
             for key in ["ANTHROPIC_API_KEY", "BASE_DATA_DIR", "VELLUM_DEBUG",
                         "SENTRY_DSN", "TMPDIR", "USER", "LANG",
-                        "CLOUDSDK_CONFIG", "GOOGLE_APPLICATION_CREDENTIALS",
-                        "GCP_ACCOUNT_EMAIL",
+                        "CLOUDSDK_CONFIG", "CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE",
+                        "GOOGLE_APPLICATION_CREDENTIALS", "GCP_ACCOUNT_EMAIL",
                         "AWS_PROFILE", "AWS_DEFAULT_REGION",
                         "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"] {
                 if let val = fullEnv[key] { env[key] = val }
@@ -383,6 +383,7 @@ final class AssistantCli {
                     .appendingPathComponent("vellum-sa-key-\(ProcessInfo.processInfo.processIdentifier).json")
                 try config.gcpServiceAccountKey.write(to: tmpKeyPath, atomically: true, encoding: .utf8)
                 env["GOOGLE_APPLICATION_CREDENTIALS"] = tmpKeyPath.path
+                env["CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE"] = tmpKeyPath.path
 
                 if let data = config.gcpServiceAccountKey.data(using: .utf8) {
                     do {

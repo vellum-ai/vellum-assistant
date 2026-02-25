@@ -211,6 +211,21 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'skills_inspect',
     slug: 'clawhub/my-skill',
   },
+  skills_draft: {
+    type: 'skills_draft',
+    sourceText: 'Create a weather skill',
+  },
+  skills_create: {
+    type: 'skills_create',
+    skillId: 'weather-skill',
+    name: 'Weather Skill',
+    description: 'Fetches current weather',
+    emoji: '🌤️',
+    bodyMarkdown: '# Weather\n\nFetches weather data.',
+    userInvocable: true,
+    disableModelInvocation: false,
+    overwrite: false,
+  },
   suggestion_request: {
     type: 'suggestion_request',
     sessionId: 'sess-001',
@@ -379,6 +394,10 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
   },
   ingress_config: {
     type: 'ingress_config',
+    action: 'get',
+  },
+  platform_config: {
+    type: 'platform_config',
     action: 'get',
   },
   vercel_api_config: {
@@ -1041,6 +1060,18 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
       skillMdContent: '# My Skill\n\nDoes things.',
     },
   },
+  skills_draft_response: {
+    type: 'skills_draft_response',
+    success: true,
+    draft: {
+      skillId: 'weather-skill',
+      name: 'Weather Skill',
+      description: 'Fetches current weather',
+      emoji: '🌤️',
+      bodyMarkdown: '# Weather\n\nFetches weather data.',
+    },
+    warnings: [],
+  },
   suggestion_response: {
     type: 'suggestion_response',
     requestId: 'req-suggest-001',
@@ -1340,6 +1371,11 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     enabled: true,
     publicBaseUrl: 'https://example.com',
     localGatewayTarget: 'http://127.0.0.1:7830',
+    success: true,
+  },
+  platform_config_response: {
+    type: 'platform_config_response',
+    baseUrl: 'https://platform.vellum.ai',
     success: true,
   },
   vercel_api_config_response: {

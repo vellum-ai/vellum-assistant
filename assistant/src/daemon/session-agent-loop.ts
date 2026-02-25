@@ -26,7 +26,7 @@ import type { ToolProfiler } from '../events/tool-profiling-listener.js';
 import type { ContextWindowManager } from '../context/window-manager.js';
 import { getHookManager } from '../hooks/manager.js';
 import { truncate } from '../util/truncate.js';
-import { isReplaceableTitle, queueGenerateConversationTitle } from '../memory/conversation-title-service.js';
+import { isReplaceableTitle, queueGenerateConversationTitle, queueRegenerateConversationTitle } from '../memory/conversation-title-service.js';
 import { stripMemoryRecallMessages } from '../memory/retriever.js';
 import { getApp, listAppFiles } from '../memory/app-store.js';
 import type { ConflictGate } from './session-conflict-gate.js';
@@ -693,6 +693,24 @@ export async function runAgentLoopImpl(
         signal: abortController.signal,
       });
     }
+
+    // Second title pass: after 3 completed turns, re-generate the title
+    // using the last 3 messages for better context. Only fires when the
+    // current title was auto-generated (isAutoTitle = 1).
+    if (ctx.turnCount === 2) { // turnCount is 0-indexed, incremented in finally; 2 = about to become 3rd turn
+      queueRegenerateConversationTitle({
+        conversationId: ctx.conversationId,
+        provider: ctx.provider,
+        onTitleUpdated: (title) => {
+          onEvent({
+            type: 'session_title_updated',
+            sessionId: ctx.conversationId,
+            title,
+          });
+        },
+        signal: abortController.signal,
+      });
+    }
   } catch (err) {
     const errorCtx = { phase: 'agent_loop' as const, aborted: abortController.signal.aborted };
     if (isUserCancellation(err, errorCtx)) {
@@ -711,8 +729,8 @@ export async function runAgentLoopImpl(
         status: 'error',
         attributes: { errorClass, message: truncate(message, 500, '') },
       });
-      onEvent({ type: 'error', message: `Failed to process message: ${message}` });
       const classified = classifySessionError(err, errorCtx);
+      onEvent({ type: 'error', message: classified.userMessage });
       onEvent(buildSessionErrorMessage(ctx.conversationId, classified));
       void getHookManager().trigger('on-error', {
         error: err instanceof Error ? err.name : 'Error',

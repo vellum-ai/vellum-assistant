@@ -1846,6 +1846,13 @@ graph TB
 - macOS UI shows Inspect and Delete controls for managed skills only (source = "managed").
 - `skill_load` validates the recursive include graph (via `include-graph.ts`) before emitting output. Missing children and cycles produce `isError: true` with no `<loaded_skill>` marker. Valid includes produce an "Included Skills (immediate)" metadata section showing child ID, name, description, and path.
 
+### Skills Authoring via IPC
+
+The Skills page in the macOS client can author managed skills through daemon IPC without going through the agent loop:
+
+1. **Draft** (`skills_draft`): The client sends source text (with optional YAML frontmatter). The daemon parses frontmatter for metadata fields (skillId, name, description, emoji), fills missing fields via a latency-optimized LLM call, and falls back to deterministic heuristics if the provider is unavailable. Returns `skills_draft_response` with the complete draft.
+2. **Create** (`skills_create`): The client sends finalized skill metadata and body. The daemon calls `createManagedSkill()` from `managed-store.ts`, auto-enables the skill in config, and broadcasts `skills_state_changed`.
+
 ### Include Graph Validation
 
 Skills can declare child relationships via the `includes` frontmatter field (a JSON array of skill IDs). When `skill_load` loads a parent skill, it validates the full recursive include graph before emitting output.
@@ -3859,6 +3866,27 @@ All approval/guardian/verification user-facing copy routes through this composer
 
 The guardian system adds a cryptographic trust layer for channel-based interactions. A **guardian** is the designated human authority for a given `(assistantId, channel)` pair. Once verified, the guardian's identity gates sensitive actions by non-guardian users and provides an approval pathway. All guardian operations (bindings, challenges, approval requests) are scoped by `assistantId` -- verifying as guardian on one assistant does not grant guardian status on another.
 
+#### Canonical Assistant ID Scoping
+
+All channel ingress paths canonicalize the `assistantId` via `normalizeAssistantId()` (from `util/platform.ts`) before any DB operations. The system uses `"self"` as the canonical single-tenant identifier, but callers may pass the real assistant name (e.g., `"vellum-true-eel"`) or `"self"` depending on context. `normalizeAssistantId()` maps any known lockfile assistant ID to `"self"`, ensuring consistent DB key usage regardless of how the caller identifies the assistant. This canonicalization runs at every ingress boundary: the guardian IPC handler (`config-channels.ts`), the guardian context resolver, the relay server, and the inbound message handler.
+
+#### Guardian Verify Command Parsing
+
+The `/guardian_verify` command supports two formats to accommodate Telegram's bot command convention:
+
+- `/guardian_verify <code>` -- standard format
+- `/guardian_verify@BotName <code>` -- Telegram auto-appends the bot's username to commands in group chats
+
+The inbound message handler (`inbound-message-handler.ts`) normalizes both formats: it strips the `@BotName` suffix and collapses whitespace before extracting the verification token. This means users can verify from group chats without needing to manually edit the command.
+
+#### Explicit Rebind Policy
+
+Creating a new guardian challenge when a binding already exists for the `(assistantId, channel)` pair requires explicit `rebind: true` in the IPC request. Without it, the daemon returns `already_bound` to the caller. This prevents accidental guardian replacement -- the desktop UI must explicitly acknowledge that it is replacing an existing guardian before a new challenge is issued. On the verification side, `validateAndConsumeChallenge` always revokes any existing active binding before creating the new one, so the actual binding swap is atomic.
+
+#### Guardian Takeover Prevention
+
+`validateAndConsumeChallenge` rejects verification when an active binding exists for a *different* external user. This prevents an attacker who intercepts a verification code from hijacking an established guardian binding. Same-user re-verification (e.g., re-verifying after a session timeout) is allowed, since the external user ID matches the existing binding.
+
 #### Guardian Verification Flow
 
 A challenge-response handshake binds a Telegram user as the guardian:
@@ -4677,6 +4705,7 @@ Producer → NotificationSignal → Decision Engine (LLM) → Deterministic Chec
 | `assistant/src/notifications/adapters/` | Per-channel delivery (macOS IPC, Telegram gateway) |
 | `assistant/src/notifications/preference-extractor.ts` | Detects preference statements in conversation messages |
 | `assistant/src/notifications/preferences-store.ts` | CRUD for user notification preferences |
+| `assistant/src/config/bundled-skills/messaging/tools/send-notification.ts` | Explicit producer tool for user-requested notifications; emits signals into the same routing pipeline |
 
 **Audit trail (SQLite):** `notification_events` → `notification_decisions` → `notification_deliveries`
 

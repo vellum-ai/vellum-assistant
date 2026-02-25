@@ -15,7 +15,15 @@ public final class AuthService {
         #endif
     }()
 
+    /// Platform base URL from daemon config. Set by SettingsStore when the
+    /// `platform_config_response` arrives. When non-empty, takes precedence
+    /// over the hardcoded default and DEBUG UserDefaults override.
+    public var configuredBaseURL: String = ""
+
     public var baseURL: String {
+        if !configuredBaseURL.isEmpty {
+            return configuredBaseURL
+        }
         #if DEBUG
         // Allow overriding the auth service URL via UserDefaults for development/testing.
         if let override = UserDefaults.standard.string(forKey: "authServiceBaseURL"), !override.isEmpty {

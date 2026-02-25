@@ -1109,13 +1109,15 @@ public struct IPCConfirmationSurfaceData: Codable, Sendable {
     public let message: String
     public let detail: String?
     public let confirmLabel: String?
+    public let confirmedLabel: String?
     public let cancelLabel: String?
     public let destructive: Bool?
 
-    public init(message: String, detail: String? = nil, confirmLabel: String? = nil, cancelLabel: String? = nil, destructive: Bool? = nil) {
+    public init(message: String, detail: String? = nil, confirmLabel: String? = nil, confirmedLabel: String? = nil, cancelLabel: String? = nil, destructive: Bool? = nil) {
         self.message = message
         self.detail = detail
         self.confirmLabel = confirmLabel
+        self.confirmedLabel = confirmedLabel
         self.cancelLabel = cancelLabel
         self.destructive = destructive
     }
@@ -1929,13 +1931,15 @@ public struct IPCGuardianVerificationRequest: Codable, Sendable {
     public let channel: String?
     public let sessionId: String?
     public let assistantId: String?
+    public let rebind: Bool?
 
-    public init(type: String, action: String, channel: String? = nil, sessionId: String? = nil, assistantId: String? = nil) {
+    public init(type: String, action: String, channel: String? = nil, sessionId: String? = nil, assistantId: String? = nil, rebind: Bool? = nil) {
         self.type = type
         self.action = action
         self.channel = channel
         self.sessionId = sessionId
         self.assistantId = assistantId
+        self.rebind = rebind
     }
 }
 
@@ -3001,6 +3005,32 @@ public struct IPCPingMessage: Codable, Sendable {
     }
 }
 
+public struct IPCPlatformConfigRequest: Codable, Sendable {
+    public let type: String
+    public let action: String
+    public let baseUrl: String?
+
+    public init(type: String, action: String, baseUrl: String? = nil) {
+        self.type = type
+        self.action = action
+        self.baseUrl = baseUrl
+    }
+}
+
+public struct IPCPlatformConfigResponse: Codable, Sendable {
+    public let type: String
+    public let baseUrl: String
+    public let success: Bool
+    public let error: String?
+
+    public init(type: String, baseUrl: String, success: Bool, error: String? = nil) {
+        self.type = type
+        self.baseUrl = baseUrl
+        self.success = success
+        self.error = error
+    }
+}
+
 public struct IPCPongMessage: Codable, Sendable {
     public let type: String
 
@@ -3726,6 +3756,30 @@ public struct IPCSkillsConfigureRequest: Codable, Sendable {
     }
 }
 
+public struct IPCSkillsCreateRequest: Codable, Sendable {
+    public let type: String
+    public let skillId: String
+    public let name: String
+    public let description: String
+    public let emoji: String?
+    public let bodyMarkdown: String
+    public let userInvocable: Bool?
+    public let disableModelInvocation: Bool?
+    public let overwrite: Bool?
+
+    public init(type: String, skillId: String, name: String, description: String, emoji: String? = nil, bodyMarkdown: String, userInvocable: Bool? = nil, disableModelInvocation: Bool? = nil, overwrite: Bool? = nil) {
+        self.type = type
+        self.skillId = skillId
+        self.name = name
+        self.description = description
+        self.emoji = emoji
+        self.bodyMarkdown = bodyMarkdown
+        self.userInvocable = userInvocable
+        self.disableModelInvocation = disableModelInvocation
+        self.overwrite = overwrite
+    }
+}
+
 public struct IPCSkillsDisableRequest: Codable, Sendable {
     public let type: String
     public let name: String
@@ -3733,6 +3787,48 @@ public struct IPCSkillsDisableRequest: Codable, Sendable {
     public init(type: String, name: String) {
         self.type = type
         self.name = name
+    }
+}
+
+public struct IPCSkillsDraftRequest: Codable, Sendable {
+    public let type: String
+    public let sourceText: String
+
+    public init(type: String, sourceText: String) {
+        self.type = type
+        self.sourceText = sourceText
+    }
+}
+
+public struct IPCSkillsDraftResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let draft: IPCSkillsDraftResponseDraft?
+    public let warnings: [String]?
+    public let error: String?
+
+    public init(type: String, success: Bool, draft: IPCSkillsDraftResponseDraft? = nil, warnings: [String]? = nil, error: String? = nil) {
+        self.type = type
+        self.success = success
+        self.draft = draft
+        self.warnings = warnings
+        self.error = error
+    }
+}
+
+public struct IPCSkillsDraftResponseDraft: Codable, Sendable {
+    public let skillId: String
+    public let name: String
+    public let description: String
+    public let emoji: String?
+    public let bodyMarkdown: String
+
+    public init(skillId: String, name: String, description: String, emoji: String? = nil, bodyMarkdown: String) {
+        self.skillId = skillId
+        self.name = name
+        self.description = description
+        self.emoji = emoji
+        self.bodyMarkdown = bodyMarkdown
     }
 }
 

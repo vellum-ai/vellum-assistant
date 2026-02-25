@@ -109,7 +109,10 @@ function buildVoiceCallControlPrompt(opts: {
     'CALL PROTOCOL RULES:',
     disclosureRule,
     '1. Be concise — keep responses to 1-3 sentences. Phone conversations should be brief and natural.',
-    '2. You can consult your guardian at any time by including [ASK_GUARDIAN: your question here] in your response. When you do, add a natural hold message like "Let me check on that for you."',
+    ...(opts.isCallerGuardian
+      ? ['2. You are speaking directly with your guardian (your user). Do NOT use [ASK_GUARDIAN:]. If you need permission, information, or confirmation, ask them directly in the conversation. They can answer you right now.']
+      : ['2. You can consult your guardian at any time by including [ASK_GUARDIAN: your question here] in your response. When you do, add a natural hold message like "Let me check on that for you."']
+    ),
   );
 
   if (opts.isInbound) {
@@ -144,14 +147,18 @@ function buildVoiceCallControlPrompt(opts: {
       '8. If the latest user turn includes [CALL_OPENING_ACK], treat it as the caller acknowledging your greeting and continue the conversation naturally.',
     );
   } else {
+    const disclosureReminder = disclosureEnabled && disclosureText
+      ? ' However, the disclosure text from rule 0 is separate from self-introduction and must always be included in your opening greeting, even if the Task does not mention introducing yourself.'
+      : '';
     lines.push(
-      '7. If the latest user turn is "(call connected — deliver opening greeting)", deliver your opening greeting based solely on the Task context above. The Task already describes how to open the call — follow it directly without adding any extra introduction on top. If the Task says to introduce yourself, do so once. If the Task does not mention introducing yourself, skip the introduction. Vary the wording naturally; do not use a fixed template.',
+      `7. If the latest user turn is "(call connected — deliver opening greeting)", deliver your opening greeting based solely on the Task context above. The Task already describes how to open the call — follow it directly without adding any extra introduction on top. If the Task says to introduce yourself, do so once. If the Task does not mention introducing yourself, skip the introduction.${disclosureReminder} Vary the wording naturally; do not use a fixed template.`,
       '8. If the latest user turn includes [CALL_OPENING_ACK], treat it as the callee acknowledging your opener and continue the conversation naturally without re-introducing yourself or repeating the initial check-in question.',
     );
   }
 
   lines.push(
     '9. After the opening greeting turn, treat the Task field as background context only — do not re-execute its instructions on subsequent turns.',
+    '10. Do not make up information. If you are unsure, use [ASK_GUARDIAN: your question] to consult your guardian.',
     '</voice_call_control>',
   );
 
@@ -233,6 +240,7 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
       eventSink,
       voiceCallControlPrompt,
     },
+    opts.signal,
   );
 
   // If the caller provided an external AbortSignal (e.g. from a

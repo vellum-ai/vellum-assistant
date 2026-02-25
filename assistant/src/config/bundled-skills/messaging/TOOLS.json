@@ -9,7 +9,10 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "platform": { "type": "string", "description": "Platform to test (e.g. \"slack\", \"gmail\"). Auto-detected if only one is connected." }
+          "platform": {
+            "type": "string",
+            "description": "Platform to test (e.g. \"slack\", \"gmail\"). Auto-detected if only one is connected."
+          }
         }
       },
       "executor": "tools/messaging-auth-test.ts",
@@ -23,13 +26,27 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "platform": { "type": "string", "description": "Platform (e.g. \"slack\", \"gmail\"). Auto-detected if only one is connected." },
+          "platform": {
+            "type": "string",
+            "description": "Platform (e.g. \"slack\", \"gmail\"). Auto-detected if only one is connected."
+          },
           "types": {
             "type": "array",
-            "items": { "type": "string", "enum": ["channel", "dm", "group", "inbox"] },
+            "items": {
+              "type": "string",
+              "enum": [
+                "channel",
+                "dm",
+                "group",
+                "inbox"
+              ]
+            },
             "description": "Filter by conversation type"
           },
-          "limit": { "type": "number", "description": "Maximum number of conversations to return (default 200)" }
+          "limit": {
+            "type": "number",
+            "description": "Maximum number of conversations to return (default 200)"
+          }
         }
       },
       "executor": "tools/messaging-list-conversations.ts",
@@ -43,12 +60,26 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "platform": { "type": "string", "description": "Platform (e.g. \"slack\", \"gmail\"). Auto-detected if only one is connected." },
-          "conversation_id": { "type": "string", "description": "Conversation/channel/label ID to read from" },
-          "thread_id": { "type": "string", "description": "Thread ID to read replies from (optional)" },
-          "limit": { "type": "number", "description": "Maximum number of messages to return (default 50)" }
+          "platform": {
+            "type": "string",
+            "description": "Platform (e.g. \"slack\", \"gmail\"). Auto-detected if only one is connected."
+          },
+          "conversation_id": {
+            "type": "string",
+            "description": "Conversation/channel/label ID to read from"
+          },
+          "thread_id": {
+            "type": "string",
+            "description": "Thread ID to read replies from (optional)"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum number of messages to return (default 50)"
+          }
         },
-        "required": ["conversation_id"]
+        "required": [
+          "conversation_id"
+        ]
       },
       "executor": "tools/messaging-read.ts",
       "execution_target": "host"
@@ -61,11 +92,22 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "platform": { "type": "string", "description": "Platform (e.g. \"slack\", \"gmail\"). Auto-detected if only one is connected." },
-          "query": { "type": "string", "description": "Search query using the platform's native syntax" },
-          "max_results": { "type": "number", "description": "Maximum number of results to return (default 20)" }
+          "platform": {
+            "type": "string",
+            "description": "Platform (e.g. \"slack\", \"gmail\"). Auto-detected if only one is connected."
+          },
+          "query": {
+            "type": "string",
+            "description": "Search query using the platform's native syntax"
+          },
+          "max_results": {
+            "type": "number",
+            "description": "Maximum number of results to return (default 20)"
+          }
         },
-        "required": ["query"]
+        "required": [
+          "query"
+        ]
       },
       "executor": "tools/messaging-search.ts",
       "execution_target": "host"
@@ -78,16 +120,119 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "platform": { "type": "string", "description": "Platform (e.g. \"slack\", \"gmail\"). Auto-detected if only one is connected." },
-          "conversation_id": { "type": "string", "description": "Channel ID, email address, or conversation ID to send to" },
-          "text": { "type": "string", "description": "Message text to send" },
-          "subject": { "type": "string", "description": "Email subject line (Gmail only)" },
-          "in_reply_to": { "type": "string", "description": "Message-ID header for replies (Gmail only)" },
-          "confidence": { "type": "number", "description": "Confidence score (0-1) for this action" }
+          "platform": {
+            "type": "string",
+            "description": "Platform (e.g. \"slack\", \"gmail\"). Auto-detected if only one is connected."
+          },
+          "conversation_id": {
+            "type": "string",
+            "description": "Channel ID, email address, or conversation ID to send to"
+          },
+          "text": {
+            "type": "string",
+            "description": "Message text to send"
+          },
+          "subject": {
+            "type": "string",
+            "description": "Email subject line (Gmail only)"
+          },
+          "in_reply_to": {
+            "type": "string",
+            "description": "Message-ID header for replies (Gmail only)"
+          },
+          "confidence": {
+            "type": "number",
+            "description": "Confidence score (0-1) for this action"
+          }
         },
-        "required": ["conversation_id", "text", "confidence"]
+        "required": [
+          "conversation_id",
+          "text",
+          "confidence"
+        ]
       },
       "executor": "tools/messaging-send.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "send_notification",
+      "description": "Send a notification through the unified notification router. The router decides channels/copy from preferences and urgency hints. Include a confidence score (0-1).",
+      "category": "messaging",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "Notification message the user should receive"
+          },
+          "title": {
+            "type": "string",
+            "description": "Optional notification title"
+          },
+          "urgency": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "description": "Urgency hint (default: \"medium\")"
+          },
+          "requires_action": {
+            "type": "boolean",
+            "description": "Whether the notification expects user action (default: true)"
+          },
+          "is_async_background": {
+            "type": "boolean",
+            "description": "Whether the event is asynchronous/background work (default: false)"
+          },
+          "visible_in_source_now": {
+            "type": "boolean",
+            "description": "Set true when user is already viewing the source context (default: false)"
+          },
+          "deadline_at": {
+            "type": "number",
+            "description": "Optional deadline timestamp in epoch milliseconds"
+          },
+          "preferred_channels": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "vellum",
+                "telegram"
+              ]
+            },
+            "description": "Optional routing hints for preferred channels (not deterministic)"
+          },
+          "conversation_id": {
+            "type": "string",
+            "description": "Optional source conversation/session ID for notification context"
+          },
+          "source_event_name": {
+            "type": "string",
+            "description": "Optional event name for audit and dedupe grouping (default: \"user.send_notification\")"
+          },
+          "deep_link_metadata": {
+            "type": "object",
+            "description": "Optional metadata clients can use for deep linking"
+          },
+          "dedupe_key": {
+            "type": "string",
+            "description": "Optional dedupe key to suppress duplicate notifications"
+          },
+          "confidence": {
+            "type": "number",
+            "description": "Confidence score (0-1) for this action"
+          }
+        },
+        "required": [
+          "message",
+          "confidence"
+        ]
+      },
+      "executor": "tools/send-notification.ts",
       "execution_target": "host"
     },
     {
@@ -98,13 +243,33 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "platform": { "type": "string", "description": "Platform (e.g. \"slack\", \"gmail\"). Auto-detected if only one is connected." },
-          "conversation_id": { "type": "string", "description": "Channel ID or conversation ID" },
-          "thread_id": { "type": "string", "description": "Thread ID to reply to" },
-          "text": { "type": "string", "description": "Reply text" },
-          "confidence": { "type": "number", "description": "Confidence score (0-1) for this action" }
+          "platform": {
+            "type": "string",
+            "description": "Platform (e.g. \"slack\", \"gmail\"). Auto-detected if only one is connected."
+          },
+          "conversation_id": {
+            "type": "string",
+            "description": "Channel ID or conversation ID"
+          },
+          "thread_id": {
+            "type": "string",
+            "description": "Thread ID to reply to"
+          },
+          "text": {
+            "type": "string",
+            "description": "Reply text"
+          },
+          "confidence": {
+            "type": "number",
+            "description": "Confidence score (0-1) for this action"
+          }
         },
-        "required": ["conversation_id", "thread_id", "text", "confidence"]
+        "required": [
+          "conversation_id",
+          "thread_id",
+          "text",
+          "confidence"
+        ]
       },
       "executor": "tools/messaging-reply.ts",
       "execution_target": "host"
@@ -117,11 +282,22 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "platform": { "type": "string", "description": "Platform (e.g. \"slack\", \"gmail\"). Auto-detected if only one is connected." },
-          "conversation_id": { "type": "string", "description": "Conversation/channel ID" },
-          "message_id": { "type": "string", "description": "Specific message ID to mark as read (optional)" }
+          "platform": {
+            "type": "string",
+            "description": "Platform (e.g. \"slack\", \"gmail\"). Auto-detected if only one is connected."
+          },
+          "conversation_id": {
+            "type": "string",
+            "description": "Conversation/channel ID"
+          },
+          "message_id": {
+            "type": "string",
+            "description": "Specific message ID to mark as read (optional)"
+          }
         },
-        "required": ["conversation_id"]
+        "required": [
+          "conversation_id"
+        ]
       },
       "executor": "tools/messaging-mark-read.ts",
       "execution_target": "host"
@@ -134,12 +310,29 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "channel": { "type": "string", "description": "Slack channel ID" },
-          "timestamp": { "type": "string", "description": "Message timestamp (ts)" },
-          "emoji": { "type": "string", "description": "Emoji name without colons (e.g. \"thumbsup\")" },
-          "confidence": { "type": "number", "description": "Confidence score (0-1) for this action" }
+          "channel": {
+            "type": "string",
+            "description": "Slack channel ID"
+          },
+          "timestamp": {
+            "type": "string",
+            "description": "Message timestamp (ts)"
+          },
+          "emoji": {
+            "type": "string",
+            "description": "Emoji name without colons (e.g. \"thumbsup\")"
+          },
+          "confidence": {
+            "type": "number",
+            "description": "Confidence score (0-1) for this action"
+          }
         },
-        "required": ["channel", "timestamp", "emoji", "confidence"]
+        "required": [
+          "channel",
+          "timestamp",
+          "emoji",
+          "confidence"
+        ]
       },
       "executor": "tools/slack-add-reaction.ts",
       "execution_target": "host"
@@ -152,10 +345,19 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "channel": { "type": "string", "description": "Slack channel ID to leave" },
-          "confidence": { "type": "number", "description": "Confidence score (0-1) for this action" }
+          "channel": {
+            "type": "string",
+            "description": "Slack channel ID to leave"
+          },
+          "confidence": {
+            "type": "number",
+            "description": "Confidence score (0-1) for this action"
+          }
         },
-        "required": ["channel", "confidence"]
+        "required": [
+          "channel",
+          "confidence"
+        ]
       },
       "executor": "tools/slack-leave-channel.ts",
       "execution_target": "host"
@@ -168,7 +370,10 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "platform": { "type": "string", "description": "Platform (e.g. \"slack\", \"gmail\"). Auto-detected if only one is connected." }
+          "platform": {
+            "type": "string",
+            "description": "Platform (e.g. \"slack\", \"gmail\"). Auto-detected if only one is connected."
+          }
         }
       },
       "executor": "tools/messaging-analyze-activity.ts",
@@ -182,9 +387,18 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "platform": { "type": "string", "description": "Platform (e.g. \"slack\", \"gmail\"). Auto-detected if only one is connected." },
-          "max_messages": { "type": "number", "description": "Max sent messages to analyze (default 50, max 100)" },
-          "query_filter": { "type": "string", "description": "Optional search filter (e.g. 'to:alice@example.com' for Gmail, 'from:@me' for Slack)" }
+          "platform": {
+            "type": "string",
+            "description": "Platform (e.g. \"slack\", \"gmail\"). Auto-detected if only one is connected."
+          },
+          "max_messages": {
+            "type": "number",
+            "description": "Max sent messages to analyze (default 50, max 100)"
+          },
+          "query_filter": {
+            "type": "string",
+            "description": "Optional search filter (e.g. 'to:alice@example.com' for Gmail, 'from:@me' for Slack)"
+          }
         }
       },
       "executor": "tools/messaging-analyze-style.ts",
@@ -198,15 +412,43 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "action": { "type": "string", "enum": ["create", "list", "delete"], "description": "Draft operation" },
-          "platform": { "type": "string", "description": "Platform (e.g. \"slack\", \"gmail\"). Required for create/list." },
-          "conversation_id": { "type": "string", "description": "Target conversation/channel ID (for create)" },
-          "text": { "type": "string", "description": "Draft text (for create)" },
-          "thread_id": { "type": "string", "description": "Thread ID (for create, optional)" },
-          "subject": { "type": "string", "description": "Email subject (for create, Gmail only)" },
-          "draft_id": { "type": "string", "description": "Draft ID (for delete)" }
+          "action": {
+            "type": "string",
+            "enum": [
+              "create",
+              "list",
+              "delete"
+            ],
+            "description": "Draft operation"
+          },
+          "platform": {
+            "type": "string",
+            "description": "Platform (e.g. \"slack\", \"gmail\"). Required for create/list."
+          },
+          "conversation_id": {
+            "type": "string",
+            "description": "Target conversation/channel ID (for create)"
+          },
+          "text": {
+            "type": "string",
+            "description": "Draft text (for create)"
+          },
+          "thread_id": {
+            "type": "string",
+            "description": "Thread ID (for create, optional)"
+          },
+          "subject": {
+            "type": "string",
+            "description": "Email subject (for create, Gmail only)"
+          },
+          "draft_id": {
+            "type": "string",
+            "description": "Draft ID (for delete)"
+          }
         },
-        "required": ["action"]
+        "required": [
+          "action"
+        ]
       },
       "executor": "tools/messaging-draft.ts",
       "execution_target": "host"
@@ -219,10 +461,19 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "message_id": { "type": "string", "description": "Gmail message ID to archive" },
-          "confidence": { "type": "number", "description": "Confidence score (0-1) for this action" }
+          "message_id": {
+            "type": "string",
+            "description": "Gmail message ID to archive"
+          },
+          "confidence": {
+            "type": "number",
+            "description": "Confidence score (0-1) for this action"
+          }
         },
-        "required": ["message_id", "confidence"]
+        "required": [
+          "message_id",
+          "confidence"
+        ]
       },
       "executor": "tools/gmail-archive.ts",
       "execution_target": "host"
@@ -237,14 +488,47 @@
         "properties": {
           "message_ids": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "Gmail message IDs to archive"
           },
-          "confidence": { "type": "number", "description": "Confidence score (0-1) for this action" }
+          "confidence": {
+            "type": "number",
+            "description": "Confidence score (0-1) for this action"
+          }
         },
-        "required": ["message_ids", "confidence"]
+        "required": [
+          "message_ids",
+          "confidence"
+        ]
       },
       "executor": "tools/gmail-batch-archive.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "gmail_archive_by_query",
+      "description": "Archive ALL Gmail messages matching a search query. Paginates through all results and archives in bulk. Ideal for high-volume senders where message IDs are not pre-collected. Include a confidence score (0-1).",
+      "category": "messaging",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Gmail search query (e.g. \"from:marketing@example.com category:promotions newer_than:90d\")"
+          },
+          "confidence": {
+            "type": "number",
+            "description": "Confidence score (0-1) for this action"
+          }
+        },
+        "required": [
+          "query",
+          "confidence"
+        ]
+      },
+      "executor": "tools/gmail-archive-by-query.ts",
       "execution_target": "host"
     },
     {
@@ -255,20 +539,33 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "message_id": { "type": "string", "description": "Gmail message ID" },
+          "message_id": {
+            "type": "string",
+            "description": "Gmail message ID"
+          },
           "add_label_ids": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "Label IDs to add"
           },
           "remove_label_ids": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "Label IDs to remove"
           },
-          "confidence": { "type": "number", "description": "Confidence score (0-1) for this action" }
+          "confidence": {
+            "type": "number",
+            "description": "Confidence score (0-1) for this action"
+          }
         },
-        "required": ["message_id", "confidence"]
+        "required": [
+          "message_id",
+          "confidence"
+        ]
       },
       "executor": "tools/gmail-label.ts",
       "execution_target": "host"
@@ -283,22 +580,34 @@
         "properties": {
           "message_ids": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "Gmail message IDs"
           },
           "add_label_ids": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "Label IDs to add"
           },
           "remove_label_ids": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "Label IDs to remove"
           },
-          "confidence": { "type": "number", "description": "Confidence score (0-1) for this action" }
+          "confidence": {
+            "type": "number",
+            "description": "Confidence score (0-1) for this action"
+          }
         },
-        "required": ["message_ids", "confidence"]
+        "required": [
+          "message_ids",
+          "confidence"
+        ]
       },
       "executor": "tools/gmail-batch-label.ts",
       "execution_target": "host"
@@ -311,10 +620,19 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "message_id": { "type": "string", "description": "Gmail message ID to trash" },
-          "confidence": { "type": "number", "description": "Confidence score (0-1) for this action" }
+          "message_id": {
+            "type": "string",
+            "description": "Gmail message ID to trash"
+          },
+          "confidence": {
+            "type": "number",
+            "description": "Confidence score (0-1) for this action"
+          }
         },
-        "required": ["message_id", "confidence"]
+        "required": [
+          "message_id",
+          "confidence"
+        ]
       },
       "executor": "tools/gmail-trash.ts",
       "execution_target": "host"
@@ -327,10 +645,19 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "message_id": { "type": "string", "description": "A Gmail message ID from the mailing list to unsubscribe from" },
-          "confidence": { "type": "number", "description": "Confidence score (0-1) for this action" }
+          "message_id": {
+            "type": "string",
+            "description": "A Gmail message ID from the mailing list to unsubscribe from"
+          },
+          "confidence": {
+            "type": "number",
+            "description": "Confidence score (0-1) for this action"
+          }
         },
-        "required": ["message_id", "confidence"]
+        "required": [
+          "message_id",
+          "confidence"
+        ]
       },
       "executor": "tools/gmail-unsubscribe.ts",
       "execution_target": "host"
@@ -343,14 +670,843 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "to": { "type": "string", "description": "Recipient email address" },
-          "subject": { "type": "string", "description": "Email subject line" },
-          "body": { "type": "string", "description": "Email body (plain text)" },
-          "in_reply_to": { "type": "string", "description": "Message-ID header of the email being replied to" }
+          "to": {
+            "type": "string",
+            "description": "Recipient email address"
+          },
+          "subject": {
+            "type": "string",
+            "description": "Email subject line"
+          },
+          "body": {
+            "type": "string",
+            "description": "Email body (plain text)"
+          },
+          "in_reply_to": {
+            "type": "string",
+            "description": "Message-ID header of the email being replied to"
+          }
         },
-        "required": ["to", "subject", "body"]
+        "required": [
+          "to",
+          "subject",
+          "body"
+        ]
       },
       "executor": "tools/gmail-draft.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "gmail_list_attachments",
+      "description": "List attachments on a Gmail message with filename, MIME type, size, and attachment ID.",
+      "category": "messaging",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "message_id": {
+            "type": "string",
+            "description": "Gmail message ID to list attachments for"
+          }
+        },
+        "required": [
+          "message_id"
+        ]
+      },
+      "executor": "tools/gmail-list-attachments.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "gmail_download_attachment",
+      "description": "Download a Gmail attachment to the working directory.",
+      "category": "messaging",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "message_id": {
+            "type": "string",
+            "description": "Gmail message ID"
+          },
+          "attachment_id": {
+            "type": "string",
+            "description": "Attachment ID from gmail_list_attachments"
+          },
+          "filename": {
+            "type": "string",
+            "description": "Filename to save as"
+          }
+        },
+        "required": [
+          "message_id",
+          "attachment_id",
+          "filename"
+        ]
+      },
+      "executor": "tools/gmail-download-attachment.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "gmail_send_with_attachments",
+      "description": "Send an email with file attachments. High-risk action requiring user approval. Include a confidence score (0-1).",
+      "category": "messaging",
+      "risk": "high",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "to": {
+            "type": "string",
+            "description": "Recipient email address"
+          },
+          "subject": {
+            "type": "string",
+            "description": "Email subject line"
+          },
+          "body": {
+            "type": "string",
+            "description": "Email body (plain text)"
+          },
+          "attachment_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Absolute file paths of attachments to include"
+          },
+          "in_reply_to": {
+            "type": "string",
+            "description": "Message-ID header for replies"
+          },
+          "thread_id": {
+            "type": "string",
+            "description": "Thread ID to continue an existing thread"
+          },
+          "confidence": {
+            "type": "number",
+            "description": "Confidence score (0-1) for this action"
+          }
+        },
+        "required": [
+          "to",
+          "subject",
+          "body",
+          "attachment_paths",
+          "confidence"
+        ]
+      },
+      "executor": "tools/gmail-send-with-attachments.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "gmail_forward",
+      "description": "Forward a Gmail message to another recipient, preserving attachments. Include a confidence score (0-1).",
+      "category": "messaging",
+      "risk": "high",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "message_id": {
+            "type": "string",
+            "description": "Gmail message ID to forward"
+          },
+          "to": {
+            "type": "string",
+            "description": "Recipient email address"
+          },
+          "text": {
+            "type": "string",
+            "description": "Optional text to prepend to the forwarded message"
+          },
+          "confidence": {
+            "type": "number",
+            "description": "Confidence score (0-1) for this action"
+          }
+        },
+        "required": [
+          "message_id",
+          "to",
+          "confidence"
+        ]
+      },
+      "executor": "tools/gmail-forward.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "gmail_summarize_thread",
+      "description": "Summarize a Gmail thread using LLM analysis. Returns participants, key decisions, open questions, and sentiment.",
+      "category": "messaging",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "thread_id": {
+            "type": "string",
+            "description": "Gmail thread ID to summarize"
+          }
+        },
+        "required": [
+          "thread_id"
+        ]
+      },
+      "executor": "tools/gmail-summarize-thread.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "gmail_follow_up",
+      "description": "Track, list, or untrack Gmail messages for follow-up using a dedicated label. Include a confidence score (0-1).",
+      "category": "messaging",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "track",
+              "list",
+              "untrack"
+            ],
+            "description": "Follow-up action"
+          },
+          "message_id": {
+            "type": "string",
+            "description": "Gmail message ID (required for track/untrack)"
+          },
+          "confidence": {
+            "type": "number",
+            "description": "Confidence score (0-1) for this action"
+          }
+        },
+        "required": [
+          "action",
+          "confidence"
+        ]
+      },
+      "executor": "tools/gmail-follow-up.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "gmail_triage",
+      "description": "LLM-powered inbox triage: classify unread emails by urgency and type, optionally auto-apply actions. Include a confidence score (0-1).",
+      "category": "messaging",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "max_results": {
+            "type": "number",
+            "description": "Maximum emails to triage (default 20)"
+          },
+          "auto_apply": {
+            "type": "boolean",
+            "description": "Auto-archive can_archive and label needs_reply as Follow-up (default false)"
+          },
+          "query": {
+            "type": "string",
+            "description": "Gmail search query (default 'is:unread in:inbox')"
+          },
+          "confidence": {
+            "type": "number",
+            "description": "Confidence score (0-1) for this action"
+          }
+        },
+        "required": [
+          "confidence"
+        ]
+      },
+      "executor": "tools/gmail-triage.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "gmail_filters",
+      "description": "List, create, or delete Gmail filters for inbox automation. Include a confidence score (0-1).",
+      "category": "messaging",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "list",
+              "create",
+              "delete"
+            ],
+            "description": "Filter action"
+          },
+          "from": {
+            "type": "string",
+            "description": "Filter criteria: sender (for create)"
+          },
+          "to": {
+            "type": "string",
+            "description": "Filter criteria: recipient (for create)"
+          },
+          "subject": {
+            "type": "string",
+            "description": "Filter criteria: subject contains (for create)"
+          },
+          "query": {
+            "type": "string",
+            "description": "Filter criteria: Gmail query (for create)"
+          },
+          "has_attachment": {
+            "type": "boolean",
+            "description": "Filter criteria: has attachment (for create)"
+          },
+          "add_label_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Filter action: label IDs to add (for create)"
+          },
+          "remove_label_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Filter action: label IDs to remove (for create)"
+          },
+          "forward": {
+            "type": "string",
+            "description": "Filter action: forward to email (for create)"
+          },
+          "filter_id": {
+            "type": "string",
+            "description": "Filter ID (for delete)"
+          },
+          "confidence": {
+            "type": "number",
+            "description": "Confidence score (0-1) for this action"
+          }
+        },
+        "required": [
+          "action",
+          "confidence"
+        ]
+      },
+      "executor": "tools/gmail-filters.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "gmail_vacation",
+      "description": "Get, enable, or disable Gmail vacation auto-responder. Include a confidence score (0-1).",
+      "category": "messaging",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "get",
+              "enable",
+              "disable"
+            ],
+            "description": "Vacation action"
+          },
+          "message": {
+            "type": "string",
+            "description": "Auto-reply message body (required for enable)"
+          },
+          "subject": {
+            "type": "string",
+            "description": "Auto-reply subject (default 'Out of Office')"
+          },
+          "start_time": {
+            "type": "number",
+            "description": "Start time in epoch milliseconds"
+          },
+          "end_time": {
+            "type": "number",
+            "description": "End time in epoch milliseconds"
+          },
+          "restrict_to_contacts": {
+            "type": "boolean",
+            "description": "Only auto-reply to contacts (default false)"
+          },
+          "restrict_to_domain": {
+            "type": "boolean",
+            "description": "Only auto-reply to same domain (default false)"
+          },
+          "confidence": {
+            "type": "number",
+            "description": "Confidence score (0-1) for this action"
+          }
+        },
+        "required": [
+          "action",
+          "confidence"
+        ]
+      },
+      "executor": "tools/gmail-vacation.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "gmail_sender_digest",
+      "description": "Scan Gmail and group messages by sender to identify high-volume senders (e.g. newsletters). Returns top senders sorted by message count with metadata for bulk cleanup.",
+      "category": "messaging",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Gmail search query (default 'category:promotions newer_than:90d')"
+          },
+          "max_messages": {
+            "type": "number",
+            "description": "Maximum messages to scan (default 500, cap 2000)"
+          },
+          "max_senders": {
+            "type": "number",
+            "description": "Maximum senders to return (default 30)"
+          }
+        }
+      },
+      "executor": "tools/gmail-sender-digest.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "gmail_outreach_scan",
+      "description": "Scan Gmail for cold outreach emails (sales, recruiting, marketing) using LLM classification. Returns top outreach senders with suggested cleanup actions. Read-only \u2014 use gmail_batch_archive and gmail_filters for cleanup.",
+      "category": "messaging",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "max_messages": {
+            "type": "number",
+            "description": "Maximum messages to scan (default 500, cap 2000)"
+          },
+          "max_senders": {
+            "type": "number",
+            "description": "Maximum outreach senders to return (default 30)"
+          },
+          "time_range": {
+            "type": "string",
+            "description": "Gmail time range filter (default '90d')"
+          },
+          "min_confidence": {
+            "type": "number",
+            "description": "Minimum confidence threshold 0-1 (default 0.5)"
+          }
+        }
+      },
+      "executor": "tools/gmail-outreach-scan.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "google_contacts",
+      "description": "List or search Google Contacts. Requires contacts.readonly scope (re-authorization may be needed).",
+      "category": "messaging",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "list",
+              "search"
+            ],
+            "description": "Contacts action"
+          },
+          "query": {
+            "type": "string",
+            "description": "Search query (for search action)"
+          },
+          "page_size": {
+            "type": "number",
+            "description": "Number of contacts to return (default 50, for list)"
+          },
+          "page_token": {
+            "type": "string",
+            "description": "Pagination token (for list)"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "executor": "tools/google-contacts.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "sequence_create",
+      "description": "Create an email sequence with multiple steps and delay intervals.",
+      "category": "messaging",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name of the sequence"
+          },
+          "channel": {
+            "type": "string",
+            "description": "Messaging channel (e.g. \"gmail\")"
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "delay_seconds": {
+                  "type": "number",
+                  "description": "Delay before sending this step (in seconds)"
+                },
+                "subject": {
+                  "type": "string",
+                  "description": "Subject line template"
+                },
+                "body_prompt": {
+                  "type": "string",
+                  "description": "Prompt or body text for this step"
+                },
+                "reply_to_thread": {
+                  "type": "boolean",
+                  "description": "Whether to reply in the existing thread (default true for step 2+)"
+                },
+                "require_approval": {
+                  "type": "boolean",
+                  "description": "Whether to require user approval before sending (default false)"
+                }
+              },
+              "required": [
+                "body_prompt"
+              ]
+            },
+            "description": "Ordered list of sequence steps"
+          },
+          "description": {
+            "type": "string",
+            "description": "Optional description of the sequence"
+          },
+          "exit_on_reply": {
+            "type": "boolean",
+            "description": "Whether to stop the sequence when the contact replies (default true)"
+          }
+        },
+        "required": [
+          "name",
+          "channel",
+          "steps"
+        ]
+      },
+      "executor": "tools/sequence-create.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "sequence_list",
+      "description": "List all email sequences with their status and enrollment counts.",
+      "category": "messaging",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "paused",
+              "archived"
+            ],
+            "description": "Filter by sequence status"
+          }
+        }
+      },
+      "executor": "tools/sequence-list.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "sequence_get",
+      "description": "Get detailed information about a sequence including steps, enrollment counts, and status breakdown.",
+      "category": "messaging",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Sequence ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "executor": "tools/sequence-get.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "sequence_update",
+      "description": "Update a sequence's name, description, status, steps, or exit-on-reply setting.",
+      "category": "messaging",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Sequence ID to update"
+          },
+          "name": {
+            "type": "string",
+            "description": "New name"
+          },
+          "description": {
+            "type": "string",
+            "description": "New description"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "paused",
+              "archived"
+            ],
+            "description": "New status"
+          },
+          "exit_on_reply": {
+            "type": "boolean",
+            "description": "Whether to exit on contact reply"
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "delay_seconds": {
+                  "type": "number",
+                  "description": "Delay before sending this step (in seconds)"
+                },
+                "subject": {
+                  "type": "string",
+                  "description": "Subject line template"
+                },
+                "body_prompt": {
+                  "type": "string",
+                  "description": "Prompt or body text for this step"
+                },
+                "reply_to_thread": {
+                  "type": "boolean",
+                  "description": "Whether to reply in the existing thread"
+                },
+                "require_approval": {
+                  "type": "boolean",
+                  "description": "Whether to require user approval before sending"
+                }
+              },
+              "required": [
+                "body_prompt"
+              ]
+            },
+            "description": "Replacement steps (replaces all existing steps)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "executor": "tools/sequence-update.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "sequence_delete",
+      "description": "Delete a sequence and cancel all its active enrollments.",
+      "category": "messaging",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Sequence ID to delete"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "executor": "tools/sequence-delete.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "sequence_enroll",
+      "description": "Enroll one or more contacts into a sequence. Accepts comma-separated emails or an array.",
+      "category": "messaging",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sequence_id": {
+            "type": "string",
+            "description": "Sequence ID to enroll contacts in"
+          },
+          "emails": {
+            "description": "Email address(es) to enroll \u2014 comma-separated string or array",
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ]
+          },
+          "context": {
+            "type": "object",
+            "description": "Optional context object with personalization variables for the enrolled contacts"
+          }
+        },
+        "required": [
+          "sequence_id",
+          "emails"
+        ]
+      },
+      "executor": "tools/sequence-enroll.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "sequence_enrollment_list",
+      "description": "List enrollments for a sequence, optionally filtered by status.",
+      "category": "messaging",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sequence_id": {
+            "type": "string",
+            "description": "Filter by sequence ID"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "paused",
+              "completed",
+              "replied",
+              "cancelled",
+              "failed"
+            ],
+            "description": "Filter by enrollment status"
+          }
+        }
+      },
+      "executor": "tools/sequence-enrollment-list.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "sequence_pause",
+      "description": "Pause a sequence (stops processing all enrollments) or cancel a specific enrollment.",
+      "category": "messaging",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sequence_id": {
+            "type": "string",
+            "description": "Sequence ID to pause"
+          },
+          "enrollment_id": {
+            "type": "string",
+            "description": "Specific enrollment ID to cancel (alternative to pausing whole sequence)"
+          }
+        }
+      },
+      "executor": "tools/sequence-pause.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "sequence_resume",
+      "description": "Resume a paused sequence. Active enrollments will be processed on the next scheduler tick.",
+      "category": "messaging",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sequence_id": {
+            "type": "string",
+            "description": "Sequence ID to resume"
+          }
+        },
+        "required": [
+          "sequence_id"
+        ]
+      },
+      "executor": "tools/sequence-resume.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "sequence_cancel",
+      "description": "Cancel a specific enrollment, removing the contact from the sequence.",
+      "category": "messaging",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "enrollment_id": {
+            "type": "string",
+            "description": "Enrollment ID to cancel"
+          }
+        },
+        "required": [
+          "enrollment_id"
+        ]
+      },
+      "executor": "tools/sequence-cancel.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "sequence_import",
+      "description": "Import contacts from a CSV/TSV file and enroll them in a sequence. First call shows a preview; set auto_enroll=true to enroll.",
+      "category": "messaging",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Absolute path to the CSV/TSV file"
+          },
+          "sequence_id": {
+            "type": "string",
+            "description": "Sequence ID to enroll contacts in"
+          },
+          "auto_enroll": {
+            "type": "boolean",
+            "description": "Set to true to enroll contacts (default false = preview mode)"
+          }
+        },
+        "required": [
+          "file_path",
+          "sequence_id"
+        ]
+      },
+      "executor": "tools/sequence-import.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "sequence_analytics",
+      "description": "View sequence analytics dashboard with send/reply/completion metrics, per-step funnel, and recent activity.",
+      "category": "messaging",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sequence_id": {
+            "type": "string",
+            "description": "Optional sequence ID for detailed step funnel view"
+          }
+        }
+      },
+      "executor": "tools/sequence-analytics.ts",
       "execution_target": "host"
     }
   ]

@@ -81,6 +81,9 @@ export async function ssh(): Promise<void> {
       ["compute", "ssh", sshTarget, `--project=${project}`, `--zone=${zone}`],
       { stdio: "inherit" },
     );
+  } else if (cloud === "vellum") {
+    console.error("SSH to Vellum-managed instances is not yet supported.");
+    process.exit(1);
   } else if (cloud === "custom") {
     const host = extractHostFromUrl(entry.runtimeUrl);
     const sshUser = entry.sshUser ?? "root";

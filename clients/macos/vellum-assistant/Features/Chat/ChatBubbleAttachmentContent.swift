@@ -31,15 +31,12 @@ extension ChatBubble {
     }
 
     func attachmentImageGrid(_ images: [(ChatAttachment, NSImage)]) -> some View {
-        let columns = images.count == 1
-            ? [GridItem(.flexible())]
-            : [GridItem(.flexible(), spacing: VSpacing.sm), GridItem(.flexible(), spacing: VSpacing.sm)]
-        return LazyVGrid(columns: columns, alignment: .leading, spacing: VSpacing.sm) {
+        HStack(spacing: VSpacing.sm) {
             ForEach(images, id: \.0.id) { attachment, nsImage in
                 Image(nsImage: nsImage)
                     .resizable()
-                    .aspectRatio(contentMode: images.count == 1 ? .fit : .fill)
-                    .frame(maxHeight: images.count == 1 ? 320 : 180)
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 60, height: 60)
                     .clipped()
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                     .onTapGesture {
@@ -118,7 +115,9 @@ extension ChatBubble {
         panel.canCreateDirectories = true
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
-            try? data.write(to: url)
+            DispatchQueue.global(qos: .userInitiated).async {
+                try? data.write(to: url)
+            }
         }
     }
 

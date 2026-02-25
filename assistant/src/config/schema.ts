@@ -112,6 +112,7 @@ export {
   IngressRateLimitConfigSchema,
   IngressConfigSchema,
   DaemonConfigSchema,
+  PlatformConfigSchema,
 } from './core-schema.js';
 export type {
   TimeoutConfig,
@@ -128,6 +129,7 @@ export type {
   IngressRateLimitConfig,
   IngressConfig,
   DaemonConfig,
+  PlatformConfig,
 } from './core-schema.js';
 
 // Imports for AssistantConfigSchema composition
@@ -150,6 +152,7 @@ import {
   SmsConfigSchema,
   IngressConfigSchema,
   DaemonConfigSchema,
+  PlatformConfigSchema,
 } from './core-schema.js';
 
 const VALID_PROVIDERS = ['anthropic', 'openai', 'gemini', 'ollama', 'fireworks', 'openrouter'] as const;
@@ -185,6 +188,11 @@ export const AssistantConfigSchema = z.object({
     .int('maxTokens must be an integer')
     .positive('maxTokens must be a positive integer')
     .default(16000),
+  maxToolUseTurns: z
+    .number({ error: 'maxToolUseTurns must be a number' })
+    .int('maxToolUseTurns must be an integer')
+    .positive('maxToolUseTurns must be a positive integer')
+    .default(60),
   thinking: ThinkingConfigSchema.default({
     enabled: false,
     budgetTokens: 10000,
@@ -263,6 +271,7 @@ export const AssistantConfigSchema = z.object({
       enqueueIntervalMs: 6 * 60 * 60 * 1000,
       resolvedConflictRetentionMs: 30 * 24 * 60 * 60 * 1000,
       supersededItemRetentionMs: 30 * 24 * 60 * 60 * 1000,
+      conversationRetentionDays: 90,
     },
     extraction: {
       useLLM: true,
@@ -440,6 +449,7 @@ export const AssistantConfigSchema = z.object({
     phoneNumber: '',
   }),
   ingress: IngressConfigSchema,
+  platform: PlatformConfigSchema.default({ baseUrl: '' }),
   daemon: DaemonConfigSchema.default({
     startupSocketWaitMs: 5000,
     stopTimeoutMs: 5000,

@@ -271,29 +271,32 @@ struct MarkdownTableView: View {
                         .foregroundColor(VColor.textSecondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, VSpacing.sm)
-                        .padding(.vertical, VSpacing.xs)
+                        .padding(.vertical, VSpacing.sm)
+                        .textSelection(.enabled)
                 }
             }
-            .background(VColor.backgroundSubtle)
 
             Divider().background(VColor.surfaceBorder)
 
-            // Data rows
+            // Data rows with separators between them
             ForEach(Array(rows.enumerated()), id: \.offset) { rowIdx, row in
                 HStack(spacing: 0) {
                     ForEach(Array(row.enumerated()), id: \.offset) { _, cell in
                         inlineMarkdownCell(cell)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, VSpacing.sm)
-                            .padding(.vertical, VSpacing.xs)
+                            .padding(.vertical, VSpacing.sm)
                     }
                 }
-                .background(rowIdx % 2 == 1 ? VColor.backgroundSubtle.opacity(0.5) : Color.clear)
+                if rowIdx < rows.count - 1 {
+                    Divider().background(VColor.surfaceBorder.opacity(0.5))
+                }
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+        .background(VColor.surface.opacity(0.5))
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .overlay(
-            RoundedRectangle(cornerRadius: VRadius.sm)
+            RoundedRectangle(cornerRadius: VRadius.md)
                 .stroke(VColor.surfaceBorder, lineWidth: 0.5)
         )
         .frame(maxWidth: maxWidth, alignment: .leading)
@@ -306,7 +309,8 @@ struct MarkdownTableView: View {
         let attributed = (try? AttributedString(markdown: text, options: options))
             ?? AttributedString(text)
         return Text(attributed)
-            .font(VFont.caption)
+            .font(VFont.body)
             .foregroundColor(VColor.textPrimary)
+            .textSelection(.enabled)
     }
 }

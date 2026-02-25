@@ -17,6 +17,12 @@ export interface IngressConfigRequest {
   enabled?: boolean;
 }
 
+export interface PlatformConfigRequest {
+  type: 'platform_config';
+  action: 'get' | 'set';
+  baseUrl?: string;
+}
+
 export interface VercelApiConfigRequest {
   type: 'vercel_api_config';
   action: 'get' | 'set' | 'delete';
@@ -82,6 +88,7 @@ export interface GuardianVerificationRequest {
   channel?: ChannelId;  // Defaults to 'telegram'
   sessionId?: string;
   assistantId?: string;  // Defaults to 'self'
+  rebind?: boolean;  // When true, allows creating a challenge even if a binding already exists
 }
 
 export interface TwitterAuthStartRequest {
@@ -127,6 +134,13 @@ export interface IngressConfigResponse {
   publicBaseUrl: string;
   /** Read-only gateway target computed from GATEWAY_PORT env var (default 7830) + loopback host. */
   localGatewayTarget: string;
+  success: boolean;
+  error?: string;
+}
+
+export interface PlatformConfigResponse {
+  type: 'platform_config_response';
+  baseUrl: string;
   success: boolean;
   error?: string;
 }
@@ -237,6 +251,8 @@ export interface GuardianVerificationResponse {
   /** Whether a pending verification challenge exists for this (assistantId, channel). Used by relay setup to detect active voice verification sessions. */
   hasPendingChallenge?: boolean;
   error?: string;
+  /** Human-readable error detail (e.g. for already_bound failures). */
+  message?: string;
 }
 
 export interface TwitterAuthResult {

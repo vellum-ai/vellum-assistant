@@ -494,19 +494,39 @@ describe('credential_store tool — oauth2_connect error paths', () => {
   });
 
   test('uses stored client_id from secure storage', async () => {
-    // Store a client_id for the service
+    // Store both client_id and client_secret for the service — the
+    // requiresClientSecret guardrail will short-circuit if client_secret
+    // is missing, so we need both to validate that stored client_id
+    // is resolved correctly.
     setSecureKey('credential:integration:gmail:client_id', 'stored-client-id-123');
+    setSecureKey('credential:integration:gmail:client_secret', 'test-secret');
 
     const result = await credentialStoreTool.execute({
       action: 'oauth2_connect',
       service: 'gmail',
     }, { ..._ctx, isInteractive: false });
 
-    // Should pass client_id check but fail on interactive check
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain('interactive client session');
-    // Does NOT contain client_id error
+    // Should pass client_id and client_secret checks — the flow proceeds
+    // through the channel path (gmail uses loopback transport so no
+    // public ingress URL is needed) and returns the authorization URL.
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('To connect gmail, open this link');
     expect(result.content).not.toContain('client_id is required');
+    expect(result.content).not.toContain('client_secret is required');
+  });
+
+  test('rejects when client_secret is missing for service that requires it', async () => {
+    // Store only client_id — client_secret is intentionally absent to
+    // validate the requiresClientSecret guardrail.
+    setSecureKey('credential:integration:gmail:client_id', 'stored-client-id-456');
+
+    const result = await credentialStoreTool.execute({
+      action: 'oauth2_connect',
+      service: 'gmail',
+    }, _ctx);
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('client_secret is required for gmail');
   });
 });
 

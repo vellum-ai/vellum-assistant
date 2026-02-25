@@ -17,6 +17,7 @@ import { findMember, updateLastSeen, upsertMember } from '../../memory/ingress-m
 import {
   getGuardianBinding,
   validateAndConsumeChallenge,
+  getPendingChallenge,
 } from '../channel-guardian-service.js';
 import { resolveGuardianContext } from '../guardian-context-resolver.js';
 import {
@@ -57,12 +58,24 @@ import {
   buildPromptDeliveryFailureContext,
   RUN_POLL_INTERVAL_MS,
   getEffectivePollMaxWait,
+  canonicalChannelAssistantId,
 } from './channel-route-shared.js';
 import { deliverReplyViaCallback } from './channel-delivery-routes.js';
 import { handleApprovalInterception } from './guardian-approval-interception.js';
 import { deliverGeneratedApprovalPrompt } from './guardian-approval-prompt.js';
 
 const log = getLogger('runtime-http');
+
+/**
+ * Parse a `/guardian_verify` command from message content.
+ * Supports `/guardian_verify <code>`, `/guardian_verify@BotName <code>`,
+ * and normalized whitespace.
+ * Returns the verification code if the message is a verify command, or undefined otherwise.
+ */
+function parseGuardianVerifyCommand(content: string): string | undefined {
+  const match = content.match(/^\/guardian_verify(?:@\S+)?\s+(\S+)/);
+  return match?.[1];
+}
 
 export async function handleChannelInbound(
   req: Request,
@@ -164,6 +177,13 @@ export async function handleChannelInbound(
     return Response.json({ error: 'content or attachmentIds is required' }, { status: 400 });
   }
 
+  // Canonicalize the assistant ID so all DB-facing operations use the
+  // consistent 'self' key regardless of what the gateway sent.
+  const canonicalAssistantId = canonicalChannelAssistantId(assistantId);
+  if (canonicalAssistantId !== assistantId) {
+    log.debug({ raw: assistantId, canonical: canonicalAssistantId }, 'Canonicalized channel assistant ID');
+  }
+
   // ── Ingress ACL enforcement ──
   // Track the resolved member so the escalate branch can reference it after
   // recordInbound (where we have a conversationId).
@@ -171,30 +191,47 @@ export async function handleChannelInbound(
 
   // /guardian_verify must bypass the ACL membership check — users without a
   // member record need to verify before they can be recognized as members.
-  const isGuardianVerifyCommand = trimmedContent.startsWith('/guardian_verify ');
+  const guardianVerifyCode = parseGuardianVerifyCommand(trimmedContent);
+  const isGuardianVerifyCommand = guardianVerifyCode !== undefined;
 
   if (body.senderExternalUserId) {
     resolvedMember = findMember({
-      assistantId,
+      assistantId: canonicalAssistantId,
       sourceChannel,
       externalUserId: body.senderExternalUserId,
       externalChatId,
     });
 
-    if (!resolvedMember && !isGuardianVerifyCommand) {
-      log.info({ sourceChannel, externalUserId: body.senderExternalUserId }, 'Ingress ACL: no member record, denying');
-      if (body.replyCallbackUrl) {
-        try {
-          await deliverChannelReply(body.replyCallbackUrl, {
-            chatId: externalChatId,
-            text: "Sorry, you haven't been approved to message this assistant. You can ask its Guardian for an invite.",
-            assistantId,
-          }, bearerToken);
-        } catch (err) {
-          log.error({ err, externalChatId }, 'Failed to deliver ACL rejection reply');
+    if (!resolvedMember) {
+      // Determine whether a /guardian_verify bypass is warranted: only allow
+      // when there is a pending (unconsumed, unexpired) challenge AND no
+      // active guardian binding for this (assistantId, channel).
+      let denyNonMember = true;
+      if (isGuardianVerifyCommand) {
+        const hasActiveBinding = !!getGuardianBinding(canonicalAssistantId, sourceChannel);
+        const hasPendingChallenge = !!getPendingChallenge(canonicalAssistantId, sourceChannel);
+        if (!hasActiveBinding && hasPendingChallenge) {
+          denyNonMember = false;
+        } else {
+          log.info({ sourceChannel, hasActiveBinding, hasPendingChallenge }, 'Ingress ACL: guardian_verify bypass denied');
         }
       }
-      return Response.json({ accepted: true, denied: true, reason: 'not_a_member' });
+
+      if (denyNonMember) {
+        log.info({ sourceChannel, externalUserId: body.senderExternalUserId }, 'Ingress ACL: no member record, denying');
+        if (body.replyCallbackUrl) {
+          try {
+            await deliverChannelReply(body.replyCallbackUrl, {
+              chatId: externalChatId,
+              text: "Sorry, you haven't been approved to message this assistant. You can ask its Guardian for an invite.",
+              assistantId,
+            }, bearerToken);
+          } catch (err) {
+            log.error({ err, externalChatId }, 'Failed to deliver ACL rejection reply');
+          }
+        }
+        return Response.json({ accepted: true, denied: true, reason: 'not_a_member' });
+      }
     }
 
     if (resolvedMember) {
@@ -227,6 +264,8 @@ export async function handleChannelInbound(
             log.error({ err, externalChatId }, 'Failed to deliver ACL rejection reply');
           }
         }
+        return Response.json({ accepted: true, denied: true, reason: 'policy_deny' });
+      }
 
       // 'allow' or 'escalate' — update last seen and continue
       updateLastSeen(resolvedMember.id);
@@ -260,7 +299,7 @@ export async function handleChannelInbound(
       sourceChannel,
       externalChatId,
       externalMessageId,
-      { sourceMessageId, assistantId },
+      { sourceMessageId, assistantId: canonicalAssistantId },
     );
 
     if (editResult.duplicate) {
@@ -319,13 +358,13 @@ export async function handleChannelInbound(
     sourceChannel,
     externalChatId,
     externalMessageId,
-    { sourceMessageId, assistantId },
+    { sourceMessageId, assistantId: canonicalAssistantId },
   );
 
   // external_conversation_bindings is assistant-agnostic. Restrict writes to
   // self so assistant-scoped legacy routes do not overwrite each other's
   // channel binding metadata for the same chat.
-  if (assistantId === 'self') {
+  if (canonicalAssistantId === 'self') {
     externalConversationStore.upsertBinding({
       conversationId: result.conversationId,
       sourceChannel,
@@ -341,7 +380,7 @@ export async function handleChannelInbound(
   // approval request and halt the run. This check runs after recordInbound
   // so we have a conversationId for the approval record.
   if (resolvedMember?.policy === 'escalate') {
-    const binding = getGuardianBinding(assistantId, sourceChannel);
+    const binding = getGuardianBinding(canonicalAssistantId, sourceChannel);
     if (!binding) {
       // Fail-closed: can't escalate without a guardian to route to
       log.info({ sourceChannel, memberId: resolvedMember.id }, 'Ingress ACL: escalate policy but no guardian binding, denying');
@@ -357,13 +396,13 @@ export async function handleChannelInbound(
       senderExternalUserId: body.senderExternalUserId,
       senderUsername: body.senderUsername,
       replyCallbackUrl: body.replyCallbackUrl,
-      assistantId,
+      assistantId: canonicalAssistantId,
     });
 
     createApprovalRequest({
       runId: `ingress-escalation-${Date.now()}`,
       conversationId: result.conversationId,
-      assistantId,
+      assistantId: canonicalAssistantId,
       channel: sourceChannel,
       requesterExternalUserId: body.senderExternalUserId ?? '',
       requesterChatId: externalChatId,
@@ -376,7 +415,7 @@ export async function handleChannelInbound(
     });
 
     // Update inbox thread escalation state so the desktop UI badge is accurate
-    refreshThreadEscalation(result.conversationId, assistantId);
+    refreshThreadEscalation(result.conversationId, canonicalAssistantId);
 
     // Emit notification signal through the unified pipeline (fire-and-forget).
     // This lets the decision engine route escalation alerts to all configured
@@ -385,7 +424,7 @@ export async function handleChannelInbound(
       sourceEventName: 'ingress.escalation',
       sourceChannel: sourceChannel,
       sourceSessionId: result.conversationId,
-      assistantId,
+      assistantId: canonicalAssistantId,
       attentionHints: {
         requiresAction: true,
         urgency: 'high',
@@ -471,64 +510,61 @@ export async function handleChannelInbound(
   // Handled before normal message processing so it never enters the agent loop.
   if (
     !result.duplicate &&
-    trimmedContent.startsWith('/guardian_verify ') &&
+    guardianVerifyCode !== undefined &&
     replyCallbackUrl &&
     body.senderExternalUserId
   ) {
-    const token = trimmedContent.slice('/guardian_verify '.length).trim();
-    if (token.length > 0) {
-      const verifyResult = validateAndConsumeChallenge(
-        assistantId,
+    const verifyResult = validateAndConsumeChallenge(
+      canonicalAssistantId,
+      sourceChannel,
+      guardianVerifyCode,
+      body.senderExternalUserId,
+      externalChatId,
+      body.senderUsername,
+      body.senderName,
+    );
+
+    if (verifyResult.success) {
+      upsertMember({
+        assistantId: canonicalAssistantId,
         sourceChannel,
-        token,
-        body.senderExternalUserId,
+        externalUserId: body.senderExternalUserId,
         externalChatId,
-        body.senderUsername,
-        body.senderName,
-      );
-
-      if (verifyResult.success) {
-        upsertMember({
-          assistantId,
-          sourceChannel,
-          externalUserId: body.senderExternalUserId,
-          externalChatId,
-          status: 'active',
-          policy: 'allow',
-          displayName: body.senderName,
-          username: body.senderUsername,
-        });
-        log.info({ sourceChannel, externalUserId: body.senderExternalUserId }, 'Guardian verified: auto-upserted ingress member');
-      }
-
-      const replyText = verifyResult.success
-        ? await composeApprovalMessageGenerative({
-          scenario: 'guardian_verify_success',
-          channel: sourceChannel,
-        }, {}, approvalCopyGenerator)
-        : await composeApprovalMessageGenerative({
-          scenario: 'guardian_verify_failed',
-          channel: sourceChannel,
-          failureReason: stripVerificationFailurePrefix(verifyResult.reason),
-        }, {}, approvalCopyGenerator);
-
-      try {
-        await deliverChannelReply(replyCallbackUrl, {
-          chatId: externalChatId,
-          text: replyText,
-          assistantId,
-        }, bearerToken);
-      } catch (err) {
-        log.error({ err, externalChatId }, 'Failed to deliver guardian verification reply');
-      }
-
-      return Response.json({
-        accepted: true,
-        duplicate: false,
-        eventId: result.eventId,
-        guardianVerification: verifyResult.success ? 'verified' : 'failed',
+        status: 'active',
+        policy: 'allow',
+        displayName: body.senderName,
+        username: body.senderUsername,
       });
+      log.info({ sourceChannel, externalUserId: body.senderExternalUserId }, 'Guardian verified: auto-upserted ingress member');
     }
+
+    const replyText = verifyResult.success
+      ? await composeApprovalMessageGenerative({
+        scenario: 'guardian_verify_success',
+        channel: sourceChannel,
+      }, {}, approvalCopyGenerator)
+      : await composeApprovalMessageGenerative({
+        scenario: 'guardian_verify_failed',
+        channel: sourceChannel,
+        failureReason: stripVerificationFailurePrefix(verifyResult.reason),
+      }, {}, approvalCopyGenerator);
+
+    try {
+      await deliverChannelReply(replyCallbackUrl, {
+        chatId: externalChatId,
+        text: replyText,
+        assistantId,
+      }, bearerToken);
+    } catch (err) {
+      log.error({ err, externalChatId }, 'Failed to deliver guardian verification reply');
+    }
+
+    return Response.json({
+      accepted: true,
+      duplicate: false,
+      eventId: result.eventId,
+      guardianVerification: verifyResult.success ? 'verified' : 'failed',
+    });
   }
 
   // ── Guardian action answer interception ──
@@ -541,7 +577,7 @@ export async function handleChannelInbound(
     body.senderExternalUserId &&
     replyCallbackUrl
   ) {
-    const pendingDeliveries = getPendingDeliveriesByDestination(assistantId, sourceChannel, externalChatId);
+    const pendingDeliveries = getPendingDeliveriesByDestination(canonicalAssistantId, sourceChannel, externalChatId);
     if (pendingDeliveries.length > 0) {
       // Identity check: only the designated guardian can answer
       const validDeliveries = pendingDeliveries.filter(
@@ -660,7 +696,7 @@ export async function handleChannelInbound(
   // Uses shared channel-agnostic resolution so all ingress paths classify
   // guardian vs non-guardian actors the same way.
   const guardianCtx: GuardianContext = resolveGuardianContext({
-    assistantId,
+    assistantId: canonicalAssistantId,
     sourceChannel,
     externalChatId,
     senderExternalUserId: body.senderExternalUserId,
@@ -685,7 +721,7 @@ export async function handleChannelInbound(
       bearerToken,
       orchestrator: runOrchestrator,
       guardianCtx,
-      assistantId,
+      assistantId: canonicalAssistantId,
       approvalCopyGenerator,
       approvalConversationGenerator,
     });
@@ -728,7 +764,7 @@ export async function handleChannelInbound(
       senderUsername: body.senderUsername,
       guardianCtx: toGuardianRuntimeContext(sourceChannel, guardianCtx),
       replyCallbackUrl,
-      assistantId,
+      assistantId: canonicalAssistantId,
     });
 
     const contentToCheck = content ?? '';
@@ -765,7 +801,7 @@ export async function handleChannelInbound(
         replyCallbackUrl,
         bearerToken,
         guardianCtx,
-        assistantId,
+        assistantId: canonicalAssistantId,
         metadataHints,
         metadataUxBrief,
         commandIntent,
@@ -791,7 +827,7 @@ export async function handleChannelInbound(
         sourceLanguageCode,
         replyCallbackUrl,
         bearerToken,
-        assistantId,
+        assistantId: canonicalAssistantId,
       });
     }
   }

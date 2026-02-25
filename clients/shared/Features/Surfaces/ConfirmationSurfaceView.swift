@@ -3,6 +3,7 @@ import SwiftUI
 public struct ConfirmationSurfaceView: View {
     public let data: ConfirmationSurfaceData
     public let actions: [SurfaceActionButton]
+    public let showCardChrome: Bool
     public let onAction: (String) -> Void
 
     private enum SelectedAction {
@@ -12,9 +13,10 @@ public struct ConfirmationSurfaceView: View {
 
     @State private var selectedAction: SelectedAction?
 
-    public init(data: ConfirmationSurfaceData, actions: [SurfaceActionButton], onAction: @escaping (String) -> Void) {
+    public init(data: ConfirmationSurfaceData, actions: [SurfaceActionButton], showCardChrome: Bool = false, onAction: @escaping (String) -> Void) {
         self.data = data
         self.actions = actions
+        self.showCardChrome = showCardChrome
         self.onAction = onAction
     }
 
@@ -36,20 +38,20 @@ public struct ConfirmationSurfaceView: View {
         return "confirm"
     }
 
-    /// Composite identity for detecting data changes from surface updates.
-    private var dataIdentity: String {
-        "\(data.message)|\(data.detail ?? "")|\(data.confirmLabel ?? "")|\(data.cancelLabel ?? "")|\(data.destructive)"
-    }
-
     public var body: some View {
         Group {
             if let selectedAction {
                 selectedActionFeedback(selectedAction)
+            } else if showCardChrome {
+                pendingContent
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .inlineWidgetCard()
             } else {
                 pendingContent
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .onChange(of: dataIdentity) { _, _ in
+        .onChange(of: data) { _, _ in
             selectedAction = nil
         }
     }
@@ -101,9 +103,10 @@ public struct ConfirmationSurfaceView: View {
         HStack(spacing: VSpacing.sm) {
             switch action {
             case .confirmed:
-                ProgressView()
-                    .controlSize(.small)
-                Text(data.confirmLabel.map { "\($0)..." } ?? "In progress...")
+                Image(systemName: "checkmark.circle.fill")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.success)
+                Text(data.confirmedLabel ?? "Done")
                     .font(VFont.captionMedium)
                     .foregroundColor(VColor.textPrimary)
             case .cancelled:
