@@ -88,13 +88,13 @@ Take a `browser_snapshot`:
 
 Fill in the consent screen form:
 1. **App name:** "Vellum Assistant"
-2. **User support email:** This is an Angular Material dropdown that doesn't work well with direct clicks. Use this approach:
-   - Take a `browser_snapshot` to find the dropdown element (it may appear as a `mat-select` or a div with "User support email" label)
+2. **User support email:** This is an Angular Material dropdown. Use this approach:
+   - Take a `browser_snapshot` to find the dropdown element (look for a `mat-select` or element with "User support email" label)
    - Click the dropdown element_id to open it
-   - Wait briefly (`browser_wait_for` with duration 500ms) for the overlay to render
-   - Use `browser_press_key` with `ArrowDown` to highlight the email option
-   - Use `browser_press_key` with `Enter` to select it
-   - If the dropdown didn't open on click, try: focus the element with `browser_click`, then press `Space` to open it, then ArrowDown + Enter
+   - Wait briefly (`browser_wait_for` with duration 1000ms) for the overlay to render
+   - Take a **new** `browser_snapshot` — the dropdown options now appear as `[role="option"]` elements with the email addresses as text
+   - Click the element_id of the desired email option (the user's own email, e.g. the first option)
+   - If the dropdown didn't open on click, try: focus the element with `browser_click`, then press `Space` to open it, then take another snapshot and click the option
 3. **Developer contact email:** Type the user's email address
 4. Leave other fields as defaults
 
