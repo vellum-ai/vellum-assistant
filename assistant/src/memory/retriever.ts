@@ -627,9 +627,32 @@ export function stripMemoryRecallMessages<T extends { role: 'user' | 'assistant'
   const recallText = memoryRecallText ?? '';
   if (recallText.trim().length === 0) return messages;
 
-  // Single backward scan: find the last user message containing the recall
-  // text block, regardless of whether it's the sole block (separate_context_message)
-  // or one of many (prepend_user_block / repair-merged).
+  const isAck = (msg: T) =>
+    msg.role === 'assistant' &&
+    msg.content.length === 1 &&
+    msg.content[0].type === 'text' &&
+    msg.content[0].text === MEMORY_CONTEXT_ACK;
+
+  // Prefer the canonical separate_context_message pair: a user message whose
+  // sole text block is the recall text, followed by an assistant ack. This
+  // must be checked first so that a real user message that happens to contain
+  // the same text is not incorrectly removed instead of the synthetic one.
+  if (injectionStrategy !== 'prepend_user_block') {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      if (msg.role !== 'user') continue;
+      if (msg.content.length !== 1) continue;
+      const block = msg.content[0];
+      if (block.type !== 'text' || block.text !== recallText) continue;
+      const next = messages[i + 1];
+      if (next && isAck(next)) {
+        return [...messages.slice(0, i), ...messages.slice(i + 2)];
+      }
+    }
+  }
+
+  // Fall back to generic text-match removal: find the last user message
+  // containing the recall text block (prepend_user_block or repair-merged).
   let targetIndex = -1;
   let blockIndex = -1;
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -647,23 +670,8 @@ export function stripMemoryRecallMessages<T extends { role: 'user' | 'assistant'
   }
   if (targetIndex === -1) return messages;
 
-  // When separate_context_message was used (or strategy is unknown), check
-  // for an adjacent assistant ack to strip. prepend_user_block never injects
-  // a synthetic ack, so we skip this to avoid deleting a real assistant reply.
-  const shouldStripAck = injectionStrategy !== 'prepend_user_block';
-  const isAck = (msg: T) =>
-    msg.role === 'assistant' &&
-    msg.content.length === 1 &&
-    msg.content[0].type === 'text' &&
-    msg.content[0].text === MEMORY_CONTEXT_ACK;
-  const ackIndex =
-    shouldStripAck && targetIndex + 1 < messages.length && isAck(messages[targetIndex + 1])
-      ? targetIndex + 1
-      : -1;
-
   const cleaned: T[] = [];
   for (let i = 0; i < messages.length; i++) {
-    if (i === ackIndex) continue;
     if (i !== targetIndex) {
       cleaned.push(messages[i]);
       continue;
