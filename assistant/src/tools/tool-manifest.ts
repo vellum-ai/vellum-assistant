@@ -31,9 +31,6 @@ export async function loadEagerModules(): Promise<void> {
   await import('./assets/search.js');
   await import('./assets/materialize.js');
   await import('./filesystem/view-image.js');
-  await import('./calls/call-start.js');
-  await import('./calls/call-status.js');
-  await import('./calls/call-end.js');
   await import('./system/version.js');
 }
 
@@ -54,9 +51,6 @@ export const eagerModuleToolNames: string[] = [
   'asset_search',
   'asset_materialize',
   'view_image',
-  'call_start',
-  'call_status',
-  'call_end',
   'version',
 ];
 

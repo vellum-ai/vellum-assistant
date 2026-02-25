@@ -1,0 +1,76 @@
+{
+  "version": 1,
+  "tools": [
+    {
+      "name": "call_start",
+      "description": "Place an outbound phone call via AI voice. The assistant will converse with the callee on behalf of the user.",
+      "category": "communication",
+      "risk": "high",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "phone_number": {
+            "type": "string",
+            "description": "E.164 formatted phone number (e.g. +14155551234)"
+          },
+          "task": {
+            "type": "string",
+            "description": "What the call should accomplish"
+          },
+          "context": {
+            "type": "string",
+            "description": "Additional context for the conversation"
+          },
+          "caller_identity_mode": {
+            "type": "string",
+            "enum": ["assistant_number", "user_number"],
+            "description": "Which phone number to use as the caller ID. assistant_number uses the AI assistant's Twilio number; user_number uses the user's verified personal number."
+          }
+        },
+        "required": ["phone_number", "task"]
+      },
+      "executor": "tools/call-start.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "call_status",
+      "description": "Check the status of an active or recent phone call",
+      "category": "communication",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "call_session_id": {
+            "type": "string",
+            "description": "Specific call session ID to check. If omitted, checks for an active call in the current conversation."
+          }
+        },
+        "required": []
+      },
+      "executor": "tools/call-status.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "call_end",
+      "description": "End an active phone call",
+      "category": "communication",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "call_session_id": {
+            "type": "string",
+            "description": "The call session ID to end"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Reason for ending the call"
+          }
+        },
+        "required": ["call_session_id"]
+      },
+      "executor": "tools/call-end.ts",
+      "execution_target": "host"
+    }
+  ]
+}
