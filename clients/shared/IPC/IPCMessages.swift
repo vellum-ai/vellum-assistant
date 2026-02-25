@@ -148,8 +148,8 @@ extension IPCUserMessageAttachment {
 public typealias CuSessionCreateMessage = IPCCuSessionCreate
 
 extension IPCCuSessionCreate {
-    public init(sessionId: String, task: String, screenWidth: Int, screenHeight: Int, attachments: [IPCAttachment]?, interactionType: String?) {
-        self.init(type: "cu_session_create", sessionId: sessionId, task: task, screenWidth: screenWidth, screenHeight: screenHeight, attachments: attachments, interactionType: interactionType)
+    public init(sessionId: String, task: String, screenWidth: Int, screenHeight: Int, attachments: [IPCAttachment]?, interactionType: String?, attachToConversationId: String? = nil) {
+        self.init(type: "cu_session_create", sessionId: sessionId, task: task, screenWidth: screenWidth, screenHeight: screenHeight, attachments: attachments, interactionType: interactionType, attachToConversationId: attachToConversationId)
     }
 }
 
@@ -310,8 +310,8 @@ extension IPCUserMessage {
 public typealias TaskSubmitMessage = IPCTaskSubmit
 
 extension IPCTaskSubmit {
-    public init(task: String, screenWidth: Int, screenHeight: Int, attachments: [IPCAttachment]?, source: String?) {
-        self.init(type: "task_submit", task: task, screenWidth: screenWidth, screenHeight: screenHeight, attachments: attachments, source: source)
+    public init(task: String, screenWidth: Int, screenHeight: Int, attachments: [IPCAttachment]?, source: String?, conversationId: String? = nil) {
+        self.init(type: "task_submit", task: task, screenWidth: screenWidth, screenHeight: screenHeight, attachments: attachments, source: source, conversationId: conversationId)
     }
 }
 

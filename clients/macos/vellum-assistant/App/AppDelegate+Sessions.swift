@@ -202,13 +202,15 @@ extension AppDelegate {
                     extractedText: $0.extractedText
                 )
             }
+            let activeConversationId = self.mainWindow?.threadManager?.activeThread?.sessionId
             do {
                 try self.daemonClient.send(TaskSubmitMessage(
                     task: effectiveTask,
                     screenWidth: Int(screenBounds.width),
                     screenHeight: Int(screenBounds.height),
                     attachments: ipcAttachments,
-                    source: submission.source
+                    source: submission.source,
+                    conversationId: activeConversationId
                 ))
             } catch {
                 log.error("Failed to send task submit message: \(error)")

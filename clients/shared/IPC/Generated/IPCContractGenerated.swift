@@ -1317,8 +1317,10 @@ public struct IPCCuSessionCreate: Codable, Sendable {
     public let requiresRecording: Bool?
     /// Recording source/options selected by the client or requested by the daemon.
     public let recordingOptions: IPCRecordingOptions?
+    /// Conversation ID to attach recording artifacts (e.g., screen recordings) to.
+    public let attachToConversationId: String?
 
-    public init(type: String, sessionId: String, task: String, screenWidth: Int, screenHeight: Int, attachments: [IPCUserMessageAttachment]? = nil, interactionType: String? = nil, requiresRecording: Bool? = nil, recordingOptions: IPCRecordingOptions? = nil) {
+    public init(type: String, sessionId: String, task: String, screenWidth: Int, screenHeight: Int, attachments: [IPCUserMessageAttachment]? = nil, interactionType: String? = nil, requiresRecording: Bool? = nil, recordingOptions: IPCRecordingOptions? = nil, attachToConversationId: String? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.task = task
@@ -1328,6 +1330,7 @@ public struct IPCCuSessionCreate: Codable, Sendable {
         self.interactionType = interactionType
         self.requiresRecording = requiresRecording
         self.recordingOptions = recordingOptions
+        self.attachToConversationId = attachToConversationId
     }
 }
 
@@ -4293,14 +4296,17 @@ public struct IPCTaskSubmit: Codable, Sendable {
     public let screenHeight: Int
     public let attachments: [IPCUserMessageAttachment]?
     public let source: String?
+    /// The conversation ID of the active thread when the task was submitted.
+    public let conversationId: String?
 
-    public init(type: String, task: String, screenWidth: Int, screenHeight: Int, attachments: [IPCUserMessageAttachment]? = nil, source: String? = nil) {
+    public init(type: String, task: String, screenWidth: Int, screenHeight: Int, attachments: [IPCUserMessageAttachment]? = nil, source: String? = nil, conversationId: String? = nil) {
         self.type = type
         self.task = task
         self.screenWidth = screenWidth
         self.screenHeight = screenHeight
         self.attachments = attachments
         self.source = source
+        self.conversationId = conversationId
     }
 }
 
