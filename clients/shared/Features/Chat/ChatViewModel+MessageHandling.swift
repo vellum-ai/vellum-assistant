@@ -501,12 +501,16 @@ extension ChatViewModel {
                 refinementTextBuffer += delta.text
                 // Throttle refinement streaming updates with 50ms coalescing
                 // to prevent republishing the entire accumulated buffer on
-                // every single token (same pattern as message streaming flush).
-                refinementFlushTask?.cancel()
-                refinementFlushTask = Task { @MainActor [weak self] in
-                    try? await Task.sleep(nanoseconds: 50_000_000)
-                    guard !Task.isCancelled, let self else { return }
-                    self.refinementStreamingText = self.refinementTextBuffer
+                // every single token (same guard-based throttle pattern as
+                // scheduleStreamingFlush — not debounce, so flushes fire
+                // during streaming even when tokens arrive faster than 50ms).
+                if refinementFlushTask == nil {
+                    refinementFlushTask = Task { @MainActor [weak self] in
+                        try? await Task.sleep(nanoseconds: 50_000_000)
+                        guard !Task.isCancelled, let self else { return }
+                        self.refinementFlushTask = nil
+                        self.refinementStreamingText = self.refinementTextBuffer
+                    }
                 }
                 return
             }
