@@ -56,6 +56,10 @@ const mockConfig = {
     userConsultTimeoutSeconds: 120,
     disclosure: { enabled: false, text: '' },
     safety: { denyCategories: [] },
+    callerIdentity: {
+      allowPerCallOverride: true,
+      userNumber: undefined as string | undefined,
+    },
     verification: {
       enabled: false,
       maxAttempts: 3,
@@ -230,6 +234,7 @@ describe('relay-server', () => {
     mockConfig.calls.verification.enabled = false;
     mockConfig.calls.verification.maxAttempts = 3;
     mockConfig.calls.verification.codeLength = 6;
+    mockConfig.calls.callerIdentity.userNumber = undefined;
   });
 
   // ── Setup message handling ──────────────────────────────────────
@@ -1194,6 +1199,95 @@ describe('relay-server', () => {
     expect(runtimeContext?.actorRole).toBe('non-guardian');
     expect(runtimeContext?.guardianExternalUserId).toBe('+15550009999');
     expect(runtimeContext?.requesterExternalUserId).toBe('+15550002222');
+
+    relay.destroy();
+  });
+
+  test('outbound call: callee matching active voice binding is classified as guardian', async () => {
+    ensureConversation('conv-guardian-outbound-voice-match');
+    ensureConversation('conv-guardian-outbound-voice-origin');
+    const session = createCallSession({
+      conversationId: 'conv-guardian-outbound-voice-match',
+      provider: 'twilio',
+      fromNumber: '+15551111111',
+      toNumber: '+15550001111',
+      assistantId: 'test-assistant',
+      initiatedFromConversationId: 'conv-guardian-outbound-voice-origin',
+    });
+
+    createBinding({
+      assistantId: 'test-assistant',
+      channel: 'voice',
+      guardianExternalUserId: '+15550001111',
+      guardianDeliveryChatId: '+15550001111',
+    });
+
+    mockSendMessage.mockImplementation(createMockProviderResponse(['Hello there.']));
+
+    const { relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_guardian_outbound_voice_match',
+      from: '+15551111111',
+      to: '+15550001111',
+    }));
+
+    const runtimeContext = (relay.getController() as unknown as {
+      guardianContext?: {
+        sourceChannel?: string;
+        actorRole?: string;
+        guardianExternalUserId?: string;
+      };
+    })?.guardianContext;
+    expect(runtimeContext?.sourceChannel).toBe('voice');
+    expect(runtimeContext?.actorRole).toBe('guardian');
+    expect(runtimeContext?.guardianExternalUserId).toBe('+15550001111');
+
+    relay.destroy();
+  });
+
+  test('outbound call: matching configured user number does not override strict voice binding checks', async () => {
+    ensureConversation('conv-guardian-outbound-strict');
+    ensureConversation('conv-guardian-outbound-strict-origin');
+    const session = createCallSession({
+      conversationId: 'conv-guardian-outbound-strict',
+      provider: 'twilio',
+      fromNumber: '+15551111111',
+      toNumber: '+15550001111',
+      assistantId: 'test-assistant',
+      initiatedFromConversationId: 'conv-guardian-outbound-strict-origin',
+    });
+
+    createBinding({
+      assistantId: 'test-assistant',
+      channel: 'telegram',
+      guardianExternalUserId: 'tg-guardian-user',
+      guardianDeliveryChatId: 'tg-guardian-chat',
+    });
+
+    // Number matches the configured owner number, but there is no active
+    // voice guardian binding for this callee.
+    mockConfig.calls.callerIdentity.userNumber = '+15550001111';
+    mockSendMessage.mockImplementation(createMockProviderResponse(['Hello there.']));
+
+    const { relay } = createMockWs(session.id);
+
+    await relay.handleMessage(JSON.stringify({
+      type: 'setup',
+      callSid: 'CA_guardian_outbound_strict',
+      from: '+15551111111',
+      to: '+15550001111',
+    }));
+
+    const runtimeContext = (relay.getController() as unknown as {
+      guardianContext?: {
+        sourceChannel?: string;
+        actorRole?: string;
+      };
+    })?.guardianContext;
+    expect(runtimeContext?.sourceChannel).toBe('voice');
+    expect(runtimeContext?.actorRole).toBe('unverified_channel');
 
     relay.destroy();
   });
