@@ -23,7 +23,6 @@ struct SettingsConnectTab: View {
     @State private var showingRegenerateConfirmation: Bool = false
     @State private var gatewayExpanded: Bool = true
     @State private var advancedExpanded: Bool = false
-    @State private var diagnosticsExpanded: Bool = false
 
     // Telegram credential entry
     @State private var telegramBotTokenText = ""
@@ -55,7 +54,6 @@ struct SettingsConnectTab: View {
             vellumSection
             gatewaySection
             advancedSection
-            diagnosticsSection
             connectionsSection
         }
         .onAppear {
@@ -228,26 +226,6 @@ struct SettingsConnectTab: View {
             isExpanded: $gatewayExpanded
         ) {
             VStack(alignment: .leading, spacing: VSpacing.md) {
-                // Gateway URL field
-                HStack(spacing: VSpacing.xs) {
-                    Text("Gateway URL")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                }
-
-                TextField("https://your-tunnel.example.com", text: $gatewayUrlText)
-                    .focused($isGatewayUrlFocused)
-                    .vInputStyle()
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
-
-                VButton(label: "Save", style: .primary) {
-                    store.saveIngressPublicBaseUrl(gatewayUrlText)
-                }
-
-                Divider()
-                    .background(VColor.surfaceBorder)
-
                 // Local Gateway Target (read-only)
                 HStack(spacing: VSpacing.xs) {
                     Text("Local Gateway Target")
@@ -292,6 +270,83 @@ struct SettingsConnectTab: View {
                 Text("Point your tunnel (ngrok, Cloudflare, etc.) to this address.")
                     .font(VFont.caption)
                     .foregroundColor(VColor.textSecondary)
+
+                // Gateway connection status (checks local daemon)
+                connectionStatusRow(
+                    label: "Gateway",
+                    status: gatewayStatusInfo
+                )
+
+                Divider()
+                    .background(VColor.surfaceBorder)
+
+                // Gateway URL field
+                HStack(spacing: VSpacing.xs) {
+                    Text("Gateway URL")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                }
+
+                HStack(spacing: VSpacing.sm) {
+                    TextField("https://your-tunnel.example.com", text: $gatewayUrlText)
+                        .focused($isGatewayUrlFocused)
+                        .vInputStyle()
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+
+                    VButton(label: "Save", style: .primary) {
+                        store.saveIngressPublicBaseUrl(gatewayUrlText)
+                    }
+                }
+
+                // Tunnel connection status (checks public URL)
+                connectionStatusRow(
+                    label: "Tunnel",
+                    status: tunnelStatusInfo
+                )
+
+                // Diagnostic message when gateway is up but tunnel is down
+                if store.gatewayReachable == true,
+                   !store.ingressPublicBaseUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   store.ingressReachable == false {
+                    HStack(spacing: VSpacing.sm) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(VColor.warning)
+                            .font(.system(size: 12))
+                        Text("Gateway is running but tunnel is unreachable. Check your tunnel configuration.")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.warning)
+                    }
+                }
+
+                Divider()
+                    .background(VColor.surfaceBorder)
+
+                // Test Connection button
+                HStack(spacing: VSpacing.sm) {
+                    if store.isCheckingGateway {
+                        VLoadingIndicator(size: 14, color: VColor.accent)
+                        Text("Checking...")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textSecondary)
+                    } else {
+                        VButton(
+                            label: "Test Connection",
+                            leftIcon: "antenna.radiowaves.left.and.right",
+                            style: .secondary,
+                            isDisabled: store.isCheckingGateway
+                        ) {
+                            Task { await store.testGatewayConnection() }
+                        }
+                    }
+                }
+
+                // Last verified timestamp
+                if let lastChecked = store.gatewayLastChecked {
+                    Text("Last verified: \(relativeTimeString(from: lastChecked))")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
             }
         }
         .padding(VSpacing.lg)
@@ -1353,121 +1408,6 @@ struct SettingsConnectTab: View {
         return formatter.localizedString(for: date, relativeTo: Date())
     }
 
-    // MARK: - Diagnostics Section (merged Status + Test Connection)
-
-    private var diagnosticsSection: some View {
-        VDisclosureSection(
-            title: "Diagnostics",
-            icon: "stethoscope",
-            isExpanded: $diagnosticsExpanded
-        ) {
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                statusContent
-
-                Divider().background(VColor.surfaceBorder)
-
-                testConnectionContent
-            }
-        }
-        .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceSubtle)
-    }
-
-    @ViewBuilder
-    private var statusContent: some View {
-        if store.ingressPublicBaseUrl.isEmpty {
-            HStack(spacing: VSpacing.sm) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundColor(VColor.warning)
-                    .font(.system(size: 14))
-                Text("Set a Gateway URL to enable devices and integrations.")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
-            }
-        } else if !store.ingressEnabled {
-            HStack(spacing: VSpacing.sm) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundColor(VColor.warning)
-                    .font(.system(size: 14))
-                Text("Gateway URL is set but the gateway is not active. Check your tunnel or gateway configuration.")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
-            }
-        } else {
-            HStack(spacing: VSpacing.sm) {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(VColor.success)
-                    .font(.system(size: 14))
-                Text("Configured")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
-            }
-        }
-
-        Text("This URL is used by your devices and integrations to reach this Mac.")
-            .font(VFont.caption)
-            .foregroundColor(VColor.textMuted)
-    }
-
-    @ViewBuilder
-    private var testConnectionContent: some View {
-        // Test Connection button
-        HStack(spacing: VSpacing.sm) {
-            if store.isCheckingGateway {
-                VLoadingIndicator(size: 14, color: VColor.accent)
-                Text("Checking...")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
-            } else {
-                VButton(
-                    label: "Test Connection",
-                    leftIcon: "antenna.radiowaves.left.and.right",
-                    style: .secondary,
-                    isDisabled: store.isCheckingGateway
-                ) {
-                    Task { await store.testGatewayConnection() }
-                }
-            }
-        }
-
-        // Gateway status row
-        connectionStatusRow(
-            label: "Gateway",
-            status: gatewayStatusInfo
-        )
-
-        // Tunnel status row
-        connectionStatusRow(
-            label: "Tunnel",
-            status: tunnelStatusInfo
-        )
-
-        // Diagnostic message when gateway is up but tunnel is down
-        if store.gatewayReachable == true,
-           !store.ingressPublicBaseUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-           store.ingressReachable == false {
-            HStack(spacing: VSpacing.sm) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundColor(VColor.warning)
-                    .font(.system(size: 12))
-                Text("Gateway is running but tunnel is unreachable. Check your tunnel configuration.")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.warning)
-            }
-        }
-
-        // Last verified timestamp
-        if let lastChecked = store.gatewayLastChecked {
-            Text("Last verified: \(relativeTimeString(from: lastChecked))")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
-        }
-
-        // Helper text
-        Text("Gateway checks the local daemon. Tunnel checks the public URL.")
-            .font(VFont.caption)
-            .foregroundColor(VColor.textMuted)
-    }
 
     // MARK: - Connection Status Helpers
 
