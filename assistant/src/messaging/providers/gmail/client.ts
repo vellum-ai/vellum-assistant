@@ -38,8 +38,16 @@ function isRetryable(status: number): boolean {
   return status === 429 || (status >= 500 && status < 600);
 }
 
+const IDEMPOTENT_METHODS = new Set(['GET', 'HEAD', 'PUT', 'DELETE', 'OPTIONS']);
+
+function isIdempotent(options?: RequestInit): boolean {
+  const method = (options?.method ?? 'GET').toUpperCase();
+  return IDEMPOTENT_METHODS.has(method);
+}
+
 async function request<T>(token: string, path: string, options?: RequestInit): Promise<T> {
   const url = `${GMAIL_API_BASE}${path}`;
+  const canRetry = isIdempotent(options);
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const resp = await fetch(url, {
@@ -52,7 +60,7 @@ async function request<T>(token: string, path: string, options?: RequestInit): P
     });
 
     if (!resp.ok) {
-      if (isRetryable(resp.status) && attempt < MAX_RETRIES) {
+      if (canRetry && isRetryable(resp.status) && attempt < MAX_RETRIES) {
         const retryAfter = resp.headers.get('retry-after');
         const delayMs = retryAfter
           ? parseInt(retryAfter, 10) * 1000

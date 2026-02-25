@@ -20,6 +20,7 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
       // Paginate through matching messages, capped to prevent unbounded API/memory usage
       const allMessageIds: string[] = [];
       let pageToken: string | undefined;
+      let truncated = false;
 
       while (allMessageIds.length < MAX_MESSAGES) {
         const listResp = await listMessages(token, query, Math.min(500, MAX_MESSAGES - allMessageIds.length), pageToken);
@@ -28,6 +29,11 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
         allMessageIds.push(...ids);
         pageToken = listResp.nextPageToken ?? undefined;
         if (!pageToken) break;
+      }
+
+      // If we stopped because we hit the cap while more pages existed, flag truncation
+      if (allMessageIds.length >= MAX_MESSAGES && pageToken) {
+        truncated = true;
       }
 
       if (allMessageIds.length === 0) {
@@ -40,7 +46,11 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
         await batchModifyMessages(token, chunk, { removeLabelIds: ['INBOX'] });
       }
 
-      return ok(`Archived ${allMessageIds.length} message(s) matching query: ${query}`);
+      const summary = `Archived ${allMessageIds.length} message(s) matching query: ${query}`;
+      if (truncated) {
+        return ok(`${summary}\n\nNote: this operation was capped at ${MAX_MESSAGES} messages. Additional messages matching the query may remain in the inbox. Run the command again to archive more.`);
+      }
+      return ok(summary);
     });
   } catch (e) {
     return err(e instanceof Error ? e.message : String(e));
