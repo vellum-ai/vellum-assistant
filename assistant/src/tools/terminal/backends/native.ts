@@ -60,15 +60,19 @@ const SANDBOX_PROFILE = `
 (deny process-info-pidinfo (target others))
 `.trim();
 
-/** Characters that are meaningful in SBPL syntax and must not appear in paths. */
-const SBPL_UNSAFE = /["()\\;\n\r]/;
-
 /**
- * Validate that a path is safe to embed in an SBPL profile string.
- * Returns true if the path contains no SBPL metacharacters.
+ * Escape a path for safe embedding inside an SBPL quoted string.
+ * Backslash-escapes characters that are meaningful in SBPL syntax.
+ * Newlines/carriage returns are rejected since they cannot appear in real paths.
  */
-function isSafeForSBPL(path: string): boolean {
-  return !SBPL_UNSAFE.test(path);
+function escapeSBPL(path: string): string {
+  if (/[\n\r]/.test(path)) {
+    throw new ToolError(
+      'Working directory path contains newline characters, which cannot be used in a sandbox profile.',
+      'bash',
+    );
+  }
+  return path.replace(/[\\";()]/g, (ch) => `\\${ch}`);
 }
 
 /**
@@ -86,7 +90,7 @@ function getProfilePath(workingDir: string): string {
   const hash = createHash('sha256').update(workingDir).digest('hex').slice(0, HASH_DISPLAY_LENGTH);
   const path = join(dir, `sandbox-profile-${hash}.sb`);
 
-  const profile = SANDBOX_PROFILE.replace(/__WORKING_DIR__/g, workingDir);
+  const profile = SANDBOX_PROFILE.replace(/__WORKING_DIR__/g, escapeSBPL(workingDir));
   writeFileSync(path, profile + '\n');
   return path;
 }
@@ -155,13 +159,6 @@ function buildBwrapArgs(workingDir: string, command: string): string[] {
 export class NativeBackend implements SandboxBackend {
   wrap(command: string, workingDir: string, _options?: import('./types.js').WrapOptions): SandboxResult {
     if (isMacOS()) {
-      if (!isSafeForSBPL(workingDir)) {
-        throw new ToolError(
-          `Sandbox is enabled but the working directory contains characters unsafe for the sandbox profile (SBPL metacharacters). ` +
-          `Refusing to execute unsandboxed. Change to a directory without special characters in its path, or disable sandboxing.`,
-          'bash',
-        );
-      }
       const profile = getProfilePath(workingDir);
       return {
         command: 'sandbox-exec',
