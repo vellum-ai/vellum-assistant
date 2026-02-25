@@ -14,6 +14,12 @@ import { uploadFileBackedAttachment, linkAttachmentToMessage } from '../../memor
  *  from permanently blocking all future recordings. */
 const STOP_ACK_TIMEOUT_MS = 30_000;
 
+const RECORDING_MIME_TYPES = new Map<string, string>([
+  ['mov', 'video/quicktime'],
+  ['mp4', 'video/mp4'],
+  ['webm', 'video/webm'],
+]);
+
 // ─── Deterministic maps ──────────────────────────────────────────────────────
 // These ensure stop resolves the exact active recording for a conversation,
 // prevent ambiguous cross-thread stop behavior, and maintain conversation
@@ -240,7 +246,7 @@ function handleRecordingStatus(
 
             // Infer MIME type from extension
             const ext = filename.split('.').pop()?.toLowerCase();
-            const mimeType = ext === 'mov' ? 'video/quicktime' : ext === 'mp4' ? 'video/mp4' : 'video/mp4';
+            const mimeType = (ext && RECORDING_MIME_TYPES.get(ext)) || 'video/mp4';
 
             // Store as file-backed attachment (avoids reading large files into memory)
             const attachment = uploadFileBackedAttachment(filename, mimeType, resolvedPath, sizeBytes);
