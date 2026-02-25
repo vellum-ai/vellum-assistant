@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNull, lt, lte, ne, sql } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { z } from 'zod';
 
@@ -332,16 +332,45 @@ export interface PaginatedMessagesResult {
 /**
  * Paginated variant of getMessages. Returns the most recent `limit` messages
  * (optionally before a cursor timestamp), in chronological order.
+ *
+ * When `limit` is undefined, all matching messages are returned (no pagination).
+ * When `beforeMessageId` is provided alongside `beforeTimestamp`, it acts as a
+ * tie-breaker to avoid skipping messages that share the same millisecond timestamp
+ * at page boundaries.
  */
 export function getMessagesPaginated(
   conversationId: string,
-  limit: number,
+  limit: number | undefined,
   beforeTimestamp?: number,
+  beforeMessageId?: string,
 ): PaginatedMessagesResult {
   const db = getDb();
   const conditions = [eq(messages.conversationId, conversationId)];
   if (beforeTimestamp !== undefined) {
-    conditions.push(lt(messages.createdAt, beforeTimestamp));
+    if (beforeMessageId) {
+      // Use lte + ne as a compound cursor: include messages at the same
+      // millisecond but exclude the specific boundary message already seen.
+      conditions.push(lte(messages.createdAt, beforeTimestamp));
+      conditions.push(ne(messages.id, beforeMessageId));
+    } else {
+      // Legacy callers without a message ID tie-breaker: use strict lt.
+      // This may skip same-millisecond messages at boundaries, but avoids
+      // re-fetching the boundary message. New callers should prefer the
+      // compound cursor (beforeTimestamp + beforeMessageId).
+      conditions.push(lt(messages.createdAt, beforeTimestamp));
+    }
+  }
+
+  if (limit === undefined) {
+    // Unlimited: return all messages in chronological order, no pagination.
+    const rows = db
+      .select()
+      .from(messages)
+      .where(and(...conditions))
+      .orderBy(asc(messages.createdAt))
+      .all()
+      .map(parseMessage);
+    return { messages: rows, hasMore: false };
   }
 
   // Fetch limit+1 rows ordered newest-first so we can detect hasMore

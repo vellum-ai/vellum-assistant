@@ -88,10 +88,12 @@ export interface ImageGenModelSetRequest {
 export interface HistoryRequest {
   type: 'history_request';
   sessionId: string;
-  /** Max messages to return. Defaults to 50. */
+  /** Max messages to return. When omitted, all messages are returned (unlimited). */
   limit?: number;
   /** Pagination cursor: return messages with timestamp before this value. */
   beforeTimestamp?: number;
+  /** Pagination cursor tie-breaker: exclude this message ID when beforeTimestamp matches. */
+  beforeMessageId?: string;
   /** Include attachment base64 data. Defaults to false in light mode. */
   includeAttachments?: boolean;
   /** Include tool screenshot base64 data. Defaults to false in light mode. */
@@ -279,6 +281,8 @@ export interface HistoryResponse {
   hasMore: boolean;
   /** Timestamp of the oldest message in the response (client uses as next pagination cursor). */
   oldestTimestamp?: number;
+  /** ID of the oldest message in the response (tie-breaker for same-millisecond cursors). */
+  oldestMessageId?: string;
 }
 
 export interface UndoComplete {
