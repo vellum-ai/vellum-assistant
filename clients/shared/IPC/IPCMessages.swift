@@ -553,8 +553,14 @@ extension IPCRegenerateRequest {
 public typealias HistoryRequestMessage = IPCHistoryRequest
 
 extension IPCHistoryRequest {
-    public init(sessionId: String) {
-        self.init(type: "history_request", sessionId: sessionId)
+    public init(sessionId: String, limit: Int? = nil, beforeTimestamp: Double? = nil, mode: String? = nil) {
+        self.init(
+            type: "history_request",
+            sessionId: sessionId,
+            limit: limit.map { Double($0) },
+            beforeTimestamp: beforeTimestamp,
+            mode: mode
+        )
     }
 }
 
