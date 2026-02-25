@@ -1,5 +1,5 @@
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import { updateSequence, getSequence, getEnrollment, exitEnrollment } from '../../../../sequence/store.js';
+import { updateSequence, getSequence, getEnrollment, pauseEnrollment } from '../../../../sequence/store.js';
 import { ok, err } from './shared.js';
 
 export async function run(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
@@ -13,8 +13,8 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
       const enrollment = getEnrollment(enrollmentId);
       if (!enrollment) return err(`Enrollment not found: ${enrollmentId}`);
       if (enrollment.status !== 'active') return err(`Enrollment is not active (status: ${enrollment.status}).`);
-      exitEnrollment(enrollmentId, 'cancelled');
-      return ok(`Enrollment ${enrollmentId} paused (status set to cancelled).`);
+      pauseEnrollment(enrollmentId);
+      return ok(`Enrollment ${enrollmentId} paused. Resume it later to continue from step ${enrollment.currentStep + 1}.`);
     }
 
     const seq = getSequence(sequenceId!);

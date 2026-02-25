@@ -22,16 +22,18 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
     if (emailList.length === 0) return err('No valid emails provided.');
 
     const results: string[] = [];
+    let successCount = 0;
     for (const email of emailList) {
       try {
         const enrollment = enrollContact({ sequenceId, contactEmail: email, context });
         results.push(`  ${email} — enrolled (ID: ${enrollment.id})`);
+        successCount++;
       } catch (e) {
         results.push(`  ${email} — failed: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
 
-    return ok(`Enrolled ${emailList.length} contact(s) in "${seq.name}":\n${results.join('\n')}`);
+    return ok(`Enrolled ${successCount}/${emailList.length} contact(s) in "${seq.name}":\n${results.join('\n')}`);
   } catch (e) {
     return err(e instanceof Error ? e.message : String(e));
   }

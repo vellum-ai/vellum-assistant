@@ -23,6 +23,10 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
       requireApproval: (s.require_approval as boolean) ?? false,
     }));
 
+    if (steps !== undefined && steps.length === 0) {
+      return err('steps must not be empty. A sequence requires at least one step.');
+    }
+
     const updated = updateSequence(id, { name, description, status, exitOnReply, steps });
     if (!updated) return err(`Sequence not found: ${id}`);
 
