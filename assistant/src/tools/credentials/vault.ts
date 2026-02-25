@@ -38,6 +38,9 @@ interface WellKnownOAuthConfig {
   injectionTemplates?: CredentialInjectionTemplate[];
   /** Force a specific callback transport (e.g. 'loopback' for Desktop app credentials). */
   callbackTransport?: 'loopback' | 'gateway';
+  /** Fixed port for loopback transport. Required for providers like Slack that
+   *  need pre-registered redirect URIs and cannot use a random port. */
+  loopbackPort?: number;
 }
 
 const WELL_KNOWN_OAUTH: Record<string, WellKnownOAuthConfig> = {
@@ -71,6 +74,8 @@ const WELL_KNOWN_OAUTH: Record<string, WellKnownOAuthConfig> = {
     extraParams: {
       user_scope: 'channels:read,channels:history,groups:read,groups:history,im:read,im:history,mpim:read,mpim:history,users:read,chat:write,search:read,reactions:write',
     },
+    callbackTransport: 'loopback',
+    loopbackPort: 17322,
   },
   // Notion uses a simple OAuth2 flow with client_secret_basic auth at the token endpoint.
   // The access token is long-lived (no expiry) and scopes are configured per-integration in Notion
@@ -734,7 +739,7 @@ class CredentialStoreTool implements Tool {
                 context.sendToClient?.({ type: 'open_url', url, title: `Connect ${service}` });
               },
             },
-            wellKnown?.callbackTransport ? { callbackTransport: wellKnown.callbackTransport } : undefined,
+            wellKnown?.callbackTransport ? { callbackTransport: wellKnown.callbackTransport, loopbackPort: wellKnown.loopbackPort } : undefined,
           );
 
           const { accountInfo } = await storeOAuth2Tokens({

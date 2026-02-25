@@ -63,6 +63,10 @@ export interface OAuth2FlowCallbacks {
 export interface OAuth2FlowOptions {
   /** Which callback transport to use. When omitted, auto-detected from config. */
   callbackTransport?: 'loopback' | 'gateway';
+  /** Fixed port for the loopback server. When set, the server binds to this port
+   *  instead of an OS-assigned random port. Required for providers like Slack that
+   *  need pre-registered redirect URIs. */
+  loopbackPort?: number;
 }
 
 export interface OAuth2FlowResult {
@@ -217,23 +221,27 @@ async function runLoopbackFlow(
   codeVerifier: string,
   codeChallenge: string,
   state: string,
+  loopbackPort?: number,
 ): Promise<OAuth2FlowResult> {
   const { code, redirectUri } = await startLoopbackServerAndWaitForCode(
-    config, callbacks, codeChallenge, state,
+    config, callbacks, codeChallenge, state, loopbackPort,
   );
 
   return await exchangeCodeForTokens(config, code, redirectUri, codeVerifier);
 }
 
 /**
- * Start a temporary HTTP server on a random port, build the auth URL with
+ * Start a temporary HTTP server on localhost, build the auth URL with
  * a localhost redirect_uri, open the browser, and wait for the callback.
+ * When `loopbackPort` is set, binds to that fixed port (for providers
+ * that require pre-registered redirect URIs); otherwise uses a random port.
  */
 function startLoopbackServerAndWaitForCode(
   config: OAuth2Config,
   callbacks: OAuth2FlowCallbacks,
   codeChallenge: string,
   state: string,
+  loopbackPort?: number,
 ): Promise<{ code: string; redirectUri: string }> {
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -303,7 +311,7 @@ function startLoopbackServerAndWaitForCode(
       server.close();
     }
 
-    server.listen(0, '127.0.0.1', () => {
+    server.listen(loopbackPort ?? 0, '127.0.0.1', () => {
       const addr = server.address() as { port: number };
       boundRedirectUri = `http://127.0.0.1:${addr.port}${LOOPBACK_CALLBACK_PATH}`;
 
@@ -441,8 +449,8 @@ export async function startOAuth2Flow(
     return runGatewayFlow(config, callbacks, codeVerifier, codeChallenge, state);
   }
 
-  log.debug({ transport: 'loopback' }, 'OAuth2 flow starting');
-  return runLoopbackFlow(config, callbacks, codeVerifier, codeChallenge, state);
+  log.debug({ transport: 'loopback', loopbackPort: options?.loopbackPort }, 'OAuth2 flow starting');
+  return runLoopbackFlow(config, callbacks, codeVerifier, codeChallenge, state, options?.loopbackPort);
 }
 
 /**
