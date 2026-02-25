@@ -514,8 +514,9 @@ export class Session {
     requestId?: string,
     activeSurfaceId?: string,
     currentPage?: string,
+    options?: { isInteractive?: boolean },
   ): Promise<string> {
-    return processMessageImpl(this as ProcessSessionContext, content, attachments, onEvent, requestId, activeSurfaceId, currentPage);
+    return processMessageImpl(this as ProcessSessionContext, content, attachments, onEvent, requestId, activeSurfaceId, currentPage, options);
   }
 
   // ── History ──────────────────────────────────────────────────────
