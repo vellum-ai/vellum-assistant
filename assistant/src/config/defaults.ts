@@ -286,6 +286,7 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     stopTimeoutMs: 5000,
     sigkillGracePeriodMs: 2000,
     titleGenerationMaxTokens: 30,
+    standaloneRecording: true,
   },
   notifications: {
     enabled: false,

@@ -10,6 +10,9 @@ import { checkIngressForSecrets } from '../../security/secret-ingress.js';
 import { parseSlashCandidate } from '../../skills/slash-commands.js';
 import { classifySessionError, buildSessionErrorMessage } from '../session-error.js';
 import { resolveBlobPath, deleteBlob, isValidBlobId } from '../ipc-blob-store.js';
+import { getConfig } from '../../config/loader.js';
+import { isRecordingOnly, isStopRecordingOnly } from '../recording-intent.js';
+import { handleRecordingStart, handleRecordingStop } from './recording.js';
 import type {
   TaskSubmit,
   SuggestionRequest,
@@ -61,6 +64,48 @@ export async function handleTaskSubmit(
         }
       });
       return;
+    }
+
+    // ── Standalone recording intent interception ──────────────────────────
+    // Intercept recording-only and stop-recording prompts before they reach
+    // the classifier. This prevents "record my screen" from creating a CU
+    // session and routes it to the standalone recording flow instead.
+    const config = getConfig();
+    if (config.daemon.standaloneRecording) {
+      if (isStopRecordingOnly(msg.task)) {
+        // Find the active session for this socket so we can resolve the
+        // conversation that owns the recording.
+        const activeSessionId = ctx.socketToSession.get(socket);
+        let stopped = false;
+        if (activeSessionId) {
+          stopped = handleRecordingStop(activeSessionId, ctx) !== undefined;
+        }
+        rlog.info('Recording stop intent intercepted');
+        ctx.send(socket, {
+          type: 'assistant_text_delta',
+          text: stopped ? 'Stopping the recording.' : 'No active recording to stop.',
+        });
+        ctx.send(socket, { type: 'message_complete', sessionId: activeSessionId });
+        return;
+      }
+
+      if (isRecordingOnly(msg.task)) {
+        // Create a conversation so the recording can be attached later (M4).
+        const conversation = conversationStore.createConversation(msg.task);
+        ctx.socketToSession.set(socket, conversation.id);
+
+        handleRecordingStart(conversation.id, { promptForSource: true }, socket, ctx);
+
+        ctx.send(socket, {
+          type: 'task_routed',
+          sessionId: conversation.id,
+          interactionType: 'text_qa',
+        });
+        rlog.info({ sessionId: conversation.id }, 'Recording-only intent intercepted — routed to standalone recording');
+        ctx.send(socket, { type: 'assistant_text_delta', text: 'Starting screen recording.' });
+        ctx.send(socket, { type: 'message_complete', sessionId: conversation.id });
+        return;
+      }
     }
 
     // Slash candidates always route to text_qa — bypass classifier
