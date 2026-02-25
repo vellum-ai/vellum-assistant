@@ -3,11 +3,12 @@
  *
  * - Vellum: no external endpoint needed — delivery goes through the IPC
  *   broadcast mechanism to connected desktop/mobile clients.
- * - Telegram: requires a chat ID sourced from the guardian binding for the
- *   assistant.
+ * - Binding-based channels (telegram, sms): require a chat/delivery ID
+ *   sourced from the guardian binding for the assistant.
  */
 
 import { getActiveBinding } from '../memory/channel-guardian-store.js';
+import { isNotificationDeliverable } from '../channels/config.js';
 import type { NotificationChannel, ChannelDestination } from './types.js';
 
 /**
@@ -15,6 +16,7 @@ import type { NotificationChannel, ChannelDestination } from './types.js';
  *
  * Returns a map keyed by channel name. Channels that cannot be resolved
  * (e.g. no Telegram binding configured) are omitted from the result.
+ * Channels that are not deliverable per the policy registry are skipped.
  */
 export function resolveDestinations(
   assistantId: string,
@@ -23,17 +25,20 @@ export function resolveDestinations(
   const result = new Map<NotificationChannel, ChannelDestination>();
 
   for (const channel of channels) {
+    if (!isNotificationDeliverable(channel)) continue;
+
     switch (channel) {
       case 'vellum': {
         // Vellum delivery is local IPC — no external endpoint required.
         result.set('vellum', { channel: 'vellum' });
         break;
       }
-      case 'telegram': {
-        const binding = getActiveBinding(assistantId, 'telegram');
+      case 'telegram':
+      case 'sms': {
+        const binding = getActiveBinding(assistantId, channel);
         if (binding) {
-          result.set('telegram', {
-            channel: 'telegram',
+          result.set(channel, {
+            channel,
             endpoint: binding.guardianDeliveryChatId,
             metadata: {
               externalUserId: binding.guardianExternalUserId,
@@ -44,7 +49,7 @@ export function resolveDestinations(
         break;
       }
       default: {
-        // Unknown channel — skip silently.
+        // Channel with no resolver — skip silently.
         break;
       }
     }

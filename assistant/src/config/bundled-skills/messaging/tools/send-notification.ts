@@ -1,3 +1,4 @@
+import { getDeliverableChannels } from '../../../../channels/config.js';
 import { emitNotificationSignal } from '../../../../notifications/emit-signal.js';
 import type { AttentionHints } from '../../../../notifications/signal.js';
 import type { NotificationChannel } from '../../../../notifications/types.js';
@@ -7,7 +8,7 @@ import { err, ok } from './shared.js';
 const INVALID = Symbol('invalid');
 
 const VALID_URGENCY = new Set<AttentionHints['urgency']>(['low', 'medium', 'high']);
-const VALID_CHANNEL_HINTS = new Set<NotificationChannel>(['vellum', 'telegram']);
+const VALID_CHANNEL_HINTS = new Set<NotificationChannel>(getDeliverableChannels() as NotificationChannel[]);
 
 function asNonEmptyString(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
@@ -73,7 +74,7 @@ export async function run(input: Record<string, unknown>, context: ToolContext):
 
   const preferredChannels = parsePreferredChannels(input.preferred_channels);
   if (preferredChannels === INVALID) {
-    return err('preferred_channels must be an array containing only "vellum" or "telegram".');
+    return err(`preferred_channels must be an array containing only: ${[...VALID_CHANNEL_HINTS].join(', ')}.`);
   }
 
   const sourceEventName = asNonEmptyString(input.source_event_name) ?? 'user.send_notification';

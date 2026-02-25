@@ -16,6 +16,7 @@ import { getConfiguredProvider, createTimeout, extractToolUse, userMessage } fro
 import { createDecision } from './decisions-store.js';
 import { getPreferenceSummary } from './preference-summary.js';
 import type { NotificationSignal } from './signal.js';
+import { getDeliverableChannels } from '../channels/config.js';
 import type { NotificationChannel, NotificationDecision, RenderedChannelCopy } from './types.js';
 
 const log = getLogger('notification-decision-engine');
@@ -189,7 +190,7 @@ function buildFallbackDecision(
 
 // ── Validation ─────────────────────────────────────────────────────────
 
-const VALID_CHANNELS = new Set<string>(['vellum', 'telegram']);
+const VALID_CHANNELS = new Set<string>(getDeliverableChannels());
 
 function validateDecisionOutput(
   input: Record<string, unknown>,
