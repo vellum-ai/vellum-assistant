@@ -105,6 +105,7 @@ export {
   IngressRateLimitConfigSchema,
   IngressConfigSchema,
   DaemonConfigSchema,
+  PlatformConfigSchema,
 } from './core-schema.js';
 export type {
   TimeoutConfig,
@@ -121,6 +122,7 @@ export type {
   IngressRateLimitConfig,
   IngressConfig,
   DaemonConfig,
+  PlatformConfig,
 } from './core-schema.js';
 
 // Imports for AssistantConfigSchema composition
@@ -142,6 +144,7 @@ import {
   SmsConfigSchema,
   IngressConfigSchema,
   DaemonConfigSchema,
+  PlatformConfigSchema,
 } from './core-schema.js';
 
 const VALID_PROVIDERS = ['anthropic', 'openai', 'gemini', 'ollama', 'fireworks', 'openrouter'] as const;
@@ -431,6 +434,7 @@ export const AssistantConfigSchema = z.object({
     phoneNumber: '',
   }),
   ingress: IngressConfigSchema,
+  platform: PlatformConfigSchema.default({ baseUrl: '' }),
   daemon: DaemonConfigSchema.default({
     startupSocketWaitMs: 5000,
     stopTimeoutMs: 5000,

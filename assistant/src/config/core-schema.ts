@@ -270,6 +270,18 @@ export const IngressConfigSchema = IngressBaseSchema
     enabled: val.enabled ?? (val.publicBaseUrl ? true : undefined),
   }));
 
+export const PlatformConfigSchema = z.object({
+  baseUrl: z
+    .string({ error: 'platform.baseUrl must be a string' })
+    .refine(
+      (val) => val === '' || /^https?:\/\//i.test(val),
+      'platform.baseUrl must be an absolute URL starting with http:// or https://',
+    )
+    .default(''),
+});
+
+export type PlatformConfig = z.infer<typeof PlatformConfigSchema>;
+
 export const DaemonConfigSchema = z.object({
   startupSocketWaitMs: z
     .number({ error: 'daemon.startupSocketWaitMs must be a number' })

@@ -17,6 +17,12 @@ export interface IngressConfigRequest {
   enabled?: boolean;
 }
 
+export interface PlatformConfigRequest {
+  type: 'platform_config';
+  action: 'get' | 'set';
+  baseUrl?: string;
+}
+
 export interface VercelApiConfigRequest {
   type: 'vercel_api_config';
   action: 'get' | 'set' | 'delete';
@@ -127,6 +133,13 @@ export interface IngressConfigResponse {
   publicBaseUrl: string;
   /** Read-only gateway target computed from GATEWAY_PORT env var (default 7830) + loopback host. */
   localGatewayTarget: string;
+  success: boolean;
+  error?: string;
+}
+
+export interface PlatformConfigResponse {
+  type: 'platform_config_response';
+  baseUrl: string;
   success: boolean;
   error?: string;
 }

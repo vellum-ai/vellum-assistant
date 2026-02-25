@@ -35,7 +35,7 @@ import type { UiSurfaceAction, UiSurfaceUndoRequest } from './ipc-contract/surfa
 import type { SkillsListRequest, SkillDetailRequest, SkillsEnableRequest, SkillsDisableRequest, SkillsConfigureRequest, SkillsInstallRequest, SkillsUninstallRequest, SkillsUpdateRequest, SkillsCheckUpdatesRequest, SkillsSearchRequest, SkillsInspectRequest } from './ipc-contract/skills.js';
 import type { AddTrustRule, TrustRulesList, RemoveTrustRule, UpdateTrustRule, AcceptStarterBundle } from './ipc-contract/trust.js';
 import type { AppDataRequest, AppsListRequest, HomeBaseGetRequest, AppOpenRequest, SharedAppsListRequest, SharedAppDeleteRequest, ForkSharedAppRequest, BundleAppRequest, OpenBundleRequest, SignBundlePayloadResponse, GetSigningIdentityResponse, GalleryListRequest, GalleryInstallRequest, AppHistoryRequest, AppDiffRequest, AppFileAtVersionRequest, AppRestoreRequest, ShareAppCloudRequest, ShareToSlackRequest, AppUpdatePreviewRequest, AppPreviewRequest, PublishPageRequest, UnpublishPageRequest } from './ipc-contract/apps.js';
-import type { SlackWebhookConfigRequest, IngressConfigRequest, VercelApiConfigRequest, TwitterIntegrationConfigRequest, TelegramConfigRequest, TwilioConfigRequest, ChannelReadinessRequest, GuardianVerificationRequest, TwitterAuthStartRequest, TwitterAuthStatusRequest, IntegrationListRequest, IntegrationConnectRequest, IntegrationDisconnectRequest, LinkOpenRequest } from './ipc-contract/integrations.js';
+import type { SlackWebhookConfigRequest, IngressConfigRequest, PlatformConfigRequest, VercelApiConfigRequest, TwitterIntegrationConfigRequest, TelegramConfigRequest, TwilioConfigRequest, ChannelReadinessRequest, GuardianVerificationRequest, TwitterAuthStartRequest, TwitterAuthStatusRequest, IntegrationListRequest, IntegrationConnectRequest, IntegrationDisconnectRequest, LinkOpenRequest } from './ipc-contract/integrations.js';
 import type { CuSessionCreate, CuSessionAbort, CuObservation, TaskSubmit, RideShotgunStart, RideShotgunStop, WatchObservation } from './ipc-contract/computer-use.js';
 import type { WorkItemsListRequest, WorkItemGetRequest, WorkItemUpdateRequest, WorkItemCompleteRequest, WorkItemDeleteRequest, WorkItemRunTaskRequest, WorkItemOutputRequest, WorkItemPreflightRequest, WorkItemApprovePermissionsRequest, WorkItemCancelRequest } from './ipc-contract/work-items.js';
 import type { BrowserCDPResponse, BrowserUserClick, BrowserUserScroll, BrowserUserKeypress, BrowserInteractiveMode } from './ipc-contract/browser.js';
@@ -51,7 +51,7 @@ import type { UiSurfaceShow, UiSurfaceUpdate, UiSurfaceDismiss, UiSurfaceComplet
 import type { SkillsListResponse, SkillDetailResponse, SkillStateChanged, SkillsOperationResponse, SkillsInspectResponse } from './ipc-contract/skills.js';
 import type { TrustRulesListResponse, AcceptStarterBundleResponse } from './ipc-contract/trust.js';
 import type { AppDataResponse, AppsListResponse, HomeBaseGetResponse, SharedAppsListResponse, SharedAppDeleteResponse, ForkSharedAppResponse, BundleAppResponse, OpenBundleResponse, SignBundlePayloadRequest, GetSigningIdentityRequest, ShareAppCloudResponse, GalleryListResponse, GalleryInstallResponse, AppHistoryResponse, AppDiffResponse, AppFileAtVersionResponse, AppRestoreResponse, ShareToSlackResponse, AppUpdatePreviewResponse, AppPreviewResponse, PublishPageResponse, UnpublishPageResponse, AppFilesChanged } from './ipc-contract/apps.js';
-import type { SlackWebhookConfigResponse, IngressConfigResponse, VercelApiConfigResponse, TwitterIntegrationConfigResponse, TelegramConfigResponse, TwilioConfigResponse, ChannelReadinessResponse, GuardianVerificationResponse, TwitterAuthResult, TwitterAuthStatusResponse, IntegrationListResponse, IntegrationConnectResult, OpenUrl } from './ipc-contract/integrations.js';
+import type { SlackWebhookConfigResponse, IngressConfigResponse, PlatformConfigResponse, VercelApiConfigResponse, TwitterIntegrationConfigResponse, TelegramConfigResponse, TwilioConfigResponse, ChannelReadinessResponse, GuardianVerificationResponse, TwitterAuthResult, TwitterAuthStatusResponse, IntegrationListResponse, IntegrationConnectResult, OpenUrl } from './ipc-contract/integrations.js';
 import type { CuAction, CuComplete, CuError, TaskRouted, RideShotgunProgress, RideShotgunResult, WatchStarted, WatchCompleteRequest } from './ipc-contract/computer-use.js';
 import type { WorkItemsListResponse, WorkItemGetResponse, WorkItemUpdateResponse, WorkItemDeleteResponse, WorkItemRunTaskResponse, WorkItemOutputResponse, WorkItemPreflightResponse, WorkItemApprovePermissionsResponse, WorkItemCancelResponse, WorkItemStatusChanged, TaskRunThreadCreated, GuardianRequestThreadCreated, TasksChanged, OpenTasksWindow } from './ipc-contract/work-items.js';
 import type { BrowserFrame, BrowserCDPRequest, BrowserInteractiveModeChanged, BrowserHandoffRequest } from './ipc-contract/browser.js';
@@ -144,6 +144,7 @@ export type ClientMessage =
   | ShareToSlackRequest
   | SlackWebhookConfigRequest
   | IngressConfigRequest
+  | PlatformConfigRequest
   | VercelApiConfigRequest
   | TwitterIntegrationConfigRequest
   | TelegramConfigRequest
@@ -298,6 +299,7 @@ export type ServerMessage =
   | ShareToSlackResponse
   | SlackWebhookConfigResponse
   | IngressConfigResponse
+  | PlatformConfigResponse
   | VercelApiConfigResponse
   | TwitterIntegrationConfigResponse
   | TelegramConfigResponse

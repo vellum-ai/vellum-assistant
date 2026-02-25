@@ -303,6 +303,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends an `ingress_config_response` message.
     public var onIngressConfigResponse: ((IngressConfigResponseMessage) -> Void)?
 
+    /// Called when the daemon sends a `platform_config_response` message.
+    public var onPlatformConfigResponse: ((PlatformConfigResponseMessage) -> Void)?
+
     /// Called when the daemon sends a `vercel_api_config_response` message.
     public var onVercelApiConfigResponse: ((VercelApiConfigResponseMessage) -> Void)?
 

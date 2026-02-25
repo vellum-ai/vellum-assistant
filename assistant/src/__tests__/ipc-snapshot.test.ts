@@ -376,6 +376,10 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'ingress_config',
     action: 'get',
   },
+  platform_config: {
+    type: 'platform_config',
+    action: 'get',
+  },
   vercel_api_config: {
     type: 'vercel_api_config',
     action: 'get',
@@ -1326,6 +1330,11 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     enabled: true,
     publicBaseUrl: 'https://example.com',
     localGatewayTarget: 'http://127.0.0.1:7830',
+    success: true,
+  },
+  platform_config_response: {
+    type: 'platform_config_response',
+    baseUrl: 'https://platform.vellum.ai',
     success: true,
   },
   vercel_api_config_response: {

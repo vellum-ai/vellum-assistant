@@ -263,6 +263,9 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     provider: 'twilio' as const,
     phoneNumber: '',
   },
+  platform: {
+    baseUrl: '',
+  },
   ingress: {
     enabled: undefined,
     publicBaseUrl: '',
