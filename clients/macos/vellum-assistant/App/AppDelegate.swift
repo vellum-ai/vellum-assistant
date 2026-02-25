@@ -146,6 +146,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private weak var recordingViewModel: ChatViewModel?
     var statusIconCancellable: AnyCancellable?
     var connectionStatusCancellable: AnyCancellable?
+    private var quickInputAttachmentCancellable: AnyCancellable?
     var pulseTimer: Timer?
     var pulsePhase: CGFloat = 1.0
     var pulseDirection: CGFloat = -1.0
@@ -1367,30 +1368,30 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func handleQuickInputSubmit(_ message: String, imageData: Data?) {
-        // Ensure MainWindow exists without bringing it to the foreground.
-        // showMainWindow() would activate the app — instead, create the
-        // window lazily if needed, but don't call show().
-        if mainWindow == nil {
-            let main = MainWindow(services: services)
-            main.onMicrophoneToggle = { [weak self] in
-                self?.voiceInput?.toggleRecording()
-            }
-            main.threadManager.onInlineConfirmationResponse = { [weak self] requestId, decision in
-                guard let self else { return }
-                self.toolConfirmationNotificationService.handleInlineResponse(requestId: requestId)
-                UNUserNotificationCenter.current().removeDeliveredNotifications(
-                    withIdentifiers: ["tool-confirm-\(requestId)"]
-                )
-            }
-            mainWindow = main
-            observeAssistantStatus()
-        }
+        showMainWindow()
         guard let mainWindow else { return }
         mainWindow.threadManager.createThread()
-        if let viewModel = mainWindow.activeViewModel {
-            if let imageData {
-                viewModel.addAttachment(imageData: imageData, filename: "Screenshot.jpg")
-            }
+        // Navigate the sidebar to the new thread's chat view so the user
+        // sees the conversation immediately (not Home Base or another panel).
+        if let threadId = mainWindow.threadManager.activeThreadId {
+            mainWindow.windowState.selection = .thread(threadId)
+        }
+        guard let viewModel = mainWindow.activeViewModel else { return }
+
+        if let imageData {
+            // addAttachment is async — it spawns a Task internally for image
+            // processing. Wait for it to finish before sending the message so
+            // the attachment is included in the API call.
+            viewModel.addAttachment(imageData: imageData, filename: "Screenshot.jpg")
+            viewModel.inputText = message
+            quickInputAttachmentCancellable = viewModel.attachmentManager.$isLoadingAttachment
+                .filter { !$0 }
+                .first()
+                .sink { [weak self] _ in
+                    viewModel.sendMessage()
+                    self?.quickInputAttachmentCancellable = nil
+                }
+        } else {
             viewModel.inputText = message
             viewModel.sendMessage()
         }
