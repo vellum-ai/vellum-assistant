@@ -82,6 +82,9 @@ struct SettingsAppearanceTab: View {
                         .font(VFont.caption)
                         .foregroundColor(VColor.warning)
                 }
+
+                ShortcutRow(label: "Quick Input", shortcut: "⌘⇧V")
+                ShortcutRow(label: "Start voice input", shortcut: "Hold Fn")
             }
             .padding(VSpacing.lg)
             .vCard(background: VColor.surfaceSubtle)
@@ -206,6 +209,32 @@ struct SettingsAppearanceTab: View {
         if let monitor = shortcutMonitor {
             NSEvent.removeMonitor(monitor)
             shortcutMonitor = nil
+        }
+    }
+}
+
+/// A read-only row displaying a keyboard shortcut and its description.
+private struct ShortcutRow: View {
+    let label: String
+    let shortcut: String
+
+    var body: some View {
+        HStack {
+            Text(label)
+                .font(VFont.body)
+                .foregroundColor(VColor.textSecondary)
+            Spacer()
+            Text(shortcut)
+                .font(VFont.mono)
+                .foregroundColor(VColor.textPrimary)
+                .padding(.horizontal, VSpacing.sm)
+                .padding(.vertical, VSpacing.xs)
+                .background(VColor.surface)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.sm)
+                        .stroke(VColor.surfaceBorder, lineWidth: 1)
+                )
         }
     }
 }
