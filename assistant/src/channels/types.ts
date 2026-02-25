@@ -23,3 +23,30 @@ export interface TurnChannelContext {
   userMessageChannel: ChannelId;
   assistantMessageChannel: ChannelId;
 }
+
+export const INTERFACE_IDS = [
+  'macos', 'ios', 'cli',
+  'telegram', 'sms', 'voice', 'vellum', 'whatsapp', 'slack', 'email',
+] as const;
+
+export type InterfaceId = (typeof INTERFACE_IDS)[number];
+
+export function isInterfaceId(value: unknown): value is InterfaceId {
+  return typeof value === 'string' && (INTERFACE_IDS as readonly string[]).includes(value);
+}
+
+export function parseInterfaceId(value: unknown): InterfaceId | null {
+  return isInterfaceId(value) ? value : null;
+}
+
+export function assertInterfaceId(value: unknown, field: string): InterfaceId {
+  if (!isInterfaceId(value)) {
+    throw new Error(`Invalid interface ID for ${field}: ${String(value)}. Valid values: ${INTERFACE_IDS.join(', ')}`);
+  }
+  return value;
+}
+
+export interface TurnInterfaceContext {
+  userMessageInterface: InterfaceId;
+  assistantMessageInterface: InterfaceId;
+}
