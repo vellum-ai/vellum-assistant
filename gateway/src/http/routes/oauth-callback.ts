@@ -4,6 +4,30 @@ import { forwardOAuthCallback } from "../../runtime/client.js";
 
 const log = getLogger("oauth-callback");
 
+// Minimum length for the state parameter. The runtime generates 32 hex chars
+// (16 random bytes); reject anything shorter to block trivially guessable values.
+const MIN_STATE_LENGTH = 32;
+
+// Track consumed state tokens to prevent replay attacks. Each entry has a TTL
+// so the set doesn't grow unboundedly.
+const CONSUMED_STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const consumedStates = new Map<string, ReturnType<typeof setTimeout>>();
+
+function markStateConsumed(state: string): void {
+  const timer = setTimeout(() => {
+    consumedStates.delete(state);
+  }, CONSUMED_STATE_TTL_MS);
+  // Unref so the timer doesn't prevent process exit
+  if (typeof timer === "object" && "unref" in timer) timer.unref();
+  consumedStates.set(state, timer);
+}
+
+/** Exported for testing — clears all consumed state entries. */
+export function _resetConsumedStates(): void {
+  for (const timer of consumedStates.values()) clearTimeout(timer);
+  consumedStates.clear();
+}
+
 export function createOAuthCallbackHandler(config: GatewayConfig) {
   return async (req: Request): Promise<Response> => {
     const url = new URL(req.url);
@@ -17,6 +41,26 @@ export function createOAuthCallbackHandler(config: GatewayConfig) {
         headers: { "Content-Type": "text/html" },
       });
     }
+
+    if (state.length < MIN_STATE_LENGTH) {
+      log.warn({ stateLength: state.length }, "OAuth state too short");
+      return new Response(renderErrorPage("Invalid state parameter"), {
+        status: 400,
+        headers: { "Content-Type": "text/html" },
+      });
+    }
+
+    if (consumedStates.has(state)) {
+      log.warn("OAuth state replay attempt blocked");
+      return new Response(renderErrorPage("State parameter already used"), {
+        status: 400,
+        headers: { "Content-Type": "text/html" },
+      });
+    }
+
+    // Mark consumed before forwarding so concurrent duplicate callbacks
+    // are blocked even if the runtime hasn't responded yet.
+    markStateConsumed(state);
 
     try {
       const response = await forwardOAuthCallback(
