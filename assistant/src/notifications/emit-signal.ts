@@ -5,8 +5,8 @@
  * and runs it through the decision engine + deterministic checks + dispatch
  * pipeline.
  *
- * Designed for fire-and-forget usage: errors are logged but never propagated
- * to the caller. The returned promise resolves even on failure.
+ * Designed for fire-and-forget usage by default: errors are logged and not
+ * propagated unless `throwOnError` is enabled.
  */
 
 import { v4 as uuid } from 'uuid';
@@ -89,14 +89,19 @@ export interface EmitSignalParams {
   contextPayload?: Record<string, unknown>;
   /** Optional deduplication key. */
   dedupeKey?: string;
+  /**
+   * When true, rethrow pipeline errors to the caller instead of only logging.
+   * Useful for direct user-invoked actions that must fail closed.
+   */
+  throwOnError?: boolean;
 }
 
 /**
  * Emit a notification signal through the full pipeline:
  * createEvent -> evaluateSignal -> runDeterministicChecks -> dispatchDecision.
  *
- * Fire-and-forget safe: all errors are caught and logged. The caller
- * should not await this in critical paths unless it needs the result.
+ * Fire-and-forget safe by default: errors are caught and logged unless
+ * `throwOnError` is enabled by the caller.
  */
 export async function emitNotificationSignal(params: EmitSignalParams): Promise<void> {
   const config = getConfig();
@@ -187,5 +192,8 @@ export async function emitNotificationSignal(params: EmitSignalParams): Promise<
       { err: errMsg, signalId, sourceEventName: params.sourceEventName },
       'Signal pipeline failed',
     );
+    if (params.throwOnError) {
+      throw err instanceof Error ? err : new Error(errMsg);
+    }
   }
 }

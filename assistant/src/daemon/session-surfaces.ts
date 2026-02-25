@@ -94,6 +94,10 @@ function normalizeTaskProgressCardPatch(existingCard: CardSurfaceData, patch: Re
  */
 export interface SurfaceSessionContext {
   readonly conversationId: string;
+  readonly channelCapabilities?: {
+    channel: string;
+    supportsDynamicUi: boolean;
+  };
   readonly traceEmitter: {
     emit(type: string, message: string, meta?: Record<string, unknown>): void;
   };
@@ -509,6 +513,20 @@ export async function surfaceProxyResolver(
   toolName: string,
   input: Record<string, unknown>,
 ): Promise<ToolExecutionResult> {
+  if (toolName === 'ui_show' || toolName === 'ui_update') {
+    const caps = ctx.channelCapabilities;
+    if (caps && !caps.supportsDynamicUi) {
+      log.info(
+        { toolName, channel: caps.channel, conversationId: ctx.conversationId },
+        'Blocked UI surface tool on channel without dynamic UI support',
+      );
+      return {
+        content: `${toolName} is unavailable on channel "${caps.channel}" because this channel cannot render dynamic UI surfaces. Use text responses or a messaging/notification tool instead.`,
+        isError: true,
+      };
+    }
+  }
+
   if (toolName === 'request_file') {
     const surfaceId = uuid();
     const prompt = typeof input.prompt === 'string' ? input.prompt : 'Please share a file';

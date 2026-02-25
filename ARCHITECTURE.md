@@ -4684,6 +4684,7 @@ Producer → NotificationSignal → Decision Engine (LLM) → Deterministic Chec
 | `assistant/src/notifications/adapters/` | Per-channel delivery (macOS IPC, Telegram gateway) |
 | `assistant/src/notifications/preference-extractor.ts` | Detects preference statements in conversation messages |
 | `assistant/src/notifications/preferences-store.ts` | CRUD for user notification preferences |
+| `assistant/src/config/bundled-skills/messaging/tools/send-notification.ts` | Explicit producer tool for user-requested notifications; emits signals into the same routing pipeline |
 
 **Audit trail (SQLite):** `notification_events` → `notification_decisions` → `notification_deliveries`
 

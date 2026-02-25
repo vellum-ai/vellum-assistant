@@ -75,6 +75,7 @@ The sms-setup skill also includes optional **guardian verification** for SMS (in
 - **Read Messages**: Read message history from a conversation
 - **Search**: Search messages with platform-appropriate query syntax
 - **Send**: Send a message (high risk — requires user approval)
+- **Send Notification**: Trigger a user notification through the unified notification router (medium risk)
 - **Reply**: Reply in a thread (medium risk)
 - **Mark Read**: Mark conversation as read
 
@@ -153,6 +154,12 @@ When searching Gmail, the query uses Gmail's search operators:
 - Default to drafting (local draft or Gmail native draft) when the user wants to compose.
 - Only send when the user explicitly requests it.
 - When uncertain, always default to drafting.
+
+## Notifications vs Messages
+
+- Use `send_notification` when the user asks for an alert/notification (for example "send this as a desktop notification").
+- Use `messaging_send` when the user asks to send a message into a specific chat/email/SMS destination.
+- `send_notification` channel routing is LLM-driven; `preferred_channels` are hints, not hard channel forcing.
 
 ## Personalized Drafting
 
