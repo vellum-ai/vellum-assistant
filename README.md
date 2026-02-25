@@ -5,7 +5,7 @@
 AI-powered assistant platform by Vellum.
 
 <details>
-<summary><h2>Architecture</h2></summary>
+<summary><b>Architecture</b></summary>
 
 The platform has three main components:
 
@@ -16,7 +16,7 @@ The platform has three main components:
 </details>
 
 <details>
-<summary><h2>Repository Structure</h2></summary>
+<summary><b>Repository Structure</b></summary>
 
 ```
 /
@@ -32,14 +32,14 @@ The platform has three main components:
 </details>
 
 <details>
-<summary><h2>Prerequisites</h2></summary>
+<summary><b>Prerequisites</b></summary>
 
 - **Docker** is required. The sandbox uses Docker as its default backend for container-level isolation. Install [Docker Desktop](https://docs.docker.com/get-docker/) (macOS/Windows) or Docker Engine (Linux) and ensure the daemon is running before starting the assistant.
 
 </details>
 
 <details>
-<summary><h2>Git Hooks</h2></summary>
+<summary><b>Git Hooks</b></summary>
 
 This repository includes git hooks to help maintain code quality and security. The hooks are installed by running the install script directly.
 
@@ -53,7 +53,7 @@ See [.githooks/README.md](./.githooks/README.md) for more details about availabl
 </details>
 
 <details>
-<summary><h2>Assistant Runtime</h2></summary>
+<summary><b>Assistant Runtime</b></summary>
 
 The assistant runtime lives in `/assistant`.
 
@@ -68,7 +68,7 @@ bun run src/index.ts daemon start
 </details>
 
 <details>
-<summary><h2>Sandbox and Host Access Model</h2></summary>
+<summary><b>Sandbox and Host Access Model</b></summary>
 
 - Default tool workspace: `~/.vellum/workspace` (persistent global sandbox filesystem).
 - Sandbox-scoped tools: `file_read`, `file_write`, `file_edit`, and `bash`.
@@ -162,7 +162,7 @@ Run `vellum doctor` for a full diagnostic check including sandbox backend status
 </details>
 
 <details>
-<summary><h2>Credential Storage and Secret Security</h2></summary>
+<summary><b>Credential Storage and Secret Security</b></summary>
 
 The assistant can store and use credentials (API keys, tokens, passwords) without exposing secret values to the LLM or logs.
 
@@ -216,7 +216,7 @@ If a proxied command receives a 401 or 403 despite having the correct credential
 </details>
 
 <details>
-<summary><h2>Integrations</h2></summary>
+<summary><b>Integrations</b></summary>
 
 Vellum integrates with third-party services via OAuth2. Each integration is exposed as a bundled skill with its own set of tools.
 
@@ -264,7 +264,7 @@ Twitter integration supports two operation paths: **OAuth** (X API v2) and **Bro
 </details>
 
 <details>
-<summary><h2>Dynamic Skill Authoring</h2></summary>
+<summary><b>Dynamic Skill Authoring</b></summary>
 
 The assistant can create, test, and persist new skills at runtime. This is useful when no existing tool or skill covers a user's need.
 
@@ -314,7 +314,7 @@ The `scaffold_managed_skill` tool accepts an optional `includes` array to set th
 </details>
 
 <details>
-<summary><h2>Browser Capabilities</h2></summary>
+<summary><b>Browser Capabilities</b></summary>
 
 Web browsing is provided by the bundled `browser` skill. Browser tools are not available by default — the skill must be loaded first.
 
@@ -347,7 +347,7 @@ All `browser_*` tools are declared as low-risk. The system seeds default trust r
 </details>
 
 <details>
-<summary><h2>Permission Modes and Trust Rules</h2></summary>
+<summary><b>Permission Modes and Trust Rules</b></summary>
 
 The assistant uses a permission system to control which tool actions the agent can execute without explicit user approval. Permission behavior is configured via `permissions.mode`:
 
@@ -416,7 +416,7 @@ See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full permission evaluation flow
 </details>
 
 <details>
-<summary><h2>Assistant Attachments</h2></summary>
+<summary><b>Assistant Attachments</b></summary>
 
 The assistant can attach files and images to its replies. Attachments flow through three delivery channels:
 
@@ -460,7 +460,7 @@ Limits: up to 5 attachments per turn, 20 MB each.
 </details>
 
 <details>
-<summary><h2>Assistant Events SSE Stream</h2></summary>
+<summary><b>Assistant Events SSE Stream</b></summary>
 
 The runtime HTTP server exposes a Server-Sent Events (SSE) endpoint that streams real-time assistant events for a specific conversation. This provides a transport-agnostic alternative to the Unix socket IPC for HTTP clients (web apps, remote integrations, etc.).
 
@@ -569,7 +569,7 @@ while (true) {
 </details>
 
 <details>
-<summary><h2>Inline Media Embeds</h2></summary>
+<summary><b>Inline Media Embeds</b></summary>
 
 The desktop app automatically renders inline previews for images and video URLs that appear in chat messages. Instead of showing a bare link, recognized URLs are replaced with an embedded preview directly in the conversation.
 
@@ -600,7 +600,7 @@ Media embeds are controlled by settings under `ui.mediaEmbeds` in `~/.vellum/wor
 </details>
 
 <details>
-<summary><h2>Remote Access</h2></summary>
+<summary><b>Remote Access</b></summary>
 
 Access a remote assistant daemon from your local machine via SSH.
 
@@ -644,7 +644,7 @@ Run `vellum doctor` for a full diagnostic check including socket path and autost
 </details>
 
 <details>
-<summary><h2>Claude Code Workflow</h2></summary>
+<summary><b>Claude Code Workflow</b></summary>
 
 This repo includes Claude Code slash commands (in `.claude/commands/`) for agent-driven development.
 
@@ -722,7 +722,7 @@ All workflows use squash-merge (no merge commits), worktree isolation for parall
 </details>
 
 <details>
-<summary><h2>Release Management</h2></summary>
+<summary><b>Release Management</b></summary>
 
 Releases are cut using the `/release` Claude Code command and follow a fully automated pipeline from tag to client update.
 
