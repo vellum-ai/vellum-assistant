@@ -757,8 +757,9 @@ const ALLOWLIST_STRATEGIES: Record<string, AllowlistStrategy> = {
 export async function generateAllowlistOptions(toolName: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<AllowlistOption[]> {
   signal?.throwIfAborted();
 
-  const strategy = ALLOWLIST_STRATEGIES[toolName];
-  if (strategy) return strategy(toolName, input);
+  if (Object.hasOwn(ALLOWLIST_STRATEGIES, toolName)) {
+    return ALLOWLIST_STRATEGIES[toolName](toolName, input);
+  }
 
   return [{ label: '*', description: 'Everything', pattern: '*' }];
 }
