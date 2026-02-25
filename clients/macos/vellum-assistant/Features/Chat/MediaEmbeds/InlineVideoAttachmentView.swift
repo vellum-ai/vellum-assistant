@@ -176,19 +176,11 @@ struct InlineVideoAttachmentView: View {
             let url = safeTempURL()
             do { try data.write(to: url) } catch { return }
             fileURL = url
-        } else if attachment.isLazyLoad,
-                  let port = daemonHttpPort,
-                  let attachmentId = attachment.id.isEmpty ? nil : attachment.id {
-            // File-backed attachment: fetch from content endpoint.
-            let url = safeTempURL()
-            do {
-                let bytes = try await fetchAttachmentContent(port: port, attachmentId: attachmentId)
-                try bytes.write(to: url)
-            } catch {
-                return
-            }
-            fileURL = url
         } else {
+            // For lazy (file-backed) attachments, don't download the full video
+            // just for a thumbnail — large recordings (100MB+) cause unnecessary
+            // network traffic and memory pressure. The view already shows a
+            // play-button placeholder when thumbnailImage is nil.
             return
         }
 
