@@ -105,9 +105,14 @@ export async function handleUserMessage(
       }
 
       if (isRecordingOnly(messageText)) {
-        handleRecordingStart(msg.sessionId, { promptForSource: true }, socket, ctx);
+        const recordingId = handleRecordingStart(msg.sessionId, { promptForSource: true }, socket, ctx);
         rlog.info('Recording-only intent intercepted in user_message');
-        ctx.send(socket, { type: 'assistant_text_delta', text: 'Starting screen recording.' });
+
+        if (recordingId) {
+          ctx.send(socket, { type: 'assistant_text_delta', text: 'Starting screen recording.', sessionId: msg.sessionId });
+        } else {
+          ctx.send(socket, { type: 'assistant_text_delta', text: 'A recording is already active.', sessionId: msg.sessionId });
+        }
         ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
         return;
       }

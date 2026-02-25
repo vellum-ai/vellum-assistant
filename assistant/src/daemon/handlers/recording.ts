@@ -30,17 +30,11 @@ export function handleRecordingStart(
   options: RecordingOptions | undefined,
   socket: net.Socket,
   ctx: HandlerContext,
-): string {
+): string | null {
   const existingRecordingId = recordingOwnerByConversation.get(conversationId);
   if (existingRecordingId) {
     log.warn({ conversationId, existingRecordingId }, 'Recording already active for conversation');
-    ctx.send(socket, {
-      type: 'assistant_text_delta',
-      text: 'A recording is already active.',
-      sessionId: conversationId,
-    });
-    ctx.send(socket, { type: 'message_complete', sessionId: conversationId });
-    return existingRecordingId;
+    return null;
   }
 
   const recordingId = uuid();
