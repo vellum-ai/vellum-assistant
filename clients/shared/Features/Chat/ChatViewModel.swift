@@ -252,7 +252,7 @@ public final class ChatViewModel: ObservableObject {
     public var onFirstReplyLacksNamingIntent: (() -> Void)?
     /// Guards against looping: once a corrective naming nudge has been sent,
     /// no further nudges are dispatched regardless of subsequent replies.
-    private var didSendNamingNudge = false
+    var didSendNamingNudge = false
     /// Called with each streaming text delta during a voice-triggered response, for real-time TTS.
     public var onVoiceTextDelta: ((String) -> Void)?
     /// When true, messages are prefixed with a concise-response instruction for voice conversations.
