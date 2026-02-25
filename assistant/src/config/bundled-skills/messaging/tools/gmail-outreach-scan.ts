@@ -7,7 +7,7 @@ import type { EmailMetadata } from '../../../../messaging/email-classifier.js';
 import { ok, err } from './shared.js';
 
 const MAX_MESSAGES_CAP = 2000;
-const MAX_IDS_PER_SENDER = 100;
+const MAX_IDS_PER_SENDER = 1000;
 const MAX_SAMPLE_SUBJECTS = 3;
 
 interface OutreachSenderAggregation {

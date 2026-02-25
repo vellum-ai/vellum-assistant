@@ -4,7 +4,7 @@ import { getMessagingProvider } from '../../../../messaging/registry.js';
 import {
   listMessages,
   batchGetMessages,
-  modifyMessage,
+  batchModifyMessages,
   listLabels,
   createLabel,
 } from '../../../../messaging/providers/gmail/client.js';
@@ -68,10 +68,8 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
       if (autoApply) {
         // Archive can_archive emails
         const archivable = groups['can_archive'] ?? [];
-        for (const c of archivable) {
-          await modifyMessage(token, c.id, { removeLabelIds: ['INBOX'] });
-        }
         if (archivable.length > 0) {
+          await batchModifyMessages(token, archivable.map(c => c.id), { removeLabelIds: ['INBOX'] });
           actions.push(`Archived ${archivable.length} message(s)`);
         }
 
@@ -79,9 +77,7 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
         const needsReply = groups['needs_reply'] ?? [];
         if (needsReply.length > 0) {
           const followUpLabelId = await getOrCreateLabel(token, FOLLOW_UP_LABEL_NAME);
-          for (const c of needsReply) {
-            await modifyMessage(token, c.id, { addLabelIds: [followUpLabelId] });
-          }
+          await batchModifyMessages(token, needsReply.map(c => c.id), { addLabelIds: [followUpLabelId] });
           actions.push(`Labeled ${needsReply.length} message(s) as Follow-up`);
         }
       }

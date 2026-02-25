@@ -220,8 +220,8 @@ Use `gmail_sender_digest` to help users identify and clean up high-volume sender
    - Columns: Sender, Email Count, Unsubscribable, Date Range, Sample Subject
    - Action buttons: "Archive & Unsubscribe" (primary), "Archive Only" (secondary)
 3. **Act on selection**: For each selected sender:
-   - Call `gmail_batch_archive` with the sender's `message_ids`
-   - If `has_more` is true, use the sender's `search_query` to find and archive remaining messages
+   - Prefer `gmail_archive_by_query` with the sender's `search_query` — this archives all matching messages in one call, regardless of volume
+   - Alternatively, use `gmail_batch_archive` with the sender's `message_ids` for smaller senders where all IDs are already collected
    - If the action is "Archive & Unsubscribe" and `has_unsubscribe` is true, call `gmail_unsubscribe` with the sender's `newest_message_id`
 4. **Report**: Summarize results — e.g. "Archived 247 messages from 8 senders. Unsubscribed from 6."
 

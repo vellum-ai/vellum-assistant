@@ -18,7 +18,7 @@ import type {
 const GMAIL_API_BASE = 'https://gmail.googleapis.com/gmail/v1/users/me';
 
 /** Max concurrent requests for batch operations */
-const BATCH_CONCURRENCY = 5;
+const BATCH_CONCURRENCY = 50;
 
 export class GmailApiError extends Error {
   constructor(

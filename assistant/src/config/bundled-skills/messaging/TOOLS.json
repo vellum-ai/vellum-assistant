@@ -507,6 +507,31 @@
       "execution_target": "host"
     },
     {
+      "name": "gmail_archive_by_query",
+      "description": "Archive ALL Gmail messages matching a search query. Paginates through all results and archives in bulk. Ideal for high-volume senders where message IDs are not pre-collected. Include a confidence score (0-1).",
+      "category": "messaging",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Gmail search query (e.g. \"from:marketing@example.com category:promotions newer_than:90d\")"
+          },
+          "confidence": {
+            "type": "number",
+            "description": "Confidence score (0-1) for this action"
+          }
+        },
+        "required": [
+          "query",
+          "confidence"
+        ]
+      },
+      "executor": "tools/gmail-archive-by-query.ts",
+      "execution_target": "host"
+    },
+    {
       "name": "gmail_label",
       "description": "Add or remove labels on a Gmail message. Include a confidence score (0-1).",
       "category": "messaging",
