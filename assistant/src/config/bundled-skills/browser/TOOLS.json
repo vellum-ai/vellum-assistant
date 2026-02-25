@@ -71,7 +71,7 @@
     },
     {
       "name": "browser_click",
-      "description": "Click an element on the page. Always use element_id from browser_snapshot — do not fabricate CSS selectors. For dropdowns (including Angular Material mat-select), click to open, take a new browser_snapshot to see the options (role=\"option\" elements), then click the desired option by element_id. For autocomplete inputs where options don't appear in the snapshot, use browser_press_key with ArrowDown/ArrowUp + Enter.",
+      "description": "Click an element on the page. Always use element_id from browser_snapshot — do not fabricate CSS selectors. For ARIA/custom dropdowns (mat-select, role=listbox, or any dropdown whose options appear as role=\"option\" in browser_snapshot), click to open, take a new browser_snapshot, then click the desired option by element_id. For native <select> elements (whose <option> children do NOT appear in browser_snapshot), use browser_press_key with ArrowDown/ArrowUp + Enter to navigate and select. For autocomplete inputs where options don't appear in the snapshot, also use browser_press_key with ArrowDown/ArrowUp + Enter.",
       "category": "browser",
       "risk": "low",
       "input_schema": {
