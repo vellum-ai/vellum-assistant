@@ -380,7 +380,15 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     }
 
     func selectThread(id: UUID) {
-        guard threads.contains(where: { $0.id == id }) else { return }
+        guard let thread = threads.first(where: { $0.id == id }) else { return }
+
+        // Re-create the ViewModel if it was LRU-evicted.
+        if chatViewModels[id] == nil {
+            let viewModel = makeViewModel()
+            viewModel.sessionId = thread.sessionId
+            chatViewModels[id] = viewModel
+        }
+
         touchVMAccessOrder(id)
         activeThreadId = id
         // Switching threads is a natural point to shed cached render
