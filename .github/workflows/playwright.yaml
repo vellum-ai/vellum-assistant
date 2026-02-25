@@ -65,7 +65,7 @@ jobs:
 
       - name: Build binaries
         working-directory: clients/macos
-        run: CLI_EXTERNALS="react-devtools-core" ./build.sh build-binaries
+        run: ./build.sh binaries
 
       - name: Build macOS app
         working-directory: clients/macos

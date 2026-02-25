@@ -8,19 +8,18 @@ set -euo pipefail
 #   ./build.sh                Build debug .app
 #   ./build.sh run            Build + launch + watch for changes (auto-rebuild)
 #   ./build.sh release        Build release .app
-#   ./build.sh build-binaries Build only Bun binaries (daemon, CLI, gateway)
+#   ./build.sh binaries       Build only Bun binaries (daemon, CLI, gateway)
 #   ./build.sh test           Run tests (no .app needed)
 #   ./build.sh clean          Remove build artifacts
 #   ./build.sh lint           Build with strict concurrency (catches CI-only errors locally)
+#
+# Flags:
+#   --universal        Cross-compile Bun binaries for arm64 + x64 (universal binary via lipo)
 #
 # Environment variables (for CI):
 #   DISPLAY_VERSION   Override CFBundleShortVersionString (default: 0.1.0)
 #   BUILD_VERSION     Override CFBundleVersion (default: 1)
 #   SIGN_IDENTITY     Override code signing identity
-#   UNIVERSAL=1       Cross-compile Bun binaries for arm64 + x64 (universal binary via lipo)
-#   BUILD_GATEWAY=1   Also build the gateway binary (skipped by default)
-#   APP_VERSION=x.y   Embed version in daemon binary via --define
-#   CLI_EXTERNALS     Space-separated extra --external flags for CLI build
 
 if [ -z "${DEVELOPER_DIR:-}" ]; then
     # Use xcode-select, but fall back to Xcode.app if it points to
@@ -54,7 +53,15 @@ if [ -z "${DISPLAY_VERSION:-}" ]; then
 fi
 BUILD_VERSION="${BUILD_VERSION:-1}"
 
-CMD="${1:-build}"
+# Parse arguments: command + optional flags
+UNIVERSAL_BUILD=false
+CMD="build"
+for arg in "$@"; do
+    case "$arg" in
+        --universal) UNIVERSAL_BUILD=true ;;
+        *) CMD="$arg" ;;
+    esac
+done
 
 # Signing identity (overridable via env for CI)
 # Auto-detect any valid code signing certificate in keychain
@@ -92,8 +99,8 @@ GATEWAY_SRC_DIR="$SCRIPT_DIR/../../gateway"
 #
 # Usage: build_bun_binary <src_dir> <entry_point> <output_dir> <output_name> [extra_flags...]
 #
-# When UNIVERSAL=1, cross-compiles for arm64 + x64 and produces a fat binary
-# via lipo. Otherwise compiles for the current architecture only.
+# When --universal is set, cross-compiles for arm64 + x64 and produces a fat
+# binary via lipo. Otherwise compiles for the current architecture only.
 # ---------------------------------------------------------------------------
 build_bun_binary() {
     local src_dir="$1" entry="$2" out_dir="$3" out_name="$4"
@@ -105,7 +112,7 @@ build_bun_binary() {
 
     local build_flags=(--compile "${extra_flags[@]}")
 
-    if [ "${UNIVERSAL:-}" = "1" ]; then
+    if [ "$UNIVERSAL_BUILD" = true ]; then
         echo "Building $out_name (universal)..."
         bun build "${build_flags[@]}" --target=bun-darwin-arm64 "$entry" \
             --outfile "$out_dir/${out_name}-arm64"
@@ -123,21 +130,19 @@ build_bun_binary() {
 
     chmod +x "$out_dir/$out_name"
     echo "$out_name built: $out_dir/$out_name"
-    [ "${UNIVERSAL:-}" = "1" ] && file "$out_dir/$out_name"
+    [ "$UNIVERSAL_BUILD" = true ] && file "$out_dir/$out_name" || true
 }
 
 # ---------------------------------------------------------------------------
-# build_binaries — build all Bun binaries (daemon, CLI, and optionally gateway).
-#
-# Env vars: UNIVERSAL, BUILD_GATEWAY, APP_VERSION, CLI_EXTERNALS (see header).
+# build_binaries — build all Bun binaries (daemon, CLI, gateway).
 # ---------------------------------------------------------------------------
 build_binaries() {
     command -v bun &>/dev/null || { echo "ERROR: bun is required but not found"; exit 1; }
 
     # Daemon
     local daemon_flags=(--external electron --external "chromium-bidi/*")
-    if [ -n "${APP_VERSION:-}" ]; then
-        daemon_flags+=(--define "process.env.APP_VERSION='$APP_VERSION'")
+    if [ -n "${DISPLAY_VERSION:-}" ] && [ "$DISPLAY_VERSION" != "0.1.0" ]; then
+        daemon_flags+=(--define "process.env.APP_VERSION='$DISPLAY_VERSION'")
     fi
     build_bun_binary "$ASSISTANT_SRC_DIR" "$ASSISTANT_SRC_DIR/src/daemon/main.ts" \
         "$SCRIPT_DIR/daemon-bin" "vellum-daemon" "${daemon_flags[@]}"
@@ -149,20 +154,12 @@ build_binaries() {
     cp -R "$ASSISTANT_SRC_DIR/src/config/bundled-skills" "$SCRIPT_DIR/daemon-bin/bundled-skills"
 
     # CLI
-    local cli_flags=()
-    if [ -n "${CLI_EXTERNALS:-}" ]; then
-        for ext in $CLI_EXTERNALS; do
-            cli_flags+=(--external "$ext")
-        done
-    fi
     build_bun_binary "$CLI_SRC_DIR" "$CLI_SRC_DIR/src/index.ts" \
-        "$SCRIPT_DIR/cli-bin" "vellum-cli" "${cli_flags[@]}"
+        "$SCRIPT_DIR/cli-bin" "vellum-cli" --external react-devtools-core
 
-    # Gateway (optional)
-    if [ "${BUILD_GATEWAY:-}" = "1" ]; then
-        build_bun_binary "$GATEWAY_SRC_DIR" "$GATEWAY_SRC_DIR/src/index.ts" \
-            "$SCRIPT_DIR/gateway-bin" "vellum-gateway"
-    fi
+    # Gateway
+    build_bun_binary "$GATEWAY_SRC_DIR" "$GATEWAY_SRC_DIR/src/index.ts" \
+        "$SCRIPT_DIR/gateway-bin" "vellum-gateway"
 }
 
 case "$CMD" in
@@ -204,7 +201,7 @@ case "$CMD" in
         echo "Done."
         exit 0
         ;;
-    build-binaries)
+    binaries)
         build_binaries
         echo "All binaries built."
         exit 0
@@ -212,7 +209,7 @@ case "$CMD" in
     build|run|release)
         ;;
     *)
-        echo "Usage: $0 [build|run|release|build-binaries|test|clean|lint]"
+        echo "Usage: $0 [build|run|release|binaries|test|clean|lint]"
         exit 1
         ;;
 esac
@@ -278,8 +275,8 @@ if [ -d "$ASSISTANT_SRC_DIR/src" ] && command -v bun &>/dev/null; then
 fi
 if [ "$DAEMON_BIN_NEEDS_BUILD" = true ]; then
     local_daemon_flags=(--external electron --external "chromium-bidi/*")
-    if [ -n "${APP_VERSION:-}" ]; then
-        local_daemon_flags+=(--define "process.env.APP_VERSION='$APP_VERSION'")
+    if [ -n "${DISPLAY_VERSION:-}" ] && [ "$DISPLAY_VERSION" != "0.1.0" ]; then
+        local_daemon_flags+=(--define "process.env.APP_VERSION='$DISPLAY_VERSION'")
     fi
     build_bun_binary "$ASSISTANT_SRC_DIR" "$ASSISTANT_SRC_DIR/src/daemon/main.ts" \
         "$SCRIPT_DIR/daemon-bin" "vellum-daemon" "${local_daemon_flags[@]}"
@@ -315,14 +312,8 @@ if [ -d "$CLI_SRC_DIR/src" ] && command -v bun &>/dev/null; then
     fi
 fi
 if [ "$CLI_BIN_NEEDS_BUILD" = true ]; then
-    local_cli_flags=()
-    if [ -n "${CLI_EXTERNALS:-}" ]; then
-        for ext in $CLI_EXTERNALS; do
-            local_cli_flags+=(--external "$ext")
-        done
-    fi
     build_bun_binary "$CLI_SRC_DIR" "$CLI_SRC_DIR/src/index.ts" \
-        "$SCRIPT_DIR/cli-bin" "vellum-cli" "${local_cli_flags[@]}"
+        "$SCRIPT_DIR/cli-bin" "vellum-cli" --external react-devtools-core
 fi
 
 # Also rebuild if CLI binary changed or newly added

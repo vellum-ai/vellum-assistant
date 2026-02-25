@@ -343,12 +343,9 @@ jobs:
           bun-version: latest
 
       - name: Build binaries
-        working-directory: clients/macos
         run: |
-          UNIVERSAL=1 \
-          BUILD_GATEWAY=1 \
-          APP_VERSION="${{ steps.version.outputs.display_version }}" \
-          ./build.sh build-binaries
+          DISPLAY_VERSION="${{ steps.version.outputs.display_version }}" \
+          ./build.sh binaries --universal
 
       - name: Build release .app
         run: |
@@ -825,7 +822,7 @@ jobs:
 
       - name: Build binaries
         working-directory: clients/macos
-        run: CLI_EXTERNALS="react-devtools-core" ./build.sh build-binaries
+        run: ./build.sh binaries
 
       - name: Build macOS app
         working-directory: clients/macos

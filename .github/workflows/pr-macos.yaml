@@ -89,7 +89,7 @@ jobs:
 
       - name: Build binaries
         working-directory: clients/macos
-        run: UNIVERSAL=1 BUILD_GATEWAY=1 ./build.sh build-binaries
+        run: ./build.sh binaries --universal
 
       - name: Build release .app
         working-directory: clients/macos
