@@ -577,18 +577,18 @@ function toSkillSlug(raw: string): string {
     .replace(/[^a-z0-9._-]+/g, '-')  // replace non-valid chars with hyphens
     .replace(/^[^a-z0-9]+/, '')        // must start with alphanumeric
     .replace(/-+/g, '-')              // collapse multiple hyphens
-    .replace(/-$/, '')                // no trailing hyphen
-    .slice(0, 50);
+    .slice(0, 50)
+    .replace(/-$/, '');               // no trailing hyphen (after truncation)
 }
 
 // ─── Deterministic heuristic draft ───────────────────────────────────────────
 
 function heuristicDraft(body: string): { skillId: string; name: string; description: string; emoji: string } {
   const lines = body.split('\n').filter((l) => l.trim());
-  const firstLine = lines[0]?.trim() ?? 'untitled-skill';
-  const name = firstLine.replace(/^#+\s*/, '').slice(0, 100);
+  const firstLine = lines[0]?.trim() ?? '';
+  const name = firstLine.replace(/^#+\s*/, '').slice(0, 100) || 'Untitled Skill';
   const skillId = toSkillSlug(name) || 'untitled-skill';
-  const description = body.trim().slice(0, 200);
+  const description = body.trim().slice(0, 200) || 'No description provided';
   return { skillId, name, description, emoji: '\u{1F4DD}' };
 }
 
@@ -748,6 +748,7 @@ export async function handleSkillsCreate(
     }
 
     // Auto-enable the newly created skill
+    let autoEnabled = false;
     try {
       const raw = loadRawConfig();
       ensureSkillEntry(raw, msg.skillId).enabled = true;
@@ -761,6 +762,7 @@ export async function handleSkillsCreate(
       invalidateConfigCache();
       ctx.debounceTimers.schedule('__suppress_reset__', () => { ctx.setSuppressConfigReload(false); }, CONFIG_RELOAD_DEBOUNCE_MS);
       ctx.updateConfigFingerprint();
+      autoEnabled = true;
     } catch (err) {
       log.warn({ err, skillId: msg.skillId }, 'Failed to auto-enable created skill');
     }
@@ -770,11 +772,13 @@ export async function handleSkillsCreate(
       operation: 'create',
       success: true,
     });
-    ctx.broadcast({
-      type: 'skills_state_changed',
-      name: msg.skillId,
-      state: 'enabled',
-    });
+    if (autoEnabled) {
+      ctx.broadcast({
+        type: 'skills_state_changed',
+        name: msg.skillId,
+        state: 'enabled',
+      });
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, 'Failed to create skill');
