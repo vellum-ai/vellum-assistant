@@ -287,8 +287,10 @@ final class SkillsManager: ObservableObject {
             do {
                 try daemonClient.draftSkill(sourceText: sourceText)
             } catch {
-                isDrafting = false
-                draftError = "Failed to send draft request"
+                if generation == self.draftGeneration {
+                    isDrafting = false
+                    draftError = "Failed to send draft request"
+                }
                 return
             }
 
@@ -312,7 +314,9 @@ final class SkillsManager: ObservableObject {
                     return
                 }
             }
-            isDrafting = false
+            if generation == self.draftGeneration {
+                isDrafting = false
+            }
         }
     }
 
@@ -335,8 +339,10 @@ final class SkillsManager: ObservableObject {
                     bodyMarkdown: bodyMarkdown
                 )
             } catch {
-                isCreating = false
-                createError = "Failed to send create request"
+                if generation == self.createGeneration {
+                    isCreating = false
+                    createError = "Failed to send create request"
+                }
                 return
             }
 
@@ -354,7 +360,9 @@ final class SkillsManager: ObservableObject {
                     return
                 }
             }
-            isCreating = false
+            if generation == self.createGeneration {
+                isCreating = false
+            }
         }
     }
 
