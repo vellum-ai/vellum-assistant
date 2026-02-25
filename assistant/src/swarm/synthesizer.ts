@@ -13,10 +13,21 @@ export async function synthesizeResults(opts: {
 }): Promise<string> {
   const { objective, results, provider, model } = opts;
 
-  const taskSummaries = results.map((r) => {
+  // Cap individual summaries and total input to avoid blowing up context on large plans
+  const MAX_SUMMARY_CHARS = 500;
+  const MAX_TOTAL_CHARS = 12_000;
+
+  let taskSummaries = results.map((r) => {
     const status = r.status === 'completed' ? 'completed' : 'FAILED';
-    return `[${r.taskId}] (${status}): ${r.summary}`;
+    const summary = r.summary.length > MAX_SUMMARY_CHARS
+      ? r.summary.slice(0, MAX_SUMMARY_CHARS) + '...'
+      : r.summary;
+    return `[${r.taskId}] (${status}): ${summary}`;
   }).join('\n');
+
+  if (taskSummaries.length > MAX_TOTAL_CHARS) {
+    taskSummaries = taskSummaries.slice(0, MAX_TOTAL_CHARS) + '\n... (truncated)';
+  }
 
   const systemPrompt = 'You are a synthesis assistant. Combine the outputs from multiple specialist workers into a coherent, concise final answer. Focus on the user\'s original objective.';
 
