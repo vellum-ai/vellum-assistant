@@ -95,7 +95,8 @@ export async function handleTaskSubmit(
       const conversation = conversationStore.createConversation(GENERATING_TITLE);
       queueGenerateConversationTitle({
         conversationId: conversation.id,
-        context: { origin: 'task_submit', triggerTextSnippet: msg.task },
+        context: { origin: 'task_submit' },
+        userMessage: msg.task,
       });
       ctx.socketToSession.set(socket, conversation.id);
       const session = await ctx.getOrCreateSession(conversation.id, socket, true);
