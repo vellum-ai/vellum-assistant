@@ -668,18 +668,19 @@ export function searchConversations(
   // LIKE pattern for title matching (FTS only covers message content).
   const titlePattern = `%${query.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')}%`;
 
-  interface FtsMessageRow {
-    message_id: string;
+  interface ConvIdRow {
     conversation_id: string;
   }
 
   // Collect conversation IDs from FTS message matches and title LIKE matches,
   // then merge them to produce the final set of matching conversations.
+  // Both paths LIMIT on distinct conversation_id to prevent a single
+  // conversation with many matching messages from crowding out others.
   const ftsConvIds = new Set<string>();
   if (ftsMatch) {
     try {
-      const ftsRows = rawAll<FtsMessageRow>(`
-        SELECT f.message_id, m.conversation_id
+      const ftsRows = rawAll<ConvIdRow>(`
+        SELECT DISTINCT m.conversation_id
         FROM messages_fts f
         JOIN messages m ON m.id = f.message_id
         JOIN conversations c ON c.id = m.conversation_id
@@ -695,8 +696,8 @@ export function searchConversations(
     // LIKE-based message content search so queries like "你", "é", or "C++" still
     // match message text.
     const likePattern = `%${query.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')}%`;
-    const likeRows = rawAll<FtsMessageRow>(`
-      SELECT m.id AS message_id, m.conversation_id
+    const likeRows = rawAll<ConvIdRow>(`
+      SELECT DISTINCT m.conversation_id
       FROM messages m
       JOIN conversations c ON c.id = m.conversation_id
       WHERE m.content LIKE ? ESCAPE '\\' AND c.thread_type != 'background'
