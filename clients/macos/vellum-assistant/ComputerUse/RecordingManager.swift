@@ -84,8 +84,13 @@ final class RecordingManager: ObservableObject {
             // Guard against stale completion: if stop() or forceStop() was called
             // while we were awaiting recorder.start(), don't override the state.
             guard state == .starting, ownerSessionId == sessionId else {
-                log.info("Recording start completed but state changed during await — cancelling stale recorder (state=\(String(describing: self.state)))")
-                recorder.cancelRecording()
+                log.info("Recording start completed but state changed during await — checking ownership before cancelling (state=\(String(describing: self.state)), owner=\(self.ownerSessionId ?? "nil"))")
+                // Only cancel if no other session has taken ownership of the recorder.
+                // If ownerSessionId points to a different session and the state is active,
+                // that session now owns the recorder — cancelling would tear down its recording.
+                if ownerSessionId == nil || !state.isActive {
+                    recorder.cancelRecording()
+                }
                 return false
             }
 
