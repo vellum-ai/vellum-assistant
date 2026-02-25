@@ -9,6 +9,7 @@ export interface AssistantEntry {
   bearerToken?: string;
   cloud: string;
   instanceId?: string;
+  namespace?: string;
   project?: string;
   region?: string;
   species?: string;
