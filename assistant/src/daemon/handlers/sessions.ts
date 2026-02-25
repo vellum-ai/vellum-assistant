@@ -9,6 +9,7 @@ import * as conversationStore from '../../memory/conversation-store.js';
 import { GENERATING_TITLE, queueGenerateConversationTitle, UNTITLED_FALLBACK } from '../../memory/conversation-title-service.js';
 import * as externalConversationStore from '../../memory/external-conversation-store.js';
 import { checkIngressForSecrets } from '../../security/secret-ingress.js';
+import { redactSecrets } from '../../security/secret-scanner.js';
 import { getSubagentManager } from '../../subagent/index.js';
 import { silentlyWithLog } from '../../util/silently.js';
 import { truncate } from '../../util/truncate.js';
@@ -66,10 +67,116 @@ export async function handleUserMessage(
     }
 
     const sendEvent = (event: ServerMessage) => ctx.send(socket, event);
+    const ipcChannel = parseChannelId(msg.channel) ?? 'vellum';
+    const ipcInterface = parseInterfaceId(msg.interface);
+    if (!ipcInterface) {
+      ctx.send(socket, {
+        type: 'error',
+        message: 'Invalid user_message: interface is required and must be valid',
+      });
+      return;
+    }
+    const queuedChannelMetadata = {
+      userMessageChannel: ipcChannel,
+      assistantMessageChannel: ipcChannel,
+      userMessageInterface: ipcInterface,
+      assistantMessageInterface: ipcInterface,
+    };
+
+    const dispatchUserMessage = (
+      content: string,
+      attachments: UserMessageAttachment[],
+      dispatchRequestId: string,
+      source: 'user_message' | 'secure_redirect_resume',
+      activeSurfaceId?: string,
+      currentPage?: string,
+    ): void => {
+      const receivedDescription = source === 'user_message'
+        ? 'User message received'
+        : 'Resuming message after secure credential save';
+      const queuedDescription = source === 'user_message'
+        ? 'Message queued (session busy)'
+        : 'Resumed message queued (session busy)';
+
+      session.traceEmitter.emit('request_received', receivedDescription, {
+        requestId: dispatchRequestId,
+        status: 'info',
+        attributes: { source },
+      });
+
+      const result = session.enqueueMessage(
+        content,
+        attachments,
+        sendEvent,
+        dispatchRequestId,
+        activeSurfaceId,
+        currentPage,
+        queuedChannelMetadata,
+      );
+      if (result.rejected) {
+        rlog.warn({ source }, 'Message rejected — queue is full');
+        session.traceEmitter.emit('request_error', 'Message rejected — queue is full', {
+          requestId: dispatchRequestId,
+          status: 'error',
+          attributes: { reason: 'queue_full', queueDepth: session.getQueueDepth(), source },
+        });
+        ctx.send(socket, buildSessionErrorMessage(msg.sessionId, {
+          code: 'QUEUE_FULL',
+          userMessage: 'Message queue is full (max depth: 10). Please wait for current messages to be processed.',
+          retryable: true,
+          debugDetails: 'Message rejected — session queue is full',
+        }));
+        return;
+      }
+      if (result.queued) {
+        const position = session.getQueueDepth();
+        rlog.info({ source, position }, queuedDescription);
+        session.traceEmitter.emit('request_queued', `Message queued at position ${position}`, {
+          requestId: dispatchRequestId,
+          status: 'info',
+          attributes: { position, source },
+        });
+        ctx.send(socket, {
+          type: 'message_queued',
+          sessionId: msg.sessionId,
+          requestId: dispatchRequestId,
+          position,
+        });
+        return;
+      }
+
+      rlog.info({ source }, 'Processing user message');
+      session.setTurnChannelContext({
+        userMessageChannel: ipcChannel,
+        assistantMessageChannel: ipcChannel,
+      });
+      session.setTurnInterfaceContext({
+        userMessageInterface: ipcInterface,
+        assistantMessageInterface: ipcInterface,
+      });
+      session.setAssistantId('self');
+      // IPC/desktop user IS the guardian — default to guardian role so messages
+      // are not tagged 'unverified_channel' (which blocks memory extraction).
+      session.setGuardianContext({ actorRole: 'guardian', sourceChannel: ipcChannel });
+      session.setCommandIntent(null);
+      // Fire-and-forget: don't block the IPC handler so the connection can
+      // continue receiving messages (e.g. cancel, confirmations, or
+      // additional user_message that will be queued by the session).
+      session.processMessage(content, attachments, sendEvent, dispatchRequestId, activeSurfaceId, currentPage).catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        rlog.error({ err, source }, 'Error processing user message (session or provider failure)');
+        ctx.send(socket, { type: 'error', message: `Failed to process message: ${message}` });
+        const classified = classifySessionError(err, { phase: 'agent_loop' });
+        ctx.send(socket, buildSessionErrorMessage(msg.sessionId, classified));
+      });
+    };
+
+    const config = getConfig();
+    const messageText = msg.content ?? '';
 
     // Block inbound messages that contain secrets and redirect to secure prompt
     if (!msg.bypassSecretCheck) {
-      const ingressCheck = checkIngressForSecrets(msg.content ?? '');
+      const ingressCheck = checkIngressForSecrets(messageText);
       if (ingressCheck.blocked) {
         rlog.warn({ detectedTypes: ingressCheck.detectedTypes }, 'Blocked user message containing secrets');
         ctx.send(socket, {
@@ -77,21 +184,47 @@ export async function handleUserMessage(
           message: ingressCheck.userNotice!,
           category: 'secret_blocked',
         });
-        // Redirect: trigger a secure prompt so the user can enter the secret safely
-        session.redirectToSecurePrompt(ingressCheck.detectedTypes);
+
+        const redactedMessageText = redactSecrets(messageText, {
+          enabled: true,
+          base64Threshold: config.secretDetection.entropyThreshold,
+        }).trim();
+
+        // Redirect: trigger a secure prompt so the user can enter the secret safely.
+        // After save, continue the same request with redacted text so the model keeps
+        // user intent without ever receiving the raw secret value.
+        session.redirectToSecurePrompt(ingressCheck.detectedTypes, {
+          onStored: (record) => {
+            ctx.send(socket, {
+              type: 'assistant_text_delta',
+              sessionId: msg.sessionId,
+              text: 'Saved your secret securely. Continuing with your request.',
+            });
+            ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
+
+            const continuationParts: string[] = [];
+            if (redactedMessageText.length > 0) continuationParts.push(redactedMessageText);
+            continuationParts.push(
+              `I entered the redacted secret via the Secure Credential UI and saved it as credential ${record.service}/${record.field}. ` +
+              'Continue with my request using that stored credential and do not ask me to paste the secret again.',
+            );
+            const continuationMessage = continuationParts.join('\n\n');
+            const continuationRequestId = uuid();
+            dispatchUserMessage(
+              continuationMessage,
+              msg.attachments ?? [],
+              continuationRequestId,
+              'secure_redirect_resume',
+              msg.activeSurfaceId,
+              msg.currentPage,
+            );
+          },
+        });
         return;
       }
     }
 
-    session.traceEmitter.emit('request_received', 'User message received', {
-      requestId,
-      status: 'info',
-      attributes: { source: 'user_message' },
-    });
-
     // ── Standalone recording intent interception ──────────────────────────
-    const config = getConfig();
-    const messageText = msg.content ?? '';
     if (config.daemon.standaloneRecording && messageText) {
       if (isStopRecordingOnly(messageText)) {
         const stopped = handleRecordingStop(msg.sessionId, ctx) !== undefined;
@@ -119,86 +252,14 @@ export async function handleUserMessage(
       }
     }
 
-    const ipcChannel = parseChannelId(msg.channel) ?? 'vellum';
-    const ipcInterface = parseInterfaceId(msg.interface);
-    if (!ipcInterface) {
-      ctx.send(socket, {
-        type: 'error',
-        message: 'Invalid user_message: interface is required and must be valid',
-      });
-      return;
-    }
-    const queuedChannelMetadata = {
-      userMessageChannel: ipcChannel,
-      assistantMessageChannel: ipcChannel,
-      userMessageInterface: ipcInterface,
-      assistantMessageInterface: ipcInterface,
-    };
-    const result = session.enqueueMessage(
-      msg.content ?? '',
+    dispatchUserMessage(
+      messageText,
       msg.attachments ?? [],
-      sendEvent,
       requestId,
+      'user_message',
       msg.activeSurfaceId,
       msg.currentPage,
-      queuedChannelMetadata,
     );
-    if (result.rejected) {
-      rlog.warn('Message rejected — queue is full');
-      session.traceEmitter.emit('request_error', 'Message rejected — queue is full', {
-        requestId,
-        status: 'error',
-        attributes: { reason: 'queue_full', queueDepth: session.getQueueDepth() },
-      });
-      ctx.send(socket, buildSessionErrorMessage(msg.sessionId, {
-        code: 'QUEUE_FULL',
-        userMessage: 'Message queue is full (max depth: 10). Please wait for current messages to be processed.',
-        retryable: true,
-        debugDetails: 'Message rejected — session queue is full',
-      }));
-      return;
-    }
-    if (result.queued) {
-      const position = session.getQueueDepth();
-      rlog.info({ position }, 'Message queued (session busy)');
-      session.traceEmitter.emit('request_queued', `Message queued at position ${position}`, {
-        requestId,
-        status: 'info',
-        attributes: { position },
-      });
-      ctx.send(socket, {
-        type: 'message_queued',
-        sessionId: msg.sessionId,
-        requestId,
-        position,
-      });
-      return; // Don't await — message will be processed when current one finishes
-    }
-
-    rlog.info('Processing user message');
-    session.setTurnChannelContext({
-      userMessageChannel: ipcChannel,
-      assistantMessageChannel: ipcChannel,
-    });
-    session.setTurnInterfaceContext({
-      userMessageInterface: ipcInterface,
-      assistantMessageInterface: ipcInterface,
-    });
-    session.setAssistantId('self');
-    // IPC/desktop user IS the guardian — default to guardian role so messages
-    // are not tagged 'unverified_channel' (which blocks memory extraction).
-    session.setGuardianContext({ actorRole: 'guardian', sourceChannel: ipcChannel });
-    session.setCommandIntent(null);
-    // Fire-and-forget: don't block the IPC handler so the connection can
-    // continue receiving messages (e.g. cancel, confirmations, or
-    // additional user_message that will be queued by the session).
-    session.processMessage(msg.content ?? '', msg.attachments ?? [], sendEvent, requestId, msg.activeSurfaceId, msg.currentPage).catch((err) => {
-      const message = err instanceof Error ? err.message : String(err);
-      rlog.error({ err }, 'Error processing user message (session or provider failure)');
-      ctx.send(socket, { type: 'error', message: `Failed to process message: ${message}` });
-      const classified = classifySessionError(err, { phase: 'agent_loop' });
-      ctx.send(socket, buildSessionErrorMessage(msg.sessionId, classified));
-    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     rlog.error({ err }, 'Error setting up user message processing');
