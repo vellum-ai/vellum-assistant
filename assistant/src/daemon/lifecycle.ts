@@ -332,10 +332,10 @@ export async function runDaemon(): Promise<void> {
     port: httpPort,
     hostname,
     bearerToken,
-    processMessage: (conversationId, content, attachmentIds, options, sourceChannel) =>
-      server.processMessage(conversationId, content, attachmentIds, options, sourceChannel),
-    persistAndProcessMessage: (conversationId, content, attachmentIds, options, sourceChannel) =>
-      server.persistAndProcessMessage(conversationId, content, attachmentIds, options, sourceChannel),
+    processMessage: (conversationId, content, attachmentIds, options, sourceChannel, sourceInterface) =>
+      server.processMessage(conversationId, content, attachmentIds, options, sourceChannel, sourceInterface),
+    persistAndProcessMessage: (conversationId, content, attachmentIds, options, sourceChannel, sourceInterface) =>
+      server.persistAndProcessMessage(conversationId, content, attachmentIds, options, sourceChannel, sourceInterface),
     runOrchestrator,
     interfacesDir: getInterfacesDir(),
     approvalCopyGenerator: createApprovalCopyGenerator(),

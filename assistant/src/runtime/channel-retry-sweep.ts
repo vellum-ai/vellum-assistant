@@ -118,6 +118,8 @@ export async function sweepFailedEvents(
           assistantId,
           guardianContext,
         },
+        sourceChannel,
+        sourceChannel, // Retry sweep: interface matches channel
       );
       channelDeliveryStore.linkMessage(event.id, userMessageId);
       channelDeliveryStore.markProcessed(event.id);
