@@ -42,6 +42,8 @@ public struct ConfirmationSurfaceView: View {
                 selectedActionFeedback(selectedAction)
             } else {
                 pendingContent
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .inlineWidgetCard()
             }
         }
         .onChange(of: data) { _, _ in
