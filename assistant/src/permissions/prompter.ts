@@ -1,11 +1,12 @@
 import { v4 as uuid } from 'uuid';
-import type { ServerMessage } from '../daemon/ipc-protocol.js';
-import type { UserDecision, AllowlistOption, ScopeOption } from './types.js';
-import type { ExecutionTarget } from '../tools/types.js';
+
 import { getConfig } from '../config/loader.js';
-import { getLogger } from '../util/logger.js';
-import { AssistantError, ErrorCode } from '../util/errors.js';
+import type { ServerMessage } from '../daemon/ipc-protocol.js';
 import { redactSensitiveFields } from '../security/redaction.js';
+import type { ExecutionTarget } from '../tools/types.js';
+import { AssistantError, ErrorCode } from '../util/errors.js';
+import { getLogger } from '../util/logger.js';
+import type { AllowlistOption, ScopeOption,UserDecision } from './types.js';
 
 const log = getLogger('permission-prompter');
 

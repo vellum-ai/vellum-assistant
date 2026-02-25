@@ -1,4 +1,4 @@
-import { describe, test, expect, mock } from 'bun:test';
+import { describe, expect, mock,test } from 'bun:test';
 
 mock.module('../util/logger.js', () => ({
   getLogger: () => new Proxy({} as Record<string, unknown>, {
@@ -6,10 +6,10 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
-import { RateLimitProvider } from '../providers/ratelimit.js';
-import { RateLimitError } from '../util/errors.js';
-import type { Provider, ProviderResponse, Message } from '../providers/types.js';
 import type { RateLimitConfig } from '../config/types.js';
+import { RateLimitProvider } from '../providers/ratelimit.js';
+import type { Message,Provider, ProviderResponse } from '../providers/types.js';
+import { RateLimitError } from '../util/errors.js';
 
 function makeProvider(response?: Partial<ProviderResponse>): Provider {
   return {

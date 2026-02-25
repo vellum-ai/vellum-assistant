@@ -1,5 +1,5 @@
-import { findAllMatches, adjustIndentation } from '../../filesystem/fuzzy-match.js';
 import type { MatchMethod } from '../../filesystem/fuzzy-match.js';
+import { adjustIndentation,findAllMatches } from '../../filesystem/fuzzy-match.js';
 
 // ---------------------------------------------------------------------------
 // Types

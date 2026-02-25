@@ -1,4 +1,5 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, expect,test } from 'bun:test';
+
 import { isDeniedNumber } from '../calls/call-constants.js';
 
 describe('isDeniedNumber', () => {

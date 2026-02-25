@@ -1,5 +1,6 @@
-import * as net from 'node:net';
 import { stat } from 'node:fs/promises';
+import * as net from 'node:net';
+
 import { scanBundle } from '../../bundler/bundle-scanner.js';
 import { verifyBundleSignature } from '../../bundler/signature-verifier.js';
 import { getLogger } from '../../util/logger.js';

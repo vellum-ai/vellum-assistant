@@ -5,19 +5,20 @@
  */
 
 import { Command } from 'commander';
+
 import { initializeDb } from '../memory/db.js';
-import {
-  listSequences,
-  getSequence,
-  updateSequence,
-  listEnrollments,
-  exitEnrollment,
-  countActiveEnrollments,
-} from '../sequence/store.js';
 import {
   getGuardrailConfig,
   setGuardrailConfig,
 } from '../sequence/guardrails.js';
+import {
+  countActiveEnrollments,
+  exitEnrollment,
+  getSequence,
+  listEnrollments,
+  listSequences,
+  updateSequence,
+} from '../sequence/store.js';
 
 // ---------------------------------------------------------------------------
 // Helpers

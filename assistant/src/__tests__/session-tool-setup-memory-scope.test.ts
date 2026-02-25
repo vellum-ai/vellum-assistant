@@ -3,13 +3,14 @@
  * memory policy into the ToolContext passed to the underlying executor.
  */
 
-import { describe, test, expect, mock } from 'bun:test';
-import type { ToolExecutionResult, ToolContext } from '../tools/types.js';
+import { describe, expect, mock,test } from 'bun:test';
+
+import type { SurfaceData,SurfaceType } from '../daemon/ipc-protocol.js';
 import type { ToolSetupContext } from '../daemon/session-tool-setup.js';
-import type { SurfaceType, SurfaceData } from '../daemon/ipc-protocol.js';
-import type { ToolExecutor } from '../tools/executor.js';
 import type { PermissionPrompter } from '../permissions/prompter.js';
 import type { SecretPrompter } from '../permissions/secret-prompter.js';
+import type { ToolExecutor } from '../tools/executor.js';
+import type { ToolContext,ToolExecutionResult } from '../tools/types.js';
 
 // ---------------------------------------------------------------------------
 // Mocks — must be set up before importing the module under test

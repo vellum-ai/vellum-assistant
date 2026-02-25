@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, mock,test } from 'bun:test';
 
 mock.module('../util/logger.js', () => ({
   getLogger: () =>
@@ -9,8 +9,8 @@ mock.module('../util/logger.js', () => ({
 
 import {
   ElevenLabsClient,
-  ElevenLabsError,
   type ElevenLabsClientOptions,
+  ElevenLabsError,
   type ElevenLabsRegisterCallRequest,
 } from '../calls/elevenlabs-client.js';
 

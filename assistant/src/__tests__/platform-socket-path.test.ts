@@ -1,6 +1,7 @@
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { join } from 'node:path';
 import { homedir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach,beforeEach, describe, expect, test } from 'bun:test';
 
 // Baseline: socket path STAYS ROOT at ~/.vellum/vellum.sock after workspace migration.
 // The socket is a runtime artifact, not workspace state.

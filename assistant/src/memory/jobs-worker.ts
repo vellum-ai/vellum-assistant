@@ -1,7 +1,22 @@
-import type { AssistantConfig } from '../config/types.js';
 import { getConfig } from '../config/loader.js';
+import type { AssistantConfig } from '../config/types.js';
 import { getLogger } from '../util/logger.js';
 import { rawRun } from './db.js';
+import { backfillEntityRelationsJob,backfillJob } from './job-handlers/backfill.js';
+import { checkContradictionsJob, cleanupStaleSupersededItemsJob, pruneOldConversationsJob } from './job-handlers/cleanup.js';
+import { cleanupResolvedConflictsJob,resolvePendingConflictsForMessageJob } from './job-handlers/conflict.js';
+// ── Per-job-type handlers ──────────────────────────────────────────
+import { embedItemJob, embedSegmentJob, embedSummaryJob } from './job-handlers/embedding.js';
+import { extractEntitiesJob,extractItemsJob } from './job-handlers/extraction.js';
+import { deleteQdrantVectorsJob,rebuildIndexJob } from './job-handlers/index-maintenance.js';
+import { mediaProcessingJob } from './job-handlers/media-processing.js';
+import { buildConversationSummaryJob, buildGlobalSummaryJob } from './job-handlers/summarization.js';
+import {
+  BackendUnavailableError,
+  classifyError,
+  RETRY_MAX_ATTEMPTS,
+  retryDelayForAttempt,
+} from './job-utils.js';
 import {
   claimMemoryJobs,
   completeMemoryJob,
@@ -13,24 +28,7 @@ import {
   type MemoryJob,
   resetRunningJobsToPending,
 } from './jobs-store.js';
-import {
-  BackendUnavailableError,
-  classifyError,
-  retryDelayForAttempt,
-  RETRY_MAX_ATTEMPTS,
-} from './job-utils.js';
 import { bumpMemoryVersion } from './recall-cache.js';
-
-// ── Per-job-type handlers ──────────────────────────────────────────
-
-import { embedSegmentJob, embedItemJob, embedSummaryJob } from './job-handlers/embedding.js';
-import { extractItemsJob, extractEntitiesJob } from './job-handlers/extraction.js';
-import { resolvePendingConflictsForMessageJob, cleanupResolvedConflictsJob } from './job-handlers/conflict.js';
-import { checkContradictionsJob, cleanupStaleSupersededItemsJob, pruneOldConversationsJob } from './job-handlers/cleanup.js';
-import { buildConversationSummaryJob, buildGlobalSummaryJob } from './job-handlers/summarization.js';
-import { backfillJob, backfillEntityRelationsJob } from './job-handlers/backfill.js';
-import { rebuildIndexJob, deleteQdrantVectorsJob } from './job-handlers/index-maintenance.js';
-import { mediaProcessingJob } from './job-handlers/media-processing.js';
 
 // Re-export public utilities consumed by tests and other modules
 export { currentWeekWindow } from './job-utils.js';

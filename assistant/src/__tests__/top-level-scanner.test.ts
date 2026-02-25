@@ -1,9 +1,11 @@
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { scanTopLevelDirectories, MAX_TOP_LEVEL_ENTRIES } from '../workspace/top-level-scanner.js';
+import { join } from 'node:path';
+
+import { afterEach,beforeEach, describe, expect, test } from 'bun:test';
+
+import { MAX_TOP_LEVEL_ENTRIES,scanTopLevelDirectories } from '../workspace/top-level-scanner.js';
 
 describe('scanTopLevelDirectories', () => {
   let tempDir: string;

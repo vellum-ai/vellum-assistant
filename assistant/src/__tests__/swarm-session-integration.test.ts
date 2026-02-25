@@ -1,4 +1,4 @@
-import { describe, test, expect, mock, beforeEach } from 'bun:test';
+import { beforeEach,describe, expect, mock, test } from 'bun:test';
 
 // ---------------------------------------------------------------------------
 // Mocks — declared before imports that depend on them
@@ -66,10 +66,10 @@ mock.module('@anthropic-ai/claude-agent-sdk', () => ({
   }),
 }));
 
-import { AgentLoop } from '../agent/loop.js';
 import type { AgentEvent } from '../agent/loop.js';
+import { AgentLoop } from '../agent/loop.js';
 import type { Message, ProviderResponse } from '../providers/types.js';
-import { swarmDelegateTool, _resetSwarmActive } from '../tools/swarm/delegate.js';
+import { _resetSwarmActive,swarmDelegateTool } from '../tools/swarm/delegate.js';
 import type { ToolContext } from '../tools/types.js';
 
 function makeContext(overrides?: Partial<ToolContext>): ToolContext {

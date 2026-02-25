@@ -1,4 +1,3 @@
-import { afterEach, describe, expect, test } from 'bun:test';
 import {
   existsSync,
   mkdirSync,
@@ -7,8 +6,10 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach, describe, expect, test } from 'bun:test';
 
 import { FileSystemOps, type PathPolicy } from '../tools/shared/filesystem/file-ops-service.js';
 import { sandboxPolicy } from '../tools/shared/filesystem/path-policy.js';

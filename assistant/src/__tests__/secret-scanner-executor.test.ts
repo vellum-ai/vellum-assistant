@@ -1,4 +1,5 @@
-import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
+import { afterAll, beforeEach, describe, expect, mock,test } from 'bun:test';
+
 import type { ToolExecutionResult, ToolLifecycleEvent, ToolLifecycleEventHandler } from '../tools/types.js';
 
 // ---------------------------------------------------------------------------
@@ -78,9 +79,9 @@ mock.module('../tools/terminal/sandbox.js', () => ({
 // process-global mock.module.
 
 // Now import the module under test — mocks are already in place
-import { ToolExecutor } from '../tools/executor.js';
-import { PermissionPrompter } from '../permissions/prompter.js';
 import { createToolAuditListener } from '../events/tool-audit-listener.js';
+import { PermissionPrompter } from '../permissions/prompter.js';
+import { ToolExecutor } from '../tools/executor.js';
 
 // ---------------------------------------------------------------------------
 // Helpers

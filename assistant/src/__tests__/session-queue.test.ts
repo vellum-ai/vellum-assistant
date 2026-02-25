@@ -1,8 +1,10 @@
-import { describe, expect, mock, test, beforeEach, afterAll } from 'bun:test';
 import { rmSync, writeFileSync } from 'node:fs';
-import type { Message, ProviderResponse } from '../providers/types.js';
-import type { AgentEvent, CheckpointInfo, CheckpointDecision } from '../agent/loop.js';
+
+import { afterAll,beforeEach, describe, expect, mock, test } from 'bun:test';
+
+import type { AgentEvent, CheckpointDecision,CheckpointInfo } from '../agent/loop.js';
 import type { ServerMessage } from '../daemon/ipc-protocol.js';
+import type { Message, ProviderResponse } from '../providers/types.js';
 
 // ---------------------------------------------------------------------------
 // Mocks — must precede the Session import so Bun applies them at load time.
@@ -218,8 +220,8 @@ mock.module('../agent/loop.js', () => ({
 // Import Session AFTER mocks are registered.
 // ---------------------------------------------------------------------------
 
-import { Session, MAX_QUEUE_DEPTH } from '../daemon/session.js';
 import type { QueueDrainReason, QueuePolicy } from '../daemon/session.js';
+import { MAX_QUEUE_DEPTH,Session } from '../daemon/session.js';
 
 type SessionWithWorkspaceDeps = Session & {
   getWorkspaceGitService?: (_workspaceDir: string) => { ensureInitialized: () => Promise<void> };

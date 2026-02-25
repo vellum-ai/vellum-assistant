@@ -6,10 +6,11 @@
  * Captured requests are saved to ~/.vellum/workspace/data/amazon/captured-requests.json
  */
 
+import { existsSync,mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
-import { getDataDir } from '../util/platform.js';
+
 import type { SessionRecording } from '../tools/browser/network-recording-types.js';
+import { getDataDir } from '../util/platform.js';
 
 export type AmazonRequestKey =
   | 'search'

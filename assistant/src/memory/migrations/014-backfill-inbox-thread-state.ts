@@ -1,4 +1,4 @@
-import { getSqliteFrom, type DrizzleDb } from '../db-connection.js';
+import { type DrizzleDb,getSqliteFrom } from '../db-connection.js';
 
 /**
  * One-shot migration: seed assistant_inbox_thread_state from existing

@@ -12,8 +12,9 @@
  *   bun run ipc:check-swift-drift    # check for drift
  */
 
-import * as path from 'path';
 import * as fs from 'fs';
+import * as path from 'path';
+
 import { extractInventory } from '../../src/daemon/ipc-contract-inventory.js';
 
 const ROOT = path.resolve(import.meta.dirname ?? __dirname, '../..');

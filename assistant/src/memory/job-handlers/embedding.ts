@@ -1,8 +1,9 @@
 import { eq } from 'drizzle-orm';
+
 import type { AssistantConfig } from '../../config/types.js';
 import { getDb } from '../db.js';
-import type { MemoryJob } from '../jobs-store.js';
 import { asString, embedAndUpsert } from '../job-utils.js';
+import type { MemoryJob } from '../jobs-store.js';
 import { memoryItems, memorySegments, memorySummaries } from '../schema.js';
 
 export async function embedSegmentJob(job: MemoryJob, config: AssistantConfig): Promise<void> {

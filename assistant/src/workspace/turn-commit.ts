@@ -9,16 +9,16 @@
  * preventing cross-turn attribution of file changes.
  */
 
-import { getWorkspaceGitService } from './git-service.js';
 import { getLogger } from '../util/logger.js';
+import { getEnrichmentService } from './commit-message-enrichment-service.js';
 import {
-  DefaultCommitMessageProvider,
   type CommitContext,
   type CommitMessageProvider,
+  DefaultCommitMessageProvider,
 } from './commit-message-provider.js';
-import { getEnrichmentService } from './commit-message-enrichment-service.js';
-import { getCommitMessageGenerator } from './provider-commit-message-generator.js';
+import { getWorkspaceGitService } from './git-service.js';
 import type { CommitMessageSource, LLMFallbackReason } from './provider-commit-message-generator.js';
+import { getCommitMessageGenerator } from './provider-commit-message-generator.js';
 
 const log = getLogger('turn-commit');
 

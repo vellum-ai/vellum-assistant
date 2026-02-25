@@ -6,10 +6,11 @@
  * These tests fail if memory quality degrades — they act as guardrails
  * before any retrieval or ranking changes.
  */
-import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 
 const testDir = mkdtempSync(join(tmpdir(), 'memory-recall-quality-'));
 

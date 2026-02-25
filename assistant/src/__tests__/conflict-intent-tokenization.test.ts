@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { areStatementsCoherent, computeConflictRelevance, tokenizeForConflictRelevance as _tokenizeForConflictRelevance, overlapRatio as _overlapRatio } from '../memory/conflict-intent.js';
+
+import { areStatementsCoherent, computeConflictRelevance, overlapRatio as _overlapRatio,tokenizeForConflictRelevance as _tokenizeForConflictRelevance } from '../memory/conflict-intent.js';
 
 describe('tokenizeForConflictRelevance hardening', () => {
   test('excludes numeric-only tokens from relevance', () => {

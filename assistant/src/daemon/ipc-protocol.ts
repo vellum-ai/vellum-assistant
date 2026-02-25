@@ -1,8 +1,8 @@
 // Re-export all contract types for backward compatibility
 export * from './ipc-contract.js';
 
-import type { ClientMessage, ServerMessage } from './ipc-contract.js';
 import { getLogger } from '../util/logger.js';
+import type { ClientMessage, ServerMessage } from './ipc-contract.js';
 
 const log = getLogger('ipc-protocol');
 

@@ -1,10 +1,12 @@
-import { join, dirname } from 'node:path';
-import { readFileSync, existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { getLogger } from '../../util/logger.js';
+import { existsSync,readFileSync } from 'node:fs';
+import { dirname,join } from 'node:path';
+
+import { Language, type Node as TSNode,Parser } from 'web-tree-sitter';
+
 import { IntegrityError } from '../../util/errors.js';
+import { getLogger } from '../../util/logger.js';
 import { PromiseGuard } from '../../util/promise-guard.js';
-import { Parser, Language, type Node as TSNode } from 'web-tree-sitter';
 
 const log = getLogger('shell-parser');
 

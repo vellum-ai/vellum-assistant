@@ -1,11 +1,11 @@
+import type { ProductDetails } from './client.js';
 import {
-  prepareRequest,
+  AMAZON_BASE,
   cdpEval,
   handleResult,
+  prepareRequest,
   runWithBackoff,
-  AMAZON_BASE,
 } from './client.js';
-import type { ProductDetails } from './client.js';
 
 /**
  * Get product details for a specific ASIN, including variations.

@@ -7,9 +7,9 @@
  */
 
 import {
-  listSequences,
-  listEnrollments,
   countActiveEnrollments,
+  listEnrollments,
+  listSequences,
 } from './store.js';
 import type { Sequence } from './types.js';
 

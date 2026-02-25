@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import fc from 'fast-check';
-import { findMatch, findAllMatches } from '../tools/filesystem/fuzzy-match.js';
+
+import { findAllMatches,findMatch } from '../tools/filesystem/fuzzy-match.js';
 
 describe('fuzzy-match property-based tests', () => {
   test('exact match always has similarity 1', () => {

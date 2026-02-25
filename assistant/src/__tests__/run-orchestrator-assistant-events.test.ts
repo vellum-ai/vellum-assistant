@@ -15,10 +15,12 @@
  *   - assistant_text_delta + message_complete (onEvent path) → hub emits in order
  *   - sessionId falls back to conversationId when the message lacks it
  */
-import { afterAll, describe, test, expect, beforeEach, mock } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, beforeEach, describe, expect, mock,test } from 'bun:test';
+
 import type { ServerMessage } from '../daemon/ipc-protocol.js';
 import type { Session } from '../daemon/session.js';
 import type { AssistantEvent } from '../runtime/assistant-event.js';
@@ -44,10 +46,10 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
-import { initializeDb, getDb, resetDb } from '../memory/db.js';
 import { createConversation } from '../memory/conversation-store.js';
-import { RunOrchestrator } from '../runtime/run-orchestrator.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { assistantEventHub } from '../runtime/assistant-event-hub.js';
+import { RunOrchestrator } from '../runtime/run-orchestrator.js';
 
 initializeDb();
 

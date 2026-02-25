@@ -1,9 +1,11 @@
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { scanBundle, type ScanFinding } from "../bundler/bundle-scanner.js";
-import JSZip from "jszip";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+import { afterAll,beforeAll, describe, expect, test } from "bun:test";
+import JSZip from "jszip";
+
+import { scanBundle, type ScanFinding } from "../bundler/bundle-scanner.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

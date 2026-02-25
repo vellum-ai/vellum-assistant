@@ -10,8 +10,8 @@
  * 2. Background Haiku classification (fire-and-forget, advises future turns)
  */
 
+import { createTimeout, extractText, getConfiguredProvider, userMessage } from '../providers/provider-send-message.js';
 import { getLogger } from '../util/logger.js';
-import { getConfiguredProvider, createTimeout, extractText, userMessage } from '../providers/provider-send-message.js';
 
 const log = getLogger('response-tier');
 

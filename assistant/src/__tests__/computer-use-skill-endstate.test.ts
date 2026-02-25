@@ -1,18 +1,20 @@
 import { join } from 'node:path';
-import { describe, test, expect, beforeAll } from 'bun:test';
-import {
-  initializeTools,
-  getAllTools,
-  getTool,
-  getAllToolDefinitions,
-  __resetRegistryForTesting,
-} from '../tools/registry.js';
-import { buildToolDefinitions } from '../daemon/session-tool-setup.js';
+
+import { beforeAll,describe, expect, test } from 'bun:test';
+
 import { getBundledSkillsDir } from '../config/skills.js';
+import { buildToolDefinitions } from '../daemon/session-tool-setup.js';
 import { parseToolManifestFile } from '../skills/tool-manifest.js';
 import {
-  COMPUTER_USE_TOOL_NAMES,
+  __resetRegistryForTesting,
+  getAllToolDefinitions,
+  getAllTools,
+  getTool,
+  initializeTools,
+} from '../tools/registry.js';
+import {
   COMPUTER_USE_TOOL_COUNT,
+  COMPUTER_USE_TOOL_NAMES,
 } from './test-support/computer-use-skill-harness.js';
 
 beforeAll(async () => {

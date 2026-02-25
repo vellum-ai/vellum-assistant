@@ -1,7 +1,8 @@
-import { describe, test, expect, beforeEach, afterAll } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll,beforeEach, describe, expect, test } from 'bun:test';
 import { mock } from 'bun:test';
 
 const testDir = mkdtempSync(join(tmpdir(), 'schedule-store-test-'));
@@ -28,12 +29,12 @@ mock.module('../util/logger.js', () => ({
   truncateForLog: (value: string) => value,
 }));
 
-import { initializeDb, getDb, resetDb } from '../memory/db.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import {
+  claimDueSchedules,
   createSchedule,
   getSchedule,
   updateSchedule,
-  claimDueSchedules,
 } from '../schedule/schedule-store.js';
 
 initializeDb();

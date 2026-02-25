@@ -1,11 +1,11 @@
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import { withValidToken } from '../../../../security/token-manager.js';
-import { getMessagingProvider } from '../../../../messaging/registry.js';
-import { listMessages, batchGetMessages } from '../../../../messaging/providers/gmail/client.js';
+import { batchGetMessages,listMessages } from '../../../../messaging/providers/gmail/client.js';
 import type { GmailMessage, GmailMessagePart } from '../../../../messaging/providers/gmail/types.js';
+import { getMessagingProvider } from '../../../../messaging/registry.js';
 import { summarizeThread } from '../../../../messaging/thread-summarizer.js';
 import type { ThreadMessage } from '../../../../messaging/types.js';
-import { ok, err } from './shared.js';
+import { withValidToken } from '../../../../security/token-manager.js';
+import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
+import { err,ok } from './shared.js';
 
 function extractHeader(headers: Array<{ name: string; value: string }> | undefined, name: string): string {
   return headers?.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value ?? '';

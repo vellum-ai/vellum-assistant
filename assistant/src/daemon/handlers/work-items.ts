@@ -1,18 +1,12 @@
 import * as net from 'node:net';
-import type {
-  WorkItemsListRequest,
-  WorkItemGetRequest,
-  WorkItemUpdateRequest,
-  WorkItemCompleteRequest,
-  WorkItemDeleteRequest,
-  WorkItemRunTaskRequest,
-  WorkItemOutputRequest,
-  WorkItemPreflightRequest,
-  WorkItemApprovePermissionsRequest,
-  WorkItemCancelRequest,
-} from '../ipc-protocol.js';
-import { log, defineHandlers, type HandlerContext } from './shared.js';
+
+import { getMessages } from '../../memory/conversation-store.js';
+import { check,classifyRisk } from '../../permissions/checker.js';
 import { getSubagentManager } from '../../subagent/index.js';
+import { runTask } from '../../tasks/task-runner.js';
+import { getTask, getTaskRun } from '../../tasks/task-store.js';
+import { getRegisteredToolNames, getToolDescription,sanitizeToolList } from '../../tasks/tool-sanitizer.js';
+import { truncate } from '../../util/truncate.js';
 import {
   deleteWorkItem,
   getWorkItem,
@@ -20,12 +14,19 @@ import {
   updateWorkItem,
   type WorkItemStatus,
 } from '../../work-items/work-item-store.js';
-import { getTask, getTaskRun } from '../../tasks/task-store.js';
-import { runTask } from '../../tasks/task-runner.js';
-import { getMessages } from '../../memory/conversation-store.js';
-import { classifyRisk, check } from '../../permissions/checker.js';
-import { truncate } from '../../util/truncate.js';
-import { sanitizeToolList, getRegisteredToolNames, getToolDescription } from '../../tasks/tool-sanitizer.js';
+import type {
+  WorkItemApprovePermissionsRequest,
+  WorkItemCancelRequest,
+  WorkItemCompleteRequest,
+  WorkItemDeleteRequest,
+  WorkItemGetRequest,
+  WorkItemOutputRequest,
+  WorkItemPreflightRequest,
+  WorkItemRunTaskRequest,
+  WorkItemsListRequest,
+  WorkItemUpdateRequest,
+} from '../ipc-protocol.js';
+import { defineHandlers, type HandlerContext,log } from './shared.js';
 
 export function handleWorkItemsList(
   msg: WorkItemsListRequest,

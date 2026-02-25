@@ -1,8 +1,9 @@
-import { describe, test, expect, beforeEach, afterEach, afterAll, mock } from 'bun:test';
-import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync, statSync, chmodSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
+import { chmodSync,existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterAll, afterEach, beforeEach, describe, expect, mock,test } from 'bun:test';
 
 // ---------------------------------------------------------------------------
 // Mock only the logger (not platform — we use _setStorePath instead)
@@ -15,11 +16,11 @@ mock.module('../util/logger.js', () => ({
 }));
 
 import {
-  getKey,
-  setKey,
-  deleteKey,
-  listKeys,
   _setStorePath,
+  deleteKey,
+  getKey,
+  listKeys,
+  setKey,
 } from '../security/encrypted-store.js';
 
 // ---------------------------------------------------------------------------

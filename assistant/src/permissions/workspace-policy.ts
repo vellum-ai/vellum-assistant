@@ -1,5 +1,5 @@
-import { resolve, normalize, dirname, basename } from 'node:path';
 import { realpathSync } from 'node:fs';
+import { basename,dirname, normalize, resolve } from 'node:path';
 
 /**
  * Resolve a path to its canonical form. When the target itself doesn't

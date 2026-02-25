@@ -1,4 +1,5 @@
 import { and, desc, eq, inArray, isNull, or } from 'drizzle-orm';
+
 import type { MemoryEntityConfig } from '../../config/types.js';
 import { getLogger } from '../../util/logger.js';
 import { getDb, rawAll } from '../db.js';
@@ -8,8 +9,8 @@ import {
   memoryItems,
   memoryItemSources,
 } from '../schema.js';
-import type { Candidate, CandidateSource, CandidateType, EntitySearchResult, MatchedEntityRow, TraversalOptions, TraversalResult, TraversalStep } from './types.js';
 import { computeRecencyScore } from './ranking.js';
+import type { Candidate, CandidateSource, CandidateType, EntitySearchResult, MatchedEntityRow, TraversalOptions, TraversalResult, TraversalStep } from './types.js';
 
 const log = getLogger('memory-retriever');
 

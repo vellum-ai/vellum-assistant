@@ -1,7 +1,9 @@
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdirSync, writeFileSync, existsSync, readFileSync, rmSync, cpSync, chmodSync } from 'node:fs';
-import { join } from 'node:path';
+import { chmodSync,cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach,beforeEach, describe, expect, test } from 'bun:test';
+
 import { discoverHooks } from '../hooks/discovery.js';
 
 let hooksDir: string;

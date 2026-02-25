@@ -1,15 +1,16 @@
 import crypto from 'node:crypto';
+
 import { RiskLevel } from '../../permissions/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { getLogger } from '../../util/logger.js';
-import {
-  watchSessions,
-  getActiveWatchSession,
-  fireWatchStartNotifier,
-  fireWatchCompletionNotifier,
-} from './watch-state.js';
+import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { WatchSession } from './watch-state.js';
+import {
+  fireWatchCompletionNotifier,
+  fireWatchStartNotifier,
+  getActiveWatchSession,
+  watchSessions,
+} from './watch-state.js';
 
 const log = getLogger('screen-watch');
 

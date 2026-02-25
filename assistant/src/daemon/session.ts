@@ -15,79 +15,77 @@
  * - session-usage.ts        — recordUsage
  */
 
-import type { Message } from '../providers/types.js';
-import type { TurnChannelContext, TurnInterfaceContext } from '../channels/types.js';
-import type { ServerMessage, UsageStats, UserMessageAttachment, SurfaceType, SurfaceData } from './ipc-protocol.js';
 import { AgentLoop, type ResolvedSystemPrompt } from '../agent/loop.js';
-import type { Provider } from '../providers/types.js';
-import { PermissionPrompter } from '../permissions/prompter.js';
-import { SecretPrompter } from '../permissions/secret-prompter.js';
-import { ToolExecutor } from '../tools/executor.js';
-import type { UserDecision } from '../permissions/types.js';
+import type { TurnChannelContext, TurnInterfaceContext } from '../channels/types.js';
 import { getConfig } from '../config/loader.js';
 import { buildSystemPrompt } from '../config/system-prompt.js';
-import {
-  classifyResponseTier,
-  classifyResponseTierDetailed,
-  resolveWithHint,
-  classifyResponseTierAsync,
-  tierMaxTokens,
-  tierModel,
-  type SessionTierHint,
-} from './response-tier.js';
-import { TraceEmitter } from './trace-emitter.js';
+import { ContextWindowManager } from '../context/window-manager.js';
 import { EventBus } from '../events/bus.js';
 import type { AssistantDomainEvents } from '../events/domain-events.js';
+import { createToolAuditListener } from '../events/tool-audit-listener.js';
 import { createToolDomainEventPublisher } from '../events/tool-domain-event-publisher.js';
 import { registerToolMetricsLoggingListener } from '../events/tool-metrics-listener.js';
 import { registerToolNotificationListener } from '../events/tool-notification-listener.js';
+import { registerToolProfilingListener,ToolProfiler } from '../events/tool-profiling-listener.js';
 import { registerToolTraceListener } from '../events/tool-trace-listener.js';
-import { createToolAuditListener } from '../events/tool-audit-listener.js';
-import { ToolProfiler, registerToolProfilingListener } from '../events/tool-profiling-listener.js';
-import { ContextWindowManager } from '../context/window-manager.js';
 import { getHookManager } from '../hooks/manager.js';
-import { ConflictGate } from './session-conflict-gate.js';
-import { MessageQueue } from './session-queue-manager.js';
-import type { QueueDrainReason, QueueMetrics } from './session-queue-manager.js';
-import type { ChannelCapabilities, GuardianRuntimeContext } from './session-runtime-assembly.js';
+import { PermissionPrompter } from '../permissions/prompter.js';
+import { SecretPrompter } from '../permissions/secret-prompter.js';
+import type { UserDecision } from '../permissions/types.js';
+import type { Message } from '../providers/types.js';
+import type { Provider } from '../providers/types.js';
+import { ToolExecutor } from '../tools/executor.js';
 import type { AssistantAttachmentDraft } from './assistant-attachments.js';
+import type { ServerMessage, SurfaceData,SurfaceType, UsageStats, UserMessageAttachment } from './ipc-protocol.js';
 import {
-  handleSurfaceAction as handleSurfaceActionImpl,
-  handleSurfaceUndo as handleSurfaceUndoImpl,
-  createSurfaceMutex,
-} from './session-surfaces.js';
+  classifyResponseTierAsync,
+  classifyResponseTierDetailed,
+  resolveWithHint,
+  type SessionTierHint,
+  tierMaxTokens,
+  tierModel,
+} from './response-tier.js';
+import { runAgentLoopImpl } from './session-agent-loop.js';
+import { ConflictGate } from './session-conflict-gate.js';
 import {
-  undo as undoImpl,
-  regenerate as regenerateImpl,
   type HistorySessionContext,
+  regenerate as regenerateImpl,
+  undo as undoImpl,
 } from './session-history.js';
-import { refreshWorkspaceTopLevelContextIfNeeded as refreshWorkspaceImpl } from './session-workspace.js';
 import {
-  drainQueue as drainQueueImpl,
-  processMessage as processMessageImpl,
-  type ProcessSessionContext,
-} from './session-process.js';
-import {
-  buildToolDefinitions,
-  createToolExecutor,
-  createResolveToolsCallback,
-  type ToolSetupContext,
-} from './session-tool-setup.js';
-import type { SkillProjectionCache } from './session-skill-tools.js';
-
-// Extracted modules
-import { registerSessionNotifiers } from './session-notifiers.js';
-import {
-  loadFromDb as loadFromDbImpl,
   abortSession,
   disposeSession,
+  loadFromDb as loadFromDbImpl,
 } from './session-lifecycle.js';
 import {
   enqueueMessage as enqueueMessageImpl,
   persistUserMessage as persistUserMessageImpl,
   redirectToSecurePrompt as redirectToSecurePromptImpl,
 } from './session-messaging.js';
-import { runAgentLoopImpl } from './session-agent-loop.js';
+// Extracted modules
+import { registerSessionNotifiers } from './session-notifiers.js';
+import {
+  drainQueue as drainQueueImpl,
+  processMessage as processMessageImpl,
+  type ProcessSessionContext,
+} from './session-process.js';
+import type { QueueDrainReason, QueueMetrics } from './session-queue-manager.js';
+import { MessageQueue } from './session-queue-manager.js';
+import type { ChannelCapabilities, GuardianRuntimeContext } from './session-runtime-assembly.js';
+import type { SkillProjectionCache } from './session-skill-tools.js';
+import {
+  createSurfaceMutex,
+  handleSurfaceAction as handleSurfaceActionImpl,
+  handleSurfaceUndo as handleSurfaceUndoImpl,
+} from './session-surfaces.js';
+import {
+  buildToolDefinitions,
+  createResolveToolsCallback,
+  createToolExecutor,
+  type ToolSetupContext,
+} from './session-tool-setup.js';
+import { refreshWorkspaceTopLevelContextIfNeeded as refreshWorkspaceImpl } from './session-workspace.js';
+import { TraceEmitter } from './trace-emitter.js';
 
 export interface SessionMemoryPolicy {
   scopeId: string;
@@ -101,8 +99,8 @@ export const DEFAULT_MEMORY_POLICY: Readonly<SessionMemoryPolicy> = Object.freez
   strictSideEffects: false,
 });
 
-export { MAX_QUEUE_DEPTH, type QueueDrainReason, type QueuePolicy } from './session-queue-manager.js';
 export { findLastUndoableUserMessageIndex } from './session-history.js';
+export { MAX_QUEUE_DEPTH, type QueueDrainReason, type QueuePolicy } from './session-queue-manager.js';
 
 export class Session {
   public readonly conversationId: string;
@@ -252,7 +250,7 @@ export class Session {
       let userText = '';
       let isToolResultOnly = false;
       if (lastUserMsg) {
-        const hasToolResult = lastUserMsg.content.some((b) => b.type === 'tool_result');
+        const _hasToolResult = lastUserMsg.content.some((b) => b.type === 'tool_result');
         for (const block of lastUserMsg.content) {
           if (block.type === 'text') {
             const trimmed = block.text.trimStart();

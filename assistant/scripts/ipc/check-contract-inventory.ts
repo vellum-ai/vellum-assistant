@@ -10,9 +10,10 @@
  *   bun run ipc:inventory:update   # regenerate the snapshot
  */
 
-import * as path from 'path';
 import * as fs from 'fs';
-import { extractInventory, type ContractInventory } from '../../src/daemon/ipc-contract-inventory.js';
+import * as path from 'path';
+
+import { type ContractInventory,extractInventory } from '../../src/daemon/ipc-contract-inventory.js';
 
 const CONTRACT_PATH = path.resolve(
   import.meta.dirname ?? __dirname,

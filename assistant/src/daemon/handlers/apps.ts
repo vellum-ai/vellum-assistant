@@ -1,30 +1,32 @@
+import { existsSync, readdirSync, readFileSync,rmSync } from 'node:fs';
 import * as net from 'node:net';
-import { v4 as uuid } from 'uuid';
-import { existsSync, rmSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { getRuntimeHttpPort } from '../../config/env.js';
-import { queryAppRecords, createAppRecord, updateAppRecord, deleteAppRecord, listApps, getApp, getAppPreview, createApp, updateApp } from '../../memory/app-store.js';
-import { computeContentId } from '../../util/content-id.js';
+
+import { v4 as uuid } from 'uuid';
+
 import { packageApp } from '../../bundler/app-bundler.js';
-import { createSharedAppLink } from '../../memory/shared-app-links-store.js';
+import { getRuntimeHttpPort } from '../../config/env.js';
 import { defaultGallery } from '../../gallery/default-gallery.js';
+import { getAppDiff, getAppFileAtVersion, getAppHistory, restoreAppVersion } from '../../memory/app-git-service.js';
+import { createApp, createAppRecord, deleteAppRecord, getApp, getAppPreview, listApps, queryAppRecords, updateApp,updateAppRecord } from '../../memory/app-store.js';
+import { createSharedAppLink } from '../../memory/shared-app-links-store.js';
+import { computeContentId } from '../../util/content-id.js';
 import type {
   AppDataRequest,
-  BundleAppRequest,
-  SharedAppDeleteRequest,
-  ForkSharedAppRequest,
-  ShareAppCloudRequest,
-  GalleryInstallRequest,
-  AppUpdatePreviewRequest,
-  AppHistoryRequest,
   AppDiffRequest,
   AppFileAtVersionRequest,
+  AppHistoryRequest,
   AppRestoreRequest,
+  AppUpdatePreviewRequest,
+  BundleAppRequest,
+  ForkSharedAppRequest,
+  GalleryInstallRequest,
+  ShareAppCloudRequest,
+  SharedAppDeleteRequest,
   UiSurfaceShow,
 } from '../ipc-protocol.js';
-import { getAppHistory, getAppDiff, getAppFileAtVersion, restoreAppVersion } from '../../memory/app-git-service.js';
-import { log, compareSemver, createSigningCallback, defineHandlers, type HandlerContext } from './shared.js';
+import { compareSemver, createSigningCallback, defineHandlers, type HandlerContext,log } from './shared.js';
 
 export function handleAppDataRequest(
   msg: AppDataRequest,

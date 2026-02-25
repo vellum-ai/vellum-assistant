@@ -1,5 +1,6 @@
-import { describe, test, expect } from 'bun:test';
-import { hasSocketOverride, hasNoAuthOverride, shouldAutoStartDaemon } from '../daemon/connection-policy.js';
+import { describe, expect,test } from 'bun:test';
+
+import { hasNoAuthOverride, hasSocketOverride, shouldAutoStartDaemon } from '../daemon/connection-policy.js';
 
 describe('hasSocketOverride', () => {
   test('returns false when VELLUM_DAEMON_SOCKET is not set', () => {

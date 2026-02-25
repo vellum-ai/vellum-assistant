@@ -1,20 +1,21 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, expect,test } from 'bun:test';
+
 import {
+  buildHostHeader,
+  extractEmbeddedIPv4FromIPv6,
+  isIPv4,
+  isIPv6,
+  isPrivateIPv4,
+  isPrivateIPv6,
+  isPrivateOrLocalHost,
   looksLikeHostPortShorthand,
   looksLikePathOnlyInput,
   parseUrl,
-  isIPv4,
-  isPrivateIPv4,
-  unwrapBracketedHostname,
-  extractEmbeddedIPv4FromIPv6,
-  isIPv6,
-  isPrivateIPv6,
-  isPrivateOrLocalHost,
   resolveRequestAddress,
-  buildHostHeader,
-  stripUrlUserinfo,
   sanitizeUrlForOutput,
   sanitizeUrlStringForOutput,
+  stripUrlUserinfo,
+  unwrapBracketedHostname,
 } from '../tools/network/url-safety.js';
 
 describe('url-safety helpers', () => {

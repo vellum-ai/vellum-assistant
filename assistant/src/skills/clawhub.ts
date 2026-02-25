@@ -1,5 +1,6 @@
-import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+
 import { getLogger } from '../util/logger.js';
 import { getWorkspaceSkillsDir } from '../util/platform.js';
 

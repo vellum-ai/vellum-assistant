@@ -1,10 +1,11 @@
 import { describe, expect, test } from 'bun:test';
+
 import {
   isConflictKindEligible,
   isConflictKindPairEligible,
-  isTransientTrackingStatement,
   isDurableInstructionStatement,
   isStatementConflictEligible,
+  isTransientTrackingStatement,
 } from '../memory/conflict-policy.js';
 
 describe('conflict-policy', () => {

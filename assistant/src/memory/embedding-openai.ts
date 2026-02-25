@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+
 import type { EmbeddingBackend, EmbeddingRequestOptions } from './embedding-backend.js';
 
 export class OpenAIEmbeddingBackend implements EmbeddingBackend {

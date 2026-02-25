@@ -12,8 +12,8 @@
  */
 
 import { getConfig } from '../config/loader.js';
+import { createTimeout, extractToolUse, getConfiguredProvider, userMessage } from '../providers/provider-send-message.js';
 import { getLogger } from '../util/logger.js';
-import { getConfiguredProvider, createTimeout, extractToolUse, userMessage } from '../providers/provider-send-message.js';
 import type { AppliesWhenConditions } from './preferences-store.js';
 
 const log = getLogger('notification-preference-extractor');

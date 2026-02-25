@@ -6,14 +6,14 @@
  * secure key naming convention.
  */
 
+import { matchHostPattern } from './host-pattern-match.js';
 import {
+  type CredentialMetadata,
   getCredentialMetadata,
   getCredentialMetadataById,
   listCredentialMetadata,
-  type CredentialMetadata,
 } from './metadata-store.js';
 import type { CredentialInjectionTemplate } from './policy-types.js';
-import { matchHostPattern } from './host-pattern-match.js';
 
 export interface ResolvedCredential {
   credentialId: string;

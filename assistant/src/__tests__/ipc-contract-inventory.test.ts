@@ -1,7 +1,8 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, expect,test } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
-import { extractInventory, type ContractInventory } from '../daemon/ipc-contract-inventory.js';
+
+import { type ContractInventory,extractInventory } from '../daemon/ipc-contract-inventory.js';
 
 const CONTRACT_PATH = path.resolve(import.meta.dirname, '../daemon/ipc-contract.ts');
 const SNAPSHOT_PATH = path.resolve(import.meta.dirname, '../daemon/ipc-contract-inventory.json');

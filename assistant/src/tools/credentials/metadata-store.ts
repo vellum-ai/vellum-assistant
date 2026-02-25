@@ -6,11 +6,12 @@
  * in the secure key backend only.
  */
 
-import { writeFileSync, renameSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { getDataDir } from '../../util/platform.js';
-import { ensureDir, readTextFileSync } from '../../util/fs.js';
 import { randomUUID } from 'node:crypto';
+import { renameSync,writeFileSync } from 'node:fs';
+import { dirname,join } from 'node:path';
+
+import { ensureDir, readTextFileSync } from '../../util/fs.js';
+import { getDataDir } from '../../util/platform.js';
 import type { CredentialInjectionTemplate } from './policy-types.js';
 
 export interface CredentialMetadata {

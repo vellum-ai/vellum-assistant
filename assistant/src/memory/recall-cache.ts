@@ -1,5 +1,6 @@
 import { createHash } from 'crypto';
-import type { MemoryRecallResult, MemoryRecallOptions } from './search/types.js';
+
+import type { MemoryRecallOptions,MemoryRecallResult } from './search/types.js';
 
 /**
  * In-memory cache for memory recall results.

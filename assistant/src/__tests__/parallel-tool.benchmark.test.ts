@@ -1,13 +1,14 @@
-import { describe, test, expect } from 'bun:test';
-import { AgentLoop } from '../agent/loop.js';
+import { describe, expect,test } from 'bun:test';
+
 import type { AgentEvent } from '../agent/loop.js';
+import { AgentLoop } from '../agent/loop.js';
 import type {
-  Provider,
+  ContentBlock,
   Message,
+  Provider,
   ProviderResponse,
   SendMessageOptions,
   ToolDefinition,
-  ContentBlock,
 } from '../providers/types.js';
 
 // ---------------------------------------------------------------------------

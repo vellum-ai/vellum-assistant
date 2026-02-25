@@ -1,9 +1,9 @@
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import { withValidToken } from '../../../../security/token-manager.js';
-import { getMessagingProvider } from '../../../../messaging/registry.js';
 import { listContacts, searchContacts } from '../../../../messaging/providers/gmail/people-client.js';
 import type { Person } from '../../../../messaging/providers/gmail/people-types.js';
-import { ok, err } from './shared.js';
+import { getMessagingProvider } from '../../../../messaging/registry.js';
+import { withValidToken } from '../../../../security/token-manager.js';
+import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
+import { err,ok } from './shared.js';
 
 function formatContact(person: Person): Record<string, unknown> {
   const name = person.names?.[0];

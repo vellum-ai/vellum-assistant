@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import { extractPromptSpeakerMetadata, SpeakerIdentityTracker } from '../calls/speaker-identification.js';
 
 describe('speaker-identification', () => {

@@ -1,5 +1,5 @@
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
 import { upsertContact } from '../../../../contacts/contact-store.js';
+import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
 
 function formatContact(c: ReturnType<typeof upsertContact>): string {
   const lines = [

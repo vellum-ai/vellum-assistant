@@ -1,14 +1,15 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
+
 import { getConfig } from '../config/loader.js';
 import type { MemoryExtractionConfig } from '../config/types.js';
+import { createTimeout, extractToolUse, getConfiguredProvider, userMessage } from '../providers/provider-send-message.js';
 import { getLogger } from '../util/logger.js';
 import { truncate } from '../util/truncate.js';
-import { getConfiguredProvider, createTimeout, extractToolUse, userMessage } from '../providers/provider-send-message.js';
+import { getDb } from './db.js';
 import { computeMemoryFingerprint } from './fingerprint.js';
 import { enqueueMemoryJob } from './jobs-store.js';
 import { extractTextFromStoredMessageContent } from './message-content.js';
-import { getDb } from './db.js';
 import { memoryItemConflicts, memoryItems, memoryItemSources, messages } from './schema.js';
 import { isConversationFailed } from './task-memory-cleanup.js';
 import { clampUnitInterval } from './validation.js';

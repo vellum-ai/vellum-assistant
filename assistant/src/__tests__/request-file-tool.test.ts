@@ -1,10 +1,11 @@
-import { describe, test, expect } from 'bun:test';
-import {
-  INTERACTIVE_SURFACE_TYPES,
-} from '../daemon/ipc-protocol.js';
+import { describe, expect,test } from 'bun:test';
+
 import type {
   FileUploadSurfaceData,
   UiSurfaceShowFileUpload,
+} from '../daemon/ipc-protocol.js';
+import {
+  INTERACTIVE_SURFACE_TYPES,
 } from '../daemon/ipc-protocol.js';
 import { requestFileTool, uiShowTool } from '../tools/ui-surface/definitions.js';
 

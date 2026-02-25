@@ -1,28 +1,29 @@
 import { readFileSync } from 'node:fs';
-import { pathExists, safeStatSync } from '../util/fs.js';
-import { getTool, getAllTools } from './registry.js';
-import type { ToolContext, ToolExecutionResult, ToolLifecycleEvent } from './types.js';
-import { RiskLevel } from '../permissions/types.js';
+
+import { getConfig } from '../config/loader.js';
+import { getHookManager } from '../hooks/manager.js';
 import { check, classifyRisk, generateAllowlistOptions, generateScopeOptions } from '../permissions/checker.js';
-import { addRule } from '../permissions/trust-store.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
-import { ToolError, PermissionDeniedError } from '../util/errors.js';
+import { addRule } from '../permissions/trust-store.js';
+import { RiskLevel } from '../permissions/types.js';
+import { isToolBlocked } from '../security/parental-control-store.js';
+import { redactSensitiveFields } from '../security/redaction.js';
+import { redactSecrets,scanText } from '../security/secret-scanner.js';
 import { TokenExpiredError } from '../security/token-manager.js';
+import { getTaskRunRules } from '../tasks/ephemeral-permissions.js';
+import { PermissionDeniedError,ToolError } from '../util/errors.js';
+import { pathExists, safeStatSync } from '../util/fs.js';
 import { getLogger } from '../util/logger.js';
+import { resolveExecutionTarget } from './execution-target.js';
+import { executeWithTimeout,safeTimeoutMs } from './execution-timeout.js';
+import { buildPolicyContext } from './policy-context.js';
+import { getAllTools,getTool } from './registry.js';
+import { applyEdit } from './shared/filesystem/edit-engine.js';
 import { sandboxPolicy } from './shared/filesystem/path-policy.js';
 import { MAX_FILE_SIZE_BYTES } from './shared/filesystem/size-guard.js';
-import { applyEdit } from './shared/filesystem/edit-engine.js';
-import { wrapCommand } from './terminal/sandbox.js';
-import { getConfig } from '../config/loader.js';
-import { scanText, redactSecrets } from '../security/secret-scanner.js';
-import { redactSensitiveFields } from '../security/redaction.js';
-import { getHookManager } from '../hooks/manager.js';
-import { getTaskRunRules } from '../tasks/ephemeral-permissions.js';
-import { safeTimeoutMs, executeWithTimeout } from './execution-timeout.js';
-import { buildPolicyContext } from './policy-context.js';
-import { resolveExecutionTarget } from './execution-target.js';
-import { isToolBlocked } from '../security/parental-control-store.js';
 import { isSideEffectTool } from './side-effects.js';
+import { wrapCommand } from './terminal/sandbox.js';
+import type { ToolContext, ToolExecutionResult, ToolLifecycleEvent } from './types.js';
 
 const log = getLogger('tool-executor');
 

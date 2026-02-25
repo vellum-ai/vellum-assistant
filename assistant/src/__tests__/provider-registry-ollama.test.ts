@@ -1,4 +1,5 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, expect,test } from 'bun:test';
+
 import { getProvider, initializeProviders, listProviders } from '../providers/registry.js';
 
 describe('provider registry (ollama)', () => {

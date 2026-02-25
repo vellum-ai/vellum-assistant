@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'bun:test';
+
+import type { ErrorContext } from '../daemon/session-error.js';
 import {
+  buildSessionErrorMessage,
   classifySessionError,
   isUserCancellation,
-  buildSessionErrorMessage,
 } from '../daemon/session-error.js';
-import type { ErrorContext } from '../daemon/session-error.js';
 import { ProviderError } from '../util/errors.js';
 
 describe('isUserCancellation', () => {

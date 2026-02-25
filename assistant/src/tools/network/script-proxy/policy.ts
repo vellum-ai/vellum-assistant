@@ -3,7 +3,7 @@
  * injection templates and emits deterministic policy decisions.
  */
 
-import { matchHostPattern, compareMatchSpecificity, type HostMatchKind } from '../../credentials/host-pattern-match.js';
+import { compareMatchSpecificity, type HostMatchKind,matchHostPattern } from '../../credentials/host-pattern-match.js';
 import type { CredentialInjectionTemplate } from '../../credentials/policy-types.js';
 import type { PolicyDecision, RequestTargetContext } from './types.js';
 

@@ -1,9 +1,10 @@
 import * as Sentry from '@sentry/node';
-import type { Provider, Message, ToolDefinition, ContentBlock } from '../providers/types.js';
-import { getLogger, isDebug, truncateForLog } from '../util/logger.js';
-import { getHookManager } from '../hooks/manager.js';
+
 import { truncateOversizedToolResults } from '../context/tool-result-truncation.js';
+import { getHookManager } from '../hooks/manager.js';
+import type { ContentBlock,Message, Provider, ToolDefinition } from '../providers/types.js';
 import type { ToolResultContent } from '../providers/types.js';
+import { getLogger, isDebug, truncateForLog } from '../util/logger.js';
 
 const log = getLogger('agent-loop');
 

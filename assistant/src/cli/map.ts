@@ -5,19 +5,21 @@
  * the given domain, then analyzes captured network traffic into a deduplicated API map.
  */
 
-import * as net from 'node:net';
 import { spawn as spawnChild } from 'node:child_process';
+import * as net from 'node:net';
 import { homedir } from 'node:os';
 import { join as pathJoin } from 'node:path';
+
 import { Command } from 'commander';
-import { getSocketPath, readSessionToken } from '../util/platform.js';
-import {
-  serialize,
-  createMessageParser,
-} from '../daemon/ipc-protocol.js';
 import { parse as parseTld } from 'tldts';
+
+import {
+  createMessageParser,
+  serialize,
+} from '../daemon/ipc-protocol.js';
+import { analyzeApiMap, printApiMapTable,saveApiMap } from '../tools/browser/api-map.js';
 import { loadRecording } from '../tools/browser/recording-store.js';
-import { analyzeApiMap, saveApiMap, printApiMapTable } from '../tools/browser/api-map.js';
+import { getSocketPath, readSessionToken } from '../util/platform.js';
 
 /**
  * Extract the registrable base domain from a hostname.

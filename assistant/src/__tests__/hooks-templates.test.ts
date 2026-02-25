@@ -1,14 +1,15 @@
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, statSync, readdirSync, cpSync, chmodSync } from 'node:fs';
-import { join } from 'node:path';
+import { chmodSync,cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach,beforeEach, describe, expect, test } from 'bun:test';
 
 // Set BASE_DATA_DIR before importing modules that use getRootDir()
 const testDir = join(tmpdir(), `hooks-templates-test-${Date.now()}`);
 process.env.BASE_DATA_DIR = testDir;
 
+import { ensureHookInConfig, loadHooksConfig, setHookEnabled } from '../hooks/config.js';
 import { installTemplates } from '../hooks/templates.js';
-import { loadHooksConfig, ensureHookInConfig, setHookEnabled } from '../hooks/config.js';
 
 /**
  * Create a fake hook-templates directory structure that mimics

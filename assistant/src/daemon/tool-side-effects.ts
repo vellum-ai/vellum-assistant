@@ -7,16 +7,16 @@
  * registry entry instead of another if/else branch.
  */
 
+import { updatePublishedAppDeployment } from '../services/published-app-updater.js';
+import { openAppViaSurface } from '../tools/apps/open-proxy.js';
 import type { ToolExecutionResult } from '../tools/types.js';
-import type { ServerMessage } from './ipc-protocol.js';
-import type { ToolSetupContext } from './session-tool-setup.js';
 import { isDoordashCommand, updateDoordashProgress } from './doordash-steps.js';
+import type { ServerMessage } from './ipc-protocol.js';
 import {
   refreshSurfacesForApp,
   surfaceProxyResolver,
 } from './session-surfaces.js';
-import { updatePublishedAppDeployment } from '../services/published-app-updater.js';
-import { openAppViaSurface } from '../tools/apps/open-proxy.js';
+import type { ToolSetupContext } from './session-tool-setup.js';
 
 // ── Types ────────────────────────────────────────────────────────────
 

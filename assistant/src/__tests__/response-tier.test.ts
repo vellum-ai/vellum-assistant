@@ -1,8 +1,9 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, expect,test } from 'bun:test';
+
 import {
+  classifyResponseTierAsync,
   classifyResponseTierDetailed,
   resolveWithHint,
-  classifyResponseTierAsync,
   type SessionTierHint,
   type TierClassification,
 } from '../daemon/response-tier.js';
@@ -132,6 +133,6 @@ describe('classifyResponseTierAsync', () => {
     // We can't easily mock it here, but we can verify the function handles it
     const result = await classifyResponseTierAsync(['hello']);
     // In test environment without a configured provider, should return null
-    expect(result === null || result === 'low' || result === 'medium' || result === 'high').toBe(true);
+    expect(result === undefined || result === 'low' || result === 'medium' || result === 'high').toBe(true);
   });
 });

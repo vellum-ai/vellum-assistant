@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import { formatDiff, formatNewFileDiff } from '../util/diff.js';
 
 // Strip ANSI codes for easier assertion

@@ -9,10 +9,11 @@
  * - Relay WebSocket upgrade allowed from private network peers/origins
  * - Startup warning when RUNTIME_HTTP_HOST is not loopback
  */
-import { describe, test, expect, beforeAll, afterAll, mock } from 'bun:test';
 import { mkdtempSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, beforeAll, describe, expect, mock,test } from 'bun:test';
 
 const testDir = realpathSync(mkdtempSync(join(tmpdir(), 'gw-only-enforcement-test-')));
 
@@ -140,7 +141,7 @@ mock.module('../calls/call-store.js', () => ({
   expirePendingQuestions: () => {},
 }));
 
-import { RuntimeHttpServer, isPrivateAddress } from '../runtime/http-server.js';
+import { isPrivateAddress,RuntimeHttpServer } from '../runtime/http-server.js';
 
 // ---------------------------------------------------------------------------
 // Helpers

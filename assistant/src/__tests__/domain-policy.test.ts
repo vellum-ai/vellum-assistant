@@ -1,4 +1,5 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, expect,test } from 'bun:test';
+
 import { isDomainAllowed } from '../tools/credentials/domain-policy.js';
 
 describe('isDomainAllowed', () => {

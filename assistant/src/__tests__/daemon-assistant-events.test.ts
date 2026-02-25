@@ -6,8 +6,9 @@
  *   - send()      → one mirrored assistant event per message
  *   - broadcast() → one mirrored assistant event per message (not per socket)
  */
-import { describe, test, expect, mock } from 'bun:test';
 import * as net from 'node:net';
+
+import { describe, expect, mock,test } from 'bun:test';
 
 // ── Platform mock (must happen before imports that read it) ─────────────────
 mock.module('../util/platform.js', () => ({
@@ -38,10 +39,10 @@ mock.module('../util/logger.js', () => ({
 }));
 
 // ── Imports (after mocks) ────────────────────────────────────────────────────
+import type { ServerMessage } from '../daemon/ipc-protocol.js';
+import type { AssistantEvent } from '../runtime/assistant-event.js';
 import { buildAssistantEvent } from '../runtime/assistant-event.js';
 import { AssistantEventHub } from '../runtime/assistant-event-hub.js';
-import type { AssistantEvent } from '../runtime/assistant-event.js';
-import type { ServerMessage } from '../daemon/ipc-protocol.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 

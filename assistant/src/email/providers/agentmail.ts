@@ -5,9 +5,10 @@
  */
 
 import type { AgentMailClient } from 'agentmail';
-import type { EmailProvider, SetupDomainOpts, CreateInboxOpts, EnsureInboxesOpts, SetupWebhookOpts, CreateDraftOpts, ListDraftsOpts, ListMessagesOpts, ListThreadsOpts } from '../provider.js';
-import type { EmailDomain, DnsRecord, EmailInbox, EmailDraft, EmailMessage, EmailThread, EmailWebhook, ProviderHealth, SendResult } from '../types.js';
+
 import { ConfigError } from '../../util/errors.js';
+import type { CreateDraftOpts, CreateInboxOpts, EmailProvider, EnsureInboxesOpts, ListDraftsOpts, ListMessagesOpts, ListThreadsOpts,SetupDomainOpts, SetupWebhookOpts } from '../provider.js';
+import type { DnsRecord, EmailDomain, EmailDraft, EmailInbox, EmailMessage, EmailThread, EmailWebhook, ProviderHealth, SendResult } from '../types.js';
 
 const DEFAULT_INBOX_PREFIXES = ['hello', 'support', 'ops'];
 

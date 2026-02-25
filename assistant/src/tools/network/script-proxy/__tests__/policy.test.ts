@@ -1,6 +1,7 @@
-import { describe, test, expect } from 'bun:test';
-import { evaluateRequest, evaluateRequestWithApproval } from '../policy.js';
+import { describe, expect,test } from 'bun:test';
+
 import type { CredentialInjectionTemplate } from '../../../credentials/policy-types.js';
+import { evaluateRequest, evaluateRequestWithApproval } from '../policy.js';
 
 function makeTemplate(overrides: Partial<CredentialInjectionTemplate> = {}): CredentialInjectionTemplate {
   return {

@@ -1,11 +1,19 @@
+import { createHash } from 'crypto';
 import { inArray } from 'drizzle-orm';
+
 import type { AssistantConfig } from '../config/types.js';
 import { estimateTextTokens } from '../context/token-estimator.js';
 import { getLogger } from '../util/logger.js';
-import { embedWithBackend, getMemoryBackendStatus, logMemoryEmbeddingWarning } from './embedding-backend.js';
-import { computeRetryDelay, isRetryableNetworkError, abortableSleep } from '../util/retry.js';
+import { abortableSleep,computeRetryDelay, isRetryableNetworkError } from '../util/retry.js';
 import { getDb } from './db.js';
+import { embedWithBackend, getMemoryBackendStatus, logMemoryEmbeddingWarning } from './embedding-backend.js';
+import { getCachedRecall, getMemoryVersion,setCachedRecall } from './recall-cache.js';
 import { memoryItemSources } from './schema.js';
+import { entitySearch } from './search/entity.js';
+import { buildInjectedText, MEMORY_CONTEXT_ACK } from './search/formatting.js';
+import { directItemSearch,lexicalSearch, recencySearch } from './search/lexical.js';
+import { applySourceCaps, markItemUsage,mergeCandidates, rerankWithLLM, trimToTokenBudget } from './search/ranking.js';
+import { isQdrantConnectionError,semanticSearch } from './search/semantic.js';
 import type {
   Candidate,
   CollectedCandidates,
@@ -15,26 +23,19 @@ import type {
   MemorySearchResult,
   ScopePolicyOverride,
 } from './search/types.js';
-import { lexicalSearch, recencySearch, directItemSearch } from './search/lexical.js';
-import { semanticSearch, isQdrantConnectionError } from './search/semantic.js';
-import { entitySearch } from './search/entity.js';
-import { mergeCandidates, applySourceCaps, rerankWithLLM, trimToTokenBudget, markItemUsage } from './search/ranking.js';
-import { buildInjectedText, MEMORY_CONTEXT_ACK } from './search/formatting.js';
-import { createHash } from 'crypto';
-import { getCachedRecall, setCachedRecall, getMemoryVersion } from './recall-cache.js';
 
 // Re-export public types and functions so existing importers continue to work
+export {
+  escapeXmlTags,
+  formatAbsoluteTime,
+  formatRelativeTime,
+} from './search/formatting.js';
 export type {
   MemoryRecallCandiateDebug,
   MemoryRecallResult,
   MemorySearchResult,
   ScopePolicyOverride,
 } from './search/types.js';
-export {
-  escapeXmlTags,
-  formatAbsoluteTime,
-  formatRelativeTime,
-} from './search/formatting.js';
 
 const log = getLogger('memory-retriever');
 

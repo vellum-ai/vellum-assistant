@@ -1,7 +1,7 @@
-import type { EventBus, Subscription } from './bus.js';
-import type { AssistantDomainEvents } from './domain-events.js';
 import type { TraceEmitter } from '../daemon/trace-emitter.js';
 import { getLogger } from '../util/logger.js';
+import type { EventBus, Subscription } from './bus.js';
+import type { AssistantDomainEvents } from './domain-events.js';
 
 const log = getLogger('tool-profiler');
 

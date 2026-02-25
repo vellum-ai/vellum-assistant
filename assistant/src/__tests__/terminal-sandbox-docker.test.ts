@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, mock, test } from 'bun:test';
-import { realpathSync, mkdirSync, existsSync } from 'node:fs';
 import * as realChildProcess from 'node:child_process';
+import { existsSync,mkdirSync, realpathSync } from 'node:fs';
+
+import { beforeEach, describe, expect, mock, test } from 'bun:test';
 
 const execSyncMock = mock((_command: string, _opts?: unknown): unknown => undefined);
 const execFileSyncMock = mock(

@@ -1,9 +1,10 @@
-import { describe, test, expect } from 'bun:test';
-import { executeSwarm } from '../swarm/orchestrator.js';
+import { describe, expect,test } from 'bun:test';
+
+import { resolveSwarmLimits } from '../swarm/limits.js';
 import type { OrchestratorEvent } from '../swarm/orchestrator.js';
+import { executeSwarm } from '../swarm/orchestrator.js';
 import type { SwarmPlan } from '../swarm/types.js';
 import type { SwarmWorkerBackend } from '../swarm/worker-backend.js';
-import { resolveSwarmLimits } from '../swarm/limits.js';
 
 const DEFAULT_LIMITS = resolveSwarmLimits({
   maxWorkers: 3,

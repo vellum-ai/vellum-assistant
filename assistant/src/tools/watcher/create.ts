@@ -1,6 +1,6 @@
-import type { ToolContext, ToolExecutionResult } from '../types.js';
-import { createWatcher } from '../../watcher/watcher-store.js';
 import { getWatcherProvider, listWatcherProviders } from '../../watcher/provider-registry.js';
+import { createWatcher } from '../../watcher/watcher-store.js';
+import type { ToolContext, ToolExecutionResult } from '../types.js';
 
 export async function executeWatcherCreate(
   input: Record<string, unknown>,

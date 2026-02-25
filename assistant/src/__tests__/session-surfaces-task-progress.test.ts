@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import type {
   CardSurfaceData,
   ServerMessage,
@@ -8,8 +9,8 @@ import type {
   UiSurfaceUpdate,
 } from '../daemon/ipc-protocol.js';
 import {
-  surfaceProxyResolver,
   createSurfaceMutex,
+  surfaceProxyResolver,
   type SurfaceSessionContext,
 } from '../daemon/session-surfaces.js';
 

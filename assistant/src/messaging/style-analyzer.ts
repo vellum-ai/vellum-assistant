@@ -6,10 +6,10 @@
  * for memory storage.
  */
 
-import type { Message as ProviderMessage } from './provider-types.js';
+import { getConfiguredProvider } from '../providers/provider-send-message.js';
 import type { Message, ToolDefinition } from '../providers/types.js';
 import { truncate } from '../util/truncate.js';
-import { getConfiguredProvider } from '../providers/provider-send-message.js';
+import type { Message as ProviderMessage } from './provider-types.js';
 
 export interface StylePattern {
   aspect: string;

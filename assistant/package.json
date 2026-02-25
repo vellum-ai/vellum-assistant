@@ -61,6 +61,7 @@
     "@types/uuid": "^10.0.0",
     "drizzle-kit": "^0.30.4",
     "eslint": "^10.0.0",
+    "eslint-plugin-simple-import-sort": "^12.1.1",
     "fast-check": "^4.5.3",
     "knip": "^5.83.1",
     "quicktype-core": "^23.2.6",

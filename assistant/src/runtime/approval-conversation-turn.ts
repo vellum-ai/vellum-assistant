@@ -13,9 +13,9 @@
 
 import type {
   ApprovalConversationContext,
+  ApprovalConversationDisposition,
   ApprovalConversationGenerator,
   ApprovalConversationResult,
-  ApprovalConversationDisposition,
 } from './http-types.js';
 
 const VALID_DISPOSITIONS: ReadonlySet<ApprovalConversationDisposition> = new Set([

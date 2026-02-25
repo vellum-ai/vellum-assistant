@@ -1,6 +1,7 @@
-import { describe, test, expect } from 'bun:test';
-import { validateClientMessage, isClientMessageEnvelope } from '../daemon/ipc-validate.js';
+import { describe, expect,test } from 'bun:test';
+
 import { extractInventory } from '../daemon/ipc-contract-inventory.js';
+import { isClientMessageEnvelope,validateClientMessage } from '../daemon/ipc-validate.js';
 
 describe('IPC Validate', () => {
   describe('validateClientMessage', () => {

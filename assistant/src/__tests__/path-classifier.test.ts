@@ -1,11 +1,13 @@
-import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
-import { mkdtempSync, symlinkSync, realpathSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdtempSync, realpathSync, rmSync,symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterAll,beforeAll, describe, expect, test } from 'bun:test';
+
 import {
+  isSkillSourcePath,
   normalizeDirPath,
   normalizeFilePath,
-  isSkillSourcePath,
 } from '../skills/path-classifier.js';
 
 describe('normalizeDirPath symlink resolution for non-existent paths', () => {

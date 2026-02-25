@@ -1,11 +1,13 @@
-import { describe, test, expect, afterAll } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { initializeTools, getTool, registerSkillTools, unregisterSkillTools, __resetRegistryForTesting } from '../tools/registry.js';
-import { allComputerUseTools } from '../tools/computer-use/definitions.js';
-import { COMPUTER_USE_TOOL_NAMES, COMPUTER_USE_TOOL_COUNT } from './test-support/computer-use-skill-harness.js';
+
+import { afterAll,describe, expect, test } from 'bun:test';
+
 import { RiskLevel } from '../permissions/types.js';
+import { allComputerUseTools } from '../tools/computer-use/definitions.js';
+import { __resetRegistryForTesting,getTool, initializeTools, registerSkillTools, unregisterSkillTools } from '../tools/registry.js';
 import type { Tool } from '../tools/types.js';
+import { COMPUTER_USE_TOOL_COUNT,COMPUTER_USE_TOOL_NAMES } from './test-support/computer-use-skill-harness.js';
 
 afterAll(() => { __resetRegistryForTesting(); });
 

@@ -5,9 +5,9 @@
  * remains clean and extensible.
  */
 
+import { isPlainObject } from '../util/object.js';
 import type { CardSurfaceData } from './ipc-contract.js';
 import type { ToolSetupContext } from './session-tool-setup.js';
-import { isPlainObject } from '../util/object.js';
 
 interface DoordashStep { label: string; status: string; detail?: string }
 
@@ -17,7 +17,7 @@ const SURFACE_ID = 'doordash-progress';
  * Map a `doordash <subcommand>` (or `vellum doordash <subcommand>`) to the
  * step label it corresponds to.
  */
-function doordashCommandToStep(cmd: string): string | null {
+function doordashCommandToStep(cmd: string): string | undefined {
   // Match both standalone `doordash` and legacy `vellum doordash` prefixes
   const dd = /(?:vellum )?doordash /;
   if (new RegExp(dd.source + 'status\\b').test(cmd) || new RegExp(dd.source + 'refresh\\b').test(cmd) || new RegExp(dd.source + 'login\\b').test(cmd)) return 'Check session';
@@ -26,18 +26,18 @@ function doordashCommandToStep(cmd: string): string | null {
   if (new RegExp(dd.source + 'cart\\b').test(cmd)) return 'Add to cart';
   if (new RegExp(dd.source + 'checkout\\b').test(cmd) || new RegExp(dd.source + 'payment-methods\\b').test(cmd)) return 'Add to cart';
   if (new RegExp(dd.source + 'order\\b').test(cmd)) return 'Place order';
-  return null;
+  return undefined;
 }
 
 /**
  * Given a completed DoorDash CLI command, return updated steps array or null if no change.
  */
-function updateDoordashSteps(cmd: string, steps: DoordashStep[], isError: boolean): DoordashStep[] | null {
+function updateDoordashSteps(cmd: string, steps: DoordashStep[], isError: boolean): DoordashStep[] | undefined {
   const stepLabel = doordashCommandToStep(cmd);
-  if (!stepLabel) return null;
+  if (!stepLabel) return undefined;
 
   const stepIndex = steps.findIndex(s => s.label === stepLabel);
-  if (stepIndex < 0) return null;
+  if (stepIndex < 0) return undefined;
 
   const updated = steps.map((s, i) => {
     if (i < stepIndex) {

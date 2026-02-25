@@ -1,11 +1,13 @@
-import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, chmodSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { arch, platform } from 'node:os';
 import { createHash } from 'node:crypto';
+import { chmodSync,existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { arch, platform } from 'node:os';
+import { dirname,join } from 'node:path';
+
 import type { Subprocess } from 'bun';
+
+import { getQdrantUrlEnv } from '../config/env.js';
 import { getLogger } from '../util/logger.js';
 import { getDataDir } from '../util/platform.js';
-import { getQdrantUrlEnv } from '../config/env.js';
 
 const log = getLogger('qdrant-manager');
 

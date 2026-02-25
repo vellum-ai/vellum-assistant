@@ -3,10 +3,11 @@
  * Stores/loads auth cookies from a recording or manual login.
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, unlinkSync,writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+
+import type { ExtractedCredential,SessionRecording } from '../tools/browser/network-recording-types.js';
 import { getDataDir } from '../util/platform.js';
-import type { SessionRecording, ExtractedCredential } from '../tools/browser/network-recording-types.js';
 
 export interface AmazonSession {
   cookies: ExtractedCredential[];

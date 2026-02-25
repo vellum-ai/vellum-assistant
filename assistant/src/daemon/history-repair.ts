@@ -1,8 +1,8 @@
 import type {
-  Message,
   ContentBlock,
-  ToolUseContent,
+  Message,
   ToolResultContent,
+  ToolUseContent,
 } from '../providers/types.js';
 
 export interface RepairStats {

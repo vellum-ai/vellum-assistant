@@ -1,17 +1,18 @@
 import { and, asc, eq, inArray, lt, ne } from 'drizzle-orm';
+
 import type { AssistantConfig } from '../../config/types.js';
 import { getLogger } from '../../util/logger.js';
+import { resolveConflictClarification } from '../clarification-resolver.js';
 import {
   computeConflictRelevance,
   looksLikeClarificationReply,
   shouldAttemptConflictResolution,
 } from '../conflict-intent.js';
 import { isConflictKindPairEligible, isStatementConflictEligible } from '../conflict-policy.js';
-import { getDb } from '../db.js';
-import { resolveConflictClarification } from '../clarification-resolver.js';
 import { applyConflictResolution, listPendingConflictDetails, resolveConflict } from '../conflict-store.js';
-import { enqueueMemoryJob, type MemoryJob } from '../jobs-store.js';
+import { getDb } from '../db.js';
 import { asPositiveMs, asString } from '../job-utils.js';
+import { enqueueMemoryJob, type MemoryJob } from '../jobs-store.js';
 import { extractTextFromStoredMessageContent } from '../message-content.js';
 import { memoryItemConflicts, messages } from '../schema.js';
 

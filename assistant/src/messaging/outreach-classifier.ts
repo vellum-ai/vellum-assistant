@@ -3,9 +3,9 @@
  * Works with metadata only (from, subject) to keep token usage low.
  */
 
-import { getConfiguredProvider, createTimeout, extractToolUse, userMessage } from '../providers/provider-send-message.js';
-import type { EmailMetadata } from './email-classifier.js';
+import { createTimeout, extractToolUse, getConfiguredProvider, userMessage } from '../providers/provider-send-message.js';
 import { getLogger } from '../util/logger.js';
+import type { EmailMetadata } from './email-classifier.js';
 
 const log = getLogger('outreach-classifier');
 

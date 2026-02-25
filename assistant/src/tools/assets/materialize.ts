@@ -7,18 +7,20 @@
  * regular file.
  */
 
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { mkdirSync,writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+
 import { eq } from 'drizzle-orm';
-import { RiskLevel } from '../../permissions/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
-import type { ToolDefinition } from '../../providers/types.js';
-import { registerTool } from '../registry.js';
+
+import { type AttachmentContext,isAttachmentVisible } from '../../daemon/media-visibility-policy.js';
+import { getConversationThreadType } from '../../memory/conversation-store.js';
 import { getDb } from '../../memory/db.js';
 import { attachments } from '../../memory/schema.js';
+import { RiskLevel } from '../../permissions/types.js';
+import type { ToolDefinition } from '../../providers/types.js';
+import { registerTool } from '../registry.js';
 import { sandboxPolicy } from '../shared/filesystem/path-policy.js';
-import { isAttachmentVisible, type AttachmentContext } from '../../daemon/media-visibility-policy.js';
-import { getConversationThreadType } from '../../memory/conversation-store.js';
+import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import { getAttachmentSourceConversations } from './search.js';
 
 // ---------------------------------------------------------------------------

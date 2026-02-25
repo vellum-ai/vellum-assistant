@@ -13,49 +13,49 @@
  */
 
 // Re-export domain modules (all individual types remain importable)
-export * from './ipc-contract/shared.js';
-export * from './ipc-contract/sessions.js';
-export * from './ipc-contract/messages.js';
-export * from './ipc-contract/surfaces.js';
-export * from './ipc-contract/skills.js';
-export * from './ipc-contract/trust.js';
 export * from './ipc-contract/apps.js';
-export * from './ipc-contract/integrations.js';
-export * from './ipc-contract/computer-use.js';
-export * from './ipc-contract/work-items.js';
 export * from './ipc-contract/browser.js';
-export * from './ipc-contract/subagents.js';
-export * from './ipc-contract/documents.js';
-export * from './ipc-contract/memory.js';
-export * from './ipc-contract/workspace.js';
-export * from './ipc-contract/schedules.js';
+export * from './ipc-contract/computer-use.js';
 export * from './ipc-contract/diagnostics.js';
-export * from './ipc-contract/parental-control.js';
+export * from './ipc-contract/documents.js';
 export * from './ipc-contract/inbox.js';
-export * from './ipc-contract/pairing.js';
+export * from './ipc-contract/integrations.js';
+export * from './ipc-contract/memory.js';
+export * from './ipc-contract/messages.js';
 export * from './ipc-contract/notifications.js';
+export * from './ipc-contract/pairing.js';
+export * from './ipc-contract/parental-control.js';
+export * from './ipc-contract/schedules.js';
+export * from './ipc-contract/sessions.js';
+export * from './ipc-contract/shared.js';
+export * from './ipc-contract/skills.js';
+export * from './ipc-contract/subagents.js';
+export * from './ipc-contract/surfaces.js';
+export * from './ipc-contract/trust.js';
+export * from './ipc-contract/work-items.js';
+export * from './ipc-contract/workspace.js';
 
 // Import domain-level union aliases for composition
-import type { _SessionsClientMessages, _SessionsServerMessages } from './ipc-contract/sessions.js';
-import type { _MessagesClientMessages, _MessagesServerMessages } from './ipc-contract/messages.js';
-import type { _SurfacesClientMessages, _SurfacesServerMessages } from './ipc-contract/surfaces.js';
-import type { _SkillsClientMessages, _SkillsServerMessages } from './ipc-contract/skills.js';
-import type { _TrustClientMessages, _TrustServerMessages } from './ipc-contract/trust.js';
 import type { _AppsClientMessages, _AppsServerMessages } from './ipc-contract/apps.js';
-import type { _IntegrationsClientMessages, _IntegrationsServerMessages } from './ipc-contract/integrations.js';
-import type { _ComputerUseClientMessages, _ComputerUseServerMessages } from './ipc-contract/computer-use.js';
-import type { _WorkItemsClientMessages, _WorkItemsServerMessages } from './ipc-contract/work-items.js';
 import type { _BrowserClientMessages, _BrowserServerMessages } from './ipc-contract/browser.js';
-import type { _SubagentsClientMessages, _SubagentsServerMessages } from './ipc-contract/subagents.js';
-import type { _DocumentsClientMessages, _DocumentsServerMessages } from './ipc-contract/documents.js';
-import type { _MemoryServerMessages } from './ipc-contract/memory.js';
-import type { _WorkspaceClientMessages, _WorkspaceServerMessages } from './ipc-contract/workspace.js';
-import type { _SchedulesClientMessages, _SchedulesServerMessages } from './ipc-contract/schedules.js';
+import type { _ComputerUseClientMessages, _ComputerUseServerMessages } from './ipc-contract/computer-use.js';
 import type { _DiagnosticsClientMessages, _DiagnosticsServerMessages } from './ipc-contract/diagnostics.js';
-import type { _ParentalControlClientMessages, _ParentalControlServerMessages } from './ipc-contract/parental-control.js';
+import type { _DocumentsClientMessages, _DocumentsServerMessages } from './ipc-contract/documents.js';
 import type { _InboxClientMessages, _InboxServerMessages } from './ipc-contract/inbox.js';
-import type { _PairingClientMessages, _PairingServerMessages } from './ipc-contract/pairing.js';
+import type { _IntegrationsClientMessages, _IntegrationsServerMessages } from './ipc-contract/integrations.js';
+import type { _MemoryServerMessages } from './ipc-contract/memory.js';
+import type { _MessagesClientMessages, _MessagesServerMessages } from './ipc-contract/messages.js';
 import type { _NotificationsServerMessages } from './ipc-contract/notifications.js';
+import type { _PairingClientMessages, _PairingServerMessages } from './ipc-contract/pairing.js';
+import type { _ParentalControlClientMessages, _ParentalControlServerMessages } from './ipc-contract/parental-control.js';
+import type { _SchedulesClientMessages, _SchedulesServerMessages } from './ipc-contract/schedules.js';
+import type { _SessionsClientMessages, _SessionsServerMessages } from './ipc-contract/sessions.js';
+import type { _SkillsClientMessages, _SkillsServerMessages } from './ipc-contract/skills.js';
+import type { _SubagentsClientMessages, _SubagentsServerMessages } from './ipc-contract/subagents.js';
+import type { _SurfacesClientMessages, _SurfacesServerMessages } from './ipc-contract/surfaces.js';
+import type { _TrustClientMessages, _TrustServerMessages } from './ipc-contract/trust.js';
+import type { _WorkItemsClientMessages, _WorkItemsServerMessages } from './ipc-contract/work-items.js';
+import type { _WorkspaceClientMessages, _WorkspaceServerMessages } from './ipc-contract/workspace.js';
 
 // === SubagentEvent -- defined here because it references ServerMessage ===
 

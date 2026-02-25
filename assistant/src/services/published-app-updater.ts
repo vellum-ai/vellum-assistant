@@ -3,11 +3,12 @@
  */
 
 import { createHash } from 'node:crypto';
-import { getLogger } from '../util/logger.js';
-import { getActivePublishedPageByAppId, updatePublishedPage } from '../memory/published-pages-store.js';
+
 import { getApp } from '../memory/app-store.js';
-import { deployHtmlToVercel } from './vercel-deploy.js';
+import { getActivePublishedPageByAppId, updatePublishedPage } from '../memory/published-pages-store.js';
 import { credentialBroker } from '../tools/credentials/broker.js';
+import { getLogger } from '../util/logger.js';
+import { deployHtmlToVercel } from './vercel-deploy.js';
 
 const log = getLogger('published-app-updater');
 
