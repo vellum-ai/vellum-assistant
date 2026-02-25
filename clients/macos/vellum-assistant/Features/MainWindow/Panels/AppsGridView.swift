@@ -274,7 +274,7 @@ struct AppsGridView: View {
     /// Exclude any app that is the Home Base from the regular sections
     /// (since Home Base is always shown as a dedicated synthetic first item).
     private func isHomeBaseApp(_ app: AppListManager.AppItem) -> Bool {
-        app.name.localizedCaseInsensitiveContains("home base")
+        app.name.caseInsensitiveCompare("Home Base") == .orderedSame
     }
 
     private var filteredPinnedApps: [AppListManager.AppItem] {
