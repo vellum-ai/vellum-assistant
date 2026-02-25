@@ -46,8 +46,6 @@ final class ScreenRecorder: NSObject {
     private var stream: SCStream?
     private var streamOutput: RecorderStreamOutput?
     private var outputFileURL: URL?
-    private var startTime: CMTime?
-    private var lastSampleTime: CMTime?
 
     // MARK: - Public API
 
@@ -113,16 +111,6 @@ final class ScreenRecorder: NSObject {
             videoInput: videoInput,
             audioInput: audioInput
         )
-        output.onFirstFrame = { [weak self] time in
-            Task { @MainActor in
-                self?.startTime = time
-            }
-        }
-        output.onSampleAppended = { [weak self] time in
-            Task { @MainActor in
-                self?.lastSampleTime = time
-            }
-        }
         streamOutput = output
 
         // Create and start stream
@@ -171,21 +159,24 @@ final class ScreenRecorder: NSObject {
                 try? FileManager.default.removeItem(at: url)
             }
             streamOutput = nil
-            startTime = nil
-            lastSampleTime = nil
             outputFileURL = nil
             throw RecorderError.noFramesCaptured
         }
 
         await output.finishWriting()
 
+        // Read sample times from the output on its serial queue to avoid data races
+        let (firstTime, lastTime) = await withCheckedContinuation { (continuation: CheckedContinuation<(CMTime?, CMTime?), Never>) in
+            output.queue.async {
+                continuation.resume(returning: (output.firstSampleTime, output.lastVideoSampleTime))
+            }
+        }
+
         let filePath = outputFileURL?.path ?? ""
-        let durationMs = computeDurationMs()
+        let durationMs = computeDurationMs(start: firstTime, end: lastTime)
 
         // Clean up references
         streamOutput = nil
-        startTime = nil
-        lastSampleTime = nil
 
         log.info("Recording stopped — duration: \(durationMs)ms, file: \(filePath)")
 
@@ -304,8 +295,8 @@ final class ScreenRecorder: NSObject {
         return (writer, videoInput, audioInput)
     }
 
-    private func computeDurationMs() -> Double {
-        guard let start = startTime, let end = lastSampleTime else { return 0 }
+    private func computeDurationMs(start: CMTime?, end: CMTime?) -> Double {
+        guard let start = start, let end = end else { return 0 }
         let seconds = CMTimeGetSeconds(end) - CMTimeGetSeconds(start)
         return max(seconds * 1000, 0)
     }
@@ -327,10 +318,10 @@ private final class RecorderStreamOutput: NSObject, SCStreamOutput, @unchecked S
     /// Whether at least one video frame was captured and written.
     var didCaptureFrames: Bool { hasStartedSession }
 
-    /// Called on the first video frame with its presentation time.
-    var onFirstFrame: ((CMTime) -> Void)?
-    /// Called each time a sample buffer is appended.
-    var onSampleAppended: ((CMTime) -> Void)?
+    /// Presentation time of the first captured video frame (set on queue).
+    private(set) var firstSampleTime: CMTime?
+    /// Presentation time of the most recent captured video frame (set on queue).
+    private(set) var lastVideoSampleTime: CMTime?
 
     init(assetWriter: AVAssetWriter, videoInput: AVAssetWriterInput, audioInput: AVAssetWriterInput?) {
         self.assetWriter = assetWriter
@@ -345,10 +336,13 @@ private final class RecorderStreamOutput: NSObject, SCStreamOutput, @unchecked S
         // Start the writer session on the first valid video frame
         if !hasStartedSession && type == .screen {
             let time = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-            assetWriter.startWriting()
+            guard assetWriter.startWriting() else {
+                log.error("Asset writer failed to start: \(self.assetWriter.error?.localizedDescription ?? "unknown error")")
+                return
+            }
             assetWriter.startSession(atSourceTime: time)
             hasStartedSession = true
-            onFirstFrame?(time)
+            firstSampleTime = time
         }
 
         guard hasStartedSession else { return }
@@ -357,8 +351,7 @@ private final class RecorderStreamOutput: NSObject, SCStreamOutput, @unchecked S
         case .screen:
             if videoInput.isReadyForMoreMediaData {
                 videoInput.append(sampleBuffer)
-                let time = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-                onSampleAppended?(time)
+                lastVideoSampleTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
             }
         case .audio:
             if let audioInput = audioInput, audioInput.isReadyForMoreMediaData {
@@ -370,10 +363,16 @@ private final class RecorderStreamOutput: NSObject, SCStreamOutput, @unchecked S
     }
 
     /// Finishes writing and waits for the asset writer to complete.
+    /// markAsFinished() is dispatched onto self.queue to avoid racing with append().
     func finishWriting() async {
         guard hasStartedSession else { return }
-        videoInput.markAsFinished()
-        audioInput?.markAsFinished()
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            queue.async {
+                self.videoInput.markAsFinished()
+                self.audioInput?.markAsFinished()
+                continuation.resume()
+            }
+        }
         await assetWriter.finishWriting()
     }
 }
