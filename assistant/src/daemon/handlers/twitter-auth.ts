@@ -3,8 +3,8 @@ import * as net from 'node:net';
 import { loadConfig, loadRawConfig } from '../../config/loader.js';
 import { getPublicBaseUrl } from '../../inbound/public-ingress-urls.js';
 import { orchestrateOAuthConnect } from '../../oauth/connect-orchestrator.js';
-import { getSecureKey } from '../../security/secure-keys.js';
-import { assertMetadataWritable, getCredentialMetadata } from '../../tools/credentials/metadata-store.js';
+import { deleteSecureKey, getSecureKey } from '../../security/secure-keys.js';
+import { assertMetadataWritable, deleteCredentialMetadata, getCredentialMetadata } from '../../tools/credentials/metadata-store.js';
 import { ConfigError } from '../../util/errors.js';
 import type { TwitterAuthStartRequest, TwitterAuthStatusRequest } from '../ipc-protocol.js';
 import { defineHandlers, type HandlerContext, log } from './shared.js';
@@ -91,6 +91,18 @@ export async function handleTwitterAuthStart(
       return;
     }
 
+    // Clear any stale refresh token before re-authenticating. The
+    // orchestrator's storeOAuth2Tokens only writes a refresh token when
+    // the provider returns one — it never deletes an existing entry. So
+    // a leftover token from a previous session can survive reconnects.
+    // Deleting it upfront ensures we only keep a fresh token.
+    deleteSecureKey('credential:integration:twitter:refresh_token');
+    try {
+      deleteCredentialMetadata('integration:twitter', 'refresh_token');
+    } catch {
+      // Non-fatal — metadata entry may not exist
+    }
+
     const result = await orchestrateOAuthConnect({
       service: 'integration:twitter',
       clientId,
@@ -106,7 +118,7 @@ export async function handleTwitterAuthStart(
       ctx.send(socket, {
         type: 'twitter_auth_result',
         success: false,
-        error: sanitizeTwitterAuthError(result.error),
+        error: result.error,
       });
       return;
     }
