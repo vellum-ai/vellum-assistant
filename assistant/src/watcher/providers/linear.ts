@@ -439,13 +439,23 @@ export const linearProvider: WatcherProvider = {
       // credentialService so that multiple Linear watchers sharing the same credential
       // maintain independent baselines and cannot clobber each other's state.
       const stateCache = getStateCache(watcherKey);
+      const currentIssueIds = new Set<string>();
       for (const issue of assignedIssues) {
+        currentIssueIds.add(issue.id);
         const previousStateId = stateCache.get(issue.id);
         if (previousStateId !== undefined && previousStateId !== issue.state.id) {
           items.push(issueToStatusChangeItem(issue, previousStateId));
         }
         // Always update the map so the next poll has an accurate baseline.
         stateCache.set(issue.id, issue.state.id);
+      }
+
+      // Evict issues no longer returned by the assigned-issues query (unassigned,
+      // completed, archived) so the cache doesn't grow without bound.
+      for (const issueId of stateCache.keys()) {
+        if (!currentIssueIds.has(issueId)) {
+          stateCache.delete(issueId);
+        }
       }
 
       const newWatermark = new Date().toISOString();
