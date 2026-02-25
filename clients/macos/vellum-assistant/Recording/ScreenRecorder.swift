@@ -131,6 +131,14 @@ final class ScreenRecorder: NSObject {
             reasons.append("scaled down to fit \(maxDimension)px limit")
         }
 
+        // 2b. Re-apply minimum after downscaling — extreme aspect ratios can
+        //     push the shorter axis below 128px (e.g. 8192x128 → 4096x64).
+        if w < minDimension || h < minDimension {
+            w = max(w, minDimension)
+            h = max(h, minDimension)
+            reasons.append("re-clamped below-minimum axis after downscale")
+        }
+
         // 3. Round up to nearest even value (H.264 macroblock requirement)
         if w % 2 != 0 || h % 2 != 0 {
             w = (w + 1) & ~1
