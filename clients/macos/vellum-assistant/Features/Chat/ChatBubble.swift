@@ -292,7 +292,7 @@ struct ChatBubble: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 } else if hasText {
-                    let segments = Self.cachedSegments(for: message.text)
+                    let segments = Self.cachedSegments(for: message.text, isStreaming: message.isStreaming)
                     let hasRichContent = segments.contains(where: {
                         switch $0 {
                         case .table, .image, .heading, .codeBlock, .horizontalRule, .list: return true
@@ -380,14 +380,20 @@ struct ChatBubble: View {
         }
     }
 
-    // MARK: - Caches
+    // MARK: - LRU Caches
+    //
+    // Each cache entry stores (value, accessTime) where accessTime is a
+    // monotonically increasing counter. On eviction the entry with the
+    // lowest accessTime is removed (least-recently-used).
 
-    @MainActor static var segmentCache = [String: [MarkdownSegment]]()
-    @MainActor static var markdownCache = [String: AttributedString]()
+    @MainActor static var lruCounter: Int = 0
+
+    @MainActor static var segmentCache = [String: (value: [MarkdownSegment], accessTime: Int)]()
+    @MainActor static var markdownCache = [String: (value: AttributedString, accessTime: Int)]()
     /// Separate cache for inline markdown (used by interleaved text segments).
     /// Kept distinct from `markdownCache` because `markdownText` applies
     /// slash-command highlighting before caching, which would contaminate
     /// inline results (and vice versa) if they shared a dictionary.
-    @MainActor static var inlineMarkdownCache = [String: AttributedString]()
+    @MainActor static var inlineMarkdownCache = [String: (value: AttributedString, accessTime: Int)]()
     static let maxCacheSize = 100
 }

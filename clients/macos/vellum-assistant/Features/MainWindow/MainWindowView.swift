@@ -52,7 +52,10 @@ struct MainWindowView: View {
     @ObservedObject var threadManager: ThreadManager
     @ObservedObject var appListManager: AppListManager
     var zoomManager: ZoomManager
-    @ObservedObject var traceStore: TraceStore
+    /// Plain `let` instead of `@ObservedObject` so SwiftUI doesn't observe
+    /// TraceStore mutations when the DebugPanel isn't visible. DebugPanel
+    /// itself uses `@ObservedObject` and is only instantiated when shown.
+    let traceStore: TraceStore
     @ObservedObject var windowState: MainWindowState
     @State private var selectedThreadId: UUID?
     @State var sharing = SharingState()
