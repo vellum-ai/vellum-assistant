@@ -645,6 +645,9 @@ final class ScreenRecorder: NSObject {
     func cancelRecording() {
         guard isRecordingActive else { return }
 
+        // Unregister display monitoring since the recording session is ending.
+        unregisterDisplayReconfiguration()
+
         // Stop the stream synchronously (best-effort — stopCapture is async but
         // we nil it out so no more buffers arrive).
         stream = nil
@@ -699,6 +702,9 @@ final class ScreenRecorder: NSObject {
 
             log.error("Stream error during active recording — cleaning up (error=\(recorderError.localizedDescription, privacy: .public))")
 
+            // Unregister display monitoring since the recording session is ending.
+            unregisterDisplayReconfiguration()
+
             // Cancel the writer and remove the partial file
             assetWriter?.cancelWriting()
             if let outputURL = assetWriter?.outputURL {
@@ -724,7 +730,6 @@ final class ScreenRecorder: NSObject {
         recordingStartDate = nil
         outputDelegate = nil
         activeConfigLabel = nil
-        unregisterDisplayReconfiguration()
     }
 
     // MARK: - Display Reconfiguration Monitoring
@@ -763,6 +768,8 @@ final class ScreenRecorder: NSObject {
             // Stop the stream and notify via the error callback
             Task { @MainActor in
                 guard self.isRecordingActive else { return }
+                // Unregister display monitoring since the recording session is ending.
+                self.unregisterDisplayReconfiguration()
                 self.assetWriter?.cancelWriting()
                 if let outputURL = self.assetWriter?.outputURL {
                     try? FileManager.default.removeItem(at: outputURL)

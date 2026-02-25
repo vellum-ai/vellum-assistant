@@ -59,7 +59,8 @@ extension AppDelegate {
                 self?.startRecording(
                     recordingId: recordingId,
                     options: selectedOptions,
-                    attachToConversationId: attachToConversationId
+                    attachToConversationId: attachToConversationId,
+                    promptForSource: true
                 )
             },
             onCancel: { [weak self] in
@@ -79,7 +80,8 @@ extension AppDelegate {
     private func startRecording(
         recordingId: String,
         options: IPCRecordingOptions?,
-        attachToConversationId: String?
+        attachToConversationId: String?,
+        promptForSource: Bool = false
     ) {
         // Wire up re-prompt callback so RecordingManager can re-show the
         // source picker when the selected source is no longer available.
@@ -105,7 +107,7 @@ extension AppDelegate {
                 sessionId: recordingId,
                 options: options,
                 attachToConversationId: attachToConversationId,
-                promptForSource: options?.promptForSource ?? false
+                promptForSource: promptForSource
             )
 
             guard started else { return }
