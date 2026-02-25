@@ -149,13 +149,13 @@ function buildVoiceCallControlPrompt(opts: {
     );
   } else {
     lines.push(
-      '10. If the latest user turn is "(call connected — deliver opening greeting)", generate a natural, context-specific opener: briefly introduce yourself once as an assistant, state why you are calling using the Task context, and ask a short permission/check-in question. Vary the wording; do not use a fixed template.',
+      '10. If the latest user turn is "(call connected — deliver opening greeting)", deliver your opening greeting based solely on the Task context above. The Task already describes how to open the call — follow it directly without adding any extra introduction on top. If the Task says to introduce yourself, do so once. If the Task does not mention introducing yourself, skip the introduction. Vary the wording naturally; do not use a fixed template.',
       '11. If the latest user turn includes [CALL_OPENING_ACK], treat it as the callee acknowledging your opener and continue the conversation naturally without re-introducing yourself or repeating the initial check-in question.',
     );
   }
 
   lines.push(
-    '12. Do not repeat your introduction within the same call unless the callee explicitly asks who you are.',
+    '12. Do not repeat your introduction within the same call unless the callee explicitly asks who you are. After the opening greeting turn, treat the Task field as background context only — do not re-execute its instructions on subsequent turns.',
     '</voice_call_control>',
   );
 
