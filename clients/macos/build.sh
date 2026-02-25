@@ -271,18 +271,6 @@ if [ -f "$SCRIPT_DIR/gateway-bin/vellum-gateway" ]; then
     fi
 fi
 
-# Also rebuild if Porcupine dylib changed or newly added
-PORCUPINE_CHECKOUT="$SCRIPT_DIR/../.build/checkouts/porcupine"
-if [ -d "$PORCUPINE_CHECKOUT/lib/mac" ]; then
-    ARCH=$(uname -m)
-    PORCUPINE_DYLIB_SRC="$PORCUPINE_CHECKOUT/lib/mac/$ARCH/libpv_porcupine.dylib"
-    if [ -f "$PORCUPINE_DYLIB_SRC" ]; then
-        if [ ! -f "$FRAMEWORKS_DIR/libpv_porcupine.dylib" ] || [ "$PORCUPINE_DYLIB_SRC" -nt "$FRAMEWORKS_DIR/libpv_porcupine.dylib" ]; then
-            NEEDS_REBUILD=true
-        fi
-    fi
-fi
-
 # Ensure .app bundle structure exists
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR" "$FRAMEWORKS_DIR"
 
@@ -347,56 +335,6 @@ if [ -d "$SPARKLE_FW" ]; then
     fi
 else
     echo "WARNING: Sparkle.framework not found at $SPARKLE_FW"
-fi
-
-# Bundle Porcupine dylib, model, and keyword files (if checkout exists)
-PORCUPINE_CHECKOUT="$SCRIPT_DIR/../.build/checkouts/porcupine"
-if [ -d "$PORCUPINE_CHECKOUT/lib/mac" ]; then
-    if [ "$CONFIG" = "release" ]; then
-        # Universal binary for release builds
-        PORCUPINE_ARM64="$PORCUPINE_CHECKOUT/lib/mac/arm64/libpv_porcupine.dylib"
-        PORCUPINE_X86_64="$PORCUPINE_CHECKOUT/lib/mac/x86_64/libpv_porcupine.dylib"
-        if [ -f "$PORCUPINE_ARM64" ] && [ -f "$PORCUPINE_X86_64" ]; then
-            if [ ! -f "$FRAMEWORKS_DIR/libpv_porcupine.dylib" ] || \
-               [ "$PORCUPINE_ARM64" -nt "$FRAMEWORKS_DIR/libpv_porcupine.dylib" ] || \
-               [ "$PORCUPINE_X86_64" -nt "$FRAMEWORKS_DIR/libpv_porcupine.dylib" ]; then
-                echo "Bundling Porcupine dylib (universal)..."
-                lipo -create "$PORCUPINE_ARM64" "$PORCUPINE_X86_64" -output "$FRAMEWORKS_DIR/libpv_porcupine.dylib"
-            fi
-        else
-            echo "WARNING: Porcupine dylibs not found for universal binary — skipping"
-        fi
-    else
-        # Arch-specific for debug builds
-        ARCH=$(uname -m)
-        PORCUPINE_DYLIB_SRC="$PORCUPINE_CHECKOUT/lib/mac/$ARCH/libpv_porcupine.dylib"
-        if [ -f "$PORCUPINE_DYLIB_SRC" ]; then
-            if [ ! -f "$FRAMEWORKS_DIR/libpv_porcupine.dylib" ] || [ "$PORCUPINE_DYLIB_SRC" -nt "$FRAMEWORKS_DIR/libpv_porcupine.dylib" ]; then
-                echo "Bundling Porcupine dylib..."
-                cp "$PORCUPINE_DYLIB_SRC" "$FRAMEWORKS_DIR/libpv_porcupine.dylib"
-            fi
-        else
-            echo "WARNING: Porcupine dylib not found at $PORCUPINE_DYLIB_SRC — skipping"
-        fi
-    fi
-else
-    echo "WARNING: Porcupine checkout not found at $PORCUPINE_CHECKOUT — skipping dylib bundling"
-fi
-
-# Bundle Porcupine model file
-if [ -f "$PORCUPINE_CHECKOUT/lib/common/porcupine_params.pv" ]; then
-    if [ ! -f "$RESOURCES_DIR/porcupine_params.pv" ] || [ "$PORCUPINE_CHECKOUT/lib/common/porcupine_params.pv" -nt "$RESOURCES_DIR/porcupine_params.pv" ]; then
-        echo "Bundling Porcupine model file..."
-        cp "$PORCUPINE_CHECKOUT/lib/common/porcupine_params.pv" "$RESOURCES_DIR/porcupine_params.pv"
-    fi
-fi
-
-# Bundle Porcupine keyword files
-if [ -d "$PORCUPINE_CHECKOUT/resources/keyword_files/mac" ]; then
-    mkdir -p "$RESOURCES_DIR/porcupine-keywords"
-    for ppn in "$PORCUPINE_CHECKOUT/resources/keyword_files/mac/"*.ppn; do
-        [ -f "$ppn" ] && cp "$ppn" "$RESOURCES_DIR/porcupine-keywords/"
-    done
 fi
 
 # Always refresh bundled skills in app bundle (skill assets change independently of binaries)
@@ -590,16 +528,6 @@ if [ -d "$FRAMEWORKS_DIR/Sparkle.framework" ]; then
     # Sign the outer framework last
     codesign "${FW_SIGN_FLAGS[@]}" "$FRAMEWORKS_DIR/Sparkle.framework"
     echo "Sparkle.framework signed (including nested binaries)"
-fi
-
-# Sign Porcupine dylib
-if [ -f "$FRAMEWORKS_DIR/libpv_porcupine.dylib" ]; then
-    PV_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY")
-    if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
-        PV_SIGN_FLAGS+=(--timestamp --options runtime)
-    fi
-    codesign "${PV_SIGN_FLAGS[@]}" "$FRAMEWORKS_DIR/libpv_porcupine.dylib"
-    echo "Porcupine dylib signed"
 fi
 
 # Sign CLI binary
