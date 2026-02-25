@@ -1,7 +1,8 @@
 import type { GatewayConfig } from "../../config.js";
 import { getLogger } from "../../logger.js";
+import type { RuntimeAttachmentMeta } from "../../runtime/client.js";
 import { checkDeliverAuth } from "../middleware/deliver-auth.js";
-import { sendWhatsAppReply } from "../../whatsapp/send.js";
+import { sendWhatsAppAttachments, sendWhatsAppReply } from "../../whatsapp/send.js";
 
 const log = getLogger("whatsapp-deliver");
 
@@ -31,7 +32,7 @@ export function createWhatsAppDeliverHandler(config: GatewayConfig) {
       to?: string;
       text?: string;
       assistantId?: string;
-      attachments?: unknown[];
+      attachments?: RuntimeAttachmentMeta[];
     };
     try {
       body = (await req.json()) as typeof body;
@@ -46,28 +47,40 @@ export function createWhatsAppDeliverHandler(config: GatewayConfig) {
       return Response.json({ error: "to is required" }, { status: 400 });
     }
 
-    const { text } = body;
+    const { text, assistantId, attachments } = body;
 
-    // When text is missing but attachments are present, produce a graceful fallback
-    // since WhatsApp media delivery is not yet implemented.
-    const hasAttachments = Array.isArray(body.attachments) && body.attachments.length > 0;
-    const effectiveText =
-      (!text || (typeof text === "string" && text.trim().length === 0)) && hasAttachments
-        ? "I have a media attachment to share, but WhatsApp media delivery is not yet supported."
-        : text;
+    if (!text && (!attachments || attachments.length === 0)) {
+      return Response.json({ error: "text or attachments required" }, { status: 400 });
+    }
 
-    if (!effectiveText || typeof effectiveText !== "string") {
-      return Response.json({ error: "text is required" }, { status: 400 });
+    if (attachments) {
+      if (!Array.isArray(attachments)) {
+        return Response.json({ error: "attachments must be an array" }, { status: 400 });
+      }
+      for (const att of attachments) {
+        if (att === null || typeof att !== "object" || Array.isArray(att)) {
+          return Response.json({ error: "each attachment must be an object" }, { status: 400 });
+        }
+        if (!att.id || typeof att.id !== "string") {
+          return Response.json({ error: "each attachment must have an id" }, { status: 400 });
+        }
+      }
     }
 
     try {
-      await sendWhatsAppReply(config, to, effectiveText);
+      if (text) {
+        await sendWhatsAppReply(config, to, text);
+      }
+
+      if (attachments && attachments.length > 0) {
+        await sendWhatsAppAttachments(config, to, assistantId, attachments);
+      }
     } catch (err) {
       tlog.error({ err, to }, "Failed to deliver WhatsApp reply");
       return Response.json({ error: "Delivery failed" }, { status: 502 });
     }
 
-    tlog.info({ to, textLength: effectiveText.length }, "WhatsApp reply sent");
+    tlog.info({ to, hasText: !!text, attachmentCount: attachments?.length ?? 0 }, "WhatsApp reply sent");
     return Response.json({ ok: true });
   };
 }
