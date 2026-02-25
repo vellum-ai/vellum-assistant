@@ -103,6 +103,7 @@ final class ScreenRecorder: NSObject {
             filter = SCContentFilter(desktopIndependentWindow: window)
             captureWidth = Int(window.frame.width) * 2  // Retina
             captureHeight = Int(window.frame.height) * 2
+            log.info("Window capture: windowID=\(windowId), sourceSize=\(Int(window.frame.width))x\(Int(window.frame.height)), streamSize=\(captureWidth)x\(captureHeight)")
         } else {
             // Display capture (default)
             let targetDisplay: SCDisplay
@@ -120,6 +121,7 @@ final class ScreenRecorder: NSObject {
             filter = SCContentFilter(display: targetDisplay, excludingApplications: [], exceptingWindows: [])
             captureWidth = Int(targetDisplay.width) * 2  // Retina
             captureHeight = Int(targetDisplay.height) * 2
+            log.info("Display capture: displayID=\(targetDisplay.displayID), sourceSize=\(targetDisplay.width)x\(targetDisplay.height), streamSize=\(captureWidth)x\(captureHeight)")
         }
 
         // Configure stream
@@ -195,6 +197,18 @@ final class ScreenRecorder: NSObject {
 
         self.assetWriter = writer
 
+        log.info("Encoder settings: codec=H.264, pixelFormat=32BGRA, frameRate=30fps, dimensions=\(captureWidth)x\(captureHeight)")
+        if includeAudio {
+            log.info("System audio: sampleRate=48000, channels=2, bitRate=128000")
+        }
+        if includeMicrophone {
+            if #available(macOS 15, *) {
+                log.info("Microphone audio: sampleRate=48000, channels=1, bitRate=64000")
+            } else {
+                log.info("Microphone requested but macOS 15+ required — skipped")
+            }
+        }
+
         // Create stream and output delegate
         let delegate = StreamOutputDelegate(recorder: self)
         self.outputDelegate = delegate
@@ -241,6 +255,7 @@ final class ScreenRecorder: NSObject {
         stream = nil
 
         guard hasReceivedVideoFrame else {
+            log.error("Stop: no video frames captured — discarding recording")
             cleanUpWriter()
             throw RecorderError.noFramesCaptured
         }
@@ -250,6 +265,7 @@ final class ScreenRecorder: NSObject {
         }
 
         // Finish writing
+        log.info("Stop: marking inputs finished (video=\(self.videoInput != nil), audio=\(self.audioInput != nil), mic=\(self.micInput != nil))")
         videoInput?.markAsFinished()
         audioInput?.markAsFinished()
         micInput?.markAsFinished()
@@ -262,6 +278,13 @@ final class ScreenRecorder: NSObject {
             }
         }
 
+        let writerStatus = writer.status
+        if writerStatus == .completed {
+            log.info("Writer: finishWriting completed successfully")
+        } else {
+            log.error("Writer: finishWriting ended with status=\(writerStatus.rawValue), error=\(writer.error?.localizedDescription ?? "none")")
+        }
+
         let durationMs: Int
         if let startDate = recordingStartDate {
             durationMs = Int(Date().timeIntervalSince(startDate) * 1000)
@@ -269,8 +292,10 @@ final class ScreenRecorder: NSObject {
             durationMs = 0
         }
 
+        let fileSize = (try? FileManager.default.attributesOfItem(atPath: outputURL.path)[.size] as? Int) ?? 0
+
         cleanUpWriter()
-        log.info("Screen recording stopped — duration=\(durationMs)ms, file=\(outputURL.path, privacy: .public)")
+        log.info("Recording complete — duration=\(durationMs)ms, fileSize=\(fileSize) bytes, file=\(outputURL.path, privacy: .public)")
 
         return RecordingResult(filePath: outputURL.path, durationMs: durationMs)
     }
@@ -292,9 +317,13 @@ final class ScreenRecorder: NSObject {
                 writer.startWriting()
                 writer.startSession(atSourceTime: pts)
                 startTime = pts
+                log.info("Writer: startWriting + startSession at pts=\(pts.seconds)s (status=\(writer.status.rawValue))")
             }
 
-            guard writer.status == .writing else { return }
+            guard writer.status == .writing else {
+                log.error("Writer not in writing state: status=\(writer.status.rawValue), error=\(writer.error?.localizedDescription ?? "none")")
+                return
+            }
 
             switch type {
             case .screen:
@@ -368,6 +397,7 @@ private final class StreamOutputDelegate: NSObject, SCStreamOutput, SCStreamDele
     }
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
-        log.error("SCStream stopped with error: \(error.localizedDescription)")
+        let nsError = error as NSError
+        log.error("SCStream stopped with error: domain=\(nsError.domain, privacy: .public), code=\(nsError.code), description=\(nsError.localizedDescription, privacy: .public)")
     }
 }
