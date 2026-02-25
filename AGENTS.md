@@ -195,7 +195,7 @@ Use the existing `VellumError` hierarchy (`ToolError`, `ConfigError`, `ProviderE
 throw new ConfigError('Missing required provider configuration');
 
 // Good: subagent manager throws when depth limit is exceeded
-throw new AssistantError('Cannot spawn subagent: parent is itself a subagent');
+throw new AssistantError('Cannot spawn subagent: parent is itself a subagent', ErrorCode.DAEMON_ERROR);
 ```
 
 ### 2. Result objects for operations that can fail in expected ways
