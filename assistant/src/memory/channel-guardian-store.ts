@@ -987,13 +987,12 @@ export function updateApprovalDecision(
 }
 
 // ---------------------------------------------------------------------------
-// Inbox / Escalation Query Helpers
+// Escalation Query Helpers
 // ---------------------------------------------------------------------------
 
 /**
  * List approval requests filtered by assistant, and optionally by channel,
- * conversation, and status. Designed for the inbox UI to show a paginated
- * list of escalations.
+ * conversation, and status. Returns a paginated list of escalations.
  */
 export function listPendingApprovalRequests(params: {
   assistantId?: string;
