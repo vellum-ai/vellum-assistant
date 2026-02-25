@@ -4836,6 +4836,7 @@ public struct IPCTwilioConfigResponse: Codable, Sendable {
 
 public struct IPCTwilioConfigResponseCompliance: Codable, Sendable {
     public let numberType: String?
+    public let tollfreePhoneNumberSid: String?
     public let verificationSid: String?
     public let verificationStatus: String?
     public let rejectionReason: String?
@@ -4844,8 +4845,9 @@ public struct IPCTwilioConfigResponseCompliance: Codable, Sendable {
     public let editAllowed: Bool?
     public let editExpiration: String?
 
-    public init(numberType: String? = nil, verificationSid: String? = nil, verificationStatus: String? = nil, rejectionReason: String? = nil, rejectionReasons: [String]? = nil, errorCode: String? = nil, editAllowed: Bool? = nil, editExpiration: String? = nil) {
+    public init(numberType: String? = nil, tollfreePhoneNumberSid: String? = nil, verificationSid: String? = nil, verificationStatus: String? = nil, rejectionReason: String? = nil, rejectionReasons: [String]? = nil, errorCode: String? = nil, editAllowed: Bool? = nil, editExpiration: String? = nil) {
         self.numberType = numberType
+        self.tollfreePhoneNumberSid = tollfreePhoneNumberSid
         self.verificationSid = verificationSid
         self.verificationStatus = verificationStatus
         self.rejectionReason = rejectionReason
