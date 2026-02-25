@@ -1671,11 +1671,20 @@ public final class ChatViewModel: ObservableObject {
                         // clickable after the app restarts (history restore).
                         // The full UiSurfaceShowMessage is not retained to avoid
                         // keeping entire HTML payloads in memory.
+                        // Extract appId from DynamicPageSurfaceData so the
+                        // ref can re-open the real app via app_open_request.
+                        let appId: String? = {
+                            if case .dynamicPage(let dpData) = surface.data {
+                                return dpData.appId
+                            }
+                            return nil
+                        }()
                         let ref = SurfaceRef(
                             surfaceId: surf.surfaceId,
                             sessionId: sessionId,
                             surfaceType: surf.surfaceType,
-                            title: surf.title
+                            title: surf.title,
+                            appId: appId
                         )
                         let inlineSurface = InlineSurfaceData(
                             id: surface.id,
