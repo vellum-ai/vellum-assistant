@@ -25,7 +25,7 @@ Use `ui_show` with `surface_type: "confirmation"` and this message:
 > Here's what will happen:
 > 1. **A browser opens** — you sign in to your Google account
 > 2. **I automate everything** — project creation, APIs, OAuth config, credentials
-> 3. **You enter credentials** from the dialog (secure prompt — I never see them)
+> 3. **One quick copy-paste** — you'll click a button to generate a secret and paste it (secure prompt — I never see it)
 > 4. **You authorize Vellum** with one click
 >
 > The whole thing takes 2-3 minutes. Ready?
@@ -125,29 +125,49 @@ Take a `browser_snapshot` and fill in:
 
 Click "Create".
 
-## Step 7: Secure Credential Entry
+### Capture the Client ID from the creation dialog
 
-After the credentials dialog appears showing the client ID and client secret, tell the user:
+After clicking "Create", a dialog appears showing the Client ID. **Read the Client ID from this dialog** using `browser_snapshot` or `browser_extract` — it looks like `123456789-xxxxx.apps.googleusercontent.com`.
 
-"Credentials created! Please enter the values from the dialog below. I won't see what you type — these go directly to secure storage."
+Store it immediately:
 
 ```
-credential_store prompt:
+credential_store store:
   service: "integration:gmail"
   field: "client_id"
-  label: "Google OAuth Client ID"
-  description: "Copy the Client ID from the dialog that just appeared"
-  placeholder: "123456789.apps.googleusercontent.com"
+  value: "<the Client ID you read from the dialog>"
 ```
+
+Close the creation dialog. Do NOT try to read the client secret from this dialog — **Google masks client secrets after creation** (they appear as `****xxxx` and cannot be revealed or downloaded).
+
+## Step 7: Generate and Capture the Client Secret
+
+**Important context:** Google's Cloud Console no longer displays client secret values after initial creation, and "Download JSON" does not work in headless/automated browsers. The reliable approach is to generate a new secret, which Google shows exactly once.
+
+Navigate to the credential detail page. From the credentials list (`https://console.cloud.google.com/apis/credentials?project=PROJECT_ID`), click on the "Vellum Assistant" OAuth client you just created.
+
+Tell the user:
+
+> "Almost done! I need the client secret to complete the connection. On the page that just opened, click the **"+ Add secret"** button under the Client secrets section. Google will show the new secret value **once** — copy it immediately, then paste it into the secure prompt below."
+
+Then immediately present the secure prompt so it's ready when the user has the value:
 
 ```
 credential_store prompt:
   service: "integration:gmail"
   field: "client_secret"
   label: "Google OAuth Client Secret"
-  description: "Copy the Client secret from the same dialog"
+  description: "Click '+ Add secret' on the page, copy the value Google shows you, and paste it here"
   placeholder: "GOCSPX-..."
 ```
+
+Wait for the user to complete the prompt. Do NOT attempt to:
+- Download the credentials JSON file (does not work in headless browsers)
+- Read the secret from the page (Google masks it immediately)
+- Delete and recreate the OAuth client to try again
+- Navigate to old-style credential pages
+
+If the user has trouble finding the button, take a `browser_screenshot` and point them to the right location.
 
 ## Step 8: OAuth2 Authorization
 
@@ -160,7 +180,9 @@ action: "oauth2_connect"
 service: "integration:gmail"
 ```
 
-This auto-reads client_id/client_secret from the secure store and auto-fills auth_url, token_url, scopes, and extra_params from well-known config. The OAuth flow uses a localhost callback — no public URL or tunnel is needed.
+This auto-reads client_id and client_secret from the secure store and auto-fills auth_url, token_url, scopes, and extra_params from well-known config. The OAuth flow uses a localhost callback — no public URL or tunnel is needed.
+
+**Important:** The `client_secret` is required for Desktop app credentials — Google does not support PKCE-only for this credential type. If the token exchange fails, verify that both `client_id` and `client_secret` are stored (use `credential_store list`).
 
 **If the user sees a "This app isn't verified" warning:** Tell them this is normal for apps in testing mode. Click "Advanced" then "Go to Vellum Assistant (unsafe)" to proceed.
 
