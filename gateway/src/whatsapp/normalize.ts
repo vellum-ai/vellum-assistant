@@ -30,14 +30,20 @@ interface WhatsAppInteractiveMessage {
   };
 }
 
-interface WhatsAppAudioMessage {
+interface WhatsAppMediaMessage {
   id: string;
   from: string;
   timestamp: string;
   type: "audio" | "video" | "image" | "document" | "sticker";
+  // image, video, and document messages can carry a caption
+  image?: { caption?: string; mime_type?: string; id?: string };
+  video?: { caption?: string; mime_type?: string; id?: string };
+  document?: { caption?: string; mime_type?: string; id?: string; filename?: string };
+  audio?: { mime_type?: string; id?: string };
+  sticker?: { mime_type?: string; id?: string };
 }
 
-type WhatsAppMessage = WhatsAppTextMessage | WhatsAppInteractiveMessage | WhatsAppAudioMessage;
+type WhatsAppMessage = WhatsAppTextMessage | WhatsAppInteractiveMessage | WhatsAppMediaMessage;
 
 interface WhatsAppValue {
   messaging_product: "whatsapp";
@@ -67,6 +73,8 @@ export interface NormalizedWhatsAppMessage {
   event: Omit<GatewayInboundEventV1, "routing">;
   /** Original WhatsApp message ID — used for marking as read. */
   whatsappMessageId: string;
+  /** The media type when the message contained an attachment (image, video, etc.). */
+  mediaType?: string;
 }
 
 /**
@@ -76,7 +84,10 @@ export interface NormalizedWhatsAppMessage {
  * - The payload is not a WhatsApp messages webhook
  * - Required fields are missing
  *
- * Non-text messages (audio/video/image/document) within the batch are skipped.
+ * Media messages (image/video/audio/document/sticker) are normalized with any
+ * accompanying caption as the message content. The `mediaType` field is set so
+ * the caller can log that media content itself was not processed.
+ *
  * Meta may batch multiple messages in a single webhook payload; we process all
  * of them rather than discarding messages beyond the first.
  */
@@ -100,6 +111,7 @@ export function normalizeWhatsAppWebhook(
     for (const msg of messages) {
       let body: string;
       let callbackData: string | undefined;
+      let mediaType: string | undefined;
 
       if (msg.type === "text") {
         const textMsg = msg as WhatsAppTextMessage;
@@ -112,8 +124,16 @@ export function normalizeWhatsAppWebhook(
         if (!buttonReply?.id) continue;
         callbackData = buttonReply.id;
         body = buttonReply.title ?? "";
+      } else if (msg.type === "image" || msg.type === "video" || msg.type === "audio" || msg.type === "document" || msg.type === "sticker") {
+        const mediaMsg = msg as WhatsAppMediaMessage;
+        // image, video, and document can carry a caption; audio and sticker cannot
+        const caption =
+          mediaMsg.image?.caption ??
+          mediaMsg.video?.caption ??
+          mediaMsg.document?.caption;
+        body = caption?.trim() ?? "";
+        mediaType = msg.type;
       } else {
-        // Other types (image, audio, etc.) are not supported
         continue;
       }
 
@@ -127,6 +147,7 @@ export function normalizeWhatsAppWebhook(
 
       results.push({
         whatsappMessageId: msg.id,
+        ...(mediaType ? { mediaType } : {}),
         event: {
           version: "v1",
           sourceChannel: "whatsapp",
