@@ -231,22 +231,18 @@ export async function handleSendMessage(
     );
   }
 
-  // When `interface` is missing, fall back to deriving from sourceChannel
-  // (then to 'vellum') for backward compatibility with HTTP clients that
-  // don't send it yet (e.g. HTTPDaemonClient.swift before M8). Only reject
-  // when an explicit but invalid value is provided.
-  let sourceInterface: InterfaceId;
-  if (body.interface == null || body.interface === '') {
-    sourceInterface = parseInterfaceId(sourceChannel) ?? 'vellum';
-  } else {
-    const parsed = parseInterfaceId(body.interface);
-    if (!parsed) {
-      return Response.json(
-        { error: `Invalid interface: ${body.interface}. Valid values: ${INTERFACE_IDS.join(', ')}` },
-        { status: 400 },
-      );
-    }
-    sourceInterface = parsed;
+  if (!body.interface || typeof body.interface !== 'string') {
+    return Response.json(
+      { error: 'interface is required' },
+      { status: 400 },
+    );
+  }
+  const sourceInterface = parseInterfaceId(body.interface);
+  if (!sourceInterface) {
+    return Response.json(
+      { error: `Invalid interface: ${body.interface}. Valid values: ${INTERFACE_IDS.join(', ')}` },
+      { status: 400 },
+    );
   }
 
   if (!conversationKey) {

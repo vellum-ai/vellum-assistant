@@ -18,6 +18,8 @@ export interface SessionListRequest {
 export interface SessionTransportMetadata {
   /** Logical channel identifier (e.g. "desktop", "telegram", "mobile"). */
   channelId: ChannelId;
+  /** Interface identifier for this transport (e.g. "macos", "ios", "cli"). */
+  interfaceId?: InterfaceId;
   /** Optional natural-language hints for channel-specific UX behavior. */
   hints?: string[];
   /** Optional concise UX brief for this channel. */

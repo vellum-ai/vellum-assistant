@@ -232,12 +232,16 @@ public typealias SessionCreateMessage = IPCSessionCreateRequest
 
 private func buildSessionTransportMetadata(
     channelId: String?,
+    interfaceId: String?,
     hints: [String]?,
     uxBrief: String?
 ) -> IPCSessionTransportMetadata? {
     guard let channelId, !channelId.isEmpty else { return nil }
 
     var payload: [String: Any] = ["channelId": channelId]
+    if let interfaceId, !interfaceId.isEmpty {
+        payload["interfaceId"] = interfaceId
+    }
     if let hints {
         payload["hints"] = hints
     }
@@ -255,6 +259,16 @@ private func buildSessionTransportMetadata(
 }
 
 extension IPCSessionCreateRequest {
+    private static var defaultTransportInterface: String {
+        #if os(macOS)
+        return "macos"
+        #elseif os(iOS)
+        return "ios"
+        #else
+        return "vellum"
+        #endif
+    }
+
     public init(title: String?, systemPromptOverride: String? = nil, maxResponseTokens: Int? = nil, correlationId: String? = nil, transport: IPCSessionTransportMetadata? = nil, threadType: String? = nil, preactivatedSkillIds: [String]? = nil, initialMessage: String? = nil) {
         self.init(type: "session_create", title: title, systemPromptOverride: systemPromptOverride, maxResponseTokens: maxResponseTokens, correlationId: correlationId, transport: transport, threadType: threadType, preactivatedSkillIds: preactivatedSkillIds, initialMessage: initialMessage)
     }
@@ -265,6 +279,7 @@ extension IPCSessionCreateRequest {
         maxResponseTokens: Int? = nil,
         correlationId: String? = nil,
         transportChannelId: String?,
+        transportInterfaceId: String? = nil,
         transportHints: [String]? = nil,
         transportUxBrief: String? = nil
     ) {
@@ -276,6 +291,7 @@ extension IPCSessionCreateRequest {
             correlationId: correlationId,
             transport: buildSessionTransportMetadata(
                 channelId: transportChannelId,
+                interfaceId: transportInterfaceId ?? Self.defaultTransportInterface,
                 hints: transportHints,
                 uxBrief: transportUxBrief
             ),

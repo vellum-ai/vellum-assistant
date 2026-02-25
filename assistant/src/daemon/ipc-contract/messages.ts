@@ -17,8 +17,8 @@ export interface UserMessage {
   bypassSecretCheck?: boolean;
   /** Originating channel identifier (e.g. 'vellum'). Defaults to 'vellum' when absent. */
   channel?: ChannelId;
-  /** Originating interface identifier (e.g. 'macos'). Falls back to channel when absent. */
-  interface?: InterfaceId;
+  /** Originating interface identifier (e.g. 'macos'). */
+  interface: InterfaceId;
 }
 
 export interface ConfirmationResponse {

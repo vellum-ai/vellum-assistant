@@ -25,6 +25,7 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'user_message',
     sessionId: 'sess-001',
     content: 'Hello, assistant!',
+    interface: 'cli',
   },
   confirmation_response: {
     type: 'confirmation_response',
@@ -42,6 +43,7 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     correlationId: 'corr-001',
     transport: {
       channelId: 'vellum',
+      interfaceId: 'macos',
       hints: ['dashboard-capable'],
       uxBrief: 'Prefer dashboard-first onboarding.',
     },

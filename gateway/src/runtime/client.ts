@@ -131,7 +131,7 @@ export class AttachmentValidationError extends Error {
 export type RuntimeInboundPayload = {
   sourceChannel: ChannelId;
   /** Explicit interface identifier forwarded to the assistant. */
-  interface?: InterfaceId;
+  interface: InterfaceId;
   externalChatId: string;
   externalMessageId: string;
   content: string;

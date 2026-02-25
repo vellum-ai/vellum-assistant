@@ -72,7 +72,7 @@ function resolveTurnChannel(sourceChannel?: string, transportChannelId?: string)
   return 'vellum';
 }
 
-function resolveTurnInterface(sourceInterface?: string, resolvedChannel?: ChannelId): InterfaceId {
+function resolveTurnInterface(sourceInterface?: string): InterfaceId {
   if (sourceInterface != null) {
     const parsed = parseInterfaceId(sourceInterface);
     if (!parsed) {
@@ -80,8 +80,9 @@ function resolveTurnInterface(sourceInterface?: string, resolvedChannel?: Channe
     }
     return parsed;
   }
-  // Fall back to the resolved channel — every ChannelId is also a valid InterfaceId.
-  return resolvedChannel ?? 'vellum';
+  // Interface and channel are orthogonal dimensions; default explicitly
+  // instead of deriving interface from channel.
+  return 'vellum';
 }
 
 export class DaemonServer {
@@ -713,10 +714,10 @@ export class DaemonServer {
     }
 
     const resolvedChannel = resolveTurnChannel(sourceChannel, options?.transport?.channelId);
-    const resolvedInterface = resolveTurnInterface(sourceInterface, resolvedChannel);
+    const resolvedInterface = resolveTurnInterface(sourceInterface);
     session.setAssistantId(options?.assistantId ?? 'self');
     session.setGuardianContext(options?.guardianContext ?? null);
-    session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel));
+    session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel, sourceInterface));
     session.setCommandIntent(options?.commandIntent ?? null);
     session.setTurnChannelContext({
       userMessageChannel: resolvedChannel,
@@ -766,10 +767,10 @@ export class DaemonServer {
     }
 
     const resolvedChannel2 = resolveTurnChannel(sourceChannel, options?.transport?.channelId);
-    const resolvedInterface2 = resolveTurnInterface(sourceInterface, resolvedChannel2);
+    const resolvedInterface2 = resolveTurnInterface(sourceInterface);
     session.setAssistantId(options?.assistantId ?? 'self');
     session.setGuardianContext(options?.guardianContext ?? null);
-    session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel));
+    session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel, sourceInterface));
     session.setCommandIntent(options?.commandIntent ?? null);
     session.setTurnChannelContext({
       userMessageChannel: resolvedChannel2,

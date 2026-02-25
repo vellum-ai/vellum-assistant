@@ -5,7 +5,7 @@
  * before it is sent to the provider.  They are pure (no side effects).
  */
 
-import type { ChannelId, TurnChannelContext, InterfaceId, TurnInterfaceContext } from '../channels/types.js';
+import { parseInterfaceId, type ChannelId, type TurnChannelContext, type InterfaceId, type TurnInterfaceContext } from '../channels/types.js';
 import type { Message } from '../providers/types.js';
 import { listAppFiles, getAppsDir } from '../memory/app-store.js';
 import { statSync } from 'node:fs';
@@ -38,8 +38,11 @@ export interface GuardianRuntimeContext {
   denialReason?: 'no_binding' | 'no_identity';
 }
 
-/** Derive channel capabilities from a raw source channel identifier. */
-export function resolveChannelCapabilities(sourceChannel?: string | null): ChannelCapabilities {
+/** Derive channel capabilities from source channel + interface identifiers. */
+export function resolveChannelCapabilities(
+  sourceChannel?: string | null,
+  sourceInterface?: string | null,
+): ChannelCapabilities {
   // Normalise legacy pseudo-channel IDs to canonical ChannelId values.
   let channel: string;
   switch (sourceChannel) {
@@ -56,9 +59,33 @@ export function resolveChannelCapabilities(sourceChannel?: string | null): Chann
       channel = sourceChannel;
   }
 
+  let iface = parseInterfaceId(sourceInterface);
+  if (!iface) {
+    switch (sourceInterface) {
+      case 'mac':
+        iface = 'macos';
+        break;
+      case 'desktop':
+      case 'http-api':
+      case 'dashboard':
+        iface = 'vellum';
+        break;
+      default:
+        iface = null;
+        break;
+    }
+  }
+
   switch (channel) {
-    case 'vellum':
-      return { channel, dashboardCapable: true, supportsDynamicUi: true, supportsVoiceInput: true };
+    case 'vellum': {
+      const supportsDesktopUi = iface === 'macos';
+      return {
+        channel,
+        dashboardCapable: supportsDesktopUi,
+        supportsDynamicUi: supportsDesktopUi,
+        supportsVoiceInput: supportsDesktopUi,
+      };
+    }
     case 'telegram':
     case 'sms':
     case 'voice':

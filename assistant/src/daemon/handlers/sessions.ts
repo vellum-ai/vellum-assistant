@@ -86,12 +86,19 @@ export async function handleUserMessage(
     });
 
     const ipcChannel = parseChannelId(msg.channel) ?? 'vellum';
-    const ipcInterfaceForQueue: InterfaceId = parseInterfaceId(msg.interface) ?? ipcChannel;
+    const ipcInterface = parseInterfaceId(msg.interface);
+    if (!ipcInterface) {
+      ctx.send(socket, {
+        type: 'error',
+        message: 'Invalid user_message: interface is required and must be valid',
+      });
+      return;
+    }
     const queuedChannelMetadata = {
       userMessageChannel: ipcChannel,
       assistantMessageChannel: ipcChannel,
-      userMessageInterface: ipcInterfaceForQueue,
-      assistantMessageInterface: ipcInterfaceForQueue,
+      userMessageInterface: ipcInterface,
+      assistantMessageInterface: ipcInterface,
     };
     const result = session.enqueueMessage(
       msg.content ?? '',
@@ -139,7 +146,6 @@ export async function handleUserMessage(
       userMessageChannel: ipcChannel,
       assistantMessageChannel: ipcChannel,
     });
-    const ipcInterface: InterfaceId = parseInterfaceId(msg.interface) ?? ipcChannel;
     session.setTurnInterfaceContext({
       userMessageInterface: ipcInterface,
       assistantMessageInterface: ipcInterface,
@@ -340,7 +346,7 @@ export async function handleSessionCreate(
       userMessageChannel: transportChannel,
       assistantMessageChannel: transportChannel,
     });
-    const transportInterface: InterfaceId = transportChannel;
+    const transportInterface: InterfaceId = parseInterfaceId(msg.transport?.interfaceId) ?? 'vellum';
     session.setTurnInterfaceContext({
       userMessageInterface: transportInterface,
       assistantMessageInterface: transportInterface,

@@ -141,8 +141,9 @@ function makeMockOrchestrator(
 const TEST_BEARER_TOKEN = 'token';
 
 function makeInboundRequest(overrides: Record<string, unknown> = {}): Request {
-  const body = {
+  const body: Record<string, unknown> = {
     sourceChannel: 'telegram',
+    interface: 'telegram',
     externalChatId: 'chat-123',
     senderExternalUserId: 'telegram-user-default',
     externalMessageId: `msg-${Date.now()}-${Math.random()}`,
@@ -150,6 +151,9 @@ function makeInboundRequest(overrides: Record<string, unknown> = {}): Request {
     replyCallbackUrl: 'https://gateway.test/deliver',
     ...overrides,
   };
+  if (typeof body.interface !== 'string' && typeof body.sourceChannel === 'string') {
+    body.interface = body.sourceChannel;
+  }
   return new Request('http://localhost/channels/inbound', {
     method: 'POST',
     headers: {
@@ -508,6 +512,7 @@ describe('empty content with callbackData bypasses validation', () => {
     // Send with no content field at all, just callbackData
     const body = {
       sourceChannel: 'telegram',
+      interface: 'telegram',
       externalChatId: 'chat-123',
       externalMessageId: `msg-${Date.now()}-${Math.random()}`,
       callbackData: `apr:${run.id}:approve_once`,
@@ -1451,8 +1456,9 @@ describe('SMS channel approval decisions', () => {
   });
 
   function makeSmsInboundRequest(overrides: Record<string, unknown> = {}): Request {
-    const body = {
+    const body: Record<string, unknown> = {
       sourceChannel: 'sms',
+      interface: 'sms',
       externalChatId: 'sms-chat-123',
       senderExternalUserId: 'sms-user-default',
       externalMessageId: `msg-${Date.now()}-${Math.random()}`,
@@ -1460,6 +1466,9 @@ describe('SMS channel approval decisions', () => {
       replyCallbackUrl: 'https://gateway.test/deliver',
       ...overrides,
     };
+    if (typeof body.interface !== 'string' && typeof body.sourceChannel === 'string') {
+      body.interface = body.sourceChannel;
+    }
     return new Request('http://localhost/channels/inbound', {
       method: 'POST',
       headers: {
@@ -1623,6 +1632,7 @@ describe('SMS guardian verify intercept', () => {
       },
       body: JSON.stringify({
         sourceChannel: 'sms',
+        interface: 'sms',
         externalChatId: 'sms-chat-verify',
         externalMessageId: `msg-${Date.now()}-${Math.random()}`,
         content: `/guardian_verify ${secret}`,
@@ -1660,6 +1670,7 @@ describe('SMS guardian verify intercept', () => {
       },
       body: JSON.stringify({
         sourceChannel: 'sms',
+        interface: 'sms',
         externalChatId: 'sms-chat-verify-fail',
         externalMessageId: `msg-${Date.now()}-${Math.random()}`,
         content: '/guardian_verify invalid-token-here',
@@ -1736,6 +1747,7 @@ describe('SMS non-guardian actor gating', () => {
       },
       body: JSON.stringify({
         sourceChannel: 'sms',
+        interface: 'sms',
         externalChatId: 'sms-other-chat',
         externalMessageId: `msg-${Date.now()}-${Math.random()}`,
         content: 'do something',
@@ -3336,6 +3348,7 @@ describe('handleChannelInbound gatewayOriginSecret integration', () => {
       },
       body: JSON.stringify({
         sourceChannel: 'telegram',
+        interface: 'telegram',
         externalChatId: 'chat-gw-secret-test',
         externalMessageId: `msg-${Date.now()}-${Math.random()}`,
         content: 'hello',
@@ -3362,6 +3375,7 @@ describe('handleChannelInbound gatewayOriginSecret integration', () => {
       },
       body: JSON.stringify({
         sourceChannel: 'telegram',
+        interface: 'telegram',
         externalChatId: 'chat-gw-secret-pass',
         externalMessageId: `msg-${Date.now()}-${Math.random()}`,
         content: 'hello',
@@ -3388,6 +3402,7 @@ describe('handleChannelInbound gatewayOriginSecret integration', () => {
       },
       body: JSON.stringify({
         sourceChannel: 'telegram',
+        interface: 'telegram',
         externalChatId: 'chat-gw-fallback',
         externalMessageId: `msg-${Date.now()}-${Math.random()}`,
         content: 'hello',

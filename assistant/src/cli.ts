@@ -376,7 +376,7 @@ export async function startCli(): Promise<void> {
           const content = pendingUserContent;
           pendingUserContent = null;
           lastResponse = '';
-          if (send({ type: 'user_message', sessionId, content })) {
+          if (send({ type: 'user_message', sessionId, content, channel: 'vellum', interface: 'cli' })) {
             generating = true;
             spinner.start('Thinking...');
           } else {
@@ -895,7 +895,7 @@ export async function startCli(): Promise<void> {
     }
 
     lastResponse = '';
-    if (!send({ type: 'user_message', sessionId, content })) {
+    if (!send({ type: 'user_message', sessionId, content, channel: 'vellum', interface: 'cli' })) {
       process.stdout.write('[Not connected — message not sent]\n');
       prompt();
       return;

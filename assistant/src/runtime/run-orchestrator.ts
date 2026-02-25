@@ -245,8 +245,7 @@ export class RunOrchestrator {
       userMessageChannel: parseChannelId(options?.sourceChannel) ?? 'vellum',
       assistantMessageChannel: parseChannelId(options?.sourceChannel) ?? 'vellum',
     });
-    const resolvedInterface = parseInterfaceId(options?.sourceInterface)
-      ?? parseInterfaceId(options?.sourceChannel) ?? ('vellum' as InterfaceId);
+    const resolvedInterface = parseInterfaceId(options?.sourceInterface) ?? ('vellum' as InterfaceId);
     session.setTurnInterfaceContext({
       userMessageInterface: resolvedInterface,
       assistantMessageInterface: resolvedInterface,
@@ -263,7 +262,7 @@ export class RunOrchestrator {
     // Set channel capabilities based on the originating channel so capabilities
     // (e.g. attachment scope) match the actual transport rather than always
     // defaulting to 'vellum'.
-    session.setChannelCapabilities(resolveChannelCapabilities(options?.sourceChannel ?? 'vellum'));
+    session.setChannelCapabilities(resolveChannelCapabilities(options?.sourceChannel ?? 'vellum', resolvedInterface));
     session.setVoiceCallControlPrompt(options?.voiceCallControlPrompt ?? null);
 
     // Serialized publish chain so hub subscribers observe events in order.

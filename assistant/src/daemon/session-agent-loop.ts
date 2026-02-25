@@ -10,7 +10,6 @@
 import { v4 as uuid } from 'uuid';
 import type { Message, ContentBlock } from '../providers/types.js';
 import type { ChannelId, TurnChannelContext, InterfaceId, TurnInterfaceContext } from '../channels/types.js';
-import { parseInterfaceId } from '../channels/types.js';
 import type { ServerMessage, UsageStats, SurfaceType, SurfaceData, DynamicPageSurfaceData } from './ipc-protocol.js';
 import type { AgentLoop, CheckpointDecision, AgentEvent } from '../agent/loop.js';
 import type { Provider } from '../providers/types.js';
@@ -166,17 +165,17 @@ export async function runAgentLoopImpl(
   })();
 
   // Capture interface context with the same anti-race snapshot pattern.
-  // When interface context is missing, derive it from the captured channel
-  // context — channel IDs like 'telegram', 'sms', 'voice' are also valid
-  // InterfaceIds, so this avoids hardcoding 'vellum' for non-vellum traffic.
+  // Interface and channel are orthogonal dimensions, so when interface
+  // context is missing we default explicitly to 'vellum' instead of
+  // deriving from channel.
   const capturedTurnInterfaceContext: TurnInterfaceContext = (() => {
     const live = ctx.getTurnInterfaceContext();
     if (live) return live;
     const origin = getConversationOriginInterface(ctx.conversationId);
     if (origin) return { userMessageInterface: origin, assistantMessageInterface: origin };
     return {
-      userMessageInterface: parseInterfaceId(capturedTurnChannelContext.userMessageChannel) ?? 'vellum' as InterfaceId,
-      assistantMessageInterface: parseInterfaceId(capturedTurnChannelContext.assistantMessageChannel) ?? 'vellum' as InterfaceId,
+      userMessageInterface: 'vellum' as InterfaceId,
+      assistantMessageInterface: 'vellum' as InterfaceId,
     };
   })();
 
@@ -337,9 +336,7 @@ export async function runAgentLoopImpl(
 
     const interfaceTurnContext: InterfaceTurnContextParams = {
       turnContext: capturedTurnInterfaceContext,
-      conversationOriginInterface:
-        getConversationOriginInterface(ctx.conversationId)
-        ?? parseInterfaceId(getConversationOriginChannel(ctx.conversationId)),
+      conversationOriginInterface: getConversationOriginInterface(ctx.conversationId),
     };
 
     runMessages = applyRuntimeInjections(runMessages, {

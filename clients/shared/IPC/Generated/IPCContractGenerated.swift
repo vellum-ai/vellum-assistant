@@ -3546,13 +3546,16 @@ public struct IPCSessionTitleUpdated: Codable, Sendable {
 public struct IPCSessionTransportMetadata: Codable, Sendable {
     /// Logical channel identifier (e.g. "desktop", "telegram", "mobile").
     public let channelId: String
+    /// Interface identifier for this transport (e.g. "macos", "ios", "cli").
+    public let interfaceId: String?
     /// Optional natural-language hints for channel-specific UX behavior.
     public let hints: [String]?
     /// Optional concise UX brief for this channel.
     public let uxBrief: String?
 
-    public init(channelId: String, hints: [String]? = nil, uxBrief: String? = nil) {
+    public init(channelId: String, interfaceId: String? = nil, hints: [String]? = nil, uxBrief: String? = nil) {
         self.channelId = channelId
+        self.interfaceId = interfaceId
         self.hints = hints
         self.uxBrief = uxBrief
     }

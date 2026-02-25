@@ -30,6 +30,7 @@ describe('handleSendMessage', () => {
         conversationKey: 'legacy-fallback-key',
         content: 'Hello from legacy fallback',
         sourceChannel: 'telegram',
+        interface: 'telegram',
       }),
     });
 

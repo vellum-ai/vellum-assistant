@@ -70,6 +70,8 @@ function makeCompletingSession(): Session {
     setAssistantId: () => {},
     setGuardianContext: () => {},
     setCommandIntent: () => {},
+    setTurnChannelContext: () => {},
+    setTurnInterfaceContext: () => {},
     updateClient: () => {},
     enqueueMessage: () => ({ queued: false, requestId: 'noop' }),
     runAgentLoop: async (_content: string, _messageId: string, onEvent: (msg: ServerMessage) => void) => {
@@ -97,6 +99,8 @@ function makeHangingSession(): Session {
     setAssistantId: () => {},
     setGuardianContext: () => {},
     setCommandIntent: () => {},
+    setTurnChannelContext: () => {},
+    setTurnInterfaceContext: () => {},
     updateClient: () => {},
     enqueueMessage: (content: string, _attachments: unknown[], onEvent: (msg: ServerMessage) => void, requestId: string) => {
       enqueuedMessages.push({ content, onEvent, requestId });
@@ -167,7 +171,12 @@ describe('POST /v1/messages — queue-if-busy and hub publishing', () => {
     const res = await fetch(messagesUrl(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
-      body: JSON.stringify({ conversationKey: 'conv-idle', content: 'Hello', sourceChannel: 'vellum' }),
+      body: JSON.stringify({
+        conversationKey: 'conv-idle',
+        content: 'Hello',
+        sourceChannel: 'vellum',
+        interface: 'macos',
+      }),
     });
     const body = await res.json() as { accepted: boolean; messageId: string };
 
@@ -191,7 +200,12 @@ describe('POST /v1/messages — queue-if-busy and hub publishing', () => {
     const res = await fetch(messagesUrl(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
-      body: JSON.stringify({ conversationKey: 'conv-hub', content: 'Hello hub', sourceChannel: 'vellum' }),
+      body: JSON.stringify({
+        conversationKey: 'conv-hub',
+        content: 'Hello hub',
+        sourceChannel: 'vellum',
+        interface: 'macos',
+      }),
     });
     expect(res.status).toBe(202);
 
@@ -216,7 +230,12 @@ describe('POST /v1/messages — queue-if-busy and hub publishing', () => {
     const res1 = await fetch(messagesUrl(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
-      body: JSON.stringify({ conversationKey: 'conv-busy', content: 'First', sourceChannel: 'vellum' }),
+      body: JSON.stringify({
+        conversationKey: 'conv-busy',
+        content: 'First',
+        sourceChannel: 'vellum',
+        interface: 'macos',
+      }),
     });
     expect(res1.status).toBe(202);
     const body1 = await res1.json() as { accepted: boolean; messageId: string };
@@ -230,7 +249,12 @@ describe('POST /v1/messages — queue-if-busy and hub publishing', () => {
     const res2 = await fetch(messagesUrl(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
-      body: JSON.stringify({ conversationKey: 'conv-busy', content: 'Second', sourceChannel: 'vellum' }),
+      body: JSON.stringify({
+        conversationKey: 'conv-busy',
+        content: 'Second',
+        sourceChannel: 'vellum',
+        interface: 'macos',
+      }),
     });
     const body2 = await res2.json() as { accepted: boolean; queued: boolean };
 
@@ -262,7 +286,12 @@ describe('POST /v1/messages — queue-if-busy and hub publishing', () => {
     const res = await fetch(messagesUrl(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
-      body: JSON.stringify({ conversationKey: 'conv-empty', content: '', sourceChannel: 'vellum' }),
+      body: JSON.stringify({
+        conversationKey: 'conv-empty',
+        content: '',
+        sourceChannel: 'vellum',
+        interface: 'macos',
+      }),
     });
     expect(res.status).toBe(400);
 
@@ -275,7 +304,11 @@ describe('POST /v1/messages — queue-if-busy and hub publishing', () => {
     const res = await fetch(messagesUrl(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
-      body: JSON.stringify({ content: 'Hello', sourceChannel: 'vellum' }),
+      body: JSON.stringify({
+        content: 'Hello',
+        sourceChannel: 'vellum',
+        interface: 'macos',
+      }),
     });
     expect(res.status).toBe(400);
 

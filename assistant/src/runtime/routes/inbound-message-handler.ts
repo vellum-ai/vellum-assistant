@@ -138,22 +138,15 @@ export async function handleChannelInbound(
 
   const sourceChannel = body.sourceChannel;
 
-  // Validate and narrow the interface field. Fall back to sourceChannel for
-  // backward compatibility with gateway versions that don't send `interface`.
-  // When an explicit but invalid value is provided, reject with 400 to
-  // surface protocol regressions rather than silently masking them.
-  let sourceInterface: InterfaceId;
-  if (body.interface == null || body.interface === '') {
-    sourceInterface = sourceChannel;
-  } else {
-    const parsed = parseInterfaceId(body.interface);
-    if (!parsed) {
-      return Response.json(
-        { error: `Invalid interface: ${body.interface}. Valid values: ${INTERFACE_IDS.join(', ')}` },
-        { status: 400 },
-      );
-    }
-    sourceInterface = parsed;
+  if (!body.interface || typeof body.interface !== 'string') {
+    return Response.json({ error: 'interface is required' }, { status: 400 });
+  }
+  const sourceInterface = parseInterfaceId(body.interface);
+  if (!sourceInterface) {
+    return Response.json(
+      { error: `Invalid interface: ${body.interface}. Valid values: ${INTERFACE_IDS.join(', ')}` },
+      { status: 400 },
+    );
   }
 
   if (!externalChatId || typeof externalChatId !== 'string') {
@@ -390,7 +383,7 @@ export async function handleChannelInbound(
     // Persist the raw payload so the decide handler can recover the original
     // message content when the escalation is approved.
     channelDeliveryStore.storePayload(result.eventId, {
-      sourceChannel, externalChatId, externalMessageId, content,
+      sourceChannel, interface: sourceInterface, externalChatId, externalMessageId, content,
       attachmentIds, sourceMetadata: body.sourceMetadata,
       senderName: body.senderName,
       senderExternalUserId: body.senderExternalUserId,
