@@ -47,6 +47,8 @@ final class SkillsManager: ObservableObject {
     private var lastSearchQuery: String?
     private var draftTask: Task<Void, Never>?
     private var createTask: Task<Void, Never>?
+    private var draftGeneration: Int = 0
+    private var createGeneration: Int = 0
 
     init(daemonClient: DaemonClient) {
         self.daemonClient = daemonClient
@@ -276,6 +278,8 @@ final class SkillsManager: ObservableObject {
         isDrafting = true
         draftError = nil
         draftResult = nil
+        draftGeneration += 1
+        let generation = draftGeneration
 
         draftTask = Task {
             let stream = daemonClient.subscribe()
@@ -290,6 +294,7 @@ final class SkillsManager: ObservableObject {
 
             for await message in stream {
                 guard !Task.isCancelled else { break }
+                guard generation == self.draftGeneration else { break }
                 if case .skillsDraftResponse(let response) = message {
                     if response.success, let draft = response.draft {
                         draftResult = SkillDraftResult(
@@ -315,6 +320,8 @@ final class SkillsManager: ObservableObject {
         guard !isCreating else { return }
         isCreating = true
         createError = nil
+        createGeneration += 1
+        let generation = createGeneration
 
         createTask = Task {
             let stream = daemonClient.subscribe()
@@ -335,6 +342,7 @@ final class SkillsManager: ObservableObject {
 
             for await message in stream {
                 guard !Task.isCancelled else { break }
+                guard generation == self.createGeneration else { break }
                 if case .skillsOperationResponse(let response) = message,
                    response.operation == "create" {
                     if !response.success {
@@ -360,5 +368,7 @@ final class SkillsManager: ObservableObject {
         draftError = nil
         isCreating = false
         createError = nil
+        draftGeneration += 1
+        createGeneration += 1
     }
 }
