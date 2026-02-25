@@ -1,27 +1,32 @@
 import Foundation
 import AVFoundation
+import Speech
 import os
 
 private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "OpenAIVoiceService")
 
-enum OpenAIVoiceError: Error, LocalizedError {
-    case noAPIKey
+enum VoiceServiceError: Error, LocalizedError {
+    case speechRecognitionUnavailable
+    case notAuthorized
     case invalidResponse
     case apiError(statusCode: Int, message: String)
     case noAudioData
+    case noTranscription
 
     var errorDescription: String? {
         switch self {
-        case .noAPIKey: return "API key not configured"
+        case .speechRecognitionUnavailable: return "Speech recognition unavailable"
+        case .notAuthorized: return "Speech recognition not authorized"
         case .invalidResponse: return "Invalid API response"
         case .apiError(let code, let msg): return "API error (\(code)): \(msg)"
         case .noAudioData: return "No audio data recorded"
+        case .noTranscription: return "No transcription result"
         }
     }
 }
 
-/// Voice service: Whisper STT (OpenAI) + TTS (ElevenLabs REST API).
-/// Records audio, detects silence, transcribes via Whisper, speaks via ElevenLabs.
+/// Voice service: SFSpeechRecognizer STT (on-device) + TTS (ElevenLabs REST API).
+/// Records audio, detects silence, transcribes via SFSpeechRecognizer, speaks via ElevenLabs.
 @MainActor
 final class OpenAIVoiceService: ObservableObject {
     @Published var amplitude: Float = 0
@@ -30,8 +35,6 @@ final class OpenAIVoiceService: ObservableObject {
     // MARK: - Recording State
 
     private let audioEngine = AVAudioEngine()
-    private var rawPCMData = Data()
-    private var recordingFormat: AVAudioFormat?
     private var isRecording = false
 
     /// Fires once when silence is detected after speech.
@@ -47,10 +50,20 @@ final class OpenAIVoiceService: ObservableObject {
     private var hasSpeechOccurred = false
     private var enginePrewarmed = false
 
-    private static let silenceThreshold: Float = 0.005
-    private static let speechThreshold: Float = 0.008
+    private static let silenceThreshold: Float = 0.002
+    private static let speechThreshold: Float = 0.004
     private static let silenceTimeout: TimeInterval = 1.0
     private static let minRecordingDuration: TimeInterval = 0.5
+
+    // MARK: - SFSpeechRecognizer STT State
+
+    private var speechRecognizer: SFSpeechRecognizer?
+    private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
+    private var recognitionTask: SFSpeechRecognitionTask?
+    /// The latest transcription text from the ongoing recognition task.
+    private var latestTranscription: String = ""
+    /// Continuation to deliver the final transcription when recording stops.
+    private var transcriptionContinuation: CheckedContinuation<String?, Never>?
 
     // MARK: - ElevenLabs TTS State
 
@@ -68,19 +81,38 @@ final class OpenAIVoiceService: ObservableObject {
 
     // MARK: - API Keys
 
-    var apiKey: String? { APIKeyManager.getKey(for: "openai") }
     var elevenLabsKey: String? { APIKeyManager.getKey(for: "elevenlabs") }
-    var hasAPIKey: Bool { apiKey != nil }
     var hasElevenLabsKey: Bool { elevenLabsKey != nil }
+
+    // MARK: - Speech Recognition Authorization
+
+    /// Check if speech recognition is authorized. Returns true if authorized.
+    nonisolated static func isSpeechRecognitionAuthorized() -> Bool {
+        SFSpeechRecognizer.authorizationStatus() == .authorized
+    }
+
+    /// Request speech recognition authorization if not yet determined.
+    nonisolated static func requestSpeechRecognitionAuthorization(completion: @escaping (Bool) -> Void) {
+        let status = SFSpeechRecognizer.authorizationStatus()
+        switch status {
+        case .authorized:
+            completion(true)
+        case .notDetermined:
+            SFSpeechRecognizer.requestAuthorization { newStatus in
+                DispatchQueue.main.async {
+                    completion(newStatus == .authorized)
+                }
+            }
+        default:
+            completion(false)
+        }
+    }
 
     // MARK: - Recording
 
     /// Pre-initialize the audio engine so the first recording starts instantly.
     func prewarmEngine() {
         guard !enginePrewarmed else { return }
-        // Only touch the input node to force its creation — do NOT call
-        // audioEngine.prepare() here, because preparing before the tap is
-        // installed can prevent the tap callback from receiving buffers.
         let _ = audioEngine.inputNode
         enginePrewarmed = true
         log.info("Audio engine pre-warmed")
@@ -89,9 +121,10 @@ final class OpenAIVoiceService: ObservableObject {
     func startRecording() {
         guard !isRecording else { return }
 
-        rawPCMData = Data()
         silenceHandled = false
         hasSpeechOccurred = false
+        latestTranscription = ""
+
         let inputNode = audioEngine.inputNode
         let format = inputNode.outputFormat(forBus: 0)
 
@@ -100,27 +133,90 @@ final class OpenAIVoiceService: ObservableObject {
             return
         }
 
-        recordingFormat = format
+        // Set up SFSpeechRecognizer
+        let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+        guard let recognizer, recognizer.isAvailable else {
+            log.error("SFSpeechRecognizer not available")
+            return
+        }
+        speechRecognizer = recognizer
 
+        let request = SFSpeechAudioBufferRecognitionRequest()
+        request.shouldReportPartialResults = true
+        if recognizer.supportsOnDeviceRecognition {
+            request.requiresOnDeviceRecognition = true
+        }
+        request.addsPunctuation = false
+        recognitionRequest = request
+
+        // Start recognition task
+        recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
+            guard let self else { return }
+
+            if let result {
+                let text = result.bestTranscription.formattedString
+                log.debug("Partial transcription: \(text, privacy: .public)")
+                Task { @MainActor [weak self] in
+                    self?.latestTranscription = text
+                }
+
+                if result.isFinal {
+                    Task { @MainActor [weak self] in
+                        guard let self else { return }
+                        let finalText = self.latestTranscription
+                        log.info("Final transcription: \(finalText, privacy: .public)")
+                        self.transcriptionContinuation?.resume(returning: finalText.isEmpty ? nil : finalText)
+                        self.transcriptionContinuation = nil
+                    }
+                }
+            }
+
+            if let error {
+                let nsError = error as NSError
+                // Ignore cancellation errors (code 216) — expected when we call endAudio()
+                if nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 216 {
+                    return
+                }
+                // Code 1110 = "no speech detected" — not a real error, just empty input
+                if nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 1110 {
+                    log.info("No speech detected in audio")
+                    Task { @MainActor [weak self] in
+                        guard let self else { return }
+                        self.transcriptionContinuation?.resume(returning: nil)
+                        self.transcriptionContinuation = nil
+                    }
+                    return
+                }
+                log.error("Recognition error: \(nsError.domain, privacy: .public)/\(nsError.code, privacy: .public) \(error.localizedDescription, privacy: .public)")
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    // If we have partial transcription, use it despite the error
+                    let text = self.latestTranscription
+                    self.transcriptionContinuation?.resume(returning: text.isEmpty ? nil : text)
+                    self.transcriptionContinuation = nil
+                }
+            }
+        }
+
+        // Install audio tap — feeds buffers to SFSpeechRecognizer + computes RMS for amplitude
         inputNode.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
             guard let floatData = buffer.floatChannelData else { return }
             let frameCount = Int(buffer.frameLength)
             guard frameCount > 0 else { return }
 
-            var chunk = Data(capacity: frameCount * 2)
+            // Feed buffer to speech recognizer
+            request.append(buffer)
+
+            // Compute RMS for amplitude display and silence detection
             var sum: Float = 0
             for i in 0..<frameCount {
                 let sample = floatData[0][i]
-                let clamped = max(-1.0, min(1.0, sample))
-                var int16 = Int16(clamped * Float(Int16.max))
-                withUnsafeBytes(of: &int16) { chunk.append(contentsOf: $0) }
                 sum += sample * sample
             }
             let rms = sqrt(sum / Float(frameCount))
 
             Task { @MainActor [weak self] in
                 guard let self, self.isRecording else { return }
-                self.rawPCMData.append(chunk)
                 self.amplitude = min(rms * 5, 1.0)
 
                 if rms > Self.speechThreshold {
@@ -148,16 +244,16 @@ final class OpenAIVoiceService: ObservableObject {
             isRecording = true
             lastSpeechTime = Date()
             recordingStartTime = Date()
-            log.info("Recording started")
+            log.info("Recording started (SFSpeechRecognizer, onDevice: \(recognizer.supportsOnDeviceRecognition, privacy: .public))")
         } catch {
             log.error("Failed to start audio engine: \(error.localizedDescription)")
             audioEngine.inputNode.removeTap(onBus: 0)
-            recordingFormat = nil
+            tearDownRecognition()
         }
     }
 
-    /// Stop recording and return the audio data as WAV.
-    func stopRecordingAndGetAudio() -> Data? {
+    /// Stop recording and return the transcription from SFSpeechRecognizer.
+    func stopRecordingAndGetTranscription() async -> String? {
         guard isRecording else { return nil }
 
         isRecording = false
@@ -168,21 +264,42 @@ final class OpenAIVoiceService: ObservableObject {
             audioEngine.inputNode.removeTap(onBus: 0)
         }
 
-        guard let format = recordingFormat, !rawPCMData.isEmpty else {
-            log.warning("No audio data recorded")
-            return nil
+        // Signal end of audio to the recognizer
+        recognitionRequest?.endAudio()
+
+        // If we already have transcription text, return it immediately
+        // (the final callback may not fire for short utterances)
+        let currentText = latestTranscription.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !currentText.isEmpty {
+            log.info("Returning current transcription: \(currentText, privacy: .public)")
+            tearDownRecognition()
+            recordingStartTime = nil
+            return currentText
         }
 
-        let wavData = createWAV(pcmData: rawPCMData, sampleRate: UInt32(format.sampleRate))
-        rawPCMData = Data()
-        recordingFormat = nil
+        // Wait briefly for the final result from the recognition task
+        let result: String? = await withCheckedContinuation { continuation in
+            self.transcriptionContinuation = continuation
+
+            // Timeout: don't wait forever if recognizer doesn't respond
+            Task {
+                try? await Task.sleep(nanoseconds: 2_000_000_000) // 2s timeout
+                if let cont = self.transcriptionContinuation {
+                    self.transcriptionContinuation = nil
+                    let text = self.latestTranscription.trimmingCharacters(in: .whitespacesAndNewlines)
+                    cont.resume(returning: text.isEmpty ? nil : text)
+                }
+            }
+        }
+
+        tearDownRecognition()
         recordingStartTime = nil
 
-        log.info("Recording stopped, WAV size: \(wavData.count) bytes")
-        return wavData
+        log.info("Recording stopped, transcription: \(result ?? "<none>", privacy: .public)")
+        return result
     }
 
-    /// Force stop recording without returning audio data.
+    /// Force stop recording without returning transcription.
     func cancelRecording() {
         guard isRecording else { return }
         isRecording = false
@@ -191,8 +308,10 @@ final class OpenAIVoiceService: ObservableObject {
             audioEngine.stop()
             audioEngine.inputNode.removeTap(onBus: 0)
         }
-        rawPCMData = Data()
-        recordingFormat = nil
+        // Resume any waiting continuation with nil
+        transcriptionContinuation?.resume(returning: nil)
+        transcriptionContinuation = nil
+        tearDownRecognition()
         recordingStartTime = nil
     }
 
@@ -208,51 +327,12 @@ final class OpenAIVoiceService: ObservableObject {
         log.info("Audio engine shut down")
     }
 
-    // MARK: - Whisper STT
-
-    func transcribe(_ audioData: Data) async throws -> String {
-        guard let apiKey else {
-            throw OpenAIVoiceError.noAPIKey
-        }
-
-        let url = URL(string: "https://api.openai.com/v1/audio/transcriptions")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        request.timeoutInterval = 30
-
-        let boundary = UUID().uuidString
-        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-
-        var body = Data()
-        body.append(contentsOf: "--\(boundary)\r\n".utf8)
-        body.append(contentsOf: "Content-Disposition: form-data; name=\"file\"; filename=\"audio.wav\"\r\n".utf8)
-        body.append(contentsOf: "Content-Type: audio/wav\r\n\r\n".utf8)
-        body.append(audioData)
-        body.append(contentsOf: "\r\n".utf8)
-        body.append(contentsOf: "--\(boundary)\r\n".utf8)
-        body.append(contentsOf: "Content-Disposition: form-data; name=\"model\"\r\n\r\n".utf8)
-        body.append(contentsOf: "whisper-1\r\n".utf8)
-        body.append(contentsOf: "--\(boundary)--\r\n".utf8)
-
-        request.httpBody = body
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw OpenAIVoiceError.invalidResponse
-        }
-
-        guard httpResponse.statusCode == 200 else {
-            let errorBody = String(data: data, encoding: .utf8) ?? "Unknown error"
-            log.error("Whisper API error (\(httpResponse.statusCode)): \(errorBody)")
-            throw OpenAIVoiceError.apiError(statusCode: httpResponse.statusCode, message: errorBody)
-        }
-
-        struct WhisperResponse: Decodable { let text: String }
-        let result = try JSONDecoder().decode(WhisperResponse.self, from: data)
-        log.info("Whisper transcription: \(result.text, privacy: .public)")
-        return result.text
+    private func tearDownRecognition() {
+        recognitionTask?.cancel()
+        recognitionTask = nil
+        recognitionRequest = nil
+        speechRecognizer = nil
+        latestTranscription = ""
     }
 
     // MARK: - ElevenLabs TTS (REST API)
@@ -391,7 +471,7 @@ final class OpenAIVoiceService: ObservableObject {
     /// Call ElevenLabs REST API to convert text to speech. Returns MP3 audio data.
     private func fetchElevenLabsTTS(text: String) async throws -> Data {
         guard let elevenLabsKey else {
-            throw OpenAIVoiceError.noAPIKey
+            throw VoiceServiceError.noAudioData
         }
 
         let voiceId = Self.elevenLabsVoiceId
@@ -417,17 +497,17 @@ final class OpenAIVoiceService: ObservableObject {
         let (data, response) = try await URLSession.shared.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
-            throw OpenAIVoiceError.invalidResponse
+            throw VoiceServiceError.invalidResponse
         }
 
         guard httpResponse.statusCode == 200 else {
             let errorBody = String(data: data, encoding: .utf8) ?? "Unknown error"
             log.error("ElevenLabs API error (\(httpResponse.statusCode)): \(errorBody)")
-            throw OpenAIVoiceError.apiError(statusCode: httpResponse.statusCode, message: errorBody)
+            throw VoiceServiceError.apiError(statusCode: httpResponse.statusCode, message: errorBody)
         }
 
         guard !data.isEmpty else {
-            throw OpenAIVoiceError.noAudioData
+            throw VoiceServiceError.noAudioData
         }
 
         return data
@@ -449,41 +529,5 @@ final class OpenAIVoiceService: ObservableObject {
     private func stopSpeakingAmplitudePolling() {
         speakingTimer?.invalidate()
         speakingTimer = nil
-    }
-
-    // MARK: - WAV Encoding
-
-    private func createWAV(pcmData: Data, sampleRate: UInt32) -> Data {
-        let numChannels: UInt16 = 1
-        let bitsPerSample: UInt16 = 16
-        let bytesPerSample = bitsPerSample / 8
-        let dataSize = UInt32(pcmData.count)
-
-        var wav = Data(capacity: 44 + pcmData.count)
-        wav.append(contentsOf: "RIFF".utf8)
-        appendLE(&wav, 36 + dataSize)
-        wav.append(contentsOf: "WAVE".utf8)
-        wav.append(contentsOf: "fmt ".utf8)
-        appendLE(&wav, UInt32(16))
-        appendLE(&wav, UInt16(1)) // PCM
-        appendLE(&wav, numChannels)
-        appendLE(&wav, sampleRate)
-        appendLE(&wav, sampleRate * UInt32(numChannels) * UInt32(bytesPerSample))
-        appendLE(&wav, numChannels * bytesPerSample)
-        appendLE(&wav, bitsPerSample)
-        wav.append(contentsOf: "data".utf8)
-        appendLE(&wav, dataSize)
-        wav.append(pcmData)
-        return wav
-    }
-
-    private func appendLE(_ data: inout Data, _ value: UInt32) {
-        var v = value.littleEndian
-        withUnsafeBytes(of: &v) { data.append(contentsOf: $0) }
-    }
-
-    private func appendLE(_ data: inout Data, _ value: UInt16) {
-        var v = value.littleEndian
-        withUnsafeBytes(of: &v) { data.append(contentsOf: $0) }
     }
 }
