@@ -20,6 +20,7 @@ import {
   updateEnrollmentThreadId,
 } from './store.js';
 import { checkAllPreSend, recordSend } from './guardrails.js';
+import { recordEvent } from './analytics.js';
 import type { Sequence, SequenceEnrollment, SequenceStep } from './types.js';
 
 const log = getLogger('sequence-engine');
@@ -79,6 +80,7 @@ async function processEnrollment(
   const sequence = getSequence(enrollment.sequenceId);
   if (!sequence) {
     log.warn({ enrollmentId: enrollment.id, sequenceId: enrollment.sequenceId }, 'Sequence not found, cancelling enrollment');
+    recordEvent(enrollment.sequenceId, enrollment.id, 'fail', undefined, { reason: 'sequence_not_found' });
     exitEnrollment(enrollment.id, 'failed');
     return;
   }
@@ -93,6 +95,7 @@ async function processEnrollment(
   const step = sequence.steps[enrollment.currentStep];
   if (!step) {
     log.info({ enrollmentId: enrollment.id, step: enrollment.currentStep }, 'No more steps, marking completed');
+    recordEvent(sequence.id, enrollment.id, 'complete');
     exitEnrollment(enrollment.id, 'completed');
     return;
   }
@@ -130,8 +133,9 @@ async function processEnrollment(
 
   await processMessage(conversation.id, prompt);
 
-  // Track the send for rate-limiting guardrails
+  // Track the send for rate-limiting guardrails and analytics
   recordSend(sequence.id);
+  recordEvent(sequence.id, enrollment.id, 'send', step.index);
 
   // Try to extract the email thread ID from conversation tool results so
   // subsequent steps can reply in the same thread.
@@ -159,6 +163,7 @@ async function processEnrollment(
   if (nextStepIndex >= sequence.steps.length) {
     // This was the final step
     advanceEnrollment(enrollment.id, threadId, null);
+    recordEvent(sequence.id, enrollment.id, 'complete', step.index);
     exitEnrollment(enrollment.id, 'completed');
     log.info({ enrollmentId: enrollment.id, sequenceId: sequence.id }, 'Sequence completed');
   } else {

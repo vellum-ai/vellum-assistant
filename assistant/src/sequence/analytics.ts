@@ -30,6 +30,11 @@ export interface SequenceEvent {
 let eventCounter = 0;
 const eventLog: SequenceEvent[] = [];
 
+/** Hard cap to prevent unbounded memory growth. When exceeded, the oldest
+ *  half of events is discarded. 10 000 events is enough for dashboard
+ *  metrics while keeping memory usage predictable. */
+const MAX_EVENT_LOG_SIZE = 10_000;
+
 export function recordEvent(
   sequenceId: string,
   enrollmentId: string,
@@ -47,6 +52,12 @@ export function recordEvent(
     createdAt: Date.now(),
   };
   eventLog.push(event);
+
+  // Evict the oldest half when the log exceeds the cap
+  if (eventLog.length > MAX_EVENT_LOG_SIZE) {
+    eventLog.splice(0, eventLog.length - Math.floor(MAX_EVENT_LOG_SIZE / 2));
+  }
+
   return event;
 }
 

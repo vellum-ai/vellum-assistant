@@ -9,6 +9,7 @@
 
 import { getLogger } from '../util/logger.js';
 import { findActiveEnrollmentsByEmail, exitEnrollment, getSequence } from './store.js';
+import { recordEvent } from './analytics.js';
 
 const log = getLogger('sequence:reply-matcher');
 
@@ -66,6 +67,10 @@ export function checkForSequenceReplies(
 
       if (!threadMatch) continue;
 
+      recordEvent(enrollment.sequenceId, enrollment.id, 'reply', enrollment.currentStep, {
+        senderEmail,
+        threadId: payload.threadId,
+      });
       exitEnrollment(enrollment.id, 'replied');
 
       log.info(
