@@ -22,8 +22,10 @@ export function detectCycles(nodes: GraphNode[]): string[] | null {
 
   for (const node of nodes) {
     for (const dep of node.dependencies) {
-      adj.get(dep)?.push(node.id);
-      inDegree.set(node.id, (inDegree.get(node.id) ?? 0) + 1);
+      if (adj.has(dep)) {
+        adj.get(dep)!.push(node.id);
+        inDegree.set(node.id, (inDegree.get(node.id) ?? 0) + 1);
+      }
     }
   }
 

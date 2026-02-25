@@ -173,10 +173,11 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
       })
       .filter((d): d is { taskId: string; summary: string } => d != null);
 
+    let result: SwarmTaskResult;
     try {
       const taskTimeoutMs = getTimeoutForRole(limits, task.role) * 1000;
 
-      let result = await runWorkerTask({
+      result = await runWorkerTask({
         task,
         upstreamContext: plan.objective,
         dependencyOutputs: depOutputs,
@@ -211,12 +212,10 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
       if (result.status === 'failed') {
         log.error({ taskId: task.id, error: result.summary, retries }, 'Swarm task execution failed');
       }
-
-      processResult(result);
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       log.error({ taskId: task.id, error: error.message, stack: error.stack }, 'Swarm task execution failed unexpectedly');
-      processResult({
+      result = {
         taskId: task.id,
         status: 'failed',
         summary: `Unexpected error: ${error.message}`,
@@ -226,8 +225,10 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
         rawOutput: '',
         durationMs: 0,
         retryCount: 0,
-      });
+      };
     }
+
+    processResult(result);
   }
 
   while (ready.length > 0 || activeCount > 0) {

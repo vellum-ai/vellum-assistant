@@ -143,15 +143,135 @@ if [[ -f "${results_dir}/failures" ]]; then
 fi
 
 # Merge per-file lcov reports into a single coverage/lcov.info
+# Uses an awk-based merge to deduplicate source files that appear in multiple
+# test shards — raw concatenation would count shared files multiple times.
 if [[ "${COVERAGE}" == "true" ]]; then
   merged="${coverage_base}/lcov.info"
-  : > "${merged}"
+  raw="${results_dir}/raw_lcov.info"
+  : > "${raw}"
   for lcov_file in "${results_dir}"/cov_*/lcov.info; do
     if [[ -f "${lcov_file}" ]]; then
-      cat "${lcov_file}" >> "${merged}"
+      cat "${lcov_file}" >> "${raw}"
     fi
   done
-  if [[ -s "${merged}" ]]; then
+  if [[ -s "${raw}" ]]; then
+    awk '
+    /^SF:/ {
+      sf = $0
+      sub(/^SF:/, "", sf)
+      next
+    }
+    /^DA:/ {
+      # DA:line_number,execution_count
+      sub(/^DA:/, "")
+      split($0, parts, ",")
+      line = parts[1]
+      count = parts[2] + 0
+      key = sf SUBSEP line
+      if (key in da) {
+        da[key] += count
+      } else {
+        da[key] = count
+        # Track insertion order per source file
+        file_lines[sf] = file_lines[sf] SUBSEP line
+      }
+      files[sf] = 1
+      next
+    }
+    /^FN:/ {
+      # FN:line_number,function_name — keep first occurrence per file
+      sub(/^FN:/, "")
+      key = sf SUBSEP $0
+      if (!(key in fn_seen)) {
+        fn_seen[key] = 1
+        fn_list[sf] = fn_list[sf] SUBSEP $0
+      }
+      next
+    }
+    /^FNDA:/ {
+      # FNDA:execution_count,function_name — sum counts
+      sub(/^FNDA:/, "")
+      split($0, parts, ",")
+      count = parts[1] + 0
+      fname = parts[2]
+      key = sf SUBSEP fname
+      if (key in fnda) {
+        fnda[key] += count
+      } else {
+        fnda[key] = count
+        fnda_order[sf] = fnda_order[sf] SUBSEP fname
+      }
+      next
+    }
+    /^BRDA:/ {
+      # BRDA:line,block,branch,taken — sum taken counts
+      sub(/^BRDA:/, "")
+      split($0, parts, ",")
+      bkey = sf SUBSEP parts[1] "," parts[2] "," parts[3]
+      taken = parts[4]
+      if (taken == "-") taken = 0
+      taken += 0
+      if (bkey in brda) {
+        brda[bkey] += taken
+      } else {
+        brda[bkey] = taken
+        brda_id[sf] = brda_id[sf] SUBSEP parts[1] "," parts[2] "," parts[3]
+      }
+      next
+    }
+    { next }
+    END {
+      for (sf in files) {
+        print "SF:" sf
+
+        # Function declarations
+        n = split(fn_list[sf], fns, SUBSEP)
+        for (i = 2; i <= n; i++) {
+          print "FN:" fns[i]
+        }
+
+        # Function execution counts
+        n = split(fnda_order[sf], fnames, SUBSEP)
+        fnf = 0; fnh = 0
+        for (i = 2; i <= n; i++) {
+          key = sf SUBSEP fnames[i]
+          print "FNDA:" fnda[key] "," fnames[i]
+          fnf++
+          if (fnda[key] > 0) fnh++
+        }
+        print "FNF:" fnf
+        print "FNH:" fnh
+
+        # Branch data
+        n = split(brda_id[sf], brs, SUBSEP)
+        brf = 0; brh = 0
+        for (i = 2; i <= n; i++) {
+          key = sf SUBSEP brs[i]
+          taken = brda[key]
+          print "BRDA:" brs[i] "," (taken > 0 ? taken : "-")
+          brf++
+          if (taken > 0) brh++
+        }
+        if (brf > 0) {
+          print "BRF:" brf
+          print "BRH:" brh
+        }
+
+        # Line data
+        n = split(file_lines[sf], lines, SUBSEP)
+        lf = 0; lh = 0
+        for (i = 2; i <= n; i++) {
+          key = sf SUBSEP lines[i]
+          print "DA:" lines[i] "," da[key]
+          lf++
+          if (da[key] > 0) lh++
+        }
+        print "LF:" lf
+        print "LH:" lh
+        print "end_of_record"
+      }
+    }
+    ' "${raw}" > "${merged}"
     echo "Coverage report written to coverage/lcov.info"
   else
     echo "Warning: no coverage data was generated"

@@ -41,7 +41,7 @@ export function validateAndNormalizePlan(
 
   // --- Task count limit ---
   if (tasks.length > limits.maxTasks) {
-    issues.push(`Plan truncated from ${tasks.length} tasks to ${limits.maxTasks}`);
+    console.warn(`Plan truncated from ${tasks.length} tasks to ${limits.maxTasks}`);
     tasks = tasks.slice(0, limits.maxTasks);
   }
 
