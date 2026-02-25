@@ -20,6 +20,7 @@ final class ScreenRecorder: NSObject {
         case streamStartFailed(Error)
         case writerSetupFailed(String)
         case notRecording
+        case noFramesCaptured
 
         var errorDescription: String? {
             switch self {
@@ -33,6 +34,8 @@ final class ScreenRecorder: NSObject {
                 return "Failed to set up asset writer: \(reason)"
             case .notRecording:
                 return "No active recording to stop"
+            case .noFramesCaptured:
+                return "Recording stopped before any video frames were captured"
             }
         }
     }
@@ -161,6 +164,19 @@ final class ScreenRecorder: NSObject {
             throw RecorderError.notRecording
         }
 
+        // If no video frames were ever captured, the output file is invalid
+        guard output.didCaptureFrames else {
+            // Clean up the empty output file
+            if let url = outputFileURL {
+                try? FileManager.default.removeItem(at: url)
+            }
+            streamOutput = nil
+            startTime = nil
+            lastSampleTime = nil
+            outputFileURL = nil
+            throw RecorderError.noFramesCaptured
+        }
+
         await output.finishWriting()
 
         let filePath = outputFileURL?.path ?? ""
@@ -184,7 +200,10 @@ final class ScreenRecorder: NSObject {
         windowId: Double?,
         content: SCShareableContent
     ) throws -> (SCContentFilter, Int, Int) {
-        if scope == "window", let wid = windowId {
+        if scope == "window" {
+            guard let wid = windowId else {
+                throw RecorderError.noMatchingWindow
+            }
             let targetWindowId = CGWindowID(wid)
             guard let window = content.windows.first(where: { $0.windowID == targetWindowId }) else {
                 throw RecorderError.noMatchingWindow
@@ -196,16 +215,21 @@ final class ScreenRecorder: NSObject {
         }
 
         // Display capture (default)
-        let targetDisplayId: CGDirectDisplayID
+        let display: SCDisplay
         if let idStr = displayId, let parsed = UInt32(idStr) {
-            targetDisplayId = parsed
+            // Explicit displayId provided — must match exactly
+            guard let matched = content.displays.first(where: { $0.displayID == parsed }) else {
+                throw RecorderError.noMatchingDisplay
+            }
+            display = matched
         } else {
-            targetDisplayId = CGMainDisplayID()
-        }
-
-        guard let display = content.displays.first(where: { $0.displayID == targetDisplayId })
-                ?? content.displays.first else {
-            throw RecorderError.noMatchingDisplay
+            // No displayId provided — use main display, fall back to first available
+            let mainId = CGMainDisplayID()
+            guard let fallback = content.displays.first(where: { $0.displayID == mainId })
+                    ?? content.displays.first else {
+                throw RecorderError.noMatchingDisplay
+            }
+            display = fallback
         }
 
         // Exclude our own app's windows so the recorder never captures itself
@@ -299,6 +323,9 @@ private final class RecorderStreamOutput: NSObject, SCStreamOutput, @unchecked S
     private let audioInput: AVAssetWriterInput?
 
     private var hasStartedSession = false
+
+    /// Whether at least one video frame was captured and written.
+    var didCaptureFrames: Bool { hasStartedSession }
 
     /// Called on the first video frame with its presentation time.
     var onFirstFrame: ((CMTime) -> Void)?
