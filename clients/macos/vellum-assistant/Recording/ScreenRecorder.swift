@@ -1,3 +1,4 @@
+import AppKit
 import AVFoundation
 import ScreenCaptureKit
 import os
@@ -68,6 +69,29 @@ final class ScreenRecorder: NSObject {
         try FileManager.default.createDirectory(at: recordingsDirectory, withIntermediateDirectories: true)
     }
 
+    /// Resolve the backing scale factor for a display.
+    ///
+    /// Tries `NSScreen.backingScaleFactor` for the matching screen first,
+    /// then falls back to computing the ratio from `CGDisplayPixelsWide`
+    /// (native pixels) vs the logical width. Returns 2 as a last resort.
+    private static func scaleFactor(for displayID: CGDirectDisplayID, logicalWidth: Int) -> CGFloat {
+        if let screen = NSScreen.screens.first(where: {
+            // NSScreen's deviceDescription contains the CGDirectDisplayID under the "NSScreenNumber" key
+            ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID) == displayID
+        }) {
+            return screen.backingScaleFactor
+        }
+
+        // Fallback: derive scale from native pixel width vs logical width
+        let nativeWidth = CGDisplayPixelsWide(displayID)
+        if logicalWidth > 0 && nativeWidth > 0 {
+            return CGFloat(nativeWidth) / CGFloat(logicalWidth)
+        }
+
+        log.warning("Could not determine scale factor for displayID=\(displayID) — defaulting to 2x")
+        return 2.0
+    }
+
     // MARK: - Start Recording
 
     /// Start recording the screen or a specific window.
@@ -101,9 +125,22 @@ final class ScreenRecorder: NSObject {
                 throw RecorderError.noMatchingWindow
             }
             filter = SCContentFilter(desktopIndependentWindow: window)
-            captureWidth = Int(window.frame.width) * 2  // Retina
-            captureHeight = Int(window.frame.height) * 2
-            log.info("Window capture: windowID=\(windowId), sourceSize=\(Int(window.frame.width))x\(Int(window.frame.height)), streamSize=\(captureWidth)x\(captureHeight)")
+
+            // Find the display containing this window so we can use its actual scale factor
+            let windowMidX = window.frame.midX
+            let windowMidY = window.frame.midY
+            var windowDisplayID = CGMainDisplayID()
+            for display in shareable.displays {
+                let displayBounds = CGDisplayBounds(display.displayID)
+                if displayBounds.contains(CGPoint(x: windowMidX, y: windowMidY)) {
+                    windowDisplayID = display.displayID
+                    break
+                }
+            }
+            let windowScale = Self.scaleFactor(for: windowDisplayID, logicalWidth: Int(window.frame.width))
+            captureWidth = Int(CGFloat(window.frame.width) * windowScale)
+            captureHeight = Int(CGFloat(window.frame.height) * windowScale)
+            log.info("Window capture: windowID=\(windowId), displayID=\(windowDisplayID), scaleFactor=\(windowScale), sourceSize=\(Int(window.frame.width))x\(Int(window.frame.height)), streamSize=\(captureWidth)x\(captureHeight)")
         } else {
             // Display capture (default)
             let targetDisplay: SCDisplay
@@ -119,9 +156,10 @@ final class ScreenRecorder: NSObject {
                 targetDisplay = mainDisplay
             }
             filter = SCContentFilter(display: targetDisplay, excludingApplications: [], exceptingWindows: [])
-            captureWidth = Int(targetDisplay.width) * 2  // Retina
-            captureHeight = Int(targetDisplay.height) * 2
-            log.info("Display capture: displayID=\(targetDisplay.displayID), sourceSize=\(targetDisplay.width)x\(targetDisplay.height), streamSize=\(captureWidth)x\(captureHeight)")
+            let displayScale = Self.scaleFactor(for: targetDisplay.displayID, logicalWidth: Int(targetDisplay.width))
+            captureWidth = Int(CGFloat(targetDisplay.width) * displayScale)
+            captureHeight = Int(CGFloat(targetDisplay.height) * displayScale)
+            log.info("Display capture: displayID=\(targetDisplay.displayID), scaleFactor=\(displayScale), sourceSize=\(targetDisplay.width)x\(targetDisplay.height), streamSize=\(captureWidth)x\(captureHeight)")
         }
 
         // Configure stream
