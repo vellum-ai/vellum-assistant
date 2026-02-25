@@ -223,6 +223,23 @@ Grant these in System Settings → Privacy & Security.
 10. Responses stream in real-time from the daemon
 11. Click the stop button to cancel an in-progress generation
 
+### Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `Cmd +` | Conversation zoom in (text only) |
+| `Cmd -` | Conversation zoom out (text only) |
+| `Cmd 0` | Reset conversation zoom to 100% |
+| `Option+Cmd +` | Window zoom in (entire UI) |
+| `Option+Cmd -` | Window zoom out (entire UI) |
+| `Option+Cmd 0` | Reset window zoom to 100% |
+| `Cmd Shift G` | Open task input popover |
+| `Escape` | Cancel current session / close popover |
+
+**Conversation zoom** scales chat text (messages, markdown, code blocks, composer) independently of the window. A brief "Text 125%" indicator appears on each change. The zoom level persists across app relaunches.
+
+**Window zoom** scales the entire UI uniformly. A percentage indicator appears at the top of the window on each change.
+
 ### Opportunistic Message Queueing
 
 Users can send multiple messages while the assistant is busy. Messages are queued (FIFO, max 10) and processed automatically:

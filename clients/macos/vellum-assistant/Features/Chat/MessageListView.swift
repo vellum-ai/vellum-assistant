@@ -24,6 +24,7 @@ struct MessageListView: View {
 
     var threadId: UUID?
     @Binding var isNearBottom: Bool
+    @Environment(\.conversationZoomScale) private var conversationZoomScale
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
     @AppStorage("completedConversationCount") private var completedConversationCount: Int = 0
     @State private var identity: IdentityInfo? = IdentityInfo.load()
@@ -314,6 +315,16 @@ struct MessageListView: View {
                     withAnimation(VAnimation.fast) {
                         proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
                     }
+                }
+            }
+            .onChange(of: conversationZoomScale) {
+                // Re-anchor scroll position after zoom changes to avoid jarring
+                // jumps caused by reflowing text at a different scale.
+                if isNearBottom {
+                    proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                } else if let lastVisibleId = messages.last?.id {
+                    // Mid-scroll: anchor to the last message to keep content stable.
+                    proxy.scrollTo(lastVisibleId, anchor: .bottom)
                 }
             }
         }

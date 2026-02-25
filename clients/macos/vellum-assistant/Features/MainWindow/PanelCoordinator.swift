@@ -478,7 +478,7 @@ extension MainWindowView {
             .environment(\.conversationZoomScale, conversationZoomManager.zoomLevel)
             .overlay(alignment: .top) {
                 if conversationZoomManager.showZoomIndicator {
-                    ZoomIndicatorView(percentage: conversationZoomManager.zoomPercentage)
+                    ZoomIndicatorView(percentage: conversationZoomManager.zoomPercentage, label: "Text")
                         .transition(.move(edge: .top).combined(with: .opacity))
                         .padding(.top, VSpacing.xl)
                 }
