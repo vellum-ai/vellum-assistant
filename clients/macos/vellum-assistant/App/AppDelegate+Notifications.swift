@@ -219,14 +219,20 @@ extension AppDelegate {
                 return
             }
 
-            UNUserNotificationCenter.current().add(request) { error in
-                if let error {
-                    log.error("Failed to post notification intent (id: \(notificationId), source: \(sourceEventName)): \(error.localizedDescription)")
-                }
+            do {
+                try await UNUserNotificationCenter.current().add(request)
                 self.sendNotificationIntentResult(
                     deliveryId: deliveryId,
-                    success: error == nil,
-                    errorMessage: error?.localizedDescription,
+                    success: true,
+                    errorMessage: nil,
+                    errorCode: nil
+                )
+            } catch {
+                log.error("Failed to post notification intent (id: \(notificationId), source: \(sourceEventName)): \(error.localizedDescription)")
+                self.sendNotificationIntentResult(
+                    deliveryId: deliveryId,
+                    success: false,
+                    errorMessage: error.localizedDescription,
                     errorCode: nil
                 )
             }
