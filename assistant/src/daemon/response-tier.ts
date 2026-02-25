@@ -51,7 +51,9 @@ export function classifyResponseTier(message: string, _turnCount: number): Respo
   if (!isQuestion && BUILD_KEYWORDS.test(trimmed)) return tagged('high', 'build_keyword');
 
   // ── Low signals (any match → low) ──
-  if (GREETING_PATTERNS.test(trimmed)) return tagged('low', 'greeting');
+  // Only classify as greeting when the message is short and has no build
+  // keywords, so "hey, can you build a dashboard" stays high-tier.
+  if (GREETING_PATTERNS.test(trimmed) && len < 40 && !BUILD_KEYWORDS.test(trimmed)) return tagged('low', 'greeting');
   if (len < 80 && !BUILD_KEYWORDS.test(trimmed)) return tagged('low', 'short_no_keywords');
 
   // ── Default ──
