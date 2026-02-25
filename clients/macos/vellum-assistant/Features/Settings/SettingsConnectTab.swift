@@ -45,6 +45,9 @@ struct SettingsConnectTab: View {
     // Outbound guardian verification destination input (keyed by channel)
     @State private var guardianDestinationText: [String: String] = [:]
 
+    // Outbound verification code copy state (tracks which channel's code was just copied)
+    @State private var outboundCodeCopiedChannel: String?
+
     // Countdown timer for outbound verification expiry (ref-counted so
     // closing one channel row doesn't stop the timer for remaining rows)
     @State private var countdownNow: Date = Date()
@@ -1069,6 +1072,14 @@ struct SettingsConnectTab: View {
             }
         }()
         let bootstrapUrl: String? = channel == "telegram" ? store.telegramBootstrapUrl : nil
+        let outboundCode: String? = {
+            switch channel {
+            case "telegram": return store.telegramOutboundCode
+            case "sms": return store.smsOutboundCode
+            case "voice": return store.voiceOutboundCode
+            default: return nil
+            }
+        }()
         let primaryIdentity = guardianPrimaryIdentity(channel: channel, identity: identity)
         let secondaryIdentity = guardianSecondaryIdentity(primary: primaryIdentity, identity: identity)
         let telegramProfileURL: URL? = channel == "telegram"
@@ -1132,7 +1143,8 @@ struct SettingsConnectTab: View {
                     expiresAt: outboundExpiresAt,
                     nextResendAt: outboundNextResendAt,
                     sendCount: outboundSendCount,
-                    bootstrapUrl: bootstrapUrl
+                    bootstrapUrl: bootstrapUrl,
+                    outboundCode: outboundCode
                 )
             } else if let instruction {
                 guardianInstructionView(channel: channel, instruction: instruction)
@@ -1185,18 +1197,44 @@ struct SettingsConnectTab: View {
                     .lineLimit(1)
             }
 
-            HStack(spacing: VSpacing.sm) {
-                TextField(placeholder, text: destinationBinding)
-                    .font(VFont.body)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: 200)
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                HStack(spacing: VSpacing.sm) {
+                    TextField(placeholder, text: destinationBinding)
+                        .font(VFont.body)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(maxWidth: 200)
 
-                VButton(label: "Send verification", style: .secondary) {
-                    store.startOutboundGuardianVerification(channel: channel, destination: destination)
+                    VButton(label: "Send verification", style: .secondary) {
+                        store.startOutboundGuardianVerification(channel: channel, destination: destination)
+                    }
+                    .disabled(destination.isEmpty)
+
+                    Spacer()
                 }
-                .disabled(destination.isEmpty)
 
-                Spacer()
+                if channel == "telegram" {
+                    Text("Enter a Telegram @username (e.g. @janedoe) or numeric chat ID for the guardian.")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+
+                    Button {
+                        if let url = URL(string: "https://web.telegram.org/k/#@userinfobot") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    } label: {
+                        HStack(spacing: VSpacing.xs) {
+                            Image(systemName: "questionmark.circle")
+                                .font(.system(size: 11))
+                            Text("Find your Telegram username or chat ID")
+                                .font(VFont.caption)
+                        }
+                        .foregroundColor(VColor.accent)
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { hovering in
+                        if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                    }
+                }
             }
             .padding(.leading, 90 + VSpacing.sm)
         }
@@ -1210,8 +1248,11 @@ struct SettingsConnectTab: View {
         expiresAt: Date?,
         nextResendAt: Date?,
         sendCount: Int,
-        bootstrapUrl: String?
+        bootstrapUrl: String?,
+        outboundCode: String?
     ) -> some View {
+        let isCodeCopied = outboundCodeCopiedChannel == channel
+
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             HStack(spacing: VSpacing.sm) {
                 guardianLabel
@@ -1228,6 +1269,55 @@ struct SettingsConnectTab: View {
             }
 
             VStack(alignment: .leading, spacing: VSpacing.xs) {
+                // Verification code display
+                if let outboundCode {
+                    Text("Your verification code:")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+
+                    HStack(spacing: VSpacing.sm) {
+                        Text(outboundCode)
+                            .font(VFont.mono)
+                            .foregroundColor(VColor.textPrimary)
+                            .textSelection(.enabled)
+                            .lineLimit(1)
+
+                        Spacer()
+
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(outboundCode, forType: .string)
+                            outboundCodeCopiedChannel = channel
+                            Task {
+                                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                                if outboundCodeCopiedChannel == channel {
+                                    outboundCodeCopiedChannel = nil
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: VSpacing.xs) {
+                                Image(systemName: isCodeCopied ? "checkmark" : "doc.on.doc")
+                                    .font(.system(size: 12, weight: .medium))
+                                Text(isCodeCopied ? "Copied" : "Copy")
+                                    .font(VFont.caption)
+                            }
+                            .foregroundColor(isCodeCopied ? VColor.success : VColor.textSecondary)
+                            .frame(height: 28)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Copy verification code")
+                        .help("Copy code")
+                    }
+                    .padding(VSpacing.md)
+                    .background(VColor.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+                    )
+                }
+
                 // Countdown to expiry
                 if let expiresAt {
                     let remaining = expiresAt.timeIntervalSince(countdownNow)
