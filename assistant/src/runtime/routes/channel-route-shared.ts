@@ -9,8 +9,14 @@ import type {
   ApprovalDecisionResult,
   ApprovalUIMetadata,
 } from '../channel-approval-types.js';
+import { normalizeAssistantId } from '../../util/platform.js';
 export type { ActorRole, DenialReason, GuardianContext } from '../guardian-context-resolver.js';
 export { toGuardianRuntimeContext } from '../guardian-context-resolver.js';
+
+/** Canonicalize assistantId for channel ingress paths. */
+export function canonicalChannelAssistantId(assistantId: string): string {
+  return normalizeAssistantId(assistantId);
+}
 
 // ---------------------------------------------------------------------------
 // Gateway-origin proof
