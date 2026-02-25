@@ -7,6 +7,7 @@ import { createAssistantMessage,createUserMessage } from '../agent/message-types
 import { type ChannelId, type InterfaceId,parseChannelId, parseInterfaceId } from '../channels/types.js';
 import { getConfig } from '../config/loader.js';
 import { buildSystemPrompt } from '../config/system-prompt.js';
+import type { HeartbeatService } from '../heartbeat/heartbeat-service.js';
 import { bootstrapHomeBaseAppLink } from '../home-base/bootstrap.js';
 import * as attachmentsStore from '../memory/attachments-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
@@ -114,6 +115,13 @@ export class DaemonServer {
    * Logical assistant identifier used when publishing to the assistant-events hub.
    */
   assistantId: string = 'default';
+
+  /** Optional heartbeat service reference for "Run Now" from the UI. */
+  private _heartbeatService?: HeartbeatService;
+
+  setHeartbeatService(service: HeartbeatService): void {
+    this._heartbeatService = service;
+  }
 
   private deriveMemoryPolicy(conversationId: string): SessionMemoryPolicy {
     const threadType = conversationStore.getConversationThreadType(conversationId);
@@ -674,6 +682,7 @@ export class DaemonServer {
       getOrCreateSession: (id, socket?, rebind?, options?) =>
         this.getOrCreateSession(id, socket, rebind, options),
       touchSession: (id) => this.evictor.touch(id),
+      heartbeatService: this._heartbeatService,
     };
   }
 

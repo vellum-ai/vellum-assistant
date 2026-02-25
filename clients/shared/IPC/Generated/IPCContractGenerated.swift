@@ -54,18 +54,6 @@ public struct IPCAddTrustRule: Codable, Sendable {
     }
 }
 
-public struct IPCHeartbeatAlert: Codable, Sendable {
-    public let type: String
-    public let title: String
-    public let body: String
-
-    public init(type: String, title: String, body: String) {
-        self.type = type
-        self.title = title
-        self.body = body
-    }
-}
-
 public struct IPCAppDataRequest: Codable, Sendable {
     public let type: String
     public let surfaceId: String
@@ -1932,14 +1920,17 @@ public struct IPCGuardianVerificationRequest: Codable, Sendable {
     public let sessionId: String?
     public let assistantId: String?
     public let rebind: Bool?
+    /// E.164 phone number for SMS/voice, Telegram handle/chat-id. Used by outbound actions.
+    public let destination: String?
 
-    public init(type: String, action: String, channel: String? = nil, sessionId: String? = nil, assistantId: String? = nil, rebind: Bool? = nil) {
+    public init(type: String, action: String, channel: String? = nil, sessionId: String? = nil, assistantId: String? = nil, rebind: Bool? = nil, destination: String? = nil) {
         self.type = type
         self.action = action
         self.channel = channel
         self.sessionId = sessionId
         self.assistantId = assistantId
         self.rebind = rebind
+        self.destination = destination
     }
 }
 
@@ -1966,8 +1957,18 @@ public struct IPCGuardianVerificationResponse: Codable, Sendable {
     public let error: String?
     /// Human-readable error detail (e.g. for already_bound failures).
     public let message: String?
+    /// Session ID for outbound verification flows.
+    public let verificationSessionId: String?
+    /// Epoch ms when the verification session expires.
+    public let expiresAt: Int?
+    /// Epoch ms after which a resend is allowed.
+    public let nextResendAt: Int?
+    /// Number of SMS sends for this session.
+    public let sendCount: Int?
+    /// Telegram deep-link URL for bootstrap (M3 placeholder).
+    public let telegramBootstrapUrl: String?
 
-    public init(type: String, success: Bool, secret: String? = nil, instruction: String? = nil, bound: Bool? = nil, guardianExternalUserId: String? = nil, channel: String? = nil, assistantId: String? = nil, guardianDeliveryChatId: String? = nil, guardianUsername: String? = nil, guardianDisplayName: String? = nil, hasPendingChallenge: Bool? = nil, error: String? = nil, message: String? = nil) {
+    public init(type: String, success: Bool, secret: String? = nil, instruction: String? = nil, bound: Bool? = nil, guardianExternalUserId: String? = nil, channel: String? = nil, assistantId: String? = nil, guardianDeliveryChatId: String? = nil, guardianUsername: String? = nil, guardianDisplayName: String? = nil, hasPendingChallenge: Bool? = nil, error: String? = nil, message: String? = nil, verificationSessionId: String? = nil, expiresAt: Int? = nil, nextResendAt: Int? = nil, sendCount: Int? = nil, telegramBootstrapUrl: String? = nil) {
         self.type = type
         self.success = success
         self.secret = secret
@@ -1982,6 +1983,159 @@ public struct IPCGuardianVerificationResponse: Codable, Sendable {
         self.hasPendingChallenge = hasPendingChallenge
         self.error = error
         self.message = message
+        self.verificationSessionId = verificationSessionId
+        self.expiresAt = expiresAt
+        self.nextResendAt = nextResendAt
+        self.sendCount = sendCount
+        self.telegramBootstrapUrl = telegramBootstrapUrl
+    }
+}
+
+public struct IPCHeartbeatAlert: Codable, Sendable {
+    public let type: String
+    public let title: String
+    public let body: String
+
+    public init(type: String, title: String, body: String) {
+        self.type = type
+        self.title = title
+        self.body = body
+    }
+}
+
+public struct IPCHeartbeatChecklistRead: Codable, Sendable {
+    public let type: String
+
+    public init(type: String) {
+        self.type = type
+    }
+}
+
+public struct IPCHeartbeatChecklistResponse: Codable, Sendable {
+    public let type: String
+    public let content: String
+    public let isDefault: Bool
+
+    public init(type: String, content: String, isDefault: Bool) {
+        self.type = type
+        self.content = content
+        self.isDefault = isDefault
+    }
+}
+
+public struct IPCHeartbeatChecklistWrite: Codable, Sendable {
+    public let type: String
+    public let content: String
+
+    public init(type: String, content: String) {
+        self.type = type
+        self.content = content
+    }
+}
+
+public struct IPCHeartbeatChecklistWriteResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let error: String?
+
+    public init(type: String, success: Bool, error: String? = nil) {
+        self.type = type
+        self.success = success
+        self.error = error
+    }
+}
+
+public struct IPCHeartbeatConfig: Codable, Sendable {
+    public let type: String
+    public let action: String
+    public let enabled: Bool?
+    public let intervalMs: Double?
+    public let activeHoursStart: Double?
+    public let activeHoursEnd: Double?
+
+    public init(type: String, action: String, enabled: Bool? = nil, intervalMs: Double? = nil, activeHoursStart: Double? = nil, activeHoursEnd: Double? = nil) {
+        self.type = type
+        self.action = action
+        self.enabled = enabled
+        self.intervalMs = intervalMs
+        self.activeHoursStart = activeHoursStart
+        self.activeHoursEnd = activeHoursEnd
+    }
+}
+
+public struct IPCHeartbeatConfigResponse: Codable, Sendable {
+    public let type: String
+    public let enabled: Bool
+    public let intervalMs: Double
+    public let activeHoursStart: Double?
+    public let activeHoursEnd: Double?
+    public let nextRunAt: Int?
+    public let success: Bool
+    public let error: String?
+
+    public init(type: String, enabled: Bool, intervalMs: Double, activeHoursStart: Double?, activeHoursEnd: Double?, nextRunAt: Int?, success: Bool, error: String? = nil) {
+        self.type = type
+        self.enabled = enabled
+        self.intervalMs = intervalMs
+        self.activeHoursStart = activeHoursStart
+        self.activeHoursEnd = activeHoursEnd
+        self.nextRunAt = nextRunAt
+        self.success = success
+        self.error = error
+    }
+}
+
+public struct IPCHeartbeatRunNow: Codable, Sendable {
+    public let type: String
+
+    public init(type: String) {
+        self.type = type
+    }
+}
+
+public struct IPCHeartbeatRunNowResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let error: String?
+
+    public init(type: String, success: Bool, error: String? = nil) {
+        self.type = type
+        self.success = success
+        self.error = error
+    }
+}
+
+public struct IPCHeartbeatRunsList: Codable, Sendable {
+    public let type: String
+    public let limit: Double?
+
+    public init(type: String, limit: Double? = nil) {
+        self.type = type
+        self.limit = limit
+    }
+}
+
+public struct IPCHeartbeatRunsListResponse: Codable, Sendable {
+    public let type: String
+    public let runs: [IPCHeartbeatRunsListResponseRun]
+
+    public init(type: String, runs: [IPCHeartbeatRunsListResponseRun]) {
+        self.type = type
+        self.runs = runs
+    }
+}
+
+public struct IPCHeartbeatRunsListResponseRun: Codable, Sendable {
+    public let id: String
+    public let title: String
+    public let createdAt: Int
+    public let result: String
+
+    public init(id: String, title: String, createdAt: Int, result: String) {
+        self.id = id
+        self.title = title
+        self.createdAt = createdAt
+        self.result = result
     }
 }
 
