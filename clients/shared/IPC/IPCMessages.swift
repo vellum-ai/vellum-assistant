@@ -2259,6 +2259,7 @@ public enum ServerMessage: Decodable, Sendable {
     case openUrl(OpenUrlMessage)
     case integrationListResponse(IPCIntegrationListResponse)
     case integrationConnectResult(IPCIntegrationConnectResult)
+    case oauthConnectResult(IPCOAuthConnectResultResponse)
     case appFilesChanged(AppFilesChangedMessage)
     case getSigningIdentity(IPCGetSigningIdentityRequest)
     case diagnosticsExportResponse(DiagnosticsExportResponseMessage)
@@ -2602,6 +2603,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "integration_connect_result":
             let message = try IPCIntegrationConnectResult(from: decoder)
             self = .integrationConnectResult(message)
+        case "oauth_connect_result":
+            let message = try IPCOAuthConnectResultResponse(from: decoder)
+            self = .oauthConnectResult(message)
         case "app_files_changed":
             let message = try AppFilesChangedMessage(from: decoder)
             self = .appFilesChanged(message)

@@ -2779,6 +2779,34 @@ public struct IPCNotificationThreadCreated: Codable, Sendable {
     }
 }
 
+public struct IPCOAuthConnectResultResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let grantedScopes: [String]?
+    public let accountInfo: String?
+    public let error: String?
+
+    public init(type: String, success: Bool, grantedScopes: [String]? = nil, accountInfo: String? = nil, error: String? = nil) {
+        self.type = type
+        self.success = success
+        self.grantedScopes = grantedScopes
+        self.accountInfo = accountInfo
+        self.error = error
+    }
+}
+
+public struct IPCOAuthConnectStartRequest: Codable, Sendable {
+    public let type: String
+    public let service: String
+    public let requestedScopes: [String]?
+
+    public init(type: String, service: String, requestedScopes: [String]? = nil) {
+        self.type = type
+        self.service = service
+        self.requestedScopes = requestedScopes
+    }
+}
+
 public struct IPCOpenBundleRequest: Codable, Sendable {
     public let type: String
     public let filePath: String
