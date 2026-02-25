@@ -148,7 +148,7 @@ final class QuickInputWindow {
                 } else {
                     self?.onSubmit?(message, self?.attachedImageData)
                 }
-                self?.dismiss(restorePreviousApp: false)
+                self?.dismiss(restorePreviousApp: true)
             },
             onDismiss: { [weak self] in
                 self?.dismiss()
@@ -218,7 +218,7 @@ final class QuickInputWindow {
             Task { @MainActor in
                 // Don't dismiss while screen capture is in progress
                 guard self?.isCapturingScreen != true else { return }
-                self?.dismiss(restorePreviousApp: false)
+                self?.dismiss(restorePreviousApp: true)
             }
         }
 
