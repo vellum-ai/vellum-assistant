@@ -62,12 +62,35 @@ function buildDictationPrompt(msg: DictationRequest, stylePrompt?: string): stri
     '## Rules',
     '- Fix grammar, punctuation, and capitalization',
     '- Remove filler words (um, uh, like, you know)',
+    '- Rewrite vague or hedging language ("so yeah probably", "I guess maybe") into clear, confident statements',
     "- Maintain the speaker's intent and meaning",
     '- Do NOT add explanations or commentary',
     '- Return ONLY the cleaned text, nothing else',
+  ];
+
+  if (stylePrompt) {
+    sections.push(
+      '',
+      '## User Style (HIGHEST PRIORITY)',
+      'The user has configured these style preferences. They OVERRIDE the default tone adaptation below.',
+      'Follow these instructions precisely — they reflect the user\'s personal writing voice and preferences.',
+      '',
+      stylePrompt,
+    );
+  }
+
+  sections.push(
     '',
     '## Tone Adaptation',
-    'Adapt your output tone based on the active application:',
+  );
+
+  if (stylePrompt) {
+    sections.push('Use these as fallback guidance only when the User Style above does not cover a specific aspect:');
+  } else {
+    sections.push('Adapt your output tone based on the active application:');
+  }
+
+  sections.push(
     '- Email apps (Gmail, Mail): Professional but warm. Use proper greetings and sign-offs if appropriate.',
     '- Slack: Casual and conversational. Match typical chat style.',
     '- Code editors (VS Code, Xcode): Technical and concise. Code comments style.',
@@ -83,11 +106,7 @@ function buildDictationPrompt(msg: DictationRequest, stylePrompt?: string): stri
     '- The user\'s writing patterns and preferences may be available from memory context — follow those when present',
     '',
     buildAppMetadataBlock(msg),
-  ];
-
-  if (stylePrompt) {
-    sections.push('', '## User Style Instructions', stylePrompt);
-  }
+  );
 
   return sections.join('\n');
 }
@@ -100,9 +119,31 @@ function buildCommandPrompt(msg: DictationRequest, stylePrompt?: string): string
     '- Apply the instruction to the selected text',
     '- Return ONLY the transformed text, nothing else',
     '- Do NOT add explanations or commentary',
+  ];
+
+  if (stylePrompt) {
+    sections.push(
+      '',
+      '## User Style (HIGHEST PRIORITY)',
+      'The user has configured these style preferences. They OVERRIDE the default tone adaptation below.',
+      'Follow these instructions precisely — they reflect the user\'s personal writing voice and preferences.',
+      '',
+      stylePrompt,
+    );
+  }
+
+  sections.push(
     '',
     '## Tone Adaptation',
-    'Match the tone to the active application context:',
+  );
+
+  if (stylePrompt) {
+    sections.push('Use these as fallback guidance only when the User Style above does not cover a specific aspect:');
+  } else {
+    sections.push('Match the tone to the active application context:');
+  }
+
+  sections.push(
     '- Email apps (Gmail, Mail): Professional but warm.',
     '- Slack: Casual and conversational.',
     '- Code editors (VS Code, Xcode): Technical and concise.',
@@ -118,13 +159,6 @@ function buildCommandPrompt(msg: DictationRequest, stylePrompt?: string): string
     '- The user\'s writing patterns and preferences may be available from memory context — follow those when present',
     '',
     buildAppMetadataBlock(msg),
-  ];
-
-  if (stylePrompt) {
-    sections.push('', '## User Style Instructions', stylePrompt);
-  }
-
-  sections.push(
     '',
     'Selected text:',
     msg.context.selectedText ?? '',
