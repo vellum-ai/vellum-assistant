@@ -5,14 +5,17 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "InlineVideoAttachment")
 
+/// How long to poll for daemon port availability before giving up.
+private let portWaitTimeout: TimeInterval = 4.0
+/// Interval between port availability polls.
+private let portPollInterval: UInt64 = 500_000_000 // 0.5s in nanoseconds
+
 /// Classifies playback failures so we can log specific root causes and show
 /// slightly more helpful messages to the user.
 private enum VideoPlaybackError: String {
     case portMissing = "port_missing"
     case fetchFailed = "fetch_failed"
     case invalidMedia = "invalid_media"
-    case decodeFailed = "decode_failed"
-    case unknown = "unknown"
 
     /// User-facing description shown in the failed-state overlay.
     var userMessage: String {
@@ -21,10 +24,14 @@ private enum VideoPlaybackError: String {
             return "Could not connect to video service"
         case .fetchFailed:
             return "Could not download video"
-        case .invalidMedia, .decodeFailed, .unknown:
+        case .invalidMedia:
             return "Could not play video"
         }
     }
+
+    /// Copy shown during the reconnecting/waiting phase, distinct from
+    /// the final failure message.
+    static let reconnectingMessage = "Reconnecting to video service..."
 }
 
 /// Inline video player for file-based video attachments (e.g. video/mp4).
@@ -41,11 +48,17 @@ struct InlineVideoAttachmentView: View {
     @State private var player: AVPlayer?
     @State private var isPlaying = false
     @State private var isLoading = false
+    @State private var loadingMessage = "Loading video..."
     @State private var failureReason: VideoPlaybackError?
     @State private var videoAspectRatio: CGFloat
     @State private var isHovering = false
     @State private var isSaving = false
     @State private var thumbnailImage: NSImage?
+    /// Prevents multiple auto-retries from stacking up.
+    @State private var hasAutoRetried = false
+    /// Tracks whether we already retried from the failed tile tap so the
+    /// next tap falls back to opening in an external player.
+    @State private var hasRetriedFromFailedTile = false
 
     init(attachment: ChatAttachment, resolveDaemonPort: @escaping () -> Int?) {
         self.attachment = attachment
@@ -118,6 +131,15 @@ struct InlineVideoAttachmentView: View {
             player = nil
             isPlaying = false
         }
+        .onReceive(NotificationCenter.default.publisher(for: .daemonDidReconnect)) { _ in
+            // Auto-retry once on daemon reconnect if the last failure was port_missing.
+            guard failureReason == .portMissing, !hasAutoRetried else { return }
+            log.info("Daemon reconnected — auto-retrying playback for attachment \(self.attachment.id, privacy: .public)")
+            hasAutoRetried = true
+            hasRetriedFromFailedTile = false
+            failureReason = nil
+            prepareAndPlay()
+        }
     }
 
     private var placeholderView: some View {
@@ -157,7 +179,7 @@ struct InlineVideoAttachmentView: View {
             ProgressView()
                 .controlSize(.regular)
 
-            Text("Loading video...")
+            Text(loadingMessage)
                 .font(VFont.caption)
                 .foregroundStyle(VColor.textSecondary)
         }
@@ -177,8 +199,24 @@ struct InlineVideoAttachmentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle())
         .onTapGesture {
-            openInExternalPlayer()
+            retryOrOpenExternal()
         }
+    }
+
+    // MARK: - Retry Logic
+
+    /// Tap on failed tile: retry playback first. If the view was already in a
+    /// failed state from a previous retry (i.e. this is the second consecutive
+    /// tap on a failed tile), open in an external player as a fallback.
+    private func retryOrOpenExternal() {
+        if hasRetriedFromFailedTile {
+            // Second tap on failed tile — fall back to external player.
+            openInExternalPlayer()
+            return
+        }
+        hasRetriedFromFailedTile = true
+        failureReason = nil
+        prepareAndPlay()
     }
 
     /// Builds a safe temp-file URL by stripping path components from the filename
@@ -269,14 +307,18 @@ struct InlineVideoAttachmentView: View {
         await MainActor.run {
             self.player = avPlayer
             self.isPlaying = true
+            // Reset retry flags on successful playback so future failures
+            // get a fresh retry cycle.
+            self.hasRetriedFromFailedTile = false
+            self.hasAutoRetried = false
             avPlayer.play()
         }
     }
 
     private func playFromBase64(_ base64: String) async {
         guard let data = Data(base64Encoded: base64) else {
-            log.warning("Base64 decode failed for attachment \(self.attachment.id, privacy: .public) — category: \(VideoPlaybackError.decodeFailed.rawValue, privacy: .public)")
-            await MainActor.run { failureReason = .decodeFailed }
+            log.warning("Base64 decode failed for attachment \(self.attachment.id, privacy: .public) — category: \(VideoPlaybackError.invalidMedia.rawValue, privacy: .public)")
+            await MainActor.run { failureReason = .invalidMedia }
             return
         }
 
@@ -293,31 +335,88 @@ struct InlineVideoAttachmentView: View {
     }
 
     private func fetchAndPlay() {
-        guard let port = resolveDaemonPort() else {
-            log.warning("Daemon HTTP port unavailable — cannot fetch attachment \(self.attachment.id, privacy: .public) — category: \(VideoPlaybackError.portMissing.rawValue, privacy: .public)")
-            failureReason = .portMissing
+        // If port is nil, show a reconnecting state and poll for a short window
+        // before giving up. This handles the brief gap during daemon restart.
+        if resolveDaemonPort() == nil {
+            log.info("Daemon HTTP port unavailable — waiting for reconnect for attachment \(self.attachment.id, privacy: .public)")
+            isLoading = true
+            loadingMessage = VideoPlaybackError.reconnectingMessage
+            Task {
+                let port = await waitForPort()
+                guard let port else {
+                    log.warning("Daemon HTTP port still unavailable after wait — category: \(VideoPlaybackError.portMissing.rawValue, privacy: .public)")
+                    await MainActor.run {
+                        isLoading = false
+                        loadingMessage = "Loading video..."
+                        failureReason = .portMissing
+                    }
+                    return
+                }
+                await MainActor.run {
+                    loadingMessage = "Loading video..."
+                }
+                await doFetch(port: port)
+            }
             return
         }
+
         guard let attachmentId = attachment.id.isEmpty ? nil : attachment.id else {
             log.warning("Attachment ID is empty — cannot fetch — category: \(VideoPlaybackError.fetchFailed.rawValue, privacy: .public)")
             failureReason = .fetchFailed
             return
         }
 
+        // Resolve port on MainActor before entering the Task to avoid
+        // reading @MainActor-isolated DaemonClient.httpPort off-actor.
+        guard let port = resolveDaemonPort() else {
+            failureReason = .portMissing
+            return
+        }
+
         isLoading = true
+        loadingMessage = "Loading video..."
         Task {
-            do {
-                let data = try await fetchAttachmentContent(port: port, attachmentId: attachmentId)
-                let fileURL = safeTempURL()
-                try data.write(to: fileURL)
-                await MainActor.run { isLoading = false }
-                await playFromFile(fileURL)
-            } catch {
-                log.error("Failed to fetch attachment \(attachmentId, privacy: .public): \(error.localizedDescription, privacy: .public) — category: \(VideoPlaybackError.fetchFailed.rawValue, privacy: .public)")
-                await MainActor.run {
-                    isLoading = false
-                    failureReason = .fetchFailed
-                }
+            await doFetch(port: port)
+        }
+    }
+
+    /// Poll `resolveDaemonPort()` at short intervals for up to `portWaitTimeout`.
+    /// Explicit `@MainActor` because `resolveDaemonPort` reads `DaemonClient.httpPort`
+    /// which is `@MainActor`-isolated.
+    @MainActor
+    private func waitForPort() async -> Int? {
+        let deadline = Date().addingTimeInterval(portWaitTimeout)
+        while Date() < deadline {
+            if let port = resolveDaemonPort() {
+                return port
+            }
+            try? await Task.sleep(nanoseconds: portPollInterval)
+        }
+        return resolveDaemonPort()
+    }
+
+    /// Shared fetch-and-play logic used by fetchAndPlay after port resolution.
+    private func doFetch(port: Int) async {
+        guard let attachmentId = attachment.id.isEmpty ? nil : attachment.id else {
+            log.warning("Attachment ID is empty — cannot fetch — category: \(VideoPlaybackError.fetchFailed.rawValue, privacy: .public)")
+            await MainActor.run {
+                isLoading = false
+                failureReason = .fetchFailed
+            }
+            return
+        }
+
+        do {
+            let data = try await fetchAttachmentContent(port: port, attachmentId: attachmentId)
+            let fileURL = safeTempURL()
+            try data.write(to: fileURL)
+            await MainActor.run { isLoading = false }
+            await playFromFile(fileURL)
+        } catch {
+            log.error("Failed to fetch attachment \(attachmentId, privacy: .public): \(error.localizedDescription, privacy: .public) — category: \(VideoPlaybackError.fetchFailed.rawValue, privacy: .public)")
+            await MainActor.run {
+                isLoading = false
+                failureReason = .fetchFailed
             }
         }
     }
