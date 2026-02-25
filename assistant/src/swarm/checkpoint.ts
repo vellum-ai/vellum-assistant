@@ -43,7 +43,7 @@ function getCheckpointPath(runId: string): string {
  * identical and safe to resume from.
  */
 function computePlanHash(plan: SwarmPlan): string {
-  const parts = plan.tasks.map((t) => `${t.id}:${t.role}:${t.dependencies.sort().join(',')}`);
+  const parts = plan.tasks.map((t) => `${t.id}:${t.role}:${[...t.dependencies].sort().join(',')}`);
   return `${plan.objective}|${parts.sort().join('|')}`;
 }
 
@@ -54,18 +54,18 @@ export function writeCheckpoint(
   results: Map<string, SwarmTaskResult>,
   blockedTaskIds: Set<string>,
 ): void {
-  const path = getCheckpointPath(runId);
-  const checkpoint: SwarmCheckpoint = {
-    runId,
-    objective: plan.objective,
-    planTaskIds: plan.tasks.map((t) => t.id),
-    planHash: computePlanHash(plan),
-    results: Array.from(results.values()),
-    blockedTaskIds: Array.from(blockedTaskIds),
-    updatedAt: new Date().toISOString(),
-  };
-
   try {
+    const path = getCheckpointPath(runId);
+    const checkpoint: SwarmCheckpoint = {
+      runId,
+      objective: plan.objective,
+      planTaskIds: plan.tasks.map((t) => t.id),
+      planHash: computePlanHash(plan),
+      results: Array.from(results.values()),
+      blockedTaskIds: Array.from(blockedTaskIds),
+      updatedAt: new Date().toISOString(),
+    };
+
     mkdirSync(dirname(path), { recursive: true });
     // Atomic-ish write: write to temp then rename to avoid partial reads
     const tmpPath = path + '.tmp';
