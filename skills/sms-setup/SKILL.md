@@ -80,7 +80,7 @@ The response includes a `compliance` object with `numberType`, `verificationSid`
 
 - If `verificationStatus` is `PENDING_REVIEW` or `IN_REVIEW`, tell the user verification is already in progress and skip submission.
 - If `verificationStatus` is `TWILIO_APPROVED`, compliance is complete — proceed to Step 4.
-- If `verificationStatus` is `TWILIO_REJECTED` and `editAllowed` is true, offer to update the existing verification (Step 3c) instead of resubmitting.
+- If `verificationStatus` is `TWILIO_REJECTED` and `editAllowed` is true, offer to update the existing verification (Step 3d) instead of resubmitting.
 - If no verification exists (`verificationSid` is absent), proceed to collect information and submit.
 
 **Step 3b: Collect user information.** Collect the following from the user (assume individual/sole proprietor by default):
@@ -98,7 +98,7 @@ The response includes a `compliance` object with `numberType`, `verificationSid`
 | Opt-in type | `optInType` | `VERBAL`, `WEB_FORM`, `PAPER_FORM`, `VIA_TEXT`, `MOBILE_QR_CODE` |
 | Opt-in image URL | `optInImageUrls` | Array of URLs showing opt-in mechanism (can be website URL) |
 
-The `tollfreePhoneNumberSid` is resolved automatically by the daemon from the configured phone number. Do NOT ask for EIN, business registration number, or business registration authority. Explain that Twilio labels some fields as "business" fields even for individual submitters.
+The `tollfreePhoneNumberSid` can be obtained from the `sms_compliance_status` response (which resolves the configured phone number to its Twilio SID). Do NOT ask for EIN, business registration number, or business registration authority. Explain that Twilio labels some fields as "business" fields even for individual submitters.
 
 **Step 3c: Submit verification:**
 
