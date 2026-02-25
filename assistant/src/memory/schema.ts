@@ -992,6 +992,9 @@ export const notificationDeliveries = sqliteTable('notification_deliveries', {
   errorCode: text('error_code'),
   errorMessage: text('error_message'),
   sentAt: integer('sent_at'),
+  conversationId: text('conversation_id'),
+  messageId: text('message_id'),
+  conversationStrategy: text('conversation_strategy'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });

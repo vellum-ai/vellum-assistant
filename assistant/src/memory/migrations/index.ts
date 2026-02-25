@@ -26,6 +26,7 @@ export { migrateNotificationTablesSchema } from './019-notification-tables-schem
 export { migrateRenameChannelToVellum } from './020-rename-macos-ios-channel-to-vellum.js';
 export { migrateConversationStatusIndexes } from './021-conversation-status-indexes.js';
 export { migrateAddOriginInterface } from './022-add-origin-interface.js';
+export { migrateNotificationDeliveryPairingColumns } from './023-notification-delivery-pairing-columns.js';
 export { createCoreTables } from './100-core-tables.js';
 export { createWatchersAndLogsTables } from './101-watchers-and-logs.js';
 export { addCoreColumns } from './102-alter-table-columns.js';

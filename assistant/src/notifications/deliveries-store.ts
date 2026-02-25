@@ -24,6 +24,9 @@ export interface NotificationDeliveryRow {
   errorCode: string | null;
   errorMessage: string | null;
   sentAt: number | null;
+  conversationId: string | null;
+  messageId: string | null;
+  conversationStrategy: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -42,6 +45,9 @@ function rowToDelivery(row: typeof notificationDeliveries.$inferSelect): Notific
     errorCode: row.errorCode,
     errorMessage: row.errorMessage,
     sentAt: row.sentAt,
+    conversationId: row.conversationId,
+    messageId: row.messageId,
+    conversationStrategy: row.conversationStrategy,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -60,6 +66,9 @@ export interface CreateDeliveryParams {
   errorCode?: string;
   errorMessage?: string;
   sentAt?: number;
+  conversationId?: string;
+  messageId?: string;
+  conversationStrategy?: string;
 }
 
 /** Create a new delivery audit record. */
@@ -80,6 +89,9 @@ export function createDelivery(params: CreateDeliveryParams): NotificationDelive
     errorCode: params.errorCode ?? null,
     errorMessage: params.errorMessage ?? null,
     sentAt: params.sentAt ?? null,
+    conversationId: params.conversationId ?? null,
+    messageId: params.messageId ?? null,
+    conversationStrategy: params.conversationStrategy ?? null,
     createdAt: now,
     updatedAt: now,
   };

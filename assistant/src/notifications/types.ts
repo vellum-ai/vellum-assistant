@@ -26,6 +26,9 @@ export interface NotificationDeliveryResult {
   errorCode?: string;
   errorMessage?: string;
   sentAt?: number;
+  conversationId?: string;
+  messageId?: string;
+  conversationStrategy?: string;
 }
 
 // -- Channel adapter interfaces -----------------------------------------------
