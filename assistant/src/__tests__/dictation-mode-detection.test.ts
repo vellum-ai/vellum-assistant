@@ -61,4 +61,27 @@ describe('detectDictationMode', () => {
     }));
     expect(mode).toBe('dictation');
   });
+
+  test('profileId does not affect mode detection', () => {
+    const dictation = detectDictationMode(makeRequest({
+      profileId: 'work',
+      transcription: 'hello there',
+      context: { cursorInTextField: true },
+    }));
+    expect(dictation).toBe('dictation');
+
+    const command = detectDictationMode(makeRequest({
+      profileId: 'casual',
+      transcription: 'make this shorter',
+      context: { selectedText: 'some long text here', cursorInTextField: true },
+    }));
+    expect(command).toBe('command');
+
+    const action = detectDictationMode(makeRequest({
+      profileId: 'work',
+      transcription: 'send Alex a follow up',
+      context: { selectedText: undefined, cursorInTextField: false },
+    }));
+    expect(action).toBe('action');
+  });
 });

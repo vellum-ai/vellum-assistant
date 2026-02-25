@@ -27,6 +27,9 @@ final class AlwaysOnAudioMonitor: ObservableObject {
     private let engine: WakeWordEngine
     private var configurationChangeObserver: NSObjectProtocol?
     private var keywordObserver: NSObjectProtocol?
+    /// Tracks the last-observed wakeWordEnabled value so we only react to actual changes,
+    /// not unrelated UserDefaults writes (which would restart the engine mid-session).
+    private var lastKnownWakeWordEnabled: Bool?
 
     // MARK: - Init
 
@@ -106,8 +109,23 @@ final class AlwaysOnAudioMonitor: ObservableObject {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
+
+                // Handle keyword changes
                 let newKeyword = UserDefaults.standard.string(forKey: "wakeWordKeyword") ?? "computer"
                 self.engine.updateKeyword(newKeyword)
+
+                // Handle enabled/disabled toggle — only react when the value actually changes
+                let enabled = UserDefaults.standard.bool(forKey: "wakeWordEnabled")
+                guard enabled != self.lastKnownWakeWordEnabled else { return }
+                self.lastKnownWakeWordEnabled = enabled
+
+                if enabled && !self.isListening {
+                    log.info("Wake word enabled via settings — starting monitoring")
+                    self.startMonitoring()
+                } else if !enabled && self.isListening {
+                    log.info("Wake word disabled via settings — stopping monitoring")
+                    self.stopMonitoring()
+                }
             }
         }
     }

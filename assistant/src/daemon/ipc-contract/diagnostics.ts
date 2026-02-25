@@ -24,6 +24,7 @@ export interface DictationRequest {
   type: 'dictation_request';
   transcription: string;
   context: DictationContext;
+  profileId?: string;
 }
 
 // === Server → Client ===
@@ -53,6 +54,8 @@ export interface DictationResponse {
   text: string;
   mode: 'dictation' | 'command' | 'action';
   actionPlan?: string;
+  resolvedProfileId?: string;
+  profileSource?: 'request' | 'app_mapping' | 'default' | 'fallback';
 }
 
 // --- Domain-level union aliases (consumed by the barrel file) ---
