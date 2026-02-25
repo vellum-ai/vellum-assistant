@@ -1466,6 +1466,23 @@
       },
       "executor": "tools/sequence-import.ts",
       "execution_target": "host"
+    },
+    {
+      "name": "sequence_analytics",
+      "description": "View sequence analytics dashboard with send/reply/completion metrics, per-step funnel, and recent activity.",
+      "category": "messaging",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sequence_id": {
+            "type": "string",
+            "description": "Optional sequence ID for detailed step funnel view"
+          }
+        }
+      },
+      "executor": "tools/sequence-analytics.ts",
+      "execution_target": "host"
     }
   ]
 }
