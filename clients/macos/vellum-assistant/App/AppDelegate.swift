@@ -532,75 +532,51 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Sends the wake-up greeting with bounded exponential backoff retries.
-    ///
-    /// Retry schedule: 1s, 2s, 4s, 8s (max 5 attempts). If the daemon
-    /// disconnects during retries, pauses and waits for reconnection.
-    /// After exhausting retries, shows an error in the interstitial with
-    /// a manual retry button.
+    /// Sends the wake-up greeting. If the daemon is disconnected, waits for
+    /// reconnection before proceeding. Since `showMainWindow` always creates
+    /// the window (via `ensureMainWindowExists`), there is no need for a
+    /// retry loop — a simple guard suffices.
     private func performRetriableWakeUpSend() async {
-        let maxAttempts = 5
-        let backoffIntervals: [UInt64] = [
-            1_000_000_000,  // 1s
-            2_000_000_000,  // 2s
-            4_000_000_000,  // 4s
-            8_000_000_000,  // 8s
-            8_000_000_000,  // 8s (cap)
-        ]
+        guard !Task.isCancelled else { return }
 
-        for attempt in 0..<maxAttempts {
-            guard !Task.isCancelled else { return }
-
-            // If daemon disconnected, wait for reconnection before retrying
-            if !daemonClient.isConnected {
-                log.warning("Daemon disconnected during wake-up send — waiting for reconnection (attempt \(attempt + 1)/\(maxAttempts))")
-                let reconnected = await awaitDaemonReady(timeout: 15)
-                if !reconnected {
-                    log.warning("Daemon did not reconnect — showing interstitial for manual retry")
-                    showBootstrapInterstitial()
-                    updateBootstrapInterstitial(
-                        errorMessage: "Lost connection to your assistant. Retrying...",
-                        isRetrying: true
-                    )
-                    return
-                }
-            }
-
-            // Attempt to show the main window with the wake-up greeting
-            let greeting = wakeUpGreeting()
-            showMainWindow(initialMessage: greeting, isFirstLaunch: true)
-
-            // The wake-up message is deferred via pendingWakeUpMessage in
-            // MainWindow — the actual send happens after the "coming alive"
-            // animation completes. Transition to pendingFirstReply only after
-            // the message is truly dispatched to avoid a gap where bootstrap
-            // is stuck at pendingFirstReply without the message having been sent.
-            if let main = mainWindow {
-                log.info("MainWindow created — deferring pendingFirstReply until wake-up message is dispatched (attempt \(attempt + 1))")
-                main.onWakeUpSent = { [weak self] in
-                    guard let self else { return }
-                    log.info("Wake-up greeting actually sent — transitioning to pendingFirstReply")
-                    self.transitionBootstrap(to: .pendingFirstReply)
-                    self.wireBootstrapFirstReplyCallback()
-                }
-                setupWakeWordCoordinator()
-                debugStateWriter.start(appDelegate: self)
+        // If daemon disconnected, wait for reconnection before trying
+        if !daemonClient.isConnected {
+            log.warning("Daemon disconnected during wake-up send — waiting for reconnection")
+            let reconnected = await awaitDaemonReady(timeout: 15)
+            if !reconnected {
+                log.warning("Daemon did not reconnect — showing interstitial for manual retry")
+                showBootstrapInterstitial()
+                updateBootstrapInterstitial(
+                    errorMessage: "Lost connection to your assistant. Retrying...",
+                    isRetrying: true
+                )
                 return
             }
-
-            // Send failed — apply backoff before next attempt
-            let delay = backoffIntervals[min(attempt, backoffIntervals.count - 1)]
-            log.warning("Wake-up send attempt \(attempt + 1)/\(maxAttempts) failed — retrying in \(delay / 1_000_000_000)s")
-            try? await Task.sleep(nanoseconds: delay)
         }
 
-        // Exhausted all retries — show error in interstitial
-        log.error("Wake-up send failed after \(maxAttempts) attempts")
-        showBootstrapInterstitial()
-        updateBootstrapInterstitial(
-            errorMessage: "Could not connect after \(maxAttempts) attempts. Please try again.",
-            isRetrying: false
-        )
+        let greeting = wakeUpGreeting()
+        showMainWindow(initialMessage: greeting, isFirstLaunch: true)
+
+        // showMainWindow always creates mainWindow, but guard defensively.
+        guard let main = mainWindow else {
+            log.error("MainWindow not created after showMainWindow — cannot send wake-up")
+            showBootstrapInterstitial()
+            updateBootstrapInterstitial(
+                errorMessage: "Could not start your assistant. Please try again.",
+                isRetrying: false
+            )
+            return
+        }
+
+        log.info("MainWindow created — deferring pendingFirstReply until wake-up message is dispatched")
+        main.onWakeUpSent = { [weak self] in
+            guard let self else { return }
+            log.info("Wake-up greeting actually sent — transitioning to pendingFirstReply")
+            self.transitionBootstrap(to: .pendingFirstReply)
+            self.wireBootstrapFirstReplyCallback()
+        }
+        setupWakeWordCoordinator()
+        debugStateWriter.start(appDelegate: self)
     }
 
     /// Wires `onFirstAssistantReply` on the active ChatViewModel so bootstrap

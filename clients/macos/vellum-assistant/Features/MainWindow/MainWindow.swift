@@ -284,10 +284,16 @@ final class MainWindow {
             viewModel.inputText = message
             viewModel.sendMessage()
             self.pendingWakeUpMessage = nil
-            // Notify AppDelegate that the wake-up message has actually been
-            // dispatched, so it can transition bootstrap state now.
-            self.onWakeUpSent?()
-            self.onWakeUpSent = nil
+            // Only signal wake-up sent if the daemon is still connected.
+            // If disconnected, sendMessage queued the message locally but
+            // it may not reach the daemon — leave bootstrap at
+            // pendingWakeupSend so the retry coordinator can intervene.
+            if self.daemonClient.isConnected {
+                self.onWakeUpSent?()
+                self.onWakeUpSent = nil
+            } else {
+                self.onWakeUpSent = nil
+            }
         } : nil
 
         let rootView = MainWindowView(threadManager: threadManager, appListManager: appListManager, zoomManager: zoomManager, traceStore: traceStore, daemonClient: daemonClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, authManager: services.authManager, windowState: windowState, documentManager: documentManager, avatarEvolutionState: avatarEvolutionState, onMicrophoneToggle: onMicrophoneToggle ?? {}, voiceModeManager: voiceModeManager, onSendWakeUp: wakeUpCallback)
