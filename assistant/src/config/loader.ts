@@ -31,8 +31,24 @@ function ensureMigratedDataDir(): void {
 }
 
 
+/**
+ * Zod 4's .default({}) returns {} as output without running inner-schema
+ * parsing, so nested object defaults are never applied. Re-parse the config
+ * to cascade defaults through each nesting level.
+ * Max chain of .default({}) on object schemas is 4
+ * (e.g. memory → retrieval → freshness → maxAgeDays),
+ * so 5 parses are needed (N+1) to fully cascade.
+ */
+function applyNestedDefaults(config: unknown): AssistantConfig {
+  let current: unknown = config;
+  for (let i = 0; i < 5; i++) {
+    current = AssistantConfigSchema.parse(current);
+  }
+  return current as AssistantConfig;
+}
+
 function cloneDefaultConfig(): AssistantConfig {
-  return AssistantConfigSchema.parse({});
+  return applyNestedDefaults({});
 }
 
 /**
@@ -42,7 +58,7 @@ function cloneDefaultConfig(): AssistantConfig {
 function validateWithSchema(raw: Record<string, unknown>): AssistantConfig {
   const result = AssistantConfigSchema.safeParse(raw);
   if (result.success) {
-    return result.data;
+    return applyNestedDefaults(result.data);
   }
 
   // Log each validation issue as a warning
@@ -64,7 +80,7 @@ function validateWithSchema(raw: Record<string, unknown>): AssistantConfig {
 
   const retry = AssistantConfigSchema.safeParse(cleaned);
   if (retry.success) {
-    return retry.data;
+    return applyNestedDefaults(retry.data);
   }
 
   // If still failing, fall back to full defaults
