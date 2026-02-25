@@ -295,6 +295,15 @@ export function rescheduleEnrollment(id: string, nextStepAt: number): void {
     .run();
 }
 
+/** Persist a thread ID on an enrollment without advancing the step counter. */
+export function updateEnrollmentThreadId(id: string, threadId: string): void {
+  const db = getDb();
+  db.update(sequenceEnrollments)
+    .set({ threadId, updatedAt: Date.now() })
+    .where(eq(sequenceEnrollments.id, id))
+    .run();
+}
+
 // ── Aggregate export matching the SequenceStore interface ───────────
 
 export const sqliteSequenceStore: SequenceStore = {
