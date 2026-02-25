@@ -6,11 +6,22 @@ import { getLogger } from '../util/logger.js';
 
 const log = getLogger('swarm-checkpoint');
 
+/** Only allow safe token characters in runId (alphanumeric, hyphens, underscores, dots). */
+const SAFE_RUN_ID = /^[a-zA-Z0-9._-]+$/;
+
+function assertSafeRunId(runId: string): void {
+  if (!SAFE_RUN_ID.test(runId)) {
+    throw new Error(`Invalid runId: must match ${SAFE_RUN_ID} (got "${runId}")`);
+  }
+}
+
 export interface SwarmCheckpoint {
   runId: string;
   objective: string;
   /** Serialized plan for integrity verification on resume. */
   planTaskIds: string[];
+  /** Stringified task dependency map for structural integrity on resume. */
+  planHash: string;
   results: SwarmTaskResult[];
   /** Set of task IDs whose dependents were blocked due to failure. */
   blockedTaskIds: string[];
@@ -22,7 +33,18 @@ function getCheckpointDir(): string {
 }
 
 function getCheckpointPath(runId: string): string {
+  assertSafeRunId(runId);
   return join(getCheckpointDir(), `${runId}.json`);
+}
+
+/**
+ * Deterministic fingerprint of a plan's structure: objective, task IDs,
+ * roles, and dependency edges. Two plans with the same hash are structurally
+ * identical and safe to resume from.
+ */
+function computePlanHash(plan: SwarmPlan): string {
+  const parts = plan.tasks.map((t) => `${t.id}:${t.role}:${t.dependencies.sort().join(',')}`);
+  return `${plan.objective}|${parts.sort().join('|')}`;
 }
 
 /** Persist the current swarm progress to disk. */
@@ -37,6 +59,7 @@ export function writeCheckpoint(
     runId,
     objective: plan.objective,
     planTaskIds: plan.tasks.map((t) => t.id),
+    planHash: computePlanHash(plan),
     results: Array.from(results.values()),
     blockedTaskIds: Array.from(blockedTaskIds),
     updatedAt: new Date().toISOString(),
@@ -80,9 +103,14 @@ export function removeCheckpoint(runId: string): void {
 
 /**
  * Validate that a checkpoint matches the current plan.
- * Returns true if the checkpoint's task IDs are a subset of the plan's task IDs.
+ * Compares objective, task IDs, roles, and dependency structure via planHash.
+ * Falls back to subset check for checkpoints written before planHash existed.
  */
 export function isCheckpointCompatible(checkpoint: SwarmCheckpoint, plan: SwarmPlan): boolean {
+  if (checkpoint.planHash) {
+    return checkpoint.planHash === computePlanHash(plan);
+  }
+  // Legacy checkpoint without planHash — fall back to subset check
   const planTaskIds = new Set(plan.tasks.map((t) => t.id));
   return checkpoint.planTaskIds.every((id) => planTaskIds.has(id));
 }
