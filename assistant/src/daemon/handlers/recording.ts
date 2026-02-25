@@ -140,6 +140,17 @@ function handleRecordingStatus(
         try {
           if (!existsSync(msg.filePath)) {
             log.error({ recordingId, filePath: msg.filePath }, 'Recording file does not exist');
+            if (conversationId) {
+              const errSocket = findSocketForSession(conversationId, ctx);
+              if (errSocket) {
+                ctx.send(errSocket, {
+                  type: 'assistant_text_delta',
+                  text: 'Recording file is unavailable or expired.',
+                  sessionId: conversationId,
+                });
+                ctx.send(errSocket, { type: 'message_complete', sessionId: conversationId });
+              }
+            }
           } else if (!conversationId) {
             log.warn({ recordingId }, 'No conversationId found for recording — cannot link attachment');
           } else {
@@ -155,22 +166,16 @@ function handleRecordingStatus(
             const attachment = uploadFileBackedAttachment(filename, mimeType, msg.filePath, sizeBytes);
             log.info({ recordingId, attachmentId: attachment.id, sizeBytes, filePath: msg.filePath }, 'Created attachment for standalone recording');
 
-            // Find or create an assistant message to attach the recording to
-            const existingMessages = conversationStore.getMessages(conversationId);
-            const lastAssistantMsg = [...existingMessages].reverse().find((m) => m.role === 'assistant');
-
-            let messageId: string;
-            if (lastAssistantMsg) {
-              messageId = lastAssistantMsg.id;
-            } else {
-              const newMsg = conversationStore.addMessage(
-                conversationId,
-                'assistant',
-                JSON.stringify([{ type: 'text', text: 'Screen recording attached.' }]),
-              );
-              messageId = newMsg.id;
-              log.info({ recordingId, conversationId, messageId }, 'Created assistant message for recording attachment');
-            }
+            // Always create a new assistant message for the recording attachment.
+            // Reusing the last assistant message would attach the recording to an
+            // unrelated older message after reload.
+            const newMsg = conversationStore.addMessage(
+              conversationId,
+              'assistant',
+              JSON.stringify([{ type: 'text', text: 'Screen recording attached.' }]),
+            );
+            const messageId = newMsg.id;
+            log.info({ recordingId, conversationId, messageId }, 'Created assistant message for recording attachment');
 
             linkAttachmentToMessage(messageId, attachment.id, 0);
             log.info({ recordingId, messageId, attachmentId: attachment.id }, 'Linked recording attachment to assistant message');
