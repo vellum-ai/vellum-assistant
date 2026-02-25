@@ -70,6 +70,10 @@ struct ChatView: View {
     var isLoadingMoreMessages: Bool = false
     var loadPreviousMessagePage: (() async -> Bool)?
 
+    /// When true, suppresses `ChatEmptyStateView` during first-launch bootstrap
+    /// and shows a loading panel instead.
+    var isBootstrapping: Bool = false
+
     @State private var isNearBottom = true
     @State private var isDropTargeted = false
     @State private var editorContentHeight: CGFloat = 20
@@ -114,6 +118,11 @@ struct ChatView: View {
                         Spacer()
                     }
                     Spacer()
+                } else if isEmptyState && isBootstrapping {
+                    // During first-launch bootstrap, suppress the empty state
+                    // and show a simple loading panel until the first assistant
+                    // reply arrives and populates the chat.
+                    ChatBootstrapLoadingView()
                 } else if isEmptyState {
                     if isTemporaryChat {
                         ChatTemporaryChatEmptyStateView(
@@ -353,6 +362,33 @@ struct ChatView: View {
             if !urls.isEmpty { onDropFiles(urls) }
         }
         return true
+    }
+}
+
+// MARK: - Bootstrap Loading View
+
+/// Minimal loading panel shown during first-launch bootstrap while the
+/// assistant's first reply is pending. Replaces `ChatEmptyStateView` so
+/// the user sees a calm loading state instead of the usual empty chat.
+private struct ChatBootstrapLoadingView: View {
+    @State private var visible = false
+
+    var body: some View {
+        VStack(spacing: VSpacing.lg) {
+            Spacer()
+            VLoadingIndicator(size: 24, color: VColor.accent)
+            Text("Getting ready...")
+                .font(VFont.body)
+                .foregroundColor(VColor.textSecondary)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .opacity(visible ? 1 : 0)
+        .onAppear {
+            withAnimation(VAnimation.standard) {
+                visible = true
+            }
+        }
     }
 }
 

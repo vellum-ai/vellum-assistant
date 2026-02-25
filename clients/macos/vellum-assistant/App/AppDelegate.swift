@@ -556,11 +556,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             // successfully, consider the send successful.
             if mainWindow != nil {
                 log.info("Wake-up greeting sent successfully (attempt \(attempt + 1))")
-                // Transition to pendingFirstReply — M3 will handle the
-                // .complete transition when the first assistant reply arrives.
                 transitionBootstrap(to: .pendingFirstReply)
-                // TODO(M3): Remove this — transition to .complete should happen when first assistant reply arrives
-                transitionBootstrap(to: .complete)
+                wireBootstrapFirstReplyCallback()
                 setupWakeWordCoordinator()
                 debugStateWriter.start(appDelegate: self)
                 return
@@ -579,6 +576,19 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             errorMessage: "Could not connect after \(maxAttempts) attempts. Please try again.",
             isRetrying: false
         )
+    }
+
+    /// Wires `onFirstAssistantReply` on the active ChatViewModel so bootstrap
+    /// transitions to `.complete` when the daemon's first reply arrives.
+    private func wireBootstrapFirstReplyCallback() {
+        guard let viewModel = mainWindow?.activeViewModel else {
+            log.warning("No active ChatViewModel to wire first-reply callback — completing bootstrap immediately")
+            transitionBootstrap(to: .complete)
+            return
+        }
+        viewModel.onFirstAssistantReply = { [weak self] in
+            self?.transitionBootstrap(to: .complete)
+        }
     }
 
     private func showAuthWindow() {

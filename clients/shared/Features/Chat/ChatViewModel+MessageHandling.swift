@@ -619,6 +619,18 @@ extension ChatViewModel {
                     onVoiceResponseComplete?(responseText)
                 }
             }
+            // Fire first-reply callback once when the first complete
+            // assistant message arrives (used for bootstrap gate).
+            // Guard: only fire if an actual assistant message with content
+            // exists, so cancellation-acknowledgement completions that
+            // carry no assistant text don't prematurely close the gate.
+            if let callback = onFirstAssistantReply {
+                let hasAssistantContent = messages.contains { $0.role == .assistant && !$0.text.isEmpty }
+                if hasAssistantContent {
+                    onFirstAssistantReply = nil
+                    callback()
+                }
+            }
             var completedToolCalls: [ToolCallData]?
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
