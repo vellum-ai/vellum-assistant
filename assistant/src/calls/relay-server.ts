@@ -811,7 +811,7 @@ export class RelayConnection {
     const session = getCallSession(this.callSessionId);
     if (session) {
       // User message persistence is handled by the session pipeline
-      // (RunOrchestrator.startRun -> session.persistUserMessage) so we only
+      // (voice-session-bridge -> session.persistUserMessage) so we only
       // need to fire the transcript notifier for UI subscribers here.
       fireCallTranscriptNotifier(session.conversationId, this.callSessionId, 'caller', msg.voicePrompt);
     }

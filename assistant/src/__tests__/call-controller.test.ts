@@ -96,7 +96,7 @@ function createMockVoiceTurn(tokens: string[]) {
     }
 
     return {
-      runId: `run-${Date.now()}`,
+      turnId: `run-${Date.now()}`,
       abort: () => {},
     };
   };
@@ -109,7 +109,7 @@ mock.module('../calls/voice-session-bridge.js', () => {
   mockStartVoiceTurn = mock(createMockVoiceTurn(['Hello', ' there']));
   return {
     startVoiceTurn: (...args: unknown[]) => mockStartVoiceTurn(...args),
-    setVoiceBridgeOrchestrator: () => {},
+    setVoiceBridgeDeps: () => {},
   };
 });
 
@@ -266,7 +266,7 @@ describe('call-controller', () => {
       expect(opts.content).toContain('Can you summarize this meeting?');
       opts.onTextDelta('Sure, here is a summary.');
       opts.onComplete();
-      return { runId: 'run-1', abort: () => {} };
+      return { turnId: 'run-1', abort: () => {} };
     });
 
     const { controller } = setupController();
@@ -291,7 +291,7 @@ describe('call-controller', () => {
         opts.onTextDelta(token);
       }
       opts.onComplete();
-      return { runId: 'run-1', abort: () => {} };
+      return { turnId: 'run-1', abort: () => {} };
     });
 
     const { relay, controller } = setupController('Confirm appointment');
@@ -331,7 +331,7 @@ describe('call-controller', () => {
         opts.onTextDelta(token);
       }
       opts.onComplete();
-      return { runId: `run-${turnCount}`, abort: () => {} };
+      return { turnId: `run-${turnCount}`, abort: () => {} };
     });
 
     const { controller } = setupController('Tell a joke immediately');
@@ -441,7 +441,7 @@ describe('call-controller', () => {
         opts.onTextDelta(token);
       }
       opts.onComplete();
-      return { runId: 'run-2', abort: () => {} };
+      return { turnId: 'run-2', abort: () => {} };
     });
 
     const accepted = await controller.handleUserAnswer('3pm tomorrow');
@@ -507,7 +507,7 @@ describe('call-controller', () => {
   test('Voice turn error: sends error message to caller and returns to idle', async () => {
     mockStartVoiceTurn.mockImplementation(async (opts: { onError: (msg: string) => void }) => {
       opts.onError('API rate limit exceeded');
-      return { runId: 'run-err', abort: () => {} };
+      return { turnId: 'run-err', abort: () => {} };
     });
 
     const { relay, controller } = setupController();
@@ -554,7 +554,7 @@ describe('call-controller', () => {
         const timeout = setTimeout(() => {
           opts.onTextDelta('This should be interrupted');
           opts.onComplete();
-          resolve({ runId: 'run-1', abort: () => {} });
+          resolve({ turnId: 'run-1', abort: () => {} });
         }, 1000);
 
         opts.signal?.addEventListener('abort', () => {
@@ -563,7 +563,7 @@ describe('call-controller', () => {
           // onComplete via the event sink. The AbortSignal listener
           // in call-controller also resolves turnComplete defensively.
           opts.onComplete();
-          resolve({ runId: 'run-1', abort: () => {} });
+          resolve({ turnId: 'run-1', abort: () => {} });
         }, { once: true });
       });
     });
@@ -588,14 +588,14 @@ describe('call-controller', () => {
         const timeout = setTimeout(() => {
           opts.onTextDelta('Long running turn');
           opts.onComplete();
-          resolve({ runId: 'run-1', abort: () => {} });
+          resolve({ turnId: 'run-1', abort: () => {} });
         }, 5000);
 
         opts.signal?.addEventListener('abort', () => {
           clearTimeout(timeout);
           // Intentionally do NOT call onComplete — simulates the old
           // broken path where generation_cancelled was not forwarded.
-          resolve({ runId: 'run-1', abort: () => {} });
+          resolve({ turnId: 'run-1', abort: () => {} });
         }, { once: true });
       });
     });
@@ -633,7 +633,7 @@ describe('call-controller', () => {
       capturedGuardianContext = opts.guardianContext;
       opts.onTextDelta('Hello.');
       opts.onComplete();
-      return { runId: 'run-gc', abort: () => {} };
+      return { turnId: 'run-gc', abort: () => {} };
     });
 
     const { controller } = setupController(undefined, { guardianContext: guardianCtx });
@@ -655,7 +655,7 @@ describe('call-controller', () => {
       capturedAssistantId = opts.assistantId;
       opts.onTextDelta('Hello.');
       opts.onComplete();
-      return { runId: 'run-aid', abort: () => {} };
+      return { turnId: 'run-aid', abort: () => {} };
     });
 
     const { controller } = setupController(undefined, { assistantId: 'my-assistant' });
@@ -690,7 +690,7 @@ describe('call-controller', () => {
       capturedContexts.push(opts.guardianContext);
       opts.onTextDelta('Response.');
       opts.onComplete();
-      return { runId: `run-${capturedContexts.length}`, abort: () => {} };
+      return { turnId: `run-${capturedContexts.length}`, abort: () => {} };
     });
 
     const { controller } = setupController(undefined, { guardianContext: initialCtx });
@@ -738,14 +738,14 @@ describe('call-controller', () => {
         const timeout = setTimeout(() => {
           opts.onTextDelta('This is a long response');
           opts.onComplete();
-          resolve({ runId: 'run-1', abort: () => {} });
+          resolve({ turnId: 'run-1', abort: () => {} });
         }, 1000);
 
         opts.signal?.addEventListener('abort', () => {
           clearTimeout(timeout);
           // The defensive abort listener in runTurn resolves turnComplete
           opts.onComplete();
-          resolve({ runId: 'run-1', abort: () => {} });
+          resolve({ turnId: 'run-1', abort: () => {} });
         }, { once: true });
       });
     });
@@ -783,7 +783,7 @@ describe('call-controller', () => {
         opts.onTextDelta(token);
       }
       opts.onComplete();
-      return { runId: 'run-instr', abort: () => {} };
+      return { turnId: 'run-instr', abort: () => {} };
     });
 
     const { relay, controller } = setupController();
@@ -831,7 +831,7 @@ describe('call-controller', () => {
       turnCallCount++;
       opts.onTextDelta('Should not appear.');
       opts.onComplete();
-      return { runId: 'run-blocked', abort: () => {} };
+      return { turnId: 'run-blocked', abort: () => {} };
     });
 
     // Caller speaks while waiting — should be queued, not processed
@@ -864,7 +864,7 @@ describe('call-controller', () => {
         opts.onTextDelta('Got it, 4pm.');
       }
       opts.onComplete();
-      return { runId: `run-${turnContents.length}`, abort: () => {} };
+      return { turnId: `run-${turnContents.length}`, abort: () => {} };
     });
 
     const accepted = await controller.handleUserAnswer('Yes, confirmed');
@@ -897,7 +897,7 @@ describe('call-controller', () => {
       // Simulate the model trying to emit another ASK_GUARDIAN
       opts.onTextDelta('[ASK_GUARDIAN: Preferred date again?]');
       opts.onComplete();
-      return { runId: 'run-dup', abort: () => {} };
+      return { turnId: 'run-dup', abort: () => {} };
     });
 
     // Multiple caller utterances during waiting_on_user — all should be queued
@@ -924,7 +924,7 @@ describe('call-controller', () => {
       await new Promise((r) => setTimeout(r, 200));
       opts.onTextDelta('Response.');
       opts.onComplete();
-      return { runId: 'run-proc', abort: () => {} };
+      return { turnId: 'run-proc', abort: () => {} };
     });
     const turnPromise = controller.handleCallerUtterance('Test');
     // Give it a moment to enter processing state
@@ -952,7 +952,7 @@ describe('call-controller', () => {
       turnCallCount++;
       opts.onTextDelta('Response after instruction.');
       opts.onComplete();
-      return { runId: 'run-2', abort: () => {} };
+      return { turnId: 'run-2', abort: () => {} };
     });
 
     // Inject instruction while in waiting_on_user state
@@ -989,7 +989,7 @@ describe('call-controller', () => {
       turnContents.push(opts.content);
       opts.onTextDelta('Alright, your appointment is cancelled. Goodbye! [END_CALL]');
       opts.onComplete();
-      return { runId: `run-${turnContents.length}`, abort: () => {} };
+      return { turnId: `run-${turnContents.length}`, abort: () => {} };
     });
 
     const accepted = await controller.handleUserAnswer('Yes, cancel it');
@@ -1035,7 +1035,7 @@ describe('call-controller', () => {
       turnContents.push(opts.content);
       opts.onTextDelta('Got it, let me check 10am availability.');
       opts.onComplete();
-      return { runId: `run-${turnContents.length}`, abort: () => {} };
+      return { turnId: `run-${turnContents.length}`, abort: () => {} };
     });
 
     // Wait for the short consultation timeout to fire
