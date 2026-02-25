@@ -1,12 +1,13 @@
-import { readFileSync, existsSync, copyFileSync } from 'node:fs';
+import { copyFileSync,existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { getWorkspaceDir, getWorkspacePromptPath, isMacOS } from '../util/platform.js';
-import { getLogger } from '../util/logger.js';
-import { loadSkillCatalog, type SkillSummary } from './skills.js';
-import { getConfig } from './loader.js';
-import { listCredentialMetadata } from '../tools/credentials/metadata-store.js';
-import { resolveUserReference } from './user-reference.js';
+
 import { getParentalControlSettings } from '../security/parental-control-store.js';
+import { listCredentialMetadata } from '../tools/credentials/metadata-store.js';
+import { getLogger } from '../util/logger.js';
+import { getWorkspaceDir, getWorkspacePromptPath, isMacOS } from '../util/platform.js';
+import { getConfig } from './loader.js';
+import { loadSkillCatalog, type SkillSummary } from './skills.js';
+import { resolveUserReference } from './user-reference.js';
 
 const log = getLogger('system-prompt');
 

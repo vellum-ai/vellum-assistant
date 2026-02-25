@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, renameSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { dirname,join } from 'node:path';
+
 import { getRootDir } from '../util/platform.js';
 import { migrationLog } from './log.js';
 

@@ -1,10 +1,10 @@
-export type { FollowUp, FollowUpCreateInput, FollowUpStatus } from './types.js';
 export {
   createFollowUp,
   getFollowUp,
-  listFollowUps,
-  resolveFollowUp,
-  resolveByThread,
   getOverdueFollowUps,
+  listFollowUps,
   markNudged,
+  resolveByThread,
+  resolveFollowUp,
 } from './followup-store.js';
+export type { FollowUp, FollowUpCreateInput, FollowUpStatus } from './types.js';

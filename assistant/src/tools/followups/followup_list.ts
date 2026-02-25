@@ -1,6 +1,6 @@
-import type { ToolContext, ToolExecutionResult } from '../types.js';
-import { listFollowUps, getOverdueFollowUps } from '../../followups/followup-store.js';
+import { getOverdueFollowUps,listFollowUps } from '../../followups/followup-store.js';
 import type { FollowUp, FollowUpStatus } from '../../followups/types.js';
+import type { ToolContext, ToolExecutionResult } from '../types.js';
 
 const VALID_STATUSES = ['pending', 'resolved', 'overdue', 'nudged'] as const;
 

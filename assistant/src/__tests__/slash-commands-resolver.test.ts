@@ -1,12 +1,13 @@
 import { describe, expect, test } from 'bun:test';
+
+import type { ResolvedSkill } from '../config/skill-state.js';
+import type { SkillSummary } from '../config/skills.js';
 import {
   buildInvocableSlashCatalog,
   formatUnknownSlashSkillMessage,
-  resolveSlashSkillCommand,
   type InvocableSlashSkill,
+  resolveSlashSkillCommand,
 } from '../skills/slash-commands.js';
-import type { SkillSummary } from '../config/skills.js';
-import type { ResolvedSkill } from '../config/skill-state.js';
 
 function makeSkill(id: string, overrides?: Partial<SkillSummary>): SkillSummary {
   return {

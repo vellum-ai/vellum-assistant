@@ -1,7 +1,7 @@
 import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
-import { getMemoryBackendStatus } from './embedding-backend.js';
 import { rawGet } from './db.js';
+import { getMemoryBackendStatus } from './embedding-backend.js';
 import { enqueueBackfillJob, enqueueRebuildIndexJob } from './indexer.js';
 import {
   enqueueCleanupResolvedConflictsJob,

@@ -1,10 +1,11 @@
 import * as net from 'node:net';
-import { getSecureKey, setSecureKey, deleteSecureKey } from '../../security/secure-keys.js';
-import { upsertCredentialMetadata, deleteCredentialMetadata, getCredentialMetadata } from '../../tools/credentials/metadata-store.js';
-import { triggerGatewayReconcile } from './config-ingress.js';
+
 import { getIngressPublicBaseUrl } from '../../config/env.js';
+import { deleteSecureKey,getSecureKey, setSecureKey } from '../../security/secure-keys.js';
+import { deleteCredentialMetadata, getCredentialMetadata,upsertCredentialMetadata } from '../../tools/credentials/metadata-store.js';
 import type { TelegramConfigRequest } from '../ipc-protocol.js';
-import { log, defineHandlers, type HandlerContext } from './shared.js';
+import { triggerGatewayReconcile } from './config-ingress.js';
+import { defineHandlers, type HandlerContext,log } from './shared.js';
 
 const TELEGRAM_BOT_TOKEN_IN_URL_PATTERN = /\/bot\d{8,10}:[A-Za-z0-9_-]{30,120}\//g;
 const TELEGRAM_BOT_TOKEN_PATTERN = /(?<![A-Za-z0-9_])\d{8,10}:[A-Za-z0-9_-]{30,120}(?![A-Za-z0-9_])/g;

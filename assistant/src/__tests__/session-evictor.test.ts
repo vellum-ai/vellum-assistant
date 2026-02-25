@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test } from 'bun:test';
-import { SessionEvictor, type EvictableSession } from '../daemon/session-evictor.js';
+
+import { type EvictableSession,SessionEvictor } from '../daemon/session-evictor.js';
 
 function createMockSession(processing = false): EvictableSession & { disposed: boolean } {
   return {

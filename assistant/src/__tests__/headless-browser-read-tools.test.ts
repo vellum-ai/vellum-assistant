@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, mock } from 'bun:test';
+import { beforeEach, describe, expect, mock,test } from 'bun:test';
 
 // ── Mocks ────────────────────────────────────────────────────────────
 
@@ -57,9 +57,9 @@ mock.module('../tools/network/url-safety.js', () => ({
 }));
 
 import {
+  executeBrowserExtract,
   executeBrowserPressKey,
   executeBrowserWaitFor,
-  executeBrowserExtract,
 } from '../tools/browser/headless-browser.js';
 import type { ToolContext } from '../tools/types.js';
 

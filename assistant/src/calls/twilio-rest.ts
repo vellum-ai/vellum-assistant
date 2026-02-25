@@ -7,7 +7,7 @@
  */
 
 import { getSecureKey } from '../security/secure-keys.js';
-import { ProviderError, ConfigError } from '../util/errors.js';
+import { ConfigError,ProviderError } from '../util/errors.js';
 
 export interface TwilioCredentials {
   accountSid: string;

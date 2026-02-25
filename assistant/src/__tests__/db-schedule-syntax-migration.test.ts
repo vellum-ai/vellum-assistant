@@ -1,9 +1,10 @@
-import { describe, test, expect } from 'bun:test';
 import { Database } from 'bun:sqlite';
+import { describe, expect,test } from 'bun:test';
+import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/bun-sqlite';
+
 import * as schema from '../memory/schema.js';
 import { scheduleJobs } from '../memory/schema.js';
-import { eq } from 'drizzle-orm';
 
 function createTestDb() {
   const sqlite = new Database(':memory:');

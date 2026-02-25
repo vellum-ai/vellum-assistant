@@ -9,9 +9,10 @@
 
 import { eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
-import { getDb } from './db.js';
-import { conversations, conversationKeys } from './schema.js';
+
 import { GENERATING_TITLE } from './conversation-title-service.js';
+import { getDb } from './db.js';
+import { conversationKeys,conversations } from './schema.js';
 
 export interface ConversationKeyMapping {
   id: string;

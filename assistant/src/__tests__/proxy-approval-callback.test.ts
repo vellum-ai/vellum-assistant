@@ -1,4 +1,5 @@
-import { describe, expect, mock, test, beforeEach } from 'bun:test';
+import { beforeEach,describe, expect, mock, test } from 'bun:test';
+
 import type { ProxyApprovalRequest } from '../tools/network/script-proxy/types.js';
 
 // ---------------------------------------------------------------------------
@@ -35,8 +36,8 @@ mock.module('../security/redaction.js', () => ({
 // Import after mocks are registered.
 // ---------------------------------------------------------------------------
 
-import { createProxyApprovalCallback } from '../daemon/session-tool-setup.js';
 import type { ToolSetupContext } from '../daemon/session-tool-setup.js';
+import { createProxyApprovalCallback } from '../daemon/session-tool-setup.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
 
 // ---------------------------------------------------------------------------

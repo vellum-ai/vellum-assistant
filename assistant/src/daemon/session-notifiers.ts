@@ -7,33 +7,33 @@
  * and messages references even after updateClient().
  */
 
-import type { Message } from '../providers/types.js';
-import type { ServerMessage } from './ipc-protocol.js';
-import type { GuardianRuntimeContext } from './session-runtime-assembly.js';
 import { createAssistantMessage } from '../agent/message-types.js';
-import * as conversationStore from '../memory/conversation-store.js';
-import { provenanceFromGuardianContext } from '../memory/conversation-store.js';
+import { buildCallCompletionMessage } from '../calls/call-conversation-messages.js';
 import {
-  registerWatchStartNotifier,
-  unregisterWatchStartNotifier,
-  registerWatchCommentaryNotifier,
-  unregisterWatchCommentaryNotifier,
-  registerWatchCompletionNotifier,
-  unregisterWatchCompletionNotifier,
-  pruneWatchSessions,
-} from '../tools/watch/watch-state.js';
-import type { WatchSession } from '../tools/watch/watch-state.js';
-import { lastCommentaryBySession, lastSummaryBySession } from './watch-handler.js';
-import {
-  registerCallQuestionNotifier,
-  unregisterCallQuestionNotifier,
-  registerCallTranscriptNotifier,
-  unregisterCallTranscriptNotifier,
   registerCallCompletionNotifier,
+  registerCallQuestionNotifier,
+  registerCallTranscriptNotifier,
   unregisterCallCompletionNotifier,
+  unregisterCallQuestionNotifier,
+  unregisterCallTranscriptNotifier,
 } from '../calls/call-state.js';
 import { getCallSession } from '../calls/call-store.js';
-import { buildCallCompletionMessage } from '../calls/call-conversation-messages.js';
+import * as conversationStore from '../memory/conversation-store.js';
+import { provenanceFromGuardianContext } from '../memory/conversation-store.js';
+import type { Message } from '../providers/types.js';
+import type { WatchSession } from '../tools/watch/watch-state.js';
+import {
+  pruneWatchSessions,
+  registerWatchCommentaryNotifier,
+  registerWatchCompletionNotifier,
+  registerWatchStartNotifier,
+  unregisterWatchCommentaryNotifier,
+  unregisterWatchCompletionNotifier,
+  unregisterWatchStartNotifier,
+} from '../tools/watch/watch-state.js';
+import type { ServerMessage } from './ipc-protocol.js';
+import type { GuardianRuntimeContext } from './session-runtime-assembly.js';
+import { lastCommentaryBySession, lastSummaryBySession } from './watch-handler.js';
 
 /**
  * Subset of Session state that notifier callbacks need to read at

@@ -1,10 +1,11 @@
-import { readFileSync, writeFileSync, existsSync, statSync } from 'node:fs';
-import { ensureDataDir, getWorkspaceConfigPath, migrateToDataLayout, migrateToWorkspaceLayout } from '../util/platform.js';
+import { existsSync, readFileSync, statSync,writeFileSync } from 'node:fs';
+
+import { deleteSecureKey,getSecureKey, setSecureKey } from '../security/secure-keys.js';
 import { ConfigError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
+import { ensureDataDir, getWorkspaceConfigPath, migrateToDataLayout, migrateToWorkspaceLayout } from '../util/platform.js';
 import { DEFAULT_CONFIG } from './defaults.js';
 import { AssistantConfigSchema } from './schema.js';
-import { getSecureKey, setSecureKey, deleteSecureKey } from '../security/secure-keys.js';
 import type { AssistantConfig } from './types.js';
 
 const log = getLogger('config');

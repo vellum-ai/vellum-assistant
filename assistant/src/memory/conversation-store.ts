@@ -1,17 +1,18 @@
-import { eq, desc, asc, and, count, sql, inArray, or, isNull } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNull,or, sql } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { z } from 'zod';
-import { getDb, rawGet, rawExec } from './db.js';
-import { conversations, messages, toolInvocations, messageRuns, channelInboundEvents, memoryItemSources, memoryItems, memoryEmbeddings, memoryItemEntities, memorySegments, messageAttachments, llmRequestLogs } from './schema.js';
-import { getConfig } from '../config/loader.js';
-import { indexMessageNow } from './indexer.js';
-import { parseChannelId, parseInterfaceId } from '../channels/types.js';
+
 import type { ChannelId, InterfaceId } from '../channels/types.js';
-import { isChannelId, CHANNEL_IDS, INTERFACE_IDS } from '../channels/types.js';
-import { getLogger } from '../util/logger.js';
-import { deleteOrphanAttachments } from './attachments-store.js';
-import { createRowMapper } from '../util/row-mapper.js';
+import { parseChannelId, parseInterfaceId } from '../channels/types.js';
+import { CHANNEL_IDS, INTERFACE_IDS,isChannelId } from '../channels/types.js';
+import { getConfig } from '../config/loader.js';
 import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
+import { getLogger } from '../util/logger.js';
+import { createRowMapper } from '../util/row-mapper.js';
+import { deleteOrphanAttachments } from './attachments-store.js';
+import { getDb, rawExec,rawGet } from './db.js';
+import { indexMessageNow } from './indexer.js';
+import { channelInboundEvents, conversations, llmRequestLogs,memoryEmbeddings, memoryItemEntities, memoryItems, memoryItemSources, memorySegments, messageAttachments, messageRuns, messages, toolInvocations } from './schema.js';
 
 const log = getLogger('conversation-store');
 

@@ -1,6 +1,6 @@
+import { exitEnrollment,getEnrollment } from '../../../../sequence/store.js';
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import { getEnrollment, exitEnrollment } from '../../../../sequence/store.js';
-import { ok, err } from './shared.js';
+import { err,ok } from './shared.js';
 
 export async function run(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
   const enrollmentId = input.enrollment_id as string;

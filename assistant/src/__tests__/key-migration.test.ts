@@ -1,8 +1,9 @@
-import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
-import { mkdirSync, rmSync, existsSync, writeFileSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync,rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, mock,test } from 'bun:test';
 
 // ---------------------------------------------------------------------------
 // Mocks — declared before imports
@@ -39,9 +40,9 @@ mock.module('../util/platform.js', () => ({
   isWindows: () => false,
 }));
 
+import { invalidateConfigCache,loadConfig } from '../config/loader.js';
 import { _setStorePath } from '../security/encrypted-store.js';
 import { _setBackend } from '../security/secure-keys.js';
-import { loadConfig, invalidateConfigCache } from '../config/loader.js';
 import { getSecureKey } from '../security/secure-keys.js';
 
 // ---------------------------------------------------------------------------

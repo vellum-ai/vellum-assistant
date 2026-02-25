@@ -1,9 +1,10 @@
-import { describe, test, expect, afterAll } from 'bun:test';
+import { afterAll,describe, expect, test } from 'bun:test';
 import { readFileSync } from 'fs';
-import { join, dirname } from 'path';
-import { weatherCodeToDescription, weatherCodeToSFSymbol } from '../tools/weather/service.js';
-import { getTool, __resetRegistryForTesting } from '../tools/registry.js';
+import { dirname,join } from 'path';
+
+import { __resetRegistryForTesting,getTool } from '../tools/registry.js';
 import type { ToolContext } from '../tools/types.js';
+import { weatherCodeToDescription, weatherCodeToSFSymbol } from '../tools/weather/service.js';
 
 // ---------------------------------------------------------------------------
 // Regression tests: ensure the skill-loaded path produces the same results

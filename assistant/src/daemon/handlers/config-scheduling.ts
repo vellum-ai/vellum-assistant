@@ -1,15 +1,16 @@
 import * as net from 'node:net';
-import { listSchedules, updateSchedule, deleteSchedule, describeCronExpression, getSchedule, createScheduleRun, completeScheduleRun } from '../../schedule/schedule-store.js';
+
 import { createConversation } from '../../memory/conversation-store.js';
 import { GENERATING_TITLE, queueGenerateConversationTitle } from '../../memory/conversation-title-service.js';
-import { listReminders, cancelReminder } from '../../tools/reminder/reminder-store.js';
+import { completeScheduleRun,createScheduleRun, deleteSchedule, describeCronExpression, getSchedule, listSchedules, updateSchedule } from '../../schedule/schedule-store.js';
+import { cancelReminder,listReminders } from '../../tools/reminder/reminder-store.js';
 import type {
-  ScheduleToggle,
+  ReminderCancel,
   ScheduleRemove,
   ScheduleRunNow,
-  ReminderCancel,
+  ScheduleToggle,
 } from '../ipc-protocol.js';
-import { log, defineHandlers, type HandlerContext } from './shared.js';
+import { defineHandlers, type HandlerContext,log } from './shared.js';
 
 export function handleSchedulesList(socket: net.Socket, ctx: HandlerContext): void {
   const jobs = listSchedules();

@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test';
-import type { Message, Provider, ProviderResponse, SendMessageOptions } from '../providers/types.js';
-import { RetryProvider } from '../providers/retry.js';
+
 import { getProviderDefaultModel, isModelIntent, resolveModelIntent } from '../providers/model-intents.js';
+import { RetryProvider } from '../providers/retry.js';
+import type { Message, Provider, ProviderResponse, SendMessageOptions } from '../providers/types.js';
 
 const DUMMY_MESSAGES: Message[] = [
   { role: 'user', content: [{ type: 'text', text: 'hello' }] },

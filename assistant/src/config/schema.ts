@@ -1,159 +1,154 @@
 import { z } from 'zod';
+
 import { getDataDir } from '../util/platform.js';
 
 // Re-export all domain schemas
-export {
-  MemoryEmbeddingsConfigSchema,
-  QdrantConfigSchema,
-  MemoryRerankingConfigSchema,
-  MemoryDynamicBudgetConfigSchema,
-  MemoryEarlyTerminationConfigSchema,
-  MemoryRetrievalConfigSchema,
-  MemorySegmentationConfigSchema,
-  MemoryJobsConfigSchema,
-  MemoryRetentionConfigSchema,
-  MemoryCleanupConfigSchema,
-  MemoryExtractionConfigSchema,
-  MemoryEntityConfigSchema,
-  MemoryConflictsConfigSchema,
-  MemoryProfileConfigSchema,
-  MemorySummarizationConfigSchema,
-  MemoryConfigSchema,
-} from './memory-schema.js';
 export type {
-  MemoryEmbeddingsConfig,
-  MemoryRerankingConfig,
-  MemoryRetrievalConfig,
-  MemorySegmentationConfig,
-  MemoryJobsConfig,
-  MemoryRetentionConfig,
-  MemoryCleanupConfig,
-  MemoryExtractionConfig,
-  MemorySummarizationConfig,
-  MemoryEntityConfig,
-  MemoryConflictsConfig,
-  MemoryProfileConfig,
-  MemoryConfig,
-  QdrantConfig,
-} from './memory-schema.js';
-
-export {
-  CallsDisclosureConfigSchema,
-  CallsSafetyConfigSchema,
-  CallsElevenLabsConfigSchema,
-  CallsVoiceConfigSchema,
-  CallerIdentityConfigSchema,
-  CallsVerificationConfigSchema,
-  CallsConfigSchema,
-  VALID_CALLER_IDENTITY_MODES,
-} from './calls-schema.js';
-export type {
-  CallsConfig,
-  CallsDisclosureConfig,
-  CallsSafetyConfig,
-  CallsVoiceConfig,
-  CallsElevenLabsConfig,
-  CallerIdentityConfig,
-  CallsVerificationConfig,
-} from './calls-schema.js';
-
-export {
-  DockerConfigSchema,
-  SandboxConfigSchema,
-} from './sandbox-schema.js';
-export type {
-  SandboxConfig,
-  DockerConfig,
-} from './sandbox-schema.js';
-
-export {
-  SkillEntryConfigSchema,
-  SkillsLoadConfigSchema,
-  SkillsInstallConfigSchema,
-  SkillsConfigSchema,
-} from './skills-schema.js';
-export type {
-  SkillEntryConfig,
-  SkillsLoadConfig,
-  SkillsInstallConfig,
-  SkillsConfig,
-} from './skills-schema.js';
-
+  AgentHeartbeatConfig,
+  SwarmConfig,
+  WorkspaceGitConfig,
+} from './agent-schema.js';
 export {
   AgentHeartbeatConfigSchema,
   SwarmConfigSchema,
   WorkspaceGitConfigSchema,
 } from './agent-schema.js';
 export type {
-  AgentHeartbeatConfig,
-  SwarmConfig,
-  WorkspaceGitConfig,
-} from './agent-schema.js';
-
+  CallerIdentityConfig,
+  CallsConfig,
+  CallsDisclosureConfig,
+  CallsElevenLabsConfig,
+  CallsSafetyConfig,
+  CallsVerificationConfig,
+  CallsVoiceConfig,
+} from './calls-schema.js';
+export {
+  CallerIdentityConfigSchema,
+  CallsConfigSchema,
+  CallsDisclosureConfigSchema,
+  CallsElevenLabsConfigSchema,
+  CallsSafetyConfigSchema,
+  CallsVerificationConfigSchema,
+  CallsVoiceConfigSchema,
+  VALID_CALLER_IDENTITY_MODES,
+} from './calls-schema.js';
+export type {
+  AuditLogConfig,
+  ContextWindowConfig,
+  DaemonConfig,
+  IngressConfig,
+  IngressRateLimitConfig,
+  IngressWebhookConfig,
+  LogFileConfig,
+  ModelPricingOverride,
+  PermissionsConfig,
+  PlatformConfig,
+  RateLimitConfig,
+  SecretDetectionConfig,
+  SmsConfig,
+  ThinkingConfig,
+  TimeoutConfig,
+} from './core-schema.js';
+export {
+  AuditLogConfigSchema,
+  ContextWindowConfigSchema,
+  DaemonConfigSchema,
+  IngressConfigSchema,
+  IngressRateLimitConfigSchema,
+  IngressWebhookConfigSchema,
+  LogFileConfigSchema,
+  ModelPricingOverrideSchema,
+  PermissionsConfigSchema,
+  PlatformConfigSchema,
+  RateLimitConfigSchema,
+  SecretDetectionConfigSchema,
+  SmsConfigSchema,
+  ThinkingConfigSchema,
+  TimeoutConfigSchema,
+} from './core-schema.js';
+export type {
+  MemoryCleanupConfig,
+  MemoryConfig,
+  MemoryConflictsConfig,
+  MemoryEmbeddingsConfig,
+  MemoryEntityConfig,
+  MemoryExtractionConfig,
+  MemoryJobsConfig,
+  MemoryProfileConfig,
+  MemoryRerankingConfig,
+  MemoryRetentionConfig,
+  MemoryRetrievalConfig,
+  MemorySegmentationConfig,
+  MemorySummarizationConfig,
+  QdrantConfig,
+} from './memory-schema.js';
+export {
+  MemoryCleanupConfigSchema,
+  MemoryConfigSchema,
+  MemoryConflictsConfigSchema,
+  MemoryDynamicBudgetConfigSchema,
+  MemoryEarlyTerminationConfigSchema,
+  MemoryEmbeddingsConfigSchema,
+  MemoryEntityConfigSchema,
+  MemoryExtractionConfigSchema,
+  MemoryJobsConfigSchema,
+  MemoryProfileConfigSchema,
+  MemoryRerankingConfigSchema,
+  MemoryRetentionConfigSchema,
+  MemoryRetrievalConfigSchema,
+  MemorySegmentationConfigSchema,
+  MemorySummarizationConfigSchema,
+  QdrantConfigSchema,
+} from './memory-schema.js';
+export type {
+  NotificationsConfig,
+} from './notifications-schema.js';
 export {
   NotificationsConfigSchema,
 } from './notifications-schema.js';
 export type {
-  NotificationsConfig,
-} from './notifications-schema.js';
-
+  DockerConfig,
+  SandboxConfig,
+} from './sandbox-schema.js';
 export {
-  TimeoutConfigSchema,
-  RateLimitConfigSchema,
-  SecretDetectionConfigSchema,
-  PermissionsConfigSchema,
-  AuditLogConfigSchema,
-  LogFileConfigSchema,
-  ThinkingConfigSchema,
-  ContextWindowConfigSchema,
-  ModelPricingOverrideSchema,
-  SmsConfigSchema,
-  IngressWebhookConfigSchema,
-  IngressRateLimitConfigSchema,
-  IngressConfigSchema,
-  DaemonConfigSchema,
-  PlatformConfigSchema,
-} from './core-schema.js';
+  DockerConfigSchema,
+  SandboxConfigSchema,
+} from './sandbox-schema.js';
 export type {
-  TimeoutConfig,
-  RateLimitConfig,
-  SecretDetectionConfig,
-  PermissionsConfig,
-  AuditLogConfig,
-  LogFileConfig,
-  ThinkingConfig,
-  ContextWindowConfig,
-  ModelPricingOverride,
-  SmsConfig,
-  IngressWebhookConfig,
-  IngressRateLimitConfig,
-  IngressConfig,
-  DaemonConfig,
-  PlatformConfig,
-} from './core-schema.js';
+  SkillEntryConfig,
+  SkillsConfig,
+  SkillsInstallConfig,
+  SkillsLoadConfig,
+} from './skills-schema.js';
+export {
+  SkillEntryConfigSchema,
+  SkillsConfigSchema,
+  SkillsInstallConfigSchema,
+  SkillsLoadConfigSchema,
+} from './skills-schema.js';
 
 // Imports for AssistantConfigSchema composition
-import { MemoryConfigSchema } from './memory-schema.js';
-import { CallsConfigSchema } from './calls-schema.js';
-import { SandboxConfigSchema } from './sandbox-schema.js';
-import { SkillsConfigSchema } from './skills-schema.js';
 import { AgentHeartbeatConfigSchema, SwarmConfigSchema, WorkspaceGitConfigSchema } from './agent-schema.js';
-import { NotificationsConfigSchema } from './notifications-schema.js';
+import { CallsConfigSchema } from './calls-schema.js';
 import {
-  TimeoutConfigSchema,
+  AuditLogConfigSchema,
+  ContextWindowConfigSchema,
+  DaemonConfigSchema,
+  IngressConfigSchema,
+  LogFileConfigSchema,
+  ModelPricingOverrideSchema,
+  PermissionsConfigSchema,
+  PlatformConfigSchema,
   RateLimitConfigSchema,
   SecretDetectionConfigSchema,
-  PermissionsConfigSchema,
-  AuditLogConfigSchema,
-  LogFileConfigSchema,
-  ThinkingConfigSchema,
-  ContextWindowConfigSchema,
-  ModelPricingOverrideSchema,
   SmsConfigSchema,
-  IngressConfigSchema,
-  DaemonConfigSchema,
-  PlatformConfigSchema,
+  ThinkingConfigSchema,
+  TimeoutConfigSchema,
 } from './core-schema.js';
+import { MemoryConfigSchema } from './memory-schema.js';
+import { NotificationsConfigSchema } from './notifications-schema.js';
+import { SandboxConfigSchema } from './sandbox-schema.js';
+import { SkillsConfigSchema } from './skills-schema.js';
 
 const VALID_PROVIDERS = ['anthropic', 'openai', 'gemini', 'ollama', 'fireworks', 'openrouter'] as const;
 const VALID_WEB_SEARCH_PROVIDERS = ['perplexity', 'brave', 'anthropic-native'] as const;

@@ -1,7 +1,8 @@
-import { beforeEach, afterAll, describe, expect, mock, test } from 'bun:test';
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 
 const testDir = mkdtempSync(join(tmpdir(), 'home-base-seed-test-'));
 
@@ -24,7 +25,7 @@ mock.module('../util/logger.js', () => ({
 }));
 
 import { ensurePrebuiltHomeBaseSeeded, findSeededHomeBaseApp } from '../home-base/prebuilt/seed.js';
-import { listApps, getApp, updateApp } from '../memory/app-store.js';
+import { getApp, listApps, updateApp } from '../memory/app-store.js';
 
 describe('prebuilt home base seed', () => {
   beforeEach(() => {

@@ -1,7 +1,8 @@
+import { existsSync,mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
-import { getDataDir } from '../../util/platform.js';
+
 import { getLogger } from '../../util/logger.js';
+import { getDataDir } from '../../util/platform.js';
 
 const log = getLogger('auth-cache');
 

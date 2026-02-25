@@ -9,18 +9,18 @@
  *   3. Consume user decisions and apply them to the underlying run
  */
 
-import { getPendingConfirmationsByConversation, getRun } from '../memory/runs-store.js';
 import type { PendingRunInfo } from '../memory/runs-store.js';
+import { getPendingConfirmationsByConversation, getRun } from '../memory/runs-store.js';
 import { addRule } from '../permissions/trust-store.js';
 import { getTool } from '../tools/registry.js';
-import type { RunOrchestrator } from './run-orchestrator.js';
-import { DEFAULT_APPROVAL_ACTIONS } from './channel-approval-types.js';
-import type {
-  ChannelApprovalPrompt,
-  ApprovalUIMetadata,
-  ApprovalDecisionResult,
-} from './channel-approval-types.js';
 import { composeApprovalMessage } from './approval-message-composer.js';
+import type {
+  ApprovalDecisionResult,
+  ApprovalUIMetadata,
+  ChannelApprovalPrompt,
+} from './channel-approval-types.js';
+import { DEFAULT_APPROVAL_ACTIONS } from './channel-approval-types.js';
+import type { RunOrchestrator } from './run-orchestrator.js';
 
 // ---------------------------------------------------------------------------
 // 1. Detect pending confirmations and build prompt

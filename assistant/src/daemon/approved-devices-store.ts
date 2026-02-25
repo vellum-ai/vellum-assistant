@@ -5,11 +5,12 @@
  * atomic-write pattern from trust-store.ts (write .tmp → rename → chmod).
  */
 
-import { existsSync, readFileSync, writeFileSync, renameSync, chmodSync, mkdirSync } from 'node:fs';
-import { join, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
-import { getRootDir } from '../util/platform.js';
+import { chmodSync, existsSync, mkdirSync,readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { dirname,join } from 'node:path';
+
 import { getLogger } from '../util/logger.js';
+import { getRootDir } from '../util/platform.js';
 
 const log = getLogger('approved-devices-store');
 

@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, mock } from 'bun:test';
+import { beforeEach, describe, expect, mock,test } from 'bun:test';
 
 // ── Mocks ────────────────────────────────────────────────────────────
 
@@ -71,15 +71,15 @@ mock.module('../tools/browser/browser-screencast.js', () => ({
 
 import {
   executeBrowserClick,
-  executeBrowserType,
-  executeBrowserSnapshot,
-  executeBrowserScreenshot,
   executeBrowserClose,
   executeBrowserExtract,
+  executeBrowserHover,
   executeBrowserPressKey,
+  executeBrowserScreenshot,
   executeBrowserScroll,
   executeBrowserSelectOption,
-  executeBrowserHover,
+  executeBrowserSnapshot,
+  executeBrowserType,
 } from '../tools/browser/headless-browser.js';
 import type { ToolContext } from '../tools/types.js';
 

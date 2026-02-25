@@ -1,12 +1,14 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { eq, and } from 'drizzle-orm';
-import { getLogger } from '../util/logger.js';
-import { embedWithBackend, getMemoryBackendStatus } from './embedding-backend.js';
-import { getDb } from './db.js';
-import { getQdrantClient } from './qdrant-client.js';
-import { memoryEmbeddings } from './schema.js';
+
+import { and,eq } from 'drizzle-orm';
+
 import type { AssistantConfig } from '../config/types.js';
 import { BackendUnavailableError } from '../util/errors.js';
+import { getLogger } from '../util/logger.js';
+import { getDb } from './db.js';
+import { embedWithBackend, getMemoryBackendStatus } from './embedding-backend.js';
+import { getQdrantClient } from './qdrant-client.js';
+import { memoryEmbeddings } from './schema.js';
 
 export { BackendUnavailableError };
 

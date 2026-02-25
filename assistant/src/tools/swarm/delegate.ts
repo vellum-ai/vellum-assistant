@@ -1,14 +1,14 @@
-import { RiskLevel } from '../../permissions/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
-import type { ToolDefinition } from '../../providers/types.js';
 import { getConfig } from '../../config/loader.js';
+import { RiskLevel } from '../../permissions/types.js';
+import { getFailoverProvider } from '../../providers/registry.js';
+import type { ToolDefinition } from '../../providers/types.js';
+import { createClaudeCodeBackend } from '../../swarm/backend-claude-code.js';
+import { resolveSwarmLimits } from '../../swarm/limits.js';
+import { executeSwarm } from '../../swarm/orchestrator.js';
+import { generatePlan } from '../../swarm/router-planner.js';
 import { getLogger } from '../../util/logger.js';
 import { truncate } from '../../util/truncate.js';
-import { getFailoverProvider } from '../../providers/registry.js';
-import { resolveSwarmLimits } from '../../swarm/limits.js';
-import { generatePlan } from '../../swarm/router-planner.js';
-import { executeSwarm } from '../../swarm/orchestrator.js';
-import { createClaudeCodeBackend } from '../../swarm/backend-claude-code.js';
+import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 
 const log = getLogger('swarm-delegate');
 

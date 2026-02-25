@@ -1,13 +1,14 @@
-import { mkdirSync, existsSync, statSync, unlinkSync, readFileSync, writeFileSync, chmodSync } from 'node:fs';
-import { join } from 'node:path';
+import { chmodSync,existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
+import { join } from 'node:path';
+
 import {
   getBaseDataDir,
+  getDaemonIosPairing,
   getDaemonSocket,
-  getDaemonTcpPort,
   getDaemonTcpEnabled,
   getDaemonTcpHost,
-  getDaemonIosPairing,
+  getDaemonTcpPort,
 } from '../config/env-registry.js';
 
 export function isMacOS(): boolean {
@@ -341,8 +342,8 @@ export function getWorkspacePromptPath(file: string): string {
 }
 
 // Re-export migration functions so existing consumers don't break.
-export { migratePath, migrateToWorkspaceLayout } from '../migrations/workspace-layout.js';
 export { migrateToDataLayout } from '../migrations/data-layout.js';
+export { migratePath, migrateToWorkspaceLayout } from '../migrations/workspace-layout.js';
 
 export function ensureDataDir(): void {
   const root = getRootDir();

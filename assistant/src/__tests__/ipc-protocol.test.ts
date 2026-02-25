@@ -1,5 +1,6 @@
-import { describe, test, expect } from 'bun:test';
-import { createMessageParser, serialize, MAX_LINE_SIZE } from '../daemon/ipc-protocol.js';
+import { describe, expect,test } from 'bun:test';
+
+import { createMessageParser, MAX_LINE_SIZE,serialize } from '../daemon/ipc-protocol.js';
 
 describe('IPC Protocol', () => {
   describe('serialize', () => {

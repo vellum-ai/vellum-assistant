@@ -1,12 +1,13 @@
 import { inArray, sql } from 'drizzle-orm';
+
 import type { AssistantConfig, MemoryRerankingConfig } from '../../config/types.js';
 import { estimateTextTokens } from '../../context/token-estimator.js';
+import { extractText, getConfiguredProvider, userMessage } from '../../providers/provider-send-message.js';
 import { getLogger } from '../../util/logger.js';
-import { getConfiguredProvider, extractText, userMessage } from '../../providers/provider-send-message.js';
 import { getDb } from '../db.js';
 import { memoryItems } from '../schema.js';
-import type { Candidate, CandidateSource, ItemMetadata } from './types.js';
 import { buildInjectedText } from './formatting.js';
+import type { Candidate, CandidateSource, ItemMetadata } from './types.js';
 
 const log = getLogger('memory-retriever');
 

@@ -1,11 +1,11 @@
-import { RiskLevel } from '../../permissions/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
-import type { ToolDefinition } from '../../providers/types.js';
-import { registerTool } from '../registry.js';
 import { getConfig } from '../../config/loader.js';
+import { RiskLevel } from '../../permissions/types.js';
+import type { ToolDefinition } from '../../providers/types.js';
 import { getSecureKey } from '../../security/secure-keys.js';
 import { getLogger } from '../../util/logger.js';
-import { getHttpRetryDelay, sleep, DEFAULT_MAX_RETRIES, DEFAULT_BASE_DELAY_MS } from '../../util/retry.js';
+import { DEFAULT_BASE_DELAY_MS,DEFAULT_MAX_RETRIES, getHttpRetryDelay, sleep } from '../../util/retry.js';
+import { registerTool } from '../registry.js';
+import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 
 const log = getLogger('web-search');
 

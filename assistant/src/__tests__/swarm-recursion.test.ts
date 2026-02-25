@@ -1,4 +1,4 @@
-import { describe, test, expect, mock, beforeEach } from 'bun:test';
+import { beforeEach,describe, expect, mock, test } from 'bun:test';
 
 // ---------------------------------------------------------------------------
 // Gate that the SDK mock waits on, letting us hold a swarm active while
@@ -77,7 +77,7 @@ mock.module('@anthropic-ai/claude-agent-sdk', () => ({
   }),
 }));
 
-import { swarmDelegateTool, _resetSwarmActive } from '../tools/swarm/delegate.js';
+import { _resetSwarmActive,swarmDelegateTool } from '../tools/swarm/delegate.js';
 import type { ToolContext } from '../tools/types.js';
 
 function makeContext(overrides?: Partial<ToolContext>): ToolContext {

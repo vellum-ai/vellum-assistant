@@ -1,7 +1,8 @@
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdirSync, writeFileSync, rmSync, chmodSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { chmodSync, mkdirSync, readFileSync,rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach,beforeEach, describe, expect, test } from 'bun:test';
 
 // Set BASE_DATA_DIR before importing modules that use getRootDir()
 const testDir = join(tmpdir(), `hooks-settings-test-${Date.now()}`);
@@ -10,7 +11,7 @@ process.env.BASE_DATA_DIR = testDir;
 import { getHookSettings } from '../hooks/config.js';
 import { saveHooksConfig } from '../hooks/config.js';
 import { runHookScript } from '../hooks/runner.js';
-import type { HookManifest, DiscoveredHook } from '../hooks/types.js';
+import type { DiscoveredHook,HookManifest } from '../hooks/types.js';
 
 describe('Hook Settings', () => {
   let hooksDir: string;

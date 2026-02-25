@@ -1,24 +1,25 @@
-import { RiskLevel } from '../../permissions/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
-import type { ToolDefinition } from '../../providers/types.js';
-import { registerTool } from '../registry.js';
-import { getLogger } from '../../util/logger.js';
-import { request as httpRequest, type IncomingHttpHeaders } from 'node:http';
+import { type IncomingHttpHeaders,request as httpRequest } from 'node:http';
 import { request as httpsRequest, type RequestOptions as HttpsRequestOptions } from 'node:https';
 import { Readable } from 'node:stream';
+
+import { RiskLevel } from '../../permissions/types.js';
+import type { ToolDefinition } from '../../providers/types.js';
+import { getLogger } from '../../util/logger.js';
+import { registerTool } from '../registry.js';
+import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import {
-  type ResolveHostAddresses,
-  parseUrl,
+  buildHostHeader,
   isIPv4,
   isIPv6,
   isPrivateOrLocalHost,
-  unwrapBracketedHostname,
+  parseUrl,
+  type ResolveHostAddresses,
   resolveHostAddresses,
   resolveRequestAddress,
-  buildHostHeader,
-  stripUrlUserinfo,
   sanitizeUrlForOutput,
   sanitizeUrlStringForOutput,
+  stripUrlUserinfo,
+  unwrapBracketedHostname,
 } from './url-safety.js';
 
 const log = getLogger('web-fetch');

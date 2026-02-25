@@ -1,7 +1,8 @@
-import { describe, test, expect, beforeAll, afterAll, beforeEach, mock } from 'bun:test';
-import { mkdtempSync, rmSync, mkdirSync } from 'node:fs';
+import { mkdirSync,mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, beforeAll, beforeEach, describe, expect, mock,test } from 'bun:test';
 
 // ── Mocks (before any app imports) ──────────────────────────────────
 
@@ -40,35 +41,35 @@ _overrideDeps({
   execFileSync: (() => '') as unknown as typeof import('node:child_process').execFileSync,
 });
 
-import { _resetBackend } from '../security/secure-keys.js';
 import { _setStorePath } from '../security/encrypted-store.js';
+import { _resetBackend } from '../security/secure-keys.js';
 
 const STORE_PATH = join(testDir, 'keys.enc');
 
 // ── Imports (after mocks) ───────────────────────────────────────────
 
-import { createMockSignupServer, type MockSignupServer } from './fixtures/mock-signup-server.js';
-import { initializeDb, getDb, resetDb } from '../memory/db.js';
 import {
   createAccount,
   listAccounts,
 } from '../memory/account-store.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import {
-  setSecureKey,
-  getSecureKey,
   deleteSecureKey,
+  getSecureKey,
   listSecureKeys,
+  setSecureKey,
 } from '../security/secure-keys.js';
-import { upsertCredentialMetadata, _setMetadataPath } from '../tools/credentials/metadata-store.js';
 import {
-  executeBrowserNavigate,
   executeBrowserClick,
-  executeBrowserType,
+  executeBrowserClose,
   executeBrowserExtract,
   executeBrowserFillCredential,
-  executeBrowserClose,
+  executeBrowserNavigate,
+  executeBrowserType,
 } from '../tools/browser/headless-browser.js';
+import { _setMetadataPath,upsertCredentialMetadata } from '../tools/credentials/metadata-store.js';
 import type { ToolContext } from '../tools/types.js';
+import { createMockSignupServer, type MockSignupServer } from './fixtures/mock-signup-server.js';
 
 // ── Setup ───────────────────────────────────────────────────────────
 

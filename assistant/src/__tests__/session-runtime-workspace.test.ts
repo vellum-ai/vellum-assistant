@@ -1,10 +1,11 @@
-import { describe, test, expect } from 'bun:test';
-import type { Message } from '../providers/types.js';
+import { describe, expect,test } from 'bun:test';
+
 import {
+  applyRuntimeInjections,
   injectWorkspaceTopLevelContext,
   stripWorkspaceTopLevelContext,
-  applyRuntimeInjections,
 } from '../daemon/session-runtime-assembly.js';
+import type { Message } from '../providers/types.js';
 
 // ---------------------------------------------------------------------------
 // Fixture messages

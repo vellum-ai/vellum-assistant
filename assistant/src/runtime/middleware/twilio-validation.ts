@@ -2,11 +2,11 @@
  * Twilio webhook signature validation and related constants.
  */
 
-import { getLogger } from '../../util/logger.js';
-import { isTwilioWebhookValidationDisabled } from '../../config/env.js';
 import { TwilioConversationRelayProvider } from '../../calls/twilio-provider.js';
+import { isTwilioWebhookValidationDisabled } from '../../config/env.js';
 import { loadConfig } from '../../config/loader.js';
 import { getPublicBaseUrl } from '../../inbound/public-ingress-urls.js';
+import { getLogger } from '../../util/logger.js';
 
 const log = getLogger('runtime-http');
 

@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import { afterEach,beforeEach, describe, expect, test } from 'bun:test';
 
 // No mock.module calls — this test file uses its own inline executeWebSearch
 // helper and does not import any production modules.  Stray mock.module calls

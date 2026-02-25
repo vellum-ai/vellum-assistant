@@ -1,12 +1,13 @@
 import * as net from 'node:net';
-import { getSocketPath, readSessionToken } from '../util/platform.js';
+
 import {
-  serialize,
-  createMessageParser,
   type ClientMessage,
+  createMessageParser,
+  serialize,
   type ServerMessage,
 } from '../daemon/ipc-protocol.js';
 import { IpcError } from '../util/errors.js';
+import { getSocketPath, readSessionToken } from '../util/platform.js';
 
 export function sendOneMessage(
   msg: ClientMessage,

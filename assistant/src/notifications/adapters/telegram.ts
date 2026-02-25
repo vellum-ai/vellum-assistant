@@ -7,16 +7,16 @@
  * payload. The gateway forwards the message to the Telegram Bot API.
  */
 
-import { getLogger } from '../../util/logger.js';
 import { getGatewayInternalBaseUrl } from '../../config/env.js';
 import { deliverChannelReply } from '../../runtime/gateway-client.js';
+import { getLogger } from '../../util/logger.js';
 import { readHttpToken } from '../../util/platform.js';
 import type {
-  NotificationChannel,
   ChannelAdapter,
   ChannelDeliveryPayload,
   ChannelDestination,
   DeliveryResult,
+  NotificationChannel,
 } from '../types.js';
 
 const log = getLogger('notif-adapter-telegram');

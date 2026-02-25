@@ -1,6 +1,6 @@
+import type { ToolLifecycleEventHandler } from '../tools/types.js';
 import type { EventBus } from './bus.js';
 import type { AssistantDomainEvents } from './domain-events.js';
-import type { ToolLifecycleEventHandler } from '../tools/types.js';
 
 const allowDecisions = new Set(['allow', 'always_allow']);
 

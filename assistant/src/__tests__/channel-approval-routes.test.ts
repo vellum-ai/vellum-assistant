@@ -1,7 +1,8 @@
-import { describe, test, expect, beforeEach, afterAll, mock, spyOn } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, beforeEach, describe, expect, mock, spyOn,test } from 'bun:test';
 import { eq } from 'drizzle-orm';
 
 // ---------------------------------------------------------------------------
@@ -41,31 +42,31 @@ mock.module('../daemon/handlers.js', () => ({
   }),
 }));
 
-import { initializeDb, getDb, resetDb } from '../memory/db.js';
-import { conversations, externalConversationBindings } from '../memory/schema.js';
-import {
-  createRun,
-  setRunConfirmation,
-} from '../memory/runs-store.js';
-import type { PendingConfirmation } from '../memory/runs-store.js';
-import { setConversationKeyIfAbsent } from '../memory/conversation-key-store.js';
 import * as channelDeliveryStore from '../memory/channel-delivery-store.js';
-import * as conversationStore from '../memory/conversation-store.js';
 import {
-  createBinding,
   createApprovalRequest,
+  createBinding,
   getAllPendingApprovalsByGuardianChat,
   getPendingApprovalForRun,
   getUnresolvedApprovalForRun,
 } from '../memory/channel-guardian-store.js';
-import type { RunOrchestrator } from '../runtime/run-orchestrator.js';
+import { setConversationKeyIfAbsent } from '../memory/conversation-key-store.js';
+import * as conversationStore from '../memory/conversation-store.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
+import type { PendingConfirmation } from '../memory/runs-store.js';
 import {
+  createRun,
+  setRunConfirmation,
+} from '../memory/runs-store.js';
+import { conversations, externalConversationBindings } from '../memory/schema.js';
+import * as gatewayClient from '../runtime/gateway-client.js';
+import {
+  _setTestPollMaxWait,
   handleChannelInbound,
   sweepExpiredGuardianApprovals,
   verifyGatewayOrigin,
-  _setTestPollMaxWait,
 } from '../runtime/routes/channel-routes.js';
-import * as gatewayClient from '../runtime/gateway-client.js';
+import type { RunOrchestrator } from '../runtime/run-orchestrator.js';
 
 initializeDb();
 

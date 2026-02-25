@@ -6,6 +6,7 @@
 
 import { mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
+
 import { getDataDir } from '../../util/platform.js';
 import type { NetworkRecordedEntry } from './network-recording-types.js';
 

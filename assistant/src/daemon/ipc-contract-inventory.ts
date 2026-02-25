@@ -6,9 +6,9 @@
  * from both the barrel file and the domain files in ipc-contract/.
  */
 
-import * as ts from 'typescript';
-import * as path from 'path';
 import * as fs from 'fs';
+import * as path from 'path';
+import * as ts from 'typescript';
 
 export interface ContractInventory {
   clientMessageTypes: string[];

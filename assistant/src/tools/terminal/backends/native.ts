@@ -1,10 +1,11 @@
-import { writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync,writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { isMacOS, isLinux } from '../../../util/platform.js';
+
 import { ToolError } from '../../../util/errors.js';
 import { getLogger } from '../../../util/logger.js';
+import { isLinux,isMacOS } from '../../../util/platform.js';
 import type { SandboxBackend, SandboxResult } from './types.js';
 
 const log = getLogger('sandbox');

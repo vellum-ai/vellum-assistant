@@ -10,9 +10,9 @@
  * RunOrchestrator instance at startup via `setVoiceBridgeOrchestrator()`.
  */
 
-import type { RunOrchestrator, VoiceRunEventSink } from '../runtime/run-orchestrator.js';
-import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
 import { getConfig } from '../config/loader.js';
+import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
+import type { RunOrchestrator, VoiceRunEventSink } from '../runtime/run-orchestrator.js';
 import { getLogger } from '../util/logger.js';
 
 /**

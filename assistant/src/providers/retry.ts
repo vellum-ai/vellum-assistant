@@ -1,14 +1,14 @@
-import type { Provider, ProviderResponse, SendMessageOptions, Message, ToolDefinition } from './types.js';
 import { ProviderError } from '../util/errors.js';
 import { getLogger, isDebug } from '../util/logger.js';
-import { isModelIntent, resolveModelIntent } from './model-intents.js';
 import {
   computeRetryDelay,
+  DEFAULT_BASE_DELAY_MS,
+  DEFAULT_MAX_RETRIES,
   isRetryableNetworkError,
   sleep,
-  DEFAULT_MAX_RETRIES,
-  DEFAULT_BASE_DELAY_MS,
 } from '../util/retry.js';
+import { isModelIntent, resolveModelIntent } from './model-intents.js';
+import type { Message, Provider, ProviderResponse, SendMessageOptions, ToolDefinition } from './types.js';
 
 const log = getLogger('retry');
 

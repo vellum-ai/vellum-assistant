@@ -1,13 +1,14 @@
 import { and, desc, eq, gte, isNull, lt } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
+
 import type { AssistantConfig } from '../../config/types.js';
 import { estimateTextTokens } from '../../context/token-estimator.js';
+import { createTimeout, extractText, getConfiguredProvider, userMessage } from '../../providers/provider-send-message.js';
 import { getLogger } from '../../util/logger.js';
-import { getConfiguredProvider, createTimeout, extractText, userMessage } from '../../providers/provider-send-message.js';
 import { getConversationMemoryScopeId } from '../conversation-store.js';
 import { getDb } from '../db.js';
-import { enqueueMemoryJob, type MemoryJob } from '../jobs-store.js';
 import { asString, currentMonthWindow, currentWeekWindow, truncate } from '../job-utils.js';
+import { enqueueMemoryJob, type MemoryJob } from '../jobs-store.js';
 import { memoryItems, memorySegments, memorySummaries } from '../schema.js';
 
 const log = getLogger('memory-jobs-worker');

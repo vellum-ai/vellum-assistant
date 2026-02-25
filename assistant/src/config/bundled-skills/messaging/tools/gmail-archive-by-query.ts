@@ -1,8 +1,8 @@
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import { withValidToken } from '../../../../security/token-manager.js';
+import { batchModifyMessages,listMessages } from '../../../../messaging/providers/gmail/client.js';
 import { getMessagingProvider } from '../../../../messaging/registry.js';
-import { listMessages, batchModifyMessages } from '../../../../messaging/providers/gmail/client.js';
-import { ok, err } from './shared.js';
+import { withValidToken } from '../../../../security/token-manager.js';
+import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
+import { err,ok } from './shared.js';
 
 const BATCH_MODIFY_LIMIT = 1000;
 const MAX_MESSAGES = 5000;

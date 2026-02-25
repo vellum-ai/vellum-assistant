@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
 import * as Sentry from '@sentry/node';
-import { runDaemon } from './lifecycle.js';
+
 import { getLogger } from '../util/logger.js';
+import { runDaemon } from './lifecycle.js';
 
 runDaemon().catch(async (err) => {
   Sentry.captureException(err);

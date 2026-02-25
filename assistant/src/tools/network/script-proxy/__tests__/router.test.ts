@@ -1,6 +1,7 @@
-import { describe, test, expect } from 'bun:test';
-import { routeConnection } from '../router.js';
+import { describe, expect,test } from 'bun:test';
+
 import type { CredentialInjectionTemplate } from '../../../credentials/policy-types.js';
+import { routeConnection } from '../router.js';
 
 function makeTemplate(overrides: Partial<CredentialInjectionTemplate> = {}): CredentialInjectionTemplate {
   return {

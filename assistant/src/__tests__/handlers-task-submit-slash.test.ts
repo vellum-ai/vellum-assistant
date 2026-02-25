@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import { parseSlashCandidate } from '../skills/slash-commands.js';
 
 /**

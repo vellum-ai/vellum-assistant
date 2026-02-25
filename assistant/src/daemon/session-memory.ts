@@ -1,18 +1,18 @@
-import type { Message } from '../providers/types.js';
-import type { ServerMessage } from './ipc-protocol.js';
-import type { Provider } from '../providers/types.js';
 import { getConfig } from '../config/loader.js';
-import {
-  buildMemoryRecall,
-  injectMemoryRecallIntoUserMessage,
-  injectMemoryRecallAsSeparateMessage,
-} from '../memory/retriever.js';
-import type { ScopePolicyOverride } from '../memory/search/types.js';
+import { estimatePromptTokens } from '../context/token-estimator.js';
+import { getMemoryConflictAndCleanupStats } from '../memory/admin.js';
+import { compileDynamicProfile } from '../memory/profile-compiler.js';
 import { buildMemoryQuery } from '../memory/query-builder.js';
 import { computeRecallBudget } from '../memory/retrieval-budget.js';
-import { estimatePromptTokens } from '../context/token-estimator.js';
-import { compileDynamicProfile } from '../memory/profile-compiler.js';
-import { getMemoryConflictAndCleanupStats } from '../memory/admin.js';
+import {
+  buildMemoryRecall,
+  injectMemoryRecallAsSeparateMessage,
+  injectMemoryRecallIntoUserMessage,
+} from '../memory/retriever.js';
+import type { ScopePolicyOverride } from '../memory/search/types.js';
+import type { Message } from '../providers/types.js';
+import type { Provider } from '../providers/types.js';
+import type { ServerMessage } from './ipc-protocol.js';
 import type { ConflictGate } from './session-conflict-gate.js';
 import { injectDynamicProfileIntoUserMessage } from './session-dynamic-profile.js';
 

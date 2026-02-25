@@ -10,23 +10,23 @@
  * a per-user OAuth token.
  */
 
-import type { MessagingProvider } from '../../provider.js';
-import type {
-  Conversation,
-  Message,
-  SearchResult,
-  SendResult,
-  ConnectionInfo,
-  ListOptions,
-  HistoryOptions,
-  SearchOptions,
-  SendOptions,
-} from '../../provider-types.js';
-import { getSecureKey } from '../../../security/secure-keys.js';
-import { readHttpToken } from '../../../util/platform.js';
 import { getGatewayInternalBaseUrl } from '../../../config/env.js';
 import { getOrCreateConversation } from '../../../memory/conversation-key-store.js';
 import * as externalConversationStore from '../../../memory/external-conversation-store.js';
+import { getSecureKey } from '../../../security/secure-keys.js';
+import { readHttpToken } from '../../../util/platform.js';
+import type { MessagingProvider } from '../../provider.js';
+import type {
+  ConnectionInfo,
+  Conversation,
+  HistoryOptions,
+  ListOptions,
+  Message,
+  SearchOptions,
+  SearchResult,
+  SendOptions,
+  SendResult,
+} from '../../provider-types.js';
 import * as whatsapp from './client.js';
 
 /** Resolve the gateway base URL. */

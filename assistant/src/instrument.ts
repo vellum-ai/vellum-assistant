@@ -1,6 +1,7 @@
 import * as Sentry from "@sentry/node";
-import { APP_VERSION } from "./version.js";
+
 import { getSentryDsn } from "./config/env.js";
+import { APP_VERSION } from "./version.js";
 
 /** Patterns that match sensitive data in Sentry event values. */
 const PII_PATTERNS = [

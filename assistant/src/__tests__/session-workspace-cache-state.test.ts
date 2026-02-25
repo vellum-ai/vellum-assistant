@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
-import type { Message, ProviderResponse } from '../providers/types.js';
+
 import type { AgentEvent } from '../agent/loop.js';
+import type { Message, ProviderResponse } from '../providers/types.js';
 
 // ---------------------------------------------------------------------------
 // Mock dependencies — follows session-profile-injection.test.ts pattern

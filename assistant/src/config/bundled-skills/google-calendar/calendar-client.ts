@@ -1,9 +1,9 @@
 import type {
   CalendarEvent,
   CalendarEventsListResponse,
+  CalendarListResponse,
   FreeBusyRequest,
   FreeBusyResponse,
-  CalendarListResponse,
 } from './types.js';
 
 const CALENDAR_API_BASE = 'https://www.googleapis.com/calendar/v3';

@@ -1,5 +1,5 @@
-import type { SessionErrorCode, SessionErrorMessage } from './ipc-protocol.js';
 import { ProviderError } from '../util/errors.js';
+import type { SessionErrorCode, SessionErrorMessage } from './ipc-protocol.js';
 
 /**
  * Classified session error ready for IPC emission.

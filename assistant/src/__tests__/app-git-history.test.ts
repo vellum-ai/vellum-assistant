@@ -1,9 +1,11 @@
-import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
-import { mkdirSync, rmSync, existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync,rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { _resetGitServiceRegistry } from '../workspace/git-service.js';
+import { join } from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, mock,test } from 'bun:test';
+
 import { _resetAppGitState } from '../memory/app-git-service.js';
+import { _resetGitServiceRegistry } from '../workspace/git-service.js';
 
 // Mock getDataDir to use a temp directory
 let testDataDir: string;

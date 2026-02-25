@@ -8,27 +8,24 @@
  * - channel-guardian-routes.ts — guardian approval interception, expiry sweep
  */
 export {
-  GATEWAY_ORIGIN_HEADER,
-  verifyGatewayOrigin,
-  type ActorRole,
-  type DenialReason,
-  type GuardianContext,
-  _setTestPollMaxWait,
-} from './channel-route-shared.js';
-
-export {
-  handleDeleteConversation,
-  handleChannelInbound,
-} from './channel-inbound-routes.js';
-
-export {
+  handleChannelDeliveryAck,
   handleListDeadLetters,
   handleReplayDeadLetters,
-  handleChannelDeliveryAck,
 } from './channel-delivery-routes.js';
-
 export {
-  sweepExpiredGuardianApprovals,
   startGuardianExpirySweep,
   stopGuardianExpirySweep,
+  sweepExpiredGuardianApprovals,
 } from './channel-guardian-routes.js';
+export {
+  handleChannelInbound,
+  handleDeleteConversation,
+} from './channel-inbound-routes.js';
+export {
+  _setTestPollMaxWait,
+  type ActorRole,
+  type DenialReason,
+  GATEWAY_ORIGIN_HEADER,
+  type GuardianContext,
+  verifyGatewayOrigin,
+} from './channel-route-shared.js';

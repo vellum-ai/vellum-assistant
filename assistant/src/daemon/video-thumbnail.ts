@@ -5,10 +5,11 @@
  * as a JPEG, and returns the result as a base64 string.
  */
 
+import { randomUUID } from 'node:crypto';
+import { readFile, unlink,writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { writeFile, readFile, unlink } from 'node:fs/promises';
-import { randomUUID } from 'node:crypto';
+
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('video-thumbnail');

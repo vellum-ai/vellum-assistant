@@ -1,8 +1,9 @@
-import { describe, test, expect, mock, beforeEach } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
+import * as net from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import * as net from 'node:net';
+
+import { beforeEach,describe, expect, mock, test } from 'bun:test';
 
 const testDir = mkdtempSync(join(tmpdir(), 'handlers-twilio-cfg-test-'));
 
@@ -135,13 +136,13 @@ mock.module('../tools/credentials/metadata-store.js', () => ({
 // Mock fetch for Twilio API validation
 const originalFetch = globalThis.fetch;
 
-import { handleTwilioConfig, handleIngressConfig } from '../daemon/handlers/config.js';
 import { getTwilioConfig } from '../calls/twilio-config.js';
 import type { HandlerContext } from '../daemon/handlers.js';
+import { handleIngressConfig,handleTwilioConfig } from '../daemon/handlers/config.js';
 import type {
-  TwilioConfigRequest,
   IngressConfigRequest,
   ServerMessage,
+  TwilioConfigRequest,
 } from '../daemon/ipc-contract.js';
 import { DebouncerMap } from '../util/debounce.js';
 

@@ -1,4 +1,5 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, expect,test } from 'bun:test';
+
 import { createToolAuditListener } from '../events/tool-audit-listener.js';
 import type { ToolInvocationRecord } from '../memory/tool-usage-store.js';
 

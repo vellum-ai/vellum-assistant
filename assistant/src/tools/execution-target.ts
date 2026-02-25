@@ -1,5 +1,5 @@
-import type { ExecutionTarget } from './types.js';
 import { getTool } from './registry.js';
+import type { ExecutionTarget } from './types.js';
 
 export interface ManifestOverride {
   risk: 'low' | 'medium' | 'high';

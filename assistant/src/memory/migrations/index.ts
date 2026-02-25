@@ -1,9 +1,3 @@
-export {
-  type MigrationRegistryEntry,
-  MIGRATION_REGISTRY,
-  type MigrationValidationResult,
-} from './registry.js';
-export { validateMigrationState } from './validate-migration-state.js';
 export { migrateJobDeferrals } from './001-job-deferrals.js';
 export { migrateToolInvocationsFk } from './002-tool-invocations-fk.js';
 export { migrateMemoryFtsBackfill } from './003-memory-fts-backfill.js';
@@ -44,3 +38,9 @@ export { createAssistantInboxTables } from './112-assistant-inbox.js';
 export { runLateMigrations } from './113-late-migrations.js';
 export { createNotificationTables } from './114-notifications.js';
 export { createSequenceTables } from './115-sequences.js';
+export {
+  MIGRATION_REGISTRY,
+  type MigrationRegistryEntry,
+  type MigrationValidationResult,
+} from './registry.js';
+export { validateMigrationState } from './validate-migration-state.js';

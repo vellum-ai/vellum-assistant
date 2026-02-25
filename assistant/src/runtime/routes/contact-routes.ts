@@ -6,7 +6,7 @@
  * POST /v1/contacts/merge    — merge two contacts
  */
 
-import { listContacts, getContact, mergeContacts } from '../../contacts/contact-store.js';
+import { getContact, listContacts, mergeContacts } from '../../contacts/contact-store.js';
 
 /**
  * GET /v1/contacts?limit=50

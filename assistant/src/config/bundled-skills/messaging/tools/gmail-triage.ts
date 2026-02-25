@@ -1,15 +1,15 @@
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import { withValidToken } from '../../../../security/token-manager.js';
-import { getMessagingProvider } from '../../../../messaging/registry.js';
+import { type ClassifiedEmail,classifyEmails, type EmailMetadata } from '../../../../messaging/email-classifier.js';
 import {
-  listMessages,
   batchGetMessages,
   batchModifyMessages,
-  listLabels,
   createLabel,
+  listLabels,
+  listMessages,
 } from '../../../../messaging/providers/gmail/client.js';
-import { classifyEmails, type EmailMetadata, type ClassifiedEmail } from '../../../../messaging/email-classifier.js';
-import { ok, err } from './shared.js';
+import { getMessagingProvider } from '../../../../messaging/registry.js';
+import { withValidToken } from '../../../../security/token-manager.js';
+import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
+import { err,ok } from './shared.js';
 
 const FOLLOW_UP_LABEL_NAME = 'Follow-up';
 

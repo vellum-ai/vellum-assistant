@@ -9,7 +9,7 @@
 
 import { getLogger } from '../util/logger.js';
 import { isTerminalState } from './call-state-machine.js';
-import { listRecoverableCalls, updateCallSession, expirePendingQuestions } from './call-store.js';
+import { expirePendingQuestions,listRecoverableCalls, updateCallSession } from './call-store.js';
 import type { CallStatus } from './types.js';
 import type { VoiceProvider } from './voice-provider.js';
 

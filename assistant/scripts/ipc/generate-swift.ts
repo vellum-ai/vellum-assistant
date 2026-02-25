@@ -15,8 +15,8 @@
  *   bun run generate:ipc -- --check   # fail if output would differ (CI)
  */
 
-import * as path from 'path';
 import * as fs from 'fs';
+import * as path from 'path';
 import * as TJS from 'typescript-json-schema';
 
 const ROOT = path.resolve(import.meta.dirname ?? __dirname, '../..');

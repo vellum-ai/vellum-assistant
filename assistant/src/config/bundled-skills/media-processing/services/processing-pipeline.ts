@@ -13,12 +13,12 @@
  */
 
 import {
+  createProcessingStage,
   getMediaAssetById,
   getProcessingStagesForAsset,
-  createProcessingStage,
-  updateProcessingStage,
-  updateMediaAssetStatus,
   type ProcessingStage,
+  updateMediaAssetStatus,
+  updateProcessingStage,
 } from '../../../../memory/media-store.js';
 import { computeRetryDelay, sleep } from '../../../../util/retry.js';
 

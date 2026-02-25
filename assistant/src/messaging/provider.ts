@@ -6,15 +6,15 @@
  */
 
 import type {
-  Conversation,
-  Message,
-  SearchResult,
-  SendResult,
   ConnectionInfo,
-  ListOptions,
+  Conversation,
   HistoryOptions,
+  ListOptions,
+  Message,
   SearchOptions,
+  SearchResult,
   SendOptions,
+  SendResult,
 } from './provider-types.js';
 
 export interface MessagingProvider {

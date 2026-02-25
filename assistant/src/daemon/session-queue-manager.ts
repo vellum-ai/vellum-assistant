@@ -5,9 +5,9 @@
  * agent loop is in flight.
  */
 
-import type { ServerMessage, UserMessageAttachment } from './ipc-protocol.js';
 import type { TurnChannelContext, TurnInterfaceContext } from '../channels/types.js';
 import { getLogger } from '../util/logger.js';
+import type { ServerMessage, UserMessageAttachment } from './ipc-protocol.js';
 
 const log = getLogger('session-queue');
 

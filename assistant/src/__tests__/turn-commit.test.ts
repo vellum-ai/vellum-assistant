@@ -1,14 +1,15 @@
-import { describe, test, expect, beforeEach, afterEach, afterAll, mock } from 'bun:test';
-import { mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
-import type { CommitMessageProvider, CommitContext, CommitMessageResult } from '../workspace/commit-message-provider.js';
-import type { GenerateCommitMessageResult } from '../workspace/provider-commit-message-generator.js';
+import { existsSync,mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
-import { commitTurnChanges } from '../workspace/turn-commit.js';
-import { WorkspaceGitService, _resetGitServiceRegistry } from '../workspace/git-service.js';
+import { afterAll, afterEach, beforeEach, describe, expect, mock,test } from 'bun:test';
+
 import { _resetEnrichmentService, getEnrichmentService } from '../workspace/commit-message-enrichment-service.js';
+import type { CommitContext, CommitMessageProvider, CommitMessageResult } from '../workspace/commit-message-provider.js';
+import { _resetGitServiceRegistry,WorkspaceGitService } from '../workspace/git-service.js';
+import type { GenerateCommitMessageResult } from '../workspace/provider-commit-message-generator.js';
+import { commitTurnChanges } from '../workspace/turn-commit.js';
 
 describe('commitTurnChanges', () => {
   let testDir: string;

@@ -1,12 +1,13 @@
 import { spawn } from 'node:child_process';
-import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
-import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { ToolExecutionResult, ToolContext } from '../types.js';
+import { mkdirSync, rmSync,writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+
 import { getConfig } from '../../config/loader.js';
-import { wrapCommand } from '../terminal/sandbox.js';
-import { buildSanitizedEnv } from '../terminal/safe-env.js';
 import { computeSkillVersionHash } from '../../skills/version-hash.js';
+import { buildSanitizedEnv } from '../terminal/safe-env.js';
+import { wrapCommand } from '../terminal/sandbox.js';
+import type { ToolContext,ToolExecutionResult } from '../types.js';
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_OUTPUT_CHARS = 50_000;

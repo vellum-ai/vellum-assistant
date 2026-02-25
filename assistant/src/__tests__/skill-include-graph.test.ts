@@ -1,6 +1,7 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, expect,test } from 'bun:test';
+
 import type { SkillSummary } from '../config/skills.js';
-import { indexCatalogById, getImmediateChildren, traverseIncludes, validateIncludes } from '../skills/include-graph.js';
+import { getImmediateChildren, indexCatalogById, traverseIncludes, validateIncludes } from '../skills/include-graph.js';
 
 function makeSkill(id: string, includes?: string[]): SkillSummary {
   return {

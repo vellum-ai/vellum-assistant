@@ -7,14 +7,14 @@
  */
 
 import { RiskLevel } from '../permissions/types.js';
-import type { LazyToolDescriptor } from './registry.js';
-import type { Tool } from './types.js';
-import { memorySearchTool, memorySaveTool, memoryUpdateTool } from './memory/register.js';
-import { credentialStoreTool } from './credentials/vault.js';
 import { accountManageTool } from './credentials/account-registry.js';
-import { screenWatchTool } from './watch/screen-watch.js';
-import { vellumSkillsCatalogTool } from './skills/vellum-catalog.js';
+import { credentialStoreTool } from './credentials/vault.js';
 import { cliDiscoverTool } from './host-terminal/cli-discover.js';
+import { memorySaveTool, memorySearchTool, memoryUpdateTool } from './memory/register.js';
+import type { LazyToolDescriptor } from './registry.js';
+import { vellumSkillsCatalogTool } from './skills/vellum-catalog.js';
+import type { Tool } from './types.js';
+import { screenWatchTool } from './watch/screen-watch.js';
 
 // ── Eager side-effect modules ───────────────────────────────────────
 // Importing these modules triggers a top-level `registerTool()` call.

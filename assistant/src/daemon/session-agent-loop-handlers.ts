@@ -7,18 +7,19 @@
  */
 
 import type pino from 'pino';
-import type { ContentBlock, ImageContent } from '../providers/types.js';
-import type { TurnChannelContext, TurnInterfaceContext } from '../channels/types.js';
-import type { ServerMessage } from './ipc-protocol.js';
+
 import type { AgentEvent } from '../agent/loop.js';
-import type { AgentLoopSessionContext } from './session-agent-loop.js';
-import type { DirectiveRequest } from './assistant-attachments.js';
+import type { TurnChannelContext, TurnInterfaceContext } from '../channels/types.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { provenanceFromGuardianContext } from '../memory/conversation-store.js';
-import { classifySessionError, isContextTooLarge, buildSessionErrorMessage } from './session-error.js';
-import { isProviderOrderingError } from './session-slash.js';
-import { cleanAssistantContent, drainDirectiveDisplayBuffer } from './assistant-attachments.js';
 import { recordRequestLog } from '../memory/llm-request-log-store.js';
+import type { ContentBlock, ImageContent } from '../providers/types.js';
+import type { DirectiveRequest } from './assistant-attachments.js';
+import { cleanAssistantContent, drainDirectiveDisplayBuffer } from './assistant-attachments.js';
+import type { ServerMessage } from './ipc-protocol.js';
+import type { AgentLoopSessionContext } from './session-agent-loop.js';
+import { buildSessionErrorMessage,classifySessionError, isContextTooLarge } from './session-error.js';
+import { isProviderOrderingError } from './session-slash.js';
 
 // ── Types ────────────────────────────────────────────────────────────
 

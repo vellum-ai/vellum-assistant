@@ -7,7 +7,7 @@
 
 import { getLogger } from '../../util/logger.js';
 import { truncate } from '../../util/truncate.js';
-import type { NetworkRecordedEntry, NetworkRecordedRequest, ExtractedCredential } from './network-recording-types.js';
+import type { ExtractedCredential,NetworkRecordedEntry, NetworkRecordedRequest } from './network-recording-types.js';
 
 const log = getLogger('network-recorder');
 

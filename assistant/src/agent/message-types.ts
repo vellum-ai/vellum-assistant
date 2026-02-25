@@ -1,7 +1,7 @@
 import type { Message } from '../providers/types.js';
 import { attachmentsToContentBlocks, type MessageAttachmentInput } from './attachments.js';
 
-export type { Message, ContentBlock, TextContent } from '../providers/types.js';
+export type { ContentBlock, Message, TextContent } from '../providers/types.js';
 
 export function createUserMessage(text: string, attachments: MessageAttachmentInput[] = []): Message {
   const content = [] as Message["content"];

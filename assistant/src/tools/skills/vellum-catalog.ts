@@ -2,7 +2,7 @@ import { RiskLevel } from '../../permissions/types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { parseFrontmatterFields } from '../../skills/frontmatter.js';
 import { createManagedSkill } from '../../skills/managed-store.js';
-import { fetchCatalogEntries, fetchSkillContent, checkVellumSkill } from '../../skills/vellum-catalog-remote.js';
+import { checkVellumSkill,fetchCatalogEntries, fetchSkillContent } from '../../skills/vellum-catalog-remote.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 
 export interface CatalogEntry {
@@ -14,7 +14,7 @@ export interface CatalogEntry {
   version?: string;
 }
 
-export { fetchCatalogEntries as listCatalogEntries, checkVellumSkill };
+export { checkVellumSkill,fetchCatalogEntries as listCatalogEntries };
 
 /**
  * Install a skill from the vellum-skills catalog by ID.

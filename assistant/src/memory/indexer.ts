@@ -1,14 +1,15 @@
 import { createHash } from 'crypto';
 import { desc, eq } from 'drizzle-orm';
+
 import type { MemoryConfig } from '../config/types.js';
 import { getLogger } from '../util/logger.js';
 import { getMemoryCheckpoint, setMemoryCheckpoint } from './checkpoints.js';
 import { getDb } from './db.js';
 import { enqueueMemoryJob, enqueueResolvePendingConflictsForMessageJob } from './jobs-store.js';
 import { extractTextFromStoredMessageContent } from './message-content.js';
-import { segmentText } from './segmenter.js';
 import { bumpMemoryVersion } from './recall-cache.js';
 import { memorySegments } from './schema.js';
+import { segmentText } from './segmenter.js';
 
 const log = getLogger('memory-indexer');
 const SUMMARY_JOB_CHECKPOINT_KEY = 'memory:summary_jobs:last_scheduled_at';

@@ -7,18 +7,18 @@
 
 import type { MessagingProvider } from '../../provider.js';
 import type {
-  Conversation,
-  Message,
-  SearchResult,
-  SendResult,
   ConnectionInfo,
-  ListOptions,
+  Conversation,
   HistoryOptions,
+  ListOptions,
+  Message,
   SearchOptions,
+  SearchResult,
   SendOptions,
+  SendResult,
 } from '../../provider-types.js';
-import type { SlackConversation, SlackMessage, SlackSearchMatch } from './types.js';
 import * as slack from './client.js';
+import type { SlackConversation, SlackMessage, SlackSearchMatch } from './types.js';
 
 // Cache user display names to avoid repeated API calls within a session
 const userNameCache = new Map<string, string>();

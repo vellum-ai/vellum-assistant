@@ -1,35 +1,36 @@
-import type { Command } from 'commander';
-import * as net from 'node:net';
 import { spawn } from 'node:child_process';
-import { existsSync, statSync, readFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
+import { existsSync, readFileSync,statSync } from 'node:fs';
+import * as net from 'node:net';
 import { join } from 'node:path';
 
+import type { Command } from 'commander';
+
+import { startCli } from '../cli.js';
+import { getQdrantUrlEnv } from '../config/env.js';
+import { loadRawConfig } from '../config/loader.js';
+import { getConfig } from '../config/loader.js';
+import { hasSocketOverride,shouldAutoStartDaemon } from '../daemon/connection-policy.js';
 import {
   ensureDaemonRunning,
+  getDaemonStatus,
   startDaemon,
   stopDaemon,
-  getDaemonStatus,
 } from '../daemon/lifecycle.js';
-import { startCli } from '../cli.js';
-import { getSocketPath, getRootDir, getDataDir, getDbPath, getLogPath, getWorkspaceDir, getWorkspaceSkillsDir, getWorkspaceHooksDir } from '../util/platform.js';
-import { getQdrantUrlEnv } from '../config/env.js';
-import { IpcError } from '../util/errors.js';
-import { getCliLogger } from '../util/logger.js';
-import { timeAgo } from '../util/time.js';
-import { shouldAutoStartDaemon, hasSocketOverride } from '../daemon/connection-policy.js';
-import { loadRawConfig } from '../config/loader.js';
-import { getRecentInvocations } from '../memory/tool-usage-store.js';
+import { formatJson,formatMarkdown } from '../export/formatter.js';
 import {
+  clearAll as clearAllConversations,
   getConversation,
   getMessages,
   listConversations,
-  clearAll as clearAllConversations,
 } from '../memory/conversation-store.js';
 import { initializeDb } from '../memory/db.js';
 import { initQdrantClient } from '../memory/qdrant-client.js';
-import { formatMarkdown, formatJson } from '../export/formatter.js';
-import { getConfig } from '../config/loader.js';
+import { getRecentInvocations } from '../memory/tool-usage-store.js';
+import { IpcError } from '../util/errors.js';
+import { getCliLogger } from '../util/logger.js';
+import { getDataDir, getDbPath, getLogPath, getRootDir, getSocketPath, getWorkspaceDir, getWorkspaceHooksDir,getWorkspaceSkillsDir } from '../util/platform.js';
+import { timeAgo } from '../util/time.js';
 import { sendOneMessage } from './ipc-client.js';
 
 const log = getCliLogger('cli');

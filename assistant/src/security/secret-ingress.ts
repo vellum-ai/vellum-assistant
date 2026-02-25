@@ -1,6 +1,6 @@
 import { getConfig } from '../config/loader.js';
-import { scanText } from './secret-scanner.js';
 import { getLogger } from '../util/logger.js';
+import { scanText } from './secret-scanner.js';
 
 const log = getLogger('secret-ingress');
 

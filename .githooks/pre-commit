@@ -74,6 +74,18 @@ declare -a SAFE_LINE_PATTERNS=(
     # `//` comments — prevents masking real fallback assignments like
     # `clientSecret: config.clientSecret || "real_secret"`.
     "[.?]+[a-zA-Z0-9_]*[Cc]lient[Ss]ecret([^\"'/]*$|[^\"'/]*//.*)$"
+    # TS/JS: secret/key variable assigned from a function call (no string literal).
+    # E.g. `const clientSecret = getSecureKey(...)`.
+    "(client[_-]?[Ss]ecret|[Pp]rivate[_-]?[Kk]ey)[[:space:]]*=[[:space:]]*(get[A-Za-z]*|create[A-Za-z]*|load[A-Za-z]*|read[A-Za-z]*|delete[A-Za-z]*|set[A-Za-z]*)\("
+    # TS/JS: property key followed by type annotation or opening brace.
+    # E.g. `requiresClientSecret: boolean;` or `client_secret: {`.
+    "[Cc]lient[_-]?[Ss]ecret['\"]?:[[:space:]]*(boolean|number)[[:space:]]*[;,]?"
+    "[Cc]lient[_-]?[Ss]ecret['\"]?:[[:space:]]*\{[[:space:]]*$"
+    # TS/JS: secret/key property assigned from a variable (no string literal).
+    # E.g. `body.client_secret = clientSecret;` or `oauth2ClientSecret: clientSecret ?? null`.
+    "[Cc]lient[_-]?[Ss]ecret[[:space:]]*[:=][[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*[[:space:]]*((\?\?|\|\|)[[:space:]]*(null|undefined))?[[:space:]]*[;,]"
+    # AWS well-known example key used in documentation
+    "AKIAIOSFODNN7EXAMPLE"
 )
 
 matches_safe_line_pattern() {
@@ -166,6 +178,18 @@ if [ "${1:-}" = "--self-test" ]; then
 
     # Dotted reference with nullish coalescing fallback — must NOT be whitelisted
     UNSAFE_TS_NULLISH_FALLBACK='clientSecret: config.clientSecret ?? "real_secret_value_1234"'
+
+    # TS/JS: secret/key variable assigned from a function call (no string literal)
+    SAFE_FUNC_CALL_SECRET='    const clientSecret = getSecureKey('\''credential:integration:twitter:oauth_client_secret'\'') || undefined;'
+    SAFE_FUNC_CALL_PRIVATE_KEY='    const privateKey = createPrivateKey(keyPem);'
+    # TS/JS: property key with type or opening brace (schema/type definitions)
+    SAFE_TYPE_ANNOTATION_SECRET='    requiresClientSecret: boolean;'
+    SAFE_SCHEMA_KEY='          client_secret: {'
+    # TS/JS: property assigned from a variable with nullish fallback
+    SAFE_VAR_ASSIGN_SECRET='      oauth2ClientSecret: clientSecret ?? null,'
+    SAFE_VAR_ASSIGN_BODY='      body.client_secret = clientSecret;'
+    # AWS well-known example key
+    SAFE_AWS_EXAMPLE_KEY="  'AKIAIOSFODNN7EXAMPLE',"
 
     if matches_secret_pattern "$SAFE_ARCHITECTURE_LINE"; then
         echo -e "${RED}Self-test failed:${NC} ARCHITECTURE allowlist case still matches"
@@ -347,6 +371,34 @@ if [ "${1:-}" = "--self-test" ]; then
         echo -e "${RED}Self-test failed:${NC} dotted clientSecret with nullish coalescing fallback was incorrectly whitelisted"
         exit 1
     fi
+    if matches_secret_pattern "$SAFE_FUNC_CALL_SECRET" && ! matches_safe_line_pattern "$SAFE_FUNC_CALL_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} clientSecret assigned from getSecureKey() function call false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_FUNC_CALL_PRIVATE_KEY" && ! matches_safe_line_pattern "$SAFE_FUNC_CALL_PRIVATE_KEY"; then
+        echo -e "${RED}Self-test failed:${NC} privateKey assigned from createPrivateKey() function call false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_TYPE_ANNOTATION_SECRET" && ! matches_safe_line_pattern "$SAFE_TYPE_ANNOTATION_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} requiresClientSecret type annotation false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_SCHEMA_KEY" && ! matches_safe_line_pattern "$SAFE_SCHEMA_KEY"; then
+        echo -e "${RED}Self-test failed:${NC} client_secret schema key false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_VAR_ASSIGN_SECRET" && ! matches_safe_line_pattern "$SAFE_VAR_ASSIGN_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} oauth2ClientSecret assigned from variable false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_VAR_ASSIGN_BODY" && ! matches_safe_line_pattern "$SAFE_VAR_ASSIGN_BODY"; then
+        echo -e "${RED}Self-test failed:${NC} body.client_secret assigned from variable false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_AWS_EXAMPLE_KEY" && ! matches_safe_line_pattern "$SAFE_AWS_EXAMPLE_KEY"; then
+        echo -e "${RED}Self-test failed:${NC} AWS example key AKIAIOSFODNN7EXAMPLE false positive"
+        exit 1
+    fi
 
     echo "✅ Secret scanner self-test passed"
     exit 0
@@ -404,7 +456,7 @@ while IFS= read -r -d '' FILE; do
                     # on the same line (e.g. minified JSON) must not be masked.
                     STRIPPED="$CONTENT"
                     for sp in "${SAFE_LINE_PATTERNS[@]}"; do
-                        STRIPPED=$(printf '%s\n' "$STRIPPED" | sed -E "s"$'\x01'"$sp"$'\x01\x01'"g" 2>/dev/null || printf '%s\n' "$STRIPPED")
+                        STRIPPED=$(printf '%s\n' "$STRIPPED" | sed -E "s/$sp//g" 2>/dev/null || printf '%s\n' "$STRIPPED")
                     done
                     if ! printf '%s\n' "$STRIPPED" | grep -iE -- "$PATTERN" >/dev/null 2>&1; then
                         continue
@@ -540,42 +592,6 @@ if [ $IPC_CHANGED -eq 1 ]; then
             exit 1
         fi
     fi
-fi
-
-# --- system-prompt.ts modification warning ---
-# Non-blocking reminder to consider whether changes belong in a skill or
-# one of the compiled source files (IDENTITY.md, SOUL.md, etc.) instead.
-
-if git diff --cached --name-only | grep -q 'assistant/src/config/system-prompt.ts'; then
-    echo ""
-    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${YELLOW}⚠️  You are modifying system-prompt.ts — the core system prompt.${NC}"
-    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo ""
-    echo "Please seriously consider whether your system prompt change is relevant"
-    echo "to all users or just for your use-case."
-    echo ""
-    echo "If it's not universally valuable, consider creating a skill or moving"
-    echo "the instructions into your SKILL.md."
-    echo ""
-    echo "If it is universally valuable, also consider whether the content belongs"
-    echo "in one of these files instead of directly in the system prompt:"
-    echo ""
-    echo "  • IDENTITY.md    — Name, nature, personality, emoji, role"
-    echo "  • SOUL.md        — Core principles, personality, quirks, boundaries"
-    echo "  • USER.md        — User profile and preferences"
-    echo "  • LOOKS.md       — Avatar appearance and outfit"
-    echo "  • BOOTSTRAP.md   — First-run onboarding ritual instructions"
-    echo "  • skills/        — Skill-specific instructions (SKILL.md per skill)"
-    echo ""
-    echo "The system prompt is compiled from all of these sources. Adding content"
-    echo "directly to system-prompt.ts increases context overhead for every single"
-    echo "conversation."
-    echo ""
-    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo ""
-    echo "Pausing for 3 seconds so you read the above..."
-    sleep 3
 fi
 
 exit 0

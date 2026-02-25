@@ -1,7 +1,7 @@
-import type { ToolContext, ToolExecutionResult } from '../types.js';
-import { createFollowUp } from '../../followups/followup-store.js';
 import { getContact } from '../../contacts/contact-store.js';
+import { createFollowUp } from '../../followups/followup-store.js';
 import type { FollowUp } from '../../followups/types.js';
+import type { ToolContext, ToolExecutionResult } from '../types.js';
 
 function formatFollowUp(f: FollowUp): string {
   const lines = [

@@ -3,16 +3,17 @@
  * Watches workspace files (config, prompts), protected directory
  * (trust rules, secret allowlist), and skills directories for changes.
  */
-import { existsSync, readdirSync, watch, type FSWatcher } from 'node:fs';
+import { existsSync, type FSWatcher,readdirSync, watch } from 'node:fs';
 import { join } from 'node:path';
-import { getRootDir, getWorkspaceDir, getWorkspaceSkillsDir } from '../util/platform.js';
+
 import { getConfig, invalidateConfigCache } from '../config/loader.js';
-import { initializeProviders } from '../providers/registry.js';
-import { clearCache as clearTrustCache } from '../permissions/trust-store.js';
-import { resetAllowlist, validateAllowlistFile } from '../security/secret-allowlist.js';
 import { clearEmbeddingBackendCache } from '../memory/embedding-backend.js';
+import { clearCache as clearTrustCache } from '../permissions/trust-store.js';
+import { initializeProviders } from '../providers/registry.js';
+import { resetAllowlist, validateAllowlistFile } from '../security/secret-allowlist.js';
 import { DebouncerMap } from '../util/debounce.js';
 import { getLogger } from '../util/logger.js';
+import { getRootDir, getWorkspaceDir, getWorkspaceSkillsDir } from '../util/platform.js';
 
 const log = getLogger('config-watcher');
 

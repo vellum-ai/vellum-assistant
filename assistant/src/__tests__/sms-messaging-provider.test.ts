@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
+
 import type { SmsSendResult } from '../messaging/providers/sms/client.js';
 
 const sendSmsMock = mock(async (..._args: unknown[]): Promise<SmsSendResult> => ({ messageSid: 'SM-mock-sid', status: 'queued' }));

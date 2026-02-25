@@ -1,4 +1,5 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, expect,test } from 'bun:test';
+
 import { EventBus, EventBusDisposedError } from '../events/bus.js';
 import type { AssistantDomainEvents } from '../events/domain-events.js';
 

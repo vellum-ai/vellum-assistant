@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, mock } from 'bun:test';
+import { beforeEach, describe, expect, mock,test } from 'bun:test';
 
 mock.module('../util/logger.js', () => ({
   getLogger: () => new Proxy({} as Record<string, unknown>, {
@@ -6,21 +6,21 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
-import {
-  registerCallQuestionNotifier,
-  unregisterCallQuestionNotifier,
-  fireCallQuestionNotifier,
-  registerCallTranscriptNotifier,
-  unregisterCallTranscriptNotifier,
-  fireCallTranscriptNotifier,
-  registerCallCompletionNotifier,
-  unregisterCallCompletionNotifier,
-  fireCallCompletionNotifier,
-  registerCallController,
-  unregisterCallController,
-  getCallController,
-} from '../calls/call-state.js';
 import type { CallController } from '../calls/call-controller.js';
+import {
+  fireCallCompletionNotifier,
+  fireCallQuestionNotifier,
+  fireCallTranscriptNotifier,
+  getCallController,
+  registerCallCompletionNotifier,
+  registerCallController,
+  registerCallQuestionNotifier,
+  registerCallTranscriptNotifier,
+  unregisterCallCompletionNotifier,
+  unregisterCallController,
+  unregisterCallQuestionNotifier,
+  unregisterCallTranscriptNotifier,
+} from '../calls/call-state.js';
 
 describe('call-state', () => {
   // Clean up notifiers between tests

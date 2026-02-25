@@ -1,8 +1,8 @@
+import { cancelCall } from '../../calls/call-domain.js';
 import { RiskLevel } from '../../permissions/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
-import { cancelCall } from '../../calls/call-domain.js';
+import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 
 const definition: ToolDefinition = {
   name: 'call_end',

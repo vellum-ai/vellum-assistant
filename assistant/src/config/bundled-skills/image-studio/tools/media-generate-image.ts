@@ -1,11 +1,11 @@
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import type { ImageContent } from '../../../../providers/types.js';
 import { getConfig } from '../../../../config/loader.js';
+import { type AttachmentContext,isAttachmentVisible } from '../../../../daemon/media-visibility-policy.js';
 import { generateImage, mapGeminiError } from '../../../../media/gemini-image-service.js';
 import { getAttachmentsByIds } from '../../../../memory/attachments-store.js';
-import { isAttachmentVisible, type AttachmentContext } from '../../../../daemon/media-visibility-policy.js';
 import { getConversationThreadType } from '../../../../memory/conversation-store.js';
+import type { ImageContent } from '../../../../providers/types.js';
 import { getAttachmentSourceConversations } from '../../../../tools/assets/search.js';
+import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
 
 /**
  * Check whether an attachment is visible from the given context.

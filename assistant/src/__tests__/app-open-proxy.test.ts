@@ -1,4 +1,5 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, expect,test } from 'bun:test';
+
 import type { ProxyResolver } from '../tools/apps/executors.js';
 import { openAppViaSurface } from '../tools/apps/open-proxy.js';
 

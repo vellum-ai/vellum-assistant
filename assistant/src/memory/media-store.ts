@@ -5,10 +5,11 @@
  * Uses content-hash deduplication (same pattern as attachments-store.ts).
  */
 
-import { and, eq, inArray, gte, desc, asc } from 'drizzle-orm';
+import { and, asc,desc, eq, gte, inArray } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
+
 import { getDb } from './db.js';
-import { mediaAssets, processingStages, mediaKeyframes, mediaVisionOutputs, mediaTimelines, mediaEvents, mediaTrackingProfiles } from './schema.js';
+import { mediaAssets, mediaEvents, mediaKeyframes, mediaTimelines, mediaTrackingProfiles,mediaVisionOutputs, processingStages } from './schema.js';
 
 // ---------------------------------------------------------------------------
 // Types

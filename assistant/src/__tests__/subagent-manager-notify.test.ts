@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test';
+
+import type { ServerMessage } from '../daemon/ipc-contract.js';
 import { SubagentManager } from '../subagent/manager.js';
 import type { SubagentState } from '../subagent/types.js';
-import type { ServerMessage } from '../daemon/ipc-contract.js';
 
 /** Minimal shape matching the private ManagedSubagent interface for test injection. */
 interface FakeManagedSubagent {

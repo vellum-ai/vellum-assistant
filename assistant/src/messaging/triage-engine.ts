@@ -7,17 +7,18 @@
  * table for accuracy review.
  */
 
-import { getConfiguredProvider, createTimeout, extractToolUse, userMessage } from '../providers/provider-send-message.js';
-import { truncate } from '../util/truncate.js';
+import { and, desc,eq, isNull } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
-import { and, eq, isNull, desc } from 'drizzle-orm';
-import { getLogger } from '../util/logger.js';
+
+import { findContactByAddress } from '../contacts/contact-store.js';
+import type { ContactWithChannels } from '../contacts/types.js';
 import { getDb } from '../memory/db.js';
 import { memoryItems, triageResults } from '../memory/schema.js';
-import { findContactByAddress } from '../contacts/contact-store.js';
-import { parsePlaybookStatement } from '../playbooks/types.js';
 import type { Playbook } from '../playbooks/types.js';
-import type { ContactWithChannels } from '../contacts/types.js';
+import { parsePlaybookStatement } from '../playbooks/types.js';
+import { createTimeout, extractToolUse, getConfiguredProvider, userMessage } from '../providers/provider-send-message.js';
+import { getLogger } from '../util/logger.js';
+import { truncate } from '../util/truncate.js';
 import type { InboundMessage, TriageResult } from './types.js';
 import { DEFAULT_TRIAGE_CATEGORIES } from './types.js';
 

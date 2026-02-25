@@ -3,22 +3,21 @@
  * during tool execution: shell processes are killed, file operations respect
  * pre-abort signals, and git operations abort via the signal.
  */
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
-  rmSync,
-  existsSync,
-  writeFileSync,
   realpathSync,
+  rmSync,
+  writeFileSync,
 } from 'node:fs';
-import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
+import { afterEach,beforeEach, describe, expect, test } from 'bun:test';
 // ── Shared mock setup ────────────────────────────────────────────────────────
 // Config mock must be declared before importing tool modules so that the
 // mock.module calls are hoisted above the dynamic imports.
-
 import { mock } from 'bun:test';
 
 mock.module('../config/loader.js', () => ({

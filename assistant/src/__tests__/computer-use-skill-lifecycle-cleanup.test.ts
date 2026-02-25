@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeAll, mock } from 'bun:test';
+import { beforeAll, describe, expect, mock,test } from 'bun:test';
 
 // Mock config before importing modules that depend on it.
 mock.module('../config/loader.js', () => ({
@@ -24,13 +24,13 @@ mock.module('../config/loader.js', () => ({
 }));
 
 import { ComputerUseSession } from '../daemon/computer-use-session.js';
-import type { Provider, ProviderResponse } from '../providers/types.js';
 import type { CuObservation } from '../daemon/ipc-protocol.js';
+import type { Provider, ProviderResponse } from '../providers/types.js';
 import {
-  initializeTools,
+  __resetRegistryForTesting,
   getAllTools,
   getSkillRefCount,
-  __resetRegistryForTesting,
+  initializeTools,
 } from '../tools/registry.js';
 
 

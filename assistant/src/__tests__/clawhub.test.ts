@@ -1,7 +1,8 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync,mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mock } from 'bun:test';
 
 let TEST_DIR = '';
@@ -18,10 +19,10 @@ mock.module('../util/logger.js', () => ({
 }));
 
 import {
-  clawhubInstall,
   clawhubInspect,
-  verifyAndRecordSkillHash,
+  clawhubInstall,
   loadIntegrityManifest,
+  verifyAndRecordSkillHash,
 } from '../skills/clawhub.js';
 
 beforeEach(() => {

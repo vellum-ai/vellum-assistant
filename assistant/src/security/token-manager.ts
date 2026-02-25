@@ -6,10 +6,10 @@
  * refresh for any OAuth2 service that stores its config in metadata.
  */
 
-import { getSecureKey, setSecureKey } from './secure-keys.js';
 import { getCredentialMetadata, upsertCredentialMetadata } from '../tools/credentials/metadata-store.js';
-import { refreshOAuth2Token, type TokenEndpointAuthMethod } from './oauth2.js';
 import { getLogger } from '../util/logger.js';
+import { refreshOAuth2Token, type TokenEndpointAuthMethod } from './oauth2.js';
+import { getSecureKey, setSecureKey } from './secure-keys.js';
 
 const log = getLogger('token-manager');
 

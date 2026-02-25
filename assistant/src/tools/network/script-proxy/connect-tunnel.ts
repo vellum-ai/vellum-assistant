@@ -3,8 +3,8 @@
  * client and a remote host for HTTPS pass-through (no MITM).
  */
 
-import { connect, type Socket } from 'node:net';
 import type { IncomingMessage } from 'node:http';
+import { connect, type Socket } from 'node:net';
 
 /**
  * Parse and validate a CONNECT target of the form `host:port`.

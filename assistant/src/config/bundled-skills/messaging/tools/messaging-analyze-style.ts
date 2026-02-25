@@ -1,14 +1,15 @@
 import { and, eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
+
 import { getDb } from '../../../../memory/db.js';
 import { computeMemoryFingerprint } from '../../../../memory/fingerprint.js';
-import { memoryItems } from '../../../../memory/schema.js';
 import { enqueueMemoryJob } from '../../../../memory/jobs-store.js';
-import { extractStylePatterns } from '../../../../messaging/style-analyzer.js';
-import { truncate } from '../../../../util/truncate.js';
+import { memoryItems } from '../../../../memory/schema.js';
 import { clampUnitInterval } from '../../../../memory/validation.js';
-import { resolveProvider, withProviderToken, ok, err } from './shared.js';
+import { extractStylePatterns } from '../../../../messaging/style-analyzer.js';
+import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
+import { truncate } from '../../../../util/truncate.js';
+import { err,ok, resolveProvider, withProviderToken } from './shared.js';
 
 function upsertMemoryItem(opts: {
   kind: string;

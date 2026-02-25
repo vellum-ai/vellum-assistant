@@ -1,16 +1,17 @@
 import * as net from 'node:net';
+
 import { getConfig } from '../../config/loader.js';
-import { getFailoverProvider } from '../../providers/registry.js';
 import { RateLimitProvider } from '../../providers/ratelimit.js';
+import { getFailoverProvider } from '../../providers/registry.js';
 import { ComputerUseSession } from '../computer-use-session.js';
-import { readBlob, deleteBlob, validateBlobKindEncoding } from '../ipc-blob-store.js';
+import { deleteBlob, readBlob, validateBlobKindEncoding } from '../ipc-blob-store.js';
 import type {
-  CuSessionCreate,
-  CuSessionAbort,
   CuObservation,
+  CuSessionAbort,
+  CuSessionCreate,
   ServerMessage,
 } from '../ipc-protocol.js';
-import { log, defineHandlers, type HandlerContext } from './shared.js';
+import { defineHandlers, type HandlerContext,log } from './shared.js';
 
 const cuObservationSequenceBySession = new Map<string, number>();
 

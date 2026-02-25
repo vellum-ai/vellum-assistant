@@ -1,7 +1,7 @@
-import type { ExecutionTarget, Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { SkillToolEntry } from '../../config/skills.js';
-import type { ToolDefinition } from '../../providers/types.js';
 import { RiskLevel } from '../../permissions/types.js';
+import type { ToolDefinition } from '../../providers/types.js';
+import type { ExecutionTarget, Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import { runSkillToolScript } from './skill-script-runner.js';
 
 const riskMap: Record<SkillToolEntry['risk'], RiskLevel> = {

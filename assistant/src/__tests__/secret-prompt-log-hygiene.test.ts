@@ -1,5 +1,6 @@
-import { describe, test, expect, beforeEach, mock } from 'bun:test';
-import type { ServerMessage, SecretRequest } from '../daemon/ipc-contract.js';
+import { beforeEach, describe, expect, mock,test } from 'bun:test';
+
+import type { SecretRequest,ServerMessage } from '../daemon/ipc-contract.js';
 
 // Capture all logger calls so we can verify secret values never appear
 const logCalls: Array<{ level: string; args: unknown[] }> = [];
