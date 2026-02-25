@@ -141,36 +141,36 @@ export class PermissionDeniedError extends AssistantError {
 }
 
 export class ConfigError extends AssistantError {
-  constructor(message: string) {
-    super(message, ErrorCode.CONFIG_ERROR);
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, ErrorCode.CONFIG_ERROR, options);
     this.name = 'ConfigError';
   }
 }
 
 export class DaemonError extends AssistantError {
-  constructor(message: string) {
-    super(message, ErrorCode.DAEMON_ERROR);
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, ErrorCode.DAEMON_ERROR, options);
     this.name = 'DaemonError';
   }
 }
 
 export class IpcError extends AssistantError {
-  constructor(message: string) {
-    super(message, ErrorCode.IPC_ERROR);
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, ErrorCode.IPC_ERROR, options);
     this.name = 'IpcError';
   }
 }
 
 export class PlatformError extends AssistantError {
-  constructor(message: string) {
-    super(message, ErrorCode.PLATFORM_ERROR);
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, ErrorCode.PLATFORM_ERROR, options);
     this.name = 'PlatformError';
   }
 }
 
 export class IntegrityError extends AssistantError {
-  constructor(message: string) {
-    super(message, ErrorCode.INTEGRITY_ERROR);
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, ErrorCode.INTEGRITY_ERROR, options);
     this.name = 'IntegrityError';
   }
 }
