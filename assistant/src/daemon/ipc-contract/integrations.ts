@@ -84,11 +84,13 @@ export interface ChannelReadinessRequest {
 
 export interface GuardianVerificationRequest {
   type: 'guardian_verification';
-  action: 'create_challenge' | 'status' | 'revoke';
+  action: 'create_challenge' | 'status' | 'revoke' | 'start_outbound' | 'resend_outbound' | 'cancel_outbound';
   channel?: ChannelId;  // Defaults to 'telegram'
   sessionId?: string;
   assistantId?: string;  // Defaults to 'self'
   rebind?: boolean;  // When true, allows creating a challenge even if a binding already exists
+  /** E.164 phone number for SMS/voice, Telegram handle/chat-id. Used by outbound actions. */
+  destination?: string;
 }
 
 export interface TwitterAuthStartRequest {
@@ -253,6 +255,16 @@ export interface GuardianVerificationResponse {
   error?: string;
   /** Human-readable error detail (e.g. for already_bound failures). */
   message?: string;
+  /** Session ID for outbound verification flows. */
+  verificationSessionId?: string;
+  /** Epoch ms when the verification session expires. */
+  expiresAt?: number;
+  /** Epoch ms after which a resend is allowed. */
+  nextResendAt?: number;
+  /** Number of SMS sends for this session. */
+  sendCount?: number;
+  /** Telegram deep-link URL for bootstrap (M3 placeholder). */
+  telegramBootstrapUrl?: string;
 }
 
 export interface TwitterAuthResult {
