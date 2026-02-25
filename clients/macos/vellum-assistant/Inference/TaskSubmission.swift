@@ -242,3 +242,11 @@ struct TaskSubmission {
         self.source = source
     }
 }
+
+extension TaskSubmission {
+    static let voiceActionSource = "voice_action"
+
+    var isVoiceAction: Bool {
+        source == Self.voiceActionSource
+    }
+}

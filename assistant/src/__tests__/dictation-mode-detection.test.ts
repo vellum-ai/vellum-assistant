@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { detectDictationMode } from '../daemon/handlers/dictation.js';
+import { detectDictationModeHeuristic as detectDictationMode } from '../daemon/handlers/dictation.js';
 import type { DictationRequest } from '../daemon/ipc-protocol.js';
 
 type DictationRequestOverrides = Omit<Partial<DictationRequest>, 'context'> & {
