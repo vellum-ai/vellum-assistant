@@ -50,19 +50,18 @@ struct SettingsConnectTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
-            pairingSection
-            ApprovedDevicesSection(store: store)
-            gatewaySection
             vellumSection
+            gatewaySection
             advancedSection
             diagnosticsSection
-            channelsSection
+            connectionsSection
         }
         .onAppear {
             Task { await authManager.checkSession() }
             if store.isDevMode { Task { await store.checkVellumPlatform() } }
             store.refreshIngressConfig()
             store.refreshAssistantEmail()
+            store.refreshApprovedDevices()
             gatewayUrlText = store.ingressPublicBaseUrl
             refreshBearerToken()
             store.refreshChannelGuardianStatus(channel: "telegram")
@@ -349,23 +348,19 @@ struct SettingsConnectTab: View {
         }
     }
 
-    // MARK: - Channels Section
+    // MARK: - Connections Section
 
-    private var channelsSection: some View {
+    private var connectionsSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Channels")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-                Text("Email, Telegram, SMS, and Voice integrations")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-            }
+            Text("Connections")
+                .font(VFont.sectionTitle)
+                .foregroundColor(VColor.textPrimary)
 
-            emailCard
+            mobileCard
             telegramCard
             twilioCard
             voiceCard
+            emailCard
         }
     }
 
@@ -1190,17 +1185,18 @@ struct SettingsConnectTab: View {
         }
     }
 
-    // MARK: - Pairing Section (Hero)
+    // MARK: - Mobile Card (Pairing + Approved Devices)
 
-    private var pairingSection: some View {
+    private var mobileCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Pair with iOS")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
-
-            Text("Scan the QR code with the Vellum iOS app to connect your iPhone.")
-                .font(VFont.body)
-                .foregroundColor(VColor.textSecondary)
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("Mobile")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+                Text("Connect your phone to your assistant through the iOS app")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+            }
 
             VButton(label: "Show QR Code", leftIcon: "qrcode", style: .primary) {
                 showingPairingQR = true
@@ -1212,15 +1208,10 @@ struct SettingsConnectTab: View {
             // LAN pairing works without a cloud gateway URL.
             let hasGateway = !store.resolvedIosGatewayUrl.isEmpty || LANIPHelper.currentLANAddress() != nil
             let trimmedOverrideToken = iosPairingTokenOverride.trimmingCharacters(in: .whitespacesAndNewlines)
-            // Has a usable token — either the daemon file token or a non-empty override.
             let hasToken = !bearerToken.isEmpty || !trimmedOverrideToken.isEmpty
-
-            // Token originates from the daemon file — true when the daemon token
-            // is present and no override token has been entered.
             let tokenFromDaemon = !bearerToken.isEmpty && trimmedOverrideToken.isEmpty
 
             if isRegeneratingToken {
-                // "Restarting daemon..." — spinner while daemon restarts with new token
                 HStack(spacing: VSpacing.sm) {
                     ProgressView()
                         .controlSize(.small)
@@ -1229,7 +1220,6 @@ struct SettingsConnectTab: View {
                         .foregroundColor(VColor.textSecondary)
                 }
             } else if hasGateway && hasToken {
-                // "Ready to pair" — green checkmark + subtle regenerate (daemon token only)
                 HStack(spacing: VSpacing.sm) {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundColor(VColor.success)
@@ -1249,17 +1239,15 @@ struct SettingsConnectTab: View {
                     }
                 }
             } else if !hasGateway {
-                // "Configure a gateway URL below" — amber warning
                 HStack(spacing: VSpacing.sm) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundColor(VColor.warning)
                         .font(.system(size: 14))
-                    Text("Configure a gateway URL below to enable pairing")
+                    Text("Configure a gateway URL to enable pairing")
                         .font(VFont.body)
                         .foregroundColor(VColor.warning)
                 }
             } else {
-                // "Bearer token required" — amber warning + Generate button
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     HStack(spacing: VSpacing.sm) {
                         Image(systemName: "exclamationmark.triangle.fill")
@@ -1274,10 +1262,50 @@ struct SettingsConnectTab: View {
                     }
                 }
             }
+
+            // Connected devices
+            if !store.approvedDevices.isEmpty {
+                Divider().background(VColor.surfaceBorder)
+
+                ForEach(store.approvedDevices, id: \.hashedDeviceId) { device in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(device.deviceName)
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textPrimary)
+                            Text("Last paired: \(formattedDeviceDate(device.lastPairedAt))")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                        }
+                        Spacer()
+                        Button("Remove") {
+                            store.removeApprovedDevice(hashedDeviceId: device.hashedDeviceId)
+                        }
+                        .font(VFont.caption)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                    .padding(.vertical, VSpacing.xs)
+                }
+
+                Button("Clear All") {
+                    store.clearAllApprovedDevices()
+                }
+                .font(VFont.caption)
+                .foregroundColor(VColor.error)
+                .buttonStyle(.borderless)
+            }
         }
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
+    }
+
+    private func formattedDeviceDate(_ timestamp: Int) -> String {
+        let date = Date(timeIntervalSince1970: Double(timestamp) / 1000.0)
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: date, relativeTo: Date())
     }
 
     // MARK: - Diagnostics Section (merged Status + Test Connection)
