@@ -39,7 +39,12 @@ const refreshBreakers = new Map<string, RefreshBreakerState>();
 function isRefreshBreakerOpen(service: string): boolean {
   const state = refreshBreakers.get(service);
   if (!state || state.consecutiveFailures < REFRESH_FAILURE_THRESHOLD) return false;
-  return Date.now() - state.openedAt < state.cooldownMs;
+  if (Date.now() - state.openedAt < state.cooldownMs) return true;
+  // Cooldown expired — transition to half-open: reset failure count so the
+  // next batch of failures must reach the threshold again to re-trip. The
+  // existing cooldownMs is preserved so re-tripping will escalate it.
+  state.consecutiveFailures = 0;
+  return false;
 }
 
 function recordRefreshSuccess(service: string): void {
@@ -57,8 +62,10 @@ function recordRefreshFailure(service: string): void {
   }
   state.consecutiveFailures++;
   if (state.consecutiveFailures >= REFRESH_FAILURE_THRESHOLD) {
-    // Double cooldown on each successive trip, capped at MAX_COOLDOWN_MS
-    if (state.openedAt > 0) {
+    // Only escalate cooldown on the exact failure that trips the breaker.
+    // Concurrent in-flight failures that arrive after the threshold is
+    // already crossed must not double the cooldown again.
+    if (state.consecutiveFailures === REFRESH_FAILURE_THRESHOLD && state.openedAt > 0) {
       state.cooldownMs = Math.min(state.cooldownMs * 2, MAX_COOLDOWN_MS);
     }
     state.openedAt = Date.now();
