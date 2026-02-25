@@ -1,11 +1,15 @@
-import * as net from 'node:net';
 import { existsSync, realpathSync, statSync } from 'node:fs';
+import * as net from 'node:net';
 import * as path from 'node:path';
+
 import { v4 as uuid } from 'uuid';
-import type { RecordingStatus, RecordingOptions } from '../ipc-protocol.js';
-import { log, findSocketForSession, defineHandlers, type HandlerContext } from './shared.js';
+
+import { linkAttachmentToMessage, setAttachmentThumbnail,uploadFileBackedAttachment } from '../../memory/attachments-store.js';
 import * as conversationStore from '../../memory/conversation-store.js';
-import { uploadFileBackedAttachment, linkAttachmentToMessage } from '../../memory/attachments-store.js';
+import { silentlyWithLog } from '../../util/silently.js';
+import type { RecordingOptions,RecordingStatus } from '../ipc-protocol.js';
+import { generateVideoThumbnailFromPath } from '../video-thumbnail.js';
+import { defineHandlers, findSocketForSession, type HandlerContext,log } from './shared.js';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -278,6 +282,14 @@ function handleRecordingStatus(
 
             linkAttachmentToMessage(messageId, attachment.id, 0);
             log.info({ recordingId, messageId, attachmentId: attachment.id }, 'Linked recording attachment to assistant message');
+
+            // Fire-and-forget thumbnail generation from the on-disk file
+            silentlyWithLog(
+              generateVideoThumbnailFromPath(resolvedPath).then((thumb) => {
+                if (thumb) setAttachmentThumbnail(attachment.id, thumb);
+              }),
+              'recording thumbnail generation',
+            );
 
             // Notify the client via the reporting socket
             if (notifySocket) {

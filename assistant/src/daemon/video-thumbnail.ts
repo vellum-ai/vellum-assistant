@@ -1,8 +1,10 @@
 /**
  * Extract a JPEG thumbnail from a video file using ffmpeg.
  *
- * Writes the video to a temp file, runs ffmpeg to extract the first frame
- * as a JPEG, and returns the result as a base64 string.
+ * Two entry points:
+ *  - `generateVideoThumbnail(base64)` — for in-memory video data
+ *  - `generateVideoThumbnailFromPath(filePath)` — for file-backed videos (avoids
+ *    loading the entire file into memory)
  */
 
 import { randomUUID } from 'node:crypto';
@@ -14,19 +16,11 @@ import { getLogger } from '../util/logger.js';
 
 const log = getLogger('video-thumbnail');
 
-/**
- * Generate a JPEG thumbnail from base64-encoded video data.
- * Returns null if ffmpeg is unavailable or extraction fails.
- */
-export async function generateVideoThumbnail(dataBase64: string): Promise<string | null> {
-  const id = randomUUID();
-  const inputPath = join(tmpdir(), `vellum-thumb-in-${id}`);
-  const outputPath = join(tmpdir(), `vellum-thumb-out-${id}.jpg`);
+/** Run ffmpeg to extract the first frame from a video file as a JPEG thumbnail. */
+async function extractThumbnail(inputPath: string): Promise<string | null> {
+  const outputPath = join(tmpdir(), `vellum-thumb-out-${randomUUID()}.jpg`);
 
   try {
-    const videoBuffer = Buffer.from(dataBase64, 'base64');
-    await writeFile(inputPath, videoBuffer);
-
     const proc = Bun.spawn([
       'ffmpeg', '-y',
       '-i', inputPath,
@@ -36,8 +30,6 @@ export async function generateVideoThumbnail(dataBase64: string): Promise<string
       outputPath,
     ], { stderr: 'pipe' });
 
-    // Race against a 10s timeout to avoid hanging on slow/stuck ffmpeg.
-    // The timer handle is cleared via finally() so it doesn't leak when ffmpeg exits normally.
     let timer: ReturnType<typeof setTimeout>;
     const exitCode = await Promise.race([
       proc.exited.finally(() => clearTimeout(timer)),
@@ -53,11 +45,41 @@ export async function generateVideoThumbnail(dataBase64: string): Promise<string
 
     const jpegData = await readFile(outputPath);
     return jpegData.toString('base64');
+  } finally {
+    try { await unlink(outputPath); } catch { /* ignore */ }
+  }
+}
+
+/**
+ * Generate a JPEG thumbnail from base64-encoded video data.
+ * Returns null if ffmpeg is unavailable or extraction fails.
+ */
+export async function generateVideoThumbnail(dataBase64: string): Promise<string | null> {
+  const inputPath = join(tmpdir(), `vellum-thumb-in-${randomUUID()}`);
+
+  try {
+    const videoBuffer = Buffer.from(dataBase64, 'base64');
+    await writeFile(inputPath, videoBuffer);
+    return await extractThumbnail(inputPath);
   } catch (err) {
     log.warn({ error: (err as Error).message }, 'Video thumbnail generation failed');
     return null;
   } finally {
     try { await unlink(inputPath); } catch { /* ignore */ }
-    try { await unlink(outputPath); } catch { /* ignore */ }
+  }
+}
+
+/**
+ * Generate a JPEG thumbnail directly from a video file on disk.
+ * Avoids loading the entire video into memory — suitable for large
+ * file-backed recording attachments.
+ * Returns null if ffmpeg is unavailable or extraction fails.
+ */
+export async function generateVideoThumbnailFromPath(filePath: string): Promise<string | null> {
+  try {
+    return await extractThumbnail(filePath);
+  } catch (err) {
+    log.warn({ error: (err as Error).message, filePath }, 'Video thumbnail generation from path failed');
+    return null;
   }
 }
