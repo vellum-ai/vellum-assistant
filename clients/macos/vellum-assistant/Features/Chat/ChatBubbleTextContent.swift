@@ -32,18 +32,20 @@ extension ChatBubble {
     }
 
     /// Cached inline markdown AttributedString to avoid re-parsing on every render.
+    /// Uses `inlineMarkdownCache` (not `markdownCache`) to avoid cross-contamination
+    /// with `markdownText`, which applies slash-command highlighting before caching.
     static func cachedInlineMarkdown(for text: String) -> AttributedString {
-        if let cached = markdownCache[text] { return cached }
+        if let cached = inlineMarkdownCache[text] { return cached }
         let options = AttributedString.MarkdownParsingOptions(
             interpretedSyntax: .inlineOnlyPreservingWhitespace
         )
         let result = (try? AttributedString(markdown: text, options: options))
             ?? AttributedString(text)
-        if markdownCache.count >= maxCacheSize {
+        if inlineMarkdownCache.count >= maxCacheSize {
             // Dictionary iteration order is unspecified; this evicts an arbitrary entry.
-            if let first = markdownCache.keys.first { markdownCache.removeValue(forKey: first) }
+            if let first = inlineMarkdownCache.keys.first { inlineMarkdownCache.removeValue(forKey: first) }
         }
-        markdownCache[text] = result
+        inlineMarkdownCache[text] = result
         return result
     }
 

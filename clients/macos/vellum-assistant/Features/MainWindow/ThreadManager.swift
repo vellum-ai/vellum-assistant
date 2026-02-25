@@ -374,6 +374,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     private static func clearRenderCaches() {
         ChatBubble.segmentCache.removeAll()
         ChatBubble.markdownCache.removeAll()
+        ChatBubble.inlineMarkdownCache.removeAll()
         MarkdownSegmentView.clearAttributedStringCache()
     }
 

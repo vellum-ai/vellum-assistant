@@ -384,5 +384,10 @@ struct ChatBubble: View {
 
     @MainActor static var segmentCache = [String: [MarkdownSegment]]()
     @MainActor static var markdownCache = [String: AttributedString]()
+    /// Separate cache for inline markdown (used by interleaved text segments).
+    /// Kept distinct from `markdownCache` because `markdownText` applies
+    /// slash-command highlighting before caching, which would contaminate
+    /// inline results (and vice versa) if they shared a dictionary.
+    @MainActor static var inlineMarkdownCache = [String: AttributedString]()
     static let maxCacheSize = 100
 }
