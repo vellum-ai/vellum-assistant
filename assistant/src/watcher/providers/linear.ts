@@ -275,6 +275,52 @@ async function fetchAssignedIssueUpdates(
   return allNodes;
 }
 
+/**
+ * Fetch all issue IDs currently assigned to the viewer. Unlike
+ * `fetchAssignedIssueUpdates`, this has no `updatedAt` filter so it returns the
+ * complete set — needed for accurate eviction and reassignment detection.
+ */
+async function fetchAllAssignedIssueIds(
+  token: string,
+  viewerId: string,
+): Promise<Set<string>> {
+  const ids = new Set<string>();
+  let cursor: string | null = null;
+
+  type IdsResponse = {
+    issues: { nodes: { id: string }[]; pageInfo: { hasNextPage: boolean; endCursor: string } };
+  };
+
+  do {
+    const data: IdsResponse = await graphql<IdsResponse>(token, `
+      query FetchAllAssignedIssueIds($assigneeId: ID, $cursor: String) {
+        issues(
+          filter: {
+            assignee: { id: { eq: $assigneeId } }
+          }
+          first: 50
+          after: $cursor
+        ) {
+          nodes {
+            id
+          }
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
+        }
+      }
+    `, { assigneeId: viewerId, cursor });
+
+    for (const node of data.issues.nodes) {
+      ids.add(node.id);
+    }
+    cursor = data.issues.pageInfo.hasNextPage ? data.issues.pageInfo.endCursor : null;
+  } while (cursor != null);
+
+  return ids;
+}
+
 // ── Issue state tracking ──────────────────────────────────────────────────────
 
 /**
@@ -293,6 +339,14 @@ async function fetchAssignedIssueUpdates(
  */
 const knownIssueStateIdsByWatcher = new Map<string, Map<string, string>>();
 
+/**
+ * Tracks the complete set of assigned issue IDs from the previous poll so we
+ * can detect reassignments. An issue that was previously unassigned and then
+ * reassigned should not emit a false-positive status change even if its cached
+ * state differs from its current state.
+ */
+const lastSeenAssignedIdsByWatcher = new Map<string, Set<string>>();
+
 /** Get (or lazily create) the per-watcher state map. */
 function getStateCache(watcherKey: string): Map<string, string> {
   let cache = knownIssueStateIdsByWatcher.get(watcherKey);
@@ -310,6 +364,7 @@ function getStateCache(watcherKey: string): Map<string, string> {
  */
 export function clearLinearStateCache(watcherKey: string): void {
   knownIssueStateIdsByWatcher.delete(watcherKey);
+  lastSeenAssignedIdsByWatcher.delete(watcherKey);
 }
 
 // ── Event type mapping ────────────────────────────────────────────────────────
@@ -428,6 +483,12 @@ export const linearProvider: WatcherProvider = {
         items.push(notificationToItem(n));
       }
 
+      // Fetch the complete set of currently assigned issue IDs (no updatedAt
+      // filter) so we can accurately evict stale cache entries and guard against
+      // false-positive status change events on reassignment.
+      const currentAssignedIds = await fetchAllAssignedIssueIds(token, viewer.id);
+      const previousAssignedIds = lastSeenAssignedIdsByWatcher.get(watcherKey);
+
       // Also poll assigned issues directly for status changes not covered by
       // notifications (e.g., bulk team updates). We only emit an event when the
       // state ID differs from what we recorded on the previous poll — any other
@@ -435,17 +496,31 @@ export const linearProvider: WatcherProvider = {
       // On first sight of an issue we seed the map without emitting, so we don't
       // fire false-positive events after a daemon restart.
       const assignedIssues = await fetchAssignedIssueUpdates(token, viewer.id, since);
-      // Scope the state cache by watcherKey (the watcher's DB UUID) rather than
-      // credentialService so that multiple Linear watchers sharing the same credential
-      // maintain independent baselines and cannot clobber each other's state.
       const stateCache = getStateCache(watcherKey);
       for (const issue of assignedIssues) {
         const previousStateId = stateCache.get(issue.id);
-        if (previousStateId !== undefined && previousStateId !== issue.state.id) {
+        // Only emit a status change if: (1) we have a cached state that differs,
+        // AND (2) the issue was also assigned in the previous poll. Condition (2)
+        // prevents false-positive events when an issue is unassigned, changes
+        // state while unassigned, and is then reassigned.
+        const wasPreviouslySeen = previousAssignedIds?.has(issue.id) ?? false;
+        if (previousStateId !== undefined && previousStateId !== issue.state.id && wasPreviouslySeen) {
           items.push(issueToStatusChangeItem(issue, previousStateId));
         }
         stateCache.set(issue.id, issue.state.id);
       }
+
+      // Evict cached state for issues that left the assigned set so stale
+      // entries don't accumulate and don't cause false-positive events if the
+      // issue is later reassigned.
+      if (previousAssignedIds) {
+        for (const id of previousAssignedIds) {
+          if (!currentAssignedIds.has(id)) {
+            stateCache.delete(id);
+          }
+        }
+      }
+      lastSeenAssignedIdsByWatcher.set(watcherKey, currentAssignedIds);
 
       const newWatermark = new Date().toISOString();
       log.info(
