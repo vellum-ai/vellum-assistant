@@ -22,15 +22,15 @@ private enum SkillCategory: String, CaseIterable {
         }
     }
 
-    /// Distinct accent colors per category so each group is visually separate.
+    /// High-contrast accent colors per category for visual separation.
     var color: Color {
         switch self {
-        case .core: return Amber._500          // gold
-        case .devTools: return Danger._600      // red-orange
-        case .communication: return Color(hex: 0xAD88BC) // purple
-        case .daily: return Emerald._500        // bright green
-        case .utilities: return Forest._400     // sage green
-        case .skills: return Color(hex: 0x0E9B8B) // teal
+        case .core: return Color(hex: 0xD4A017)          // deep gold
+        case .devTools: return Color(hex: 0xC1421B)      // red
+        case .communication: return Color(hex: 0x8B5DAA) // vivid purple
+        case .daily: return Color(hex: 0xD4D1C1)         // warm neutral
+        case .utilities: return Color(hex: 0x4682B4)     // steel blue
+        case .skills: return Color(hex: 0x0E8A7B)        // dark teal
         }
     }
 
@@ -204,10 +204,10 @@ private struct HexTileView: View {
         VStack(spacing: 2) {
             if let emoji, !emoji.isEmpty {
                 Text(emoji)
-                    .font(.system(size: 16))
+                    .font(.system(size: 20))
             } else {
                 Image(systemName: icon)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: 18, weight: .medium))
                     .foregroundColor(color)
             }
 
@@ -221,11 +221,11 @@ private struct HexTileView: View {
         .frame(width: hexWidth, height: hexHeight)
         .background(
             HexagonShape()
-                .fill(color.opacity(isHovered ? 0.18 : 0.08))
+                .fill(color.opacity(isHovered ? 0.22 : 0.12))
         )
         .overlay(
             HexagonShape()
-                .stroke(color.opacity(isHovered ? 0.7 : 0.35), lineWidth: isHovered ? 2 : 1.5)
+                .stroke(color.opacity(isHovered ? 0.75 : 0.45), lineWidth: isHovered ? 2 : 1.5)
         )
         .contentShape(HexagonShape())
         .onHover { hovering in
@@ -266,7 +266,7 @@ private struct HubHexTileView: View {
 
         VStack(spacing: 3) {
             Image(systemName: category.icon)
-                .font(.system(size: 17, weight: .bold))
+                .font(.system(size: 22, weight: .bold))
                 .foregroundColor(category.color)
 
             Text(category.displayName)
@@ -278,11 +278,11 @@ private struct HubHexTileView: View {
         .frame(width: hexWidth, height: hexHeight)
         .background(
             HexagonShape()
-                .fill(category.color.opacity(isHovered ? 0.26 : 0.16))
+                .fill(category.color.opacity(isHovered ? 0.30 : 0.20))
         )
         .overlay(
             HexagonShape()
-                .stroke(category.color.opacity(isHovered ? 0.85 : 0.55), lineWidth: isHovered ? 3 : 2.5)
+                .stroke(category.color.opacity(isHovered ? 0.90 : 0.65), lineWidth: isHovered ? 3 : 2.5)
         )
         .contentShape(HexagonShape())
         .onHover { hovering in
@@ -377,32 +377,7 @@ private struct SkillPopoverView: View {
     }
 }
 
-// MARK: - Viewport Toolbar Button
-
-private struct ViewportToolbarButton: View {
-    let icon: String
-    let accessibilityLabel: String
-    let action: () -> Void
-
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(isHovered ? VColor.textPrimary : VColor.textSecondary)
-                .frame(width: 28, height: 28)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.1)) {
-                isHovered = hovering
-            }
-        }
-        .accessibilityLabel(accessibilityLabel)
-    }
-}
+// ViewportToolbarButton removed — using VIconButton from design system instead.
 
 // MARK: - Constellation View
 
@@ -724,25 +699,18 @@ struct ConstellationView: View {
     // MARK: - Fullscreen Toggle (top-left)
 
     private var fullscreenToggle: some View {
-        ViewportToolbarButton(
+        VIconButton(
+            label: isFullscreen ? "Collapse" : "Expand",
             icon: isFullscreen
                 ? "arrow.down.right.and.arrow.up.left"
-                : "arrow.up.left.and.arrow.down.right.square",
-            accessibilityLabel: isFullscreen ? "Exit fullscreen" : "Enter fullscreen"
+                : "arrow.up.left.and.arrow.down.right",
+            iconOnly: true,
+            tooltip: isFullscreen ? "Exit fullscreen" : "Enter fullscreen"
         ) {
             withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
                 isFullscreen.toggle()
             }
         }
-        .padding(VSpacing.sm)
-        .background(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(VColor.surface.opacity(0.85))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.surfaceBorder, lineWidth: 1)
-        )
     }
 
     // MARK: - Viewport Controls (bottom-right)
@@ -750,25 +718,25 @@ struct ConstellationView: View {
     @ViewBuilder
     private func viewportControls(viewSize: CGSize) -> some View {
         HStack(spacing: VSpacing.xxs) {
-            ViewportToolbarButton(icon: "plus.magnifyingglass", accessibilityLabel: "Zoom in") {
+            VIconButton(label: "Zoom in", icon: "plus.magnifyingglass", iconOnly: true, tooltip: "Zoom in") {
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                     zoomScale = min(3.0, zoomScale + 0.25)
                     baseZoomScale = zoomScale
                 }
             }
 
-            ViewportToolbarButton(icon: "minus.magnifyingglass", accessibilityLabel: "Zoom out") {
+            VIconButton(label: "Zoom out", icon: "minus.magnifyingglass", iconOnly: true, tooltip: "Zoom out") {
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                     zoomScale = max(0.4, zoomScale - 0.25)
                     baseZoomScale = zoomScale
                 }
             }
 
-            ViewportToolbarButton(icon: "arrow.up.left.and.arrow.down.right", accessibilityLabel: "Fit all") {
+            VIconButton(label: "Fit all", icon: "viewfinder", iconOnly: true, tooltip: "Fit all skills") {
                 fitAll(viewSize: viewSize)
             }
         }
-        .padding(VSpacing.sm)
+        .padding(VSpacing.xs)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg)
                 .fill(VColor.surface.opacity(0.85))

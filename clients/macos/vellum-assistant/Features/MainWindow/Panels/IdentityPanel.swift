@@ -18,67 +18,52 @@ struct IdentityPanel: View {
 
     private let sidebarWidth: CGFloat = 260
 
+    private let panelPadding: CGFloat = VSpacing.xl
+
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
             // Left sidebar: title, avatar, ID card — hidden in fullscreen
             if !isFullscreen {
                 VStack(alignment: .leading, spacing: 0) {
-                    // Header — reduced top padding to align with close icon
+                    // Header
                     Text("Identity")
                         .font(VFont.panelTitle)
                         .foregroundColor(VColor.textPrimary)
-                        .padding(.top, VSpacing.lg)
                         .padding(.bottom, VSpacing.lg)
 
-                    // Card wrapping avatar + ID fields + CTA
-                    VStack(alignment: .leading, spacing: 0) {
+                    // Card wrapping avatar + ID fields
+                    VStack(spacing: 0) {
                         // Compact avatar
                         DinoSceneView(seed: identity?.name ?? remoteIdentity?.name ?? lockfileAssistant?.assistantId ?? "default", palette: appearance.palette, outfit: appearance.outfit)
                             .frame(width: 120, height: 140)
                             .frame(maxWidth: .infinity, alignment: .center)
                             .padding(.top, VSpacing.lg)
 
+                        // Customize Avatar CTA — directly under avatar
+                        VButton(label: "Customize Avatar", style: .secondary, isFullWidth: true, action: onCustomizeAvatar)
+                            .padding(.top, VSpacing.sm)
+                            .padding(.horizontal, VSpacing.lg)
+                            .padding(.bottom, VSpacing.lg)
+
                         // ID card fields
                         idCardSection(identity: identity, remoteIdentity: remoteIdentity)
-                            .padding(.top, VSpacing.lg)
                             .padding(.horizontal, VSpacing.lg)
-
-                        // Customize Avatar CTA
-                        Button(action: onCustomizeAvatar) {
-                            HStack(spacing: VSpacing.xs) {
-                                Image(systemName: "paintpalette")
-                                    .font(.system(size: 12, weight: .medium))
-                                Text("Customize Avatar")
-                                    .font(VFont.bodyMedium)
-                            }
-                            .foregroundColor(VColor.accent)
-                            .padding(.horizontal, VSpacing.lg)
-                            .padding(.vertical, VSpacing.sm)
-                            .background(
-                                RoundedRectangle(cornerRadius: VRadius.md)
-                                    .stroke(VColor.accent.opacity(0.3), lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.top, VSpacing.lg)
-                        .padding(.horizontal, VSpacing.lg)
-                        .padding(.bottom, VSpacing.lg)
+                            .padding(.bottom, VSpacing.lg)
                     }
-                    .background(VColor.surface)
+                    .background(VColor.backgroundSubtle)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.lg)
-                            .stroke(VColor.surfaceBorder, lineWidth: 1)
-                    )
 
                     Spacer()
                 }
                 .frame(width: sidebarWidth)
-                .padding(.horizontal, VSpacing.xl)
+                .padding(.leading, panelPadding)
+                .padding(.trailing, VSpacing.lg)
+                .padding(.top, panelPadding)
+                .padding(.bottom, panelPadding)
                 .transition(.move(edge: .leading).combined(with: .opacity))
             }
 
-            // Hex grid fills the rest of the space — full height, wrapped in a card
+            // Hex grid fills the rest of the space — card when not fullscreen
             ConstellationView(
                 identity: identity,
                 skills: skills,
@@ -89,15 +74,15 @@ struct IdentityPanel: View {
                 isFullscreen: $isFullscreen
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(VColor.backgroundSubtle)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+            .background(isFullscreen ? Color.clear : VColor.backgroundSubtle)
+            .clipShape(RoundedRectangle(cornerRadius: isFullscreen ? 0 : VRadius.lg))
             .overlay(
-                RoundedRectangle(cornerRadius: VRadius.lg)
-                    .stroke(VColor.surfaceBorder, lineWidth: 1)
+                RoundedRectangle(cornerRadius: isFullscreen ? 0 : VRadius.lg)
+                    .stroke(isFullscreen ? Color.clear : VColor.surfaceBorder, lineWidth: 1)
             )
-            .padding(.top, VSpacing.lg)
-            .padding(.trailing, VSpacing.xl)
-            .padding(.bottom, VSpacing.xl)
+            .padding(.top, isFullscreen ? 0 : panelPadding)
+            .padding(.trailing, isFullscreen ? 0 : panelPadding)
+            .padding(.bottom, isFullscreen ? 0 : panelPadding)
         }
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isFullscreen)
         .overlay {
@@ -193,11 +178,10 @@ struct IdentityPanel: View {
     }
 
     private func idRow(label: String, value: String, mono: Bool = false, truncate: Bool = false) -> some View {
-        HStack(alignment: .top) {
+        VStack(alignment: .leading, spacing: VSpacing.xxs) {
             Text(label)
                 .font(VFont.caption)
                 .foregroundColor(VColor.textMuted)
-                .frame(width: 100, alignment: .leading)
 
             if truncate {
                 Text(value)
@@ -212,8 +196,6 @@ struct IdentityPanel: View {
                     .foregroundColor(VColor.textPrimary)
                     .textSelection(.enabled)
             }
-
-            Spacer()
         }
     }
 
