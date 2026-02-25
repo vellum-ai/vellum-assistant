@@ -55,8 +55,9 @@ mock.module('../config/loader.js', () => ({
 }));
 
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
-import { conversations, cronJobs, cronRuns, memoryItems, memoryItemSources, messages, taskRuns, tasks } from '../memory/schema.js';
-import { invalidateAssistantInferredItemsForConversation } from '../memory/task-memory-cleanup.js';
+import { conversations, cronJobs, cronRuns, memoryItems, memoryItemSources, memoryJobs, messages, taskRuns, tasks } from '../memory/schema.js';
+import { invalidateAssistantInferredItemsForConversation, isConversationFailed, clearAllFailedConversations } from '../memory/task-memory-cleanup.js';
+import { enqueueMemoryJob } from '../memory/jobs-store.js';
 
 describe('invalidateAssistantInferredItemsForConversation', () => {
   const now = 1_701_100_000_000;
@@ -71,12 +72,14 @@ describe('invalidateAssistantInferredItemsForConversation', () => {
     const db = getDb();
     db.run('DELETE FROM memory_item_sources');
     db.run('DELETE FROM memory_items');
+    db.run('DELETE FROM memory_jobs');
     db.run('DELETE FROM messages');
     db.run('DELETE FROM cron_runs');
     db.run('DELETE FROM cron_jobs');
     db.run('DELETE FROM task_runs');
     db.run('DELETE FROM tasks');
     db.run('DELETE FROM conversations');
+    clearAllFailedConversations();
   });
 
   afterAll(() => {
@@ -476,5 +479,58 @@ describe('invalidateAssistantInferredItemsForConversation', () => {
 
     const item = db.select().from(memoryItems).where(eq(memoryItems.id, 'item-with-good-corroboration')).get();
     expect(item?.status).toBe('active');
+  });
+
+  test('marks conversation as failed after invalidation', () => {
+    seedConversations();
+    seedMessages();
+    seedMemoryItems();
+
+    expect(isConversationFailed(convId)).toBe(false);
+
+    invalidateAssistantInferredItemsForConversation(convId);
+
+    expect(isConversationFailed(convId)).toBe(true);
+    // Other conversations remain unaffected
+    expect(isConversationFailed(otherConvId)).toBe(false);
+  });
+
+  test('cancels pending extract_items jobs for the failed conversation', () => {
+    seedConversations();
+    seedMessages();
+
+    const db = getDb();
+
+    // Enqueue extract_items jobs for messages in the target conversation
+    enqueueMemoryJob('extract_items', { messageId: 'msg-task-1', scopeId: 'default' });
+    enqueueMemoryJob('extract_items', { messageId: 'msg-task-2', scopeId: 'default' });
+    // Enqueue an extract_items job for a message in a different conversation
+    enqueueMemoryJob('extract_items', { messageId: 'msg-other', scopeId: 'default' });
+
+    // Verify all jobs are pending
+    const pendingBefore = db.select().from(memoryJobs)
+      .where(eq(memoryJobs.type, 'extract_items'))
+      .all();
+    expect(pendingBefore.filter((j) => j.status === 'pending')).toHaveLength(3);
+
+    invalidateAssistantInferredItemsForConversation(convId);
+
+    // Jobs for the failed conversation should be cancelled (failed)
+    const allJobs = db.select().from(memoryJobs)
+      .where(eq(memoryJobs.type, 'extract_items'))
+      .all();
+    const failedJobs = allJobs.filter((j) => j.status === 'failed');
+    const pendingJobs = allJobs.filter((j) => j.status === 'pending');
+
+    // Two jobs for the failed conversation should be cancelled
+    expect(failedJobs).toHaveLength(2);
+    for (const j of failedJobs) {
+      expect(j.lastError).toBe('conversation_failed');
+    }
+
+    // The job for the other conversation should remain pending
+    expect(pendingJobs).toHaveLength(1);
+    const payload = JSON.parse(pendingJobs[0].payload);
+    expect(payload.messageId).toBe('msg-other');
   });
 });
