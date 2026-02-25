@@ -271,14 +271,20 @@ struct AppsGridView: View {
         return VAppIconGenerator.generate(from: app.name, type: app.appType)
     }
 
+    /// Exclude any app that is the Home Base from the regular sections
+    /// (since Home Base is always shown as a dedicated synthetic first item).
+    private func isHomeBaseApp(_ app: AppListManager.AppItem) -> Bool {
+        app.name.localizedCaseInsensitiveContains("home base")
+    }
+
     private var filteredPinnedApps: [AppListManager.AppItem] {
-        let pinned = appListManager.displayApps.filter(\.isPinned)
+        let pinned = appListManager.displayApps.filter { $0.isPinned && !isHomeBaseApp($0) }
         guard !searchText.isEmpty else { return pinned }
         return pinned.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
     }
 
     private var filteredRecentApps: [AppListManager.AppItem] {
-        let unpinned = appListManager.displayApps.filter { !$0.isPinned }
+        let unpinned = appListManager.displayApps.filter { !$0.isPinned && !isHomeBaseApp($0) }
             .sorted { ($0.lastOpenedAt) > ($1.lastOpenedAt) }
         guard !searchText.isEmpty else { return unpinned }
         return unpinned.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
