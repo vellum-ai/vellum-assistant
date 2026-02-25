@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, mock, test } from 'bun:test';
 import type { AgentEvent } from '../agent/loop.js';
 import type { UserMessageAttachment } from '../daemon/ipc-protocol.js';
 import type { Message, ProviderResponse } from '../providers/types.js';
+import { ProviderError } from '../util/errors.js';
 
 mock.module('../util/logger.js', () => ({
   getLogger: () => new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
@@ -135,7 +136,7 @@ mock.module('../context/window-manager.js', () => ({
 
 // Track how many times agentLoop.run was called
 let agentLoopRunCount = 0;
-let firstRunErrorMode: 'none' | 'ordering' | 'context_too_large' | 'context_too_large_phrase' = 'ordering';
+let firstRunErrorMode: 'none' | 'ordering' | 'context_too_large' | 'context_too_large_phrase' | 'context_too_large_413' = 'ordering';
 
 mock.module('../agent/loop.js', () => ({
   AgentLoop: class {
@@ -151,6 +152,9 @@ mock.module('../agent/loop.js', () => ({
           }
           if (firstRunErrorMode === 'context_too_large_phrase') {
             return new Error('The conversation is too long for the model to process.');
+          }
+          if (firstRunErrorMode === 'context_too_large_413') {
+            return new ProviderError('request entity too large', 'mock-provider', 413);
           }
           return new Error('context_length_exceeded: request has too many input tokens');
         })();
@@ -333,6 +337,32 @@ describe('provider ordering error retry', () => {
       (msg) => events.push(msg as unknown as Record<string, unknown>),
     );
 
+    expect(agentLoopRunCount).toBe(2);
+    expect(maybeCompactCalls).toEqual([
+      { force: false },
+      { force: true },
+    ]);
+    expect(events.some((e) => e.type === 'message_complete')).toBe(true);
+    expect(events.some((e) => e.type === 'session_error')).toBe(false);
+  });
+
+  test('ProviderError with statusCode 413 triggers forced-compaction retry via classifySessionError', async () => {
+    firstRunErrorMode = 'context_too_large_413';
+    forceCompactionEnabled = true;
+
+    const session = makeSession();
+    await session.loadFromDb();
+
+    const events: Array<Record<string, unknown>> = [];
+    await session.processMessage(
+      'Please compare these images.',
+      makeImageAttachments(8),
+      (msg) => events.push(msg as unknown as Record<string, unknown>),
+    );
+
+    // The 413 ProviderError message "request entity too large" doesn't match
+    // the regex patterns, but classifySessionError recognizes statusCode 413
+    // as CONTEXT_TOO_LARGE and sets contextTooLargeDetected = true.
     expect(agentLoopRunCount).toBe(2);
     expect(maybeCompactCalls).toEqual([
       { force: false },
