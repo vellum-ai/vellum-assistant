@@ -1,6 +1,6 @@
 // Computer use, task routing, ride shotgun, and watch observation types.
 
-import type { UserMessageAttachment, IpcBlobRef } from './shared.js';
+import type { IpcBlobRef,UserMessageAttachment } from './shared.js';
 
 // === Client → Server ===
 

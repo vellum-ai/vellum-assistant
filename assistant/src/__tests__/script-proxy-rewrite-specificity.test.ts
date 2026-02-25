@@ -1,8 +1,9 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, expect,test } from 'bun:test';
+
 import {
-  matchHostPattern,
   compareMatchSpecificity,
   type HostMatchKind,
+  matchHostPattern,
 } from '../tools/credentials/host-pattern-match.js';
 import type { CredentialInjectionTemplate } from '../tools/credentials/policy-types.js';
 

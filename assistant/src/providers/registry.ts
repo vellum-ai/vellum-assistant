@@ -1,15 +1,15 @@
-import type { Provider } from "./types.js";
-import { AnthropicProvider } from "./anthropic/client.js";
-import { OpenAIProvider } from "./openai/client.js";
-import { GeminiProvider } from "./gemini/client.js";
-import { OllamaProvider } from "./ollama/client.js";
-import { FireworksProvider } from "./fireworks/client.js";
-import { OpenRouterProvider } from "./openrouter/client.js";
-import { RetryProvider } from "./retry.js";
-import { FailoverProvider } from "./failover.js";
 import { wrapWithLogfire } from "../logfire.js";
 import { ConfigError } from "../util/errors.js";
+import { AnthropicProvider } from "./anthropic/client.js";
+import { FailoverProvider } from "./failover.js";
+import { FireworksProvider } from "./fireworks/client.js";
+import { GeminiProvider } from "./gemini/client.js";
 import { getProviderDefaultModel } from "./model-intents.js";
+import { OllamaProvider } from "./ollama/client.js";
+import { OpenAIProvider } from "./openai/client.js";
+import { OpenRouterProvider } from "./openrouter/client.js";
+import { RetryProvider } from "./retry.js";
+import type { Provider } from "./types.js";
 
 const providers = new Map<string, Provider>();
 let cachedFailoverProvider: FailoverProvider | null = null;

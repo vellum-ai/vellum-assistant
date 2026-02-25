@@ -1,14 +1,14 @@
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import { withValidToken } from '../../../../security/token-manager.js';
-import { getMessagingProvider } from '../../../../messaging/registry.js';
 import {
-  listLabels,
-  createLabel,
-  modifyMessage,
-  listMessages,
   batchGetMessages,
+  createLabel,
+  listLabels,
+  listMessages,
+  modifyMessage,
 } from '../../../../messaging/providers/gmail/client.js';
-import { ok, err } from './shared.js';
+import { getMessagingProvider } from '../../../../messaging/registry.js';
+import { withValidToken } from '../../../../security/token-manager.js';
+import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
+import { err,ok } from './shared.js';
 
 const FOLLOW_UP_LABEL_NAME = 'Follow-up';
 

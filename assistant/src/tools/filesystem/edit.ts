@@ -1,10 +1,10 @@
 import { RiskLevel } from '../../permissions/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
 import { FileSystemOps } from '../shared/filesystem/file-ops-service.js';
 import { formatEditDiff } from '../shared/filesystem/format-diff.js';
 import { sandboxPolicy } from '../shared/filesystem/path-policy.js';
+import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 
 class FileEditTool implements Tool {
   name = 'file_edit';

@@ -8,7 +8,7 @@
  */
 
 import { getActiveBinding } from '../memory/channel-guardian-store.js';
-import type { NotificationChannel, ChannelDestination } from './types.js';
+import type { ChannelDestination,NotificationChannel } from './types.js';
 
 /**
  * Resolve destination information for each requested channel.

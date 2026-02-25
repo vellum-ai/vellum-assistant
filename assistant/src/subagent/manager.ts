@@ -9,20 +9,21 @@
  */
 
 import { v4 as uuid } from 'uuid';
+
+import { getConfig } from '../config/loader.js';
+import type { ServerMessage } from '../daemon/ipc-contract.js';
 import { Session, type SessionMemoryPolicy } from '../daemon/session.js';
 import { createConversation } from '../memory/conversation-store.js';
 import { GENERATING_TITLE, queueGenerateConversationTitle } from '../memory/conversation-title-service.js';
-import { getConfig } from '../config/loader.js';
-import { getFailoverProvider } from '../providers/registry.js';
 import { RateLimitProvider } from '../providers/ratelimit.js';
-import { getSandboxWorkingDir } from '../util/platform.js';
+import { getFailoverProvider } from '../providers/registry.js';
 import { getLogger } from '../util/logger.js';
-import type { ServerMessage } from '../daemon/ipc-contract.js';
+import { getSandboxWorkingDir } from '../util/platform.js';
 import {
+  SUBAGENT_LIMITS,
   type SubagentConfig,
   type SubagentState,
   type SubagentStatus,
-  SUBAGENT_LIMITS,
   TERMINAL_STATUSES,
 } from './types.js';
 

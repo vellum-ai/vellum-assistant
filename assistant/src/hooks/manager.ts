@@ -1,11 +1,12 @@
-import { watch, type FSWatcher } from 'node:fs';
+import { type FSWatcher,watch } from 'node:fs';
+
+import { Debouncer } from '../util/debounce.js';
 import { pathExists } from '../util/fs.js';
-import { discoverHooks } from './discovery.js';
-import { runHookScript } from './runner.js';
 import { getLogger, isDebug } from '../util/logger.js';
 import { getHooksDir } from '../util/platform.js';
-import { Debouncer } from '../util/debounce.js';
-import type { DiscoveredHook, HookEventName, HookEventData, HookTriggerResult } from './types.js';
+import { discoverHooks } from './discovery.js';
+import { runHookScript } from './runner.js';
+import type { DiscoveredHook, HookEventData, HookEventName, HookTriggerResult } from './types.js';
 
 const log = getLogger('hooks-manager');
 

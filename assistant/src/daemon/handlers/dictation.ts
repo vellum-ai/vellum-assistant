@@ -1,7 +1,8 @@
 import * as net from 'node:net';
+
 import { getConfiguredProvider } from '../../providers/provider-send-message.js';
 import type { DictationRequest } from '../ipc-protocol.js';
-import { log, defineHandlers, type HandlerContext } from './shared.js';
+import { defineHandlers, type HandlerContext,log } from './shared.js';
 
 // Action verbs that signal the user wants a full agent session rather than inline text
 const ACTION_VERBS = ['slack', 'email', 'send', 'create', 'open', 'search', 'find'];

@@ -1,6 +1,6 @@
-import type { SwarmRole, SwarmTaskResult } from './types.js';
-import { truncate } from '../util/truncate.js';
 import { parseJsonSafe } from '../util/json.js';
+import { truncate } from '../util/truncate.js';
+import type { SwarmRole, SwarmTaskResult } from './types.js';
 
 /**
  * Build a role-specific worker prompt for a swarm task.

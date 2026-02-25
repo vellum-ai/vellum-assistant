@@ -1,9 +1,10 @@
-import { readdirSync, readFileSync, cpSync, chmodSync, rmSync, type Dirent } from 'node:fs';
+import { chmodSync, cpSync, type Dirent,readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+
 import { pathExists } from '../util/fs.js';
+import { getLogger } from '../util/logger.js';
 import { getHooksDir } from '../util/platform.js';
 import { ensureHookInConfig } from './config.js';
-import { getLogger } from '../util/logger.js';
 
 const log = getLogger('hooks-templates');
 

@@ -1,8 +1,9 @@
-import { afterEach, describe, expect, mock, test } from 'bun:test';
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import * as realChildProcess from 'node:child_process';
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach, describe, expect, mock, test } from 'bun:test';
 
 // Capture the real spawn before mock.module replaces it
 const originalSpawn = realChildProcess.spawn;

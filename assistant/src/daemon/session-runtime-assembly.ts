@@ -5,11 +5,12 @@
  * before it is sent to the provider.  They are pure (no side effects).
  */
 
-import { parseInterfaceId, type ChannelId, type TurnChannelContext, type InterfaceId, type TurnInterfaceContext } from '../channels/types.js';
-import type { Message } from '../providers/types.js';
-import { listAppFiles, getAppsDir } from '../memory/app-store.js';
 import { statSync } from 'node:fs';
 import { join } from 'node:path';
+
+import { type ChannelId, type InterfaceId, parseInterfaceId, type TurnChannelContext, type TurnInterfaceContext } from '../channels/types.js';
+import { getAppsDir,listAppFiles } from '../memory/app-store.js';
+import type { Message } from '../providers/types.js';
 
 /**
  * Describes the capabilities of the channel through which the user is

@@ -6,13 +6,13 @@
  * when the provider is unavailable or generation fails/times out.
  */
 
-import { getLogger } from '../util/logger.js';
 import {
-  resolveConfiguredProvider,
   createTimeout,
   extractText,
+  resolveConfiguredProvider,
   userMessage,
 } from '../providers/provider-send-message.js';
+import { getLogger } from '../util/logger.js';
 
 const log = getLogger('guardian-question-copy');
 

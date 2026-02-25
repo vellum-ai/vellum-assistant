@@ -7,14 +7,14 @@
  * or UNUserNotificationCenter).
  */
 
-import { getLogger } from '../../util/logger.js';
 import type { ServerMessage } from '../../daemon/ipc-contract.js';
+import { getLogger } from '../../util/logger.js';
 import type {
-  NotificationChannel,
   ChannelAdapter,
   ChannelDeliveryPayload,
   ChannelDestination,
   DeliveryResult,
+  NotificationChannel,
 } from '../types.js';
 
 const log = getLogger('notif-adapter-vellum');

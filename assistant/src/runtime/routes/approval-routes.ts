@@ -4,11 +4,11 @@
  * These endpoints resolve pending confirmations, secrets, and trust rules
  * by requestId — orthogonal to message sending.
  */
-import * as pendingInteractions from '../pending-interactions.js';
 import { getConversationByKey } from '../../memory/conversation-key-store.js';
 import { addRule } from '../../permissions/trust-store.js';
 import { getTool } from '../../tools/registry.js';
 import { getLogger } from '../../util/logger.js';
+import * as pendingInteractions from '../pending-interactions.js';
 
 const log = getLogger('approval-routes');
 

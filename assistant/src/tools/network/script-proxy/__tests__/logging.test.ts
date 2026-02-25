@@ -1,14 +1,15 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, expect,test } from 'bun:test';
+
+import type { CredentialInjectionTemplate } from '../../../credentials/policy-types.js';
 import {
+  buildCredentialRefTrace,
+  buildDecisionTrace,
+  createSafeLogEntry,
   sanitizeHeaders,
   sanitizeUrl,
-  createSafeLogEntry,
   stripQueryString,
-  buildDecisionTrace,
-  buildCredentialRefTrace,
 } from '../logging.js';
 import type { PolicyDecision } from '../types.js';
-import type { CredentialInjectionTemplate } from '../../../credentials/policy-types.js';
 
 // ---------------------------------------------------------------------------
 // sanitizeHeaders

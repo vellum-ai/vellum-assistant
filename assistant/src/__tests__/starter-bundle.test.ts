@@ -1,6 +1,7 @@
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { dirname,join } from 'node:path';
+
+import { afterEach,beforeEach, describe, expect, test } from 'bun:test';
 
 // Stub the root dir before importing trust-store so it uses our temp directory
 const TEST_ROOT = join(import.meta.dirname ?? __dirname, '..', '..', '.test-starter-bundle-' + process.pid);
@@ -22,10 +23,10 @@ mock.module('../config/skills.js', () => ({
 // Now import trust-store (which uses the mocked platform)
 import {
   acceptStarterBundle,
-  isStarterBundleAccepted,
-  getStarterBundleRules,
-  getAllRules,
   clearCache,
+  getAllRules,
+  getStarterBundleRules,
+  isStarterBundleAccepted,
 } from '../permissions/trust-store.js';
 
 describe('Starter approval bundle', () => {

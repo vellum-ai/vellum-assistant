@@ -1,9 +1,9 @@
-import { getLogger } from '../util/logger.js';
 import { getConfig } from '../config/loader.js';
+import { resolveConfiguredProvider } from '../providers/provider-send-message.js';
+import type { Message } from '../providers/types.js';
+import { getLogger } from '../util/logger.js';
 import type { CommitContext } from './commit-message-provider.js';
 import { DefaultCommitMessageProvider } from './commit-message-provider.js';
-import type { Message } from '../providers/types.js';
-import { resolveConfiguredProvider } from '../providers/provider-send-message.js';
 
 const log = getLogger('commit-message-llm');
 

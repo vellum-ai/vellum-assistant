@@ -7,18 +7,18 @@
 
 import type { MessagingProvider } from '../../provider.js';
 import type {
-  Conversation,
-  Message,
-  SearchResult,
-  SendResult,
   ConnectionInfo,
-  ListOptions,
+  Conversation,
   HistoryOptions,
+  ListOptions,
+  Message,
   SearchOptions,
+  SearchResult,
   SendOptions,
+  SendResult,
 } from '../../provider-types.js';
-import type { GmailMessage, GmailMessagePart } from './types.js';
 import * as gmail from './client.js';
+import type { GmailMessage, GmailMessagePart } from './types.js';
 
 function extractHeader(msg: GmailMessage, name: string): string {
   const lower = name.toLowerCase();

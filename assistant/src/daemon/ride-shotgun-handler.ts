@@ -1,22 +1,23 @@
-import type * as net from 'node:net';
 import { randomUUID } from 'node:crypto';
-import type { HandlerContext } from './handlers.js';
-import type { RideShotgunStart, RideShotgunStop } from './ipc-protocol.js';
+import type * as net from 'node:net';
+
+import { autoNavigate } from '../tools/browser/auto-navigate.js';
+import { NetworkRecorder } from '../tools/browser/network-recorder.js';
+import type { SessionRecording } from '../tools/browser/network-recording-types.js';
+import { saveRecording } from '../tools/browser/recording-store.js';
+import { navigateXPages } from '../tools/browser/x-auto-navigate.js';
+import type { WatchSession } from '../tools/watch/watch-state.js';
 import {
-  watchSessions,
+  fireWatchCompletionNotifier,
+  fireWatchStartNotifier,
   registerWatchCompletionNotifier,
   unregisterWatchCompletionNotifier,
-  fireWatchStartNotifier,
-  fireWatchCompletionNotifier,
+  watchSessions,
 } from '../tools/watch/watch-state.js';
-import type { WatchSession } from '../tools/watch/watch-state.js';
-import { lastSummaryBySession, generateSummary } from './watch-handler.js';
 import { getLogger } from '../util/logger.js';
-import { NetworkRecorder } from '../tools/browser/network-recorder.js';
-import { saveRecording } from '../tools/browser/recording-store.js';
-import type { SessionRecording } from '../tools/browser/network-recording-types.js';
-import { navigateXPages } from '../tools/browser/x-auto-navigate.js';
-import { autoNavigate } from '../tools/browser/auto-navigate.js';
+import type { HandlerContext } from './handlers.js';
+import type { RideShotgunStart, RideShotgunStop } from './ipc-protocol.js';
+import { generateSummary,lastSummaryBySession } from './watch-handler.js';
 
 const log = getLogger('ride-shotgun-handler');
 

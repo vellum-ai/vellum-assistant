@@ -1,10 +1,11 @@
-import * as net from 'node:net';
 import { readFileSync } from 'node:fs';
+import * as net from 'node:net';
 import { join, resolve, sep } from 'node:path';
+
 import { pathExists } from '../../util/fs.js';
 import { getWorkspaceDir } from '../../util/platform.js';
-import { log, defineHandlers, type HandlerContext } from './shared.js';
 import type { WorkspaceFileReadRequest } from '../ipc-protocol.js';
+import { defineHandlers, type HandlerContext,log } from './shared.js';
 
 /** Well-known workspace prompt files shown in the Identity panel. */
 const WORKSPACE_FILES = ['IDENTITY.md', 'SOUL.md', 'USER.md', 'skills/'];

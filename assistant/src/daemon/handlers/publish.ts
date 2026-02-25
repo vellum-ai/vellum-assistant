@@ -1,16 +1,18 @@
-import * as net from 'node:net';
-import { v4 as uuid } from 'uuid';
 import { createHash } from 'node:crypto';
-import { deployHtmlToVercel, deleteVercelDeployment } from '../../services/vercel-deploy.js';
-import { createPublishedPage, getPublishedPageByHash, markDeleted, getPublishedPageByDeploymentId, updatePublishedPage } from '../../memory/published-pages-store.js';
+import * as net from 'node:net';
+
+import { v4 as uuid } from 'uuid';
+
+import { createPublishedPage, getPublishedPageByDeploymentId, getPublishedPageByHash, markDeleted, updatePublishedPage } from '../../memory/published-pages-store.js';
 import { setSecureKey } from '../../security/secure-keys.js';
-import { getCredentialMetadata, upsertCredentialMetadata } from '../../tools/credentials/metadata-store.js';
+import { deleteVercelDeployment,deployHtmlToVercel } from '../../services/vercel-deploy.js';
 import { credentialBroker } from '../../tools/credentials/broker.js';
+import { getCredentialMetadata, upsertCredentialMetadata } from '../../tools/credentials/metadata-store.js';
 import type {
   PublishPageRequest,
   UnpublishPageRequest,
 } from '../ipc-protocol.js';
-import { log, requestSecretStandalone, defineHandlers, type HandlerContext } from './shared.js';
+import { defineHandlers, type HandlerContext,log, requestSecretStandalone } from './shared.js';
 
 export async function handlePublishPage(
   msg: PublishPageRequest,

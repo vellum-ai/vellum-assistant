@@ -1,7 +1,7 @@
-import { describe, test, expect } from 'bun:test';
-import { deriveActiveSkillIds, deriveActiveSkills } from '../skills/active-skill-tools.js';
+import { describe, expect,test } from 'bun:test';
 
 import type { Message } from '../providers/types.js';
+import { deriveActiveSkillIds, deriveActiveSkills } from '../skills/active-skill-tools.js';
 
 // ---------------------------------------------------------------------------
 // Helpers

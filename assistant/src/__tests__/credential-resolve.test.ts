@@ -1,8 +1,9 @@
-import { describe, test, expect, beforeEach, afterAll } from 'bun:test';
-import { mkdirSync, rmSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
+import { existsSync,mkdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterAll,beforeEach, describe, expect, test } from 'bun:test';
 import { mock } from 'bun:test';
 
 mock.module('../util/logger.js', () => ({
@@ -12,14 +13,14 @@ mock.module('../util/logger.js', () => ({
 }));
 
 import {
-  upsertCredentialMetadata,
   _setMetadataPath,
+  upsertCredentialMetadata,
 } from '../tools/credentials/metadata-store.js';
 import {
-  resolveByServiceField,
   resolveById,
-  resolveForDomain,
+  resolveByServiceField,
   resolveCredentialRef,
+  resolveForDomain,
 } from '../tools/credentials/resolve.js';
 
 const TEST_DIR = join(tmpdir(), `vellum-credresolve-test-${randomBytes(4).toString('hex')}`);

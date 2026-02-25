@@ -1,20 +1,20 @@
-import type { ContentBlock } from '../providers/types.js';
-import type { UserMessageAttachment } from './ipc-protocol.js';
+import { AttachmentUploadError,linkAttachmentToMessage, setAttachmentThumbnail, uploadAttachment } from '../memory/attachments-store.js';
 import { check, classifyRisk, generateAllowlistOptions, generateScopeOptions } from '../permissions/checker.js';
-import { addRule } from '../permissions/trust-store.js';
 import type { PermissionPrompter } from '../permissions/prompter.js';
-import { uploadAttachment, linkAttachmentToMessage, setAttachmentThumbnail, AttachmentUploadError } from '../memory/attachments-store.js';
-import { generateVideoThumbnail } from './video-thumbnail.js';
+import { addRule } from '../permissions/trust-store.js';
+import type { ContentBlock } from '../providers/types.js';
+import { getLogger } from '../util/logger.js';
 import {
-  resolveDirectives,
+  type ApproveHostRead,
+  type AssistantAttachmentDraft,
   contentBlocksToDrafts,
   deduplicateDrafts,
-  validateDrafts,
   type DirectiveRequest,
-  type AssistantAttachmentDraft,
-  type ApproveHostRead,
+  resolveDirectives,
+  validateDrafts,
 } from './assistant-attachments.js';
-import { getLogger } from '../util/logger.js';
+import type { UserMessageAttachment } from './ipc-protocol.js';
+import { generateVideoThumbnail } from './video-thumbnail.js';
 
 const log = getLogger('session-attachments');
 

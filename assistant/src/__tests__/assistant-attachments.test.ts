@@ -1,16 +1,17 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, expect,test } from 'bun:test';
+
 import {
-  estimateBase64Bytes,
-  inferMimeType,
+  type AssistantAttachmentDraft,
   classifyKind,
-  validateDrafts,
   cleanAssistantContent,
-  drainDirectiveDisplayBuffer,
   contentBlocksToDrafts,
   deduplicateDrafts,
-  MAX_ASSISTANT_ATTACHMENTS,
+  drainDirectiveDisplayBuffer,
+  estimateBase64Bytes,
+  inferMimeType,
   MAX_ASSISTANT_ATTACHMENT_BYTES,
-  type AssistantAttachmentDraft,
+  MAX_ASSISTANT_ATTACHMENTS,
+  validateDrafts,
 } from '../daemon/assistant-attachments.js';
 
 // ---------------------------------------------------------------------------

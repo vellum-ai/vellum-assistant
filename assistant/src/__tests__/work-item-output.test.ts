@@ -1,9 +1,10 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
-import type { Database } from 'bun:sqlite';
 import * as net from 'node:net';
-import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import type { Database } from 'bun:sqlite';
+import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 
 const testDir = mkdtempSync(join(tmpdir(), 'work-item-output-test-'));
 
@@ -35,12 +36,12 @@ mock.module('./indexer.js', () => ({
   indexMessageNow: () => {},
 }));
 
+import type { HandlerContext } from '../daemon/handlers/shared.js';
+import { handleWorkItemOutput } from '../daemon/handlers/work-items.js';
 import { addMessage, createConversation } from '../memory/conversation-store.js';
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { createTask, createTaskRun, updateTaskRun } from '../tasks/task-store.js';
 import { createWorkItem, updateWorkItem } from '../work-items/work-item-store.js';
-import { handleWorkItemOutput } from '../daemon/handlers/work-items.js';
-import type { HandlerContext } from '../daemon/handlers/shared.js';
 
 initializeDb();
 

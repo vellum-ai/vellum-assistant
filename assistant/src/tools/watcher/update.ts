@@ -1,5 +1,5 @@
-import type { ToolContext, ToolExecutionResult } from '../types.js';
 import { updateWatcher } from '../../watcher/watcher-store.js';
+import type { ToolContext, ToolExecutionResult } from '../types.js';
 
 export async function executeWatcherUpdate(
   input: Record<string, unknown>,

@@ -1,5 +1,6 @@
 import { QdrantClient as QdrantRestClient } from '@qdrant/js-client-rest';
 import { v4 as uuid } from 'uuid';
+
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('qdrant-client');

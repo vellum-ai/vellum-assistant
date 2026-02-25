@@ -1,7 +1,8 @@
-import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, beforeEach, describe, expect, mock,test } from 'bun:test';
 
 const testDir = mkdtempSync(join(tmpdir(), 'channel-delivery-store-test-'));
 
@@ -23,24 +24,25 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
-import { initializeDb, getDb, resetDb } from '../memory/db.js';
-import { channelInboundEvents, conversations, externalConversationBindings, messages } from '../memory/schema.js';
-import {
-  recordInbound,
-  linkMessage,
-  findMessageBySourceId,
-  acknowledgeDelivery,
-  storePayload,
-  clearPayload,
-  markProcessed,
-  recordProcessingFailure,
-  getRetryableEvents,
-  getDeadLetterEvents,
-  replayDeadLetters,
-} from '../memory/channel-delivery-store.js';
-import { RETRY_MAX_ATTEMPTS } from '../memory/job-utils.js';
 import { eq } from 'drizzle-orm';
-import { setConversationKey, getConversationByKey } from '../memory/conversation-key-store.js';
+
+import {
+  acknowledgeDelivery,
+  clearPayload,
+  findMessageBySourceId,
+  getDeadLetterEvents,
+  getRetryableEvents,
+  linkMessage,
+  markProcessed,
+  recordInbound,
+  recordProcessingFailure,
+  replayDeadLetters,
+  storePayload,
+} from '../memory/channel-delivery-store.js';
+import { getConversationByKey,setConversationKey } from '../memory/conversation-key-store.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
+import { RETRY_MAX_ATTEMPTS } from '../memory/job-utils.js';
+import { channelInboundEvents, conversations, externalConversationBindings, messages } from '../memory/schema.js';
 import { handleDeleteConversation } from '../runtime/routes/channel-routes.js';
 
 initializeDb();

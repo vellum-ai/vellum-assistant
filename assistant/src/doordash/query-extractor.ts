@@ -6,10 +6,11 @@
  * Captured queries are saved to ~/.vellum/workspace/data/doordash/captured-queries.json
  */
 
+import { existsSync,mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
-import { getDataDir } from '../util/platform.js';
+
 import type { SessionRecording } from '../tools/browser/network-recording-types.js';
+import { getDataDir } from '../util/platform.js';
 
 export interface CapturedQuery {
   operationName: string;

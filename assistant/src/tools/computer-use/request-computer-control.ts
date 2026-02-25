@@ -16,8 +16,8 @@
  */
 
 import { RiskLevel } from '../../permissions/types.js';
-import type { Tool, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
+import type { Tool, ToolExecutionResult } from '../types.js';
 
 export const requestComputerControlTool: Tool = {
   name: 'computer_use_request_control',

@@ -31,7 +31,8 @@
  */
 
 import type { Database, SQLQueryBindings } from 'bun:sqlite';
-import { getSqlite, type DrizzleDb, getSqliteFrom } from './db-connection.js';
+
+import { type DrizzleDb, getSqlite, getSqliteFrom } from './db-connection.js';
 
 type SqlParam = SQLQueryBindings;
 

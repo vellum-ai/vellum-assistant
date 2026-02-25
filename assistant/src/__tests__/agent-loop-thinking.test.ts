@@ -1,6 +1,7 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, expect,test } from 'bun:test';
+
 import { AgentLoop } from '../agent/loop.js';
-import type { Provider, Message, ProviderResponse, SendMessageOptions, ToolDefinition } from '../providers/types.js';
+import type { Message, Provider, ProviderResponse, SendMessageOptions, ToolDefinition } from '../providers/types.js';
 
 /** Minimal mock provider that captures the config passed to sendMessage. */
 function createMockProvider(): { provider: Provider; lastConfig: () => Record<string, unknown> | undefined } {

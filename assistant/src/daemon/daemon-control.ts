@@ -1,15 +1,16 @@
 import { spawn } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync, unlinkSync, existsSync, openSync, closeSync } from 'node:fs';
+import { closeSync,existsSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+
+import { DaemonError } from '../util/errors.js';
+import { getLogger } from '../util/logger.js';
 import {
-  getSocketPath,
   getPidPath,
   getRootDir,
+  getSocketPath,
   getWorkspaceConfigPath,
   removeSocketFile,
 } from '../util/platform.js';
-import { getLogger } from '../util/logger.js';
-import { DaemonError } from '../util/errors.js';
 
 const log = getLogger('lifecycle');
 

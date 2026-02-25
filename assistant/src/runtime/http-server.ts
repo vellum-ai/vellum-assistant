@@ -7,142 +7,140 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+
+import type { BrowserRelayWebSocketData } from '../browser-extension-relay/server.js';
+import { extensionRelayServer } from '../browser-extension-relay/server.js';
+import {
+  startGuardianActionSweep,
+  stopGuardianActionSweep,
+} from '../calls/guardian-action-sweep.js';
+import type { RelayWebSocketData } from '../calls/relay-server.js';
+import { activeRelayConnections,RelayConnection } from '../calls/relay-server.js';
+import {
+  handleConnectAction,
+  handleStatusCallback,
+  handleVoiceWebhook,
+} from '../calls/twilio-routes.js';
 import { parseChannelId } from '../channels/types.js';
-import { getLogger } from '../util/logger.js';
 import {
   getGatewayInternalBaseUrl,
-  isHttpAuthDisabled,
   getRuntimeGatewayOriginSecret,
+  isHttpAuthDisabled,
 } from '../config/env.js';
-import type { RunOrchestrator } from './run-orchestrator.js';
-
-// Route handlers — grouped by domain
+import type { ServerMessage } from '../daemon/ipc-contract.js';
+import { PairingStore } from '../daemon/pairing-store.js';
+import * as conversationStore from '../memory/conversation-store.js';
+import * as externalConversationStore from '../memory/external-conversation-store.js';
+import { consumeCallback, consumeCallbackError } from '../security/oauth-callback-registry.js';
+import { getLogger } from '../util/logger.js';
+import { buildAssistantEvent } from './assistant-event.js';
+import { assistantEventHub } from './assistant-event-hub.js';
+import { sweepFailedEvents } from './channel-retry-sweep.js';
+// Middleware
 import {
-  handleListMessages,
-  handleSendMessage,
-  handleGetSuggestion,
-  handleSearchConversations,
-} from './routes/conversation-routes.js';
+  extractBearerToken,
+  isLoopbackHost,
+  isPrivateNetworkOrigin,
+  isPrivateNetworkPeer,
+  verifyBearerToken,
+} from './middleware/auth.js';
+import { withErrorHandling } from './middleware/error-handler.js';
 import {
-  handleUploadAttachment,
+  cloneRequestWithBody,
+  GATEWAY_ONLY_BLOCKED_SUBPATHS,
+  GATEWAY_SUBPATH_MAP,
+  TWILIO_GATEWAY_WEBHOOK_RE,
+  TWILIO_WEBHOOK_RE,
+  validateTwilioWebhook,
+} from './middleware/twilio-validation.js';
+import {
+  handleDeleteSharedApp,
+  handleDownloadSharedApp,
+  handleGetSharedAppMetadata,
+  handleServePage,
+  handleShareApp,
+} from './routes/app-routes.js';
+import {
+  handleConfirm,
+  handleListPendingInteractions,
+  handleSecret,
+  handleTrustRule,
+} from './routes/approval-routes.js';
+import {
   handleDeleteAttachment,
   handleGetAttachment,
   handleGetAttachmentContent,
+  handleUploadAttachment,
 } from './routes/attachment-routes.js';
 import {
-  handleCreateRun,
-  handleGetRun,
-  handleRunDecision,
-  handleRunSecret,
-  handleAddTrustRule,
-} from './routes/run-routes.js';
+  handleAnswerCall,
+  handleCancelCall,
+  handleGetCallStatus,
+  handleInstructionCall,
+  handleStartCall,
+} from './routes/call-routes.js';
+import { canonicalChannelAssistantId } from './routes/channel-route-shared.js';
 import {
-  handleConfirm,
-  handleSecret,
-  handleTrustRule,
-  handleListPendingInteractions,
-} from './routes/approval-routes.js';
-import {
-  handleListContacts,
-  handleGetContact,
-  handleMergeContacts,
-} from './routes/contact-routes.js';
-import {
-  handleDeleteConversation,
-  handleChannelInbound,
   handleChannelDeliveryAck,
+  handleChannelInbound,
+  handleDeleteConversation,
   handleListDeadLetters,
   handleReplayDeadLetters,
   startGuardianExpirySweep,
   stopGuardianExpirySweep,
 } from './routes/channel-routes.js';
-import { canonicalChannelAssistantId } from './routes/channel-route-shared.js';
 import {
-  startGuardianActionSweep,
-  stopGuardianActionSweep,
-} from '../calls/guardian-action-sweep.js';
-import * as conversationStore from '../memory/conversation-store.js';
-import * as externalConversationStore from '../memory/external-conversation-store.js';
+  handleGetContact,
+  handleListContacts,
+  handleMergeContacts,
+} from './routes/contact-routes.js';
+// Route handlers — grouped by domain
 import {
-  handleServePage,
-  handleShareApp,
-  handleDownloadSharedApp,
-  handleGetSharedAppMetadata,
-  handleDeleteSharedApp,
-} from './routes/app-routes.js';
-import { handleAddSecret } from './routes/secret-routes.js';
-import {
-  handleStartCall,
-  handleGetCallStatus,
-  handleCancelCall,
-  handleAnswerCall,
-  handleInstructionCall,
-} from './routes/call-routes.js';
-import {
-  handleVoiceWebhook,
-  handleStatusCallback,
-  handleConnectAction,
-} from '../calls/twilio-routes.js';
-import { RelayConnection, activeRelayConnections } from '../calls/relay-server.js';
-import type { RelayWebSocketData } from '../calls/relay-server.js';
-import { extensionRelayServer } from '../browser-extension-relay/server.js';
-import type { BrowserRelayWebSocketData } from '../browser-extension-relay/server.js';
+  handleGetSuggestion,
+  handleListMessages,
+  handleSearchConversations,
+  handleSendMessage,
+} from './routes/conversation-routes.js';
 import { handleSubscribeAssistantEvents } from './routes/events-routes.js';
-import { consumeCallback, consumeCallbackError } from '../security/oauth-callback-registry.js';
-import { PairingStore } from '../daemon/pairing-store.js';
-import type { ServerMessage } from '../daemon/ipc-contract.js';
-import { assistantEventHub } from './assistant-event-hub.js';
-import { buildAssistantEvent } from './assistant-event.js';
-
-// Middleware
-import {
-  verifyBearerToken,
-  isLoopbackHost,
-  isPrivateNetworkPeer,
-  isPrivateNetworkOrigin,
-  extractBearerToken,
-} from './middleware/auth.js';
-import { withErrorHandling } from './middleware/error-handler.js';
-import {
-  TWILIO_WEBHOOK_RE,
-  TWILIO_GATEWAY_WEBHOOK_RE,
-  GATEWAY_SUBPATH_MAP,
-  GATEWAY_ONLY_BLOCKED_SUBPATHS,
-  validateTwilioWebhook,
-  cloneRequestWithBody,
-} from './middleware/twilio-validation.js';
-
+import { handleGetIdentity,handleHealth } from './routes/identity-routes.js';
+import type { PairingHandlerContext } from './routes/pairing-routes.js';
 // Extracted route handlers
 import {
   handlePairingRegister,
   handlePairingRequest,
   handlePairingStatus,
 } from './routes/pairing-routes.js';
-import type { PairingHandlerContext } from './routes/pairing-routes.js';
-import { handleHealth, handleGetIdentity } from './routes/identity-routes.js';
-import { sweepFailedEvents } from './channel-retry-sweep.js';
+import {
+  handleAddTrustRule,
+  handleCreateRun,
+  handleGetRun,
+  handleRunDecision,
+  handleRunSecret,
+} from './routes/run-routes.js';
+import { handleAddSecret } from './routes/secret-routes.js';
+import type { RunOrchestrator } from './run-orchestrator.js';
 
 // Re-export for consumers
 export { isPrivateAddress } from './middleware/auth.js';
 
 // Re-export shared types so existing consumers don't need to update imports
 export type {
-  RuntimeMessageSessionOptions,
+  ApprovalConversationGenerator,
+  ApprovalCopyGenerator,
   MessageProcessor,
   NonBlockingMessageProcessor,
-  RuntimeHttpServerOptions,
   RuntimeAttachmentMetadata,
-  ApprovalCopyGenerator,
-  ApprovalConversationGenerator,
+  RuntimeHttpServerOptions,
+  RuntimeMessageSessionOptions,
   SendMessageDeps,
 } from './http-types.js';
 
 import type {
+  ApprovalConversationGenerator,
+  ApprovalCopyGenerator,
   MessageProcessor,
   NonBlockingMessageProcessor,
   RuntimeHttpServerOptions,
-  ApprovalCopyGenerator,
-  ApprovalConversationGenerator,
   SendMessageDeps,
 } from './http-types.js';
 

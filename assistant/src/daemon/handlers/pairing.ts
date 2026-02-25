@@ -1,16 +1,17 @@
 import * as net from 'node:net';
-import type {
-  PairingApprovalResponse,
-  ApprovedDeviceRemove,
-} from '../ipc-protocol.js';
-import { log, defineHandlers, type HandlerContext } from './shared.js';
+
 import {
   approveDevice,
-  removeDevice,
   clearAllDevices,
   listDevices,
+  removeDevice,
 } from '../approved-devices-store.js';
+import type {
+  ApprovedDeviceRemove,
+  PairingApprovalResponse,
+} from '../ipc-protocol.js';
 import type { PairingStore } from '../pairing-store.js';
+import { defineHandlers, type HandlerContext,log } from './shared.js';
 
 /** Module-level reference set by the daemon server at startup. */
 let pairingStoreRef: PairingStore | null = null;

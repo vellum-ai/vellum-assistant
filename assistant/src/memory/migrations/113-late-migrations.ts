@@ -1,6 +1,6 @@
 import type { DrizzleDb } from '../db-connection.js';
-import { migrateGuardianActionTables } from './013-guardian-action-tables.js';
 import { migrateMemoryFtsBackfill } from './003-memory-fts-backfill.js';
+import { migrateGuardianActionTables } from './013-guardian-action-tables.js';
 import { migrateMemorySegmentsIndexes } from './016-memory-segments-indexes.js';
 import { migrateMemoryItemsIndexes } from './017-memory-items-indexes.js';
 import { migrateRemainingTableIndexes } from './018-remaining-table-indexes.js';
@@ -9,6 +9,7 @@ import { migrateConversationStatusIndexes } from './021-conversation-status-inde
 import { migrateAddOriginInterface } from './022-add-origin-interface.js';
 import { migrateMemoryItemSourcesIndexes } from './023-memory-item-sources-indexes.js';
 import { migrateEmbeddingVectorBlob } from './024-embedding-vector-blob.js';
+import { migrateEmbeddingsNullableVectorJson } from './026-embeddings-nullable-vector-json.js';
 
 /**
  * Late-stage migrations that must run after all tables and indexes exist:
@@ -25,4 +26,5 @@ export function runLateMigrations(database: DrizzleDb): void {
   migrateAddOriginInterface(database);
   migrateMemoryItemSourcesIndexes(database);
   migrateEmbeddingVectorBlob(database);
+  migrateEmbeddingsNullableVectorJson(database);
 }

@@ -9,9 +9,10 @@
  */
 
 import { execSync } from 'node:child_process';
-import { existsSync, mkdirSync, writeFileSync, chmodSync } from 'node:fs';
-import { join } from 'node:path';
+import { chmodSync,existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
+import { join } from 'node:path';
+
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('install-cli-launchers');

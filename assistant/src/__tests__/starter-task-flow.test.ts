@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from 'bun:test';
+
 import type { ServerMessage, SurfaceType } from '../daemon/ipc-protocol.js';
 
 mock.module('../memory/app-store.js', () => ({
@@ -28,9 +29,9 @@ mock.module('../home-base/prebuilt/seed.js', () => ({
 }));
 
 import {
+  createSurfaceMutex,
   handleSurfaceAction,
   surfaceProxyResolver,
-  createSurfaceMutex,
   type SurfaceSessionContext,
 } from '../daemon/session-surfaces.js';
 

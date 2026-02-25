@@ -1,10 +1,10 @@
+import { getConfig } from '../config/loader.js';
+import type { AgentHeartbeatAlert } from '../daemon/ipc-contract.js';
+import { createConversation } from '../memory/conversation-store.js';
+import { GENERATING_TITLE, queueGenerateConversationTitle } from '../memory/conversation-title-service.js';
 import { readTextFileSync } from '../util/fs.js';
 import { getLogger } from '../util/logger.js';
 import { getWorkspacePromptPath } from '../util/platform.js';
-import { getConfig } from '../config/loader.js';
-import { createConversation } from '../memory/conversation-store.js';
-import { GENERATING_TITLE, queueGenerateConversationTitle } from '../memory/conversation-title-service.js';
-import type { AgentHeartbeatAlert } from '../daemon/ipc-contract.js';
 
 const log = getLogger('agent-heartbeat');
 

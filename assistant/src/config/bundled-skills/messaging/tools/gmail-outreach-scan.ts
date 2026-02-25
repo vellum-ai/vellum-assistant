@@ -1,10 +1,10 @@
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
+import type { EmailMetadata } from '../../../../messaging/email-classifier.js';
+import { classifyOutreach, type OutreachClassification } from '../../../../messaging/outreach-classifier.js';
+import { batchGetMessages,listMessages } from '../../../../messaging/providers/gmail/client.js';
 import { getMessagingProvider } from '../../../../messaging/registry.js';
 import { withValidToken } from '../../../../security/token-manager.js';
-import { listMessages, batchGetMessages } from '../../../../messaging/providers/gmail/client.js';
-import { classifyOutreach, type OutreachClassification } from '../../../../messaging/outreach-classifier.js';
-import type { EmailMetadata } from '../../../../messaging/email-classifier.js';
-import { ok, err } from './shared.js';
+import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
+import { err,ok } from './shared.js';
 
 const MAX_MESSAGES_CAP = 2000;
 const MAX_IDS_PER_SENDER = 1000;

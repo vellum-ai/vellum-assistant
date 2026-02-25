@@ -1,5 +1,5 @@
 import { browserManager } from '../../tools/browser/browser-manager.js';
-import { log, defineHandlers } from './shared.js';
+import { defineHandlers,log } from './shared.js';
 
 export const browserHandlers = defineHandlers({
   browser_cdp_response: (msg) => {

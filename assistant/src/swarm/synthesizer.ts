@@ -1,4 +1,4 @@
-import type { Provider, Message, ModelIntent } from '../providers/types.js';
+import type { Message, ModelIntent,Provider } from '../providers/types.js';
 import type { SwarmTaskResult } from './types.js';
 
 /**

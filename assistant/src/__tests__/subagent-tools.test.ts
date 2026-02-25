@@ -1,6 +1,7 @@
-import { describe, expect, mock, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+
+import { describe, expect, mock, test } from 'bun:test';
 
 // Mock conversation-store before importing tool executors that depend on it.
 let mockGetMessages: (conversationId: string) => Array<{ role: string; content: string }> | null = () => null;
@@ -9,14 +10,14 @@ mock.module('../memory/conversation-store.js', () => ({
   createConversation: () => ({ id: 'mock-conv' }),
 }));
 
-import { executeSubagentSpawn } from '../tools/subagent/spawn.js';
-import { executeSubagentStatus } from '../tools/subagent/status.js';
+import { getSubagentManager } from '../subagent/index.js';
+import { SubagentManager } from '../subagent/manager.js';
+import type { SubagentState } from '../subagent/types.js';
 import { executeSubagentAbort } from '../tools/subagent/abort.js';
 import { executeSubagentMessage } from '../tools/subagent/message.js';
 import { executeSubagentRead } from '../tools/subagent/read.js';
-import { SubagentManager } from '../subagent/manager.js';
-import type { SubagentState } from '../subagent/types.js';
-import { getSubagentManager } from '../subagent/index.js';
+import { executeSubagentSpawn } from '../tools/subagent/spawn.js';
+import { executeSubagentStatus } from '../tools/subagent/status.js';
 
 // Load tool definitions from the bundled skill TOOLS.json
 const toolsJson = JSON.parse(

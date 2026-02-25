@@ -1,5 +1,5 @@
-import { getWorkspacePromptPath } from '../util/platform.js';
 import { readTextFileSync } from '../util/fs.js';
+import { getWorkspacePromptPath } from '../util/platform.js';
 
 const DEFAULT_USER_REFERENCE = 'my human';
 

@@ -1,8 +1,9 @@
-import { and, asc, eq, lte, notInArray, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray,lte, notInArray } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
-import { getDb, rawGet, rawAll } from './db.js';
-import { memoryJobs } from './schema.js';
+
 import { truncate } from '../util/truncate.js';
+import { getDb, rawAll,rawGet } from './db.js';
+import { memoryJobs } from './schema.js';
 
 export type MemoryJobType =
   | 'embed_segment'

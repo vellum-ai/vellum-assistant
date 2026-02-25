@@ -1,7 +1,8 @@
-import { describe, test, expect, beforeEach, afterAll } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll,beforeEach, describe, expect, test } from 'bun:test';
 import { mock } from 'bun:test';
 
 const testDir = mkdtempSync(join(tmpdir(), 'task-compiler-test-'));
@@ -35,9 +36,10 @@ mock.module('./indexer.js', () => ({
 }));
 
 import type { Database } from 'bun:sqlite';
-import { initializeDb, getDb, resetDb } from '../memory/db.js';
-import { renderTemplate } from '../tasks/task-runner.js';
+
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { compileTaskFromConversation, saveCompiledTask } from '../tasks/task-compiler.js';
+import { renderTemplate } from '../tasks/task-runner.js';
 import { getTask } from '../tasks/task-store.js';
 
 initializeDb();

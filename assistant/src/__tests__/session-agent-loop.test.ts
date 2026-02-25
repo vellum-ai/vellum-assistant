@@ -1,7 +1,8 @@
-import { describe, expect, mock, test, beforeEach } from 'bun:test';
-import type { Message, ContentBlock } from '../providers/types.js';
+import { beforeEach,describe, expect, mock, test } from 'bun:test';
+
 import type { AgentEvent, CheckpointDecision, CheckpointInfo } from '../agent/loop.js';
 import type { ServerMessage } from '../daemon/ipc-protocol.js';
+import type { ContentBlock,Message } from '../providers/types.js';
 
 // ── Module mocks (must precede imports of the module under test) ─────
 
@@ -203,7 +204,7 @@ mock.module('../memory/llm-request-log-store.js', () => ({
 
 // ── Imports (after mocks) ────────────────────────────────────────────
 
-import { runAgentLoopImpl, type AgentLoopSessionContext } from '../daemon/session-agent-loop.js';
+import { type AgentLoopSessionContext,runAgentLoopImpl } from '../daemon/session-agent-loop.js';
 
 // ── Test helpers ─────────────────────────────────────────────────────
 

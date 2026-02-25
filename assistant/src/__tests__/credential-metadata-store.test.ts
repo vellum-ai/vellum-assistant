@@ -1,8 +1,9 @@
-import { describe, test, expect, beforeEach, afterAll } from 'bun:test';
-import { mkdirSync, rmSync, existsSync, writeFileSync, readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
+import { existsSync, mkdirSync, readdirSync,readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterAll,beforeEach, describe, expect, test } from 'bun:test';
 import { mock } from 'bun:test';
 
 mock.module('../util/logger.js', () => ({
@@ -12,15 +13,14 @@ mock.module('../util/logger.js', () => ({
 }));
 
 import {
-  upsertCredentialMetadata,
+  _setMetadataPath,
+  assertMetadataWritable,
+  deleteCredentialMetadata,
   getCredentialMetadata,
   getCredentialMetadataById,
   listCredentialMetadata,
-  deleteCredentialMetadata,
-  assertMetadataWritable,
-  _setMetadataPath,
+  upsertCredentialMetadata,
 } from '../tools/credentials/metadata-store.js';
-
 import type { CredentialInjectionTemplate } from '../tools/credentials/policy-types.js';
 
 const TEST_DIR = join(tmpdir(), `vellum-credmeta-test-${randomBytes(4).toString('hex')}`);

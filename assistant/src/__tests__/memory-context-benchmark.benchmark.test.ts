@@ -8,17 +8,18 @@
  * - recall.lexicalHits: > 0
  * - recall.recencyHits: > 0
  */
-import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test';
+
 import { DEFAULT_CONFIG } from '../config/defaults.js';
-import { ContextWindowManager } from '../context/window-manager.js';
 import { estimatePromptTokens } from '../context/token-estimator.js';
+import { ContextWindowManager } from '../context/window-manager.js';
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
-import { buildMemoryRecall } from '../memory/retriever.js';
 import { computeRecallBudget } from '../memory/retrieval-budget.js';
+import { buildMemoryRecall } from '../memory/retriever.js';
 import { conversations, memorySegments, messages } from '../memory/schema.js';
 import type { Message, Provider } from '../providers/types.js';
 

@@ -8,9 +8,9 @@
  * ToolDefinition or ToolContext types.
  */
 
+import { setHomeBaseAppLink } from '../../home-base/app-link-store.js';
 import type { AppDefinition } from '../../memory/app-store.js';
 import type { EditEngineResult } from '../../memory/app-store.js';
-import { setHomeBaseAppLink } from '../../home-base/app-link-store.js';
 import { openAppViaSurface } from './open-proxy.js';
 
 // ---------------------------------------------------------------------------

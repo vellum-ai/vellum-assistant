@@ -6,8 +6,10 @@
  * token is returned exactly once at creation time and never stored.
  */
 
-import { and, desc, eq } from 'drizzle-orm';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
+
+import { and, desc, eq } from 'drizzle-orm';
+
 import { getDb } from './db.js';
 import { assistantIngressInvites, assistantIngressMembers } from './schema.js';
 

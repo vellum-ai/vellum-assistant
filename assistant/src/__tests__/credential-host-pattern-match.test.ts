@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'bun:test';
+
 import {
-  matchHostPattern,
   compareMatchSpecificity,
   type HostMatchKind,
+  matchHostPattern,
 } from '../tools/credentials/host-pattern-match.js';
 
 describe('matchHostPattern', () => {

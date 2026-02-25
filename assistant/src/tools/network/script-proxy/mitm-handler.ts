@@ -11,13 +11,14 @@
  * so we use explicit data event forwarding instead.
  */
 
-import {
-  createServer as createTlsServer,
-  connect as tlsConnect,
-  type TLSSocket,
-  type ConnectionOptions,
-} from 'node:tls';
 import { connect as netConnect, type Socket } from 'node:net';
+import {
+  connect as tlsConnect,
+  type ConnectionOptions,
+  createServer as createTlsServer,
+  type TLSSocket,
+} from 'node:tls';
+
 import { issueLeafCert } from './certs.js';
 
 /**

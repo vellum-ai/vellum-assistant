@@ -1,7 +1,8 @@
-import { execSync, execFileSync } from 'node:child_process';
-import { isMacOS, isLinux, getSandboxWorkingDir } from '../../util/platform.js';
+import { execFileSync,execSync } from 'node:child_process';
+
 import { getConfig } from '../../config/loader.js';
 import type { SandboxConfig } from '../../config/schema.js';
+import { getSandboxWorkingDir,isLinux, isMacOS } from '../../util/platform.js';
 import { DEFAULT_SANDBOX_IMAGE } from './backends/docker.js';
 
 export interface SandboxCheckResult {

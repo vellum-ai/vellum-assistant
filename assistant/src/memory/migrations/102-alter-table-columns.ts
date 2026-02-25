@@ -1,5 +1,5 @@
-import type { DrizzleDb } from '../db-connection.js';
 import { getLogger } from '../../util/logger.js';
+import type { DrizzleDb } from '../db-connection.js';
 
 const log = getLogger('memory-db');
 

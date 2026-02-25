@@ -4,11 +4,11 @@
  * go through the browser's authenticated session.
  */
 
+import { ProviderError } from '../util/errors.js';
 import {
   loadSession,
   type TwitterSession,
 } from './session.js';
-import { ProviderError } from '../util/errors.js';
 
 const CDP_BASE = 'http://localhost:9222';
 

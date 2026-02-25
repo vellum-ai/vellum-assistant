@@ -8,18 +8,16 @@
  * - guardian-expiry-sweep.ts          — periodic expiry sweep for stale approvals
  */
 export {
+  type ApprovalInterceptionParams,
+  type ApprovalInterceptionResult,
+  handleApprovalInterception,
+} from './guardian-approval-interception.js';
+export {
   deliverGeneratedApprovalPrompt,
   type DeliverGeneratedApprovalPromptParams,
 } from './guardian-approval-prompt.js';
-
 export {
-  handleApprovalInterception,
-  type ApprovalInterceptionParams,
-  type ApprovalInterceptionResult,
-} from './guardian-approval-interception.js';
-
-export {
-  sweepExpiredGuardianApprovals,
   startGuardianExpirySweep,
   stopGuardianExpirySweep,
+  sweepExpiredGuardianApprovals,
 } from './guardian-expiry-sweep.js';

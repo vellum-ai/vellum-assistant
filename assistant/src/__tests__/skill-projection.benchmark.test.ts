@@ -9,7 +9,8 @@
  * - Cold projection (1000 msgs / 5 skills): < 100ms
  * - Incremental scan (10 new msgs):         < 20ms
  */
-import { describe, test, expect, mock } from 'bun:test';
+import { describe, expect, mock,test } from 'bun:test';
+
 import type { Message } from '../providers/types.js';
 
 // ---------------------------------------------------------------------------

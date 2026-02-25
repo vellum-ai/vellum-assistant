@@ -7,7 +7,8 @@
 
 import { eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
-import { getDb, rawRun, rawGet } from './db.js';
+
+import { getDb, rawGet, rawRun } from './db.js';
 import { attachments, messageAttachments } from './schema.js';
 
 export interface StoredAttachment {

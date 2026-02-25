@@ -1,13 +1,14 @@
 import { describe, expect, test } from 'bun:test';
+
+import type { ContextWindowConfig } from '../config/types.js';
+import { estimateTextTokens } from '../context/token-estimator.js';
 import {
   CONTEXT_SUMMARY_MARKER,
   ContextWindowManager,
   createContextSummaryMessage,
   getSummaryFromContextMessage,
 } from '../context/window-manager.js';
-import type { ContextWindowConfig } from '../config/types.js';
 import type { Message, Provider, ProviderResponse } from '../providers/types.js';
-import { estimateTextTokens } from '../context/token-estimator.js';
 
 function makeConfig(overrides: Partial<ContextWindowConfig> = {}): ContextWindowConfig {
   return {

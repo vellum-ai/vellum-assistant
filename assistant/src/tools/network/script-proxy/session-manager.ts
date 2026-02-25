@@ -1,27 +1,28 @@
+import { randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
 import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
-import { createProxyServer } from './server.js';
-import type { ProxyServerConfig } from './server.js';
-import { routeConnection } from './router.js';
-import type {
-  ProxySession,
-  ProxySessionId,
-  ProxySessionConfig,
-  ProxyEnvVars,
-  ProxyApprovalCallback,
-} from './types.js';
-import type { PolicyCallback } from './http-forwarder.js';
-import { evaluateRequestWithApproval } from './policy.js';
-import { getCAPath, ensureLocalCA, ensureCombinedCABundle } from './certs.js';
-import { matchHostPattern, compareMatchSpecificity, type HostMatchKind } from '../../credentials/host-pattern-match.js';
-import { resolveById } from '../../credentials/resolve.js';
-import { listCredentialMetadata } from '../../credentials/metadata-store.js';
-import type { CredentialInjectionTemplate } from '../../credentials/policy-types.js';
+
 import { getSecureKey } from '../../../security/secure-keys.js';
-import { buildDecisionTrace, stripQueryString } from './logging.js';
 import { getLogger } from '../../../util/logger.js';
 import { silentlyWithLog } from '../../../util/silently.js';
+import { compareMatchSpecificity, type HostMatchKind,matchHostPattern } from '../../credentials/host-pattern-match.js';
+import { listCredentialMetadata } from '../../credentials/metadata-store.js';
+import type { CredentialInjectionTemplate } from '../../credentials/policy-types.js';
+import { resolveById } from '../../credentials/resolve.js';
+import { ensureCombinedCABundle,ensureLocalCA, getCAPath } from './certs.js';
+import type { PolicyCallback } from './http-forwarder.js';
+import { buildDecisionTrace, stripQueryString } from './logging.js';
+import { evaluateRequestWithApproval } from './policy.js';
+import { routeConnection } from './router.js';
+import type { ProxyServerConfig } from './server.js';
+import { createProxyServer } from './server.js';
+import type {
+  ProxyApprovalCallback,
+  ProxyEnvVars,
+  ProxySession,
+  ProxySessionConfig,
+  ProxySessionId,
+} from './types.js';
 
 const log = getLogger('proxy-session');
 

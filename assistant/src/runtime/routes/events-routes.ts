@@ -8,9 +8,9 @@
  */
 
 import { getOrCreateConversation } from '../../memory/conversation-key-store.js';
-import { assistantEventHub, AssistantEventHub } from '../assistant-event-hub.js';
 import { formatSseFrame, formatSseHeartbeat } from '../assistant-event.js';
 import type { AssistantEventSubscription } from '../assistant-event-hub.js';
+import { AssistantEventHub,assistantEventHub } from '../assistant-event-hub.js';
 
 /** Keep-alive comment sent to idle clients every 30 s by default. */
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000;

@@ -13,10 +13,10 @@
  * - Fire-and-forget: enqueue() never blocks or throws
  */
 
-import { getLogger } from '../util/logger.js';
 import { getConfig } from '../config/loader.js';
-import type { WorkspaceGitService } from './git-service.js';
+import { getLogger } from '../util/logger.js';
 import type { CommitContext } from './commit-message-provider.js';
+import type { WorkspaceGitService } from './git-service.js';
 
 const log = getLogger('enrichment-queue');
 

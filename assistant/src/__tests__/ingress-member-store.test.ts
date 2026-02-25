@@ -1,7 +1,8 @@
-import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, beforeEach, describe, expect, mock,test } from 'bun:test';
 
 const testDir = mkdtempSync(join(tmpdir(), 'ingress-member-store-test-'));
 
@@ -23,12 +24,12 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
-import { initializeDb, resetDb, getSqlite } from '../memory/db.js';
+import { getSqlite,initializeDb, resetDb } from '../memory/db.js';
 import {
-  upsertMember,
   findMember,
   listMembers,
   updateLastSeen,
+  upsertMember,
 } from '../memory/ingress-member-store.js';
 
 initializeDb();

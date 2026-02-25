@@ -114,4 +114,4 @@ export function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> 
   });
 }
 
-export { DEFAULT_MAX_RETRIES, DEFAULT_BASE_DELAY_MS };
+export { DEFAULT_BASE_DELAY_MS,DEFAULT_MAX_RETRIES };

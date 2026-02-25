@@ -1,12 +1,13 @@
 import { describe, expect, test } from 'bun:test';
-import type { Message } from '../providers/types.js';
+
 import {
   estimateContentBlockTokens,
-  estimateMessageTokens,
   estimateMessagesTokens,
+  estimateMessageTokens,
   estimatePromptTokens,
   estimateTextTokens,
 } from '../context/token-estimator.js';
+import type { Message } from '../providers/types.js';
 
 describe('token estimator', () => {
   test('estimates text tokens from character length', () => {

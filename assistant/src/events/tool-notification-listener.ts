@@ -1,6 +1,6 @@
+import type { ServerMessage } from '../daemon/ipc-protocol.js';
 import type { EventBus, Subscription } from './bus.js';
 import type { AssistantDomainEvents } from './domain-events.js';
-import type { ServerMessage } from '../daemon/ipc-protocol.js';
 
 export function registerToolNotificationListener(
   eventBus: EventBus<AssistantDomainEvents>,

@@ -8,11 +8,12 @@
  * - Rapid-fire: no message loss across 100 messages
  * - Round-trip: content preserved exactly
  */
-import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test';
+import * as fs from 'node:fs';
 import * as net from 'node:net';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import * as fs from 'node:fs';
+
+import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test';
 
 mock.module('../util/logger.js', () => ({
   getLogger: () =>
@@ -21,8 +22,8 @@ mock.module('../util/logger.js', () => ({
     }),
 }));
 
-import { serialize, createMessageParser } from '../daemon/ipc-protocol.js';
 import type { ClientMessage, ServerMessage } from '../daemon/ipc-contract.js';
+import { createMessageParser,serialize } from '../daemon/ipc-protocol.js';
 
 function percentile(values: number[], p: number): number {
   const sorted = [...values].sort((a, b) => a - b);

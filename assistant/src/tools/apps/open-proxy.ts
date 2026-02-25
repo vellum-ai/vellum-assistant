@@ -6,7 +6,7 @@
  * a single implementation with consistent success/failure messaging.
  */
 
-import type { ProxyResolver, ExecutorResult } from './executors.js';
+import type { ExecutorResult,ProxyResolver } from './executors.js';
 
 /**
  * Open an app on the connected client via the proxy tool resolver.

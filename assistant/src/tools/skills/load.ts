@@ -1,12 +1,12 @@
-import { RiskLevel } from '../../permissions/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
-import type { ToolDefinition } from '../../providers/types.js';
-import { registerTool } from '../registry.js';
-import { loadSkillBySelector, loadSkillCatalog } from '../../config/skills.js';
 import type { SkillSummary } from '../../config/skills.js';
+import { loadSkillBySelector, loadSkillCatalog } from '../../config/skills.js';
+import { RiskLevel } from '../../permissions/types.js';
+import type { ToolDefinition } from '../../providers/types.js';
 import { indexCatalogById, validateIncludes } from '../../skills/include-graph.js';
 import { computeSkillVersionHash } from '../../skills/version-hash.js';
 import { getLogger } from '../../util/logger.js';
+import { registerTool } from '../registry.js';
+import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 
 const log = getLogger('skill-load');
 

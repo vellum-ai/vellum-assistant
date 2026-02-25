@@ -1,5 +1,5 @@
-import type { EmbeddingBackend, EmbeddingRequestOptions } from './embedding-backend.js';
 import { getOllamaBaseUrlEnv } from '../config/env.js';
+import type { EmbeddingBackend, EmbeddingRequestOptions } from './embedding-backend.js';
 
 interface OllamaEmbeddingsResponse {
   data?: Array<{ embedding: number[] }>;

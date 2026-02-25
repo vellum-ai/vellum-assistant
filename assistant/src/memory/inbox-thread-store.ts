@@ -7,6 +7,7 @@
  */
 
 import { and, eq, sql } from 'drizzle-orm';
+
 import { getDb } from './db.js';
 import { assistantInboxThreadState } from './schema.js';
 

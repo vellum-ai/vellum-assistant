@@ -3,12 +3,13 @@
  * LONGER in the startup core tool payload.  They are now provided by the
  * bundled browser skill and only appear after skill_load activation.
  */
-import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import { afterAll,beforeAll, describe, expect, test } from 'bun:test';
+
 import {
-  initializeTools,
-  getAllTools,
-  getAllToolDefinitions,
   __resetRegistryForTesting,
+  getAllToolDefinitions,
+  getAllTools,
+  initializeTools,
 } from '../tools/registry.js';
 import { BROWSER_TOOL_NAMES } from './test-support/browser-skill-harness.js';
 

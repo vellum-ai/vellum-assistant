@@ -1,15 +1,16 @@
 import Anthropic from "@anthropic-ai/sdk";
+
+import { ProviderError } from "../../util/errors.js";
+import { getLogger } from '../../util/logger.js';
+import { createStreamTimeout } from '../stream-timeout.js';
 import type {
+  ContentBlock,
+  Message,
   Provider,
   ProviderResponse,
   SendMessageOptions,
-  Message,
   ToolDefinition,
-  ContentBlock,
 } from "../types.js";
-import { ProviderError } from "../../util/errors.js";
-import { createStreamTimeout } from '../stream-timeout.js';
-import { getLogger } from '../../util/logger.js';
 
 const log = getLogger('anthropic-client');
 

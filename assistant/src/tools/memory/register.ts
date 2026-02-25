@@ -1,9 +1,9 @@
-import { RiskLevel } from '../../permissions/types.js';
 import { getConfig } from '../../config/loader.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
+import { RiskLevel } from '../../permissions/types.js';
 import type { ToolDefinition } from '../../providers/types.js';
-import { memorySearchDefinition, memorySaveDefinition, memoryUpdateDefinition } from './definitions.js';
-import { handleMemorySearch, handleMemorySave, handleMemoryUpdate } from './handlers.js';
+import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
+import { memorySaveDefinition, memorySearchDefinition, memoryUpdateDefinition } from './definitions.js';
+import { handleMemorySave, handleMemorySearch, handleMemoryUpdate } from './handlers.js';
 
 // ── memory_search ────────────────────────────────────────────────────
 

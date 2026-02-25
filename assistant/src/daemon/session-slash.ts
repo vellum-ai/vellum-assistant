@@ -1,8 +1,9 @@
-import { readFileSync, existsSync } from 'node:fs';
+import { existsSync,readFileSync } from 'node:fs';
+
 import { getConfig, loadRawConfig, saveRawConfig } from '../config/loader.js';
-import { initializeProviders } from '../providers/registry.js';
-import { loadSkillCatalog } from '../config/skills.js';
 import { resolveSkillStates } from '../config/skill-state.js';
+import { loadSkillCatalog } from '../config/skills.js';
+import { initializeProviders } from '../providers/registry.js';
 import {
   buildInvocableSlashCatalog,
   resolveSlashSkillCommand,

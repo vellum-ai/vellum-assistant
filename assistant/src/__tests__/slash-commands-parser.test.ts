@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import { extractLeadingToken, isPathLikeSlashToken, isValidSlashSkillId, parseSlashCandidate } from '../skills/slash-commands.js';
 
 describe('extractLeadingToken', () => {
