@@ -499,7 +499,7 @@ struct MainWindowView: View {
                     threadManager.activeViewModel?.activeSurfaceId = surfaceId
                 }
             }
-            .onChange(of: threadManager.activeViewModel?.messages.map(\.id)) { _, _ in
+            .onChange(of: threadManager.activeViewModel?.messages.count) { _, _ in
                 // Bootstrap avatar: apply milestones based on assistant turn count
                 if let evoState = avatarEvolutionState, evoState.stage != .stabilized,
                    let viewModel = threadManager.activeViewModel {

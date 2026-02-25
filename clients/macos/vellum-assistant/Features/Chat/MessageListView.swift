@@ -30,6 +30,7 @@ struct MessageListView: View {
     @State private var appearance = AvatarAppearanceManager.shared
     /// Read once at the list level and passed down to each ChatBubble so that
     /// individual bubbles don't each subscribe to the shared ObservableObject.
+    @State private var scrollDebounceTask: Task<Void, Never>?
     @ObservedObject private var taskProgressOverlay = TaskProgressOverlayManager.shared
     private var activeSurfaceId: String? { taskProgressOverlay.activeSurfaceId }
 
@@ -298,8 +299,13 @@ struct MessageListView: View {
             }
             .onChange(of: streamingScrollTrigger) {
                 if isNearBottom {
-                    withAnimation(VAnimation.fast) {
-                        proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                    scrollDebounceTask?.cancel()
+                    scrollDebounceTask = Task {
+                        try? await Task.sleep(nanoseconds: 200_000_000)
+                        guard !Task.isCancelled else { return }
+                        withAnimation(VAnimation.fast) {
+                            proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                        }
                     }
                 }
             }
