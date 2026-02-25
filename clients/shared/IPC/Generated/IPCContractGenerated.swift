@@ -3041,6 +3041,71 @@ public struct IPCPublishPageResponse: Codable, Sendable {
     }
 }
 
+/// Recording options shared across standalone and CU recording flows.
+public struct IPCRecordingOptions: Codable, Sendable {
+    public let captureScope: String?
+    public let displayId: String?
+    public let windowId: Double?
+    public let includeAudio: Bool?
+    public let promptForSource: Bool?
+
+    public init(captureScope: String? = nil, displayId: String? = nil, windowId: Double? = nil, includeAudio: Bool? = nil, promptForSource: Bool? = nil) {
+        self.captureScope = captureScope
+        self.displayId = displayId
+        self.windowId = windowId
+        self.includeAudio = includeAudio
+        self.promptForSource = promptForSource
+    }
+}
+
+/// Server → Client: start a recording.
+public struct IPCRecordingStart: Codable, Sendable {
+    public let type: String
+    public let recordingId: String
+    public let attachToConversationId: String?
+    /// Recording options shared across standalone and CU recording flows.
+    public let options: IPCRecordingOptions?
+
+    public init(type: String, recordingId: String, attachToConversationId: String? = nil, options: IPCRecordingOptions? = nil) {
+        self.type = type
+        self.recordingId = recordingId
+        self.attachToConversationId = attachToConversationId
+        self.options = options
+    }
+}
+
+/// Client → Server: recording lifecycle status update.
+public struct IPCRecordingStatus: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let status: String
+    public let filePath: String?
+    public let durationMs: Double?
+    public let error: String?
+    public let attachToConversationId: String?
+
+    public init(type: String, sessionId: String, status: String, filePath: String? = nil, durationMs: Double? = nil, error: String? = nil, attachToConversationId: String? = nil) {
+        self.type = type
+        self.sessionId = sessionId
+        self.status = status
+        self.filePath = filePath
+        self.durationMs = durationMs
+        self.error = error
+        self.attachToConversationId = attachToConversationId
+    }
+}
+
+/// Server → Client: stop a recording.
+public struct IPCRecordingStop: Codable, Sendable {
+    public let type: String
+    public let recordingId: String
+
+    public init(type: String, recordingId: String) {
+        self.type = type
+        self.recordingId = recordingId
+    }
+}
+
 public struct IPCRegenerateRequest: Codable, Sendable {
     public let type: String
     public let sessionId: String

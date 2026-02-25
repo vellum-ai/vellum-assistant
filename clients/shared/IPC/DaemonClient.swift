@@ -447,6 +447,12 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `subagent_detail_response` with lazy-loaded events.
     public var onSubagentDetailResponse: ((IPCSubagentDetailResponse) -> Void)?
 
+    /// Called when the daemon sends a `recording_start` message.
+    public var onRecordingStart: ((IPCRecordingStart) -> Void)?
+
+    /// Called when the daemon sends a `recording_stop` message.
+    public var onRecordingStop: ((IPCRecordingStop) -> Void)?
+
     // MARK: - Broadcast Subscribers
 
     /// Creates a new message stream for the caller. Each subscriber receives all messages

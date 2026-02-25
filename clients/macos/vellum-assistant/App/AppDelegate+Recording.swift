@@ -1,0 +1,104 @@
+import AppKit
+import VellumAssistantShared
+import os
+
+private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate+Recording")
+
+extension AppDelegate {
+
+    /// Handle a `recording_start` message from the daemon.
+    ///
+    /// Checks screen recording permission, optionally shows the source picker,
+    /// and starts recording via the RecordingManager.
+    func handleRecordingStart(_ msg: IPCRecordingStart) {
+        // Check screen recording permission
+        let permissionStatus = PermissionManager.screenRecordingStatus()
+        guard permissionStatus == .granted else {
+            log.warning("Screen recording permission denied — showing guidance")
+            PermissionManager.requestScreenRecordingAccess()
+
+            // Notify daemon that recording failed due to permission
+            let statusMsg = IPCRecordingStatus(
+                type: "recording_status",
+                sessionId: msg.recordingId,
+                status: "failed",
+                error: "Screen recording permission is required. Please grant access in System Settings > Privacy & Security > Screen Recording, then try again."
+            )
+            try? daemonClient.send(statusMsg)
+            return
+        }
+
+        let options = msg.options
+
+        // If promptForSource is true, show the source picker
+        if options?.promptForSource == true {
+            showRecordingSourcePicker(
+                recordingId: msg.recordingId,
+                attachToConversationId: msg.attachToConversationId
+            )
+            return
+        }
+
+        // Start recording directly with provided options
+        startRecording(
+            recordingId: msg.recordingId,
+            options: options,
+            attachToConversationId: msg.attachToConversationId
+        )
+    }
+
+    /// Show the recording source picker, then start recording with the selected options.
+    private func showRecordingSourcePicker(recordingId: String, attachToConversationId: String?) {
+        if recordingPickerWindow == nil {
+            recordingPickerWindow = RecordingSourcePickerWindow()
+        }
+
+        recordingPickerWindow?.show(
+            onStart: { [weak self] selectedOptions in
+                self?.startRecording(
+                    recordingId: recordingId,
+                    options: selectedOptions,
+                    attachToConversationId: attachToConversationId
+                )
+            },
+            onCancel: { [weak self] in
+                // Notify daemon that recording was cancelled
+                let statusMsg = IPCRecordingStatus(
+                    type: "recording_status",
+                    sessionId: recordingId,
+                    status: "failed",
+                    error: "Recording cancelled by user"
+                )
+                try? self?.daemonClient.send(statusMsg)
+            }
+        )
+    }
+
+    /// Start recording and show the recording HUD.
+    private func startRecording(
+        recordingId: String,
+        options: IPCRecordingOptions?,
+        attachToConversationId: String?
+    ) {
+        let started = recordingManager.start(
+            sessionId: recordingId,
+            options: options,
+            attachToConversationId: attachToConversationId
+        )
+
+        guard started else { return }
+
+        // Show the recording HUD
+        if recordingHUDWindow == nil {
+            recordingHUDWindow = RecordingHUDWindow()
+        }
+
+        recordingHUDWindow?.show(onStop: { [weak self] in
+            guard let self else { return }
+            Task {
+                _ = await self.recordingManager.stop(sessionId: recordingId)
+                self.recordingHUDWindow?.dismiss()
+            }
+        })
+    }
+}
