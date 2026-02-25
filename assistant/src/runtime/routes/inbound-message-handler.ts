@@ -65,6 +65,17 @@ import { deliverGeneratedApprovalPrompt } from './guardian-approval-prompt.js';
 
 const log = getLogger('runtime-http');
 
+/**
+ * Parse a `/guardian_verify` command from message content.
+ * Supports `/guardian_verify <code>`, `/guardian_verify@BotName <code>`,
+ * and normalized whitespace.
+ * Returns the verification code if the message is a verify command, or null otherwise.
+ */
+function parseGuardianVerifyCommand(content: string): string | null {
+  const match = content.match(/^\/guardian_verify(?:@\S+)?\s+(\S+)/);
+  return match ? match[1] : null;
+}
+
 export async function handleChannelInbound(
   req: Request,
   processMessage?: MessageProcessor,
@@ -159,7 +170,8 @@ export async function handleChannelInbound(
 
   // /guardian_verify must bypass the ACL membership check — users without a
   // member record need to verify before they can be recognized as members.
-  const isGuardianVerifyCommand = trimmedContent.startsWith('/guardian_verify ');
+  const guardianVerifyCode = parseGuardianVerifyCommand(trimmedContent);
+  const isGuardianVerifyCommand = guardianVerifyCode !== null;
 
   if (body.senderExternalUserId) {
     resolvedMember = findMember({
@@ -461,64 +473,61 @@ export async function handleChannelInbound(
   // Handled before normal message processing so it never enters the agent loop.
   if (
     !result.duplicate &&
-    trimmedContent.startsWith('/guardian_verify ') &&
+    guardianVerifyCode !== null &&
     replyCallbackUrl &&
     body.senderExternalUserId
   ) {
-    const token = trimmedContent.slice('/guardian_verify '.length).trim();
-    if (token.length > 0) {
-      const verifyResult = validateAndConsumeChallenge(
-        canonicalAssistantId,
+    const verifyResult = validateAndConsumeChallenge(
+      canonicalAssistantId,
+      sourceChannel,
+      guardianVerifyCode,
+      body.senderExternalUserId,
+      externalChatId,
+      body.senderUsername,
+      body.senderName,
+    );
+
+    if (verifyResult.success) {
+      upsertMember({
+        assistantId: canonicalAssistantId,
         sourceChannel,
-        token,
-        body.senderExternalUserId,
+        externalUserId: body.senderExternalUserId,
         externalChatId,
-        body.senderUsername,
-        body.senderName,
-      );
-
-      if (verifyResult.success) {
-        upsertMember({
-          assistantId: canonicalAssistantId,
-          sourceChannel,
-          externalUserId: body.senderExternalUserId,
-          externalChatId,
-          status: 'active',
-          policy: 'allow',
-          displayName: body.senderName,
-          username: body.senderUsername,
-        });
-        log.info({ sourceChannel, externalUserId: body.senderExternalUserId }, 'Guardian verified: auto-upserted ingress member');
-      }
-
-      const replyText = verifyResult.success
-        ? await composeApprovalMessageGenerative({
-          scenario: 'guardian_verify_success',
-          channel: sourceChannel,
-        }, {}, approvalCopyGenerator)
-        : await composeApprovalMessageGenerative({
-          scenario: 'guardian_verify_failed',
-          channel: sourceChannel,
-          failureReason: stripVerificationFailurePrefix(verifyResult.reason),
-        }, {}, approvalCopyGenerator);
-
-      try {
-        await deliverChannelReply(replyCallbackUrl, {
-          chatId: externalChatId,
-          text: replyText,
-          assistantId,
-        }, bearerToken);
-      } catch (err) {
-        log.error({ err, externalChatId }, 'Failed to deliver guardian verification reply');
-      }
-
-      return Response.json({
-        accepted: true,
-        duplicate: false,
-        eventId: result.eventId,
-        guardianVerification: verifyResult.success ? 'verified' : 'failed',
+        status: 'active',
+        policy: 'allow',
+        displayName: body.senderName,
+        username: body.senderUsername,
       });
+      log.info({ sourceChannel, externalUserId: body.senderExternalUserId }, 'Guardian verified: auto-upserted ingress member');
     }
+
+    const replyText = verifyResult.success
+      ? await composeApprovalMessageGenerative({
+        scenario: 'guardian_verify_success',
+        channel: sourceChannel,
+      }, {}, approvalCopyGenerator)
+      : await composeApprovalMessageGenerative({
+        scenario: 'guardian_verify_failed',
+        channel: sourceChannel,
+        failureReason: stripVerificationFailurePrefix(verifyResult.reason),
+      }, {}, approvalCopyGenerator);
+
+    try {
+      await deliverChannelReply(replyCallbackUrl, {
+        chatId: externalChatId,
+        text: replyText,
+        assistantId,
+      }, bearerToken);
+    } catch (err) {
+      log.error({ err, externalChatId }, 'Failed to deliver guardian verification reply');
+    }
+
+    return Response.json({
+      accepted: true,
+      duplicate: false,
+      eventId: result.eventId,
+      guardianVerification: verifyResult.success ? 'verified' : 'failed',
+    });
   }
 
   // ── Guardian action answer interception ──
