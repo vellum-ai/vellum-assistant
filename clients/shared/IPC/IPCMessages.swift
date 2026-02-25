@@ -870,8 +870,8 @@ extension IPCDictationContext {
 }
 
 extension IPCDictationRequest {
-    public init(transcription: String, context: IPCDictationContext) {
-        self.init(type: "dictation_request", transcription: transcription, context: context)
+    public init(transcription: String, context: IPCDictationContext, profileId: String? = nil) {
+        self.init(type: "dictation_request", transcription: transcription, context: context, profileId: profileId)
     }
 }
 

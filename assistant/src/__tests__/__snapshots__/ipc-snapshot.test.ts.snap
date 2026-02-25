@@ -1115,6 +1115,14 @@ exports[`IPC message snapshots ClientMessage types approved_devices_clear serial
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types notification_intent_result serializes to expected JSON 1`] = `
+{
+  "deliveryId": "delivery-001",
+  "success": true,
+  "type": "notification_intent_result",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types auth_result serializes to expected JSON 1`] = `
 {
   "success": true,
@@ -1817,7 +1825,6 @@ exports[`IPC message snapshots ServerMessage types notification_thread_created s
   "type": "notification_thread_created",
 }
 `;
-
 
 exports[`IPC message snapshots ServerMessage types schedule_complete serializes to expected JSON 1`] = `
 {
