@@ -144,17 +144,11 @@ extension AppDelegate {
         case .windowZoomReset:
             zoomManager.resetZoom()
         case .conversationZoomIn:
-            // Bridge: apply window zoom so the shortcut works immediately.
-            // The notification is kept so M2's ConversationZoomManager can
-            // subscribe and replace this bridge with per-conversation scaling.
-            zoomManager.zoomIn()
-            NotificationCenter.default.post(name: .conversationZoomIn, object: nil)
+            conversationZoomManager.zoomIn()
         case .conversationZoomOut:
-            zoomManager.zoomOut()
-            NotificationCenter.default.post(name: .conversationZoomOut, object: nil)
+            conversationZoomManager.zoomOut()
         case .conversationZoomReset:
-            zoomManager.resetZoom()
-            NotificationCenter.default.post(name: .conversationZoomReset, object: nil)
+            conversationZoomManager.resetZoom()
         }
     }
 

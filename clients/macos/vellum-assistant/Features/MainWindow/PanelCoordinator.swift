@@ -475,6 +475,15 @@ extension MainWindowView {
                 isTemporaryChat: activeThread?.kind == .private,
                 threadId: threadManager.activeThreadId
             )
+            .environment(\.conversationZoomScale, conversationZoomManager.zoomLevel)
+            .overlay(alignment: .top) {
+                if conversationZoomManager.showZoomIndicator {
+                    ZoomIndicatorView(percentage: conversationZoomManager.zoomPercentage)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .padding(.top, VSpacing.xl)
+                }
+            }
+            .animation(VAnimation.fast, value: conversationZoomManager.showZoomIndicator)
             .overlay(alignment: .bottomTrailing) {
                 DemoOverlayView()
             }
@@ -971,7 +980,7 @@ struct DynamicWorkspaceWrapper: View {
 struct MainWindowView_Previews: PreviewProvider {
     static var previews: some View {
         let dc = DaemonClient()
-        MainWindowView(threadManager: ThreadManager(daemonClient: dc), appListManager: AppListManager(), zoomManager: ZoomManager(), traceStore: TraceStore(), daemonClient: dc, surfaceManager: SurfaceManager(), ambientAgent: AmbientAgent(), settingsStore: SettingsStore(daemonClient: dc), authManager: AuthManager(), windowState: MainWindowState(), documentManager: DocumentManager())
+        MainWindowView(threadManager: ThreadManager(daemonClient: dc), appListManager: AppListManager(), zoomManager: ZoomManager(), conversationZoomManager: ConversationZoomManager(), traceStore: TraceStore(), daemonClient: dc, surfaceManager: SurfaceManager(), ambientAgent: AmbientAgent(), settingsStore: SettingsStore(daemonClient: dc), authManager: AuthManager(), windowState: MainWindowState(), documentManager: DocumentManager())
             .frame(width: 900, height: 600)
             .padding(.top, 36)
     }

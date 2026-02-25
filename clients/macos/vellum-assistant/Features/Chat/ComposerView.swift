@@ -56,6 +56,8 @@ struct ComposerView: View {
     /// Exposed to ChatView so composerReservedHeight stays in sync with the
     /// sticky expansion state (set true when text wraps, reset when text clears).
     @Binding var isComposerExpanded: Bool
+
+    @Environment(\.conversationZoomScale) private var zoomScale
     @State private var composerFocusRequestID: Int = 0
     @State private var isStopHovered = false
     @State private var isSendHovered = false
@@ -197,6 +199,7 @@ struct ComposerView: View {
             minHeight: composerCompactHeight,
             maxHeight: composerMaxHeight,
             focusRequestID: composerFocusRequestID,
+            zoomScale: zoomScale,
             onHeightChange: { height in
                 editorContentHeight = height
             },
@@ -220,11 +223,12 @@ struct ComposerView: View {
         .accessibilityLabel("Message")
         .overlay(alignment: .leading) {
             if let ghostSuffix {
+                let scaledBody = Font.custom("Inter", size: 13 * zoomScale)
                 (Text(inputText)
-                    .font(VFont.body)
+                    .font(scaledBody)
                     .foregroundColor(.clear)
                 + Text(ghostSuffix)
-                    .font(VFont.body)
+                    .font(scaledBody)
                     .foregroundColor(VColor.textSecondary.opacity(0.55)))
                     .lineLimit(1...12)
                     .fixedSize(horizontal: false, vertical: true)
@@ -557,6 +561,7 @@ private struct ComposerTextView: NSViewRepresentable {
     let minHeight: CGFloat
     let maxHeight: CGFloat
     let focusRequestID: Int
+    var zoomScale: CGFloat = 1.0
     let onHeightChange: (CGFloat) -> Void
     var onOverflowChange: ((Bool) -> Void)?
     let onFocusChange: (Bool) -> Void
@@ -602,7 +607,8 @@ private struct ComposerTextView: NSViewRepresentable {
         textView.isSelectable = true
         textView.drawsBackground = false
         textView.allowsUndo = true
-        textView.font = NSFont(name: "Inter", size: 13) ?? NSFont.systemFont(ofSize: 13)
+        let scaledFontSize: CGFloat = 13 * zoomScale
+        textView.font = NSFont(name: "Inter", size: scaledFontSize) ?? NSFont.systemFont(ofSize: scaledFontSize)
         textView.textColor = NSColor(VColor.textPrimary)
         textView.insertionPointColor = NSColor(VColor.accent)
         textView.textContainerInset = NSSize(width: 0, height: 8)
@@ -635,6 +641,16 @@ private struct ComposerTextView: NSViewRepresentable {
         guard let textView = context.coordinator.textView else { return }
 
         textView.isEditable = isEnabled
+
+        // Update font when zoom scale changes
+        let scaledFontSize: CGFloat = 13 * zoomScale
+        let targetFont = NSFont(name: "Inter", size: scaledFontSize) ?? NSFont.systemFont(ofSize: scaledFontSize)
+        if textView.font?.pointSize != targetFont.pointSize {
+            textView.font = targetFont
+            textView.needsDisplay = true
+            context.coordinator.syncHeight()
+        }
+
         let oldPlaceholder = textView.placeholderText
         let oldGhostSuffix = textView.hasGhostSuffix
         textView.placeholderText = placeholder
