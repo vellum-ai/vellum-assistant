@@ -1246,6 +1246,12 @@ public final class SettingsStore: ObservableObject {
 
         switch channel {
         case "telegram":
+            // When the session changes, reset resend metadata so stale cooldown/counter
+            // values from the old session don't persist through the if-let guards below.
+            if sessionId != telegramOutboundSessionId {
+                telegramOutboundNextResendAt = nil
+                telegramOutboundSendCount = 0
+            }
             telegramOutboundSessionId = sessionId
             if let expiresAt { telegramOutboundExpiresAt = expiresAt }
             if let nextResendAt { telegramOutboundNextResendAt = nextResendAt }
@@ -1262,11 +1268,19 @@ public final class SettingsStore: ObservableObject {
                 telegramBootstrapUrl = nil
             }
         case "sms":
+            if sessionId != smsOutboundSessionId {
+                smsOutboundNextResendAt = nil
+                smsOutboundSendCount = 0
+            }
             smsOutboundSessionId = sessionId
             if let expiresAt { smsOutboundExpiresAt = expiresAt }
             if let nextResendAt { smsOutboundNextResendAt = nextResendAt }
             if let sendCount { smsOutboundSendCount = sendCount }
         case "voice":
+            if sessionId != voiceOutboundSessionId {
+                voiceOutboundNextResendAt = nil
+                voiceOutboundSendCount = 0
+            }
             voiceOutboundSessionId = sessionId
             if let expiresAt { voiceOutboundExpiresAt = expiresAt }
             if let nextResendAt { voiceOutboundNextResendAt = nextResendAt }
