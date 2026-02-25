@@ -84,7 +84,8 @@ final class RecordingManager: ObservableObject {
             // Guard against stale completion: if stop() or forceStop() was called
             // while we were awaiting recorder.start(), don't override the state.
             guard state == .starting, ownerSessionId == sessionId else {
-                log.info("Recording start completed but state changed during await — not overriding (state=\(String(describing: self.state)))")
+                log.info("Recording start completed but state changed during await — cancelling stale recorder (state=\(String(describing: self.state)))")
+                recorder.cancelRecording()
                 return false
             }
 
@@ -160,13 +161,13 @@ final class RecordingManager: ObservableObject {
         recorder.cancelRecording()
 
         let sessionId = ownerSessionId
-        state = .idle
-        ownerSessionId = nil
-        attachToConversationId = nil
-
         if let sessionId {
             sendStatus(sessionId: sessionId, status: "failed", error: "Recording cancelled during shutdown")
         }
+
+        state = .idle
+        ownerSessionId = nil
+        attachToConversationId = nil
         log.info("Force-stopped recording (synchronous cancel)")
     }
 
