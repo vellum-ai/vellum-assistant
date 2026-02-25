@@ -63,30 +63,44 @@ export function handleRecordingStart(
 // ─── Stop ────────────────────────────────────────────────────────────────────
 
 /**
- * Stop the active standalone recording for a conversation.
- * Looks up the recording ID from `recordingOwnerByConversation` and sends
- * a `recording_stop` message to the client.
+ * Stop the active standalone recording.
+ * First checks if the given conversation owns a recording; if not, falls back
+ * to the globally active recording (since only one can be active at a time).
+ * This allows users to stop a recording from a different conversation than
+ * the one that started it.
  *
  * Returns the recording ID if a stop was sent, or `undefined` if no active
- * recording was found for the conversation.
+ * recording exists.
  */
 export function handleRecordingStop(
   conversationId: string,
   ctx: HandlerContext,
 ): string | undefined {
-  const recordingId = recordingOwnerByConversation.get(conversationId);
+  let recordingId = recordingOwnerByConversation.get(conversationId);
+  let ownerConversationId = conversationId;
+
+  // Global fallback: since only one recording can be active at a time,
+  // resolve globally if the current conversation doesn't own a recording.
+  if (!recordingId && recordingOwnerByConversation.size > 0) {
+    const [activeConv, activeRec] = [...recordingOwnerByConversation.entries()][0];
+    recordingId = activeRec;
+    ownerConversationId = activeConv;
+    log.info({ conversationId, ownerConversationId, resolvedRecordingId: recordingId }, 'Resolved stop to globally active recording');
+  }
+
   if (!recordingId) {
-    log.debug({ conversationId }, 'No active standalone recording to stop for conversation');
+    log.debug({ conversationId }, 'No active standalone recording to stop');
     return undefined;
   }
 
-  // Look up the socket currently bound to the conversation so we can send
-  // the stop command to the correct client connection.
-  const socket = findSocketForSession(conversationId, ctx);
+  // Look up the socket currently bound to the owning conversation so we can
+  // send the stop command to the correct client connection.
+  const socket = findSocketForSession(ownerConversationId, ctx)
+    ?? findSocketForSession(conversationId, ctx);
   if (!socket) {
-    log.warn({ conversationId, recordingId }, 'Cannot send recording_stop: no socket bound to conversation');
+    log.warn({ conversationId, ownerConversationId, recordingId }, 'Cannot send recording_stop: no socket bound to conversation');
     standaloneRecordingConversationId.delete(recordingId);
-    recordingOwnerByConversation.delete(conversationId);
+    recordingOwnerByConversation.delete(ownerConversationId);
     return undefined;
   }
 
