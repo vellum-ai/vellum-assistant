@@ -1,4 +1,4 @@
-import { describe, test, expect, mock, beforeEach, afterEach } from 'bun:test';
+import { describe, test, expect, mock, beforeEach } from 'bun:test';
 
 // ---------------------------------------------------------------------------
 // Mocks — must be set up before importing the module under test
