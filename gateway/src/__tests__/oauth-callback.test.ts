@@ -203,12 +203,39 @@ describe("OAuth callback handler", () => {
     expect(sentBody.code).toBeUndefined();
   });
 
-  test("runtime returning 404 (unknown state) shows error page and allows retry", async () => {
+  test("runtime returning 404 (deterministic rejection) keeps state consumed", async () => {
+    fetchMock = mock(async () =>
+      Response.json({ error: "Unknown state" }, { status: 404 }),
+    );
+
+    const handler = createOAuthCallbackHandler(makeConfig());
+    const req1 = new Request(
+      `http://localhost:7830/webhooks/oauth/callback?state=${VALID_STATE}&code=code`,
+      { method: "GET" },
+    );
+
+    const res1 = await handler(req1);
+    expect(res1.status).toBe(400);
+    expect(await res1.text()).toContain("Authorization Failed");
+
+    // State stays consumed — replay is blocked even after a 4xx rejection
+    const req2 = new Request(
+      `http://localhost:7830/webhooks/oauth/callback?state=${VALID_STATE}&code=code`,
+      { method: "GET" },
+    );
+    const res2 = await handler(req2);
+    expect(res2.status).toBe(400);
+    expect(await res2.text()).toContain("State parameter already used");
+    // Only the first request should have been forwarded to the runtime
+    expect(fetchMock.mock.calls.length).toBe(1);
+  });
+
+  test("runtime returning 5xx allows retry", async () => {
     let callCount = 0;
     fetchMock = mock(async () => {
       callCount++;
       if (callCount === 1) {
-        return Response.json({ error: "Unknown state" }, { status: 404 });
+        return Response.json({ error: "Internal error" }, { status: 500 });
       }
       return Response.json({ ok: true }, { status: 200 });
     });
@@ -223,7 +250,7 @@ describe("OAuth callback handler", () => {
     expect(res1.status).toBe(400);
     expect(await res1.text()).toContain("Authorization Failed");
 
-    // State should be rolled back so a retry succeeds
+    // State should be rolled back on 5xx so a retry succeeds
     const req2 = new Request(
       `http://localhost:7830/webhooks/oauth/callback?state=${VALID_STATE}&code=code`,
       { method: "GET" },

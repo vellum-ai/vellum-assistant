@@ -67,8 +67,9 @@ export function createOAuthCallbackHandler(config: GatewayConfig) {
     }
 
     // Optimistically mark consumed so concurrent duplicate callbacks are
-    // blocked while the runtime processes this one. Rolled back on failure
-    // so transient errors don't permanently block retries.
+    // blocked while the runtime processes this one. Only rolled back on
+    // transient failures (5xx / transport errors) — deterministic rejections
+    // (4xx) keep state consumed to prevent replay attacks.
     markStateConsumed(state);
 
     try {
@@ -86,12 +87,18 @@ export function createOAuthCallbackHandler(config: GatewayConfig) {
         });
       }
 
-      rollBackConsumedState(state);
+      // Only roll back consumed state for transient failures (5xx) so the user
+      // can retry. Deterministic rejections (4xx) keep state consumed to prevent
+      // replay/spam — the runtime already rejected the callback definitively.
+      if (response.status >= 500) {
+        rollBackConsumedState(state);
+      }
       return new Response(
         renderErrorPage("Authorization failed. Please try again."),
         { status: 400, headers: { "Content-Type": "text/html" } },
       );
     } catch (err) {
+      // Transport errors are transient — roll back so the callback can be retried.
       rollBackConsumedState(state);
       log.error({ err }, "Failed to forward OAuth callback to runtime");
       return new Response(
