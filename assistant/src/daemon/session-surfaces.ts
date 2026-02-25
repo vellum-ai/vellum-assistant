@@ -496,7 +496,11 @@ export function refreshSurfacesForApp(ctx: SurfaceSessionContext, appId: string,
 
 export function buildCompletionSummary(surfaceType: string | undefined, actionId: string, data?: Record<string, unknown>): string {
   if (surfaceType === 'confirmation') {
-    return actionId === 'cancel' ? 'Cancelled' : 'Confirmed';
+    if (actionId === 'cancel') return 'Cancelled';
+    if (actionId === 'confirm') return 'Confirmed';
+    // Preserve the actual action ID so the LLM knows the user's exact choice
+    // (e.g. "deny", "no", "reject") rather than misreporting it as confirmed.
+    return `User selected: ${actionId}`;
   }
   if (surfaceType === 'form') {
     return 'Submitted';
