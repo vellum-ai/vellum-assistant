@@ -247,18 +247,22 @@ export function registerSequenceCommand(program: Command): void {
       switch (key) {
         case 'dailySendCap':
         case 'daily_send_cap':
+          if (!Number.isFinite(numVal)) return exitError(`Invalid numeric value for ${key}: ${value}`);
           patch.dailySendCap = numVal;
           break;
         case 'perSequenceHourlyRate':
         case 'hourly_rate':
+          if (!Number.isFinite(numVal)) return exitError(`Invalid numeric value for ${key}: ${value}`);
           patch.perSequenceHourlyRate = numVal;
           break;
         case 'minimumStepDelaySec':
         case 'min_delay':
+          if (!Number.isFinite(numVal)) return exitError(`Invalid numeric value for ${key}: ${value}`);
           patch.minimumStepDelaySec = numVal;
           break;
         case 'maxActiveEnrollments':
         case 'max_enrollments':
+          if (!Number.isFinite(numVal)) return exitError(`Invalid numeric value for ${key}: ${value}`);
           patch.maxActiveEnrollments = numVal;
           break;
         case 'duplicateEnrollmentCheck':
@@ -267,9 +271,12 @@ export function registerSequenceCommand(program: Command): void {
           patch.duplicateEnrollmentCheck = boolVal;
           break;
         case 'cooldownPeriodMs':
+          if (!Number.isFinite(numVal)) return exitError(`Invalid numeric value for ${key}: ${value}`);
+          patch.cooldownPeriodMs = numVal;
+          break;
         case 'cooldown_days': {
-          const days = numVal;
-          patch.cooldownPeriodMs = days * 24 * 60 * 60 * 1000;
+          if (!Number.isFinite(numVal)) return exitError(`Invalid numeric value for ${key}: ${value}`);
+          patch.cooldownPeriodMs = numVal * 24 * 60 * 60 * 1000;
           break;
         }
         default:

@@ -180,10 +180,15 @@ export function checkCooldown(
 export function checkAllPreSend(
   sequenceId: string,
   enrollment: SequenceEnrollment,
+  stepDelaySec: number,
 ): GuardrailResult {
   const checks: GuardrailResult[] = [
     checkDailyCap(),
     checkHourlyRate(sequenceId),
+    checkMinDelay(stepDelaySec),
+    checkEnrollmentCap(sequenceId),
+    checkDuplicateEnrollment(sequenceId, enrollment.contactEmail),
+    checkCooldown(sequenceId, enrollment.contactEmail),
   ];
 
   for (const check of checks) {
