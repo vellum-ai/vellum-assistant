@@ -182,15 +182,17 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
       }
 
       // Sort by message count desc, filter by confidence, take top N
-      const sorted = [...senderMap.values()]
+      const qualified = [...senderMap.values()]
         .map((s) => ({
           ...s,
           avgConfidence: s.messageCount > 0 ? s.confidenceSum / s.messageCount : 0,
           outreachType: mostCommon(s.outreachTypes),
         }))
         .filter((s) => s.avgConfidence >= minConfidence)
-        .sort((a, b) => b.messageCount - a.messageCount)
-        .slice(0, maxSenders);
+        .sort((a, b) => b.messageCount - a.messageCount);
+
+      const totalOutreachDetected = qualified.length;
+      const sorted = qualified.slice(0, maxSenders);
 
       const senders = sorted.map((s) => ({
         id: Buffer.from(s.email).toString('base64url'),
@@ -212,7 +214,7 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
       return ok(JSON.stringify({
         senders,
         total_scanned: allMessageIds.length,
-        outreach_detected: senders.length,
+        outreach_detected: totalOutreachDetected,
       }));
     });
   } catch (e) {

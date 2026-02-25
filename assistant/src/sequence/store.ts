@@ -249,6 +249,15 @@ export function exitEnrollment(id: string, reason: EnrollmentExitReason): void {
     .run();
 }
 
+/** Pause an active enrollment — preserves current step so it can be resumed later. */
+export function pauseEnrollment(id: string): void {
+  const db = getDb();
+  db.update(sequenceEnrollments)
+    .set({ status: 'paused', nextStepAt: null, updatedAt: Date.now() })
+    .where(eq(sequenceEnrollments.id, id))
+    .run();
+}
+
 // ── Query Helpers ───────────────────────────────────────────────────
 
 export function findActiveEnrollmentsByEmail(email: string): SequenceEnrollment[] {
