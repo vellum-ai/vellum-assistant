@@ -96,6 +96,24 @@ final class RecordingManager: ObservableObject {
             }
 
             state = .recording
+
+            // Wire up the stream error callback AFTER startup is confirmed.
+            // During startup, ScreenRecorder.attemptStartWithConfig() handles stream
+            // errors internally as part of the fallback chain. Installing the callback
+            // earlier would let a transient didStopWithError from an early fallback
+            // config flip the manager out of .starting state, causing the stale-completion
+            // guard above to cancel a recording that actually succeeded on a later config.
+            recorder.onStreamError = { [weak self] recorderError in
+                guard let self else { return }
+                let message = recorderError.localizedDescription ?? "Unknown stream error"
+                log.error("Stream error during recording session \(sessionId, privacy: .public): \(message, privacy: .public)")
+
+                self.state = .failed(message)
+                self.sendStatus(sessionId: sessionId, status: "failed", error: message)
+                self.ownerSessionId = nil
+                self.attachToConversationId = nil
+            }
+
             sendStatus(sessionId: sessionId, status: "started")
             log.info("Recording started for session \(sessionId, privacy: .public)")
             return true
@@ -127,6 +145,7 @@ final class RecordingManager: ObservableObject {
 
         do {
             let result = try await recorder.stop()
+            recorder.onStreamError = nil
             state = .idle
             sendStatus(
                 sessionId: sessionId,
@@ -146,6 +165,7 @@ final class RecordingManager: ObservableObject {
 
             return (result.filePath, result.durationMs)
         } catch {
+            recorder.onStreamError = nil
             let message = error.localizedDescription
             state = .failed(message)
             sendStatus(sessionId: sessionId, status: "failed", error: message)
@@ -164,6 +184,7 @@ final class RecordingManager: ObservableObject {
     func forceStop() {
         guard state.isActive else { return }
 
+        recorder.onStreamError = nil
         recorder.cancelRecording()
 
         let sessionId = ownerSessionId

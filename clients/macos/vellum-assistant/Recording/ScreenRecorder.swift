@@ -29,6 +29,10 @@ enum RecorderError: Error, LocalizedError {
     case notRecording
     case noFramesCaptured
     case allFallbacksExhausted
+    case unsupportedDimensions(width: Int, height: Int)
+    case sourceUnavailable(String)
+    case permissionDenied
+    case sessionInterrupted(String)
 
     var errorDescription: String? {
         switch self {
@@ -39,6 +43,10 @@ enum RecorderError: Error, LocalizedError {
         case .notRecording: return "No active recording to stop"
         case .noFramesCaptured: return "Recording produced no video frames"
         case .allFallbacksExhausted: return "All encoder fallback configurations failed — unable to record"
+        case .unsupportedDimensions(let width, let height): return "Recording dimensions \(width)x\(height) exceed codec limits"
+        case .sourceUnavailable(let reason): return "Recording source became unavailable: \(reason)"
+        case .permissionDenied: return "Screen recording permission was not granted or has been revoked"
+        case .sessionInterrupted(let reason): return "Recording session was interrupted: \(reason)"
         }
     }
 }
@@ -72,6 +80,10 @@ final class ScreenRecorder: NSObject {
 
     /// Label of the encode config that was successfully used, for telemetry (M9).
     private(set) var activeConfigLabel: String?
+
+    /// Callback invoked when the SCStream stops with an error mid-recording.
+    /// RecordingManager sets this to react to stream failures (update state, send IPC, clean up).
+    var onStreamError: ((RecorderError) -> Void)?
 
     /// Background queue for processing sample buffers from ScreenCaptureKit.
     private let outputQueue = DispatchQueue(label: "com.vellum.screen-recorder.output", qos: .userInitiated)
@@ -637,6 +649,59 @@ final class ScreenRecorder: NSObject {
         cleanUpWriter()
     }
 
+    // MARK: - Stream Error Handling
+
+    /// Map an NSError from SCStream to a specific RecorderError case.
+    static func mapStreamError(_ nsError: NSError) -> RecorderError {
+        let domain = nsError.domain
+        let code = nsError.code
+
+        // ScreenCaptureKit errors use the "com.apple.screencapturekit.error" domain
+        if domain == "com.apple.screencapturekit.error" {
+            switch code {
+            // Permission / user-denied errors
+            case -3801, -3802, -3803:
+                return .permissionDenied
+            // Content filter errors — the source display/window is no longer available
+            case -3804, -3805, -3806, -3807:
+                return .sourceUnavailable(nsError.localizedDescription)
+            // Session/capture interruption errors
+            case -3808, -3809, -3810:
+                return .sessionInterrupted(nsError.localizedDescription)
+            default:
+                return .sessionInterrupted("SCStream error \(code): \(nsError.localizedDescription)")
+            }
+        }
+
+        // Fallback for other error domains
+        return .sessionInterrupted(nsError.localizedDescription)
+    }
+
+    /// Called by the stream delegate when SCStream stops with an error.
+    /// Cleans up the recording and notifies the owner via the onStreamError callback.
+    nonisolated func handleStreamError(_ error: Error) {
+        let nsError = error as NSError
+        let recorderError = Self.mapStreamError(nsError)
+
+        Task { @MainActor in
+            guard isRecordingActive else { return }
+
+            log.error("Stream error during active recording — cleaning up (error=\(recorderError.localizedDescription ?? "unknown", privacy: .public))")
+
+            // Cancel the writer and remove the partial file
+            assetWriter?.cancelWriting()
+            if let outputURL = assetWriter?.outputURL {
+                try? FileManager.default.removeItem(at: outputURL)
+                log.info("Removed partial recording file: \(outputURL.path, privacy: .public)")
+            }
+
+            stream = nil
+            cleanUpWriter()
+
+            onStreamError?(recorderError)
+        }
+    }
+
     private func cleanUpWriter() {
         isRecordingActive = false
         assetWriter = nil
@@ -669,5 +734,6 @@ private final class StreamOutputDelegate: NSObject, SCStreamOutput, SCStreamDele
     func stream(_ stream: SCStream, didStopWithError error: Error) {
         let nsError = error as NSError
         log.error("SCStream stopped with error: domain=\(nsError.domain, privacy: .public), code=\(nsError.code), description=\(nsError.localizedDescription, privacy: .public)")
+        recorder.handleStreamError(error)
     }
 }
