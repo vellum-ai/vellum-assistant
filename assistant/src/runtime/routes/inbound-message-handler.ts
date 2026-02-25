@@ -149,6 +149,10 @@ export async function handleChannelInbound(
   // recordInbound (where we have a conversationId).
   let resolvedMember: ReturnType<typeof findMember> = null;
 
+  // /guardian_verify must bypass the ACL membership check — users without a
+  // member record need to verify before they can be recognized as members.
+  const isGuardianVerifyCommand = trimmedContent.startsWith('/guardian_verify ');
+
   if (body.senderExternalUserId) {
     resolvedMember = findMember({
       sourceChannel,
@@ -156,23 +160,25 @@ export async function handleChannelInbound(
       externalChatId,
     });
 
-    if (!resolvedMember) {
+    if (!resolvedMember && !isGuardianVerifyCommand) {
       log.info({ sourceChannel, externalUserId: body.senderExternalUserId }, 'Ingress ACL: no member record, denying');
       return Response.json({ accepted: true, denied: true, reason: 'not_a_member' });
     }
 
-    if (resolvedMember.status !== 'active') {
-      log.info({ sourceChannel, memberId: resolvedMember.id, status: resolvedMember.status }, 'Ingress ACL: member not active, denying');
-      return Response.json({ accepted: true, denied: true, reason: `member_${resolvedMember.status}` });
-    }
+    if (resolvedMember) {
+      if (resolvedMember.status !== 'active') {
+        log.info({ sourceChannel, memberId: resolvedMember.id, status: resolvedMember.status }, 'Ingress ACL: member not active, denying');
+        return Response.json({ accepted: true, denied: true, reason: `member_${resolvedMember.status}` });
+      }
 
-    if (resolvedMember.policy === 'deny') {
-      log.info({ sourceChannel, memberId: resolvedMember.id }, 'Ingress ACL: member policy deny');
-      return Response.json({ accepted: true, denied: true, reason: 'policy_deny' });
-    }
+      if (resolvedMember.policy === 'deny') {
+        log.info({ sourceChannel, memberId: resolvedMember.id }, 'Ingress ACL: member policy deny');
+        return Response.json({ accepted: true, denied: true, reason: 'policy_deny' });
+      }
 
-    // 'allow' or 'escalate' — update last seen and continue
-    updateLastSeen(resolvedMember.id);
+      // 'allow' or 'escalate' — update last seen and continue
+      updateLastSeen(resolvedMember.id);
+    }
   }
 
   if (hasAttachments) {
