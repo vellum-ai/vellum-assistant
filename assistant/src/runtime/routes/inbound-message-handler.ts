@@ -70,11 +70,11 @@ const log = getLogger('runtime-http');
  * Parse a `/guardian_verify` command from message content.
  * Supports `/guardian_verify <code>`, `/guardian_verify@BotName <code>`,
  * and normalized whitespace.
- * Returns the verification code if the message is a verify command, or null otherwise.
+ * Returns the verification code if the message is a verify command, or undefined otherwise.
  */
-function parseGuardianVerifyCommand(content: string): string | null {
+function parseGuardianVerifyCommand(content: string): string | undefined {
   const match = content.match(/^\/guardian_verify(?:@\S+)?\s+(\S+)/);
-  return match ? match[1] : null;
+  return match?.[1];
 }
 
 export async function handleChannelInbound(
@@ -172,7 +172,7 @@ export async function handleChannelInbound(
   // /guardian_verify must bypass the ACL membership check — users without a
   // member record need to verify before they can be recognized as members.
   const guardianVerifyCode = parseGuardianVerifyCommand(trimmedContent);
-  const isGuardianVerifyCommand = guardianVerifyCode !== null;
+  const isGuardianVerifyCommand = guardianVerifyCode !== undefined;
 
   if (body.senderExternalUserId) {
     resolvedMember = findMember({
@@ -490,7 +490,7 @@ export async function handleChannelInbound(
   // Handled before normal message processing so it never enters the agent loop.
   if (
     !result.duplicate &&
-    guardianVerifyCode !== null &&
+    guardianVerifyCode !== undefined &&
     replyCallbackUrl &&
     body.senderExternalUserId
   ) {

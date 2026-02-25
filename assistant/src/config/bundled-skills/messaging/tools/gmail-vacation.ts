@@ -41,7 +41,7 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
         }
 
         case 'disable': {
-          const updated = await updateVacation(token, { enableAutoReply: false });
+          await updateVacation(token, { enableAutoReply: false });
           return ok('Vacation responder disabled.');
         }
 
