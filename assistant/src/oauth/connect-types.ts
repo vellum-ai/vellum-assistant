@@ -88,5 +88,29 @@ export interface OAuthProviderProfile {
 
 /** Outcome of an OAuth connect attempt. */
 export type OAuthConnectResult =
-  | { success: true; grantedScopes: string[]; accountInfo?: string }
-  | { success: false; error: string };
+  | OAuthConnectInteractiveResult
+  | OAuthConnectDeferredResult
+  | OAuthConnectErrorResult;
+
+/** Successful interactive flow — tokens stored, ready to use. */
+export interface OAuthConnectInteractiveResult {
+  success: true;
+  deferred: false;
+  grantedScopes: string[];
+  accountInfo?: string;
+}
+
+/** Successful deferred flow — auth URL returned for the user to open. */
+export interface OAuthConnectDeferredResult {
+  success: true;
+  deferred: true;
+  authUrl: string;
+  state: string;
+  service: string;
+}
+
+/** Failed connect attempt. */
+export interface OAuthConnectErrorResult {
+  success: false;
+  error: string;
+}

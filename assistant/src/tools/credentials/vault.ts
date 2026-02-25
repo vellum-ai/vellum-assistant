@@ -1,9 +1,9 @@
 import { getConfig } from '../../config/loader.js';
+import { orchestrateOAuthConnect } from '../../oauth/connect-orchestrator.js';
 import { getProviderProfile, resolveService, SERVICE_ALIASES } from '../../oauth/provider-profiles.js';
-import { storeOAuth2Tokens } from '../../oauth/token-persistence.js';
 import { RiskLevel } from '../../permissions/types.js';
 import type { ToolDefinition } from '../../providers/types.js';
-import { prepareOAuth2Flow, startOAuth2Flow, type TokenEndpointAuthMethod } from '../../security/oauth2.js';
+import type { TokenEndpointAuthMethod } from '../../security/oauth2.js';
 import {
   deleteSecureKey,
   getBackendType,
@@ -478,26 +478,30 @@ class CredentialStoreTool implements Tool {
 
         // Fill missing params from provider profile
         const profile = getProviderProfile(service);
-        const authUrl = (input.auth_url as string | undefined) ?? profile?.authUrl;
-        const tokenUrl = (input.token_url as string | undefined) ?? profile?.tokenUrl;
-        const scopes = (input.scopes as string[] | undefined) ?? profile?.defaultScopes;
-        const extraParams = (input.extra_params as Record<string, string> | undefined) ?? profile?.extraParams;
-        const userinfoUrl = (input.userinfo_url as string | undefined) ?? profile?.userinfoUrl;
 
         // Look up client_id/client_secret from stored credentials if not provided
         const clientId = (input.client_id as string | undefined)
           ?? findStoredOAuthField(service, ['client_id', 'oauth_client_id']);
         const clientSecret = (input.client_secret as string | undefined)
           ?? findStoredOAuthField(service, ['client_secret', 'oauth_client_secret']);
-        const tokenEndpointAuthMethod = (input.token_endpoint_auth_method as TokenEndpointAuthMethod | undefined)
-          ?? profile?.tokenEndpointAuthMethod;
 
-        if (!authUrl) return { content: 'Error: auth_url is required for oauth2_connect action (no well-known config for this service)', isError: true };
-        if (!tokenUrl) return { content: 'Error: token_url is required for oauth2_connect action (no well-known config for this service)', isError: true };
-        // Scopes are optional — some providers (e.g. Notion) configure authorization at the integration
-        // level and don't use traditional scope strings. Reject only when scopes is entirely absent (not
-        // provided and no well-known config), not when it is an empty array.
-        if (!scopes) return { content: 'Error: scopes is required for oauth2_connect action (no well-known config for this service)', isError: true };
+        // Early guardrails that stay in vault.ts (credential resolution is vault-specific)
+        const inputScopes = input.scopes as string[] | undefined;
+
+        if (profile) {
+          // Profile-based provider (well-known like gmail, slack, twitter):
+          // Don't pass authUrl/tokenUrl — the orchestrator resolves those from the profile.
+          // Pass user-provided scopes as requestedScopes so the scope policy engine is invoked.
+          // If no scopes provided, pass neither — let the orchestrator use profile defaults via scope policy.
+        } else {
+          // Custom/unknown provider: require authUrl, tokenUrl, scopes from input
+          if (!input.auth_url) return { content: 'Error: auth_url is required for oauth2_connect action (no well-known config for this service)', isError: true };
+          if (!input.token_url) return { content: 'Error: token_url is required for oauth2_connect action (no well-known config for this service)', isError: true };
+          if (!inputScopes) return { content: 'Error: scopes is required for oauth2_connect action (no well-known config for this service)', isError: true };
+        }
+
+        const authUrl = (input.auth_url as string | undefined) ?? profile?.authUrl;
+        const tokenUrl = (input.token_url as string | undefined) ?? profile?.tokenUrl;
         if (!clientId) return { content: 'Error: client_id is required for oauth2_connect action. Provide it directly or store it first with credential_store.', isError: true };
 
         // Fail early when client_secret is required but missing — guide the
@@ -522,96 +526,52 @@ class CredentialStoreTool implements Tool {
           return { content: 'Error: credential metadata file has an unrecognized version; cannot store credentials', isError: true };
         }
 
-        const allowedTools = input.allowed_tools as string[] | undefined;
-        const wellKnownInjectionTemplates = profile?.injectionTemplates;
-        const oauthConfig = { authUrl, tokenUrl, scopes, clientId, clientSecret, extraParams, userinfoUrl, tokenEndpointAuthMethod };
-        const storageParams = {
-          service, clientId, clientSecret, tokenUrl, tokenEndpointAuthMethod,
-          userinfoUrl, allowedTools, wellKnownInjectionTemplates,
-        };
+        const tokenEndpointAuthMethod = (input.token_endpoint_auth_method as TokenEndpointAuthMethod | undefined)
+          ?? profile?.tokenEndpointAuthMethod;
 
-        if (!context.isInteractive) {
-          // Channel path: return the auth URL as text for the user to open manually.
-          // Token storage happens asynchronously when the callback arrives.
-          try {
-            const callbackTransport = profile?.callbackTransport ?? 'gateway';
-
-            // Gateway transport needs a public ingress URL; loopback runs locally
-            // on the daemon so it works regardless of ingress configuration.
-            if (callbackTransport !== 'loopback') {
-              const { loadConfig } = await import('../../config/loader.js');
-              const { getPublicBaseUrl } = await import('../../inbound/public-ingress-urls.js');
-              try {
-                getPublicBaseUrl(loadConfig());
-              } catch {
-                return {
-                  content: 'Error: oauth2_connect from a non-interactive session requires a public ingress URL. Configure ingress.publicBaseUrl first.',
-                  isError: true,
-                };
+        // Delegate to the shared orchestrator.
+        // For profile-based providers, pass user scopes as requestedScopes so the
+        // scope policy engine (resolveScopes) is invoked. For custom providers,
+        // pass scopes directly as an explicit override.
+        const result = await orchestrateOAuthConnect({
+          service: rawService,
+          clientId,
+          clientSecret,
+          isInteractive: !!context.isInteractive,
+          sendToClient: context.sendToClient,
+          allowedTools: input.allowed_tools as string[] | undefined,
+          authUrl,
+          tokenUrl,
+          ...(profile
+            ? {
+                // Profile-based: let orchestrator resolve scopes via policy engine.
+                // Only pass requestedScopes if the user explicitly provided scopes.
+                ...(inputScopes ? { requestedScopes: inputScopes } : {}),
               }
-            }
+            : {
+                // Custom provider: explicit scopes override (bypasses policy engine)
+                scopes: inputScopes,
+              }),
+          extraParams: (input.extra_params as Record<string, string> | undefined) ?? profile?.extraParams,
+          userinfoUrl: (input.userinfo_url as string | undefined) ?? profile?.userinfoUrl,
+          tokenEndpointAuthMethod,
+        });
 
-            const prepared = await prepareOAuth2Flow(
-              oauthConfig,
-              callbackTransport === 'loopback'
-                ? { callbackTransport, loopbackPort: profile?.loopbackPort }
-                : undefined,
-            );
-
-            // Fire-and-forget: when the callback arrives, store tokens in the background
-            prepared.completion.then(async (result) => {
-              try {
-                const { accountInfo } = await storeOAuth2Tokens({
-                  ...storageParams,
-                  tokens: result.tokens,
-                  grantedScopes: result.grantedScopes,
-                  rawTokenResponse: result.rawTokenResponse,
-                });
-                log.info({ service, accountInfo }, 'Deferred OAuth2 flow completed — tokens stored');
-              } catch (err) {
-                log.error({ err, service }, 'Failed to store tokens from deferred OAuth2 flow');
-              }
-            }).catch((err) => {
-              log.error({ err, service }, 'Deferred OAuth2 flow failed');
-            });
-
-            return {
-              content: `To connect ${rawService}, open this link and authorize access:\n\n${prepared.authUrl}\n\nOnce you authorize, the connection will be set up automatically. You can verify by asking me to check your inbox.`,
-              isError: false,
-            };
-          } catch (err: unknown) {
-            const message = err instanceof Error ? err.message : 'Unknown error preparing OAuth flow';
-            return { content: `Error connecting "${service}": ${message}`, isError: true };
-          }
+        if (!result.success) {
+          return { content: `Error: ${result.error}`, isError: true };
         }
 
-        // Interactive path (desktop): open browser and wait for completion
-        try {
-          const { tokens, grantedScopes, rawTokenResponse } = await startOAuth2Flow(
-            oauthConfig,
-            {
-              openUrl: (url) => {
-                context.sendToClient?.({ type: 'open_url', url, title: `Connect ${service}` });
-              },
-            },
-            profile?.callbackTransport ? { callbackTransport: profile.callbackTransport, loopbackPort: profile.loopbackPort } : undefined,
-          );
-
-          const { accountInfo } = await storeOAuth2Tokens({
-            ...storageParams,
-            tokens,
-            grantedScopes,
-            rawTokenResponse,
-          });
-
+        if (result.deferred) {
           return {
-            content: `Successfully connected "${service}"${accountInfo ? ` as ${accountInfo}` : ''}. The service is now ready to use.`,
+            content: `To connect ${rawService}, open this link and authorize access:\n\n${result.authUrl}\n\nOnce you authorize, the connection will be set up automatically. You can verify by asking me to check your inbox.`,
             isError: false,
           };
-        } catch (err: unknown) {
-          const message = err instanceof Error ? err.message : 'Unknown error during OAuth flow';
-          return { content: `Error connecting "${service}": ${message}`, isError: true };
         }
+
+        return {
+          content: `Successfully connected "${service}"${result.accountInfo ? ` as ${result.accountInfo}` : ''}. The service is now ready to use.`,
+          isError: false,
+        };
       }
 
       case 'describe': {
