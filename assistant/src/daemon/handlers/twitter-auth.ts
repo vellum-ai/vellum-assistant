@@ -3,8 +3,8 @@ import * as net from 'node:net';
 import { loadConfig, loadRawConfig } from '../../config/loader.js';
 import { getPublicBaseUrl } from '../../inbound/public-ingress-urls.js';
 import { orchestrateOAuthConnect } from '../../oauth/connect-orchestrator.js';
-import { deleteSecureKey, getSecureKey } from '../../security/secure-keys.js';
-import { assertMetadataWritable, deleteCredentialMetadata, getCredentialMetadata } from '../../tools/credentials/metadata-store.js';
+import { getSecureKey } from '../../security/secure-keys.js';
+import { assertMetadataWritable, getCredentialMetadata, upsertCredentialMetadata } from '../../tools/credentials/metadata-store.js';
 import { ConfigError } from '../../util/errors.js';
 import type { TwitterAuthStartRequest, TwitterAuthStatusRequest } from '../ipc-protocol.js';
 import { defineHandlers, type HandlerContext, log } from './shared.js';
@@ -95,12 +95,6 @@ export async function handleTwitterAuthStart(
       return;
     }
 
-    // Snapshot the old refresh token so we can detect whether the new
-    // auth provided a replacement. We defer deletion until after a
-    // successful flow to avoid destroying a valid token when re-auth
-    // fails (user cancels, timeout, etc.).
-    const previousRefreshToken = getSecureKey('credential:integration:twitter:refresh_token');
-
     const result = await orchestrateOAuthConnect({
       service: 'integration:twitter',
       clientId,
@@ -130,18 +124,15 @@ export async function handleTwitterAuthStart(
       return;
     }
 
-    // storeOAuth2Tokens writes a new refresh token when the provider
-    // returns one, but never deletes an existing entry. If the new
-    // auth did NOT return a refresh token the stale one would linger
-    // and eventually fail on use. Clean it up only when the stored
-    // value is still the old one (i.e. no new token was written).
-    const currentRefreshToken = getSecureKey('credential:integration:twitter:refresh_token');
-    if (previousRefreshToken && currentRefreshToken === previousRefreshToken) {
-      deleteSecureKey('credential:integration:twitter:refresh_token');
+    // Persist accountInfo to credential metadata so twitter_auth_status
+    // can display the @username on subsequent checks.
+    if (result.accountInfo) {
       try {
-        deleteCredentialMetadata('integration:twitter', 'refresh_token');
+        upsertCredentialMetadata('integration:twitter', 'access_token', {
+          accountInfo: result.accountInfo,
+        });
       } catch {
-        // Non-fatal — metadata entry may not exist
+        // Non-fatal — auth succeeded even if metadata write fails
       }
     }
 
