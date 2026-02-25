@@ -13,9 +13,13 @@ import {
   type SurfaceSessionContext,
 } from '../daemon/session-surfaces.js';
 
-function makeContext(sent: ServerMessage[] = []): SurfaceSessionContext {
+function makeContext(
+  sent: ServerMessage[] = [],
+  channelCapabilities?: SurfaceSessionContext['channelCapabilities'],
+): SurfaceSessionContext {
   return {
     conversationId: 'session-1',
+    channelCapabilities,
     traceEmitter: { emit: () => {} },
     sendToClient: (msg) => sent.push(msg),
     pendingSurfaceActions: new Map<string, { surfaceType: SurfaceType }>(),
@@ -34,8 +38,7 @@ function makeContext(sent: ServerMessage[] = []): SurfaceSessionContext {
 describe('task_progress surface compatibility', () => {
   test('blocks ui_show when channel lacks dynamic UI support', async () => {
     const sent: ServerMessage[] = [];
-    const ctx = makeContext(sent);
-    ctx.channelCapabilities = { channel: 'voice', supportsDynamicUi: false };
+    const ctx = makeContext(sent, { channel: 'voice', supportsDynamicUi: false });
 
     const result = await surfaceProxyResolver(ctx, 'ui_show', {
       surface_type: 'card',
@@ -49,8 +52,7 @@ describe('task_progress surface compatibility', () => {
 
   test('blocks ui_update when channel lacks dynamic UI support', async () => {
     const sent: ServerMessage[] = [];
-    const ctx = makeContext(sent);
-    ctx.channelCapabilities = { channel: 'telegram', supportsDynamicUi: false };
+    const ctx = makeContext(sent, { channel: 'telegram', supportsDynamicUi: false });
 
     const result = await surfaceProxyResolver(ctx, 'ui_update', {
       surface_id: 'surface-1',

@@ -211,6 +211,21 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: 'skills_inspect',
     slug: 'clawhub/my-skill',
   },
+  skills_draft: {
+    type: 'skills_draft',
+    sourceText: 'Create a weather skill',
+  },
+  skills_create: {
+    type: 'skills_create',
+    skillId: 'weather-skill',
+    name: 'Weather Skill',
+    description: 'Fetches current weather',
+    emoji: '🌤️',
+    bodyMarkdown: '# Weather\n\nFetches weather data.',
+    userInvocable: true,
+    disableModelInvocation: false,
+    overwrite: false,
+  },
   suggestion_request: {
     type: 'suggestion_request',
     sessionId: 'sess-001',
@@ -1040,6 +1055,18 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
       files: [{ path: 'SKILL.md', size: 1024 }],
       skillMdContent: '# My Skill\n\nDoes things.',
     },
+  },
+  skills_draft_response: {
+    type: 'skills_draft_response',
+    success: true,
+    draft: {
+      skillId: 'weather-skill',
+      name: 'Weather Skill',
+      description: 'Fetches current weather',
+      emoji: '🌤️',
+      bodyMarkdown: '# Weather\n\nFetches weather data.',
+    },
+    warnings: [],
   },
   suggestion_response: {
     type: 'suggestion_response',
