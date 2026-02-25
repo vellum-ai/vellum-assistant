@@ -1,33 +1,27 @@
 import { getLogger } from '../util/logger.js';
-import { rawRun } from './raw-query.js';
+import { rawGet, rawRun } from './raw-query.js';
 import { bumpMemoryVersion } from './recall-cache.js';
 
 const log = getLogger('task-memory-cleanup');
 
-// Conversations whose task/schedule execution failed. Memory extraction
-// jobs that arrive after the one-shot invalidation must not create new
-// `assistant_inferred` items for these conversations. The set is checked
-// at extraction time in the extraction job handler.
-const failedConversationIds = new Set<string>();
-
-/** Mark a conversation as failed so future extraction jobs skip it. */
-export function markConversationFailed(conversationId: string): void {
-  failedConversationIds.add(conversationId);
-}
-
-/** Check whether a conversation has been marked as failed. */
+/**
+ * Check whether a conversation belongs to a failed task run or failed
+ * schedule run. Derived from durable storage (task_runs / cron_runs)
+ * so the check survives daemon restarts.
+ */
 export function isConversationFailed(conversationId: string): boolean {
-  return failedConversationIds.has(conversationId);
-}
-
-/** Remove a conversation from the failed set (used in tests). */
-export function clearFailedConversation(conversationId: string): void {
-  failedConversationIds.delete(conversationId);
-}
-
-/** Clear all failed conversation markers (used in tests). */
-export function clearAllFailedConversations(): void {
-  failedConversationIds.clear();
+  const row = rawGet<{ found: number }>(
+    `SELECT 1 AS found
+       FROM (
+         SELECT 1 FROM task_runs WHERE conversation_id = ? AND status = 'failed'
+         UNION ALL
+         SELECT 1 FROM cron_runs WHERE conversation_id = ? AND status = 'error'
+       )
+      LIMIT 1`,
+    conversationId,
+    conversationId,
+  );
+  return row !== null;
 }
 
 /**
@@ -36,9 +30,9 @@ export function clearAllFailedConversations(): void {
  * schedule fails — the assistant's optimistic claims (e.g., "I booked an
  * appointment") are not trustworthy if the task didn't complete.
  *
- * Also marks the conversation as failed so that any pending or future
- * extraction jobs for this conversation are blocked from creating new
- * `assistant_inferred` items.
+ * The failed state is derived from durable storage (task_runs / cron_runs),
+ * so any pending or future extraction jobs for this conversation are blocked
+ * from creating new `assistant_inferred` items — even after daemon restarts.
  *
  * Items that also have sources from other conversations are left alone
  * only when those conversations come from non-failed task/schedule runs
@@ -47,10 +41,6 @@ export function clearAllFailedConversations(): void {
  * a memory item and both fail, the item is correctly invalidated.
  */
 export function invalidateAssistantInferredItemsForConversation(conversationId: string): number {
-  // Mark failed *before* the UPDATE so concurrent extraction jobs
-  // that are already running see the flag immediately.
-  markConversationFailed(conversationId);
-
   // Cancel pending extract_items jobs for this conversation's messages
   // so the worker never processes them. Jobs already running will be
   // caught by the isConversationFailed check in the extraction handler.

@@ -56,7 +56,7 @@ mock.module('../config/loader.js', () => ({
 
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { conversations, cronJobs, cronRuns, memoryItems, memoryItemSources, memoryJobs, messages, taskRuns, tasks } from '../memory/schema.js';
-import { invalidateAssistantInferredItemsForConversation, isConversationFailed, clearAllFailedConversations } from '../memory/task-memory-cleanup.js';
+import { invalidateAssistantInferredItemsForConversation, isConversationFailed } from '../memory/task-memory-cleanup.js';
 import { enqueueMemoryJob } from '../memory/jobs-store.js';
 
 describe('invalidateAssistantInferredItemsForConversation', () => {
@@ -79,7 +79,6 @@ describe('invalidateAssistantInferredItemsForConversation', () => {
     db.run('DELETE FROM task_runs');
     db.run('DELETE FROM tasks');
     db.run('DELETE FROM conversations');
-    clearAllFailedConversations();
   });
 
   afterAll(() => {
@@ -481,17 +480,70 @@ describe('invalidateAssistantInferredItemsForConversation', () => {
     expect(item?.status).toBe('active');
   });
 
-  test('marks conversation as failed after invalidation', () => {
+  test('isConversationFailed derives state from durable task_runs/cron_runs', () => {
     seedConversations();
     seedMessages();
-    seedMemoryItems();
+
+    const db = getDb();
+
+    // No failure records yet — should be false
+    expect(isConversationFailed(convId)).toBe(false);
+    expect(isConversationFailed(otherConvId)).toBe(false);
+
+    // Insert a failed task run for convId
+    db.insert(tasks).values({
+      id: 'task-durable',
+      title: 'Durable test',
+      template: 'template',
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+    }).run();
+
+    db.insert(taskRuns).values({
+      id: 'run-durable',
+      taskId: 'task-durable',
+      conversationId: convId,
+      status: 'failed',
+      createdAt: now + 50,
+    }).run();
+
+    // Now convId should be detected as failed via the DB
+    expect(isConversationFailed(convId)).toBe(true);
+    // Other conversations remain unaffected
+    expect(isConversationFailed(otherConvId)).toBe(false);
+  });
+
+  test('isConversationFailed detects failed schedule runs', () => {
+    seedConversations();
+    seedMessages();
+
+    const db = getDb();
 
     expect(isConversationFailed(convId)).toBe(false);
 
-    invalidateAssistantInferredItemsForConversation(convId);
+    // Insert a failed schedule run for convId
+    db.insert(cronJobs).values({
+      id: 'cron-durable',
+      name: 'Durable schedule test',
+      cronExpression: '0 9 * * *',
+      message: 'test',
+      nextRunAt: now + 100_000,
+      createdBy: 'agent',
+      createdAt: now,
+      updatedAt: now,
+    }).run();
+
+    db.insert(cronRuns).values({
+      id: 'cron-run-durable',
+      jobId: 'cron-durable',
+      status: 'error',
+      conversationId: convId,
+      startedAt: now + 50,
+      createdAt: now + 50,
+    }).run();
 
     expect(isConversationFailed(convId)).toBe(true);
-    // Other conversations remain unaffected
     expect(isConversationFailed(otherConvId)).toBe(false);
   });
 

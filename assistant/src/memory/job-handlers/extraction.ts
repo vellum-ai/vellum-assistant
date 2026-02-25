@@ -41,6 +41,14 @@ export async function extractItemsJob(job: MemoryJob): Promise<void> {
   const scopeId = typeof job.payload.scopeId === 'string' && job.payload.scopeId
     ? job.payload.scopeId
     : 'default';
+
+  // Re-check right before the write to close the race window: the conversation
+  // may have been marked failed while this job was doing preliminary work.
+  if (msg && isConversationFailed(msg.conversationId)) {
+    log.info({ messageId, conversationId: msg.conversationId }, 'Skipping extraction for failed conversation (pre-upsert guard)');
+    return;
+  }
+
   await extractAndUpsertMemoryItemsForMessage(messageId, scopeId);
   // Queue entity extraction for this message after items are extracted
   const config = getConfig();
