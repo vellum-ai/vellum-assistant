@@ -1,5 +1,5 @@
 import * as net from 'node:net';
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, realpathSync, statSync } from 'node:fs';
 import * as path from 'node:path';
 import { v4 as uuid } from 'uuid';
 import type { RecordingStatus, RecordingOptions } from '../ipc-protocol.js';
@@ -202,7 +202,14 @@ function handleRecordingStatus(
       if (msg.filePath) {
         // Restrict accepted file paths to the app's recordings directory to
         // prevent attachment of arbitrary files via crafted IPC messages.
-        const resolvedPath = path.resolve(msg.filePath);
+        let resolvedPath: string;
+        try {
+          resolvedPath = realpathSync(msg.filePath);
+        } catch {
+          // File doesn't exist (broken symlink or missing) — use path.resolve
+          // as fallback; the existsSync check below will handle the missing file.
+          resolvedPath = path.resolve(msg.filePath);
+        }
         const allowedDir = path.join(
           process.env.HOME ?? '',
           'Library/Application Support/vellum-assistant/recordings',
