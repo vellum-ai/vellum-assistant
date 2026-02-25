@@ -172,7 +172,7 @@ export const AssistantConfigSchema = z.object({
     .default('gemini-2.5-flash-image'),
   apiKeys: z
     .record(z.string(), z.string({ error: 'Each apiKeys value must be a string' }))
-    .default({}),
+    .default({} as any),
   webSearchProvider: z
     .enum(VALID_WEB_SEARCH_PROVIDERS, {
       error: `webSearchProvider must be one of: ${VALID_WEB_SEARCH_PROVIDERS.join(', ')}`,
@@ -193,32 +193,32 @@ export const AssistantConfigSchema = z.object({
     .int('maxToolUseTurns must be an integer')
     .positive('maxToolUseTurns must be a positive integer')
     .default(60),
-  thinking: ThinkingConfigSchema.default({}),
-  contextWindow: ContextWindowConfigSchema.default({}),
-  memory: MemoryConfigSchema.default({}),
+  thinking: ThinkingConfigSchema.default({} as any),
+  contextWindow: ContextWindowConfigSchema.default({} as any),
+  memory: MemoryConfigSchema.default({} as any),
   dataDir: z
     .string({ error: 'dataDir must be a string' })
     .default(getDataDir()),
-  timeouts: TimeoutConfigSchema.default({}),
-  sandbox: SandboxConfigSchema.default({}),
-  rateLimit: RateLimitConfigSchema.default({}),
-  secretDetection: SecretDetectionConfigSchema.default({}),
-  permissions: PermissionsConfigSchema.default({}),
-  auditLog: AuditLogConfigSchema.default({}),
-  logFile: LogFileConfigSchema.default({}),
+  timeouts: TimeoutConfigSchema.default({} as any),
+  sandbox: SandboxConfigSchema.default({} as any),
+  rateLimit: RateLimitConfigSchema.default({} as any),
+  secretDetection: SecretDetectionConfigSchema.default({} as any),
+  permissions: PermissionsConfigSchema.default({} as any),
+  auditLog: AuditLogConfigSchema.default({} as any),
+  logFile: LogFileConfigSchema.default({} as any),
   pricingOverrides: z
     .array(ModelPricingOverrideSchema)
     .default([]),
-  agentHeartbeat: AgentHeartbeatConfigSchema.default({}),
-  swarm: SwarmConfigSchema.default({}),
-  skills: SkillsConfigSchema.default({}),
-  workspaceGit: WorkspaceGitConfigSchema.default({}),
-  calls: CallsConfigSchema.default({}),
-  sms: SmsConfigSchema.default({}),
+  agentHeartbeat: AgentHeartbeatConfigSchema.default({} as any),
+  swarm: SwarmConfigSchema.default({} as any),
+  skills: SkillsConfigSchema.default({} as any),
+  workspaceGit: WorkspaceGitConfigSchema.default({} as any),
+  calls: CallsConfigSchema.default({} as any),
+  sms: SmsConfigSchema.default({} as any),
   ingress: IngressConfigSchema,
-  platform: PlatformConfigSchema.default({}),
-  daemon: DaemonConfigSchema.default({}),
-  notifications: NotificationsConfigSchema.default({}),
+  platform: PlatformConfigSchema.default({} as any),
+  daemon: DaemonConfigSchema.default({} as any),
+  notifications: NotificationsConfigSchema.default({} as any),
 }).superRefine((config, ctx) => {
   if (config.contextWindow.targetInputTokens >= config.contextWindow.maxInputTokens) {
     ctx.addIssue({
