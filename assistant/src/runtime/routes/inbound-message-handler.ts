@@ -207,6 +207,8 @@ export async function handleChannelInbound(
             log.error({ err, externalChatId }, 'Failed to deliver ACL rejection reply');
           }
         }
+        return Response.json({ accepted: true, denied: true, reason: 'policy_deny' });
+      }
 
       // 'allow' or 'escalate' — update last seen and continue
       updateLastSeen(resolvedMember.id);
