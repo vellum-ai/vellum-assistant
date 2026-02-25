@@ -359,6 +359,12 @@ struct MessageListView: View {
                             }
                             try? await Task.sleep(nanoseconds: 200_000_000)
                             scrollDebounceTask = nil
+                            // Trailing edge: content may have changed during cooldown.
+                            if isNearBottom {
+                                withAnimation(VAnimation.fast) {
+                                    proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                                }
+                            }
                         }
                     }
                 }
