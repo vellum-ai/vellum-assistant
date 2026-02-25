@@ -68,9 +68,10 @@ enum AXTreeDiff {
 
             // Remove identical pairs (unchanged elements)
             for snap in Array(unmatchedPrev) {
-                if let idx = unmatchedCurr.firstIndex(of: snap) {
+                if let idx = unmatchedCurr.firstIndex(of: snap),
+                   let prevIdx = unmatchedPrev.firstIndex(of: snap) {
                     unmatchedCurr.remove(at: idx)
-                    unmatchedPrev.remove(at: unmatchedPrev.firstIndex(of: snap)!)
+                    unmatchedPrev.remove(at: prevIdx)
                 }
             }
 
