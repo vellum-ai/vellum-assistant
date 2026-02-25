@@ -25,7 +25,29 @@ export interface OutreachClassification {
 
 const VALID_OUTREACH_TYPES = new Set<OutreachType>(['sales', 'recruiting', 'marketing', 'other']);
 
-const SYSTEM_PROMPT = 'You are a cold outreach detection system. Given email metadata (sender, subject), classify each email as outreach or not.\n\nOutreach signals to look for:\n- Generic greetings (\"Hi there\", \"Hope this finds you well\")\n- Scheduling links (Calendly, Chili Piper, cal.com)\n- Pitch language (\"quick chat\", \"15 minutes\", \"love to connect\", \"touching base\")\n- Recruiting templates (\"exciting opportunity\", \"your background\", \"perfect fit\")\n- Product/service promotion from unknown senders\n- Cold intro patterns (\"I came across your profile\", \"saw your company\")\n\nExplicitly NOT outreach (classify as other with isOutreach=false):\n- Personal emails from known contacts\n- Transactional emails (receipts, shipping, password resets)\n- Newsletters (these are already filtered out by query)\n- Calendar invites and event notifications\n\nFor each email, provide:\n- isOutreach: true if this is cold outreach, false otherwise\n- outreachType: \"sales\" (product/service pitch), \"recruiting\" (job opportunity), \"marketing\" (promotional from unknown sender), or \"other\" (not outreach)\n- confidence: 0.0 (uncertain) to 1.0 (certain)\n- reasoning: Brief explanation (1 sentence)\n\nYou MUST respond using the `store_outreach_classifications` tool. Do not respond with text.';
+const SYSTEM_PROMPT = `You are a cold outreach detection system. Given email metadata (sender, subject), classify each email as outreach or not.
+
+Outreach signals to look for:
+- Generic greetings ("Hi there", "Hope this finds you well")
+- Scheduling links (Calendly, Chili Piper, cal.com)
+- Pitch language ("quick chat", "15 minutes", "love to connect", "touching base")
+- Recruiting templates ("exciting opportunity", "your background", "perfect fit")
+- Product/service promotion from unknown senders
+- Cold intro patterns ("I came across your profile", "saw your company")
+
+Explicitly NOT outreach (classify as other with isOutreach=false):
+- Personal emails from known contacts
+- Transactional emails (receipts, shipping, password resets)
+- Newsletters (these are already filtered out by query)
+- Calendar invites and event notifications
+
+For each email, provide:
+- isOutreach: true if this is cold outreach, false otherwise
+- outreachType: "sales" (product/service pitch), "recruiting" (job opportunity), "marketing" (promotional from unknown sender), or "other" (not outreach)
+- confidence: 0.0 (uncertain) to 1.0 (certain)
+- reasoning: Brief explanation (1 sentence)
+
+You MUST respond using the \`store_outreach_classifications\` tool. Do not respond with text.`;
 
 const STORE_OUTREACH_TOOL = {
   name: 'store_outreach_classifications',
@@ -58,9 +80,9 @@ const STORE_OUTREACH_TOOL = {
 function formatEmailsForPrompt(emails: EmailMetadata[]): string {
   return emails
     .map((e, i) => [
-      '--- Email ' + (i + 1) + ' (ID: ' + e.id + ') ---',
-      'From: ' + e.from,
-      'Subject: ' + e.subject,
+      `--- Email ${i + 1} (ID: ${e.id}) ---`,
+      `From: ${e.from}`,
+      `Subject: ${e.subject}`,
     ].join('\n'))
     .join('\n\n');
 }
@@ -72,7 +94,7 @@ async function classifyBatch(emails: EmailMetadata[]): Promise<OutreachClassific
     return [];
   }
 
-  const prompt = 'Classify these ' + emails.length + ' emails as outreach or not:\n\n' + formatEmailsForPrompt(emails);
+  const prompt = `Classify these ${emails.length} emails as outreach or not:\n\n${formatEmailsForPrompt(emails)}`;
   const { signal, cleanup } = createTimeout(TIMEOUT_MS);
 
   try {
