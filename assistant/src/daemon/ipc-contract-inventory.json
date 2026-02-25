@@ -248,6 +248,7 @@
     "message_queued_deleted",
     "model_info",
     "notification_intent",
+    "notification_thread_created",
     "open_bundle_response",
     "open_tasks_window",
     "open_url",

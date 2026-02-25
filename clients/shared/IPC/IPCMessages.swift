@@ -2209,6 +2209,7 @@ public enum ServerMessage: Decodable, Sendable {
     case toolResult(ToolResultMessage)
     case reminderFired(ReminderFiredMessage)
     case notificationIntent(NotificationIntentMessage)
+    case notificationThreadCreated(IPCNotificationThreadCreated)
     case scheduleComplete(ScheduleCompleteMessage)
     case watchStarted(WatchStartedMessage)
     case watchCompleteRequest(WatchCompleteRequestMessage)
@@ -2462,6 +2463,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "notification_intent":
             let message = try NotificationIntentMessage(from: decoder)
             self = .notificationIntent(message)
+        case "notification_thread_created":
+            let message = try IPCNotificationThreadCreated(from: decoder)
+            self = .notificationThreadCreated(message)
         case "schedule_complete":
             let message = try ScheduleCompleteMessage(from: decoder)
             self = .scheduleComplete(message)

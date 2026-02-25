@@ -225,6 +225,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon emits a generic `notification_intent` payload.
     public var onNotificationIntent: ((NotificationIntentMessage) -> Void)?
 
+    /// Called when a notification delivery creates a new vellum conversation thread.
+    public var onNotificationThreadCreated: ((IPCNotificationThreadCreated) -> Void)?
+
     /// Called when a scheduled task completes.
     public var onScheduleComplete: ((ScheduleCompleteMessage) -> Void)?
 

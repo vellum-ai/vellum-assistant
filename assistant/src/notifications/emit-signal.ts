@@ -50,6 +50,25 @@ function getBroadcaster(): NotificationBroadcaster {
       adapters.unshift(new VellumAdapter(registeredBroadcastFn));
     }
     broadcasterInstance = new NotificationBroadcaster(adapters);
+
+    // Wire the thread-created callback so the macOS client is notified
+    // immediately when a vellum notification thread is paired — before
+    // slower channel deliveries (e.g. Telegram) delay the IPC push.
+    if (registeredBroadcastFn) {
+      const broadcastFn = registeredBroadcastFn;
+      broadcasterInstance.setOnThreadCreated((info) => {
+        broadcastFn({
+          type: 'notification_thread_created',
+          conversationId: info.conversationId,
+          title: info.title,
+          sourceEventName: info.sourceEventName,
+        });
+        log.info(
+          { conversationId: info.conversationId },
+          'Emitted notification_thread_created push event',
+        );
+      });
+    }
   }
   return broadcasterInstance;
 }
@@ -182,6 +201,10 @@ export async function emitNotificationSignal(params: EmitSignalParams): Promise<
     }
 
     // Step 4: Dispatch through the broadcaster
+    // Note: notification_thread_created IPC events are emitted eagerly inside
+    // the broadcaster as soon as vellum conversation pairing succeeds, rather
+    // than after all channel deliveries complete. This avoids a race where
+    // slow Telegram delivery delays the push past the macOS deep-link retry.
     const broadcaster = getBroadcaster();
     const dispatchResult = await dispatchDecision(signal, decision, broadcaster);
 

@@ -2765,6 +2765,21 @@ public struct IPCNotificationIntent: Codable, Sendable {
     }
 }
 
+/// Server push — broadcast when a notification creates a new vellum conversation thread.
+public struct IPCNotificationThreadCreated: Codable, Sendable {
+    public let type: String
+    public let conversationId: String
+    public let title: String
+    public let sourceEventName: String
+
+    public init(type: String, conversationId: String, title: String, sourceEventName: String) {
+        self.type = type
+        self.conversationId = conversationId
+        self.title = title
+        self.sourceEventName = sourceEventName
+    }
+}
+
 public struct IPCOpenBundleRequest: Codable, Sendable {
     public let type: String
     public let filePath: String
