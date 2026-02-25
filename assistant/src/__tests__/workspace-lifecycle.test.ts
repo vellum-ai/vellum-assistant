@@ -2,7 +2,7 @@
  * Integration-style test that exercises the full git workspace lifecycle:
  *   lazy init → turn-boundary commits → heartbeat safety net → commit history verification.
  *
- * This test wires together WorkspaceGitService, commitTurnChanges, and HeartbeatService
+ * This test wires together WorkspaceGitService, commitTurnChanges, and WorkspaceHeartbeatService
  * in the same flow a real daemon session would follow.
  */
 import { execFileSync } from 'node:child_process';
@@ -19,7 +19,7 @@ import {
 } from '../workspace/git-service.js';
 import {
   _resetHeartbeatState,
-  HeartbeatService,
+  WorkspaceHeartbeatService,
 } from '../workspace/heartbeat-service.js';
 import { commitTurnChanges } from '../workspace/turn-commit.js';
 
@@ -153,7 +153,7 @@ describe('Workspace git lifecycle (integration)', () => {
     services.set(testDir, service);
 
     let fakeTime = 2_000_000;
-    const heartbeat = new HeartbeatService({
+    const heartbeat = new WorkspaceHeartbeatService({
       ageThresholdMs: 5 * 60 * 1000,
       fileThreshold: 100,
       getServices: () => services,
@@ -234,7 +234,7 @@ describe('Workspace git lifecycle (integration)', () => {
     const services = new Map<string, WorkspaceGitService>();
     services.set(testDir, service);
 
-    const heartbeat = new HeartbeatService({
+    const heartbeat = new WorkspaceHeartbeatService({
       ageThresholdMs: 0,
       fileThreshold: 1,
       getServices: () => services,

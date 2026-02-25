@@ -4,7 +4,6 @@ import { join } from 'node:path';
 
 import { config as dotenvConfig } from 'dotenv';
 
-import { AgentHeartbeatService } from '../agent-heartbeat/agent-heartbeat-service.js';
 import { reconcileCallsOnStartup } from '../calls/call-recovery.js';
 import { setRelayBroadcast } from '../calls/relay-server.js';
 import { TwilioConversationRelayProvider } from '../calls/twilio-provider.js';
@@ -18,6 +17,7 @@ import {
 } from '../config/env.js';
 import { loadConfig } from '../config/loader.js';
 import { ensurePromptFiles } from '../config/system-prompt.js';
+import { HeartbeatService } from '../heartbeat/heartbeat-service.js';
 import { getHookManager } from '../hooks/manager.js';
 import { installTemplates } from '../hooks/templates.js';
 import { initSentry } from '../instrument.js';
@@ -43,7 +43,7 @@ import {
   getSocketPath,
 } from '../util/platform.js';
 import { listWorkItems, updateWorkItem } from '../work-items/work-item-store.js';
-import { HeartbeatService } from '../workspace/heartbeat-service.js';
+import { WorkspaceHeartbeatService } from '../workspace/heartbeat-service.js';
 import { createApprovalConversationGenerator,createApprovalCopyGenerator } from './approval-generators.js';
 import { cleanupPidFile,writePid } from './daemon-control.js';
 import { initPairingHandlers } from './handlers/pairing.js';
@@ -359,20 +359,20 @@ export async function runDaemon(): Promise<void> {
     }
   }
 
-  const heartbeat = new HeartbeatService();
-  heartbeat.start();
+  const workspaceHeartbeat = new WorkspaceHeartbeatService();
+  workspaceHeartbeat.start();
 
-  const agentHeartbeat = new AgentHeartbeatService({
+  const heartbeat = new HeartbeatService({
     processMessage: (conversationId, content) =>
       server.processMessage(conversationId, content),
     alerter: (alert) => server.broadcast(alert),
   });
-  agentHeartbeat.start();
+  heartbeat.start();
 
   installShutdownHandlers({
     server,
+    workspaceHeartbeat,
     heartbeat,
-    agentHeartbeat,
     hookManager,
     runtimeHttp,
     scheduler,

@@ -183,7 +183,7 @@
   ],
   "serverWireTypes": [
     "accept_starter_bundle_response",
-    "agent_heartbeat_alert",
+    "heartbeat_alert",
     "app_data_response",
     "app_diff_response",
     "app_file_at_version_response",

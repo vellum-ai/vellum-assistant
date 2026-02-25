@@ -10,6 +10,7 @@ exports[`IPC message snapshots ClientMessage types auth serializes to expected J
 exports[`IPC message snapshots ClientMessage types user_message serializes to expected JSON 1`] = `
 {
   "content": "Hello, assistant!",
+  "interface": "cli",
   "sessionId": "sess-001",
   "type": "user_message",
 }
@@ -41,6 +42,7 @@ exports[`IPC message snapshots ClientMessage types session_create serializes to 
     "hints": [
       "dashboard-capable",
     ],
+    "interfaceId": "macos",
     "uxBrief": "Prefer dashboard-first onboarding.",
   },
   "type": "session_create",
@@ -51,6 +53,14 @@ exports[`IPC message snapshots ClientMessage types session_switch serializes to 
 {
   "sessionId": "sess-002",
   "type": "session_switch",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types session_rename serializes to expected JSON 1`] = `
+{
+  "sessionId": "sess-002",
+  "title": "Renamed session",
+  "type": "session_rename",
 }
 `;
 
@@ -305,6 +315,31 @@ exports[`IPC message snapshots ClientMessage types skills_inspect serializes to 
 {
   "slug": "clawhub/my-skill",
   "type": "skills_inspect",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types skills_draft serializes to expected JSON 1`] = `
+{
+  "sourceText": "Create a weather skill",
+  "type": "skills_draft",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types skills_create serializes to expected JSON 1`] = `
+{
+  "bodyMarkdown": 
+"# Weather
+
+Fetches weather data."
+,
+  "description": "Fetches current weather",
+  "disableModelInvocation": false,
+  "emoji": "🌤️",
+  "name": "Weather Skill",
+  "overwrite": false,
+  "skillId": "weather-skill",
+  "type": "skills_create",
+  "userInvocable": true,
 }
 `;
 
@@ -586,6 +621,13 @@ exports[`IPC message snapshots ClientMessage types ingress_config serializes to 
 {
   "action": "get",
   "type": "ingress_config",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types platform_config serializes to expected JSON 1`] = `
+{
+  "action": "get",
+  "type": "platform_config",
 }
 `;
 
@@ -1033,6 +1075,33 @@ exports[`IPC message snapshots ClientMessage types assistant_inbox_reply seriali
   "content": "Hello from the assistant",
   "conversationId": "conv-001",
   "type": "assistant_inbox_reply",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types pairing_approval_response serializes to expected JSON 1`] = `
+{
+  "decision": "approve_once",
+  "pairingRequestId": "pair-001",
+  "type": "pairing_approval_response",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types approved_devices_list serializes to expected JSON 1`] = `
+{
+  "type": "approved_devices_list",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types approved_device_remove serializes to expected JSON 1`] = `
+{
+  "hashedDeviceId": "hashed-device-001",
+  "type": "approved_device_remove",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types approved_devices_clear serializes to expected JSON 1`] = `
+{
+  "type": "approved_devices_clear",
 }
 `;
 
@@ -1656,6 +1725,25 @@ Does things."
 }
 `;
 
+exports[`IPC message snapshots ServerMessage types skills_draft_response serializes to expected JSON 1`] = `
+{
+  "draft": {
+    "bodyMarkdown": 
+"# Weather
+
+Fetches weather data."
+,
+    "description": "Fetches current weather",
+    "emoji": "🌤️",
+    "name": "Weather Skill",
+    "skillId": "weather-skill",
+  },
+  "success": true,
+  "type": "skills_draft_response",
+  "warnings": [],
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types suggestion_response serializes to expected JSON 1`] = `
 {
   "requestId": "req-suggest-001",
@@ -1699,6 +1787,18 @@ exports[`IPC message snapshots ServerMessage types reminder_fired serializes to 
 }
 `;
 
+exports[`IPC message snapshots ServerMessage types notification_intent serializes to expected JSON 1`] = `
+{
+  "body": "Your assistant needs your input.",
+  "deepLinkMetadata": {
+    "conversationId": "conv-guardian-001",
+  },
+  "sourceEventName": "guardian.question",
+  "title": "⚠️ Attention needed",
+  "type": "notification_intent",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types schedule_complete serializes to expected JSON 1`] = `
 {
   "name": "Daily backup",
@@ -1723,11 +1823,11 @@ exports[`IPC message snapshots ServerMessage types watcher_escalation serializes
 }
 `;
 
-exports[`IPC message snapshots ServerMessage types agent_heartbeat_alert serializes to expected JSON 1`] = `
+exports[`IPC message snapshots ServerMessage types heartbeat_alert serializes to expected JSON 1`] = `
 {
   "body": "No activity detected in the last 60 minutes.",
-  "title": "Agent heartbeat stalled",
-  "type": "agent_heartbeat_alert",
+  "title": "Heartbeat stalled",
+  "type": "heartbeat_alert",
 }
 `;
 
@@ -2060,6 +2160,14 @@ exports[`IPC message snapshots ServerMessage types ingress_config_response seria
   "publicBaseUrl": "https://example.com",
   "success": true,
   "type": "ingress_config_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types platform_config_response serializes to expected JSON 1`] = `
+{
+  "baseUrl": "https://platform.vellum.ai",
+  "success": true,
+  "type": "platform_config_response",
 }
 `;
 
@@ -2881,33 +2989,6 @@ exports[`IPC message snapshots ServerMessage types assistant_inbox_reply_respons
 }
 `;
 
-exports[`IPC message snapshots ClientMessage types pairing_approval_response serializes to expected JSON 1`] = `
-{
-  "decision": "approve_once",
-  "pairingRequestId": "pair-001",
-  "type": "pairing_approval_response",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types approved_devices_list serializes to expected JSON 1`] = `
-{
-  "type": "approved_devices_list",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types approved_device_remove serializes to expected JSON 1`] = `
-{
-  "hashedDeviceId": "hashed-device-001",
-  "type": "approved_device_remove",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types approved_devices_clear serializes to expected JSON 1`] = `
-{
-  "type": "approved_devices_clear",
-}
-`;
-
 exports[`IPC message snapshots ServerMessage types pairing_approval_request serializes to expected JSON 1`] = `
 {
   "deviceId": "device-001",
@@ -2934,84 +3015,5 @@ exports[`IPC message snapshots ServerMessage types approved_device_remove_respon
 {
   "success": true,
   "type": "approved_device_remove_response",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types session_rename serializes to expected JSON 1`] = `
-{
-  "sessionId": "sess-002",
-  "title": "Renamed session",
-  "type": "session_rename",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types notification_intent serializes to expected JSON 1`] = `
-{
-  "body": "Your assistant needs your input.",
-  "deepLinkMetadata": {
-    "conversationId": "conv-guardian-001",
-  },
-  "sourceEventName": "guardian.question",
-  "title": "⚠️ Attention needed",
-  "type": "notification_intent",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types skills_draft serializes to expected JSON 1`] = `
-{
-  "sourceText": "Create a weather skill",
-  "type": "skills_draft",
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types skills_create serializes to expected JSON 1`] = `
-{
-  "bodyMarkdown": 
-"# Weather
-
-Fetches weather data."
-,
-  "description": "Fetches current weather",
-  "disableModelInvocation": false,
-  "emoji": "🌤️",
-  "name": "Weather Skill",
-  "overwrite": false,
-  "skillId": "weather-skill",
-  "type": "skills_create",
-  "userInvocable": true,
-}
-`;
-
-exports[`IPC message snapshots ClientMessage types platform_config serializes to expected JSON 1`] = `
-{
-  "action": "get",
-  "type": "platform_config",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types skills_draft_response serializes to expected JSON 1`] = `
-{
-  "draft": {
-    "bodyMarkdown": 
-"# Weather
-
-Fetches weather data."
-,
-    "description": "Fetches current weather",
-    "emoji": "🌤️",
-    "name": "Weather Skill",
-    "skillId": "weather-skill",
-  },
-  "success": true,
-  "type": "skills_draft_response",
-  "warnings": [],
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types platform_config_response serializes to expected JSON 1`] = `
-{
-  "baseUrl": "https://platform.vellum.ai",
-  "success": true,
-  "type": "platform_config_response",
 }
 `;
