@@ -74,6 +74,19 @@ These are the most commonly used slash commands defined in `.claude/commands/`:
 | `/update` | Pull latest from main, restart the backend daemon, verify gateway health (fail fast on startup failure), rebuild/launch the macOS app, and print a startup summary. |
 
 
+## Linear Ticket Hygiene
+
+When working on a task sourced from a Linear ticket (via the Linear MCP), keep the ticket status in sync with your progress:
+
+- **Branch naming**: Include the Linear issue ID in the branch name (e.g., `feat/ABC-123-add-widget`). Linear automatically links branches, commits, and PRs that reference the issue ID.
+- **Commit messages**: Reference the issue ID in commits (e.g., `feat: add widget [ABC-123]`) so Linear links them automatically.
+- **Start of work**: Move the ticket to "In Progress" (or the equivalent active status).
+- **PR created**: Move the ticket to "In Review" if applicable. If you used the issue ID in the branch name, Linear will link the PR automatically — otherwise add the PR link manually.
+- **Work completed / PR merged**: Move the ticket to "Done".
+- **Blocked or abandoned**: Update the ticket status accordingly and leave a comment explaining why.
+
+Treat the Linear ticket as the source of truth for task status. Don't leave tickets in a stale state — if you touched it, update it.
+
 ## Track merged PRs
 
 Whenever you merge a PR, you MUST append its URL to `.private/UNREVIEWED_PRS.md` so that `/check-reviews` can pick it up for review triage.
