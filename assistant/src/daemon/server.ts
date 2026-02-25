@@ -699,11 +699,11 @@ export class DaemonServer {
       throw new Error('Session is already processing a message');
     }
 
+    const resolvedChannel = resolveTurnChannel(sourceChannel, options?.transport?.channelId);
     session.setAssistantId(options?.assistantId ?? 'self');
     session.setGuardianContext(options?.guardianContext ?? null);
     session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel));
     session.setCommandIntent(options?.commandIntent ?? null);
-    const resolvedChannel = resolveTurnChannel(sourceChannel, options?.transport?.channelId);
     session.setTurnChannelContext({
       userMessageChannel: resolvedChannel,
       assistantMessageChannel: resolvedChannel,
@@ -746,11 +746,11 @@ export class DaemonServer {
       throw new Error('Session is already processing a message');
     }
 
+    const resolvedChannel2 = resolveTurnChannel(sourceChannel, options?.transport?.channelId);
     session.setAssistantId(options?.assistantId ?? 'self');
     session.setGuardianContext(options?.guardianContext ?? null);
     session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel));
     session.setCommandIntent(options?.commandIntent ?? null);
-    const resolvedChannel2 = resolveTurnChannel(sourceChannel, options?.transport?.channelId);
     session.setTurnChannelContext({
       userMessageChannel: resolvedChannel2,
       assistantMessageChannel: resolvedChannel2,
