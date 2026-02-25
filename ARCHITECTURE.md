@@ -987,6 +987,18 @@ Runtime profile flow (per turn):
 2. Session injects that block only into runtime prompt state.
 3. Session strips the injected profile block before persisting conversation history, so dynamic profile context never pollutes durable message rows.
 
+### Provenance-Aware Memory Pipeline
+
+Every persisted message carries provenance metadata (`provenanceActorRole`, `provenanceSourceChannel`, etc.) derived from the `GuardianRuntimeContext` resolved by `guardian-context-resolver.ts`. This metadata records which actor produced the message and through which channel, enabling downstream trust decisions without re-resolving identity at read time.
+
+Two trust gates enforce actor-role-based access control over the memory pipeline:
+
+- **Write gate** (`indexer.ts`): The `extract_items` and `resolve_conflicts` jobs only run for messages from trusted actors (guardian or legacy/undefined provenance). Messages from untrusted actors (non-guardian, unverified_channel) are still segmented and embedded — so they appear in conversation context — but no profile extraction or conflict resolution is triggered. This prevents untrusted channels from injecting or mutating long-term memory items.
+
+- **Read gate** (`session-memory.ts`): When the current session's actor is untrusted, the memory recall pipeline returns a no-op context — no recall injection, no dynamic profile, no conflict clarification prompts. This ensures untrusted actors cannot surface or exploit previously extracted memory.
+
+Trust policy is **cross-channel and actor-role-based**: decisions use `guardianContext.actorRole`, not the channel string. Desktop/IPC sessions default to `actorRole: 'guardian'`. External channels (Telegram, SMS, WhatsApp, voice) provide explicit guardian context via the resolver. Legacy messages without provenance metadata are treated as trusted for backwards compatibility; going forward, all new messages carry provenance.
+
 ---
 
 ## Private Threads — Isolated Memory and Strict Side-Effect Controls
