@@ -32,6 +32,14 @@ enum RecorderError: Error, LocalizedError {
     }
 }
 
+/// Result of normalizing capture dimensions for encoder compatibility.
+struct NormalizedDimensions {
+    let width: Int
+    let height: Int
+    let wasAdjusted: Bool
+    let adjustmentReason: String?
+}
+
 /// App-agnostic screen recorder using ScreenCaptureKit + AVAssetWriter.
 ///
 /// Records display or window content to .mov files with H.264 video and
@@ -92,6 +100,52 @@ final class ScreenRecorder: NSObject {
 
         log.warning("Could not determine scale factor for displayID=\(displayID) — defaulting to 2x")
         return 2.0
+    }
+
+    // MARK: - Dimension Normalization
+
+    /// Normalize capture dimensions to satisfy H.264/HEVC encoder constraints.
+    ///
+    /// Ensures dimensions are even (macroblock alignment), at least 128px
+    /// (H.264 minimum), and at most `maxDimension` px (real-time encoding
+    /// limit). When the source exceeds `maxDimension`, both axes are scaled
+    /// down proportionally to preserve aspect ratio.
+    static func normalizeDimensions(width: Int, height: Int, maxDimension: Int = 4096) -> NormalizedDimensions {
+        var w = width
+        var h = height
+        var reasons: [String] = []
+
+        // 1. Enforce minimum (128px per axis)
+        let minDimension = 128
+        if w < minDimension || h < minDimension {
+            w = max(w, minDimension)
+            h = max(h, minDimension)
+            reasons.append("clamped below-minimum axis to \(minDimension)px")
+        }
+
+        // 2. Enforce maximum — scale down proportionally if either axis exceeds the limit
+        if w > maxDimension || h > maxDimension {
+            let scale = Double(maxDimension) / Double(max(w, h))
+            w = Int((Double(w) * scale).rounded(.down))
+            h = Int((Double(h) * scale).rounded(.down))
+            reasons.append("scaled down to fit \(maxDimension)px limit")
+        }
+
+        // 3. Round up to nearest even value (H.264 macroblock requirement)
+        if w % 2 != 0 || h % 2 != 0 {
+            w = (w + 1) & ~1
+            h = (h + 1) & ~1
+            reasons.append("rounded to even dimensions")
+        }
+
+        let wasAdjusted = w != width || h != height
+        let reason = wasAdjusted ? reasons.joined(separator: "; ") : nil
+
+        if wasAdjusted {
+            log.info("Dimension normalization: \(width)x\(height) → \(w)x\(h) (\(reason!, privacy: .public))")
+        }
+
+        return NormalizedDimensions(width: w, height: h, wasAdjusted: wasAdjusted, adjustmentReason: reason)
     }
 
     // MARK: - Start Recording
@@ -164,10 +218,15 @@ final class ScreenRecorder: NSObject {
             log.info("Display capture: displayID=\(targetDisplay.displayID), scaleFactor=\(displayScale), sourceSize=\(targetDisplay.width)x\(targetDisplay.height), streamSize=\(captureWidth)x\(captureHeight)")
         }
 
+        // Normalize dimensions for encoder compatibility before configuring stream/writer
+        let normalized = Self.normalizeDimensions(width: captureWidth, height: captureHeight)
+        let encoderWidth = normalized.width
+        let encoderHeight = normalized.height
+
         // Configure stream
         let config = SCStreamConfiguration()
-        config.width = captureWidth
-        config.height = captureHeight
+        config.width = encoderWidth
+        config.height = encoderHeight
         config.minimumFrameInterval = CMTime(value: 1, timescale: 30) // 30 fps
         config.pixelFormat = kCVPixelFormatType_32BGRA
         config.showsCursor = true
@@ -199,8 +258,8 @@ final class ScreenRecorder: NSObject {
         // Video input: H.264
         let videoSettings: [String: Any] = [
             AVVideoCodecKey: AVVideoCodecType.h264,
-            AVVideoWidthKey: captureWidth,
-            AVVideoHeightKey: captureHeight,
+            AVVideoWidthKey: encoderWidth,
+            AVVideoHeightKey: encoderHeight,
         ]
         let vInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
         vInput.expectsMediaDataInRealTime = true
@@ -237,7 +296,7 @@ final class ScreenRecorder: NSObject {
 
         self.assetWriter = writer
 
-        log.info("Encoder settings: codec=H.264, pixelFormat=32BGRA, frameRate=30fps, dimensions=\(captureWidth)x\(captureHeight)")
+        log.info("Encoder settings: codec=H.264, pixelFormat=32BGRA, frameRate=30fps, dimensions=\(encoderWidth)x\(encoderHeight)")
         if includeAudio {
             log.info("System audio: sampleRate=48000, channels=2, bitRate=128000")
         }
