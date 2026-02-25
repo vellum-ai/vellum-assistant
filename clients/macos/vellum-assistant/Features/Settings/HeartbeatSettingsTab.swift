@@ -237,8 +237,13 @@ struct HeartbeatSettingsTab: View {
                     VButton(label: "Run Now", style: .primary) {
                         isRunning = true
                         runError = nil
+                        guard let client = daemonClient else {
+                            isRunning = false
+                            runError = "Daemon not available"
+                            return
+                        }
                         do {
-                            try daemonClient?.sendHeartbeatRunNow()
+                            try client.sendHeartbeatRunNow()
                         } catch {
                             isRunning = false
                             runError = "Failed to send run request"
