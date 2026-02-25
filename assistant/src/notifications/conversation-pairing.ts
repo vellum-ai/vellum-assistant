@@ -55,9 +55,13 @@ export function pairDeliveryWithConversation(
     // record the intended strategy so the audit trail is complete.
     const title = copy.threadTitle ?? copy.title ?? signal.sourceEventName;
 
+    // Use 'standard' threadType so notification threads remain visible in
+    // conversation listings and deep-linkable from notification intents.
+    // Memory indexing is skipped on the seed message below to prevent
+    // notification copy from polluting conversational recall.
     const conversation = createConversation({
       title,
-      threadType: 'background',
+      threadType: 'standard',
       source: 'notification',
     });
 
