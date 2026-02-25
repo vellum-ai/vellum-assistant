@@ -47,8 +47,8 @@ final class OpenAIVoiceService: ObservableObject {
     private var hasSpeechOccurred = false
     private var enginePrewarmed = false
 
-    private static let silenceThreshold: Float = 0.015
-    private static let speechThreshold: Float = 0.025
+    private static let silenceThreshold: Float = 0.005
+    private static let speechThreshold: Float = 0.008
     private static let silenceTimeout: TimeInterval = 1.0
     private static let minRecordingDuration: TimeInterval = 0.5
 
@@ -78,8 +78,10 @@ final class OpenAIVoiceService: ObservableObject {
     /// Pre-initialize the audio engine so the first recording starts instantly.
     func prewarmEngine() {
         guard !enginePrewarmed else { return }
+        // Only touch the input node to force its creation — do NOT call
+        // audioEngine.prepare() here, because preparing before the tap is
+        // installed can prevent the tap callback from receiving buffers.
         let _ = audioEngine.inputNode
-        audioEngine.prepare()
         enginePrewarmed = true
         log.info("Audio engine pre-warmed")
     }
