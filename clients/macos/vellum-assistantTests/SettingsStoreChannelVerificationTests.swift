@@ -844,4 +844,184 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         XCTAssertNil(store.smsGuardianIdentity)
         XCTAssertFalse(store.smsGuardianVerified)
     }
+
+    // MARK: - Outbound Verification: startOutboundGuardianVerification
+
+    func testStartOutboundVerificationSendsCorrectIPCMessage() {
+        store.startOutboundGuardianVerification(channel: "sms", destination: "+15551234567")
+
+        let guardianMessages = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
+        let outboundMessages = guardianMessages.filter { $0.action == "start_outbound" && $0.channel == "sms" }
+        XCTAssertEqual(outboundMessages.count, 1)
+        XCTAssertEqual(outboundMessages.first?.destination, "+15551234567")
+        XCTAssertEqual(outboundMessages.first?.assistantId, testAssistantId)
+        XCTAssertTrue(store.smsGuardianVerificationInProgress)
+    }
+
+    func testStartOutboundVerificationClearsExistingOutboundState() {
+        store.smsOutboundSessionId = "old-session"
+        store.smsOutboundExpiresAt = Date()
+        store.smsOutboundSendCount = 3
+
+        store.startOutboundGuardianVerification(channel: "sms", destination: "+15551234567")
+
+        XCTAssertNil(store.smsOutboundSessionId)
+        XCTAssertNil(store.smsOutboundExpiresAt)
+        XCTAssertEqual(store.smsOutboundSendCount, 0)
+    }
+
+    func testStartOutboundTelegramVerificationSendsCorrectMessage() {
+        store.startOutboundGuardianVerification(channel: "telegram", destination: "@guardian_user")
+
+        let guardianMessages = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
+        let outboundMessages = guardianMessages.filter { $0.action == "start_outbound" && $0.channel == "telegram" }
+        XCTAssertEqual(outboundMessages.count, 1)
+        XCTAssertEqual(outboundMessages.first?.destination, "@guardian_user")
+        XCTAssertTrue(store.telegramGuardianVerificationInProgress)
+    }
+
+    // MARK: - Outbound Verification: response populates session state
+
+    func testOutboundResponsePopulatesSessionState() {
+        store.smsGuardianVerificationInProgress = true
+
+        let expiresMs = Int(Date().addingTimeInterval(600).timeIntervalSince1970 * 1000)
+        let nextResendMs = Int(Date().addingTimeInterval(30).timeIntervalSince1970 * 1000)
+
+        daemonClient.onGuardianVerificationResponse?(GuardianVerificationResponseMessage(
+            type: "guardian_verification_response",
+            success: true,
+            channel: "sms",
+            verificationSessionId: "sess-123",
+            expiresAt: expiresMs,
+            nextResendAt: nextResendMs,
+            sendCount: 1
+        ))
+
+        let predicate = NSPredicate { _, _ in self.store.smsOutboundSessionId == "sess-123" }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+        wait(for: [expectation], timeout: 2.0)
+
+        XCTAssertEqual(store.smsOutboundSessionId, "sess-123")
+        XCTAssertNotNil(store.smsOutboundExpiresAt)
+        XCTAssertNotNil(store.smsOutboundNextResendAt)
+        XCTAssertEqual(store.smsOutboundSendCount, 1)
+    }
+
+    // MARK: - Outbound Verification: Telegram bootstrap URL
+
+    func testTelegramBootstrapUrlIsStored() {
+        store.telegramGuardianVerificationInProgress = true
+
+        let expiresMs = Int(Date().addingTimeInterval(600).timeIntervalSince1970 * 1000)
+
+        daemonClient.onGuardianVerificationResponse?(GuardianVerificationResponseMessage(
+            type: "guardian_verification_response",
+            success: true,
+            channel: "telegram",
+            verificationSessionId: "tg-sess-456",
+            expiresAt: expiresMs,
+            sendCount: 1,
+            telegramBootstrapUrl: "https://t.me/MyBot?start=verify_abc123"
+        ))
+
+        let predicate = NSPredicate { _, _ in self.store.telegramBootstrapUrl != nil }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+        wait(for: [expectation], timeout: 2.0)
+
+        XCTAssertEqual(store.telegramBootstrapUrl, "https://t.me/MyBot?start=verify_abc123")
+        XCTAssertEqual(store.telegramOutboundSessionId, "tg-sess-456")
+    }
+
+    // MARK: - Outbound Verification: resend sends correct message
+
+    func testResendOutboundSendsCorrectIPCMessage() {
+        let guardianMessagesBefore = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
+        let resendCountBefore = guardianMessagesBefore.filter { $0.action == "resend_outbound" }.count
+
+        store.resendOutboundGuardian(channel: "sms")
+
+        let guardianMessages = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
+        let resendMessages = guardianMessages.filter { $0.action == "resend_outbound" && $0.channel == "sms" }
+        XCTAssertEqual(resendMessages.count, resendCountBefore + 1)
+        XCTAssertEqual(resendMessages.first?.assistantId, testAssistantId)
+    }
+
+    // MARK: - Outbound Verification: cancel clears state
+
+    func testCancelOutboundClearsState() {
+        store.smsOutboundSessionId = "sess-to-cancel"
+        store.smsOutboundExpiresAt = Date().addingTimeInterval(300)
+        store.smsOutboundSendCount = 2
+        store.smsGuardianVerificationInProgress = true
+
+        store.cancelOutboundGuardian(channel: "sms")
+
+        XCTAssertNil(store.smsOutboundSessionId)
+        XCTAssertNil(store.smsOutboundExpiresAt)
+        XCTAssertNil(store.smsOutboundNextResendAt)
+        XCTAssertEqual(store.smsOutboundSendCount, 0)
+        XCTAssertFalse(store.smsGuardianVerificationInProgress)
+
+        let guardianMessages = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
+        let cancelMessages = guardianMessages.filter { $0.action == "cancel_outbound" && $0.channel == "sms" }
+        XCTAssertEqual(cancelMessages.count, 1)
+        XCTAssertEqual(cancelMessages.first?.assistantId, testAssistantId)
+    }
+
+    func testCancelOutboundTelegramClearsBootstrapUrl() {
+        store.telegramOutboundSessionId = "tg-sess-cancel"
+        store.telegramBootstrapUrl = "https://t.me/MyBot?start=verify_abc"
+
+        store.cancelOutboundGuardian(channel: "telegram")
+
+        XCTAssertNil(store.telegramOutboundSessionId)
+        XCTAssertNil(store.telegramBootstrapUrl)
+    }
+
+    // MARK: - Outbound Verification: verified response clears outbound state
+
+    func testVerifiedResponseClearsOutboundState() {
+        store.smsOutboundSessionId = "sess-pending"
+        store.smsOutboundExpiresAt = Date().addingTimeInterval(300)
+        store.smsOutboundSendCount = 1
+
+        daemonClient.onGuardianVerificationResponse?(GuardianVerificationResponseMessage(
+            type: "guardian_verification_response",
+            success: true,
+            bound: true,
+            guardianExternalUserId: "+15551234567",
+            channel: "sms",
+            assistantId: "self"
+        ))
+
+        let predicate = NSPredicate { _, _ in self.store.smsGuardianVerified }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+        wait(for: [expectation], timeout: 2.0)
+
+        XCTAssertNil(store.smsOutboundSessionId)
+        XCTAssertNil(store.smsOutboundExpiresAt)
+        XCTAssertEqual(store.smsOutboundSendCount, 0)
+        XCTAssertTrue(store.smsGuardianVerified)
+    }
+
+    // MARK: - Outbound Verification: initial state is nil
+
+    func testInitialOutboundStateIsNilOrZero() {
+        XCTAssertNil(store.telegramOutboundSessionId)
+        XCTAssertNil(store.telegramOutboundExpiresAt)
+        XCTAssertNil(store.telegramOutboundNextResendAt)
+        XCTAssertEqual(store.telegramOutboundSendCount, 0)
+        XCTAssertNil(store.telegramBootstrapUrl)
+
+        XCTAssertNil(store.smsOutboundSessionId)
+        XCTAssertNil(store.smsOutboundExpiresAt)
+        XCTAssertNil(store.smsOutboundNextResendAt)
+        XCTAssertEqual(store.smsOutboundSendCount, 0)
+
+        XCTAssertNil(store.voiceOutboundSessionId)
+        XCTAssertNil(store.voiceOutboundExpiresAt)
+        XCTAssertNil(store.voiceOutboundNextResendAt)
+        XCTAssertEqual(store.voiceOutboundSendCount, 0)
+    }
 }

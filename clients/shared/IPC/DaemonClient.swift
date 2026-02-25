@@ -1036,20 +1036,22 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(VercelApiConfigRequestMessage(action: action, apiToken: apiToken))
     }
 
-    /// Create a guardian verification challenge, check status, or revoke for a channel.
+    /// Create a guardian verification challenge, check status, revoke, or manage outbound verification for a channel.
     public func sendGuardianVerification(
         action: String,
         channel: String? = nil,
         sessionId: String? = nil,
         assistantId: String? = nil,
-        rebind: Bool? = nil
+        rebind: Bool? = nil,
+        destination: String? = nil
     ) throws {
         try send(GuardianVerificationRequestMessage(
             action: action,
             channel: channel,
             sessionId: sessionId,
             assistantId: assistantId,
-            rebind: rebind
+            rebind: rebind,
+            destination: destination
         ))
     }
 
