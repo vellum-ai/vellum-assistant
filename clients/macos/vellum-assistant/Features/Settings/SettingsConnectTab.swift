@@ -473,6 +473,7 @@ struct SettingsConnectTab: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
     }
@@ -705,19 +706,14 @@ struct SettingsConnectTab: View {
         .vCard(background: VColor.surfaceSubtle)
     }
 
-    // MARK: - Voice (Phone Calls) Card
+    // MARK: - Phone Calling Card
 
     private var voiceCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
-                HStack(spacing: VSpacing.xs) {
-                    Image(systemName: "phone.fill")
-                        .foregroundColor(VColor.textPrimary)
-                        .font(.system(size: 12))
-                    Text("Voice (Phone Calls)")
-                        .font(VFont.sectionTitle)
-                        .foregroundColor(VColor.textPrimary)
-                }
+                Text("Phone Calling")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
                 Text("Receive and make phone calls via Twilio")
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
@@ -938,15 +934,17 @@ struct SettingsConnectTab: View {
 
     private var guardianLabel: some View {
         HStack(spacing: VSpacing.xs) {
-            Text("Verification")
+            Text("Guardian Verification")
             Image(systemName: "info.circle")
                 .font(.system(size: 10))
                 .foregroundColor(VColor.textMuted)
+                .frame(width: 14, height: 14)
+                .contentShape(Rectangle())
                 .help("Guardian verification links your account identity for this channel.")
         }
         .font(VFont.caption)
         .foregroundColor(VColor.textSecondary)
-        .frame(width: 90, alignment: .leading)
+        .frame(width: 140, alignment: .leading)
     }
 
     private func guardianPrimaryIdentity(channel: String, identity: String?) -> String? {
@@ -1151,7 +1149,7 @@ struct SettingsConnectTab: View {
                         }
                     }
                 }
-                .padding(.leading, 90 + VSpacing.sm)
+                .padding(.leading, 140 + VSpacing.sm)
             }
         }
     }
@@ -1173,32 +1171,24 @@ struct SettingsConnectTab: View {
             }
         }()
 
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            HStack(spacing: VSpacing.sm) {
-                guardianLabel
-                Image(systemName: "shield.slash")
-                    .foregroundColor(VColor.textMuted)
-                    .font(.system(size: 12))
-                Text("Not verified")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textMuted)
-                    .lineLimit(1)
+        HStack(spacing: VSpacing.sm) {
+            guardianLabel
+            Image(systemName: "shield.slash")
+                .foregroundColor(VColor.textMuted)
+                .font(.system(size: 12))
+                .help("You have not yet verified yourself as the Guardian in this channel")
+
+            TextField(placeholder, text: destinationBinding)
+                .font(VFont.body)
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 200)
+
+            VButton(label: "Send verification", style: .secondary) {
+                store.startOutboundGuardianVerification(channel: channel, destination: destination)
             }
+            .disabled(destination.isEmpty)
 
-            HStack(spacing: VSpacing.sm) {
-                TextField(placeholder, text: destinationBinding)
-                    .font(VFont.body)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: 200)
-
-                VButton(label: "Send verification", style: .secondary) {
-                    store.startOutboundGuardianVerification(channel: channel, destination: destination)
-                }
-                .disabled(destination.isEmpty)
-
-                Spacer()
-            }
-            .padding(.leading, 90 + VSpacing.sm)
+            Spacer()
         }
     }
 
@@ -1297,7 +1287,7 @@ struct SettingsConnectTab: View {
                     }
                 }
             }
-            .padding(.leading, 90 + VSpacing.sm)
+            .padding(.leading, 140 + VSpacing.sm)
         }
         .onAppear { startCountdownTimer() }
         .onDisappear { stopCountdownTimer() }
@@ -1387,7 +1377,7 @@ struct SettingsConnectTab: View {
                 Text(guardianInstructionSubtext(channel: channel))
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
-                    .padding(.leading, 90 + VSpacing.sm)
+                    .padding(.leading, 140 + VSpacing.sm)
 
                 HStack(spacing: VSpacing.sm) {
                     Text(command)
@@ -1431,7 +1421,7 @@ struct SettingsConnectTab: View {
                     RoundedRectangle(cornerRadius: VRadius.md)
                         .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
                 )
-                .padding(.leading, 90 + VSpacing.sm)
+                .padding(.leading, 140 + VSpacing.sm)
             } else {
                 // Fallback: show raw instruction if command can't be parsed
                 Text(instruction)
@@ -1446,7 +1436,7 @@ struct SettingsConnectTab: View {
                             .stroke(VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
                     )
                     .textSelection(.enabled)
-                    .padding(.leading, 90 + VSpacing.sm)
+                    .padding(.leading, 140 + VSpacing.sm)
             }
         }
     }
