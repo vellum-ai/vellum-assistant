@@ -121,6 +121,10 @@ jobs:
         with:
           ref: "v${{ needs.bump-and-tag.outputs.version }}"
 
+      - name: Get release SHA
+        id: release-sha
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
         with:
@@ -138,7 +142,7 @@ jobs:
         run: |
           IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}"
           VERSION="${{ needs.bump-and-tag.outputs.version }}"
-          TAGS="${IMAGE}:${{ github.sha }}"
+          TAGS="${IMAGE}:${{ steps.release-sha.outputs.sha }}"
           TAGS=$(printf "%s\n%s" "$TAGS" "${IMAGE}:v${VERSION}")
           TAGS=$(printf "%s\n%s" "$TAGS" "${IMAGE}:latest")
           echo "tags<<EOF" >> "$GITHUB_OUTPUT"
@@ -161,7 +165,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Environment:** \`${{ matrix.environment }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** \`${{ needs.bump-and-tag.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**SHA tag:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Digest:** \`${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
 
   publish-npm:
