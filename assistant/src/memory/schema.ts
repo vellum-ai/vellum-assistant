@@ -552,6 +552,8 @@ export const callSessions = sqliteTable('call_sessions', {
   toNumber: text('to_number').notNull(),
   task: text('task'),
   status: text('status').notNull().default('initiated'),
+  callMode: text('call_mode'),
+  guardianVerificationSessionId: text('guardian_verification_session_id'),
   callerIdentityMode: text('caller_identity_mode'),
   callerIdentitySource: text('caller_identity_source'),
   assistantId: text('assistant_id'),

@@ -21,6 +21,8 @@ const parseCallSession = createRowMapper<typeof callSessions.$inferSelect, CallS
   toNumber: 'toNumber',
   task: 'task',
   status: { from: 'status', transform: cast<CallSession['status']>() },
+  callMode: { from: 'callMode', transform: cast<CallSession['callMode']>() },
+  guardianVerificationSessionId: 'guardianVerificationSessionId',
   callerIdentityMode: 'callerIdentityMode',
   callerIdentitySource: 'callerIdentitySource',
   assistantId: 'assistantId',
@@ -58,6 +60,8 @@ export function createCallSession(opts: {
   fromNumber: string;
   toNumber: string;
   task?: string;
+  callMode?: string;
+  guardianVerificationSessionId?: string;
   callerIdentityMode?: string;
   callerIdentitySource?: string;
   assistantId?: string;
@@ -74,6 +78,8 @@ export function createCallSession(opts: {
     toNumber: opts.toNumber,
     task: opts.task ?? null,
     status: 'initiated' as const,
+    callMode: (opts.callMode ?? null) as CallSession['callMode'],
+    guardianVerificationSessionId: opts.guardianVerificationSessionId ?? null,
     callerIdentityMode: opts.callerIdentityMode ?? null,
     callerIdentitySource: opts.callerIdentitySource ?? null,
     assistantId: opts.assistantId ?? null,

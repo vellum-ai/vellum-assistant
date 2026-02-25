@@ -40,6 +40,7 @@ import {
 } from '../channel-guardian-service.js';
 import { deliverChannelReply } from '../gateway-client.js';
 import {
+  composeChannelVerifyReply,
   composeVerificationTelegram,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
 } from '../guardian-verification-templates.js';
@@ -549,19 +550,12 @@ export async function handleChannelInbound(
     // If not found or expired, fall through to normal /start handling
   }
 
-  // ── Guardian verification command intercept ──
+  // ── Guardian verification command intercept (deterministic) ──
   // Validate/consume the challenge synchronously so side effects (member
-  // upsert, binding creation) happen before the message enters the agent
-  // loop. Instead of composing a canned reply and short-circuiting, inject
-  // the verification result as a commandIntent so the full assistant
-  // generates a dynamic, context-aware response.
-  //
-  // The raw content is replaced with just the command text to prevent an
-  // unapproved sender from smuggling arbitrary prompt text after the
-  // verification code (the ACL bypass window would otherwise let it reach
-  // the assistant pipeline).
-  let guardianVerifyOutcome: 'verified' | 'failed' | undefined;
-  let effectiveContent: string | undefined = content;
+  // upsert, binding creation) complete before any reply. The reply is
+  // delivered via template-driven deterministic messages and the command
+  // is short-circuited — it NEVER enters the agent pipeline. This
+  // prevents verification commands from producing agent-generated copy.
   if (
     !result.duplicate &&
     guardianVerifyCode !== undefined &&
@@ -577,6 +571,8 @@ export async function handleChannelInbound(
       body.senderName,
     );
 
+    const guardianVerifyOutcome: 'verified' | 'failed' = verifyResult.success ? 'verified' : 'failed';
+
     if (verifyResult.success) {
       upsertMember({
         assistantId: canonicalAssistantId,
@@ -589,23 +585,33 @@ export async function handleChannelInbound(
         username: body.senderUsername,
       });
       log.info({ sourceChannel, externalUserId: body.senderExternalUserId }, 'Guardian verified: auto-upserted ingress member');
-      guardianVerifyOutcome = 'verified';
-    } else {
-      guardianVerifyOutcome = 'failed';
     }
 
-    // Override commandIntent so the assistant sees the verification result
-    // and can generate a natural, personalized response.
-    commandIntent = {
-      type: 'guardian_verify',
-      payload: verifyResult.success
-        ? 'success: The user has been verified and is now set as the guardian for this channel.'
-        : `failed: ${stripVerificationFailurePrefix(verifyResult.reason)}`,
-    };
+    // Deliver a deterministic template-driven reply and short-circuit.
+    // Verification commands must never produce agent-generated copy.
+    if (replyCallbackUrl) {
+      const replyText = verifyResult.success
+        ? composeChannelVerifyReply(GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_VERIFY_SUCCESS)
+        : composeChannelVerifyReply(GUARDIAN_VERIFY_TEMPLATE_KEYS.CHANNEL_VERIFY_FAILED, {
+            failureReason: stripVerificationFailurePrefix(verifyResult.reason),
+          });
+      try {
+        await deliverChannelReply(replyCallbackUrl, {
+          chatId: externalChatId,
+          text: replyText,
+          assistantId,
+        }, bearerToken);
+      } catch (err) {
+        log.error({ err, externalChatId }, 'Failed to deliver deterministic verification reply');
+      }
+    }
 
-    // Sanitize content to only the command itself — strip any arbitrary
-    // text the sender may have appended after the verification code.
-    effectiveContent = `/guardian_verify ${guardianVerifyCode}`;
+    return Response.json({
+      accepted: true,
+      duplicate: false,
+      eventId: result.eventId,
+      guardianVerification: guardianVerifyOutcome,
+    });
   }
 
   // ── Guardian action answer interception ──
@@ -796,7 +802,7 @@ export async function handleChannelInbound(
     // replayed. If the ingress check later detects secrets we clear it
     // before throwing, so secret-bearing content is never left on disk.
     channelDeliveryStore.storePayload(result.eventId, {
-      sourceChannel, externalChatId, externalMessageId, content: effectiveContent,
+      sourceChannel, externalChatId, externalMessageId, content,
       attachmentIds, sourceMetadata: body.sourceMetadata,
       senderName: body.senderName,
       senderExternalUserId: body.senderExternalUserId,
@@ -806,7 +812,7 @@ export async function handleChannelInbound(
       assistantId: canonicalAssistantId,
     });
 
-    const contentToCheck = effectiveContent ?? '';
+    const contentToCheck = content ?? '';
     let ingressCheck: ReturnType<typeof checkIngressForSecrets>;
     try {
       ingressCheck = checkIngressForSecrets(contentToCheck);
@@ -827,7 +833,7 @@ export async function handleChannelInbound(
       processMessage,
       conversationId: result.conversationId,
       eventId: result.eventId,
-      content: effectiveContent ?? '',
+      content: content ?? '',
       attachmentIds: hasAttachments ? attachmentIds : undefined,
       sourceChannel,
       sourceInterface,
@@ -847,7 +853,6 @@ export async function handleChannelInbound(
     accepted: result.accepted,
     duplicate: result.duplicate,
     eventId: result.eventId,
-    ...(guardianVerifyOutcome ? { guardianVerification: guardianVerifyOutcome } : {}),
   });
 }
 

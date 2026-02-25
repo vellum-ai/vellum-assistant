@@ -414,12 +414,26 @@ export class RelayConnection {
     });
     this.setController(controller);
 
-    // Detect outbound guardian verification call via custom parameter.
-    // This takes priority over all other verification routing because the
-    // call exists solely to verify the guardian — no normal conversation.
-    const guardianVerificationSessionId = msg.customParameters?.guardianVerificationSessionId;
-    if (guardianVerificationSessionId) {
+    // Detect outbound guardian verification call from persisted call session
+    // mode first (deterministic source of truth), with setup custom parameter
+    // as secondary signal for backward compatibility and observability.
+    const persistedMode = session?.callMode;
+    const persistedGvSessionId = session?.guardianVerificationSessionId;
+    const customParamGvSessionId = msg.customParameters?.guardianVerificationSessionId;
+    const guardianVerificationSessionId = persistedGvSessionId ?? customParamGvSessionId;
+
+    if (persistedMode === 'guardian_verification' && guardianVerificationSessionId) {
       this.startOutboundGuardianVerification(assistantId, guardianVerificationSessionId, msg.to);
+      return;
+    }
+
+    // Secondary signal: custom parameter without persisted mode (pre-migration sessions)
+    if (!persistedMode && customParamGvSessionId) {
+      log.warn(
+        { callSessionId: this.callSessionId, guardianVerificationSessionId: customParamGvSessionId },
+        'Guardian verification detected via setup custom parameter (no persisted call_mode) — entering verification path',
+      );
+      this.startOutboundGuardianVerification(assistantId, customParamGvSessionId, msg.to);
       return;
     }
 
