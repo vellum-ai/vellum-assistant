@@ -394,33 +394,68 @@ public final class ChatViewModel: ObservableObject {
     /// and other UI-only messages that the view filters before rendering).
     public var displayedMessages: [ChatMessage] { messages.filter { !$0.isSubagentNotification } }
 
+    // MARK: - Daemon History Pagination
+
+    /// Timestamp of the oldest loaded message (ms since epoch). Used as the
+    /// `beforeTimestamp` cursor when fetching the next older page from the daemon.
+    public var historyCursor: Double?
+
+    /// Whether the daemon has indicated that older messages exist beyond the
+    /// currently loaded page. Falls back to `false` for older daemons that don't
+    /// send `hasMore` in the history response.
+    @Published public var hasMoreHistory: Bool = false
+
     /// Whether there are more messages above the current display window.
-    /// Compares against the filtered (displayed) count so the "load more" sentinel
-    /// appears only when there are genuinely more visible messages to reveal.
-    /// When `displayedMessageCount == Int.max` (show-all mode), this is always false.
-    public var hasMoreMessages: Bool { displayedMessageCount < displayedMessages.count }
+    /// True when either:
+    ///   1. There are locally loaded messages outside the current display suffix, OR
+    ///   2. The daemon has older pages available to fetch.
+    /// When `displayedMessageCount == Int.max` (show-all mode), only daemon pages apply.
+    public var hasMoreMessages: Bool {
+        (displayedMessageCount < displayedMessages.count) || hasMoreHistory
+    }
+
+    /// Called when `loadPreviousMessagePage` needs to fetch an older page from the
+    /// daemon. The session restorer sets this so the daemon client request is
+    /// routed through the same pending-history tracking used for initial loads.
+    public var onLoadMoreHistory: ((_ sessionId: String, _ beforeTimestamp: Double) -> Void)?
 
     /// Load the previous page of messages by expanding the display window.
-    /// Returns `true` if there were additional messages to reveal.
+    /// When all locally loaded messages are already visible and the daemon has
+    /// more history available, requests the next older page from the daemon.
+    /// Returns `true` if there were additional messages to reveal or a fetch was started.
     @discardableResult
     public func loadPreviousMessagePage() async -> Bool {
         guard hasMoreMessages, !isLoadingMoreMessages else { return false }
+
+        // If the local display window can still grow, expand it first.
+        let locallyHasMore = displayedMessageCount < displayedMessages.count
+        if locallyHasMore {
+            isLoadingMoreMessages = true
+            // Brief delay so the loading indicator is visible before the list shifts.
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            let next = displayedMessageCount + Self.messagePageSize
+            let total = displayedMessages.count
+            // When all messages fit within the expanded window, switch to show-all mode
+            // (Int.max) so future incoming messages don't shrink the visible history back
+            // to a suffix window — the regression described in the parent PR.
+            displayedMessageCount = next >= total ? Int.max : next
+            isLoadingMoreMessages = false
+            return true
+        }
+
+        // All local messages are visible — fetch the next page from the daemon.
+        guard hasMoreHistory, let cursor = historyCursor, let sessionId else { return false }
         isLoadingMoreMessages = true
-        // Brief delay so the loading indicator is visible before the list shifts.
-        try? await Task.sleep(nanoseconds: 150_000_000)
-        let next = displayedMessageCount + Self.messagePageSize
-        let total = displayedMessages.count
-        // When all messages fit within the expanded window, switch to show-all mode
-        // (Int.max) so future incoming messages don't shrink the visible history back
-        // to a suffix window — the regression described in the parent PR.
-        displayedMessageCount = next >= total ? Int.max : next
-        isLoadingMoreMessages = false
+        onLoadMoreHistory?(sessionId, cursor)
+        // The loading indicator is cleared by populateFromHistory when the response arrives.
         return true
     }
 
     /// Reset pagination when the thread switches or history is reloaded.
     public func resetMessagePagination() {
         displayedMessageCount = Self.messagePageSize
+        historyCursor = nil
+        hasMoreHistory = false
     }
 
     // MARK: - Message Trimming
@@ -1666,7 +1701,22 @@ public final class ChatViewModel: ObservableObject {
     /// If the user hasn't sent any messages yet, replaces messages entirely.
     /// If the user already sent messages (late history_response), prepends
     /// history before the existing messages so the user sees full context.
-    public func populateFromHistory(_ historyMessages: [HistoryResponseMessage.HistoryMessageItem]) {
+    ///
+    /// - Parameters:
+    ///   - historyMessages: The message items from the daemon's history response.
+    ///   - hasMore: Whether the daemon has older pages available. Defaults to `false`
+    ///     for backward compatibility with older daemons that don't send this field.
+    ///   - oldestTimestamp: The timestamp of the oldest message in the response (ms since epoch).
+    ///     Used as the cursor for the next pagination request.
+    ///   - isPaginationLoad: When `true`, messages are prepended to the existing list
+    ///     (older page fetched on demand). When `false`, the standard initial-load
+    ///     or reconnect-catch-up logic applies.
+    public func populateFromHistory(
+        _ historyMessages: [HistoryResponseMessage.HistoryMessageItem],
+        hasMore: Bool = false,
+        oldestTimestamp: Double? = nil,
+        isPaginationLoad: Bool = false
+    ) {
         var chatMessages: [ChatMessage] = []
         var reconstructedSubagents: [SubagentInfo] = []
         var spawnParentMap: [String: UUID] = [:]  // subagentId → spawning assistant message UUID
@@ -1866,6 +1916,29 @@ public final class ChatViewModel: ObservableObject {
             } catch {
                 log.error("Failed to send ModelGetRequest: \(error)")
             }
+        }
+
+        // Update daemon pagination cursor from the response metadata.
+        self.hasMoreHistory = hasMore
+        self.historyCursor = oldestTimestamp
+
+        if isPaginationLoad {
+            // Older page fetched on demand — prepend before existing messages
+            // and expand the display window so the newly loaded messages are
+            // visible. The loading indicator is cleared here.
+            self.messages = chatMessages + self.messages
+            // Expand the display window by the number of messages prepended so
+            // the user sees them immediately. Use Int.max if no more pages exist.
+            if hasMore {
+                displayedMessageCount = displayedMessageCount == Int.max
+                    ? Int.max
+                    : displayedMessageCount + chatMessages.count
+            } else {
+                displayedMessageCount = Int.max
+            }
+            self.isLoadingMoreMessages = false
+            trimOldMessagesIfNeeded()
+            return
         }
 
         self.isLoadingHistory = true
