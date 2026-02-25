@@ -133,11 +133,15 @@ export function checkEnrollmentCap(sequenceId: string): GuardrailResult {
 export function checkDuplicateEnrollment(
   sequenceId: string,
   email: string,
+  excludeEnrollmentId?: string,
 ): GuardrailResult {
   if (!config.duplicateEnrollmentCheck) return { ok: true };
 
   const existing = listEnrollments({ sequenceId, contactEmail: email, status: 'active' });
-  if (existing.length > 0) {
+  const duplicates = excludeEnrollmentId
+    ? existing.filter((e) => e.id !== excludeEnrollmentId)
+    : existing;
+  if (duplicates.length > 0) {
     return {
       ok: false,
       reason: `${email} is already enrolled in this sequence.`,
@@ -182,15 +186,12 @@ export function checkAllPreSend(
   enrollment: SequenceEnrollment,
   stepDelaySec: number,
 ): GuardrailResult {
-  // checkDuplicateEnrollment is intentionally excluded here — it's an
-  // enrollment-time guard, not a per-step guard. During step processing the
-  // current enrollment is still status='active', so it would always find
-  // itself and block every step.
   const checks: GuardrailResult[] = [
     checkDailyCap(),
     checkHourlyRate(sequenceId),
     checkMinDelay(stepDelaySec),
     checkEnrollmentCap(sequenceId),
+    checkDuplicateEnrollment(sequenceId, enrollment.contactEmail, enrollment.id),
     checkCooldown(sequenceId, enrollment.contactEmail),
   ];
 
