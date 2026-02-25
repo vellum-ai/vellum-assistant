@@ -99,16 +99,9 @@ extension MainWindowView {
             VoiceModePanel(
                 manager: voiceModeManager,
                 voiceService: voiceModeManager.voiceService,
-                settingsStore: settingsStore,
                 onClose: {
                     voiceModeManager.deactivate()
                     windowState.selection = nil
-                },
-                onKeySaved: {
-                    if let viewModel = threadManager.activeViewModel {
-                        voiceModeManager.activate(chatViewModel: viewModel, settingsStore: settingsStore)
-                        voiceModeManager.startListening()
-                    }
                 }
             )
         case .assistantInbox:

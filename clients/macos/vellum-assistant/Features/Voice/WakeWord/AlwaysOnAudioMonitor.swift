@@ -26,6 +26,7 @@ final class AlwaysOnAudioMonitor: ObservableObject {
 
     private let engine: WakeWordEngine
     private var configurationChangeObserver: NSObjectProtocol?
+    private var keywordObserver: NSObjectProtocol?
 
     // MARK: - Init
 
@@ -33,10 +34,14 @@ final class AlwaysOnAudioMonitor: ObservableObject {
         self.engine = engine
         setupEngineCallback()
         setupNotificationObservers()
+        observeKeywordChanges()
     }
 
     deinit {
         if let observer = configurationChangeObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = keywordObserver {
             NotificationCenter.default.removeObserver(observer)
         }
         engine.stop()
@@ -89,6 +94,20 @@ final class AlwaysOnAudioMonitor: ObservableObject {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.handleConfigurationChange()
+            }
+        }
+    }
+
+    private func observeKeywordChanges() {
+        keywordObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let newKeyword = UserDefaults.standard.string(forKey: "wakeWordKeyword") ?? "computer"
+                self.engine.updateKeyword(newKeyword)
             }
         }
     }
