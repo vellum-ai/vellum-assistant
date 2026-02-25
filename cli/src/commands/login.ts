@@ -57,8 +57,8 @@ export async function whoami(): Promise<void> {
   try {
     const user = await fetchCurrentUser(token);
     console.log(`Email: ${user.email}`);
-    if (user.first_name || user.last_name) {
-      console.log(`Name:  ${[user.first_name, user.last_name].filter(Boolean).join(" ")}`);
+    if (user.display) {
+      console.log(`Name:  ${user.display}`);
     }
     console.log(`ID:    ${user.id}`);
   } catch (error) {

@@ -36,26 +36,33 @@ export function clearPlatformToken(): void {
 export interface PlatformUser {
   id: string;
   email: string;
-  first_name: string;
-  last_name: string;
+  display: string;
+}
+
+interface AllauthSessionResponse {
+  status: number;
+  data: {
+    user: {
+      id: string;
+      email: string;
+      display: string;
+    };
+  };
 }
 
 export async function fetchCurrentUser(token: string): Promise<PlatformUser> {
-  const url = `${getPlatformUrl()}/v1/users/`;
+  const url = `${getPlatformUrl()}/_allauth/app/v1/auth/session`;
   const response = await fetch(url, {
     headers: { "X-Session-Token": token },
   });
 
   if (!response.ok) {
-    if (response.status === 401 || response.status === 403) {
+    if (response.status === 401 || response.status === 403 || response.status === 410) {
       throw new Error("Invalid or expired token. Please login again.");
     }
     throw new Error(`Platform API error: ${response.status} ${response.statusText}`);
   }
 
-  const data = (await response.json()) as PlatformUser[];
-  if (!data.length) {
-    throw new Error("No user found for this token.");
-  }
-  return data[0];
+  const body = (await response.json()) as AllauthSessionResponse;
+  return body.data.user;
 }
