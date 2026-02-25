@@ -160,10 +160,15 @@ export function updateDeliveryClientOutcome(
     updatedAt: now,
   };
 
-  if (error?.message) {
+  if (success) {
+    // Clear any stale error from previous failed attempts
+    updates.clientDeliveryError = null;
+  } else if (error?.message) {
     updates.clientDeliveryError = error.code
       ? `[${error.code}] ${error.message}`
       : error.message;
+  } else if (error?.code) {
+    updates.clientDeliveryError = error.code;
   }
 
   const result = db
