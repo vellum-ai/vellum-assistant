@@ -13,6 +13,7 @@ import { buildSystemPrompt } from '../config/system-prompt.js';
 import { checkIngressForSecrets } from '../security/secret-ingress.js';
 import { IngressBlockedError } from '../util/errors.js';
 import * as conversationStore from '../memory/conversation-store.js';
+import { provenanceFromGuardianContext } from '../memory/conversation-store.js';
 import * as attachmentsStore from '../memory/attachments-store.js';
 import { Session, DEFAULT_MEMORY_POLICY, type SessionMemoryPolicy } from './session.js';
 import { parseChannelId, type ChannelId } from '../channels/types.js';
@@ -768,9 +769,13 @@ export class DaemonServer {
 
     if (slashResult.kind === 'unknown') {
       const serverTurnCtx = session.getTurnChannelContext();
-      const serverChannelMeta = serverTurnCtx
-        ? { userMessageChannel: serverTurnCtx.userMessageChannel, assistantMessageChannel: serverTurnCtx.assistantMessageChannel }
-        : undefined;
+      const serverProvenance = provenanceFromGuardianContext(session.guardianContext);
+      const serverChannelMeta = {
+        ...serverProvenance,
+        ...(serverTurnCtx
+          ? { userMessageChannel: serverTurnCtx.userMessageChannel, assistantMessageChannel: serverTurnCtx.assistantMessageChannel }
+          : {}),
+      };
       const userMsg = createUserMessage(content, attachments);
       const persisted = conversationStore.addMessage(
         conversationId,

@@ -21,6 +21,8 @@ export interface IndexMessageInput {
   content: string;
   createdAt: number;
   scopeId?: string;
+  // Provenance for trust-aware extraction gating (M3)
+  provenanceActorRole?: 'guardian' | 'non-guardian' | 'unverified_channel';
 }
 
 export interface IndexMessageResult {

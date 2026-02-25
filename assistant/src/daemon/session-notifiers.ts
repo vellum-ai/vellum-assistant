@@ -11,6 +11,7 @@ import type { Message } from '../providers/types.js';
 import type { ServerMessage } from './ipc-protocol.js';
 import { createAssistantMessage } from '../agent/message-types.js';
 import * as conversationStore from '../memory/conversation-store.js';
+import { provenanceFromGuardianContext } from '../memory/conversation-store.js';
 import {
   registerWatchStartNotifier,
   unregisterWatchStartNotifier,
@@ -102,7 +103,7 @@ export function registerSessionNotifiers(
       conversationId,
       'assistant',
       JSON.stringify([{ type: 'text', text: questionText }]),
-      { userMessageChannel: 'voice', assistantMessageChannel: 'voice' },
+      { ...provenanceFromGuardianContext(null), userMessageChannel: 'voice', assistantMessageChannel: 'voice' },
     );
 
     ctx.messages.push(createAssistantMessage(questionText));

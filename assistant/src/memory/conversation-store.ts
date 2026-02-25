@@ -11,6 +11,7 @@ import { isChannelId, CHANNEL_IDS } from '../channels/types.js';
 import { getLogger } from '../util/logger.js';
 import { deleteOrphanAttachments } from './attachments-store.js';
 import { createRowMapper } from '../util/row-mapper.js';
+import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
 
 const log = getLogger('conversation-store');
 
@@ -32,9 +33,29 @@ export const messageMetadataSchema = z.object({
   userMessageChannel: channelIdSchema.optional(),
   assistantMessageChannel: channelIdSchema.optional(),
   subagentNotification: subagentNotificationSchema.optional(),
+  // Provenance fields for trust-aware memory gating (M3)
+  provenanceActorRole: z.enum(['guardian', 'non-guardian', 'unverified_channel']).optional(),
+  provenanceSourceChannel: channelIdSchema.optional(),
+  provenanceGuardianExternalUserId: z.string().optional(),
+  provenanceRequesterIdentifier: z.string().optional(),
 }).passthrough();
 
 export type MessageMetadata = z.infer<typeof messageMetadataSchema>;
+
+/**
+ * Extract provenance metadata fields from a GuardianRuntimeContext.
+ * When no guardian context is provided (e.g. daemon UI), defaults to
+ * guardian actor role since the macOS/iOS app user is the guardian.
+ */
+export function provenanceFromGuardianContext(ctx: GuardianRuntimeContext | null | undefined): Record<string, unknown> {
+  if (!ctx) return { provenanceActorRole: 'guardian' };
+  return {
+    provenanceActorRole: ctx.actorRole,
+    provenanceSourceChannel: ctx.sourceChannel,
+    provenanceGuardianExternalUserId: ctx.guardianExternalUserId,
+    provenanceRequesterIdentifier: ctx.requesterIdentifier,
+  };
+}
 
 export interface ConversationRow {
   id: string;
@@ -261,6 +282,8 @@ export function addMessage(conversationId: string, role: string, content: string
   try {
     const config = getConfig();
     const scopeId = getConversationMemoryScopeId(conversationId);
+    const parsed = metadata ? messageMetadataSchema.safeParse(metadata) : null;
+    const provenanceActorRole = parsed?.success ? parsed.data.provenanceActorRole : undefined;
     indexMessageNow({
       messageId: message.id,
       conversationId: message.conversationId,
@@ -268,6 +291,7 @@ export function addMessage(conversationId: string, role: string, content: string
       content: message.content,
       createdAt: message.createdAt,
       scopeId,
+      provenanceActorRole,
     }, config.memory);
   } catch (err) {
     log.warn({ err, conversationId, messageId: message.id }, 'Failed to index message for memory');
