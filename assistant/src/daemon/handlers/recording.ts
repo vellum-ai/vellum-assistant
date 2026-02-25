@@ -207,6 +207,10 @@ async function handleRecordingStatus(
         'Standalone recording stopped — file ready',
       );
 
+      // Release recording state immediately so back-to-back recordings
+      // aren't blocked by thumbnail generation or attachment processing.
+      cleanupMaps(recordingId, conversationId);
+
       // Finalize: attach the recording file to the conversation
       if (msg.filePath) {
         // Restrict accepted file paths to the app's recordings directory to
@@ -239,8 +243,6 @@ async function handleRecordingStatus(
             });
             ctx.send(notifySocket, { type: 'message_complete', sessionId: conversationId });
           }
-          // Clean up maps before breaking so future recordings aren't blocked
-          cleanupMaps(recordingId, conversationId);
           break;
         }
 
@@ -341,7 +343,6 @@ async function handleRecordingStatus(
         }
       }
 
-      cleanupMaps(recordingId, conversationId);
       break;
     }
 

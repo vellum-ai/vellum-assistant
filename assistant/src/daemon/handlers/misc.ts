@@ -4,6 +4,7 @@ import * as net from 'node:net';
 
 import { v4 as uuid } from 'uuid';
 
+import { getConfig } from '../../config/loader.js';
 import * as conversationStore from '../../memory/conversation-store.js';
 import { GENERATING_TITLE, queueGenerateConversationTitle } from '../../memory/conversation-title-service.js';
 import { getConfiguredProvider } from '../../providers/provider-send-message.js';
@@ -11,11 +12,8 @@ import type { Provider } from '../../providers/types.js';
 import { checkIngressForSecrets } from '../../security/secret-ingress.js';
 import { parseSlashCandidate } from '../../skills/slash-commands.js';
 import { classifyInteraction } from '../classifier.js';
-import { deleteBlob, isValidBlobId, resolveBlobPath } from '../ipc-blob-store.js';
-import { getConfig } from '../../config/loader.js';
 import { getAssistantName } from '../identity-helpers.js';
-import { classifyRecordingIntent } from '../recording-intent.js';
-import { handleRecordingStart, handleRecordingStop } from './recording.js';
+import { deleteBlob, isValidBlobId, resolveBlobPath } from '../ipc-blob-store.js';
 import type {
   CuSessionCreate,
   IpcBlobProbe,
@@ -23,8 +21,10 @@ import type {
   SuggestionRequest,
   TaskSubmit,
 } from '../ipc-protocol.js';
+import { classifyRecordingIntent, detectRecordingIntent, detectStopRecordingIntent, hasSubstantiveContent, stripRecordingIntent, stripStopRecordingIntent } from '../recording-intent.js';
 import { buildSessionErrorMessage,classifySessionError } from '../session-error.js';
 import { handleCuSessionCreate } from './computer-use.js';
+import { handleRecordingStart, handleRecordingStop } from './recording.js';
 import { defineHandlers, type HandlerContext,log, renderHistoryContent, wireEscalationHandler } from './shared.js';
 
 // ─── Task submit handler ────────────────────────────────────────────────────
@@ -131,9 +131,48 @@ export async function handleTaskSubmit(
           rlog.info({ sessionId: conversation.id }, 'Recording-only intent intercepted — routed to standalone recording');
           return;
         }
-        case 'mixed':
-          rlog.info('Mixed recording intent detected in task_submit — not intercepting');
+        case 'mixed': {
+          // Mixed = recording intent embedded in broader text.
+          // Handle the recording action, then check if remaining text is substantive.
+          const hasStart = detectRecordingIntent(msg.task);
+          const hasStop = detectStopRecordingIntent(msg.task);
+
+          // Ensure we have a session for IPC
+          let mixedSessionId = ctx.socketToSession.get(socket);
+          if (!mixedSessionId) {
+            const conversation = conversationStore.createConversation(msg.task);
+            mixedSessionId = conversation.id;
+            ctx.socketToSession.set(socket, mixedSessionId);
+          }
+
+          if (hasStop) {
+            handleRecordingStop(mixedSessionId, ctx);
+            rlog.info('Mixed intent in task_submit — stopping recording');
+          }
+          if (hasStart) {
+            handleRecordingStart(mixedSessionId, { promptForSource: true }, socket, ctx);
+            rlog.info('Mixed intent in task_submit — starting recording');
+          }
+
+          // Strip recording clauses from the task
+          let remaining = msg.task;
+          if (hasStart) remaining = stripRecordingIntent(remaining);
+          if (hasStop) remaining = stripStopRecordingIntent(remaining);
+
+          // If nothing substantive remains, complete now
+          if (!hasSubstantiveContent(remaining, dynamicNames)) {
+            ctx.send(socket, { type: 'task_routed', sessionId: mixedSessionId, interactionType: 'text_qa' });
+            const text = hasStart ? 'Starting screen recording.' : 'Stopping the recording.';
+            ctx.send(socket, { type: 'assistant_text_delta', text, sessionId: mixedSessionId });
+            ctx.send(socket, { type: 'message_complete', sessionId: mixedSessionId });
+            return;
+          }
+
+          // Continue with stripped text for downstream classification
+          (msg as { task: string }).task = remaining;
+          rlog.info({ remaining }, 'Mixed recording intent in task_submit — recording handled, continuing with remaining text');
           break;
+        }
         case 'none':
           break;
       }

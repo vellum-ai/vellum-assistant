@@ -12,10 +12,8 @@ import { checkIngressForSecrets } from '../../security/secret-ingress.js';
 import { getSubagentManager } from '../../subagent/index.js';
 import { silentlyWithLog } from '../../util/silently.js';
 import { truncate } from '../../util/truncate.js';
-import type { UserMessageAttachment } from '../ipc-contract.js';
 import { getAssistantName } from '../identity-helpers.js';
-import { classifyRecordingIntent } from '../recording-intent.js';
-import { handleRecordingStart, handleRecordingStop } from './recording.js';
+import type { UserMessageAttachment } from '../ipc-contract.js';
 import type {
   CancelRequest,
   ConfirmationResponse,
@@ -34,8 +32,10 @@ import type {
   UserMessage,
 } from '../ipc-protocol.js';
 import { normalizeThreadType } from '../ipc-protocol.js';
+import { classifyRecordingIntent, detectRecordingIntent, detectStopRecordingIntent, hasSubstantiveContent, stripRecordingIntent, stripStopRecordingIntent } from '../recording-intent.js';
 import { buildSessionErrorMessage,classifySessionError } from '../session-error.js';
 import { generateVideoThumbnail } from '../video-thumbnail.js';
+import { handleRecordingStart, handleRecordingStop } from './recording.js';
 import {
   defineHandlers,
   type HandlerContext,
@@ -122,9 +122,39 @@ export async function handleUserMessage(
           ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
           return;
         }
-        case 'mixed':
-          rlog.info('Mixed recording intent detected in user_message — not intercepting');
+        case 'mixed': {
+          // Mixed = recording intent embedded in broader text.
+          // Handle the recording action, then check if remaining text is substantive.
+          const hasStart = detectRecordingIntent(messageText);
+          const hasStop = detectStopRecordingIntent(messageText);
+
+          if (hasStop) {
+            handleRecordingStop(msg.sessionId, ctx);
+            rlog.info('Mixed intent — stopping recording');
+          }
+          if (hasStart) {
+            handleRecordingStart(msg.sessionId, { promptForSource: true }, socket, ctx);
+            rlog.info('Mixed intent — starting recording');
+          }
+
+          // Strip recording clauses from the message
+          let remaining = messageText;
+          if (hasStart) remaining = stripRecordingIntent(remaining);
+          if (hasStop) remaining = stripStopRecordingIntent(remaining);
+
+          // If nothing substantive remains (just fillers, names, punctuation), complete now
+          if (!hasSubstantiveContent(remaining, dynamicNames)) {
+            const text = hasStart ? 'Starting screen recording.' : 'Stopping the recording.';
+            ctx.send(socket, { type: 'assistant_text_delta', text, sessionId: msg.sessionId });
+            ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
+            return;
+          }
+
+          // Continue with stripped text for downstream processing
+          msg.content = remaining;
+          rlog.info({ remaining }, 'Mixed recording intent — recording handled, continuing with remaining text');
           break;
+        }
         case 'none':
           break;
       }

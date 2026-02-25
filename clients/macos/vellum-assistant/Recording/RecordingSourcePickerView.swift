@@ -127,6 +127,7 @@ struct RecordingSourcePickerView: View {
             }
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
+            .contentShape(Rectangle())
             .background(
                 RoundedRectangle(cornerRadius: VRadius.md)
                     .fill(isSelected ? VColor.accent.opacity(0.1) : Color.clear)
@@ -186,6 +187,7 @@ struct RecordingSourcePickerView: View {
             }
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
+            .contentShape(Rectangle())
             .background(
                 RoundedRectangle(cornerRadius: VRadius.md)
                     .fill(isSelected ? VColor.accent.opacity(0.1) : Color.clear)
