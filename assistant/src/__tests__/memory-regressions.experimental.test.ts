@@ -1,7 +1,8 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 
 const testDir = mkdtempSync(join(tmpdir(), 'memory-regressions-exp-'));
 
@@ -24,6 +25,7 @@ mock.module('../util/logger.js', () => ({
 }));
 
 import { eq } from 'drizzle-orm';
+
 import { DEFAULT_CONFIG } from '../config/defaults.js';
 
 // Disable LLM extraction in tests to avoid real API calls and ensure
@@ -44,6 +46,7 @@ mock.module('../config/loader.js', () => ({
   getConfig: () => TEST_CONFIG,
   invalidateConfigCache: () => {},
 }));
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { indexMessageNow } from '../memory/indexer.js';
 import { vectorToBlob } from '../memory/job-utils.js';
 import { enqueueMemoryJob } from '../memory/jobs-store.js';
@@ -53,7 +56,6 @@ import {
   runMemoryJobsOnce,
 } from '../memory/jobs-worker.js';
 import { buildMemoryRecall } from '../memory/retriever.js';
-import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import {
   conversations,
   memoryEmbeddings,

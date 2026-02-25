@@ -1,9 +1,10 @@
-import { describe, test, expect, beforeEach, mock } from 'bun:test';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { existsSync,mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import * as net from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
-import * as net from 'node:net';
+
+import { beforeEach, describe, expect, mock,test } from 'bun:test';
 
 const testDir = mkdtempSync(join(tmpdir(), 'handlers-cu-blob-test-'));
 const blobDir = join(testDir, 'ipc-blobs');
@@ -42,9 +43,9 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
+import { ComputerUseSession } from '../daemon/computer-use-session.js';
 import { handleMessage, type HandlerContext } from '../daemon/handlers.js';
 import type { CuObservation, IpcBlobRef, ServerMessage } from '../daemon/ipc-contract.js';
-import { ComputerUseSession } from '../daemon/computer-use-session.js';
 import { DebouncerMap } from '../util/debounce.js';
 
 /** Write a blob file to the test blob directory and return the IpcBlobRef. */

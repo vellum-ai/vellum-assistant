@@ -1,6 +1,6 @@
-import type { RiskLevel, AllowlistOption, ScopeOption } from '../permissions/types.js';
-import type { ToolDefinition, ContentBlock } from '../providers/types.js';
 import type { SecretPromptResult } from '../permissions/secret-prompter.js';
+import type { AllowlistOption, RiskLevel, ScopeOption } from '../permissions/types.js';
+import type { ContentBlock,ToolDefinition } from '../providers/types.js';
 
 export type ExecutionTarget = 'sandbox' | 'host';
 

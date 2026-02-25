@@ -7,9 +7,9 @@
  *   sourced from the guardian binding for the assistant.
  */
 
-import { getActiveBinding } from '../memory/channel-guardian-store.js';
 import { isNotificationDeliverable } from '../channels/config.js';
-import type { NotificationChannel, ChannelDestination } from './types.js';
+import { getActiveBinding } from '../memory/channel-guardian-store.js';
+import type { ChannelDestination, NotificationChannel } from './types.js';
 
 /**
  * Resolve destination information for each requested channel.

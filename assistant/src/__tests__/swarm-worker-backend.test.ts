@@ -1,9 +1,10 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, expect,test } from 'bun:test';
+
+import type { WorkerProfile } from '../swarm/worker-backend.js';
 import {
   getProfilePolicy,
   roleToProfile,
 } from '../swarm/worker-backend.js';
-import type { WorkerProfile } from '../swarm/worker-backend.js';
 
 describe('roleToProfile', () => {
   test('maps researcher role to researcher profile', () => {

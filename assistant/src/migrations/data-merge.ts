@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
+
 import { migrationLog } from './log.js';
 
 /**

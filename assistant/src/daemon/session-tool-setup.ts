@@ -6,30 +6,30 @@
  * keeping the constructor body focused on wiring.
  */
 
-import type { Message, ToolDefinition } from '../providers/types.js';
-import type { ToolExecutionResult, ToolLifecycleEventHandler } from '../tools/types.js';
-import type { ServerMessage, UiSurfaceShow } from './ipc-protocol.js';
-import type { ToolExecutor } from '../tools/executor.js';
+import { generateAllowlistOptions, generateScopeOptions, normalizeWebFetchUrl } from '../permissions/checker.js';
 import type { PermissionPrompter } from '../permissions/prompter.js';
 import type { SecretPrompter } from '../permissions/secret-prompter.js';
 import { addRule, findHighestPriorityRule } from '../permissions/trust-store.js';
-import { generateAllowlistOptions, generateScopeOptions, normalizeWebFetchUrl } from '../permissions/checker.js';
+import type { Message, ToolDefinition } from '../providers/types.js';
+import type { ToolExecutor } from '../tools/executor.js';
+import type { ToolExecutionResult, ToolLifecycleEventHandler } from '../tools/types.js';
 import { getLogger } from '../util/logger.js';
 import { isDoordashCommand, markDoordashStepInProgress } from './doordash-steps.js';
+import type { ServerMessage, UiSurfaceShow } from './ipc-protocol.js';
 import { runPostExecutionSideEffects } from './tool-side-effects.js';
 
 const log = getLogger('session-tool-setup');
+import { coreAppProxyTools } from '../tools/apps/definitions.js';
+import { registerSessionSender } from '../tools/browser/browser-screencast.js';
+import { requestComputerControlTool } from '../tools/computer-use/request-computer-control.js';
+import type { ProxyApprovalCallback, ProxyApprovalRequest } from '../tools/network/script-proxy/index.js';
 import { getAllToolDefinitions } from '../tools/registry.js';
 import { allUiSurfaceTools } from '../tools/ui-surface/definitions.js';
-import { coreAppProxyTools } from '../tools/apps/definitions.js';
-import { requestComputerControlTool } from '../tools/computer-use/request-computer-control.js';
+import { projectSkillTools, type SkillProjectionCache } from './session-skill-tools.js';
+import type { SurfaceSessionContext } from './session-surfaces.js';
 import {
   surfaceProxyResolver,
 } from './session-surfaces.js';
-import type { SurfaceSessionContext } from './session-surfaces.js';
-import { registerSessionSender } from '../tools/browser/browser-screencast.js';
-import type { ProxyApprovalCallback, ProxyApprovalRequest } from '../tools/network/script-proxy/index.js';
-import { projectSkillTools, type SkillProjectionCache } from './session-skill-tools.js';
 
 // ── Context Interface ────────────────────────────────────────────────
 

@@ -4,11 +4,13 @@
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+
 import JSZip from 'jszip';
-import { getLogger } from '../../util/logger.js';
+
+import type { AppManifest } from '../../bundler/manifest.js';
 import { getApp } from '../../memory/app-store.js';
 import * as sharedAppLinksStore from '../../memory/shared-app-links-store.js';
-import type { AppManifest } from '../../bundler/manifest.js';
+import { getLogger } from '../../util/logger.js';
 
 const log = getLogger('runtime-http');
 

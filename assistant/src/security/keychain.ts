@@ -10,8 +10,9 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { isMacOS, isLinux } from '../util/platform.js';
+
 import { getLogger } from '../util/logger.js';
+import { isLinux,isMacOS } from '../util/platform.js';
 
 const log = getLogger('keychain');
 

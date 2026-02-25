@@ -6,11 +6,11 @@
  * Falls back to listing recent upcoming events if the syncToken has expired (410 Gone).
  */
 
-import { withValidToken } from '../../security/token-manager.js';
-import { listEvents, CalendarApiError } from '../../config/bundled-skills/google-calendar/calendar-client.js';
+import { CalendarApiError,listEvents } from '../../config/bundled-skills/google-calendar/calendar-client.js';
 import type { CalendarEvent } from '../../config/bundled-skills/google-calendar/types.js';
-import type { WatcherProvider, WatcherItem, FetchResult } from '../provider-types.js';
+import { withValidToken } from '../../security/token-manager.js';
 import { getLogger } from '../../util/logger.js';
+import type { FetchResult,WatcherItem, WatcherProvider } from '../provider-types.js';
 
 const log = getLogger('watcher:google-calendar');
 

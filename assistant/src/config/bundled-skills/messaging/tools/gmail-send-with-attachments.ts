@@ -1,11 +1,12 @@
 import { readFile } from 'node:fs/promises';
 import { basename, extname } from 'node:path';
-import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import { withValidToken } from '../../../../security/token-manager.js';
-import { getMessagingProvider } from '../../../../messaging/registry.js';
+
 import { sendMessageRaw } from '../../../../messaging/providers/gmail/client.js';
 import { buildMultipartMime } from '../../../../messaging/providers/gmail/mime-builder.js';
-import { ok, err } from './shared.js';
+import { getMessagingProvider } from '../../../../messaging/registry.js';
+import { withValidToken } from '../../../../security/token-manager.js';
+import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
+import { err,ok } from './shared.js';
 
 const MIME_MAP: Record<string, string> = {
   '.pdf': 'application/pdf',

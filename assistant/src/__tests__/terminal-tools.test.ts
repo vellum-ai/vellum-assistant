@@ -1,10 +1,12 @@
-import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Tool } from '../tools/types.js';
-import type { SandboxBackend } from '../tools/terminal/backends/types.js';
+
+import { afterEach, beforeEach, describe, expect, mock,test } from 'bun:test';
+
 import type { ShellOutputResult } from '../tools/shared/shell-output.js';
+import type { SandboxBackend } from '../tools/terminal/backends/types.js';
+import type { Tool } from '../tools/types.js';
 
 // ── Mock modules ────────────────────────────────────────────────────────────
 
@@ -75,10 +77,10 @@ mock.module('../tools/network/script-proxy/index.js', () => ({
 
 // ── Imports (after mocks) ───────────────────────────────────────────────────
 
+import type { SandboxConfig } from '../config/schema.js';
 import { parse } from '../tools/terminal/parser.js';
 import { buildSanitizedEnv } from '../tools/terminal/safe-env.js';
 import { wrapCommand } from '../tools/terminal/sandbox.js';
-import type { SandboxConfig } from '../config/schema.js';
 import { ToolError } from '../util/errors.js';
 
 // ═══════════════════════════════════════════════════════════════════════════

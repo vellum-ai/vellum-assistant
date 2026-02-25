@@ -1,6 +1,6 @@
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
 import * as calendar from '../calendar-client.js';
-import { withCalendarToken, ok } from './shared.js';
+import { ok,withCalendarToken } from './shared.js';
 
 export async function run(input: Record<string, unknown>, _context: ToolContext): Promise<ToolExecutionResult> {
   const timeMin = input.time_min as string;

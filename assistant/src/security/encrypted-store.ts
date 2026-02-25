@@ -12,17 +12,18 @@
  */
 
 import {
-  randomBytes,
-  pbkdf2Sync,
   createCipheriv,
   createDecipheriv,
+  pbkdf2Sync,
+  randomBytes,
 } from 'node:crypto';
-import { readFileSync, writeFileSync, chmodSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { pathExists, ensureDir } from '../util/fs.js';
+import { chmodSync,readFileSync, writeFileSync } from 'node:fs';
 import { hostname, userInfo } from 'node:os';
-import { getRootDir, getPlatformName } from '../util/platform.js';
+import { dirname,join } from 'node:path';
+
+import { ensureDir,pathExists } from '../util/fs.js';
 import { getLogger } from '../util/logger.js';
+import { getPlatformName,getRootDir } from '../util/platform.js';
 
 const log = getLogger('encrypted-store');
 

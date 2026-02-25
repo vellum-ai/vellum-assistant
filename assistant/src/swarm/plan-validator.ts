@@ -1,7 +1,7 @@
+import { detectCycles } from './graph-utils.js';
+import type { SwarmLimits } from './limits.js';
 import type { SwarmPlan, SwarmTaskNode } from './types.js';
 import { VALID_SWARM_ROLES } from './types.js';
-import type { SwarmLimits } from './limits.js';
-import { detectCycles } from './graph-utils.js';
 
 export class SwarmPlanValidationError extends Error {
   constructor(

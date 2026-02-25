@@ -6,28 +6,12 @@
  * from Twilio and can send text tokens back for TTS.
  */
 
-import type { ServerWebSocket } from 'bun';
 import { randomInt } from 'node:crypto';
-import { getLogger } from '../util/logger.js';
-import { parseJsonSafe } from '../util/json.js';
+
+import type { ServerWebSocket } from 'bun';
+
 import { getConfig } from '../config/loader.js';
-import {
-  getCallSession,
-  updateCallSession,
-  recordCallEvent,
-  expirePendingQuestions,
-} from './call-store.js';
-import { CallController } from './call-controller.js';
-import { fireCallTranscriptNotifier, fireCallCompletionNotifier } from './call-state.js';
-import { addPointerMessage, formatDuration } from './call-pointer-messages.js';
-import { persistCallCompletionMessage } from './call-conversation-messages.js';
 import * as conversationStore from '../memory/conversation-store.js';
-import {
-  extractPromptSpeakerMetadata,
-  SpeakerIdentityTracker,
-  type PromptSpeakerContext,
-} from './speaker-identification.js';
-import { isTerminalState } from './call-state-machine.js';
 import {
   getPendingChallenge,
   validateAndConsumeChallenge,
@@ -36,7 +20,25 @@ import {
   resolveGuardianContext,
   toGuardianRuntimeContext,
 } from '../runtime/guardian-context-resolver.js';
+import { parseJsonSafe } from '../util/json.js';
+import { getLogger } from '../util/logger.js';
 import { normalizeAssistantId } from '../util/platform.js';
+import { CallController } from './call-controller.js';
+import { persistCallCompletionMessage } from './call-conversation-messages.js';
+import { addPointerMessage, formatDuration } from './call-pointer-messages.js';
+import { fireCallCompletionNotifier,fireCallTranscriptNotifier } from './call-state.js';
+import { isTerminalState } from './call-state-machine.js';
+import {
+  expirePendingQuestions,
+  getCallSession,
+  recordCallEvent,
+  updateCallSession,
+} from './call-store.js';
+import {
+  extractPromptSpeakerMetadata,
+  type PromptSpeakerContext,
+  SpeakerIdentityTracker,
+} from './speaker-identification.js';
 
 const log = getLogger('relay-server');
 

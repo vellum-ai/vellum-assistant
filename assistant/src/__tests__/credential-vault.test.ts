@@ -1,8 +1,9 @@
-import { describe, test, expect, beforeEach, afterEach, afterAll, mock } from 'bun:test';
-import { mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterAll, afterEach, beforeEach, describe, expect, mock,test } from 'bun:test';
 
 // ---------------------------------------------------------------------------
 // Mock logger
@@ -27,8 +28,8 @@ _overrideDeps({
   execFileSync: (() => '') as unknown as typeof import('node:child_process').execFileSync,
 });
 
-import { _resetBackend, _setBackend } from '../security/secure-keys.js';
 import { _setStorePath } from '../security/encrypted-store.js';
+import { _resetBackend, _setBackend } from '../security/secure-keys.js';
 
 const TEST_DIR = join(tmpdir(), `vellum-credvault-test-${randomBytes(4).toString('hex')}`);
 const STORE_PATH = join(TEST_DIR, 'keys.enc');
@@ -47,14 +48,14 @@ mock.module('../tools/registry.js', () => ({
 
 // getCredentialValue is no longer exported (sealed in PR 17) — use getSecureKey directly
 
-import type { ToolContext } from '../tools/types.js';
 import {
-  setSecureKey,
-  getSecureKey,
   deleteSecureKey,
+  getSecureKey,
+  setSecureKey,
 } from '../security/secure-keys.js';
-import { getCredentialMetadata, _setMetadataPath } from '../tools/credentials/metadata-store.js';
+import { _setMetadataPath,getCredentialMetadata } from '../tools/credentials/metadata-store.js';
 import { credentialStoreTool } from '../tools/credentials/vault.js';
+import type { ToolContext } from '../tools/types.js';
 
 // Create a minimal context for tool execution
 const _ctx: ToolContext = {

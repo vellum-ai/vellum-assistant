@@ -1,5 +1,6 @@
-import { describe, test, expect, beforeEach, mock } from 'bun:test';
-import type { Message, ToolDefinition, ProviderEvent, ContentBlock } from '../providers/types.js';
+import { beforeEach, describe, expect, mock,test } from 'bun:test';
+
+import type { ContentBlock,Message, ProviderEvent, ToolDefinition } from '../providers/types.js';
 
 // ---------------------------------------------------------------------------
 // Mock openai module — must be before importing the provider
@@ -65,8 +66,8 @@ mock.module('openai', () => ({
 }));
 
 // Import after mocking
-import { OpenAIProvider } from '../providers/openai/client.js';
 import { OllamaProvider } from '../providers/ollama/client.js';
+import { OpenAIProvider } from '../providers/openai/client.js';
 
 // ---------------------------------------------------------------------------
 // Helpers

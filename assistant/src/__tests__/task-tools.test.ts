@@ -1,7 +1,8 @@
-import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, beforeEach, describe, expect, mock,test } from 'bun:test';
 
 const testDir = mkdtempSync(join(tmpdir(), 'task-tools-test-'));
 
@@ -34,16 +35,17 @@ mock.module('./indexer.js', () => ({
 }));
 
 import type { Database } from 'bun:sqlite';
-import { initializeDb, getDb, resetDb } from '../memory/db.js';
+
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { createTask, createTaskRun } from '../tasks/task-store.js';
-import { createWorkItem } from '../work-items/work-item-store.js';
-import { executeTaskSave } from '../tools/tasks/task-save.js';
-import { executeTaskRun } from '../tools/tasks/task-run.js';
-import { executeTaskList } from '../tools/tasks/task-list.js';
-import { executeTaskListShow } from '../tools/tasks/work-item-list.js';
-import { executeTaskListAdd } from '../tools/tasks/work-item-enqueue.js';
 import { executeTaskDelete } from '../tools/tasks/task-delete.js';
+import { executeTaskList } from '../tools/tasks/task-list.js';
+import { executeTaskRun } from '../tools/tasks/task-run.js';
+import { executeTaskSave } from '../tools/tasks/task-save.js';
+import { executeTaskListAdd } from '../tools/tasks/work-item-enqueue.js';
+import { executeTaskListShow } from '../tools/tasks/work-item-list.js';
 import type { ToolContext } from '../tools/types.js';
+import { createWorkItem } from '../work-items/work-item-store.js';
 
 initializeDb();
 

@@ -1,9 +1,10 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, expect,test } from 'bun:test';
+
 import {
-  buildDecisionTrace,
   buildCredentialRefTrace,
-  type ProxyDecisionTrace,
+  buildDecisionTrace,
   type CredentialRefTrace,
+  type ProxyDecisionTrace,
 } from '../tools/network/script-proxy/logging.js';
 import type { PolicyDecision } from '../tools/network/script-proxy/types.js';
 

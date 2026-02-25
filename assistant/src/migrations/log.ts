@@ -1,4 +1,5 @@
 import pino from 'pino';
+
 import { logSerializers } from '../util/log-redact.js';
 
 /**

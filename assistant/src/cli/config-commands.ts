@@ -1,20 +1,12 @@
 import type { Command } from 'commander';
 
 import {
+  API_KEY_PROVIDERS,
+  getNestedValue,
   loadRawConfig,
   saveRawConfig,
-  getNestedValue,
   setNestedValue,
-  API_KEY_PROVIDERS,
 } from '../config/loader.js';
-import {
-  getAllRules,
-  removeRule,
-  clearAllRules,
-} from '../permissions/trust-store.js';
-import { getSecureKey, setSecureKey, deleteSecureKey } from '../security/secure-keys.js';
-import { getCliLogger } from '../util/logger.js';
-import { initializeDb } from '../memory/db.js';
 import {
   getMemorySystemStatus,
   queryMemory,
@@ -23,6 +15,14 @@ import {
   requestMemoryRebuildIndex,
 } from '../memory/admin.js';
 import { listConversations } from '../memory/conversation-store.js';
+import { initializeDb } from '../memory/db.js';
+import {
+  clearAllRules,
+  getAllRules,
+  removeRule,
+} from '../permissions/trust-store.js';
+import { deleteSecureKey,getSecureKey, setSecureKey } from '../security/secure-keys.js';
+import { getCliLogger } from '../util/logger.js';
 
 const log = getCliLogger('cli');
 

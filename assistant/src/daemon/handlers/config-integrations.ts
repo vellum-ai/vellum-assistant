@@ -1,12 +1,13 @@
 import * as net from 'node:net';
+
 import { loadRawConfig, saveRawConfig } from '../../config/loader.js';
-import { getSecureKey, setSecureKey, deleteSecureKey } from '../../security/secure-keys.js';
-import { upsertCredentialMetadata, deleteCredentialMetadata, getCredentialMetadata } from '../../tools/credentials/metadata-store.js';
+import { deleteSecureKey,getSecureKey, setSecureKey } from '../../security/secure-keys.js';
+import { deleteCredentialMetadata, getCredentialMetadata,upsertCredentialMetadata } from '../../tools/credentials/metadata-store.js';
 import type {
-  VercelApiConfigRequest,
   TwitterIntegrationConfigRequest,
+  VercelApiConfigRequest,
 } from '../ipc-protocol.js';
-import { log, defineHandlers, type HandlerContext } from './shared.js';
+import { defineHandlers, type HandlerContext,log } from './shared.js';
 
 export function handleVercelApiConfig(
   msg: VercelApiConfigRequest,

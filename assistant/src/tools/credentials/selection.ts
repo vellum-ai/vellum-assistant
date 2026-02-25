@@ -6,10 +6,10 @@
  * to ask the user due to ambiguity.
  */
 
-import type { CredentialMetadata } from './metadata-store.js';
-import type { CredentialInjectionTemplate } from './policy-types.js';
 import { isDomainAllowed } from './domain-policy.js';
 import { matchHostPattern } from './host-pattern-match.js';
+import type { CredentialMetadata } from './metadata-store.js';
+import type { CredentialInjectionTemplate } from './policy-types.js';
 
 export interface CredentialCandidate {
   credentialId: string;

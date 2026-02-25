@@ -1,9 +1,10 @@
-import { describe, test, expect } from 'bun:test';
-import { serialize } from '../daemon/ipc-protocol.js';
+import { describe, expect,test } from 'bun:test';
+
 import type {
   ClientMessage,
   ServerMessage,
 } from '../daemon/ipc-protocol.js';
+import { serialize } from '../daemon/ipc-protocol.js';
 
 /**
  * Snapshot tests for every IPC message type.

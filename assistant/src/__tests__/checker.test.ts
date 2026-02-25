@@ -1,10 +1,11 @@
 // Smoke command (run all security test files together):
 // bun test src/__tests__/checker.test.ts src/__tests__/trust-store.test.ts src/__tests__/session-skill-tools.test.ts src/__tests__/skill-script-runner-host.test.ts
 
-import { describe, test, expect, beforeAll, beforeEach, afterEach, mock } from 'bun:test';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, symlinkSync, realpathSync } from 'node:fs';
-import { tmpdir, homedir } from 'node:os';
+import { mkdirSync, mkdtempSync, realpathSync,rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { homedir,tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+
+import { afterEach, beforeAll, beforeEach, describe, expect, mock,test } from 'bun:test';
 
 // Use a temp directory so trust-store doesn't touch ~/.vellum
 const checkerTestDir = mkdtempSync(join(tmpdir(), 'checker-test-'));
@@ -62,12 +63,12 @@ mock.module('../config/loader.js', () => ({
   setNestedValue: () => {},
 }));
 
-import { classifyRisk, check, generateAllowlistOptions, generateScopeOptions, _resetLegacyDeprecationWarning } from '../permissions/checker.js';
-import { RiskLevel } from '../permissions/types.js';
-import type { TrustRule } from '../permissions/types.js';
-import { addRule, clearCache, findHighestPriorityRule } from '../permissions/trust-store.js';
+import { _resetLegacyDeprecationWarning,check, classifyRisk, generateAllowlistOptions, generateScopeOptions } from '../permissions/checker.js';
 import { getDefaultRuleTemplates } from '../permissions/defaults.js';
-import { registerTool, getTool } from '../tools/registry.js';
+import { addRule, clearCache, findHighestPriorityRule } from '../permissions/trust-store.js';
+import type { TrustRule } from '../permissions/types.js';
+import { RiskLevel } from '../permissions/types.js';
+import { getTool,registerTool } from '../tools/registry.js';
 import type { Tool } from '../tools/types.js';
 
 // Import managed skill tools so they register in the tool registry.

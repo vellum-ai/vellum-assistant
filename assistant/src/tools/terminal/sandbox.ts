@@ -1,10 +1,10 @@
-import { NativeBackend } from './backends/native.js';
-import { DockerBackend } from './backends/docker.js';
-import type { SandboxResult, WrapOptions } from './backends/types.js';
 import type { SandboxConfig } from '../../config/schema.js';
 import { getSandboxWorkingDir } from '../../util/platform.js';
+import { DockerBackend } from './backends/docker.js';
+import { NativeBackend } from './backends/native.js';
+import type { SandboxResult, WrapOptions } from './backends/types.js';
 
-export type { SandboxResult, SandboxBackend, WrapOptions } from './backends/types.js';
+export type { SandboxBackend, SandboxResult, WrapOptions } from './backends/types.js';
 
 const nativeBackend = new NativeBackend();
 

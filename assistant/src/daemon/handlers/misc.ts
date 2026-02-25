@@ -1,25 +1,27 @@
-import * as net from 'node:net';
-import { v4 as uuid } from 'uuid';
-import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import * as net from 'node:net';
+
+import { v4 as uuid } from 'uuid';
+
 import * as conversationStore from '../../memory/conversation-store.js';
+import { GENERATING_TITLE, queueGenerateConversationTitle } from '../../memory/conversation-title-service.js';
 import { getConfiguredProvider } from '../../providers/provider-send-message.js';
 import type { Provider } from '../../providers/types.js';
-import { classifyInteraction } from '../classifier.js';
 import { checkIngressForSecrets } from '../../security/secret-ingress.js';
 import { parseSlashCandidate } from '../../skills/slash-commands.js';
-import { classifySessionError, buildSessionErrorMessage } from '../session-error.js';
-import { resolveBlobPath, deleteBlob, isValidBlobId } from '../ipc-blob-store.js';
-import { GENERATING_TITLE, queueGenerateConversationTitle } from '../../memory/conversation-title-service.js';
+import { classifyInteraction } from '../classifier.js';
+import { deleteBlob, isValidBlobId,resolveBlobPath } from '../ipc-blob-store.js';
 import type {
-  TaskSubmit,
-  SuggestionRequest,
-  LinkOpenRequest,
-  IpcBlobProbe,
   CuSessionCreate,
+  IpcBlobProbe,
+  LinkOpenRequest,
+  SuggestionRequest,
+  TaskSubmit,
 } from '../ipc-protocol.js';
-import { log, wireEscalationHandler, renderHistoryContent, defineHandlers, type HandlerContext } from './shared.js';
+import { buildSessionErrorMessage,classifySessionError } from '../session-error.js';
 import { handleCuSessionCreate } from './computer-use.js';
+import { defineHandlers, type HandlerContext,log, renderHistoryContent, wireEscalationHandler } from './shared.js';
 
 // ─── Task submit handler ────────────────────────────────────────────────────
 

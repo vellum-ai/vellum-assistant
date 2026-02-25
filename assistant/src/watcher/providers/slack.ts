@@ -7,11 +7,11 @@
  * channels, DM channels, and member channels.
  */
 
-import { withValidToken } from '../../security/token-manager.js';
-import { truncate } from '../../util/truncate.js';
 import * as slack from '../../messaging/providers/slack/client.js';
-import type { WatcherProvider, WatcherItem, FetchResult } from '../provider-types.js';
+import { withValidToken } from '../../security/token-manager.js';
 import { getLogger } from '../../util/logger.js';
+import { truncate } from '../../util/truncate.js';
+import type { FetchResult,WatcherItem, WatcherProvider } from '../provider-types.js';
 
 const log = getLogger('watcher:slack');
 

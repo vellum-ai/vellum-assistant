@@ -3,8 +3,8 @@
  * Separate from the Gmail client due to a different base URL.
  */
 
-import type { PeopleConnectionsResponse, PeopleSearchResponse } from './people-types.js';
 import { GmailApiError } from './client.js';
+import type { PeopleConnectionsResponse, PeopleSearchResponse } from './people-types.js';
 
 const PEOPLE_API_BASE = 'https://people.googleapis.com/v1';
 

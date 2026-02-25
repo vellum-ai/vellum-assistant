@@ -1,15 +1,16 @@
 import type * as net from 'node:net';
-import { getConfiguredProvider, extractText, userMessage } from '../providers/provider-send-message.js';
-import { getLogger } from '../util/logger.js';
-import type { WatchObservation } from './ipc-protocol.js';
-import type { HandlerContext } from './handlers.js';
+
+import { extractText, getConfiguredProvider, userMessage } from '../providers/provider-send-message.js';
+import type { WatchObservationEntry,WatchSession } from '../tools/watch/watch-state.js';
 import {
-  watchSessions,
   addObservation,
   fireWatchCommentaryNotifier,
   fireWatchCompletionNotifier,
+  watchSessions,
 } from '../tools/watch/watch-state.js';
-import type { WatchSession, WatchObservationEntry } from '../tools/watch/watch-state.js';
+import { getLogger } from '../util/logger.js';
+import type { HandlerContext } from './handlers.js';
+import type { WatchObservation } from './ipc-protocol.js';
 
 const log = getLogger('watch-handler');
 

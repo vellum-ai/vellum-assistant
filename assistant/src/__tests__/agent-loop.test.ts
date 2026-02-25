@@ -1,13 +1,14 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, expect,test } from 'bun:test';
+
+import type { AgentEvent, CheckpointDecision,CheckpointInfo } from '../agent/loop.js';
 import { AgentLoop } from '../agent/loop.js';
-import type { AgentEvent, CheckpointInfo, CheckpointDecision } from '../agent/loop.js';
 import type {
-  Provider,
+  ContentBlock,
   Message,
+  Provider,
   ProviderResponse,
   SendMessageOptions,
   ToolDefinition,
-  ContentBlock,
 } from '../providers/types.js';
 
 // ---------------------------------------------------------------------------

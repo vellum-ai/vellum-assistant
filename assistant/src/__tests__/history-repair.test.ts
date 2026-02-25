@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { repairHistory, deepRepairHistory } from '../daemon/history-repair.js';
+
+import { deepRepairHistory,repairHistory } from '../daemon/history-repair.js';
 import type { Message } from '../providers/types.js';
 
 describe('repairHistory', () => {

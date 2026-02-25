@@ -1,5 +1,5 @@
+import { getContact,mergeContacts } from '../../../../contacts/contact-store.js';
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
-import { mergeContacts, getContact } from '../../../../contacts/contact-store.js';
 
 export async function executeContactMerge(
   input: Record<string, unknown>,

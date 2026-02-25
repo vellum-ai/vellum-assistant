@@ -1,7 +1,8 @@
-import { describe, test, expect, beforeAll, afterAll, mock } from 'bun:test';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, beforeAll, describe, expect, mock,test } from 'bun:test';
 
 // ---------------------------------------------------------------------------
 // Mocks — must be declared before the module under test is imported
@@ -51,7 +52,6 @@ mock.module('../tools/terminal/sandbox.js', () => ({
 }));
 
 import { runSkillToolScript } from '../tools/skills/skill-script-runner.js';
-
 import type { ToolContext } from '../tools/types.js';
 
 // ---------------------------------------------------------------------------

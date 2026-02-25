@@ -1,16 +1,17 @@
 import { inArray } from 'drizzle-orm';
+
+import { getLogger } from '../../util/logger.js';
 import { getDb } from '../db.js';
-import { getQdrantClient } from '../qdrant-client.js';
 import type { QdrantSearchResult } from '../qdrant-client.js';
+import { getQdrantClient } from '../qdrant-client.js';
 import {
   memoryItems,
   memoryItemSources,
   memorySegments,
   memorySummaries,
 } from '../schema.js';
-import type { Candidate } from './types.js';
 import { computeRecencyScore } from './ranking.js';
-import { getLogger } from '../../util/logger.js';
+import type { Candidate } from './types.js';
 
 const log = getLogger('qdrant-circuit-breaker');
 

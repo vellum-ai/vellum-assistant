@@ -1,7 +1,8 @@
-import { afterEach, describe, expect, test } from 'bun:test';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach, describe, expect, test } from 'bun:test';
 
 import { hostFileReadTool } from '../tools/host-filesystem/read.js';
 import type { ToolContext } from '../tools/types.js';

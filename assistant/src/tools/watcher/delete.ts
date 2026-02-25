@@ -1,6 +1,6 @@
-import type { ToolContext, ToolExecutionResult } from '../types.js';
-import { getWatcher, deleteWatcher } from '../../watcher/watcher-store.js';
 import { getWatcherProvider } from '../../watcher/provider-registry.js';
+import { deleteWatcher,getWatcher } from '../../watcher/watcher-store.js';
+import type { ToolContext, ToolExecutionResult } from '../types.js';
 
 export async function executeWatcherDelete(
   input: Record<string, unknown>,

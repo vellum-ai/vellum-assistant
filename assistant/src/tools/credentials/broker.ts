@@ -1,4 +1,7 @@
 import { v4 as uuid } from 'uuid';
+
+import { getSecureKey } from '../../security/secure-keys.js';
+import { getLogger } from '../../util/logger.js';
 import type {
   AuthorizeRequest,
   AuthorizeResult,
@@ -11,12 +14,10 @@ import type {
   ServerUseResult,
   UsageToken,
 } from './broker-types.js';
+import { isDomainAllowed } from './domain-policy.js';
 import { getCredentialMetadata } from './metadata-store.js';
 import { resolveById } from './resolve.js';
 import { isToolAllowed } from './tool-policy.js';
-import { isDomainAllowed } from './domain-policy.js';
-import { getSecureKey } from '../../security/secure-keys.js';
-import { getLogger } from '../../util/logger.js';
 
 const log = getLogger('credential-broker');
 

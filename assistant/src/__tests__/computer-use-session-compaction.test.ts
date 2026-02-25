@@ -1,4 +1,5 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, expect,test } from 'bun:test';
+
 import { ComputerUseSession } from '../daemon/computer-use-session.js';
 import type { Message } from '../providers/types.js';
 

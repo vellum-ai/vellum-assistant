@@ -9,21 +9,22 @@
 
 import { and, asc, eq, lte, sql } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
+
 import { getDb, rawChanges } from '../memory/db.js';
-import { sequences, sequenceEnrollments } from '../memory/schema.js';
-import { createRowMapper, cast, parseJson, parseJsonNullable } from '../util/row-mapper.js';
+import { sequenceEnrollments,sequences } from '../memory/schema.js';
 import { AssistantError, ErrorCode } from '../util/errors.js';
+import { cast, createRowMapper, parseJson, parseJsonNullable } from '../util/row-mapper.js';
 import type {
+  CreateSequenceInput,
+  EnrollContactInput,
+  EnrollmentExitReason,
+  ListEnrollmentsFilter,
+  ListSequencesFilter,
   Sequence,
   SequenceEnrollment,
   SequenceStep,
   SequenceStore,
-  CreateSequenceInput,
   UpdateSequenceInput,
-  EnrollContactInput,
-  ListSequencesFilter,
-  ListEnrollmentsFilter,
-  EnrollmentExitReason,
 } from './types.js';
 
 // ── Row Mappers ─────────────────────────────────────────────────────

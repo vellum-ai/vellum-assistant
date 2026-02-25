@@ -1,5 +1,5 @@
-import type { ToolContext, ToolExecutionResult } from '../types.js';
 import { listWorkItems, type WorkItem, type WorkItemStatus } from '../../work-items/work-item-store.js';
+import type { ToolContext, ToolExecutionResult } from '../types.js';
 
 const PRIORITY_LABELS: Record<number, string> = { 0: 'High', 1: 'Medium', 2: 'Low' };
 

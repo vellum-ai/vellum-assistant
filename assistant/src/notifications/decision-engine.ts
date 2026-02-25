@@ -10,10 +10,11 @@
  */
 
 import { v4 as uuid } from 'uuid';
+
 import { getConfig } from '../config/loader.js';
-import { getLogger } from '../util/logger.js';
+import { createTimeout, extractToolUse, getConfiguredProvider, userMessage } from '../providers/provider-send-message.js';
 import type { ModelIntent } from '../providers/types.js';
-import { getConfiguredProvider, createTimeout, extractToolUse, userMessage } from '../providers/provider-send-message.js';
+import { getLogger } from '../util/logger.js';
 import { createDecision } from './decisions-store.js';
 import { getPreferenceSummary } from './preference-summary.js';
 import type { NotificationSignal } from './signal.js';

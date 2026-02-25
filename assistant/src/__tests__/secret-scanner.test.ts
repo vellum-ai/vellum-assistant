@@ -1,16 +1,17 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, expect,test } from 'bun:test';
+
 import {
-  scanText,
-  redactSecrets,
-  shannonEntropy,
+  _hasSecretContext,
   _isPlaceholder,
   _redact,
-  _hasSecretContext,
   _tryDecodeBase64,
-  _tryDecodePercentEncoded,
-  _tryDecodeHexEscapes,
   _tryDecodeContinuousHex,
+  _tryDecodeHexEscapes,
+  _tryDecodePercentEncoded,
+  redactSecrets,
+  scanText,
   type SecretMatch,
+  shannonEntropy,
 } from '../security/secret-scanner.js';
 
 // ---------------------------------------------------------------------------

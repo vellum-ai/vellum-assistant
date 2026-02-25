@@ -1,44 +1,45 @@
+import { chmodSync, readFileSync,statSync } from 'node:fs';
 import * as net from 'node:net';
-import * as tls from 'node:tls';
-import { chmodSync, statSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { getSocketPath, getSandboxWorkingDir, removeSocketFile, getTCPPort, getTCPHost, isTCPEnabled, isIOSPairingEnabled } from '../util/platform.js';
-import { ensureTlsCert } from './tls-certs.js';
-import { getLocalIPv4 } from '../util/network-info.js';
-import { getLogger } from '../util/logger.js';
-import { getFailoverProvider, initializeProviders } from '../providers/registry.js';
-import { RateLimitProvider } from '../providers/ratelimit.js';
+import * as tls from 'node:tls';
+
+import { createAssistantMessage,createUserMessage } from '../agent/message-types.js';
+import { type ChannelId, type InterfaceId,parseChannelId, parseInterfaceId } from '../channels/types.js';
 import { getConfig } from '../config/loader.js';
 import { buildSystemPrompt } from '../config/system-prompt.js';
-import { checkIngressForSecrets } from '../security/secret-ingress.js';
-import { IngressBlockedError } from '../util/errors.js';
+import { bootstrapHomeBaseAppLink } from '../home-base/bootstrap.js';
+import * as attachmentsStore from '../memory/attachments-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
 import { provenanceFromGuardianContext } from '../memory/conversation-store.js';
-import * as attachmentsStore from '../memory/attachments-store.js';
-import { Session, DEFAULT_MEMORY_POLICY, type SessionMemoryPolicy } from './session.js';
-import { parseChannelId, parseInterfaceId, type ChannelId, type InterfaceId } from '../channels/types.js';
-import { resolveChannelCapabilities } from './session-runtime-assembly.js';
-import { ComputerUseSession } from './computer-use-session.js';
-import {
-  serialize,
-  createMessageParser,
-  MAX_LINE_SIZE,
-  type ServerMessage,
-  normalizeThreadType,
-} from './ipc-protocol.js';
-import { validateClientMessage } from './ipc-validate.js';
-import { handleMessage, type HandlerContext, type SessionCreateOptions } from './handlers.js';
+import { RateLimitProvider } from '../providers/ratelimit.js';
+import { getFailoverProvider, initializeProviders } from '../providers/registry.js';
 import { RunOrchestrator } from '../runtime/run-orchestrator.js';
-import { ensureBlobDir, sweepStaleBlobs } from './ipc-blob-store.js';
-import { bootstrapHomeBaseAppLink } from '../home-base/bootstrap.js';
-import { SessionEvictor } from './session-evictor.js';
+import { checkIngressForSecrets } from '../security/secret-ingress.js';
 import { getSubagentManager } from '../subagent/index.js';
-import { resolveSlash } from './session-slash.js';
-import { createUserMessage, createAssistantMessage } from '../agent/message-types.js';
+import { IngressBlockedError } from '../util/errors.js';
+import { getLogger } from '../util/logger.js';
+import { getLocalIPv4 } from '../util/network-info.js';
+import { getSandboxWorkingDir, getSocketPath, getTCPHost, getTCPPort, isIOSPairingEnabled,isTCPEnabled, removeSocketFile } from '../util/platform.js';
 import { registerDaemonCallbacks } from '../work-items/work-item-runner.js';
 import { AuthManager } from './auth-manager.js';
+import { ComputerUseSession } from './computer-use-session.js';
 import { ConfigWatcher } from './config-watcher.js';
+import { handleMessage, type HandlerContext, type SessionCreateOptions } from './handlers.js';
+import { ensureBlobDir, sweepStaleBlobs } from './ipc-blob-store.js';
 import { IpcSender } from './ipc-handler.js';
+import {
+  createMessageParser,
+  MAX_LINE_SIZE,
+  normalizeThreadType,
+  serialize,
+  type ServerMessage,
+} from './ipc-protocol.js';
+import { validateClientMessage } from './ipc-validate.js';
+import { DEFAULT_MEMORY_POLICY, Session, type SessionMemoryPolicy } from './session.js';
+import { SessionEvictor } from './session-evictor.js';
+import { resolveChannelCapabilities } from './session-runtime-assembly.js';
+import { resolveSlash } from './session-slash.js';
+import { ensureTlsCert } from './tls-certs.js';
 
 const log = getLogger('server');
 

@@ -145,7 +145,7 @@ const MemoryFreshnessConfigSchema = z.object({
       .number({ error: 'memory.retrieval.freshness.maxAgeDays.opinion must be a number' })
       .nonnegative('memory.retrieval.freshness.maxAgeDays.opinion must be non-negative')
       .default(60),
-  }).default({}),
+  }).default({} as any),
   staleDecay: z
     .number({ error: 'memory.retrieval.freshness.staleDecay must be a number' })
     .min(0, 'memory.retrieval.freshness.staleDecay must be >= 0')
@@ -181,15 +181,15 @@ export const MemoryRetrievalConfigSchema = z.object({
       error: 'memory.retrieval.injectionStrategy must be "prepend_user_block" or "separate_context_message"',
     })
     .default('prepend_user_block'),
-  reranking: MemoryRerankingConfigSchema.default({}),
-  freshness: MemoryFreshnessConfigSchema.default({}),
+  reranking: MemoryRerankingConfigSchema.default({} as any),
+  freshness: MemoryFreshnessConfigSchema.default({} as any),
   scopePolicy: z
     .enum(['allow_global_fallback', 'strict'], {
       error: 'memory.retrieval.scopePolicy must be "allow_global_fallback" or "strict"',
     })
     .default('allow_global_fallback'),
-  dynamicBudget: MemoryDynamicBudgetConfigSchema.default({}),
-  earlyTermination: MemoryEarlyTerminationConfigSchema.default({}),
+  dynamicBudget: MemoryDynamicBudgetConfigSchema.default({} as any),
+  earlyTermination: MemoryEarlyTerminationConfigSchema.default({} as any),
 });
 
 export const MemorySegmentationConfigSchema = z.object({
@@ -282,7 +282,7 @@ export const MemoryEntityConfigSchema = z.object({
       .int('memory.entity.extractRelations.backfillBatchSize must be an integer')
       .positive('memory.entity.extractRelations.backfillBatchSize must be a positive integer')
       .default(200),
-  }).default({}),
+  }).default({} as any),
   relationRetrieval: z.object({
     enabled: z
       .boolean({ error: 'memory.entity.relationRetrieval.enabled must be a boolean' })
@@ -315,7 +315,7 @@ export const MemoryEntityConfigSchema = z.object({
     depthDecay: z
       .boolean({ error: 'memory.entity.relationRetrieval.depthDecay must be a boolean' })
       .default(true),
-  }).default({}),
+  }).default({} as any),
 });
 
 export const MemoryConflictsConfigSchema = z.object({
@@ -379,18 +379,18 @@ export const MemoryConfigSchema = z.object({
   enabled: z
     .boolean({ error: 'memory.enabled must be a boolean' })
     .default(true),
-  embeddings: MemoryEmbeddingsConfigSchema.default({}),
-  qdrant: QdrantConfigSchema.default({}),
-  retrieval: MemoryRetrievalConfigSchema.default({}),
-  segmentation: MemorySegmentationConfigSchema.default({}),
-  jobs: MemoryJobsConfigSchema.default({}),
-  retention: MemoryRetentionConfigSchema.default({}),
-  cleanup: MemoryCleanupConfigSchema.default({}),
-  extraction: MemoryExtractionConfigSchema.default({}),
-  summarization: MemorySummarizationConfigSchema.default({}),
-  entity: MemoryEntityConfigSchema.default({}),
-  conflicts: MemoryConflictsConfigSchema.default({}),
-  profile: MemoryProfileConfigSchema.default({}),
+  embeddings: MemoryEmbeddingsConfigSchema.default({} as any),
+  qdrant: QdrantConfigSchema.default({} as any),
+  retrieval: MemoryRetrievalConfigSchema.default({} as any),
+  segmentation: MemorySegmentationConfigSchema.default({} as any),
+  jobs: MemoryJobsConfigSchema.default({} as any),
+  retention: MemoryRetentionConfigSchema.default({} as any),
+  cleanup: MemoryCleanupConfigSchema.default({} as any),
+  extraction: MemoryExtractionConfigSchema.default({} as any),
+  summarization: MemorySummarizationConfigSchema.default({} as any),
+  entity: MemoryEntityConfigSchema.default({} as any),
+  conflicts: MemoryConflictsConfigSchema.default({} as any),
+  profile: MemoryProfileConfigSchema.default({} as any),
 });
 
 export type MemoryEmbeddingsConfig = z.infer<typeof MemoryEmbeddingsConfigSchema>;

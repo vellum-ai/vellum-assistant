@@ -13,7 +13,7 @@
  *   --all   Capture ALL GraphQL queries (skip relevance filter)
  */
 
-import { mkdirSync, existsSync } from 'node:fs';
+import { existsSync,mkdirSync } from 'node:fs';
 
 const CDP_BASE = 'http://localhost:9222';
 const CAPTURE_DIR = '/tmp/x-graphql-capture';

@@ -3,63 +3,63 @@
  * messages from all channels. Handles ingress ACL, edits, guardian
  * verification, guardian action answers, and approval interception.
  */
-import { isChannelId, CHANNEL_IDS, INTERFACE_IDS, parseInterfaceId } from '../../channels/types.js';
+import { answerCall } from '../../calls/call-domain.js';
 import type { ChannelId, InterfaceId } from '../../channels/types.js';
-import * as conversationStore from '../../memory/conversation-store.js';
+import { CHANNEL_IDS, INTERFACE_IDS, isChannelId, parseInterfaceId } from '../../channels/types.js';
 import * as attachmentsStore from '../../memory/attachments-store.js';
 import * as channelDeliveryStore from '../../memory/channel-delivery-store.js';
+import {
+  createApprovalRequest,
+  getPendingApprovalForRun,
+  updateApprovalDecision,
+} from '../../memory/channel-guardian-store.js';
+import * as conversationStore from '../../memory/conversation-store.js';
 import * as externalConversationStore from '../../memory/external-conversation-store.js';
+import {
+  getGuardianActionRequest,
+  getPendingDeliveriesByDestination,
+  resolveGuardianActionRequest,
+} from '../../memory/guardian-action-store.js';
+import { refreshThreadEscalation } from '../../memory/inbox-escalation-projection.js';
+import { findMember, updateLastSeen, upsertMember } from '../../memory/ingress-member-store.js';
 import { getPendingConfirmationsByConversation } from '../../memory/runs-store.js';
+import { emitNotificationSignal } from '../../notifications/emit-signal.js';
 import { checkIngressForSecrets } from '../../security/secret-ingress.js';
 import { IngressBlockedError } from '../../util/errors.js';
 import { getLogger } from '../../util/logger.js';
-import { findMember, updateLastSeen, upsertMember } from '../../memory/ingress-member-store.js';
+import { composeApprovalMessageGenerative } from '../approval-message-composer.js';
 import {
-  getGuardianBinding,
-  validateAndConsumeChallenge,
-  getPendingChallenge,
-} from '../channel-guardian-service.js';
-import { resolveGuardianContext } from '../guardian-context-resolver.js';
-import {
-  getPendingDeliveriesByDestination,
-  getGuardianActionRequest,
-  resolveGuardianActionRequest,
-} from '../../memory/guardian-action-store.js';
-import { answerCall } from '../../calls/call-domain.js';
-import {
-  createApprovalRequest,
-  updateApprovalDecision,
-  getPendingApprovalForRun,
-} from '../../memory/channel-guardian-store.js';
-import { deliverChannelReply } from '../gateway-client.js';
-import {
-  getChannelApprovalPrompt,
   buildApprovalUIMetadata,
   buildGuardianApprovalPrompt,
+  getChannelApprovalPrompt,
   handleChannelDecision,
 } from '../channel-approvals.js';
-import type { RunOrchestrator } from '../run-orchestrator.js';
-import type {
-  MessageProcessor,
-  ApprovalCopyGenerator,
-  ApprovalConversationGenerator,
-} from '../http-types.js';
-import { composeApprovalMessageGenerative } from '../approval-message-composer.js';
-import { refreshThreadEscalation } from '../../memory/inbox-escalation-projection.js';
-import { emitNotificationSignal } from '../../notifications/emit-signal.js';
 import {
-  type GuardianContext,
-  verifyGatewayOrigin,
-  toGuardianRuntimeContext,
-  GUARDIAN_APPROVAL_TTL_MS,
-  stripVerificationFailurePrefix,
+  getGuardianBinding,
+  getPendingChallenge,
+  validateAndConsumeChallenge,
+} from '../channel-guardian-service.js';
+import { deliverChannelReply } from '../gateway-client.js';
+import { resolveGuardianContext } from '../guardian-context-resolver.js';
+import type {
+  ApprovalConversationGenerator,
+  ApprovalCopyGenerator,
+  MessageProcessor,
+} from '../http-types.js';
+import type { RunOrchestrator } from '../run-orchestrator.js';
+import { deliverReplyViaCallback } from './channel-delivery-routes.js';
+import {
   buildGuardianDenyContext,
   buildPromptDeliveryFailureContext,
-  RUN_POLL_INTERVAL_MS,
-  getEffectivePollMaxWait,
   canonicalChannelAssistantId,
+  getEffectivePollMaxWait,
+  GUARDIAN_APPROVAL_TTL_MS,
+  type GuardianContext,
+  RUN_POLL_INTERVAL_MS,
+  stripVerificationFailurePrefix,
+  toGuardianRuntimeContext,
+  verifyGatewayOrigin,
 } from './channel-route-shared.js';
-import { deliverReplyViaCallback } from './channel-delivery-routes.js';
 import { handleApprovalInterception } from './guardian-approval-interception.js';
 import { deliverGeneratedApprovalPrompt } from './guardian-approval-prompt.js';
 

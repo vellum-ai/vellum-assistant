@@ -1,5 +1,6 @@
-import { afterEach, describe, expect, mock, test } from 'bun:test';
 import * as realChildProcess from 'node:child_process';
+
+import { afterEach, describe, expect, mock, test } from 'bun:test';
 
 const originalSpawn = realChildProcess.spawn;
 

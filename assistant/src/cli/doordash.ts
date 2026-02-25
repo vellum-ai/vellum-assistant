@@ -6,42 +6,44 @@
  */
 
 import * as net from 'node:net';
+
 import { Command } from 'commander';
+
 import {
-  loadSession,
-  importFromRecording,
-  clearSession,
-} from '../doordash/session.js';
+  createMessageParser,
+  serialize,
+} from '../daemon/ipc-protocol.js';
+import {
+  addToCart,
+  getDropoffOptions,
+  getItemDetails,
+  getPaymentMethods,
+  getStoreMenu,
+  listCarts,
+  placeOrder,
+  removeFromCart,
+  retailSearch,
+  search,
+  searchItems,
+  SessionExpiredError,
+  viewCart,
+} from '../doordash/client.js';
 import {
   extractQueries,
   saveQueries,
 } from '../doordash/query-extractor.js';
-import { NetworkRecorder } from '../tools/browser/network-recorder.js';
 import {
-  saveRecording,
-  loadRecording,
-} from '../tools/browser/recording-store.js';
+  clearSession,
+  importFromRecording,
+  loadSession,
+} from '../doordash/session.js';
+import { NetworkRecorder } from '../tools/browser/network-recorder.js';
 import type { SessionRecording } from '../tools/browser/network-recording-types.js';
 import {
-  search,
-  searchItems,
-  retailSearch,
-  getStoreMenu,
-  getItemDetails,
-  addToCart,
-  removeFromCart,
-  viewCart,
-  listCarts,
-  getDropoffOptions,
-  getPaymentMethods,
-  placeOrder,
-  SessionExpiredError,
-} from '../doordash/client.js';
+  loadRecording,
+  saveRecording,
+} from '../tools/browser/recording-store.js';
 import { getSocketPath, readSessionToken } from '../util/platform.js';
-import {
-  serialize,
-  createMessageParser,
-} from '../daemon/ipc-protocol.js';
 
 // ---------------------------------------------------------------------------
 // Helpers

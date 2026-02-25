@@ -6,10 +6,12 @@
  * - Messages are queued (202, queued: true) when the session is busy, not 409.
  * - SSE subscribers receive events from messages sent via this endpoint.
  */
-import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
-import { mkdtempSync, rmSync, realpathSync } from 'node:fs';
+import { mkdtempSync, realpathSync,rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, beforeEach, describe, expect, mock,test } from 'bun:test';
+
 import type { ServerMessage } from '../daemon/ipc-protocol.js';
 import type { Session } from '../daemon/session.js';
 
@@ -45,10 +47,10 @@ mock.module('../config/loader.js', () => ({
   }),
 }));
 
-import { initializeDb, getDb, resetDb } from '../memory/db.js';
-import { RuntimeHttpServer } from '../runtime/http-server.js';
-import { AssistantEventHub } from '../runtime/assistant-event-hub.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import type { AssistantEvent } from '../runtime/assistant-event.js';
+import { AssistantEventHub } from '../runtime/assistant-event-hub.js';
+import { RuntimeHttpServer } from '../runtime/http-server.js';
 
 initializeDb();
 

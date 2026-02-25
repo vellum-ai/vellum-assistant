@@ -1,14 +1,16 @@
-import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
 import * as realFs from 'node:fs';
-import type { Message, ToolDefinition, ToolUseContent, ToolResultContent } from '../providers/types.js';
+
+import { afterAll, beforeEach, describe, expect, mock,test } from 'bun:test';
+
 import type { SkillSummary, SkillToolManifest } from '../config/skills.js';
-import type { Tool } from '../tools/types.js';
 import { RiskLevel } from '../permissions/types.js';
+import type { Message, ToolDefinition, ToolResultContent,ToolUseContent } from '../providers/types.js';
+import type { Tool } from '../tools/types.js';
 import {
+  assertBrowserToolsAbsent,
+  assertBrowserToolsPresent,
   BROWSER_TOOL_NAMES,
   buildSkillLoadHistory,
-  assertBrowserToolsPresent,
-  assertBrowserToolsAbsent,
 } from './test-support/browser-skill-harness.js';
 
 // ---------------------------------------------------------------------------

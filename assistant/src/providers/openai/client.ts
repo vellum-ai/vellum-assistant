@@ -1,15 +1,16 @@
 import OpenAI from 'openai';
+
+import { ProviderError } from '../../util/errors.js';
+import { escapeXmlAttr } from '../../util/xml.js';
+import { createStreamTimeout } from '../stream-timeout.js';
 import type {
+  ContentBlock,
+  Message,
   Provider,
   ProviderResponse,
   SendMessageOptions,
-  Message,
   ToolDefinition,
-  ContentBlock,
 } from '../types.js';
-import { ProviderError } from '../../util/errors.js';
-import { createStreamTimeout } from '../stream-timeout.js';
-import { escapeXmlAttr } from '../../util/xml.js';
 
 export interface OpenAICompatibleProviderOptions {
   baseURL?: string;

@@ -4,10 +4,12 @@
  * Tests POST /v1/confirm, POST /v1/secret, and POST /v1/trust-rules
  * through RuntimeHttpServer with pending-interactions tracking.
  */
-import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
-import { mkdtempSync, rmSync, realpathSync } from 'node:fs';
+import { mkdtempSync, realpathSync,rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, beforeEach, describe, expect, mock,test } from 'bun:test';
+
 import type { ServerMessage } from '../daemon/ipc-protocol.js';
 import type { Session } from '../daemon/session.js';
 
@@ -50,9 +52,9 @@ mock.module('../permissions/trust-store.js', () => ({
   getRules: () => [],
 }));
 
-import { initializeDb, getDb, resetDb } from '../memory/db.js';
-import { RuntimeHttpServer } from '../runtime/http-server.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { AssistantEventHub } from '../runtime/assistant-event-hub.js';
+import { RuntimeHttpServer } from '../runtime/http-server.js';
 import * as pendingInteractions from '../runtime/pending-interactions.js';
 
 initializeDb();

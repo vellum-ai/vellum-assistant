@@ -1,7 +1,8 @@
-import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, beforeEach, describe, expect, mock,test } from 'bun:test';
 
 const testDir = mkdtempSync(join(tmpdir(), 'attach-store-test-'));
 
@@ -34,21 +35,21 @@ mock.module('../config/loader.js', () => ({
   }),
 }));
 
-import { initializeDb, getDb, resetDb } from '../memory/db.js';
 import {
-  uploadAttachment,
-  deleteAttachment,
-  getAttachmentsByIds,
-  getAttachmentById,
-  linkAttachmentToMessage,
-  getAttachmentsForMessage,
-  deleteOrphanAttachments,
-  validateAttachmentUpload,
-  isValidBase64,
   AttachmentUploadError,
+  deleteAttachment,
+  deleteOrphanAttachments,
+  getAttachmentById,
+  getAttachmentsByIds,
+  getAttachmentsForMessage,
+  isValidBase64,
+  linkAttachmentToMessage,
   MAX_UPLOAD_BYTES,
+  uploadAttachment,
+  validateAttachmentUpload,
 } from '../memory/attachments-store.js';
-import { createConversation, addMessage } from '../memory/conversation-store.js';
+import { addMessage,createConversation } from '../memory/conversation-store.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
 
 initializeDb();
 

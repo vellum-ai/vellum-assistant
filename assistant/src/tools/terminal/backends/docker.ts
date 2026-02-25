@@ -1,9 +1,10 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
-import { dirname, resolve, relative, posix } from 'node:path';
+import { dirname, posix,relative, resolve } from 'node:path';
+
+import type { DockerConfig } from '../../../config/types.js';
 import { ToolError } from '../../../util/errors.js';
 import { getLogger } from '../../../util/logger.js';
-import type { DockerConfig } from '../../../config/types.js';
 import type { SandboxBackend, SandboxResult, WrapOptions } from './types.js';
 
 const log = getLogger('docker-sandbox');

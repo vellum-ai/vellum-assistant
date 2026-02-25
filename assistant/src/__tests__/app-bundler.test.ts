@@ -1,4 +1,4 @@
-import { describe, test, expect, mock, beforeEach, afterEach } from 'bun:test';
+import { afterEach,beforeEach, describe, expect, mock, test } from 'bun:test';
 
 // Mock the logger before importing the module under test
 mock.module('../util/logger.js', () => ({

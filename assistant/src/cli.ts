@@ -1,24 +1,25 @@
+import { appendFileSync, mkdirSync,readFileSync } from 'node:fs';
 import * as net from 'node:net';
-import * as readline from 'node:readline';
-import { readFileSync, appendFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { getSocketPath, getHistoryPath, readSessionToken } from './util/platform.js';
+import * as readline from 'node:readline';
+
+import { type MainScreenLayout,renderMainScreen, updateDaemonText, updateStatusText } from './cli/main-screen.jsx';
 import { hasNoAuthOverride } from './daemon/connection-policy.js';
-import {
-  serialize,
-  createMessageParser,
-  type ClientMessage,
-  type ServerMessage,
-  type ConfirmationRequest,
-} from './daemon/ipc-protocol.js';
-import { formatDiff, formatNewFileDiff } from './util/diff.js';
-import { Spinner } from './util/spinner.js';
-import { truncate } from './util/truncate.js';
-import { copyToClipboard, extractLastCodeBlock, formatSessionForExport } from './util/clipboard.js';
-import { timeAgo } from './util/time.js';
-import { ensureDaemonRunning } from './daemon/lifecycle.js';
 import { shouldAutoStartDaemon } from './daemon/connection-policy.js';
-import { renderMainScreen, updateStatusText, updateDaemonText, type MainScreenLayout } from './cli/main-screen.jsx';
+import {
+  type ClientMessage,
+  type ConfirmationRequest,
+  createMessageParser,
+  serialize,
+  type ServerMessage,
+} from './daemon/ipc-protocol.js';
+import { ensureDaemonRunning } from './daemon/lifecycle.js';
+import { copyToClipboard, extractLastCodeBlock, formatSessionForExport } from './util/clipboard.js';
+import { formatDiff, formatNewFileDiff } from './util/diff.js';
+import { getHistoryPath, getSocketPath, readSessionToken } from './util/platform.js';
+import { Spinner } from './util/spinner.js';
+import { timeAgo } from './util/time.js';
+import { truncate } from './util/truncate.js';
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const HEARTBEAT_TIMEOUT_MS = 10_000;

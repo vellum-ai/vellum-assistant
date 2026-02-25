@@ -9,7 +9,6 @@
  *   3. bun test src/__tests__/terminal-sandbox.integration.test.ts
  */
 
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { execFileSync, spawnSync } from 'node:child_process';
 import {
   existsSync,
@@ -22,8 +21,11 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import { getSandboxWorkingDir } from '../util/platform.js';
+
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+
 import { DEFAULT_CONFIG } from '../config/defaults.js';
+import { getSandboxWorkingDir } from '../util/platform.js';
 
 // ---------------------------------------------------------------------------
 // Runtime gate: skip entire file if Docker is not usable

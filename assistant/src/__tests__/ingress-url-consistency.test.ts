@@ -1,5 +1,6 @@
-import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
 import { createHmac } from 'node:crypto';
+
+import { afterEach, beforeEach, describe, expect, mock,test } from 'bun:test';
 
 // ---------------------------------------------------------------------------
 // Mocks — silence logger output during tests
@@ -19,8 +20,8 @@ mock.module('../util/logger.js', () => ({
 
 import {
   getPublicBaseUrl,
-  getTwilioVoiceWebhookUrl,
   getTwilioStatusCallbackUrl,
+  getTwilioVoiceWebhookUrl,
   type IngressConfig,
 } from '../inbound/public-ingress-urls.js';
 

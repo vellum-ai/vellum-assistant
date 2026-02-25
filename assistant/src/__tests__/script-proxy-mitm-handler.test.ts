@@ -1,15 +1,17 @@
-import { describe, test, expect, beforeAll, afterEach } from 'bun:test';
-import { createServer as createHttpsServer } from 'node:https';
+import { mkdtemp,readFile } from 'node:fs/promises';
 import type { Server } from 'node:http';
+import { createServer as createHttpsServer } from 'node:https';
 import { connect } from 'node:net';
-import { connect as tlsConnect } from 'node:tls';
-import { readFile, mkdtemp } from 'node:fs/promises';
-import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { ensureLocalCA, issueLeafCert, getCAPath } from '../tools/network/script-proxy/certs.js';
-import { createProxyServer } from '../tools/network/script-proxy/server.js';
+import { join } from 'node:path';
+import { connect as tlsConnect } from 'node:tls';
+
+import { afterEach,beforeAll, describe, expect, test } from 'bun:test';
+
+import { ensureLocalCA, getCAPath,issueLeafCert } from '../tools/network/script-proxy/certs.js';
 import type { RewriteCallback } from '../tools/network/script-proxy/mitm-handler.js';
 import type { RouteDecision } from '../tools/network/script-proxy/router.js';
+import { createProxyServer } from '../tools/network/script-proxy/server.js';
 
 let dataDir: string;
 let caDir: string;

@@ -1,7 +1,7 @@
 import { RiskLevel } from '../../permissions/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 import type { ToolDefinition } from '../../providers/types.js';
 import { registerTool } from '../registry.js';
+import type { Tool, ToolContext, ToolExecutionResult } from '../types.js';
 
 const PERMISSION_TYPES = [
   'full_disk_access',

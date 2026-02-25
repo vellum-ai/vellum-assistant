@@ -1,14 +1,15 @@
 import * as Sentry from '@sentry/node';
-import { getSqlite, resetDb } from '../memory/db.js';
-import { browserManager } from '../tools/browser/browser-manager.js';
-import { getEnrichmentService } from '../workspace/commit-message-enrichment-service.js';
-import { getLogger } from '../util/logger.js';
-import type { DaemonServer } from './server.js';
-import type { RuntimeHttpServer } from '../runtime/http-server.js';
-import type { HeartbeatService } from '../workspace/heartbeat-service.js';
+
 import type { AgentHeartbeatService } from '../agent-heartbeat/agent-heartbeat-service.js';
-import type { QdrantManager } from '../memory/qdrant-manager.js';
 import type { HookManager } from '../hooks/manager.js';
+import { getSqlite, resetDb } from '../memory/db.js';
+import type { QdrantManager } from '../memory/qdrant-manager.js';
+import type { RuntimeHttpServer } from '../runtime/http-server.js';
+import { browserManager } from '../tools/browser/browser-manager.js';
+import { getLogger } from '../util/logger.js';
+import { getEnrichmentService } from '../workspace/commit-message-enrichment-service.js';
+import type { HeartbeatService } from '../workspace/heartbeat-service.js';
+import type { DaemonServer } from './server.js';
 
 const log = getLogger('lifecycle');
 

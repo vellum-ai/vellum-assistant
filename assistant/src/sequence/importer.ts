@@ -6,13 +6,14 @@
  */
 
 import { readFileSync } from 'node:fs';
+
 import { getLogger } from '../util/logger.js';
-import { enrollContact, getSequence } from './store.js';
 import {
+  checkCooldown,
   checkDuplicateEnrollment,
   checkEnrollmentCap,
-  checkCooldown,
 } from './guardrails.js';
+import { enrollContact, getSequence } from './store.js';
 
 const log = getLogger('sequence:importer');
 

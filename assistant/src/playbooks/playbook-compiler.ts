@@ -5,10 +5,11 @@
  */
 
 import { and, desc, eq, isNull } from 'drizzle-orm';
+
 import { getDb } from '../memory/db.js';
 import { memoryItems } from '../memory/schema.js';
-import { parsePlaybookStatement } from './types.js';
 import type { Playbook } from './types.js';
+import { parsePlaybookStatement } from './types.js';
 
 export interface CompiledPlaybooks {
   /** Formatted text block ready for system prompt injection. */

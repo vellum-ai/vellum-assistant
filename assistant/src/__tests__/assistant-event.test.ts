@@ -1,4 +1,5 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, expect,test } from 'bun:test';
+
 import type { AssistantEvent } from '../runtime/assistant-event.js';
 import { formatSseFrame, formatSseHeartbeat } from '../runtime/assistant-event.js';
 

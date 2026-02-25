@@ -1,159 +1,154 @@
 import { z } from 'zod';
+
 import { getDataDir } from '../util/platform.js';
 
 // Re-export all domain schemas
-export {
-  MemoryEmbeddingsConfigSchema,
-  QdrantConfigSchema,
-  MemoryRerankingConfigSchema,
-  MemoryDynamicBudgetConfigSchema,
-  MemoryEarlyTerminationConfigSchema,
-  MemoryRetrievalConfigSchema,
-  MemorySegmentationConfigSchema,
-  MemoryJobsConfigSchema,
-  MemoryRetentionConfigSchema,
-  MemoryCleanupConfigSchema,
-  MemoryExtractionConfigSchema,
-  MemoryEntityConfigSchema,
-  MemoryConflictsConfigSchema,
-  MemoryProfileConfigSchema,
-  MemorySummarizationConfigSchema,
-  MemoryConfigSchema,
-} from './memory-schema.js';
 export type {
-  MemoryEmbeddingsConfig,
-  MemoryRerankingConfig,
-  MemoryRetrievalConfig,
-  MemorySegmentationConfig,
-  MemoryJobsConfig,
-  MemoryRetentionConfig,
-  MemoryCleanupConfig,
-  MemoryExtractionConfig,
-  MemorySummarizationConfig,
-  MemoryEntityConfig,
-  MemoryConflictsConfig,
-  MemoryProfileConfig,
-  MemoryConfig,
-  QdrantConfig,
-} from './memory-schema.js';
-
-export {
-  CallsDisclosureConfigSchema,
-  CallsSafetyConfigSchema,
-  CallsElevenLabsConfigSchema,
-  CallsVoiceConfigSchema,
-  CallerIdentityConfigSchema,
-  CallsVerificationConfigSchema,
-  CallsConfigSchema,
-  VALID_CALLER_IDENTITY_MODES,
-} from './calls-schema.js';
-export type {
-  CallsConfig,
-  CallsDisclosureConfig,
-  CallsSafetyConfig,
-  CallsVoiceConfig,
-  CallsElevenLabsConfig,
-  CallerIdentityConfig,
-  CallsVerificationConfig,
-} from './calls-schema.js';
-
-export {
-  DockerConfigSchema,
-  SandboxConfigSchema,
-} from './sandbox-schema.js';
-export type {
-  SandboxConfig,
-  DockerConfig,
-} from './sandbox-schema.js';
-
-export {
-  SkillEntryConfigSchema,
-  SkillsLoadConfigSchema,
-  SkillsInstallConfigSchema,
-  SkillsConfigSchema,
-} from './skills-schema.js';
-export type {
-  SkillEntryConfig,
-  SkillsLoadConfig,
-  SkillsInstallConfig,
-  SkillsConfig,
-} from './skills-schema.js';
-
+  AgentHeartbeatConfig,
+  SwarmConfig,
+  WorkspaceGitConfig,
+} from './agent-schema.js';
 export {
   AgentHeartbeatConfigSchema,
   SwarmConfigSchema,
   WorkspaceGitConfigSchema,
 } from './agent-schema.js';
 export type {
-  AgentHeartbeatConfig,
-  SwarmConfig,
-  WorkspaceGitConfig,
-} from './agent-schema.js';
-
+  CallerIdentityConfig,
+  CallsConfig,
+  CallsDisclosureConfig,
+  CallsElevenLabsConfig,
+  CallsSafetyConfig,
+  CallsVerificationConfig,
+  CallsVoiceConfig,
+} from './calls-schema.js';
+export {
+  CallerIdentityConfigSchema,
+  CallsConfigSchema,
+  CallsDisclosureConfigSchema,
+  CallsElevenLabsConfigSchema,
+  CallsSafetyConfigSchema,
+  CallsVerificationConfigSchema,
+  CallsVoiceConfigSchema,
+  VALID_CALLER_IDENTITY_MODES,
+} from './calls-schema.js';
+export type {
+  AuditLogConfig,
+  ContextWindowConfig,
+  DaemonConfig,
+  IngressConfig,
+  IngressRateLimitConfig,
+  IngressWebhookConfig,
+  LogFileConfig,
+  ModelPricingOverride,
+  PermissionsConfig,
+  PlatformConfig,
+  RateLimitConfig,
+  SecretDetectionConfig,
+  SmsConfig,
+  ThinkingConfig,
+  TimeoutConfig,
+} from './core-schema.js';
+export {
+  AuditLogConfigSchema,
+  ContextWindowConfigSchema,
+  DaemonConfigSchema,
+  IngressConfigSchema,
+  IngressRateLimitConfigSchema,
+  IngressWebhookConfigSchema,
+  LogFileConfigSchema,
+  ModelPricingOverrideSchema,
+  PermissionsConfigSchema,
+  PlatformConfigSchema,
+  RateLimitConfigSchema,
+  SecretDetectionConfigSchema,
+  SmsConfigSchema,
+  ThinkingConfigSchema,
+  TimeoutConfigSchema,
+} from './core-schema.js';
+export type {
+  MemoryCleanupConfig,
+  MemoryConfig,
+  MemoryConflictsConfig,
+  MemoryEmbeddingsConfig,
+  MemoryEntityConfig,
+  MemoryExtractionConfig,
+  MemoryJobsConfig,
+  MemoryProfileConfig,
+  MemoryRerankingConfig,
+  MemoryRetentionConfig,
+  MemoryRetrievalConfig,
+  MemorySegmentationConfig,
+  MemorySummarizationConfig,
+  QdrantConfig,
+} from './memory-schema.js';
+export {
+  MemoryCleanupConfigSchema,
+  MemoryConfigSchema,
+  MemoryConflictsConfigSchema,
+  MemoryDynamicBudgetConfigSchema,
+  MemoryEarlyTerminationConfigSchema,
+  MemoryEmbeddingsConfigSchema,
+  MemoryEntityConfigSchema,
+  MemoryExtractionConfigSchema,
+  MemoryJobsConfigSchema,
+  MemoryProfileConfigSchema,
+  MemoryRerankingConfigSchema,
+  MemoryRetentionConfigSchema,
+  MemoryRetrievalConfigSchema,
+  MemorySegmentationConfigSchema,
+  MemorySummarizationConfigSchema,
+  QdrantConfigSchema,
+} from './memory-schema.js';
+export type {
+  NotificationsConfig,
+} from './notifications-schema.js';
 export {
   NotificationsConfigSchema,
 } from './notifications-schema.js';
 export type {
-  NotificationsConfig,
-} from './notifications-schema.js';
-
+  DockerConfig,
+  SandboxConfig,
+} from './sandbox-schema.js';
 export {
-  TimeoutConfigSchema,
-  RateLimitConfigSchema,
-  SecretDetectionConfigSchema,
-  PermissionsConfigSchema,
-  AuditLogConfigSchema,
-  LogFileConfigSchema,
-  ThinkingConfigSchema,
-  ContextWindowConfigSchema,
-  ModelPricingOverrideSchema,
-  SmsConfigSchema,
-  IngressWebhookConfigSchema,
-  IngressRateLimitConfigSchema,
-  IngressConfigSchema,
-  DaemonConfigSchema,
-  PlatformConfigSchema,
-} from './core-schema.js';
+  DockerConfigSchema,
+  SandboxConfigSchema,
+} from './sandbox-schema.js';
 export type {
-  TimeoutConfig,
-  RateLimitConfig,
-  SecretDetectionConfig,
-  PermissionsConfig,
-  AuditLogConfig,
-  LogFileConfig,
-  ThinkingConfig,
-  ContextWindowConfig,
-  ModelPricingOverride,
-  SmsConfig,
-  IngressWebhookConfig,
-  IngressRateLimitConfig,
-  IngressConfig,
-  DaemonConfig,
-  PlatformConfig,
-} from './core-schema.js';
+  SkillEntryConfig,
+  SkillsConfig,
+  SkillsInstallConfig,
+  SkillsLoadConfig,
+} from './skills-schema.js';
+export {
+  SkillEntryConfigSchema,
+  SkillsConfigSchema,
+  SkillsInstallConfigSchema,
+  SkillsLoadConfigSchema,
+} from './skills-schema.js';
 
 // Imports for AssistantConfigSchema composition
-import { MemoryConfigSchema } from './memory-schema.js';
-import { CallsConfigSchema } from './calls-schema.js';
-import { SandboxConfigSchema } from './sandbox-schema.js';
-import { SkillsConfigSchema } from './skills-schema.js';
 import { AgentHeartbeatConfigSchema, SwarmConfigSchema, WorkspaceGitConfigSchema } from './agent-schema.js';
-import { NotificationsConfigSchema } from './notifications-schema.js';
+import { CallsConfigSchema } from './calls-schema.js';
 import {
-  TimeoutConfigSchema,
+  AuditLogConfigSchema,
+  ContextWindowConfigSchema,
+  DaemonConfigSchema,
+  IngressConfigSchema,
+  LogFileConfigSchema,
+  ModelPricingOverrideSchema,
+  PermissionsConfigSchema,
+  PlatformConfigSchema,
   RateLimitConfigSchema,
   SecretDetectionConfigSchema,
-  PermissionsConfigSchema,
-  AuditLogConfigSchema,
-  LogFileConfigSchema,
-  ThinkingConfigSchema,
-  ContextWindowConfigSchema,
-  ModelPricingOverrideSchema,
   SmsConfigSchema,
-  IngressConfigSchema,
-  DaemonConfigSchema,
-  PlatformConfigSchema,
+  ThinkingConfigSchema,
+  TimeoutConfigSchema,
 } from './core-schema.js';
+import { MemoryConfigSchema } from './memory-schema.js';
+import { NotificationsConfigSchema } from './notifications-schema.js';
+import { SandboxConfigSchema } from './sandbox-schema.js';
+import { SkillsConfigSchema } from './skills-schema.js';
 
 const VALID_PROVIDERS = ['anthropic', 'openai', 'gemini', 'ollama', 'fireworks', 'openrouter'] as const;
 const VALID_WEB_SEARCH_PROVIDERS = ['perplexity', 'brave', 'anthropic-native'] as const;
@@ -172,7 +167,7 @@ export const AssistantConfigSchema = z.object({
     .default('gemini-2.5-flash-image'),
   apiKeys: z
     .record(z.string(), z.string({ error: 'Each apiKeys value must be a string' }))
-    .default({}),
+    .default({} as any),
   webSearchProvider: z
     .enum(VALID_WEB_SEARCH_PROVIDERS, {
       error: `webSearchProvider must be one of: ${VALID_WEB_SEARCH_PROVIDERS.join(', ')}`,
@@ -193,48 +188,51 @@ export const AssistantConfigSchema = z.object({
     .int('maxToolUseTurns must be an integer')
     .positive('maxToolUseTurns must be a positive integer')
     .default(60),
-  thinking: ThinkingConfigSchema.default({}),
-  contextWindow: ContextWindowConfigSchema.default({}),
-  memory: MemoryConfigSchema.default({}),
+  thinking: ThinkingConfigSchema.default({} as any),
+  contextWindow: ContextWindowConfigSchema.default({} as any),
+  memory: MemoryConfigSchema.default({} as any),
   dataDir: z
     .string({ error: 'dataDir must be a string' })
     .default(getDataDir()),
-  timeouts: TimeoutConfigSchema.default({}),
-  sandbox: SandboxConfigSchema.default({}),
-  rateLimit: RateLimitConfigSchema.default({}),
-  secretDetection: SecretDetectionConfigSchema.default({}),
-  permissions: PermissionsConfigSchema.default({}),
-  auditLog: AuditLogConfigSchema.default({}),
-  logFile: LogFileConfigSchema.default({}),
+  timeouts: TimeoutConfigSchema.default({} as any),
+  sandbox: SandboxConfigSchema.default({} as any),
+  rateLimit: RateLimitConfigSchema.default({} as any),
+  secretDetection: SecretDetectionConfigSchema.default({} as any),
+  permissions: PermissionsConfigSchema.default({} as any),
+  auditLog: AuditLogConfigSchema.default({} as any),
+  logFile: LogFileConfigSchema.default({} as any),
   pricingOverrides: z
     .array(ModelPricingOverrideSchema)
     .default([]),
-  agentHeartbeat: AgentHeartbeatConfigSchema.default({}),
-  swarm: SwarmConfigSchema.default({}),
-  skills: SkillsConfigSchema.default({}),
-  workspaceGit: WorkspaceGitConfigSchema.default({}),
-  calls: CallsConfigSchema.default({}),
-  sms: SmsConfigSchema.default({}),
+  agentHeartbeat: AgentHeartbeatConfigSchema.default({} as any),
+  swarm: SwarmConfigSchema.default({} as any),
+  skills: SkillsConfigSchema.default({} as any),
+  workspaceGit: WorkspaceGitConfigSchema.default({} as any),
+  calls: CallsConfigSchema.default({} as any),
+  sms: SmsConfigSchema.default({} as any),
   ingress: IngressConfigSchema,
-  platform: PlatformConfigSchema.default({}),
-  daemon: DaemonConfigSchema.default({}),
-  notifications: NotificationsConfigSchema.default({}),
+  platform: PlatformConfigSchema.default({} as any),
+  daemon: DaemonConfigSchema.default({} as any),
+  notifications: NotificationsConfigSchema.default({} as any),
 }).superRefine((config, ctx) => {
-  if (config.contextWindow.targetInputTokens >= config.contextWindow.maxInputTokens) {
+  if (config.contextWindow?.targetInputTokens != null && config.contextWindow?.maxInputTokens != null &&
+      config.contextWindow.targetInputTokens >= config.contextWindow.maxInputTokens) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['contextWindow', 'targetInputTokens'],
       message: 'contextWindow.targetInputTokens must be less than contextWindow.maxInputTokens',
     });
   }
-  if (config.memory.segmentation.overlapTokens >= config.memory.segmentation.targetTokens) {
+  const segmentation = config.memory?.segmentation;
+  if (segmentation && segmentation.overlapTokens >= segmentation.targetTokens) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['memory', 'segmentation', 'overlapTokens'],
       message: 'memory.segmentation.overlapTokens must be less than memory.segmentation.targetTokens',
     });
   }
-  if (config.memory.retrieval.dynamicBudget.minInjectTokens > config.memory.retrieval.dynamicBudget.maxInjectTokens) {
+  const dynamicBudget = config.memory?.retrieval?.dynamicBudget;
+  if (dynamicBudget && dynamicBudget.minInjectTokens > dynamicBudget.maxInjectTokens) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['memory', 'retrieval', 'dynamicBudget'],

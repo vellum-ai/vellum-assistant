@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test } from 'bun:test';
+
 import { EventBus } from '../events/bus.js';
 import type { AssistantDomainEvents } from '../events/domain-events.js';
 import { registerToolMetricsLoggingListener } from '../events/tool-metrics-listener.js';

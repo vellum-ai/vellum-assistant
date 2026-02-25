@@ -41,7 +41,7 @@ export const SandboxConfigSchema = z.object({
       error: `sandbox.backend must be one of: ${VALID_SANDBOX_BACKENDS.join(', ')}`,
     })
     .default('docker'),
-  docker: DockerConfigSchema.default({}),
+  docker: DockerConfigSchema.default({} as any),
 });
 
 export type SandboxConfig = z.infer<typeof SandboxConfigSchema>;

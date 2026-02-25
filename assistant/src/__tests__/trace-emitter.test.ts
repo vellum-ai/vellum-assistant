@@ -1,6 +1,7 @@
-import { describe, it, expect, mock } from 'bun:test';
-import { TraceEmitter } from '../daemon/trace-emitter.js';
+import { describe, expect, it, mock } from 'bun:test';
+
 import type { ServerMessage, TraceEvent } from '../daemon/ipc-protocol.js';
+import { TraceEmitter } from '../daemon/trace-emitter.js';
 
 function createEmitter() {
   const sent: TraceEvent[] = [];

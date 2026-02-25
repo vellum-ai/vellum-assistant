@@ -7,6 +7,7 @@
  */
 
 import { eq } from 'drizzle-orm';
+
 import { getDb } from '../memory/db.js';
 import { notificationDeliveries } from '../memory/schema.js';
 import type { NotificationChannel, NotificationDeliveryStatus } from './types.js';

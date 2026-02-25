@@ -7,6 +7,7 @@
 
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+
 import JSZip from 'jszip';
 
 export interface SignatureJson {

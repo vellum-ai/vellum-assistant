@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import { computeRecallBudget } from '../memory/retrieval-budget.js';
 
 describe('memory retrieval budget', () => {

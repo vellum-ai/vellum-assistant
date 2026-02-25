@@ -1,28 +1,26 @@
-export type {
-  ProxySessionId,
-  ProxySession,
-  ProxySessionConfig,
-  ProxySessionStatus,
-  ProxyEnvVars,
-  ProxyApprovalRequest,
-  ProxyApprovalCallback,
-} from './types.js';
-
 export {
-  createSession,
-  startSession,
-  stopSession,
-  getSessionEnv,
-  getActiveSession,
-  getOrStartSession,
-  getSessionsForConversation,
-  stopAllSessions,
-} from './session-manager.js';
-
-export {
-  ensureLocalCA,
   ensureCombinedCABundle,
-  issueLeafCert,
+  ensureLocalCA,
   getCAPath,
   getCombinedCAPath,
+  issueLeafCert,
 } from './certs.js';
+export {
+  createSession,
+  getActiveSession,
+  getOrStartSession,
+  getSessionEnv,
+  getSessionsForConversation,
+  startSession,
+  stopAllSessions,
+  stopSession,
+} from './session-manager.js';
+export type {
+  ProxyApprovalCallback,
+  ProxyApprovalRequest,
+  ProxyEnvVars,
+  ProxySession,
+  ProxySessionConfig,
+  ProxySessionId,
+  ProxySessionStatus,
+} from './types.js';

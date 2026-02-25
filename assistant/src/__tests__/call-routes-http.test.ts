@@ -5,10 +5,11 @@
  * POST /v1/calls/:id/cancel, and POST /v1/calls/:id/answer
  * through RuntimeHttpServer.
  */
-import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
-import { mkdtempSync, rmSync, realpathSync } from 'node:fs';
+import { mkdtempSync, realpathSync,rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, beforeEach, describe, expect, mock,test } from 'bun:test';
 
 const testDir = realpathSync(mkdtempSync(join(tmpdir(), 'call-routes-http-test-')));
 
@@ -95,14 +96,15 @@ mock.module('../security/secure-keys.js', () => ({
   getSecureKey: () => null,
 }));
 
-import { initializeDb, getDb, resetDb } from '../memory/db.js';
-import { conversations } from '../memory/schema.js';
-import { RuntimeHttpServer } from '../runtime/http-server.js';
 import {
   createCallSession,
-  updateCallSession,
   createPendingQuestion,
+  updateCallSession,
 } from '../calls/call-store.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
+import { conversations } from '../memory/schema.js';
+import { RuntimeHttpServer } from '../runtime/http-server.js';
+
 import '../calls/call-state.js';
 
 initializeDb();

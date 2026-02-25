@@ -1,7 +1,8 @@
-import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, beforeEach, describe, expect, mock,test } from 'bun:test';
 import { eq } from 'drizzle-orm';
 
 const testDir = mkdtempSync(join(tmpdir(), 'conflict-store-test-'));
@@ -24,8 +25,6 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
-import { initializeDb, getDb, resetDb } from '../memory/db.js';
-import { memoryItems } from '../memory/schema.js';
 import {
   applyConflictResolution,
   createOrUpdatePendingConflict,
@@ -36,6 +35,8 @@ import {
   markConflictAsked,
   resolveConflict,
 } from '../memory/conflict-store.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
+import { memoryItems } from '../memory/schema.js';
 
 initializeDb();
 

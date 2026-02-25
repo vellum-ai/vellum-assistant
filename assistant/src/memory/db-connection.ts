@@ -1,7 +1,8 @@
 import { Database } from 'bun:sqlite';
 import { drizzle } from 'drizzle-orm/bun-sqlite';
+
+import { ensureDataDir, getDbPath, migrateToDataLayout, migrateToWorkspaceLayout } from '../util/platform.js';
 import * as schema from './schema.js';
-import { getDbPath, ensureDataDir, migrateToDataLayout, migrateToWorkspaceLayout } from '../util/platform.js';
 
 export type DrizzleDb = ReturnType<typeof drizzle<typeof schema>>;
 

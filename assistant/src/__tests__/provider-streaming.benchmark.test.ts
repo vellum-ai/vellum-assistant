@@ -10,7 +10,7 @@
  * - Abort signal stops streaming within 100ms
  * - Stream timeout fires within 50ms of configured deadline
  */
-import { describe, test, expect, mock } from 'bun:test';
+import { describe, expect, mock,test } from 'bun:test';
 
 mock.module('../util/logger.js', () => ({
   getLogger: () =>
@@ -18,16 +18,16 @@ mock.module('../util/logger.js', () => ({
   isDebug: () => false,
 }));
 
-import { createStreamTimeout } from '../providers/stream-timeout.js';
-import { RetryProvider } from '../providers/retry.js';
 import { FailoverProvider } from '../providers/failover.js';
+import { RetryProvider } from '../providers/retry.js';
+import { createStreamTimeout } from '../providers/stream-timeout.js';
 import type {
+  Message,
   Provider,
+  ProviderEvent,
   ProviderResponse,
   SendMessageOptions,
-  Message,
   ToolDefinition,
-  ProviderEvent,
 } from '../providers/types.js';
 import { ProviderError } from '../util/errors.js';
 

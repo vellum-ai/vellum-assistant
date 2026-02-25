@@ -1,12 +1,13 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, expect,it } from 'bun:test';
+
 import {
-  parseDroppedFrameTimestamps,
   buildDeadTimeRanges,
-  computeLiveRanges,
-  createSegments,
   computeEffectiveInterval,
-  generateFrameTimestamps,
+  computeLiveRanges,
   createDefaultSections,
+  createSegments,
+  generateFrameTimestamps,
+  parseDroppedFrameTimestamps,
   sampleFrameIndices,
   type TimeRange,
 } from '../services/preprocess.js';

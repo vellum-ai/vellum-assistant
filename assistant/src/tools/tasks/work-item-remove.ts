@@ -1,6 +1,6 @@
-import type { ToolContext, ToolExecutionResult } from '../types.js';
-import { resolveWorkItem, removeWorkItemFromQueue, identifyEntityById, buildTaskTemplateMismatchError, type WorkItemStatus } from '../../work-items/work-item-store.js';
 import { getLogger } from '../../util/logger.js';
+import { buildTaskTemplateMismatchError, identifyEntityById, removeWorkItemFromQueue, resolveWorkItem, type WorkItemStatus } from '../../work-items/work-item-store.js';
+import type { ToolContext, ToolExecutionResult } from '../types.js';
 
 const log = getLogger('task-list-remove');
 

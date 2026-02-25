@@ -8,8 +8,8 @@
 
 import { getLogger } from '../util/logger.js';
 import {
-  listEnrollments,
   countActiveEnrollments,
+  listEnrollments,
 } from './store.js';
 import type { SequenceEnrollment } from './types.js';
 

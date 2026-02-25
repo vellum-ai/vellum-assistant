@@ -15,10 +15,11 @@
  * - Secret scanning < 50ms for large outputs (100KB)
  * - ToolExecutor overhead < 20ms regardless of tool execution time
  */
-import { describe, test, expect, beforeAll, afterAll, mock } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, beforeAll, describe, expect, mock,test } from 'bun:test';
 
 const testDir = mkdtempSync(join(tmpdir(), 'tool-pipeline-bench-'));
 
@@ -86,11 +87,11 @@ mock.module('../hooks/manager.js', () => ({
   }),
 }));
 
-import { classifyRisk, check } from '../permissions/checker.js';
-import { scanText, DEFAULT_ENTROPY_CONFIG } from '../security/secret-scanner.js';
-import { RiskLevel } from '../permissions/types.js';
-import { ToolExecutor } from '../tools/executor.js';
+import { check,classifyRisk } from '../permissions/checker.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
+import { RiskLevel } from '../permissions/types.js';
+import { DEFAULT_ENTROPY_CONFIG,scanText } from '../security/secret-scanner.js';
+import { ToolExecutor } from '../tools/executor.js';
 import type { Tool, ToolContext, ToolExecutionResult } from '../tools/types.js';
 
 // ---------------------------------------------------------------------------

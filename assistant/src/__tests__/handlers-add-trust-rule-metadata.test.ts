@@ -1,9 +1,10 @@
  
-import { describe, test, expect, beforeEach } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
+import * as net from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import * as net from 'node:net';
+
+import { beforeEach,describe, expect, test } from 'bun:test';
 import { mock } from 'bun:test';
 
 const testDir = mkdtempSync(join(tmpdir(), 'trust-rule-metadata-test-'));
@@ -57,11 +58,11 @@ mock.module('../config/loader.js', () => ({
   setNestedValue: () => {},
 }));
 
-import { handleAddTrustRule } from '../daemon/handlers/config.js';
-import { getAllRules, clearAllRules, clearCache } from '../permissions/trust-store.js';
-import type { AddTrustRule } from '../daemon/ipc-contract.js';
 import type { HandlerContext } from '../daemon/handlers.js';
+import { handleAddTrustRule } from '../daemon/handlers/config.js';
+import type { AddTrustRule } from '../daemon/ipc-contract.js';
 import type { ServerMessage } from '../daemon/ipc-contract.js';
+import { clearAllRules, clearCache,getAllRules } from '../permissions/trust-store.js';
 import { DebouncerMap } from '../util/debounce.js';
 
 function createTestContext(): { ctx: HandlerContext; sent: ServerMessage[] } {

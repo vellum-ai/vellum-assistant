@@ -13,12 +13,13 @@
 
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { pathExists, ensureDir } from '../util/fs.js';
-import { getRootDir } from '../util/platform.js';
-import { getKey, setKey, deleteKey } from './encrypted-store.js';
-import { getLogger } from '../util/logger.js';
+import { dirname,join } from 'node:path';
+
 import type { ParentalContentTopic, ParentalToolCategory } from '../daemon/ipc-contract/parental-control.js';
+import { ensureDir,pathExists } from '../util/fs.js';
+import { getLogger } from '../util/logger.js';
+import { getRootDir } from '../util/platform.js';
+import { deleteKey,getKey, setKey } from './encrypted-store.js';
 
 const log = getLogger('parental-control');
 

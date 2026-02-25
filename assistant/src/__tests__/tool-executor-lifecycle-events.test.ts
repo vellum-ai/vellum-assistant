@@ -1,4 +1,5 @@
-import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
+import { afterAll, beforeEach, describe, expect, mock,test } from 'bun:test';
+
 import type { ToolExecutionResult, ToolLifecycleEvent } from '../tools/types.js';
 
 const mockConfig = {
@@ -128,8 +129,8 @@ mock.module('../tools/terminal/sandbox.js', () => ({
   wrapCommand: () => ({ command: '', sandboxed }),
 }));
 
-import { ToolExecutor } from '../tools/executor.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
+import { ToolExecutor } from '../tools/executor.js';
 import { ToolError } from '../util/errors.js';
 
 function makeContext(events: ToolLifecycleEvent[]) {

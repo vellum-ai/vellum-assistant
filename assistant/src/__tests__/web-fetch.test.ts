@@ -1,7 +1,9 @@
  
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { PassThrough } from 'node:stream';
 import type { IncomingHttpHeaders } from 'node:http';
+import { PassThrough } from 'node:stream';
+
+import { afterEach,beforeEach, describe, expect, test } from 'bun:test';
+
 import { buildFetchResponseFromNodeResponse, executeWebFetch } from '../tools/network/web-fetch.js';
 
 describe('web_fetch tool', () => {
@@ -535,7 +537,7 @@ describe('web_fetch tool', () => {
           if (hostname === 'evil-redirect.example') return ['192.168.1.100'];
           return ['93.184.216.34'];
         },
-        requestExecutor: async (_url, requestOptions) => {
+        requestExecutor: async (_url, _requestOptions) => {
           callCount++;
           if (callCount === 1) {
             return new Response('', {

@@ -1,7 +1,8 @@
-import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, beforeEach, describe, expect, mock,test } from 'bun:test';
 
 const testDir = mkdtempSync(join(tmpdir(), 'task-mgmt-test-'));
 
@@ -35,18 +36,18 @@ mock.module('../tools/registry.js', () => ({
   getAllTools: () => [],
 }));
 
-import { initializeDb, getDb, resetDb } from '../memory/db.js';
-import { createTask, getTask, listTasks, deleteTask, deleteTasks, createTaskRun, getTaskRun, updateTaskRun } from '../tasks/task-store.js';
-import { createWorkItem, getWorkItem, listWorkItems, updateWorkItem, deleteWorkItem, removeWorkItemFromQueue, resolveWorkItem, findActiveWorkItemsByTitle, findActiveWorkItemsByTaskId, identifyEntityById } from '../work-items/work-item-store.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { renderTemplate } from '../tasks/task-runner.js';
-import { executeTaskList } from '../tools/tasks/task-list.js';
+import { createTask, createTaskRun, deleteTask, deleteTasks, getTask, getTaskRun, listTasks, updateTaskRun } from '../tasks/task-store.js';
 import { executeTaskDelete } from '../tools/tasks/task-delete.js';
+import { executeTaskList } from '../tools/tasks/task-list.js';
 import { executeTaskRun } from '../tools/tasks/task-run.js';
-import { executeTaskListShow } from '../tools/tasks/work-item-list.js';
 import { executeTaskListAdd } from '../tools/tasks/work-item-enqueue.js';
-import { executeTaskListUpdate } from '../tools/tasks/work-item-update.js';
+import { executeTaskListShow } from '../tools/tasks/work-item-list.js';
 import { executeTaskListRemove } from '../tools/tasks/work-item-remove.js';
+import { executeTaskListUpdate } from '../tools/tasks/work-item-update.js';
 import type { ToolContext } from '../tools/types.js';
+import { createWorkItem, deleteWorkItem, findActiveWorkItemsByTaskId, findActiveWorkItemsByTitle, getWorkItem, identifyEntityById,listWorkItems, removeWorkItemFromQueue, resolveWorkItem, updateWorkItem } from '../work-items/work-item-store.js';
 
 initializeDb();
 

@@ -1,12 +1,14 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { eq, and } from 'drizzle-orm';
-import { getLogger } from '../util/logger.js';
-import { embedWithBackend, getMemoryBackendStatus } from './embedding-backend.js';
-import { getDb } from './db.js';
-import { getQdrantClient } from './qdrant-client.js';
-import { memoryEmbeddings } from './schema.js';
+
+import { and,eq } from 'drizzle-orm';
+
 import type { AssistantConfig } from '../config/types.js';
 import { BackendUnavailableError } from '../util/errors.js';
+import { getLogger } from '../util/logger.js';
+import { getDb } from './db.js';
+import { embedWithBackend, getMemoryBackendStatus } from './embedding-backend.js';
+import { getQdrantClient } from './qdrant-client.js';
+import { memoryEmbeddings } from './schema.js';
 
 export { BackendUnavailableError };
 
@@ -72,9 +74,17 @@ export function classifyError(err: unknown): ErrorCategory {
     }
   }
 
-  // Connection/network errors without a status code
-  if (err instanceof Error && /ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENETUNREACH|fetch failed/i.test(err.message)) {
-    return 'retryable';
+  // Connection/network errors without a status code.
+  // Check both the message (Node.js style) and the `code` property (Bun style,
+  // e.g. code: "ConnectionRefused" from Bun's HTTP client).
+  if (err instanceof Error) {
+    if (/ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENETUNREACH|fetch failed/i.test(err.message)) {
+      return 'retryable';
+    }
+    const code = (err as Error & { code?: string }).code;
+    if (typeof code === 'string' && /^Connection(Refused|Reset|Timeout)|NetworkUnreachable|Unable.?to.?connect/i.test(code)) {
+      return 'retryable';
+    }
   }
 
   // Unknown errors default to fatal to avoid infinite retry loops

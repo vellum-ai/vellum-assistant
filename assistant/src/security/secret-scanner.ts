@@ -757,12 +757,12 @@ export function redactSecrets(text: string, entropyConfig?: Partial<EntropyConfi
 
 // Exported for testing only
 export {
-  isPlaceholder as _isPlaceholder,
-  redact as _redact,
-  PATTERNS as _PATTERNS,
   hasSecretContext as _hasSecretContext,
+  isPlaceholder as _isPlaceholder,
+  PATTERNS as _PATTERNS,
+  redact as _redact,
   tryDecodeBase64 as _tryDecodeBase64,
-  tryDecodePercentEncoded as _tryDecodePercentEncoded,
-  tryDecodeHexEscapes as _tryDecodeHexEscapes,
   tryDecodeContinuousHex as _tryDecodeContinuousHex,
+  tryDecodeHexEscapes as _tryDecodeHexEscapes,
+  tryDecodePercentEncoded as _tryDecodePercentEncoded,
 };

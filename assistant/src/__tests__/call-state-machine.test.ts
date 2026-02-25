@@ -1,5 +1,6 @@
-import { describe, test, expect } from 'bun:test';
-import { validateTransition, isTerminalState } from '../calls/call-state-machine.js';
+import { describe, expect,test } from 'bun:test';
+
+import { isTerminalState,validateTransition } from '../calls/call-state-machine.js';
 import type { CallStatus } from '../calls/types.js';
 
 describe('call-state-machine', () => {

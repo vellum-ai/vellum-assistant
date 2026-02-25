@@ -1,4 +1,5 @@
-import { describe, test, expect, mock } from 'bun:test';
+import { describe, expect, mock,test } from 'bun:test';
+
 import { RiskLevel } from '../permissions/types.js';
 
 mock.module('../util/logger.js', () => ({

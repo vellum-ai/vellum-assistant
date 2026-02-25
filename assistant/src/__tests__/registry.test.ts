@@ -1,25 +1,25 @@
-import { describe, test, expect, beforeEach, afterAll } from 'bun:test';
-import { RiskLevel } from '../permissions/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from '../tools/types.js';
-import type { ToolDefinition } from '../providers/types.js';
+import { afterAll,beforeEach, describe, expect, test } from 'bun:test';
 
+import { RiskLevel } from '../permissions/types.js';
+import type { ToolDefinition } from '../providers/types.js';
 // We cannot import the private LazyTool class directly, so we test through
 // registerLazyTool + getTool which exercise the same code path.
 import {
-  registerTool,
-  registerLazyTool,
-  getTool,
-  getAllTools,
-  getAllToolDefinitions,
-  initializeTools,
-  registerSkillTools,
-  unregisterSkillTools,
-  getSkillToolNames,
-  getSkillRefCount,
-  __resetRegistryForTesting,
   __clearRegistryForTesting,
+  __resetRegistryForTesting,
+  getAllToolDefinitions,
+  getAllTools,
+  getSkillRefCount,
+  getSkillToolNames,
+  getTool,
+  initializeTools,
+  registerLazyTool,
+  registerSkillTools,
+  registerTool,
+  unregisterSkillTools,
 } from '../tools/registry.js';
 import { eagerModuleToolNames, explicitTools, lazyTools } from '../tools/tool-manifest.js';
+import type { Tool, ToolContext, ToolExecutionResult } from '../tools/types.js';
 
 // Clean up global registry after this file completes to prevent
 // contamination of subsequent test files in combined runs.

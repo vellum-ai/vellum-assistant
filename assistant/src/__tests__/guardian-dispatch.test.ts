@@ -1,7 +1,8 @@
-import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, beforeEach, describe, expect, mock,test } from 'bun:test';
 
 const testDir = mkdtempSync(join(tmpdir(), 'guardian-dispatch-test-'));
 
@@ -84,11 +85,11 @@ mock.module('../calls/guardian-question-copy.js', () => ({
   }),
 }));
 
-import { initializeDb, getDb, resetDb } from '../memory/db.js';
-import { conversations } from '../memory/schema.js';
 import { createCallSession, createPendingQuestion } from '../calls/call-store.js';
 import { dispatchGuardianQuestion } from '../calls/guardian-dispatch.js';
 import { getMessages } from '../memory/conversation-store.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
+import { conversations } from '../memory/schema.js';
 
 initializeDb();
 

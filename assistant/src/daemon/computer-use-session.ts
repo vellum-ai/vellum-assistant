@@ -7,23 +7,24 @@
  */
 
 import { v4 as uuid } from 'uuid';
-import type { Provider, Message, ContentBlock, ToolDefinition } from '../providers/types.js';
-import { INTERACTIVE_SURFACE_TYPES } from './ipc-protocol.js';
-import type { ServerMessage, CuObservation, SurfaceType, SurfaceData, FileUploadSurfaceData, UiSurfaceShow } from './ipc-protocol.js';
-import type { Tool, ToolExecutionResult } from '../tools/types.js';
+
 import { AgentLoop } from '../agent/loop.js';
-import { ToolExecutor } from '../tools/executor.js';
+import { buildComputerUseSystemPrompt } from '../config/computer-use-prompt.js';
+import { getConfig } from '../config/loader.js';
 import { PermissionPrompter } from '../permissions/prompter.js';
 import { SecretPrompter } from '../permissions/secret-prompter.js';
 import type { UserDecision } from '../permissions/types.js';
-import { allUiSurfaceTools } from '../tools/ui-surface/definitions.js';
+import type { ContentBlock, Message, Provider, ToolDefinition } from '../providers/types.js';
 import { allComputerUseTools } from '../tools/computer-use/definitions.js';
+import { ToolExecutor } from '../tools/executor.js';
 import { registerSkillTools } from '../tools/registry.js';
-import { buildComputerUseSystemPrompt } from '../config/computer-use-prompt.js';
-import { getSandboxWorkingDir } from '../util/platform.js';
-import { getConfig } from '../config/loader.js';
-import { projectSkillTools, resetSkillToolProjection, type SkillProjectionCache } from './session-skill-tools.js';
+import type { Tool, ToolExecutionResult } from '../tools/types.js';
+import { allUiSurfaceTools } from '../tools/ui-surface/definitions.js';
 import { getLogger } from '../util/logger.js';
+import { getSandboxWorkingDir } from '../util/platform.js';
+import type { CuObservation, FileUploadSurfaceData, ServerMessage, SurfaceData, SurfaceType, UiSurfaceShow } from './ipc-protocol.js';
+import { INTERACTIVE_SURFACE_TYPES } from './ipc-protocol.js';
+import { projectSkillTools, resetSkillToolProjection, type SkillProjectionCache } from './session-skill-tools.js';
 
 const log = getLogger('computer-use-session');
 

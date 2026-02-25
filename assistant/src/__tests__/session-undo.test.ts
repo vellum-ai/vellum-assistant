@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+
 import { CONTEXT_SUMMARY_MARKER, createContextSummaryMessage } from '../context/window-manager.js';
 import { findLastUndoableUserMessageIndex } from '../daemon/session.js';
 import type { Message } from '../providers/types.js';

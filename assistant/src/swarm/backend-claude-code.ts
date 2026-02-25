@@ -6,9 +6,9 @@
  */
 
 import { getConfig } from '../config/loader.js';
-import { getLogger } from '../util/logger.js';
 import { resolveModelIntent } from '../providers/model-intents.js';
 import type { ModelIntent } from '../providers/types.js';
+import { getLogger } from '../util/logger.js';
 import type { SwarmWorkerBackend, SwarmWorkerBackendInput } from './worker-backend.js';
 import { getProfilePolicy } from './worker-backend.js';
 

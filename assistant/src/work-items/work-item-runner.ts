@@ -6,13 +6,13 @@
  * work item execution without needing direct access to HandlerContext.
  */
 
+import type { ServerMessage } from '../daemon/ipc-protocol.js';
+import type { Session } from '../daemon/session.js';
+import { runTask } from '../tasks/task-runner.js';
+import { getTask } from '../tasks/task-store.js';
+import { getRegisteredToolNames,sanitizeToolList } from '../tasks/tool-sanitizer.js';
 import { getLogger } from '../util/logger.js';
 import { getWorkItem, updateWorkItem, type WorkItemStatus } from './work-item-store.js';
-import { getTask } from '../tasks/task-store.js';
-import { runTask } from '../tasks/task-runner.js';
-import { sanitizeToolList, getRegisteredToolNames } from '../tasks/tool-sanitizer.js';
-import type { Session } from '../daemon/session.js';
-import type { ServerMessage } from '../daemon/ipc-protocol.js';
 
 const log = getLogger('work-item-runner');
 

@@ -1,7 +1,8 @@
-import { describe, test, expect, beforeEach, afterAll, mock } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterAll, beforeEach, describe, expect, mock,test } from 'bun:test';
 
 const testDir = mkdtempSync(join(tmpdir(), 'task-runner-test-'));
 
@@ -25,10 +26,10 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
-import { initializeDb, getDb, resetDb } from '../memory/db.js';
-import { createTask } from '../tasks/task-store.js';
+import { getDb, initializeDb, resetDb } from '../memory/db.js';
 import { getTaskRunRules } from '../tasks/ephemeral-permissions.js';
 import { renderTemplate, runTask } from '../tasks/task-runner.js';
+import { createTask } from '../tasks/task-store.js';
 
 initializeDb();
 

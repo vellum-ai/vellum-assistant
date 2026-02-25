@@ -1,5 +1,6 @@
-import { describe, test, expect } from 'bun:test';
-import { parseFrontmatterFields, FRONTMATTER_REGEX } from '../skills/frontmatter.js';
+import { describe, expect,test } from 'bun:test';
+
+import { FRONTMATTER_REGEX,parseFrontmatterFields } from '../skills/frontmatter.js';
 
 describe('FRONTMATTER_REGEX', () => {
   test('matches a standard frontmatter block', () => {

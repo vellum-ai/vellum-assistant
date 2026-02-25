@@ -1,15 +1,16 @@
-import { GoogleGenAI, ApiError } from '@google/genai';
 import type * as genai from '@google/genai';
+import { ApiError,GoogleGenAI } from '@google/genai';
+
+import { ProviderError } from '../../util/errors.js';
+import { createStreamTimeout } from '../stream-timeout.js';
 import type {
+  ContentBlock,
+  Message,
   Provider,
   ProviderResponse,
   SendMessageOptions,
-  Message,
   ToolDefinition,
-  ContentBlock,
 } from '../types.js';
-import { ProviderError } from '../../util/errors.js';
-import { createStreamTimeout } from '../stream-timeout.js';
 
 export class GeminiProvider implements Provider {
   public readonly name = 'gemini';

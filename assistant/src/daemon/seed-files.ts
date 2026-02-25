@@ -1,9 +1,10 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
-import { getInterfacesDir } from '../util/platform.js';
+
 import { loadPrebuiltHtml } from '../home-base/prebuilt/seed.js';
 import { getLogger } from '../util/logger.js';
+import { getInterfacesDir } from '../util/platform.js';
 
 const log = getLogger('seed-files');
 

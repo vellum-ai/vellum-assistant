@@ -1,19 +1,20 @@
-import { describe, test, expect, beforeEach, afterEach, afterAll } from 'bun:test';
-import { mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
-import type { CommitMessageProvider, CommitContext, CommitMessageResult } from '../workspace/commit-message-provider.js';
+import { existsSync,mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
+import { afterAll,afterEach, beforeEach, describe, expect, test } from 'bun:test';
+
+import { _resetEnrichmentService, getEnrichmentService } from '../workspace/commit-message-enrichment-service.js';
+import type { CommitContext, CommitMessageProvider, CommitMessageResult } from '../workspace/commit-message-provider.js';
 import {
-  WorkspaceGitService,
   _resetGitServiceRegistry,
+  WorkspaceGitService,
 } from '../workspace/git-service.js';
 import {
-  HeartbeatService,
   _resetHeartbeatState,
+  HeartbeatService,
 } from '../workspace/heartbeat-service.js';
-import { _resetEnrichmentService, getEnrichmentService } from '../workspace/commit-message-enrichment-service.js';
 
 describe('HeartbeatService', () => {
   let testDir: string;

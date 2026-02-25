@@ -1,13 +1,14 @@
 import * as net from 'node:net';
-import { createVerificationChallenge, getGuardianBinding, getPendingChallenge, revokeBinding as revokeGuardianBinding, revokePendingChallenges } from '../../runtime/channel-guardian-service.js';
-import { createReadinessService, type ChannelReadinessService } from '../../runtime/channel-readiness-service.js';
+
 import * as externalConversationStore from '../../memory/external-conversation-store.js';
-import type {
-  GuardianVerificationRequest,
-  ChannelReadinessRequest,
-} from '../ipc-protocol.js';
+import { createVerificationChallenge, getGuardianBinding, getPendingChallenge, revokeBinding as revokeGuardianBinding, revokePendingChallenges } from '../../runtime/channel-guardian-service.js';
+import { type ChannelReadinessService,createReadinessService } from '../../runtime/channel-readiness-service.js';
 import { normalizeAssistantId } from '../../util/platform.js';
-import { log, defineHandlers, type HandlerContext } from './shared.js';
+import type {
+  ChannelReadinessRequest,
+  GuardianVerificationRequest,
+} from '../ipc-protocol.js';
+import { defineHandlers, type HandlerContext,log } from './shared.js';
 
 // Lazy singleton — created on first use so module-load stays lightweight.
 let _readinessService: ChannelReadinessService | undefined;

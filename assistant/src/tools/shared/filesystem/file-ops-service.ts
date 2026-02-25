@@ -1,16 +1,16 @@
 import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
-import { pathExists, ensureDir } from '../../../util/fs.js';
-import type { PathResult, PathFailureReason } from './path-policy.js';
-import { checkFileSizeOnDisk, checkContentSize } from './size-guard.js';
+import { ensureDir,pathExists } from '../../../util/fs.js';
 import { applyEdit } from './edit-engine.js';
+import * as Err from './errors.js';
+import type { PathFailureReason,PathResult } from './path-policy.js';
+import { checkContentSize,checkFileSizeOnDisk } from './size-guard.js';
 import type {
+  EditInput, EditResult,
   ReadInput, ReadResult,
   WriteInput, WriteResult,
-  EditInput, EditResult,
 } from './types.js';
-import * as Err from './errors.js';
 
 // ---------------------------------------------------------------------------
 // Path policy hook

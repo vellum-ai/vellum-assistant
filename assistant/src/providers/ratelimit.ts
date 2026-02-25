@@ -1,7 +1,7 @@
-import type { Provider, ProviderResponse, SendMessageOptions, Message, ToolDefinition } from './types.js';
 import type { RateLimitConfig } from '../config/types.js';
 import { RateLimitError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
+import type { Message, Provider, ProviderResponse, SendMessageOptions, ToolDefinition } from './types.js';
 
 const log = getLogger('rate-limit');
 

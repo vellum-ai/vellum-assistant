@@ -1,6 +1,6 @@
-import type { EmbeddingBackend, EmbeddingRequestOptions } from './embedding-backend.js';
 import { getLogger } from '../util/logger.js';
 import { PromiseGuard } from '../util/promise-guard.js';
+import type { EmbeddingBackend, EmbeddingRequestOptions } from './embedding-backend.js';
 
 const log = getLogger('memory-embedding-local');
 

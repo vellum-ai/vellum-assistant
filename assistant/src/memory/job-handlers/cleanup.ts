@@ -1,10 +1,11 @@
 import { and, asc, eq, inArray, lt } from 'drizzle-orm';
+
 import type { AssistantConfig } from '../../config/types.js';
 import { getLogger } from '../../util/logger.js';
-import { getDb, rawAll, rawRun } from '../db.js';
 import { checkContradictions } from '../contradiction-checker.js';
-import { enqueueMemoryJob, type MemoryJob } from '../jobs-store.js';
+import { getDb, rawAll, rawRun } from '../db.js';
 import { asPositiveMs, asString } from '../job-utils.js';
+import { enqueueMemoryJob, type MemoryJob } from '../jobs-store.js';
 import { memoryEmbeddings, memoryItemEntities, memoryItems } from '../schema.js';
 
 const log = getLogger('memory-jobs-worker');

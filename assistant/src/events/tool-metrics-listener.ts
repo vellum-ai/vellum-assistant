@@ -1,6 +1,6 @@
+import { getLogger, isDebug, truncateForLog } from '../util/logger.js';
 import type { EventBus, Subscription } from './bus.js';
 import type { AssistantDomainEvents } from './domain-events.js';
-import { getLogger, isDebug, truncateForLog } from '../util/logger.js';
 
 const INPUT_PREVIEW_LIMIT = 300;
 const defaultLogger = getLogger('tool-metrics-listener');

@@ -1,17 +1,17 @@
 import { RiskLevel } from '../permissions/types.js';
-import type { Tool, ToolContext, ToolExecutionResult } from './types.js';
 import type { ToolDefinition } from '../providers/types.js';
 import { getLogger } from '../util/logger.js';
+import { coreAppProxyTools } from './apps/definitions.js';
+import { registerAppTools } from './apps/registry.js';
 import { allComputerUseTools } from './computer-use/definitions.js';
 import { requestComputerControlTool } from './computer-use/request-computer-control.js';
-import { registerUiSurfaceTools } from './ui-surface/registry.js';
-import { allUiSurfaceTools } from './ui-surface/definitions.js';
-import { registerAppTools } from './apps/registry.js';
-import { coreAppProxyTools } from './apps/definitions.js';
+import { hostFileEditTool } from './host-filesystem/edit.js';
 import { hostFileReadTool } from './host-filesystem/read.js';
 import { hostFileWriteTool } from './host-filesystem/write.js';
-import { hostFileEditTool } from './host-filesystem/edit.js';
 import { hostShellTool } from './host-terminal/host-shell.js';
+import type { Tool, ToolContext, ToolExecutionResult } from './types.js';
+import { allUiSurfaceTools } from './ui-surface/definitions.js';
+import { registerUiSurfaceTools } from './ui-surface/registry.js';
 
 const log = getLogger('tool-registry');
 
