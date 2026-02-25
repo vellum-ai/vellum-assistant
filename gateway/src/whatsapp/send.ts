@@ -129,5 +129,9 @@ export async function sendWhatsAppAttachments(
     } catch (err) {
       log.error({ err, to }, "Failed to send attachment failure notice");
     }
+
+    if (failures.length === attachments.length) {
+      throw new Error(`All ${failures.length} attachment(s) failed to deliver`);
+    }
   }
 }

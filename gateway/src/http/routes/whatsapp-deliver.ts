@@ -62,6 +62,10 @@ export function createWhatsAppDeliverHandler(config: GatewayConfig) {
 
     const { text, assistantId, attachments, approval } = body;
 
+    if (text !== undefined && typeof text !== "string") {
+      return Response.json({ error: "text must be a string" }, { status: 400 });
+    }
+
     // Validate approval payload shape when present.
     if (approval !== undefined) {
       if (approval === null || typeof approval !== "object" || Array.isArray(approval)) {
