@@ -148,8 +148,8 @@ extension AppDelegate {
 
     private func openNotificationSettings() {
         let candidates = [
-            "x-apple.systempreferences:com.apple.preference.notifications",
             "x-apple.systempreferences:com.apple.preference.notifications?id=\(Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant")",
+            "x-apple.systempreferences:com.apple.preference.notifications",
         ]
         for candidate in candidates {
             guard let url = URL(string: candidate) else { continue }
