@@ -175,15 +175,18 @@ export function handleGetAttachmentContent(attachmentId: string, req: Request): 
     }
 
     const start = parseInt(match[1], 10);
-    const end = match[2] ? parseInt(match[2], 10) : fileSize - 1;
+    const rawEnd = match[2] ? parseInt(match[2], 10) : fileSize - 1;
 
-    if (start >= fileSize || end >= fileSize || start > end) {
+    // Per RFC 7233, only return 416 when start is beyond the resource.
+    // When end exceeds the resource, clamp it to the last byte.
+    if (start >= fileSize || start > rawEnd) {
       return new Response('Range not satisfiable', {
         status: 416,
         headers: { 'Content-Range': `bytes */${fileSize}` },
       });
     }
 
+    const end = Math.min(rawEnd, fileSize - 1);
     const contentLength = end - start + 1;
     return new Response(file.slice(start, end + 1), {
       status: 206,
@@ -221,15 +224,18 @@ export function handleGetAttachmentContent(attachmentId: string, req: Request): 
   }
 
   const start = parseInt(match[1], 10);
-  const end = match[2] ? parseInt(match[2], 10) : totalSize - 1;
+  const rawEnd = match[2] ? parseInt(match[2], 10) : totalSize - 1;
 
-  if (start >= totalSize || end >= totalSize || start > end) {
+  // Per RFC 7233, only return 416 when start is beyond the resource.
+  // When end exceeds the resource, clamp it to the last byte.
+  if (start >= totalSize || start > rawEnd) {
     return new Response('Range not satisfiable', {
       status: 416,
       headers: { 'Content-Range': `bytes */${totalSize}` },
     });
   }
 
+  const end = Math.min(rawEnd, totalSize - 1);
   const contentLength = end - start + 1;
   return new Response(buffer.subarray(start, end + 1), {
     status: 206,
