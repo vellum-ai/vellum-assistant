@@ -26,6 +26,7 @@ struct ConversationsListResponse: Decodable {
         let source: String?
         let channelBinding: IPCChannelBinding?
         let conversationOriginChannel: String?
+        let conversationOriginInterface: String?
     }
     let sessions: [Session]
     let hasMore: Bool?
@@ -307,7 +308,8 @@ final class HTTPTransport {
 
         var body: [String: Any] = [
             "conversationKey": conversationKey,
-            "sourceChannel": sourceChannel
+            "sourceChannel": sourceChannel,
+            "interface": "macos"
         ]
         if let content, !content.isEmpty {
             body["content"] = content
@@ -410,7 +412,7 @@ final class HTTPTransport {
             do {
                 let decoded = try decoder.decode(ConversationsListResponse.self, from: data)
                 let sessions = decoded.sessions.map {
-                    IPCSessionListResponseSession(id: $0.id, title: $0.title, updatedAt: $0.updatedAt, threadType: $0.threadType, source: $0.source, channelBinding: $0.channelBinding, conversationOriginChannel: $0.conversationOriginChannel)
+                    IPCSessionListResponseSession(id: $0.id, title: $0.title, updatedAt: $0.updatedAt, threadType: $0.threadType, source: $0.source, channelBinding: $0.channelBinding, conversationOriginChannel: $0.conversationOriginChannel, conversationOriginInterface: $0.conversationOriginInterface)
                 }
                 onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: sessions, hasMore: decoded.hasMore)))
             } catch {

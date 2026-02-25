@@ -2323,6 +2323,8 @@ public struct IPCIngressInviteResponseInvite: Codable, Sendable {
 public struct IPCIngressMemberRequest: Codable, Sendable {
     public let type: String
     public let action: String
+    /// Assistant ID for scoping member operations (defaults to 'self').
+    public let assistantId: String?
     /// Source channel (required for upsert, optional filter for list).
     public let sourceChannel: String?
     /// External user ID (upsert only).
@@ -2342,9 +2344,10 @@ public struct IPCIngressMemberRequest: Codable, Sendable {
     /// Reason for revoke or block (revoke and block only).
     public let reason: String?
 
-    public init(type: String, action: String, sourceChannel: String? = nil, externalUserId: String? = nil, externalChatId: String? = nil, displayName: String? = nil, username: String? = nil, policy: String? = nil, status: String? = nil, memberId: String? = nil, reason: String? = nil) {
+    public init(type: String, action: String, assistantId: String? = nil, sourceChannel: String? = nil, externalUserId: String? = nil, externalChatId: String? = nil, displayName: String? = nil, username: String? = nil, policy: String? = nil, status: String? = nil, memberId: String? = nil, reason: String? = nil) {
         self.type = type
         self.action = action
+        self.assistantId = assistantId
         self.sourceChannel = sourceChannel
         self.externalUserId = externalUserId
         self.externalChatId = externalChatId
@@ -3443,8 +3446,9 @@ public struct IPCSessionListResponseSession: Codable, Sendable {
     /// Channel binding metadata exposed in session/conversation list APIs.
     public let channelBinding: IPCChannelBinding?
     public let conversationOriginChannel: String?
+    public let conversationOriginInterface: String?
 
-    public init(id: String, title: String, updatedAt: Int, threadType: String? = nil, source: String? = nil, channelBinding: IPCChannelBinding? = nil, conversationOriginChannel: String? = nil) {
+    public init(id: String, title: String, updatedAt: Int, threadType: String? = nil, source: String? = nil, channelBinding: IPCChannelBinding? = nil, conversationOriginChannel: String? = nil, conversationOriginInterface: String? = nil) {
         self.id = id
         self.title = title
         self.updatedAt = updatedAt
@@ -3452,6 +3456,7 @@ public struct IPCSessionListResponseSession: Codable, Sendable {
         self.source = source
         self.channelBinding = channelBinding
         self.conversationOriginChannel = conversationOriginChannel
+        self.conversationOriginInterface = conversationOriginInterface
     }
 }
 
@@ -5296,14 +5301,9 @@ public struct IPCUserMessage: Codable, Sendable {
     /// Originating channel identifier (e.g. 'vellum'). Defaults to 'vellum' when absent.
     public let channel: String?
     /// Originating interface identifier (e.g. 'macos'). Falls back to channel when absent.
-    public let interface_: String?
+    public let interface: String?
 
-    enum CodingKeys: String, CodingKey {
-        case type, sessionId, content, attachments, activeSurfaceId, currentPage, bypassSecretCheck, channel
-        case interface_ = "interface"
-    }
-
-    public init(type: String, sessionId: String, content: String? = nil, attachments: [IPCUserMessageAttachment]? = nil, activeSurfaceId: String? = nil, currentPage: String? = nil, bypassSecretCheck: Bool? = nil, channel: String? = nil, interface_: String? = nil) {
+    public init(type: String, sessionId: String, content: String? = nil, attachments: [IPCUserMessageAttachment]? = nil, activeSurfaceId: String? = nil, currentPage: String? = nil, bypassSecretCheck: Bool? = nil, channel: String? = nil, interface: String? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.content = content
@@ -5312,7 +5312,7 @@ public struct IPCUserMessage: Codable, Sendable {
         self.currentPage = currentPage
         self.bypassSecretCheck = bypassSecretCheck
         self.channel = channel
-        self.interface_ = interface_
+        self.interface = interface
     }
 }
 
