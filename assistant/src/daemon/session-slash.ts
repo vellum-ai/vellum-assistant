@@ -1,5 +1,3 @@
-import { existsSync,readFileSync } from 'node:fs';
-
 import { getConfig, loadRawConfig, saveRawConfig } from '../config/loader.js';
 import { resolveSkillStates } from '../config/skill-state.js';
 import { loadSkillCatalog } from '../config/skills.js';
@@ -9,7 +7,8 @@ import {
   resolveSlashSkillCommand,
   rewriteKnownSlashCommandPrompt,
 } from '../skills/slash-commands.js';
-import { getWorkspacePromptPath } from '../util/platform.js';
+
+import { getAssistantName } from './identity-helpers.js';
 
 export type SlashResolution =
   | { kind: 'passthrough'; content: string }
@@ -73,19 +72,6 @@ const PROVIDER_MODEL_SHORTCUTS: Record<string, { provider: string; model: string
 export const MODEL_TO_PROVIDER: Record<string, string> = Object.fromEntries(
   Object.values(PROVIDER_MODEL_SHORTCUTS).map(({ model, provider }) => [model, provider]),
 );
-
-/** Read the assistant's name from IDENTITY.md for personalized responses. */
-function getAssistantName(): string | null {
-  try {
-    const path = getWorkspacePromptPath('IDENTITY.md');
-    if (!existsSync(path)) return null;
-    const content = readFileSync(path, 'utf-8');
-    const match = content.match(/\*\*Name:\*\*\s*(.+)/);
-    return match?.[1]?.trim() || null;
-  } catch {
-    return null;
-  }
-}
 
 /** Partial-match a user input like "opus", "sonnet", "haiku" to a full model ID. */
 function matchModel(input: string): string | undefined {
