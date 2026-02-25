@@ -472,6 +472,7 @@ function startLoopbackServerForPreparedFlow(
 ): Promise<{ redirectUri: string; codePromise: Promise<string> }> {
   return new Promise((resolveSetup, rejectSetup) => {
     let settled = false;
+    let listening = false;
     let codeResolve: (code: string) => void;
     let codeReject: (err: Error) => void;
     const codePromise = new Promise<string>((resolve, reject) => {
@@ -546,16 +547,23 @@ function startLoopbackServerForPreparedFlow(
     server.listen(loopbackPort ?? 0, '127.0.0.1', () => {
       const addr = server.address() as { port: number };
       const redirectUri = `http://127.0.0.1:${addr.port}${LOOPBACK_CALLBACK_PATH}`;
+      listening = true;
       resolveSetup({ redirectUri, codePromise });
     });
 
     server.on('error', (err) => {
-      if (!settled) {
+      const message = `OAuth2 loopback server error: ${err.message}`;
+      if (!listening) {
+        // Pre-startup error (e.g. port in use): resolveSetup was never called,
+        // so codePromise has no consumer — only reject the setup promise.
+        rejectSetup(new Error(message));
+      } else if (!settled) {
+        // Post-startup error: setup promise already resolved, reject codePromise
+        // so the caller waiting on it receives the error.
         settled = true;
         cleanup();
-        codeReject(new Error(`OAuth2 loopback server error: ${err.message}`));
+        codeReject(new Error(message));
       }
-      rejectSetup(new Error(`OAuth2 loopback server error: ${err.message}`));
     });
   });
 }
