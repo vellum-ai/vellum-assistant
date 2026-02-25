@@ -99,6 +99,7 @@ export async function handleUserMessage(
         ctx.send(socket, {
           type: 'assistant_text_delta',
           text: stopped ? 'Stopping the recording.' : 'No active recording to stop.',
+          sessionId: msg.sessionId,
         });
         ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
         return;

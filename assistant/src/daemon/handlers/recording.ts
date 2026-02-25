@@ -37,6 +37,13 @@ export function handleRecordingStart(
     return null;
   }
 
+  // Global single-active guard: only one recording at a time
+  if (recordingOwnerByConversation.size > 0) {
+    const [activeConv, activeRec] = [...recordingOwnerByConversation.entries()][0];
+    log.warn({ conversationId, activeConversationId: activeConv, activeRecordingId: activeRec }, 'Recording already active globally');
+    return null;
+  }
+
   const recordingId = uuid();
 
   standaloneRecordingConversationId.set(recordingId, conversationId);
@@ -236,6 +243,14 @@ function handleRecordingStatus(
       break;
     }
   }
+}
+
+// ─── Test helpers ────────────────────────────────────────────────────────────
+
+/** Reset module-level state. Only for use in tests. */
+export function __resetRecordingState(): void {
+  standaloneRecordingConversationId.clear();
+  recordingOwnerByConversation.clear();
 }
 
 // ─── Export handler group ────────────────────────────────────────────────────
