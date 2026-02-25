@@ -293,7 +293,7 @@ export async function processMessage(
   if (guardianDelivery) {
     const guardianRequest = getGuardianActionRequest(guardianDelivery.requestId);
     if (guardianRequest && guardianRequest.status === 'pending') {
-      const guardianChannelMeta = { userMessageChannel: 'macos' as const, assistantMessageChannel: 'macos' as const };
+      const guardianChannelMeta = { userMessageChannel: 'vellum' as const, assistantMessageChannel: 'vellum' as const };
       const userMsg = createUserMessage(content, attachments);
       const persisted = conversationStore.addMessage(
         session.conversationId,
@@ -310,7 +310,7 @@ export async function processMessage(
       const answerResult = await answerCall({ callSessionId: guardianRequest.callSessionId, answer: content });
 
       if ('ok' in answerResult && answerResult.ok) {
-        const resolved = resolveGuardianActionRequest(guardianRequest.id, content, 'macos');
+        const resolved = resolveGuardianActionRequest(guardianRequest.id, content, 'vellum');
         const replyText = resolved
           ? 'Your answer has been relayed to the call.'
           : 'This question has already been answered from another channel.';

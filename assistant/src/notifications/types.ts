@@ -5,7 +5,7 @@
  * depend on, plus the decision engine output contract.
  */
 
-export type NotificationChannel = 'macos' | 'telegram';
+export type NotificationChannel = 'vellum' | 'telegram';
 
 export type NotificationDeliveryStatus = 'pending' | 'sent' | 'failed' | 'skipped';
 

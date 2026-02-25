@@ -18,7 +18,7 @@ import { evaluateSignal } from './decision-engine.js';
 import { runDeterministicChecks, type DeterministicCheckContext } from './deterministic-checks.js';
 import { dispatchDecision } from './runtime-dispatch.js';
 import { NotificationBroadcaster } from './broadcaster.js';
-import { MacOSAdapter, type BroadcastFn } from './adapters/macos.js';
+import { VellumAdapter, type BroadcastFn } from './adapters/macos.js';
 import { TelegramAdapter } from './adapters/telegram.js';
 import type { NotificationSignal, AttentionHints } from './signal.js';
 import type { NotificationChannel } from './types.js';
@@ -31,7 +31,7 @@ let broadcasterInstance: NotificationBroadcaster | null = null;
 let registeredBroadcastFn: BroadcastFn | null = null;
 
 /**
- * Register the IPC broadcast function so the macOS adapter can deliver
+ * Register the IPC broadcast function so the vellum adapter can deliver
  * notifications through the daemon's IPC socket. Must be called once
  * during daemon startup (before any signals are emitted).
  */
@@ -47,7 +47,7 @@ function getBroadcaster(): NotificationBroadcaster {
       new TelegramAdapter(),
     ];
     if (registeredBroadcastFn) {
-      adapters.unshift(new MacOSAdapter(registeredBroadcastFn));
+      adapters.unshift(new VellumAdapter(registeredBroadcastFn));
     }
     broadcasterInstance = new NotificationBroadcaster(adapters);
   }
@@ -57,9 +57,9 @@ function getBroadcaster(): NotificationBroadcaster {
 // ── Connected channels resolution ──────────────────────────────────────
 
 function getConnectedChannels(assistantId: string): NotificationChannel[] {
-  // macOS is always considered connected (IPC socket is always available
+  // Vellum is always considered connected (IPC socket is always available
   // when the daemon is running).
-  const channels: NotificationChannel[] = ['macos'];
+  const channels: NotificationChannel[] = ['vellum'];
   // Only report Telegram as connected when there is an active guardian
   // binding for this assistant. Without a binding, the destination
   // resolver will fail to resolve a chat ID and dispatch will silently

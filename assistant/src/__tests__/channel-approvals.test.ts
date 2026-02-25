@@ -541,8 +541,8 @@ describe('channelSupportsRichApprovalUI', () => {
     expect(channelSupportsRichApprovalUI('telegram')).toBe(true);
   });
 
-  test('returns false for macos', () => {
-    expect(channelSupportsRichApprovalUI('macos')).toBe(false);
+  test('returns false for vellum', () => {
+    expect(channelSupportsRichApprovalUI('vellum')).toBe(false);
   });
 
   test('returns false for sms', () => {

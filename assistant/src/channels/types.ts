@@ -1,5 +1,5 @@
 export const CHANNEL_IDS = [
-  'telegram', 'sms', 'voice', 'macos', 'ios', 'whatsapp', 'slack', 'email',
+  'telegram', 'sms', 'voice', 'vellum', 'whatsapp', 'slack', 'email',
 ] as const;
 
 export type ChannelId = (typeof CHANNEL_IDS)[number];

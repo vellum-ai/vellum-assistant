@@ -37,7 +37,7 @@ exports[`IPC message snapshots ClientMessage types session_create serializes to 
   "threadType": "standard",
   "title": "New session",
   "transport": {
-    "channelId": "macos",
+    "channelId": "vellum",
     "hints": [
       "dashboard-capable",
     ],

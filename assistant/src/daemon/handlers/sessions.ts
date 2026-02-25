@@ -85,7 +85,7 @@ export async function handleUserMessage(
       attributes: { source: 'user_message' },
     });
 
-    const ipcChannel = parseChannelId(msg.channel) ?? 'macos';
+    const ipcChannel = parseChannelId(msg.channel) ?? 'vellum';
     const queuedChannelMetadata = {
       userMessageChannel: ipcChannel,
       assistantMessageChannel: ipcChannel,
@@ -303,7 +303,7 @@ export async function handleSessionCreate(
     ctx.socketToSession.set(socket, conversation.id);
     const sendEvent = (event: ServerMessage) => ctx.send(socket, event);
     const requestId = uuid();
-    const transportChannel = parseChannelId(msg.transport?.channelId) ?? 'macos';
+    const transportChannel = parseChannelId(msg.transport?.channelId) ?? 'vellum';
     session.setTurnChannelContext({
       userMessageChannel: transportChannel,
       assistantMessageChannel: transportChannel,

@@ -160,7 +160,7 @@ export async function runAgentLoopImpl(
     if (live) return live;
     const origin = getConversationOriginChannel(ctx.conversationId);
     if (origin) return { userMessageChannel: origin, assistantMessageChannel: origin };
-    return { userMessageChannel: 'macos' as ChannelId, assistantMessageChannel: 'macos' as ChannelId };
+    return { userMessageChannel: 'vellum' as ChannelId, assistantMessageChannel: 'vellum' as ChannelId };
   })();
 
   ctx.lastAssistantAttachments = [];

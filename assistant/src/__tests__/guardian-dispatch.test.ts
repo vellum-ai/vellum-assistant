@@ -160,7 +160,7 @@ describe('guardian-dispatch', () => {
 
     // Should have at least a mac delivery
     const deliveries = raw.query('SELECT * FROM guardian_action_deliveries WHERE request_id = ?').all(requests[0].id) as Array<{ destination_channel: string; status: string }>;
-    const macDelivery = deliveries.find(d => d.destination_channel === 'macos');
+    const macDelivery = deliveries.find(d => d.destination_channel === 'vellum');
     expect(macDelivery).toBeDefined();
     expect(macDelivery!.status).toBe('sent');
   });

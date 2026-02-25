@@ -635,7 +635,7 @@ describe('standalone approval endpoints — HTTP layer', () => {
       const res = await fetch(url('messages'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
-        body: JSON.stringify({ conversationKey: 'conv-auto', content: 'Run ls', sourceChannel: 'macos' }),
+        body: JSON.stringify({ conversationKey: 'conv-auto', content: 'Run ls', sourceChannel: 'vellum' }),
       });
       expect(res.status).toBe(202);
 

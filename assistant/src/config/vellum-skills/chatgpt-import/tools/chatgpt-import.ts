@@ -101,8 +101,8 @@ export async function run(
 
     const conversation = createConversation(conv.title);
     const importChannelMetadata = {
-      userMessageChannel: 'macos',
-      assistantMessageChannel: 'macos',
+      userMessageChannel: 'vellum',
+      assistantMessageChannel: 'vellum',
     } as const;
 
     for (const msg of conv.messages) {

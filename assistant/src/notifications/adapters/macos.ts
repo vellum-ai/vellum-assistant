@@ -1,8 +1,8 @@
 /**
- * macOS channel adapter — delivers notifications to connected desktop
- * clients via the daemon's IPC broadcast mechanism.
+ * Vellum channel adapter — delivers notifications to connected desktop
+ * and mobile clients via the daemon's IPC broadcast mechanism.
  *
- * The adapter broadcasts a `notification_intent` message that the macOS
+ * The adapter broadcasts a `notification_intent` message that the Vellum
  * client can use to display a native notification (e.g. NSUserNotification
  * or UNUserNotificationCenter).
  */
@@ -17,12 +17,12 @@ import type {
   DeliveryResult,
 } from '../types.js';
 
-const log = getLogger('notif-adapter-macos');
+const log = getLogger('notif-adapter-vellum');
 
 export type BroadcastFn = (msg: ServerMessage) => void;
 
-export class MacOSAdapter implements ChannelAdapter {
-  readonly channel: NotificationChannel = 'macos';
+export class VellumAdapter implements ChannelAdapter {
+  readonly channel: NotificationChannel = 'vellum';
 
   private broadcast: BroadcastFn;
 
@@ -42,13 +42,13 @@ export class MacOSAdapter implements ChannelAdapter {
 
       log.info(
         { sourceEventName: payload.sourceEventName, title: payload.copy.title },
-        'macOS notification intent broadcast',
+        'Vellum notification intent broadcast',
       );
 
       return { success: true };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      log.error({ err, sourceEventName: payload.sourceEventName }, 'Failed to broadcast macOS notification intent');
+      log.error({ err, sourceEventName: payload.sourceEventName }, 'Failed to broadcast Vellum notification intent');
       return { success: false, error: message };
     }
   }

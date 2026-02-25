@@ -167,7 +167,7 @@ describe('POST /v1/messages — queue-if-busy and hub publishing', () => {
     const res = await fetch(messagesUrl(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
-      body: JSON.stringify({ conversationKey: 'conv-idle', content: 'Hello', sourceChannel: 'macos' }),
+      body: JSON.stringify({ conversationKey: 'conv-idle', content: 'Hello', sourceChannel: 'vellum' }),
     });
     const body = await res.json() as { accepted: boolean; messageId: string };
 
@@ -191,7 +191,7 @@ describe('POST /v1/messages — queue-if-busy and hub publishing', () => {
     const res = await fetch(messagesUrl(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
-      body: JSON.stringify({ conversationKey: 'conv-hub', content: 'Hello hub', sourceChannel: 'macos' }),
+      body: JSON.stringify({ conversationKey: 'conv-hub', content: 'Hello hub', sourceChannel: 'vellum' }),
     });
     expect(res.status).toBe(202);
 
@@ -216,7 +216,7 @@ describe('POST /v1/messages — queue-if-busy and hub publishing', () => {
     const res1 = await fetch(messagesUrl(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
-      body: JSON.stringify({ conversationKey: 'conv-busy', content: 'First', sourceChannel: 'macos' }),
+      body: JSON.stringify({ conversationKey: 'conv-busy', content: 'First', sourceChannel: 'vellum' }),
     });
     expect(res1.status).toBe(202);
     const body1 = await res1.json() as { accepted: boolean; messageId: string };
@@ -230,7 +230,7 @@ describe('POST /v1/messages — queue-if-busy and hub publishing', () => {
     const res2 = await fetch(messagesUrl(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
-      body: JSON.stringify({ conversationKey: 'conv-busy', content: 'Second', sourceChannel: 'macos' }),
+      body: JSON.stringify({ conversationKey: 'conv-busy', content: 'Second', sourceChannel: 'vellum' }),
     });
     const body2 = await res2.json() as { accepted: boolean; queued: boolean };
 
@@ -262,7 +262,7 @@ describe('POST /v1/messages — queue-if-busy and hub publishing', () => {
     const res = await fetch(messagesUrl(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
-      body: JSON.stringify({ conversationKey: 'conv-empty', content: '', sourceChannel: 'macos' }),
+      body: JSON.stringify({ conversationKey: 'conv-empty', content: '', sourceChannel: 'vellum' }),
     });
     expect(res.status).toBe(400);
 
@@ -275,7 +275,7 @@ describe('POST /v1/messages — queue-if-busy and hub publishing', () => {
     const res = await fetch(messagesUrl(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
-      body: JSON.stringify({ content: 'Hello', sourceChannel: 'macos' }),
+      body: JSON.stringify({ content: 'Hello', sourceChannel: 'vellum' }),
     });
     expect(res.status).toBe(400);
 

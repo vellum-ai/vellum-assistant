@@ -829,7 +829,7 @@ export const guardianActionDeliveries = sqliteTable('guardian_action_deliveries'
   requestId: text('request_id')
     .notNull()
     .references(() => guardianActionRequests.id, { onDelete: 'cascade' }),
-  destinationChannel: text('destination_channel').notNull(),       // 'telegram' | 'sms' | 'macos'
+  destinationChannel: text('destination_channel').notNull(),       // 'telegram' | 'sms' | 'vellum'
   destinationConversationId: text('destination_conversation_id'),
   destinationChatId: text('destination_chat_id'),
   destinationExternalUserId: text('destination_external_user_id'),
