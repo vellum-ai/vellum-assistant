@@ -728,6 +728,84 @@ sequenceDiagram
 
 ---
 
+## Standalone Screen Recording
+
+Standalone screen recording allows users to record their screen without starting a full computer-use session. The daemon manages the recording lifecycle and attaches the resulting video file to the conversation as a file-backed attachment.
+
+### Lifecycle
+
+```
+idle → starting → recording → stopping → idle
+                                      └→ failed → idle
+```
+
+A recording is initiated when the daemon detects a recording-only intent in the user's message (or a mixed-intent message that includes a recording clause). The daemon generates a unique `recordingId`, stores bidirectional mappings (`recordingId ↔ conversationId`), and sends a `recording_start` IPC message to the macOS client. The client manages the actual screen capture via `RecordingManager.swift` and reports status transitions back to the daemon.
+
+### Key Files
+
+| File | Role |
+|---|---|
+| `assistant/src/daemon/recording-intent.ts` | Detects and strips recording/stop-recording intent from user messages |
+| `assistant/src/daemon/handlers/recording.ts` | Daemon handler for start, stop, and status lifecycle events |
+| `clients/macos/vellum-assistant/ComputerUse/RecordingManager.swift` | macOS-side screen capture using ScreenCaptureKit |
+
+### IPC Messages
+
+| Message | Direction | Purpose |
+|---|---|---|
+| `recording_start` | Server → Client | Instructs the client to begin recording with a `recordingId` and optional `RecordingOptions` |
+| `recording_stop` | Server → Client | Instructs the client to stop the active recording |
+| `recording_status` | Client → Server | Reports lifecycle transitions: `started`, `stopped` (with `filePath`), or `failed` (with `error`) |
+
+### Intent Routing
+
+Recording-only prompts (e.g., "record my screen", "please start recording") are intercepted before reaching the classifier or computer-use session creation. The routing logic:
+
+1. `detectRecordingIntent(taskText)` checks if any recording phrases are present.
+2. `isRecordingOnly(taskText)` determines if the entire message is about recording (after stripping polite fillers like "please", "can you", "thanks").
+3. If recording-only: the daemon calls `handleRecordingStart()` directly, bypassing the classifier.
+4. If mixed-intent (e.g., "open Safari and record my screen"): `stripRecordingIntent()` removes the recording clause and starts recording as a side-effect while the remaining task proceeds through normal routing.
+5. Stop-recording follows the same pattern with `detectStopRecordingIntent()`, `isStopRecordingOnly()`, and `stripStopRecordingIntent()`.
+
+### File-Backed Attachments
+
+When a recording stops with a valid `filePath`, the handler:
+1. Validates the file exists and reads its size via `statSync`.
+2. Creates a file-backed attachment via `uploadFileBackedAttachment()` (avoids reading large video files into memory).
+3. Links the attachment to the last assistant message in the conversation (or creates a new one).
+4. Sends `assistant_text_delta` + `message_complete` with attachment metadata to the client.
+
+### Recording Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Daemon as Daemon (Bun)
+    participant Client as macOS Client
+    participant RM as RecordingManager
+
+    User->>Daemon: "record my screen"
+    Note over Daemon: detectRecordingIntent → true<br/>isRecordingOnly → true
+    Daemon->>Client: recording_start { recordingId, options }
+    Client->>RM: startRecording(recordingId)
+    RM-->>Client: capture started
+    Client->>Daemon: recording_status { status: 'started' }
+
+    Note over RM: Screen capture in progress...
+
+    User->>Daemon: "stop recording"
+    Note over Daemon: detectStopRecordingIntent → true<br/>isStopRecordingOnly → true
+    Daemon->>Client: recording_stop { recordingId }
+    Client->>RM: stopRecording()
+    RM-->>Client: file saved at filePath
+    Client->>Daemon: recording_status { status: 'stopped', filePath, durationMs }
+
+    Note over Daemon: uploadFileBackedAttachment<br/>linkAttachmentToMessage
+    Daemon->>Client: assistant_text_delta + message_complete { attachments }
+```
+
+---
+
 ## Ride Shotgun — Detailed Data Flow
 
 The Ride Shotgun system replaces the legacy ambient suggestion pipeline. Instead of continuously observing and generating suggestions, it uses a timer-based invitation model: after eligibility checks pass, the user is invited to a time-boxed observation session. Captures are sent to the daemon for analysis, and a summary is presented at the end.

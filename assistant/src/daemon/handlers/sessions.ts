@@ -13,6 +13,8 @@ import { getSubagentManager } from '../../subagent/index.js';
 import { silentlyWithLog } from '../../util/silently.js';
 import { truncate } from '../../util/truncate.js';
 import type { UserMessageAttachment } from '../ipc-contract.js';
+import { isRecordingOnly, isStopRecordingOnly } from '../recording-intent.js';
+import { handleRecordingStart, handleRecordingStop } from './recording.js';
 import type {
   CancelRequest,
   ConfirmationResponse,
@@ -86,6 +88,36 @@ export async function handleUserMessage(
       status: 'info',
       attributes: { source: 'user_message' },
     });
+
+    // ── Standalone recording intent interception ──────────────────────────
+    const config = getConfig();
+    const messageText = msg.content ?? '';
+    if (config.daemon.standaloneRecording && messageText) {
+      if (isStopRecordingOnly(messageText)) {
+        const stopped = handleRecordingStop(msg.sessionId, ctx) !== undefined;
+        rlog.info('Recording stop intent intercepted in user_message');
+        ctx.send(socket, {
+          type: 'assistant_text_delta',
+          text: stopped ? 'Stopping the recording.' : 'No active recording to stop.',
+          sessionId: msg.sessionId,
+        });
+        ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
+        return;
+      }
+
+      if (isRecordingOnly(messageText)) {
+        const recordingId = handleRecordingStart(msg.sessionId, { promptForSource: true }, socket, ctx);
+        rlog.info('Recording-only intent intercepted in user_message');
+
+        if (recordingId) {
+          ctx.send(socket, { type: 'assistant_text_delta', text: 'Starting screen recording.', sessionId: msg.sessionId });
+        } else {
+          ctx.send(socket, { type: 'assistant_text_delta', text: 'A recording is already active.', sessionId: msg.sessionId });
+        }
+        ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
+        return;
+      }
+    }
 
     const ipcChannel = parseChannelId(msg.channel) ?? 'vellum';
     const ipcInterface = parseInterfaceId(msg.interface);
@@ -509,10 +541,12 @@ export function handleHistoryRequest(
         // the client, so non-video attachments always keep their inline data.
         const MAX_INLINE_B64_SIZE = 512 * 1024;
         attachments = linked.map((a) => {
-          const omit = a.mimeType.startsWith('video/') && a.dataBase64.length > MAX_INLINE_B64_SIZE;
+          const isFileBacked = !a.dataBase64; // empty string = file-backed attachment
+          const omit = isFileBacked || (a.mimeType.startsWith('video/') && a.dataBase64.length > MAX_INLINE_B64_SIZE);
 
           // Lazily generate thumbnails for existing video attachments on first history load.
-          if (a.mimeType.startsWith('video/') && !a.thumbnailBase64) {
+          // Skip for file-backed attachments — there is no in-memory base64 to generate from.
+          if (a.mimeType.startsWith('video/') && !a.thumbnailBase64 && a.dataBase64) {
             const attachmentId = a.id;
             const base64 = a.dataBase64;
             silentlyWithLog(

@@ -1,8 +1,9 @@
 /**
  * Route handlers for attachment upload, download, and deletion.
  */
+import { existsSync } from 'node:fs';
 import * as attachmentsStore from '../../memory/attachments-store.js';
-import { AttachmentUploadError,validateAttachmentUpload } from '../../memory/attachments-store.js';
+import { AttachmentUploadError, getFilePathForAttachment, validateAttachmentUpload } from '../../memory/attachments-store.js';
 
 /** 30 MB — base64-encoded 20 MB attachment ≈ 27 MB plus JSON wrapper overhead. */
 const MAX_UPLOAD_BODY_BYTES = 30 * 1024 * 1024;
@@ -122,6 +123,10 @@ export function handleGetAttachment(attachmentId: string): Response {
     return Response.json({ error: 'Attachment not found' }, { status: 404 });
   }
 
+  // Use the file_path column to detect file-backed attachments, not string
+  // truthiness of dataBase64 (which would also match valid zero-byte uploads).
+  const isFileBacked = !!getFilePathForAttachment(attachmentId);
+
   return Response.json({
     id: attachment.id,
     filename: attachment.originalFilename,
@@ -129,5 +134,103 @@ export function handleGetAttachment(attachmentId: string): Response {
     sizeBytes: attachment.sizeBytes,
     kind: attachment.kind,
     data: attachment.dataBase64,
+    // Signal to clients that they should fetch content via the /content endpoint
+    ...(isFileBacked ? { fileBacked: true } : {}),
+  });
+}
+
+/**
+ * Serve raw file bytes for an attachment. For file-backed attachments this
+ * streams from disk; for inline attachments it decodes the base64 data.
+ * Supports Range headers for video seeking.
+ */
+export function handleGetAttachmentContent(attachmentId: string, req: Request): Response {
+  const attachment = attachmentsStore.getAttachmentById(attachmentId);
+  if (!attachment) {
+    return Response.json({ error: 'Attachment not found' }, { status: 404 });
+  }
+
+  // Check for file-backed attachment
+  const filePath = getFilePathForAttachment(attachmentId);
+  if (filePath) {
+    if (!existsSync(filePath)) {
+      return Response.json({ error: 'Recording file not found on disk' }, { status: 404 });
+    }
+
+    const file = Bun.file(filePath);
+    const rangeHeader = req.headers.get('Range');
+
+    if (rangeHeader) {
+      const fileSize = attachment.sizeBytes;
+      let start: number;
+      let end: number;
+
+      // Parse suffix range: bytes=-N (last N bytes)
+      const suffixMatch = rangeHeader.match(/bytes=-(\d+)/);
+      if (suffixMatch) {
+        const suffixLen = parseInt(suffixMatch[1]);
+        start = Math.max(0, fileSize - suffixLen);
+        end = fileSize - 1;
+      } else {
+        // Parse standard range: bytes=start-end
+        const match = rangeHeader.match(/bytes=(\d+)-(\d*)/);
+        if (!match) {
+          // Unparseable range — return full file
+          return new Response(file, {
+            headers: {
+              'Content-Type': attachment.mimeType,
+              'Content-Length': String(fileSize),
+              'Accept-Ranges': 'bytes',
+            },
+          });
+        }
+        start = parseInt(match[1]);
+        end = match[2] ? parseInt(match[2]) : fileSize - 1;
+      }
+
+      // Clamp end to file size
+      end = Math.min(end, fileSize - 1);
+
+      // Reject invalid ranges
+      if (start > end || start >= fileSize) {
+        return new Response(null, {
+          status: 416,
+          headers: { 'Content-Range': `bytes */${fileSize}` },
+        });
+      }
+
+      const slice = file.slice(start, end + 1);
+      return new Response(slice, {
+        status: 206,
+        headers: {
+          'Content-Type': attachment.mimeType,
+          'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+          'Accept-Ranges': 'bytes',
+          'Content-Length': String(end - start + 1),
+        },
+      });
+    }
+
+    return new Response(file, {
+      headers: {
+        'Content-Type': attachment.mimeType,
+        'Content-Length': String(attachment.sizeBytes),
+        'Accept-Ranges': 'bytes',
+      },
+    });
+  }
+
+  // Fall back to base64-decoded content for inline attachments
+  if (!attachment.dataBase64) {
+    return Response.json({ error: 'No content available' }, { status: 404 });
+  }
+
+  const buffer = Buffer.from(attachment.dataBase64, 'base64');
+  return new Response(buffer, {
+    headers: {
+      'Content-Type': attachment.mimeType,
+      'Content-Length': String(buffer.length),
+      'Accept-Ranges': 'bytes',
+    },
   });
 }
