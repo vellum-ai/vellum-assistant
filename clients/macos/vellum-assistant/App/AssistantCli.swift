@@ -371,7 +371,11 @@ final class AssistantCli {
         env["VELLUM_DESKTOP_APP"] = "1"
 
         if env["VELLUM_ASSISTANT_PLATFORM_URL"] == nil {
+            #if DEBUG
             env["VELLUM_ASSISTANT_PLATFORM_URL"] = "https://dev-assistant.vellum.ai"
+            #else
+            env["VELLUM_ASSISTANT_PLATFORM_URL"] = "https://assistant.vellum.ai"
+            #endif
         }
 
         if !config.anthropicApiKey.isEmpty {
