@@ -23,6 +23,15 @@ const STOP_RECORDING_PATTERNS: RegExp[] = [
   /\bhalt\s+(the\s+)?recording\b/i,
 ];
 
+// ─── Stop-recording clause removal for mixed-intent prompts ─────────────────
+
+const STOP_RECORDING_CLAUSE_PATTERNS: RegExp[] = [
+  /\b(and\s+)?(also\s+)?stop\s+(the\s+)?recording\b/i,
+  /\b(and\s+)?(also\s+)?end\s+(the\s+)?recording\b/i,
+  /\b(and\s+)?(also\s+)?finish\s+(the\s+)?recording\b/i,
+  /\b(and\s+)?(also\s+)?halt\s+(the\s+)?recording\b/i,
+];
+
 // ─── Clause removal for mixed-intent prompts ─────────────────────────────────
 
 const RECORDING_CLAUSE_PATTERNS: RegExp[] = [
@@ -35,6 +44,10 @@ const RECORDING_CLAUSE_PATTERNS: RegExp[] = [
   /\bwhile\s+(you\s+)?record(ing)?\s+(my\s+|the\s+)?screen\b/i,
   /\brecord\s+(my\s+|the\s+)?screen\s+while\b/i,
 ];
+
+/** Common polite/filler words stripped before checking intent-only status. */
+const FILLER_PATTERN =
+  /\b(please|pls|plz|can\s+you|could\s+you|would\s+you|now|right\s+now|thanks|thank\s+you|thx|ty|for\s+me|ok(ay)?|hey|hi|just)\b/gi;
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
@@ -57,9 +70,11 @@ export function isRecordingOnly(taskText: string): boolean {
 
   // Strip the recording clause and check if anything substantive remains
   const stripped = stripRecordingIntent(taskText);
-  // If after removing the recording clause, only whitespace/punctuation remains,
-  // this is a recording-only prompt.
-  return stripped.replace(/[.,;!?\s]+/g, '').length === 0;
+  // Also remove common polite/filler words that don't change the intent
+  const withoutFillers = stripped.replace(FILLER_PATTERN, '');
+  // If after removing the recording clause and fillers, only whitespace/punctuation
+  // remains, this is a recording-only prompt.
+  return withoutFillers.replace(/[.,;!?\s]+/g, '').length === 0;
 }
 
 /**
@@ -83,4 +98,32 @@ export function stripRecordingIntent(taskText: string): string {
   }
   // Clean up any leftover double spaces or leading/trailing whitespace
   return result.replace(/\s{2,}/g, ' ').trim();
+}
+
+/**
+ * Removes stop-recording clauses from a message, returning the cleaned text.
+ * Analogous to stripRecordingIntent but for stop-recording phrases.
+ */
+export function stripStopRecordingIntent(taskText: string): string {
+  let result = taskText;
+  for (const pattern of STOP_RECORDING_CLAUSE_PATTERNS) {
+    result = result.replace(pattern, '');
+  }
+  return result.replace(/\s{2,}/g, ' ').trim();
+}
+
+/**
+ * Returns true if the prompt is purely about stopping recording with no
+ * additional task. Analogous to isRecordingOnly but for stop-recording.
+ * "stop recording" -> true
+ * "how do I stop recording?" -> false (has additional context)
+ * "stop recording and close the browser" -> false (has CU task component)
+ */
+export function isStopRecordingOnly(taskText: string): boolean {
+  if (!detectStopRecordingIntent(taskText)) return false;
+
+  const stripped = stripStopRecordingIntent(taskText);
+  // Also remove common polite/filler words that don't change the intent
+  const withoutFillers = stripped.replace(FILLER_PATTERN, '');
+  return withoutFillers.replace(/[.,;!?\s]+/g, '').length === 0;
 }
