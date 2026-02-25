@@ -329,6 +329,14 @@ export class CallController {
     const runVersion = ++this.llmRunVersion;
     const runSignal = this.abortController.signal;
 
+    // Clear silence timer while actively processing. The caller said
+    // something (or a turn was triggered), so silence detection should
+    // pause until we finish responding and return to idle.
+    if (this.silenceTimer) {
+      clearTimeout(this.silenceTimer);
+      this.silenceTimer = null;
+    }
+
     try {
       this.state = 'speaking';
 
@@ -536,10 +544,11 @@ export class CallController {
         return;
       }
 
-      // Normal turn complete — flush any instructions that arrived while
-      // the LLM was active.
+      // Normal turn complete — restart silence detection and flush any
+      // instructions that arrived while the LLM was active.
       this.state = 'idle';
       this.currentTurnHandle = null;
+      this.resetSilenceTimer();
       this.flushPendingInstructions();
     } catch (err: unknown) {
       this.currentTurnHandle = null;
@@ -555,6 +564,7 @@ export class CallController {
         );
         if (this.isCurrentRun(runVersion)) {
           this.state = 'idle';
+          this.resetSilenceTimer();
         }
         return;
       }
@@ -568,6 +578,7 @@ export class CallController {
       log.error({ err, callSessionId: this.callSessionId }, 'Voice turn error');
       this.relay.sendTextToken('I\'m sorry, I encountered a technical issue. Could you repeat that?', true);
       this.state = 'idle';
+      this.resetSilenceTimer();
       this.flushPendingInstructions();
     }
   }
