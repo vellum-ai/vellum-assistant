@@ -1249,7 +1249,12 @@ public final class SettingsStore: ObservableObject {
             if let expiresAt { telegramOutboundExpiresAt = expiresAt }
             telegramOutboundNextResendAt = nextResendAt
             telegramOutboundSendCount = sendCount
-            telegramBootstrapUrl = bootstrapUrl
+            if let bootstrapUrl {
+                telegramBootstrapUrl = bootstrapUrl
+            } else if sessionId != nil {
+                // Bootstrap complete — clear the URL so resend becomes available
+                telegramBootstrapUrl = nil
+            }
         case "sms":
             smsOutboundSessionId = sessionId
             if let expiresAt { smsOutboundExpiresAt = expiresAt }

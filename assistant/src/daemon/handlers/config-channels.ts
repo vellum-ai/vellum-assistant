@@ -373,7 +373,33 @@ function handleStartOutboundTelegram(
     return;
   }
 
+  // Enforce per-destination rate limit across all sessions
+  const recentSendCount = countRecentSendsToDestination(channel, destination, DESTINATION_RATE_WINDOW_MS);
+  if (recentSendCount >= MAX_SENDS_PER_DESTINATION_WINDOW) {
+    ctx.send(socket, {
+      type: 'guardian_verification_response',
+      success: false,
+      error: 'rate_limited',
+      message: 'Too many verification attempts to this destination. Please try again later.',
+      channel,
+    });
+    return;
+  }
+
   if (isTelegramChatId(destination)) {
+    // Reject group chats (negative IDs) — verification must target a private chat
+    const chatIdNum = parseInt(destination, 10);
+    if (isNaN(chatIdNum) || chatIdNum < 0) {
+      ctx.send(socket, {
+        type: 'guardian_verification_response',
+        success: false,
+        error: 'invalid_destination',
+        message: 'Telegram group chats are not supported for verification. Use a private chat ID or @handle.',
+        channel,
+      });
+      return;
+    }
+
     // Known numeric chat ID: create a bound session and send message immediately
     const sessionResult = createOutboundSession({
       assistantId,
