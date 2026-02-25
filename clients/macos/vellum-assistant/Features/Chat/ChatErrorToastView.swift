@@ -10,7 +10,6 @@ struct ChatErrorBanner: View {
     let onRetryError: () -> Void
     let isConnectionError: Bool
     var connectionDiagnosticHint: String? = nil
-    let onOpenDoctor: () -> Void
     let onDismissError: () -> Void
 
     var body: some View {
@@ -45,22 +44,7 @@ struct ChatErrorBanner: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Send message anyway")
-            } else if isConnectionError {
-                Button(action: onOpenDoctor) {
-                    HStack(spacing: VSpacing.xs) {
-                        Image(systemName: "stethoscope")
-                            .font(VFont.caption)
-                        Text("Vellum Doctor")
-                            .font(VFont.captionMedium)
-                    }
-                    .padding(.horizontal, VSpacing.sm)
-                    .padding(.vertical, VSpacing.xs)
-                    .background(Color.white.opacity(0.2)) // Intentional: translucent contrast on VColor.error banner
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Open Vellum Doctor")
-            } else if isRetryableError {
+            } else if isRetryableError || isConnectionError {
                 Button(action: onRetryError) {
                     Text("Retry")
                         .font(VFont.captionMedium)

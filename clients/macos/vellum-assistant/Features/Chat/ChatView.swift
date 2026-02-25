@@ -21,7 +21,6 @@ struct ChatView: View {
     let isRetryableError: Bool
     let onRetryError: () -> Void
     let isConnectionError: Bool
-    let onOpenDoctor: () -> Void
     let isSecretBlockError: Bool
     let onSendAnyway: () -> Void
     let onAcceptSuggestion: () -> Void
@@ -247,7 +246,6 @@ struct ChatView: View {
                     onRetryError: onRetryError,
                     isConnectionError: isConnectionError,
                     connectionDiagnosticHint: connectionDiagnosticHint,
-                    onOpenDoctor: onOpenDoctor,
                     onDismissError: onDismissError
                 )
             }
@@ -920,7 +918,6 @@ private struct ChatViewPreviewWrapper: View {
                 isRetryableError: false,
                 onRetryError: {},
                 isConnectionError: false,
-                onOpenDoctor: {},
                 isSecretBlockError: false,
                 onSendAnyway: {},
                 onAcceptSuggestion: {},

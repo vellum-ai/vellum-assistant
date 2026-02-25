@@ -1808,14 +1808,14 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.sessionId = "sess-1"
 
         // Simulate a prior connection-error send failure that cached the message.
-        // Connection errors show the Doctor button (isConnectionError), not Retry.
+        // Connection errors show a Retry button via isConnectionError, not isRetryableError.
         viewModel.inputText = "Hello"
         daemonClient.isConnected = false
         viewModel.sendMessage()
         XCTAssertTrue(viewModel.isConnectionError,
                        "Send failure while disconnected should be a connection error")
         XCTAssertFalse(viewModel.isRetryableError,
-                        "Connection errors show Doctor button, not Retry")
+                        "Connection errors use isConnectionError, not isRetryableError")
 
         // User dismisses the error
         viewModel.dismissError()
@@ -1836,10 +1836,9 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.inputText = "Test message"
         viewModel.sendMessage()
 
-        // Connection-error sends show Doctor button (isConnectionError),
-        // not the Retry button (isRetryableError).
+        // Connection-error sends use isConnectionError (not isRetryableError).
         XCTAssertTrue(viewModel.isConnectionError,
-                       "Send failure while disconnected should show Doctor button")
+                       "Send failure while disconnected should be a connection error")
         XCTAssertFalse(viewModel.isRetryableError,
                         "Connection errors should not show Retry button")
         XCTAssertNotNil(viewModel.errorText)
