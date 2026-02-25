@@ -153,6 +153,7 @@ describe('classifySessionError', () => {
       'token_limit_exceeded: too many tokens in request',
       'token limit exceeded',
       'prompt is too long',
+      'The conversation is too long for the model to process.',
       'Request too large for model',
       'too many input tokens: 250000',
       'max_tokens exceeded',
@@ -170,6 +171,13 @@ describe('classifySessionError', () => {
   describe('context-too-large via ProviderError (400)', () => {
     it('classifies ProviderError 400 with context length message as CONTEXT_TOO_LARGE', () => {
       const err = new ProviderError('context_length_exceeded: your prompt is too long', 'anthropic', 400);
+      const result = classifySessionError(err, baseCtx);
+      expect(result.code).toBe('CONTEXT_TOO_LARGE');
+      expect(result.retryable).toBe(false);
+    });
+
+    it('classifies ProviderError 413 as CONTEXT_TOO_LARGE', () => {
+      const err = new ProviderError('request entity too large', 'anthropic', 413);
       const result = classifySessionError(err, baseCtx);
       expect(result.code).toBe('CONTEXT_TOO_LARGE');
       expect(result.retryable).toBe(false);

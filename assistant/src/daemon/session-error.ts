@@ -39,6 +39,8 @@ const CONTEXT_TOO_LARGE_PATTERNS = [
   /maximum.?context.?length/i,
   /token.?limit.?exceeded/i,
   /prompt.?is.?too.?long/i,
+  /conversation.*too long.*model.*process/i,
+  /too long for the model to process/i,
   /request too large/i,
   /too many.*input.*tokens/i,
   /max_tokens.*exceeded/i,
@@ -158,6 +160,13 @@ function classifyCore(
 ): Omit<ClassifiedSessionError, 'debugDetails'> {
   // ProviderError with statusCode — deterministic classification
   if (error instanceof ProviderError && error.statusCode !== undefined) {
+    if (error.statusCode === 413) {
+      return {
+        code: 'CONTEXT_TOO_LARGE',
+        userMessage: 'This conversation exceeds the model\'s context limit.',
+        retryable: false,
+      };
+    }
     if (error.statusCode === 429) {
       return {
         code: 'PROVIDER_RATE_LIMIT',

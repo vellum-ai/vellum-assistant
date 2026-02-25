@@ -81,6 +81,9 @@ mock.module('../memory/conversation-store.js', () => ({
   updateConversationUsage: () => {},
   updateConversationTitle: () => {},
   updateConversationContextWindow: () => {},
+  getConversationOriginChannel: () => null,
+  getConversationOriginInterface: () => null,
+  provenanceFromGuardianContext: () => ({}),
 }));
 
 mock.module('../memory/retriever.js', () => ({
@@ -132,7 +135,7 @@ mock.module('../context/window-manager.js', () => ({
 
 // Track how many times agentLoop.run was called
 let agentLoopRunCount = 0;
-let firstRunErrorMode: 'none' | 'ordering' | 'context_too_large' = 'ordering';
+let firstRunErrorMode: 'none' | 'ordering' | 'context_too_large' | 'context_too_large_phrase' = 'ordering';
 
 mock.module('../agent/loop.js', () => ({
   AgentLoop: class {
@@ -142,10 +145,15 @@ mock.module('../agent/loop.js', () => ({
 
       if (agentLoopRunCount === 1 && firstRunErrorMode !== 'none') {
         onEvent({ type: 'usage', inputTokens: 0, outputTokens: 0, model: 'mock', providerDurationMs: 0 });
-        const error =
-          firstRunErrorMode === 'ordering'
-            ? new Error('tool_result blocks that are not immediately after a tool_use block')
-            : new Error('context_length_exceeded: request has too many input tokens');
+        const error = (() => {
+          if (firstRunErrorMode === 'ordering') {
+            return new Error('tool_result blocks that are not immediately after a tool_use block');
+          }
+          if (firstRunErrorMode === 'context_too_large_phrase') {
+            return new Error('The conversation is too long for the model to process.');
+          }
+          return new Error('context_length_exceeded: request has too many input tokens');
+        })();
         onEvent({ type: 'error', error });
         return [...messages]; // Return unchanged — no progress
       }
@@ -309,5 +317,28 @@ describe('provider ordering error retry', () => {
     ]);
     const sessionError = events.find((e) => e.type === 'session_error') as { code?: string } | undefined;
     expect(sessionError?.code).toBe('CONTEXT_TOO_LARGE');
+  });
+
+  test('context-too-large phrase also triggers one forced-compaction retry', async () => {
+    firstRunErrorMode = 'context_too_large_phrase';
+    forceCompactionEnabled = true;
+
+    const session = makeSession();
+    await session.loadFromDb();
+
+    const events: Array<Record<string, unknown>> = [];
+    await session.processMessage(
+      'Please compare these images.',
+      makeImageAttachments(4),
+      (msg) => events.push(msg as unknown as Record<string, unknown>),
+    );
+
+    expect(agentLoopRunCount).toBe(2);
+    expect(maybeCompactCalls).toEqual([
+      { force: false },
+      { force: true },
+    ]);
+    expect(events.some((e) => e.type === 'message_complete')).toBe(true);
+    expect(events.some((e) => e.type === 'session_error')).toBe(false);
   });
 });
