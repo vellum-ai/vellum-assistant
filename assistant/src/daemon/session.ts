@@ -25,6 +25,7 @@ import { SecretPrompter } from '../permissions/secret-prompter.js';
 import { ToolExecutor } from '../tools/executor.js';
 import type { UserDecision } from '../permissions/types.js';
 import { getConfig } from '../config/loader.js';
+import { getLogger } from '../util/logger.js';
 import { buildSystemPrompt } from '../config/system-prompt.js';
 import {
   classifyResponseTier,
@@ -232,7 +233,10 @@ export class Session {
       '<active_dynamic_page>',
       '<dynamic-profile-context>',
       '<memory_recall',
+      '<memory source=',
+      '<memory',
       '<system_notice>',
+      '<interface_turn_context>',
     ];
 
     // Track the last user-message tier so tool-use continuation turns
@@ -260,6 +264,10 @@ export class Session {
         }
         isToolResultOnly = hasToolResult && userText.trim().length === 0;
       }
+
+      // Temporary: log what the classifier sees
+      const _tierLog = getLogger('response-tier');
+      _tierLog.info({ userTextLen: userText.trim().length, userTextPreview: userText.trim().slice(0, 200), blockCount: lastUserMsg?.content.length }, 'Classifier input');
 
       let tier: import('./response-tier.js').ResponseTier;
 

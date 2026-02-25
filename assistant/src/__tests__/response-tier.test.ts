@@ -78,11 +78,22 @@ describe('classifyResponseTierDetailed', () => {
 
 describe('resolveWithHint', () => {
   const lowConfMedium: TierClassification = { tier: 'medium', reason: 'default', confidence: 'low' };
+  const highConfLow: TierClassification = { tier: 'low', reason: 'short_no_keywords', confidence: 'high' };
   const highConfHigh: TierClassification = { tier: 'high', reason: 'build_keyword', confidence: 'high' };
 
-  test('returns regex tier when confidence is high (ignores hint)', () => {
+  test('high confidence: ignores hint that would downgrade', () => {
     const hint: SessionTierHint = { tier: 'low', turn: 5, timestamp: Date.now() };
     expect(resolveWithHint(highConfHigh, hint, 6)).toBe('high');
+  });
+
+  test('high confidence: upgrades when hint is higher', () => {
+    const hint: SessionTierHint = { tier: 'medium', turn: 5, timestamp: Date.now() };
+    expect(resolveWithHint(highConfLow, hint, 6)).toBe('medium');
+  });
+
+  test('high confidence: upgrades to high when hint is high', () => {
+    const hint: SessionTierHint = { tier: 'high', turn: 5, timestamp: Date.now() };
+    expect(resolveWithHint(highConfLow, hint, 6)).toBe('high');
   });
 
   test('returns regex tier when no hint available', () => {

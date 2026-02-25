@@ -83,16 +83,23 @@ export function classifyResponseTierDetailed(message: string, _turnCount: number
   return tagged('medium', 'default', 'low');
 }
 
+const TIER_RANK: Record<ResponseTier, number> = { low: 0, medium: 1, high: 2 };
+
 /**
- * When regex confidence is low, defer to a non-stale session hint
- * from a previous background Haiku classification.
+ * Resolve the final tier using the regex classification and an optional
+ * session hint from a previous background Haiku call.
+ *
+ * - When confidence is low, defer to a fresh hint (upgrade or downgrade).
+ * - When confidence is high, still upgrade if the hint is higher (the
+ *   conversation trajectory outranks a short-message heuristic), but
+ *   never downgrade.
  */
 export function resolveWithHint(
   classification: TierClassification,
   hint: SessionTierHint | null,
   currentTurn: number,
 ): ResponseTier {
-  if (classification.confidence === 'high' || !hint) {
+  if (!hint) {
     return classification.tier;
   }
 
@@ -100,15 +107,29 @@ export function resolveWithHint(
   const timeAge = Date.now() - hint.timestamp;
 
   if (turnAge > HINT_MAX_TURN_AGE || timeAge > HINT_MAX_AGE_MS) {
-    log.debug({ turnAge, timeAge }, 'Session tier hint is stale, ignoring');
+    log.info({ turnAge, timeAge }, 'Session tier hint is stale, ignoring');
     return classification.tier;
   }
 
-  log.debug(
-    { regexTier: classification.tier, hintTier: hint.tier, turnAge },
-    'Deferring to session tier hint',
-  );
-  return hint.tier;
+  if (classification.confidence === 'low') {
+    // Low confidence: fully defer to hint
+    log.info(
+      { regexTier: classification.tier, hintTier: hint.tier, turnAge },
+      'Deferring to session tier hint (low confidence)',
+    );
+    return hint.tier;
+  }
+
+  // High confidence: only upgrade, never downgrade
+  if (TIER_RANK[hint.tier] > TIER_RANK[classification.tier]) {
+    log.info(
+      { regexTier: classification.tier, hintTier: hint.tier, turnAge },
+      'Upgrading tier via session hint',
+    );
+    return hint.tier;
+  }
+
+  return classification.tier;
 }
 
 // ── Async Haiku classification ────────────────────────────────────────
@@ -116,11 +137,11 @@ export function resolveWithHint(
 const ASYNC_CLASSIFICATION_TIMEOUT_MS = 8_000;
 
 const TIER_SYSTEM_PROMPT =
-  'You classify user messages by complexity. ' +
-  'Reply with exactly one word: low, medium, or high.\n' +
-  'low = greetings, thanks, short acknowledgements\n' +
-  'medium = simple questions, short requests, clarifications\n' +
-  'high = build/implement/refactor requests, multi-step tasks, code-heavy work';
+  'Classify the overall complexity of this conversation. ' +
+  'Output ONLY one word, nothing else.\n' +
+  'low — greetings, thanks, short acknowledgements\n' +
+  'medium — simple questions, short requests, clarifications\n' +
+  'high — build/implement/refactor requests, multi-step tasks, code-heavy work';
 
 /**
  * Fire-and-forget Haiku call to classify the conversation trajectory.
@@ -156,26 +177,28 @@ export async function classifyResponseTierAsync(
       );
       cleanup();
 
-      const text = extractText(response).toLowerCase();
-      if (text === 'low' || text === 'medium' || text === 'high') {
-        log.debug({ tier: text }, 'Async tier classification result');
-        return text;
+      const raw = extractText(response).toLowerCase();
+      const match = raw.match(/\b(low|medium|high)\b/);
+      if (match) {
+        const tier = match[1] as ResponseTier;
+        log.info({ tier, raw }, 'Async tier classification result');
+        return tier;
       }
 
-      log.debug({ text }, 'Async tier classification returned unexpected value');
+      log.warn({ raw }, 'Async tier classification returned unexpected value');
       return null;
     } finally {
       cleanup();
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.debug({ err: message }, 'Async tier classification failed');
+    log.warn({ err: message }, 'Async tier classification failed');
     return null;
   }
 }
 
 function tagged(tier: ResponseTier, reason: string, confidence: TierConfidence): TierClassification {
-  log.debug({ tier, reason, confidence }, 'Classified response tier');
+  log.info({ tier, reason, confidence }, 'Classified response tier');
   return { tier, reason, confidence };
 }
 
