@@ -878,23 +878,48 @@ extension ChatViewModel {
                 // stash the full send context so "Send Anyway" can reconstruct
                 // the original UserMessageMessage with attachments and surface metadata.
                 if err.category == "secret_blocked" {
+                    let blockedMessageIndex: Int? = {
+                        let normalizedTurnText = savedTurnUserText?.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if let normalizedTurnText, !normalizedTurnText.isEmpty {
+                            return messages.lastIndex(where: {
+                                $0.role == .user
+                                    && $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == normalizedTurnText
+                            })
+                        }
+                        return messages.lastIndex(where: { $0.role == .user })
+                    }()
+                    let blockedUserMessage = blockedMessageIndex.map { messages[$0] }
+
                     // Prefer the snapshotted turn text (the text that was actually sent)
                     // over the transcript lookup, which can miss workspace refinements
                     // that don't append a user chat message.
                     if let sendText = savedTurnUserText {
                         secretBlockedMessageText = sendText
-                    } else if let lastUserMsg = messages.last(where: { $0.role == .user }) {
-                        secretBlockedMessageText = lastUserMsg.text
+                    } else if let blockedUserMessage {
+                        secretBlockedMessageText = blockedUserMessage.text
                     }
-                    // Reconstruct IPC attachments from the last user message's ChatAttachments
-                    if let lastUserMsg = messages.last(where: { $0.role == .user }),
-                       !lastUserMsg.attachments.isEmpty {
-                        secretBlockedAttachments = lastUserMsg.attachments.map {
+                    // Reconstruct IPC attachments from the blocked user message's ChatAttachments
+                    if let blockedUserMessage, !blockedUserMessage.attachments.isEmpty {
+                        secretBlockedAttachments = blockedUserMessage.attachments.map {
                             IPCAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
                         }
                     }
                     secretBlockedActiveSurfaceId = activeSurfaceId
                     secretBlockedCurrentPage = currentPage
+
+                    // Remove the blocked user bubble so secret-like text is not
+                    // retained in chat history after secure save redirect.
+                    if let blockedMessageIndex {
+                        let blockedMessage = messages[blockedMessageIndex]
+                        let blockedMessageId = blockedMessage.id
+                        if case .queued = blockedMessage.status {
+                            pendingQueuedCount = max(0, pendingQueuedCount - 1)
+                        }
+                        pendingMessageIds.removeAll { $0 == blockedMessageId }
+                        requestIdToMessageId = requestIdToMessageId.filter { $0.value != blockedMessageId }
+                        pendingLocalDeletions.remove(blockedMessageId)
+                        messages.remove(at: blockedMessageIndex)
+                    }
                 }
             }
             // Reset processing messages to sent

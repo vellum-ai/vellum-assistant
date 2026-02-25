@@ -61,6 +61,7 @@ import {
   enqueueMessage as enqueueMessageImpl,
   persistUserMessage as persistUserMessageImpl,
   redirectToSecurePrompt as redirectToSecurePromptImpl,
+  type RedirectToSecurePromptOptions,
 } from './session-messaging.js';
 // Extracted modules
 import { registerSessionNotifiers } from './session-notifiers.js';
@@ -378,8 +379,8 @@ export class Session {
 
   // ── Messaging ────────────────────────────────────────────────────
 
-  redirectToSecurePrompt(detectedTypes: string[], onComplete?: () => void): void {
-    redirectToSecurePromptImpl(this.conversationId, this.secretPrompter, detectedTypes, onComplete);
+  redirectToSecurePrompt(detectedTypes: string[], options?: RedirectToSecurePromptOptions): void {
+    redirectToSecurePromptImpl(this.conversationId, this.secretPrompter, detectedTypes, options);
   }
 
   enqueueMessage(

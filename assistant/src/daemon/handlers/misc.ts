@@ -51,7 +51,7 @@ export async function handleTaskSubmit(
       const conversation = conversationStore.createConversation('(blocked — secret detected)');
       ctx.socketToSession.set(socket, conversation.id);
       const session = await ctx.getOrCreateSession(conversation.id, socket, true);
-      session.redirectToSecurePrompt(taskIngressCheck.detectedTypes, () => {
+      session.redirectToSecurePrompt(taskIngressCheck.detectedTypes, { onComplete: () => {
         conversationStore.deleteConversation(conversation.id);
         // Clean up in-memory session and socket binding so the ephemeral
         // session doesn't accumulate in the daemon's session map.
@@ -65,7 +65,7 @@ export async function handleTaskSubmit(
         if (ctx.socketToSession.get(socket) === conversation.id) {
           ctx.socketToSession.delete(socket);
         }
-      });
+      } });
       return;
     }
 
