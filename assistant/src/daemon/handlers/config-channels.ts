@@ -3,6 +3,7 @@ import * as net from 'node:net';
 import * as externalConversationStore from '../../memory/external-conversation-store.js';
 import {
   createVerificationChallenge,
+  countRecentSendsToDestination,
   getGuardianBinding,
   getPendingChallenge,
   revokeBinding as revokeGuardianBinding,
@@ -241,6 +242,20 @@ function handleStartOutbound(
       success: false,
       error: 'already_bound',
       message: 'A guardian is already bound for this channel. Set rebind: true to replace.',
+      channel,
+    });
+    return;
+  }
+
+  // Enforce per-destination rate limit across all sessions to prevent
+  // circumvention by repeatedly calling start_outbound for the same number.
+  const recentSendCount = countRecentSendsToDestination(channel, destination, DESTINATION_RATE_WINDOW_MS);
+  if (recentSendCount >= MAX_SENDS_PER_DESTINATION_WINDOW) {
+    ctx.send(socket, {
+      type: 'guardian_verification_response',
+      success: false,
+      error: 'rate_limited',
+      message: 'Too many verification attempts to this phone number. Please try again later.',
       channel,
     });
     return;

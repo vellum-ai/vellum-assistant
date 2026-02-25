@@ -8,7 +8,7 @@
  * requests track per-run guardian approval decisions.
  */
 
-import { and, count, desc, eq, gt, inArray, lte, or } from 'drizzle-orm';
+import { and, count, desc, eq, gt, gte, inArray, lte, or, sum } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
 import { getDb } from './db.js';
@@ -579,6 +579,35 @@ export function updateSessionDelivery(
     })
     .where(eq(channelGuardianVerificationChallenges.id, id))
     .run();
+}
+
+/**
+ * Count SMS sends to a specific destination across all sessions within a
+ * rolling time window. Used to enforce per-destination rate limits that
+ * span across sessions, preventing circumvention via repeated
+ * start_outbound calls.
+ */
+export function countRecentSendsToDestination(
+  channel: string,
+  destinationAddress: string,
+  windowMs: number,
+): number {
+  const db = getDb();
+  const cutoff = Date.now() - windowMs;
+
+  const result = db
+    .select({ total: sum(channelGuardianVerificationChallenges.sendCount) })
+    .from(channelGuardianVerificationChallenges)
+    .where(
+      and(
+        eq(channelGuardianVerificationChallenges.channel, channel),
+        eq(channelGuardianVerificationChallenges.destinationAddress, destinationAddress),
+        gte(channelGuardianVerificationChallenges.createdAt, cutoff),
+      ),
+    )
+    .get();
+
+  return result?.total != null ? Number(result.total) : 0;
 }
 
 /**
