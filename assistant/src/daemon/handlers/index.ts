@@ -17,8 +17,9 @@ import { miscHandlers } from './misc.js';
 import { handleOpenBundle } from './open-bundle-handler.js';
 import { pairingHandlers } from './pairing.js';
 import { publishHandlers } from './publish.js';
+import { recordingHandlers } from './recording.js';
 import { sessionHandlers } from './sessions.js';
-import { defineHandlers, type DispatchMap,type HandlerContext, log } from './shared.js';
+import { defineHandlers, type DispatchMap, type HandlerContext, log } from './shared.js';
 import { signingHandlers } from './signing.js';
 import { skillHandlers } from './skills.js';
 import { subagentHandlers } from './subagents.js';
@@ -39,6 +40,11 @@ export {
   mergeToolResults,
   renderHistoryContent,
 } from './shared.js';
+
+export {
+  handleRecordingStart,
+  handleRecordingStop,
+} from './recording.js';
 
 // ─── Typed dispatch ──────────────────────────────────────────────────────────
 
@@ -94,10 +100,6 @@ const inlineHandlers = defineHandlers({
     ctx.send(socket, { type: 'assistant_inbox_response', success: false, error: 'Not yet implemented' });
   },
 
-  // Stub: recording lifecycle updates from the client. Server-side handling
-  // will be wired in a follow-up milestone (M4).
-  recording_status: () => { /* no-op — standalone recording finalization not yet implemented */ },
-
 });
 
 const handlers = {
@@ -121,6 +123,7 @@ const handlers = {
   ...dictationHandlers,
   ...inboxInviteHandlers,
   ...pairingHandlers,
+  ...recordingHandlers,
   ...inlineHandlers,
 } satisfies DispatchMap;
 
