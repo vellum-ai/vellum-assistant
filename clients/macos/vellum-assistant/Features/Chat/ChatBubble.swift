@@ -241,30 +241,35 @@ struct ChatBubble: View {
     }
 
     private var overflowMenuButton: some View {
-        Menu {
+        HStack(spacing: 2) {
             if hasCopyableText {
-                Button("Copy message") {
+                Button {
                     copyMessageText()
+                } label: {
+                    Image(systemName: showCopyConfirmation ? "checkmark" : "doc.on.doc")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(showCopyConfirmation ? VColor.success : VColor.textMuted)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel(showCopyConfirmation ? "Copied" : "Copy message")
+                .animation(VAnimation.fast, value: showCopyConfirmation)
             }
             if let onReportMessage, !isUser {
-                Button("Export response for diagnostics") {
+                Button {
                     onReportMessage(message.daemonMessageId)
+                } label: {
+                    Image(systemName: "ladybug")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(VColor.textMuted)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Report message")
             }
-        } label: {
-            Image(systemName: showCopyConfirmation ? "checkmark" : "ellipsis")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(showCopyConfirmation ? VColor.success : VColor.textMuted)
-                .frame(width: 24, height: 24)
-                .contentShape(Rectangle())
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .tint(showCopyConfirmation ? VColor.success : VColor.textMuted)
-        .frame(width: 24, height: 24)
-        .accessibilityLabel("Message actions")
-        .animation(VAnimation.fast, value: showCopyConfirmation)
     }
 
     // MARK: - Bubble Content
