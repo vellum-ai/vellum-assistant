@@ -49,9 +49,11 @@ private func unwrapOptionals(_ dict: [String: Any?]) -> [String: Any] {
 }
 
 /// Recursively strip Optional boxing from array elements.
+/// nil elements are preserved as NSNull() so that positional nulls affect equality
+/// (e.g., [1, nil, 3] is not equal to [1, 3]).
 private func unwrapOptionalsInArray(_ array: [Any?]) -> [Any] {
-    return array.compactMap { element -> Any? in
-        guard let element = element else { return nil }
+    return array.map { element -> Any in
+        guard let element = element else { return NSNull() }
         if let nested = element as? [String: Any?] {
             return unwrapOptionals(nested)
         } else if let nestedArray = element as? [Any?] {
