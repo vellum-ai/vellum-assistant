@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray, isNull,or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { z } from 'zod';
 
@@ -10,9 +10,10 @@ import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.
 import { getLogger } from '../util/logger.js';
 import { createRowMapper } from '../util/row-mapper.js';
 import { deleteOrphanAttachments } from './attachments-store.js';
-import { getDb, rawExec,rawGet } from './db.js';
+import { getDb, rawAll, rawExec,rawGet } from './db.js';
 import { indexMessageNow } from './indexer.js';
 import { channelInboundEvents, conversations, llmRequestLogs,memoryEmbeddings, memoryItemEntities, memoryItems, memoryItemSources, memorySegments, messageAttachments, messageRuns, messages, toolInvocations } from './schema.js';
+import { buildFtsMatchQuery } from './search/lexical.js';
 
 const log = getLogger('conversation-store');
 
@@ -391,6 +392,7 @@ export function clearAll(): { conversations: number; messages: number } {
   rawExec('DELETE FROM message_attachments');
   rawExec('DELETE FROM attachments');
   rawExec('DELETE FROM tool_invocations');
+  rawExec('DELETE FROM messages_fts');
   rawExec('DELETE FROM messages');
   rawExec('DELETE FROM conversations');
 
@@ -646,14 +648,10 @@ export interface ConversationSearchResult {
 }
 
 /**
- * Full-text search across message content using SQL LIKE.
- * Searches message content for the query string and returns matching
+ * Full-text search across message content using FTS5.
+ * Uses the messages_fts virtual table for fast tokenized matching on message
+ * content, with a LIKE fallback on conversation titles. Returns matching
  * conversations with their relevant messages, ordered by most recently updated.
- *
- * Messages that contain JSON-encoded content blocks are searched by their
- * raw content string — the query will match inside code blocks, tool call text,
- * and plain text alike. This is intentional: it avoids a full content parse
- * at query time and stays fast even on large databases.
  */
 export function searchConversations(
   query: string,
@@ -664,72 +662,93 @@ export function searchConversations(
   const db = getDb();
   const limit = opts?.limit ?? 20;
   const maxMsgsPerConv = opts?.maxMessagesPerConversation ?? 3;
-  // Escape backslashes first so they don't interfere with subsequent % and _ escaping.
-  // With ESCAPE '\\', SQLite treats \\ as a literal backslash, \% as a literal percent,
-  // and \_ as a literal underscore — so all three characters must be escaped in that order.
-  const pattern = `%${query.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')}%`;
 
-  // Find conversations whose title or at least one message content matches the query.
-  // leftJoin ensures title-only matches are included even for empty conversations
-  // (innerJoin would silently drop them).
-  // ESCAPE '\\' is required for SQLite to treat the backslashes in the pattern as
-  // escape characters rather than literals; SQLite has no default escape character.
-  const matchingConversations = db
-    .select({
-      id: conversations.id,
-      title: conversations.title,
-      updatedAt: conversations.updatedAt,
-    })
+  const ftsMatch = buildFtsMatchQuery(query.trim());
+
+  // LIKE pattern for title matching (FTS only covers message content).
+  const titlePattern = `%${query.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')}%`;
+
+  interface FtsMessageRow {
+    message_id: string;
+    conversation_id: string;
+  }
+
+  // Collect conversation IDs from FTS message matches and title LIKE matches,
+  // then merge them to produce the final set of matching conversations.
+  const ftsConvIds = new Set<string>();
+  if (ftsMatch) {
+    try {
+      const ftsRows = rawAll<FtsMessageRow>(`
+        SELECT f.message_id, m.conversation_id
+        FROM messages_fts f
+        JOIN messages m ON m.id = f.message_id
+        JOIN conversations c ON c.id = m.conversation_id
+        WHERE messages_fts MATCH ? AND c.thread_type != 'background'
+      `, ftsMatch);
+      for (const row of ftsRows) ftsConvIds.add(row.conversation_id);
+    } catch {
+      // FTS parse failure — fall through, title matches may still produce results.
+    }
+  }
+
+  // Title-only matches (FTS doesn't index conversation titles).
+  const titleMatchConvs = db
+    .select({ id: conversations.id })
     .from(conversations)
-    .leftJoin(messages, eq(messages.conversationId, conversations.id))
     .where(
       and(
         sql`${conversations.threadType} != 'background'`,
-        or(
-          sql`${messages.content} LIKE ${pattern} ESCAPE '\\'`,
-          sql`${conversations.title} LIKE ${pattern} ESCAPE '\\'`,
-        ),
+        sql`${conversations.title} LIKE ${titlePattern} ESCAPE '\\'`,
       ),
     )
-    .groupBy(conversations.id)
-    .orderBy(desc(conversations.updatedAt))
-    .limit(limit)
     .all();
+  for (const row of titleMatchConvs) ftsConvIds.add(row.id);
+
+  if (ftsConvIds.size === 0) return [];
+
+  // Fetch the matching conversation rows, ordered by updatedAt, capped at limit.
+  const convIds = [...ftsConvIds];
+  const placeholders = convIds.map(() => '?').join(',');
+  interface ConvRow { id: string; title: string | null; updated_at: number }
+  const matchingConversations = rawAll<ConvRow>(
+    `SELECT id, title, updated_at FROM conversations
+     WHERE id IN (${placeholders})
+     ORDER BY updated_at DESC
+     LIMIT ?`,
+    ...convIds, limit,
+  );
 
   if (matchingConversations.length === 0) return [];
 
   const results: ConversationSearchResult[] = [];
 
   for (const conv of matchingConversations) {
-    // Fetch the top matching messages for this conversation.
-    const matchingMsgs = db
-      .select({
-        id: messages.id,
-        role: messages.role,
-        content: messages.content,
-        createdAt: messages.createdAt,
-      })
-      .from(messages)
-      .where(
-        and(
-          eq(messages.conversationId, conv.id),
-          // ESCAPE '\\' required so backslashes in the pattern act as escape characters.
-          sql`${messages.content} LIKE ${pattern} ESCAPE '\\'`,
-        ),
-      )
-      .orderBy(asc(messages.createdAt))
-      .limit(maxMsgsPerConv)
-      .all();
+    interface MsgRow { id: string; role: string; content: string; created_at: number }
+    let matchingMsgs: MsgRow[] = [];
+    if (ftsMatch) {
+      try {
+        matchingMsgs = rawAll<MsgRow>(`
+          SELECT m.id, m.role, m.content, m.created_at
+          FROM messages_fts f
+          JOIN messages m ON m.id = f.message_id
+          WHERE messages_fts MATCH ? AND m.conversation_id = ?
+          ORDER BY m.created_at ASC
+          LIMIT ?
+        `, ftsMatch, conv.id, maxMsgsPerConv);
+      } catch {
+        // FTS parse failure — no matching messages for this conversation.
+      }
+    }
 
     results.push({
       conversationId: conv.id,
       conversationTitle: conv.title,
-      conversationUpdatedAt: conv.updatedAt,
+      conversationUpdatedAt: conv.updated_at,
       matchingMessages: matchingMsgs.map((m) => ({
         messageId: m.id,
         role: m.role,
         excerpt: buildExcerpt(m.content, query),
-        createdAt: m.createdAt,
+        createdAt: m.created_at,
       })),
     });
   }
