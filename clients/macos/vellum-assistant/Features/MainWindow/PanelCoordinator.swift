@@ -113,7 +113,12 @@ extension MainWindowView {
                     windowState.selection = .app(appId)
                 },
                 onOpenHomeBase: {
-                    windowState.selection = .panel(.directory)
+                    if let homeBase = appListManager.displayApps.first(where: { $0.name.caseInsensitiveCompare("Home Base") == .orderedSame }) {
+                        try? daemonClient.sendAppOpen(appId: homeBase.id)
+                        windowState.selection = .app(homeBase.id)
+                    } else {
+                        windowState.selection = .panel(.directory)
+                    }
                 }
             )
         }
@@ -536,7 +541,12 @@ extension MainWindowView {
                     windowState.selection = .app(appId)
                 },
                 onOpenHomeBase: {
-                    windowState.selection = .panel(.directory)
+                    if let homeBase = appListManager.displayApps.first(where: { $0.name.caseInsensitiveCompare("Home Base") == .orderedSame }) {
+                        try? daemonClient.sendAppOpen(appId: homeBase.id)
+                        windowState.selection = .app(homeBase.id)
+                    } else {
+                        windowState.selection = .panel(.directory)
+                    }
                 }
             )
             .overlay(alignment: .topTrailing) { panelDismissButton }

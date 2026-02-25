@@ -17,7 +17,7 @@ struct AppsGridView: View {
     @State private var recentVisibleCount = 10
     @State private var editingApp: AppListManager.AppItem?
 
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: VSpacing.xl), count: 5)
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: VSpacing.sm), count: 5)
 
     /// Whether "Home Base" matches the current search query.
     private var homeBaseMatchesSearch: Bool {
@@ -27,7 +27,7 @@ struct AppsGridView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: VSpacing.xl) {
+            VStack(spacing: VSpacing.xxl) {
                 searchBar
                     .padding(.top, VSpacing.xxl)
 
@@ -51,7 +51,8 @@ struct AppsGridView: View {
                     .padding(.top, VSpacing.xxxl)
                 }
             }
-            .padding(.horizontal, VSpacing.xxl)
+            .frame(maxWidth: 700)
+            .frame(maxWidth: .infinity)
             .padding(.bottom, VSpacing.xxl)
         }
         .background(VColor.backgroundSubtle)
