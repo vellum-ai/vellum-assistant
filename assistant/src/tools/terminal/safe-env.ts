@@ -3,7 +3,7 @@
  * Everything else (API keys, tokens, credentials) is stripped to prevent
  * accidental leakage via agent-spawned commands.
  *
- * Shared by the sandbox bash tool and the evaluate_typescript_code tool.
+ * Shared by the sandbox bash tool and skill sandbox runner.
  */
 const SAFE_ENV_VARS = [
   'PATH',
