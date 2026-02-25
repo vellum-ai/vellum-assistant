@@ -20,6 +20,7 @@ export interface ShutdownDeps {
   runtimeHttp: RuntimeHttpServer | null;
   scheduler: { stop(): void };
   memoryWorker: { stop(): void };
+  recordingCleanup: { stop(): void };
   qdrantManager: QdrantManager;
   cleanupPidFile: () => void;
 }
@@ -85,6 +86,7 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     await browserManager.closeAllPages();
     deps.scheduler.stop();
     deps.memoryWorker.stop();
+    deps.recordingCleanup.stop();
     await deps.qdrantManager.stop();
 
     // Checkpoint WAL and close SQLite so no writes are lost on exit.

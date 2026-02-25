@@ -105,6 +105,7 @@ export {
   IngressRateLimitConfigSchema,
   IngressConfigSchema,
   DaemonConfigSchema,
+  RecordingConfigSchema,
 } from './core-schema.js';
 export type {
   TimeoutConfig,
@@ -121,6 +122,7 @@ export type {
   IngressRateLimitConfig,
   IngressConfig,
   DaemonConfig,
+  RecordingConfig,
 } from './core-schema.js';
 
 // Imports for AssistantConfigSchema composition
@@ -142,6 +144,7 @@ import {
   SmsConfigSchema,
   IngressConfigSchema,
   DaemonConfigSchema,
+  RecordingConfigSchema,
 } from './core-schema.js';
 
 const VALID_PROVIDERS = ['anthropic', 'openai', 'gemini', 'ollama', 'fireworks', 'openrouter'] as const;
@@ -321,6 +324,13 @@ export const AssistantConfigSchema = z.object({
   rateLimit: RateLimitConfigSchema.default({
     maxRequestsPerMinute: 0,
     maxTokensPerSession: 0,
+  }),
+  recording: RecordingConfigSchema.default({
+    defaultRetentionDays: 30,
+    cleanupIntervalMs: 3600000,
+    captureScope: 'display',
+    includeAudio: false,
+    enforceStartBeforeActions: true,
   }),
   secretDetection: SecretDetectionConfigSchema.default({
     enabled: true,

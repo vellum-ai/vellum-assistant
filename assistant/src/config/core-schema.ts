@@ -305,5 +305,35 @@ export type ModelPricingOverride = z.infer<typeof ModelPricingOverrideSchema>;
 export type SmsConfig = z.infer<typeof SmsConfigSchema>;
 export type IngressWebhookConfig = z.infer<typeof IngressWebhookConfigSchema>;
 export type IngressRateLimitConfig = z.infer<typeof IngressRateLimitConfigSchema>;
+export const RecordingConfigSchema = z.object({
+  /** Days to retain recording files before cleanup. 0 = keep forever. */
+  defaultRetentionDays: z
+    .number({ error: 'recording.defaultRetentionDays must be a number' })
+    .int('recording.defaultRetentionDays must be an integer')
+    .min(0, 'recording.defaultRetentionDays must be >= 0')
+    .default(30),
+  /** Interval in ms between cleanup sweeps. */
+  cleanupIntervalMs: z
+    .number({ error: 'recording.cleanupIntervalMs must be a number' })
+    .int('recording.cleanupIntervalMs must be an integer')
+    .min(60000, 'recording.cleanupIntervalMs must be >= 60000')
+    .default(3600000),
+  /** Default capture scope for recordings. */
+  captureScope: z
+    .enum(['display', 'window'], {
+      error: 'recording.captureScope must be one of: display, window',
+    })
+    .default('display'),
+  /** Whether to include audio by default. */
+  includeAudio: z
+    .boolean({ error: 'recording.includeAudio must be a boolean' })
+    .default(false),
+  /** Whether recording must start before any destructive CU actions. */
+  enforceStartBeforeActions: z
+    .boolean({ error: 'recording.enforceStartBeforeActions must be a boolean' })
+    .default(true),
+});
+
 export type DaemonConfig = z.infer<typeof DaemonConfigSchema>;
 export type IngressConfig = z.infer<typeof IngressConfigSchema>;
+export type RecordingConfig = z.infer<typeof RecordingConfigSchema>;

@@ -156,6 +156,13 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     maxRequestsPerMinute: 0,
     maxTokensPerSession: 0,
   },
+  recording: {
+    defaultRetentionDays: 30,
+    cleanupIntervalMs: 3600000,
+    captureScope: 'display' as const,
+    includeAudio: false,
+    enforceStartBeforeActions: true,
+  },
   secretDetection: {
     enabled: true,
     action: 'redact',
