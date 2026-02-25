@@ -255,8 +255,8 @@ public final class SettingsStore: ObservableObject {
 
         self.globalHotkeyShortcut = UserDefaults.standard.string(forKey: "globalHotkeyShortcut") ?? "cmd+shift+g"
         self.quickInputHotkeyShortcut = UserDefaults.standard.string(forKey: "quickInputHotkeyShortcut") ?? "cmd+shift+/"
-        let storedQIKeyCode = UserDefaults.standard.integer(forKey: "quickInputHotkeyKeyCode")
-        self.quickInputHotkeyKeyCode = storedQIKeyCode > 0 ? storedQIKeyCode : kVK_ANSI_Slash
+        let storedQIKeyCode = UserDefaults.standard.object(forKey: "quickInputHotkeyKeyCode") as? Int
+        self.quickInputHotkeyKeyCode = storedQIKeyCode ?? kVK_ANSI_Slash
 
         #if DEBUG
         self.isDevMode = UserDefaults.standard.object(forKey: "devModeEnabled") as? Bool ?? true

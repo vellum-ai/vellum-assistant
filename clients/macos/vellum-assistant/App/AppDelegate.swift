@@ -1211,8 +1211,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             quickInputEventHandlerRef = nil
         }
 
-        let storedKeyCode = UserDefaults.standard.integer(forKey: "quickInputHotkeyKeyCode")
-        let keyCode = UInt32(storedKeyCode > 0 ? storedKeyCode : kVK_ANSI_Slash)
+        let storedKeyCode = UserDefaults.standard.object(forKey: "quickInputHotkeyKeyCode") as? Int
+        let keyCode = UInt32(storedKeyCode ?? Int(kVK_ANSI_Slash))
         let (modifierFlags, _) = ShortcutHelper.parseShortcut(shortcut)
         let carbonMods = ShortcutHelper.carbonModifiers(from: modifierFlags)
 
