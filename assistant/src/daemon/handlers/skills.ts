@@ -646,7 +646,7 @@ export async function handleSkillsDraft(
 
             const responseText = extractText(response);
             // Extract JSON from response (handle markdown code fences)
-            const jsonMatch = /\{[\s\S]*\}/.exec(responseText);
+            const jsonMatch = /\{[\s\S]*?\}/.exec(responseText);
             if (jsonMatch) {
               const generated = JSON.parse(jsonMatch[0]);
               if (typeof generated === 'object' && generated !== null) {
