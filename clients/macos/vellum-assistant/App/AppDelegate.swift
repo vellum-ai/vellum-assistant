@@ -1796,6 +1796,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     func showMainWindow(initialMessage: String? = nil, isFirstLaunch: Bool = false) {
         if let existing = mainWindow {
             existing.show()
+            // SwiftUI may (re)create the app menu after initial setup.
+            // Re-apply custom menu items whenever the main window is shown.
+            setupViewMenu()
+            DispatchQueue.main.async { [weak self] in
+                self?.setupViewMenu()
+            }
             return
         }
         let main = ensureMainWindowExists(isFirstLaunch: isFirstLaunch)
@@ -1812,6 +1818,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         main.show()
+        // Run once immediately and once on the next runloop to cover cases
+        // where NSApp.mainMenu is initialized slightly after window display.
+        setupViewMenu()
+        DispatchQueue.main.async { [weak self] in
+            self?.setupViewMenu()
+        }
     }
 
     private func observeAssistantStatus() {
