@@ -6,8 +6,9 @@ import { loadSkillCatalog, loadSkillBySelector, ensureSkillIcon } from '../../co
 import { resolveSkillStates } from '../../config/skill-state.js';
 import { getWorkspaceSkillsDir } from '../../util/platform.js';
 import { clawhubInstall, clawhubUpdate, clawhubSearch, clawhubCheckUpdates, clawhubInspect, type ClawhubSearchResultItem } from '../../skills/clawhub.js';
-import { removeSkillsIndexEntry, deleteManagedSkill, validateManagedSkillId } from '../../skills/managed-store.js';
+import { removeSkillsIndexEntry, deleteManagedSkill, validateManagedSkillId, createManagedSkill } from '../../skills/managed-store.js';
 import { listCatalogEntries, installFromVellumCatalog, checkVellumSkill } from '../../tools/skills/vellum-catalog.js';
+import { getConfiguredProvider, extractText, userMessage, createTimeout } from '../../providers/provider-send-message.js';
 import type {
   SkillDetailRequest,
   SkillsEnableRequest,
@@ -19,6 +20,8 @@ import type {
   SkillsCheckUpdatesRequest,
   SkillsSearchRequest,
   SkillsInspectRequest,
+  SkillsDraftRequest,
+  SkillsCreateRequest,
 } from '../ipc-protocol.js';
 import { log, CONFIG_RELOAD_DEBOUNCE_MS, ensureSkillEntry, defineHandlers, type HandlerContext } from './shared.js';
 
@@ -514,6 +517,276 @@ export async function handleSkillDetail(
   }
 }
 
+// ─── Frontmatter parsing ─────────────────────────────────────────────────────
+
+const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/;
+
+interface ParsedFrontmatter {
+  skillId?: string;
+  name?: string;
+  description?: string;
+  emoji?: string;
+  body: string;
+}
+
+function parseFrontmatter(sourceText: string): ParsedFrontmatter {
+  const match = FRONTMATTER_RE.exec(sourceText);
+  if (!match) return { body: sourceText };
+
+  const yamlBlock = match[1];
+  const body = match[2];
+
+  const result: ParsedFrontmatter = { body };
+
+  // Simple YAML key-value extraction (handles quoted and unquoted values)
+  for (const line of yamlBlock.split('\n')) {
+    const kvMatch = /^(\w[\w-]*):\s*(.+)$/.exec(line.trim());
+    if (!kvMatch) continue;
+    const key = kvMatch[1];
+    // Strip surrounding quotes
+    let value = kvMatch[2].trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    switch (key) {
+      case 'skill-id':
+      case 'skillId':
+      case 'id':
+        result.skillId = value;
+        break;
+      case 'name':
+        result.name = value;
+        break;
+      case 'description':
+        result.description = value;
+        break;
+      case 'emoji':
+        result.emoji = value;
+        break;
+    }
+  }
+
+  return result;
+}
+
+// ─── Slug normalization ──────────────────────────────────────────────────────
+
+function toSkillSlug(raw: string): string {
+  return raw
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')  // replace non-valid chars with hyphens
+    .replace(/^[^a-z0-9]+/, '')        // must start with alphanumeric
+    .replace(/-+/g, '-')              // collapse multiple hyphens
+    .replace(/-$/, '')                // no trailing hyphen
+    .slice(0, 50);
+}
+
+// ─── Deterministic heuristic draft ───────────────────────────────────────────
+
+function heuristicDraft(body: string): { skillId: string; name: string; description: string; emoji: string } {
+  const lines = body.split('\n').filter((l) => l.trim());
+  const firstLine = lines[0]?.trim() ?? 'untitled-skill';
+  const name = firstLine.replace(/^#+\s*/, '').slice(0, 100);
+  const skillId = toSkillSlug(name) || 'untitled-skill';
+  const description = body.trim().slice(0, 200);
+  return { skillId, name, description, emoji: '\u{1F4DD}' };
+}
+
+// ─── Draft handler ───────────────────────────────────────────────────────────
+
+const LLM_DRAFT_TIMEOUT_MS = 15_000;
+
+export async function handleSkillsDraft(
+  msg: SkillsDraftRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): Promise<void> {
+  try {
+    const warnings: string[] = [];
+    const parsed = parseFrontmatter(msg.sourceText);
+    const body = parsed.body.trim() || msg.sourceText.trim();
+
+    let { skillId, name, description, emoji } = parsed;
+
+    // Determine which fields still need filling
+    const missing: string[] = [];
+    if (!skillId) missing.push('skillId');
+    if (!name) missing.push('name');
+    if (!description) missing.push('description');
+    if (!emoji) missing.push('emoji');
+
+    // Attempt LLM generation for missing fields
+    if (missing.length > 0) {
+      let llmGenerated = false;
+      try {
+        const provider = getConfiguredProvider();
+        if (provider) {
+          const { signal, cleanup } = createTimeout(LLM_DRAFT_TIMEOUT_MS);
+          try {
+            const prompt = [
+              'Given the following skill body text, generate metadata for a managed skill.',
+              `Return ONLY valid JSON with these fields: ${missing.join(', ')}.`,
+              'Field descriptions:',
+              '- skillId: a short kebab-case identifier (lowercase, alphanumeric + hyphens/dots/underscores, max 50 chars, must start with a letter or digit)',
+              '- name: a human-readable name (max 100 chars)',
+              '- description: a brief one-line description (max 200 chars)',
+              '- emoji: a single emoji character representing the skill',
+              '',
+              'Skill body:',
+              body.slice(0, 2000),
+            ].join('\n');
+
+            const response = await provider.sendMessage(
+              [userMessage(prompt)],
+              [],
+              undefined,
+              { config: { modelIntent: 'latency-optimized', max_tokens: 256 }, signal },
+            );
+            cleanup();
+
+            const responseText = extractText(response);
+            // Extract JSON from response (handle markdown code fences)
+            const jsonMatch = /\{[\s\S]*\}/.exec(responseText);
+            if (jsonMatch) {
+              const generated = JSON.parse(jsonMatch[0]);
+              if (typeof generated === 'object' && generated !== null) {
+                if (!skillId && typeof generated.skillId === 'string') skillId = generated.skillId;
+                if (!name && typeof generated.name === 'string') name = generated.name;
+                if (!description && typeof generated.description === 'string') description = generated.description;
+                if (!emoji && typeof generated.emoji === 'string') emoji = generated.emoji;
+                llmGenerated = true;
+              }
+            }
+          } catch (err) {
+            cleanup();
+            log.warn({ err }, 'LLM draft generation failed, falling back to heuristic');
+            warnings.push('LLM draft generation failed, used heuristic fallback');
+          }
+        } else {
+          warnings.push('No LLM provider available, used heuristic fallback');
+        }
+      } catch (err) {
+        log.warn({ err }, 'Provider resolution failed for draft generation');
+        warnings.push('Provider resolution failed, used heuristic fallback');
+      }
+
+      // Fall back to heuristic for any fields still missing
+      if (!skillId || !name || !description || !emoji) {
+        const heuristic = heuristicDraft(body);
+        if (!skillId) { skillId = heuristic.skillId; if (!llmGenerated) warnings.push('skillId derived from heuristic'); }
+        if (!name) { name = heuristic.name; if (!llmGenerated) warnings.push('name derived from heuristic'); }
+        if (!description) { description = heuristic.description; if (!llmGenerated) warnings.push('description derived from heuristic'); }
+        if (!emoji) { emoji = heuristic.emoji; }
+      }
+    }
+
+    // Normalize skillId to valid managed-skill slug format
+    const originalId = skillId!;
+    skillId = toSkillSlug(originalId);
+    if (!skillId) skillId = 'untitled-skill';
+    if (skillId !== originalId) {
+      warnings.push(`skillId normalized from "${originalId}" to "${skillId}"`);
+    }
+
+    // Final validation pass
+    const validationError = validateManagedSkillId(skillId);
+    if (validationError) {
+      skillId = toSkillSlug(skillId.replace(/[^a-z0-9]/g, '-')) || 'untitled-skill';
+      warnings.push(`skillId re-normalized due to validation: ${validationError}`);
+    }
+
+    ctx.send(socket, {
+      type: 'skills_draft_response',
+      success: true,
+      draft: {
+        skillId: skillId!,
+        name: name!,
+        description: description!,
+        emoji,
+        bodyMarkdown: body,
+      },
+      ...(warnings.length > 0 ? { warnings } : {}),
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'Failed to generate skill draft');
+    ctx.send(socket, {
+      type: 'skills_draft_response',
+      success: false,
+      error: message,
+    });
+  }
+}
+
+// ─── Create handler ──────────────────────────────────────────────────────────
+
+export async function handleSkillsCreate(
+  msg: SkillsCreateRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): Promise<void> {
+  try {
+    const result = createManagedSkill({
+      id: msg.skillId,
+      name: msg.name,
+      description: msg.description,
+      emoji: msg.emoji,
+      bodyMarkdown: msg.bodyMarkdown,
+      userInvocable: msg.userInvocable,
+      disableModelInvocation: msg.disableModelInvocation,
+      overwrite: msg.overwrite,
+    });
+
+    if (!result.created) {
+      ctx.send(socket, {
+        type: 'skills_operation_response',
+        operation: 'create',
+        success: false,
+        error: result.error ?? 'Failed to create managed skill',
+      });
+      return;
+    }
+
+    // Auto-enable the newly created skill
+    try {
+      const raw = loadRawConfig();
+      ensureSkillEntry(raw, msg.skillId).enabled = true;
+      ctx.setSuppressConfigReload(true);
+      try {
+        saveRawConfig(raw);
+      } catch (err) {
+        ctx.setSuppressConfigReload(false);
+        throw err;
+      }
+      invalidateConfigCache();
+      ctx.debounceTimers.schedule('__suppress_reset__', () => { ctx.setSuppressConfigReload(false); }, CONFIG_RELOAD_DEBOUNCE_MS);
+      ctx.updateConfigFingerprint();
+    } catch (err) {
+      log.warn({ err, skillId: msg.skillId }, 'Failed to auto-enable created skill');
+    }
+
+    ctx.send(socket, {
+      type: 'skills_operation_response',
+      operation: 'create',
+      success: true,
+    });
+    ctx.broadcast({
+      type: 'skills_state_changed',
+      name: msg.skillId,
+      state: 'enabled',
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'Failed to create skill');
+    ctx.send(socket, {
+      type: 'skills_operation_response',
+      operation: 'create',
+      success: false,
+      error: message,
+    });
+  }
+}
+
 export const skillHandlers = defineHandlers({
   skills_list: (_msg, socket, ctx) => handleSkillsList(socket, ctx),
   skill_detail: handleSkillDetail,
@@ -526,4 +799,6 @@ export const skillHandlers = defineHandlers({
   skills_check_updates: handleSkillsCheckUpdates,
   skills_search: handleSkillsSearch,
   skills_inspect: handleSkillsInspect,
+  skills_draft: handleSkillsDraft,
+  skills_create: handleSkillsCreate,
 });
