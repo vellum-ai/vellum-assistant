@@ -661,24 +661,6 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     policy: 'allow',
     status: 'active',
   },
-  assistant_inbox: {
-    type: 'assistant_inbox',
-    action: 'list_threads',
-    assistantId: 'asst-001',
-    limit: 20,
-    offset: 0,
-  },
-  assistant_inbox_escalation: {
-    type: 'assistant_inbox_escalation',
-    action: 'list',
-    assistantId: 'asst-001',
-    status: 'pending',
-  },
-  assistant_inbox_reply: {
-    type: 'assistant_inbox_reply',
-    conversationId: 'conv-001',
-    content: 'Hello from the assistant',
-  },
   pairing_approval_response: {
     type: 'pairing_approval_response',
     pairingRequestId: 'pair-001',
@@ -1884,47 +1866,6 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
       lastSeenAt: 1700000000,
       createdAt: 1700000000,
     },
-  },
-  assistant_inbox_response: {
-    type: 'assistant_inbox_response',
-    success: true,
-    threads: [
-      {
-        conversationId: 'conv-001',
-        sourceChannel: 'telegram',
-        externalChatId: 'chat-456',
-        externalUserId: 'user-123',
-        displayName: 'Test User',
-        username: 'testuser',
-        lastMessageAt: 1700000000,
-        unreadCount: 3,
-        hasPendingEscalation: false,
-        lastInboundAt: 1700000000,
-        lastOutboundAt: 1699999000,
-      },
-    ],
-  },
-  assistant_inbox_escalation_response: {
-    type: 'assistant_inbox_escalation_response',
-    success: true,
-    escalations: [
-      {
-        id: 'esc-001',
-        runId: 'run-001',
-        conversationId: 'conv-001',
-        channel: 'telegram',
-        requesterExternalUserId: 'user-123',
-        requesterChatId: 'chat-456',
-        status: 'pending',
-        requestSummary: 'User wants to delete their account',
-        createdAt: 1700000000,
-      },
-    ],
-  },
-  assistant_inbox_reply_response: {
-    type: 'assistant_inbox_reply_response',
-    success: true,
-    messageId: 'msg-reply-001',
   },
   pairing_approval_request: {
     type: 'pairing_approval_request',

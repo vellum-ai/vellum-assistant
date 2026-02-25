@@ -2284,9 +2284,6 @@ public enum ServerMessage: Decodable, Sendable {
     case parentalControlSetPinResponse(ParentalControlSetPinResponseMessage)
     case parentalControlUpdateResponse(ParentalControlUpdateResponseMessage)
     case conversationSearchResponse(ConversationSearchResponseMessage)
-    case assistantInboxResponse(IPCAssistantInboxResponse)
-    case assistantInboxReplyResponse(IPCAssistantInboxReplyResponse)
-    case assistantInboxEscalationResponse(IPCAssistantInboxEscalationResponse)
     case pairingApprovalRequest(PairingApprovalRequestMessage)
     case approvedDevicesListResponse(ApprovedDevicesListResponseMessage)
     case approvedDeviceRemoveResponse(ApprovedDeviceRemoveResponseMessage)
@@ -2685,15 +2682,6 @@ public enum ServerMessage: Decodable, Sendable {
         case "conversation_search_response":
             let message = try ConversationSearchResponseMessage(from: decoder)
             self = .conversationSearchResponse(message)
-        case "assistant_inbox_response":
-            let message = try IPCAssistantInboxResponse(from: decoder)
-            self = .assistantInboxResponse(message)
-        case "assistant_inbox_reply_response":
-            let message = try IPCAssistantInboxReplyResponse(from: decoder)
-            self = .assistantInboxReplyResponse(message)
-        case "assistant_inbox_escalation_response":
-            let message = try IPCAssistantInboxEscalationResponse(from: decoder)
-            self = .assistantInboxEscalationResponse(message)
         case "pairing_approval_request":
             let message = try PairingApprovalRequestMessage(from: decoder)
             self = .pairingApprovalRequest(message)

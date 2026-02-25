@@ -408,15 +408,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `work_item_cancel_response` message.
     public var onWorkItemCancelResponse: ((IPCWorkItemCancelResponse) -> Void)?
 
-    /// Called when the daemon sends an `assistant_inbox_response` message.
-    public var onAssistantInboxResponse: ((IPCAssistantInboxResponse) -> Void)?
-
-    /// Called when the daemon sends an `assistant_inbox_reply_response` message.
-    public var onAssistantInboxReplyResponse: ((IPCAssistantInboxReplyResponse) -> Void)?
-
-    /// Called when the daemon sends an `assistant_inbox_escalation_response` message.
-    public var onAssistantInboxEscalationResponse: ((IPCAssistantInboxEscalationResponse) -> Void)?
-
     /// Called when the daemon sends a generic `error` message (e.g. when a handler fails).
     public var onError: ((ErrorMessage) -> Void)?
 
@@ -1094,60 +1085,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Unpublish a page and delete its Vercel deployment.
     public func sendUnpublishPage(deploymentId: String) throws {
         try send(UnpublishPageRequestMessage(deploymentId: deploymentId))
-    }
-
-    // MARK: - Assistant Inbox
-
-    /// Request the list of inbox threads from the daemon.
-    public func sendAssistantInboxListThreads(assistantId: String? = nil, limit: Int? = nil, offset: Int? = nil) throws {
-        try send(IPCAssistantInboxRequest(
-            type: "assistant_inbox",
-            action: "list_threads",
-            assistantId: assistantId,
-            limit: limit.map { Double($0) },
-            offset: offset.map { Double($0) }
-        ))
-    }
-
-    /// Request messages for a specific inbox thread from the daemon.
-    public func sendAssistantInboxGetThreadMessages(conversationId: String, limit: Int? = nil, beforeMessageId: String? = nil) throws {
-        try send(IPCAssistantInboxRequest(
-            type: "assistant_inbox",
-            action: "get_thread_messages",
-            limit: limit.map { Double($0) },
-            conversationId: conversationId,
-            beforeMessageId: beforeMessageId
-        ))
-    }
-
-    /// Request the list of pending escalations from the daemon.
-    public func sendAssistantInboxListEscalations(assistantId: String? = nil, status: String? = nil) throws {
-        try send(IPCAssistantInboxEscalationRequest(
-            type: "assistant_inbox_escalation",
-            action: "list",
-            assistantId: assistantId,
-            status: status
-        ))
-    }
-
-    /// Send a reply to an inbox thread conversation.
-    public func sendAssistantInboxReply(conversationId: String, content: String) throws {
-        try send(IPCAssistantInboxReplyRequest(
-            type: "assistant_inbox_reply",
-            conversationId: conversationId,
-            content: content
-        ))
-    }
-
-    /// Approve or deny a pending escalation request.
-    public func sendAssistantInboxEscalationDecide(approvalRequestId: String, decision: String, reason: String? = nil) throws {
-        try send(IPCAssistantInboxEscalationRequest(
-            type: "assistant_inbox_escalation",
-            action: "decide",
-            approvalRequestId: approvalRequestId,
-            decision: decision,
-            reason: reason
-        ))
     }
 
     // MARK: - Model Config

@@ -97,11 +97,6 @@ const inlineHandlers = defineHandlers({
   },
   integration_disconnect: () => { /* no-op — integration registry removed */ },
 
-  // Stub handler: assistant_inbox — real implementation will be added in a follow-up PR.
-  assistant_inbox: (_msg, socket, ctx) => {
-    ctx.send(socket, { type: 'assistant_inbox_response', success: false, error: 'Not yet implemented' });
-  },
-
   // Client ack for notification delivery outcome (UNUserNotificationCenter.add result).
   notification_intent_result: (msg) => {
     try {
