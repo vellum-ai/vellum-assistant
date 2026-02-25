@@ -20,6 +20,9 @@ public struct InlineListWidget: View {
         }
         .onAppear {
             selectedIds = Set(data.items.filter(\.selected).map(\.id))
+            if data.selectionMode != .none {
+                onAction("selection_changed", ["selectedIds": AnyCodable(Array(selectedIds))])
+            }
         }
     }
 
