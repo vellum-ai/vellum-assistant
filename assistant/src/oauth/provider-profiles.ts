@@ -96,7 +96,6 @@ export const PROVIDER_PROFILES: Record<string, OAuthProviderProfile> = {
     defaultScopes: ['tweet.read', 'tweet.write', 'users.read', 'offline.access'],
     scopePolicy: DEFAULT_SCOPE_POLICY,
     callbackTransport: 'gateway',
-    tokenEndpointAuthMethod: 'client_secret_basic',
     identityVerifier: async (accessToken: string): Promise<string | undefined> => {
       try {
         const resp = await fetch('https://api.x.com/2/users/me', {
