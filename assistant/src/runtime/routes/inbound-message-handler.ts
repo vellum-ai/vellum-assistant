@@ -163,19 +163,50 @@ export async function handleChannelInbound(
 
     if (!resolvedMember && !isGuardianVerifyCommand) {
       log.info({ sourceChannel, externalUserId: body.senderExternalUserId }, 'Ingress ACL: no member record, denying');
+      if (body.replyCallbackUrl) {
+        try {
+          await deliverChannelReply(body.replyCallbackUrl, {
+            chatId: externalChatId,
+            text: "Sorry, you haven't been approved to message this assistant. You can ask its Guardian for an invite.",
+            assistantId,
+          }, bearerToken);
+        } catch (err) {
+          log.error({ err, externalChatId }, 'Failed to deliver ACL rejection reply');
+        }
+      }
       return Response.json({ accepted: true, denied: true, reason: 'not_a_member' });
     }
 
     if (resolvedMember) {
       if (resolvedMember.status !== 'active') {
         log.info({ sourceChannel, memberId: resolvedMember.id, status: resolvedMember.status }, 'Ingress ACL: member not active, denying');
+        if (body.replyCallbackUrl) {
+          try {
+            await deliverChannelReply(body.replyCallbackUrl, {
+              chatId: externalChatId,
+              text: "Sorry, you haven't been approved to message this assistant. You can ask its Guardian for an invite.",
+              assistantId,
+            }, bearerToken);
+          } catch (err) {
+            log.error({ err, externalChatId }, 'Failed to deliver ACL rejection reply');
+          }
+        }
         return Response.json({ accepted: true, denied: true, reason: `member_${resolvedMember.status}` });
       }
 
       if (resolvedMember.policy === 'deny') {
         log.info({ sourceChannel, memberId: resolvedMember.id }, 'Ingress ACL: member policy deny');
-        return Response.json({ accepted: true, denied: true, reason: 'policy_deny' });
-      }
+        if (body.replyCallbackUrl) {
+          try {
+            await deliverChannelReply(body.replyCallbackUrl, {
+              chatId: externalChatId,
+              text: "Sorry, you haven't been approved to message this assistant. You can ask its Guardian for an invite.",
+              assistantId,
+            }, bearerToken);
+          } catch (err) {
+            log.error({ err, externalChatId }, 'Failed to deliver ACL rejection reply');
+          }
+        }
 
       // 'allow' or 'escalate' — update last seen and continue
       updateLastSeen(resolvedMember.id);
