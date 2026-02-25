@@ -694,14 +694,14 @@ export class DaemonServer {
 
   // ── HTTP message processing ─────────────────────────────────────────
 
-  async persistAndProcessMessage(
+  private async prepareSessionForMessage(
     conversationId: string,
     content: string,
-    attachmentIds?: string[],
-    options?: SessionCreateOptions,
-    sourceChannel?: string,
-    sourceInterface?: string,
-  ): Promise<{ messageId: string }> {
+    attachmentIds: string[] | undefined,
+    options: SessionCreateOptions | undefined,
+    sourceChannel: string | undefined,
+    sourceInterface: string | undefined,
+  ): Promise<{ session: Session; attachments: { id: string; filename: string; mimeType: string; data: string }[] }> {
     const ingressCheck = checkIngressForSecrets(content);
     if (ingressCheck.blocked) {
       throw new IngressBlockedError(ingressCheck.userNotice!, ingressCheck.detectedTypes);
@@ -737,6 +737,21 @@ export class DaemonServer {
         }))
       : [];
 
+    return { session, attachments };
+  }
+
+  async persistAndProcessMessage(
+    conversationId: string,
+    content: string,
+    attachmentIds?: string[],
+    options?: SessionCreateOptions,
+    sourceChannel?: string,
+    sourceInterface?: string,
+  ): Promise<{ messageId: string }> {
+    const { session, attachments } = await this.prepareSessionForMessage(
+      conversationId, content, attachmentIds, options, sourceChannel, sourceInterface,
+    );
+
     const requestId = crypto.randomUUID();
     const messageId = session.persistUserMessage(content, attachments, requestId);
 
@@ -755,40 +770,9 @@ export class DaemonServer {
     sourceChannel?: string,
     sourceInterface?: string,
   ): Promise<{ messageId: string }> {
-    const ingressCheck = checkIngressForSecrets(content);
-    if (ingressCheck.blocked) {
-      throw new IngressBlockedError(ingressCheck.userNotice!, ingressCheck.detectedTypes);
-    }
-
-    const session = await this.getOrCreateSession(conversationId, undefined, true, options);
-
-    if (session.isProcessing()) {
-      throw new Error('Session is already processing a message');
-    }
-
-    const resolvedChannel2 = resolveTurnChannel(sourceChannel, options?.transport?.channelId);
-    const resolvedInterface2 = resolveTurnInterface(sourceInterface);
-    session.setAssistantId(options?.assistantId ?? 'self');
-    session.setGuardianContext(options?.guardianContext ?? null);
-    session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel, sourceInterface));
-    session.setCommandIntent(options?.commandIntent ?? null);
-    session.setTurnChannelContext({
-      userMessageChannel: resolvedChannel2,
-      assistantMessageChannel: resolvedChannel2,
-    });
-    session.setTurnInterfaceContext({
-      userMessageInterface: resolvedInterface2,
-      assistantMessageInterface: resolvedInterface2,
-    });
-
-    const attachments = attachmentIds
-      ? attachmentsStore.getAttachmentsByIds(attachmentIds).map((a) => ({
-          id: a.id,
-          filename: a.originalFilename,
-          mimeType: a.mimeType,
-          data: a.dataBase64,
-        }))
-      : [];
+    const { session, attachments } = await this.prepareSessionForMessage(
+      conversationId, content, attachmentIds, options, sourceChannel, sourceInterface,
+    );
 
     const slashResult = resolveSlash(content);
 
