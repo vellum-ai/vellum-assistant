@@ -106,8 +106,18 @@ export const slackProvider: WatcherProvider = {
       }
 
       const slackConfig = config as SlackWatcherConfig;
-      const watchChannels = slackConfig.channels ?? [];
-      const includeDMs = slackConfig.includeDMs ?? true;
+
+      // Normalize channels: config is persisted as untyped JSON, so a caller
+      // could provide a bare string instead of an array. Coerce to string[]
+      // and filter out any non-string entries to prevent iterating characters.
+      const rawChannels = slackConfig.channels;
+      const watchChannels: string[] = Array.isArray(rawChannels)
+        ? rawChannels.filter((ch): ch is string => typeof ch === 'string')
+        : typeof rawChannels === 'string'
+          ? [rawChannels]
+          : [];
+
+      const includeDMs = typeof slackConfig.includeDMs === 'boolean' ? slackConfig.includeDMs : true;
 
       const authResp = await slack.authTest(token);
       const userId = authResp.user_id;
