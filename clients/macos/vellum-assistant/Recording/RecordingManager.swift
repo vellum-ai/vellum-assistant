@@ -73,6 +73,19 @@ final class RecordingManager: ObservableObject {
         self.attachToConversationId = attachToConversationId
         self.state = .starting
 
+        // Wire up the stream error callback so mid-recording SCStream failures
+        // surface as proper failure states with IPC notification and cleanup.
+        recorder.onStreamError = { [weak self] recorderError in
+            guard let self else { return }
+            let message = recorderError.localizedDescription ?? "Unknown stream error"
+            log.error("Stream error during recording session \(sessionId, privacy: .public): \(message, privacy: .public)")
+
+            self.state = .failed(message)
+            self.sendStatus(sessionId: sessionId, status: "failed", error: message)
+            self.ownerSessionId = nil
+            self.attachToConversationId = nil
+        }
+
         do {
             try await recorder.start(
                 captureScope: options?.captureScope ?? "display",
@@ -127,6 +140,7 @@ final class RecordingManager: ObservableObject {
 
         do {
             let result = try await recorder.stop()
+            recorder.onStreamError = nil
             state = .idle
             sendStatus(
                 sessionId: sessionId,
@@ -146,6 +160,7 @@ final class RecordingManager: ObservableObject {
 
             return (result.filePath, result.durationMs)
         } catch {
+            recorder.onStreamError = nil
             let message = error.localizedDescription
             state = .failed(message)
             sendStatus(sessionId: sessionId, status: "failed", error: message)
@@ -164,6 +179,7 @@ final class RecordingManager: ObservableObject {
     func forceStop() {
         guard state.isActive else { return }
 
+        recorder.onStreamError = nil
         recorder.cancelRecording()
 
         let sessionId = ownerSessionId
