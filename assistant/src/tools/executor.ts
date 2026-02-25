@@ -769,7 +769,6 @@ const SIDE_EFFECT_TOOLS: ReadonlySet<string> = new Set([
   'browser_scroll',
   'browser_select_option',
   'browser_hover',
-  'browser_wait_for_download',
   'browser_close',
   'browser_fill_credential',
   'document_create',
