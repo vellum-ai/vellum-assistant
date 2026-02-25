@@ -64,8 +64,8 @@ export async function handleTwitterAuthStart(
       return;
     }
 
-    const clientSecret = getSecureKey('credential:integration:twitter:client_secret')
-      ?? getSecureKey('credential:integration:twitter:oauth_client_secret')
+    const clientSecret = (getSecureKey('credential:integration:twitter:client_secret')
+      ?? getSecureKey('credential:integration:twitter:oauth_client_secret'))
       || undefined;
 
     // Fail fast if no public ingress URL is configured — Twitter OAuth
