@@ -46,6 +46,9 @@ export const INTERACTIVE_SELECTOR = [
   '[role="radio"]',
   '[role="tab"]',
   '[role="menuitem"]',
+  '[role="option"]',
+  '[role="combobox"]',
+  '[role="listbox"]',
   '[contenteditable="true"]',
 ].join(', ');
 
