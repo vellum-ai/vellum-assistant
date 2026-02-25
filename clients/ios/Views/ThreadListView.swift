@@ -36,7 +36,9 @@ struct ThreadListView: View {
     }
 
     var body: some View {
-        if horizontalSizeClass == .regular {
+        if store.isLoadingInitialThreads {
+            loadingView
+        } else if horizontalSizeClass == .regular {
             NavigationSplitView {
                 threadList
             } detail: {
@@ -50,6 +52,17 @@ struct ThreadListView: View {
                     }
             }
         }
+    }
+
+    private var loadingView: some View {
+        VStack(spacing: VSpacing.md) {
+            ProgressView()
+            Text("Loading chats\u{2026}")
+                .font(VFont.body)
+                .foregroundColor(VColor.textSecondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .navigationTitle("Chats")
     }
 
     // MARK: - Detail Views
