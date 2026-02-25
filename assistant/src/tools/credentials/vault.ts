@@ -1,7 +1,9 @@
 import { getConfig } from '../../config/loader.js';
+import { getProviderProfile, resolveService, SERVICE_ALIASES } from '../../oauth/provider-profiles.js';
+import { storeOAuth2Tokens } from '../../oauth/token-persistence.js';
 import { RiskLevel } from '../../permissions/types.js';
 import type { ToolDefinition } from '../../providers/types.js';
-import { type OAuth2FlowResult, prepareOAuth2Flow, startOAuth2Flow, type TokenEndpointAuthMethod } from '../../security/oauth2.js';
+import { prepareOAuth2Flow, startOAuth2Flow, type TokenEndpointAuthMethod } from '../../security/oauth2.js';
 import {
   deleteSecureKey,
   getBackendType,
@@ -16,131 +18,8 @@ import { credentialBroker } from './broker.js';
 import { assertMetadataWritable,deleteCredentialMetadata, getCredentialMetadata, listCredentialMetadata, upsertCredentialMetadata } from './metadata-store.js';
 import type { CredentialInjectionTemplate,CredentialPolicyInput } from './policy-types.js';
 import { toPolicyFromInput,validatePolicyInput } from './policy-validate.js';
-import { runPostConnectHook } from './post-connect-hooks.js';
 
 const log = getLogger('credential-vault');
-
-// ---------------------------------------------------------------------------
-// Well-known OAuth configurations for auto-connect.
-// When oauth2_connect is called with just a service name, missing parameters
-// (auth_url, token_url, scopes, etc.) are filled from this registry.
-// ---------------------------------------------------------------------------
-
-interface WellKnownOAuthConfig {
-  authUrl: string;
-  tokenUrl: string;
-  scopes: string[];
-  userinfoUrl?: string;
-  extraParams?: Record<string, string>;
-  /** How to send client credentials at the token endpoint. Defaults to client_secret_post. */
-  tokenEndpointAuthMethod?: TokenEndpointAuthMethod;
-  /** Injection templates auto-applied to the access_token credential after a successful OAuth2 connect. */
-  injectionTemplates?: CredentialInjectionTemplate[];
-  /** Force a specific callback transport (e.g. 'loopback' for Desktop app credentials). */
-  callbackTransport?: 'loopback' | 'gateway';
-  /** Fixed port for loopback transport. Required for providers like Slack that
-   *  need pre-registered redirect URIs and cannot use a random port. */
-  loopbackPort?: number;
-  /** Metadata for the generic OAuth setup skill. When present, the assistant
-   *  can guide users through app creation and OAuth connection without a
-   *  provider-specific setup skill. */
-  setup?: {
-    /** Human-readable provider name (e.g., "Discord", "Linear") */
-    displayName: string;
-    /** URL of the developer dashboard where the user creates an app */
-    dashboardUrl: string;
-    /** What the provider calls its apps (e.g., "Discord Application", "Linear OAuth App") */
-    appType: string;
-    /** Whether the provider requires a client_secret for token exchange */
-    requiresClientSecret: boolean;
-    /** Provider-specific notes the LLM should follow during setup */
-    notes?: string[];
-  };
-  /** Bundled skill ID that contains provider-specific setup instructions.
-   *  When present, the guardrail for missing client_secret directs the agent
-   *  to load this skill for guidance rather than embedding instructions inline.
-   *  This keeps the SKILL.md as the single source of truth for setup flows. */
-  setupSkillId?: string;
-}
-
-const WELL_KNOWN_OAUTH: Record<string, WellKnownOAuthConfig> = {
-  'integration:gmail': {
-    authUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
-    tokenUrl: 'https://oauth2.googleapis.com/token',
-    scopes: [
-      'https://www.googleapis.com/auth/gmail.readonly',
-      'https://www.googleapis.com/auth/gmail.modify',
-      'https://www.googleapis.com/auth/gmail.send',
-      'https://www.googleapis.com/auth/calendar.readonly',
-      'https://www.googleapis.com/auth/calendar.events',
-      'https://www.googleapis.com/auth/userinfo.email',
-      'https://www.googleapis.com/auth/contacts.readonly',
-    ],
-    userinfoUrl: 'https://www.googleapis.com/oauth2/v2/userinfo',
-    extraParams: { access_type: 'offline', prompt: 'consent' },
-    callbackTransport: 'loopback',
-    setupSkillId: 'google-oauth-setup',
-    setup: {
-      displayName: 'Google (Gmail & Calendar)',
-      dashboardUrl: 'https://console.cloud.google.com/apis/credentials',
-      appType: 'Desktop app',
-      requiresClientSecret: true,
-    },
-  },
-  'integration:slack': {
-    authUrl: 'https://slack.com/oauth/v2/authorize',
-    tokenUrl: 'https://slack.com/api/oauth.v2.access',
-    scopes: [
-      'channels:read', 'channels:history',
-      'groups:read', 'groups:history',
-      'im:read', 'im:history', 'im:write',
-      'mpim:read', 'mpim:history',
-      'users:read', 'chat:write',
-      'search:read', 'reactions:write',
-    ],
-    extraParams: {
-      user_scope: 'channels:read,channels:history,groups:read,groups:history,im:read,im:history,im:write,mpim:read,mpim:history,users:read,chat:write,search:read,reactions:write',
-    },
-    callbackTransport: 'loopback',
-    loopbackPort: 17322,
-  },
-  // Notion uses a simple OAuth2 flow with client_secret_basic auth at the token endpoint.
-  // The access token is long-lived (no expiry) and scopes are configured per-integration in Notion
-  // (the authorization URL accepts owner=user but there are no traditional scope strings to request).
-  'integration:notion': {
-    authUrl: 'https://api.notion.com/v1/oauth/authorize',
-    tokenUrl: 'https://api.notion.com/v1/oauth/token',
-    scopes: [],
-    extraParams: { owner: 'user' },
-    // Notion requires HTTP Basic Auth (base64 of client_id:client_secret) at the token endpoint,
-    // not the default client_secret_post form-body approach.
-    tokenEndpointAuthMethod: 'client_secret_basic',
-    // Auto-inject the Bearer token for all Notion API calls made through the sandbox proxy.
-    injectionTemplates: [
-      {
-        hostPattern: 'api.notion.com',
-        injectionType: 'header',
-        headerName: 'Authorization',
-        valuePrefix: 'Bearer ',
-      },
-    ],
-  },
-};
-
-/** Map shorthand aliases to canonical service names. */
-const SERVICE_ALIASES: Record<string, string> = {
-  gmail: 'integration:gmail',
-  slack: 'integration:slack',
-  notion: 'integration:notion',
-};
-
-/** Resolve a service name through aliases, then fall back to integration: prefix
- *  for providers registered in WELL_KNOWN_OAUTH without a SERVICE_ALIASES entry. */
-function resolveService(service: string): string {
-  if (SERVICE_ALIASES[service]) return SERVICE_ALIASES[service];
-  if (!service.includes(':') && WELL_KNOWN_OAUTH[`integration:${service}`]) return `integration:${service}`;
-  return service;
-}
 
 /**
  * Look up a stored client_id or client_secret for a service.
@@ -176,87 +55,6 @@ function findStoredOAuthField(service: string, fieldNames: string[]): string | u
   }
 
   return undefined;
-}
-
-// ---------------------------------------------------------------------------
-// Shared helper: store OAuth2 tokens + metadata after a successful flow.
-// Used by both the interactive (desktop) and deferred (channel) paths.
-// ---------------------------------------------------------------------------
-
-interface StoreOAuth2TokensParams {
-  service: string;
-  tokens: OAuth2FlowResult['tokens'];
-  grantedScopes: string[];
-  rawTokenResponse: Record<string, unknown>;
-  clientId: string;
-  clientSecret?: string;
-  tokenUrl: string;
-  tokenEndpointAuthMethod?: TokenEndpointAuthMethod;
-  userinfoUrl?: string;
-  allowedTools?: string[];
-  wellKnownInjectionTemplates?: CredentialInjectionTemplate[];
-}
-
-async function storeOAuth2Tokens(params: StoreOAuth2TokensParams): Promise<{ accountInfo?: string }> {
-  const { service, tokens, grantedScopes, rawTokenResponse, clientId, clientSecret, tokenUrl, tokenEndpointAuthMethod, userinfoUrl, allowedTools, wellKnownInjectionTemplates } = params;
-
-  const tokenStored = setSecureKey(`credential:${service}:access_token`, tokens.accessToken);
-  if (!tokenStored) {
-    throw new Error('Failed to store access token in secure storage');
-  }
-
-  const expiresAt = tokens.expiresIn ? Date.now() + tokens.expiresIn * 1000 : null;
-
-  let accountInfo: string | undefined;
-  if (userinfoUrl && grantedScopes.some((s) => s.includes('userinfo'))) {
-    try {
-      const resp = await fetch(userinfoUrl, {
-        headers: { Authorization: `Bearer ${tokens.accessToken}` },
-      });
-      if (resp.ok) {
-        const info = await resp.json() as { email?: string };
-        accountInfo = info.email;
-      }
-    } catch {
-      // Non-fatal
-    }
-  }
-
-  // Persist client credentials in keychain for defense in depth
-  const clientIdStored = setSecureKey(`credential:${service}:client_id`, clientId);
-  if (!clientIdStored) {
-    throw new Error('Failed to store client_id in secure storage');
-  }
-  if (clientSecret) {
-    const clientSecretStored = setSecureKey(`credential:${service}:client_secret`, clientSecret);
-    if (!clientSecretStored) {
-      throw new Error('Failed to store client_secret in secure storage');
-    }
-  }
-
-  upsertCredentialMetadata(service, 'access_token', {
-    allowedTools: allowedTools ?? [],
-    expiresAt,
-    grantedScopes,
-    accountInfo: accountInfo ?? null,
-    oauth2TokenUrl: tokenUrl,
-    oauth2ClientId: clientId,
-    ...(clientSecret ? { oauth2ClientSecret: clientSecret } : {}),
-    ...(tokenEndpointAuthMethod ? { oauth2TokenEndpointAuthMethod: tokenEndpointAuthMethod } : {}),
-    ...(wellKnownInjectionTemplates ? { injectionTemplates: wellKnownInjectionTemplates } : {}),
-  });
-
-  if (tokens.refreshToken) {
-    const refreshStored = setSecureKey(`credential:${service}:refresh_token`, tokens.refreshToken);
-    if (refreshStored) {
-      upsertCredentialMetadata(service, 'refresh_token', {});
-    }
-  }
-
-  // Run any provider-specific post-connect actions (e.g. Slack welcome DM)
-  await runPostConnectHook({ service, rawTokenResponse });
-
-  return { accountInfo };
 }
 
 class CredentialStoreTool implements Tool {
@@ -678,13 +476,13 @@ class CredentialStoreTool implements Tool {
         // Resolve aliases (e.g. "gmail" → "integration:gmail")
         const service = resolveService(rawService);
 
-        // Fill missing params from well-known config
-        const wellKnown = WELL_KNOWN_OAUTH[service];
-        const authUrl = (input.auth_url as string | undefined) ?? wellKnown?.authUrl;
-        const tokenUrl = (input.token_url as string | undefined) ?? wellKnown?.tokenUrl;
-        const scopes = (input.scopes as string[] | undefined) ?? wellKnown?.scopes;
-        const extraParams = (input.extra_params as Record<string, string> | undefined) ?? wellKnown?.extraParams;
-        const userinfoUrl = (input.userinfo_url as string | undefined) ?? wellKnown?.userinfoUrl;
+        // Fill missing params from provider profile
+        const profile = getProviderProfile(service);
+        const authUrl = (input.auth_url as string | undefined) ?? profile?.authUrl;
+        const tokenUrl = (input.token_url as string | undefined) ?? profile?.tokenUrl;
+        const scopes = (input.scopes as string[] | undefined) ?? profile?.defaultScopes;
+        const extraParams = (input.extra_params as Record<string, string> | undefined) ?? profile?.extraParams;
+        const userinfoUrl = (input.userinfo_url as string | undefined) ?? profile?.userinfoUrl;
 
         // Look up client_id/client_secret from stored credentials if not provided
         const clientId = (input.client_id as string | undefined)
@@ -692,7 +490,7 @@ class CredentialStoreTool implements Tool {
         const clientSecret = (input.client_secret as string | undefined)
           ?? findStoredOAuthField(service, ['client_secret', 'oauth_client_secret']);
         const tokenEndpointAuthMethod = (input.token_endpoint_auth_method as TokenEndpointAuthMethod | undefined)
-          ?? wellKnown?.tokenEndpointAuthMethod;
+          ?? profile?.tokenEndpointAuthMethod;
 
         if (!authUrl) return { content: 'Error: auth_url is required for oauth2_connect action (no well-known config for this service)', isError: true };
         if (!tokenUrl) return { content: 'Error: token_url is required for oauth2_connect action (no well-known config for this service)', isError: true };
@@ -705,10 +503,10 @@ class CredentialStoreTool implements Tool {
         // Fail early when client_secret is required but missing — guide the
         // agent to collect it from the user rather than letting it improvise
         // browser-automation workarounds that inevitably fail.
-        const requiresSecret = wellKnown?.setup?.requiresClientSecret
-          ?? !!(wellKnown?.tokenEndpointAuthMethod || wellKnown?.extraParams);
+        const requiresSecret = profile?.setup?.requiresClientSecret
+          ?? !!(profile?.tokenEndpointAuthMethod || profile?.extraParams);
         if (requiresSecret && !clientSecret) {
-          const skillId = wellKnown?.setupSkillId;
+          const skillId = profile?.setupSkillId;
           const skillHint = skillId
             ? `\n\nLoad the "${skillId}" skill for provider-specific instructions on obtaining the client secret.`
             : '\n\nUse credential_store with action "prompt" to securely collect the client_secret from the user before calling oauth2_connect again.';
@@ -725,7 +523,7 @@ class CredentialStoreTool implements Tool {
         }
 
         const allowedTools = input.allowed_tools as string[] | undefined;
-        const wellKnownInjectionTemplates = wellKnown?.injectionTemplates;
+        const wellKnownInjectionTemplates = profile?.injectionTemplates;
         const oauthConfig = { authUrl, tokenUrl, scopes, clientId, clientSecret, extraParams, userinfoUrl, tokenEndpointAuthMethod };
         const storageParams = {
           service, clientId, clientSecret, tokenUrl, tokenEndpointAuthMethod,
@@ -736,7 +534,7 @@ class CredentialStoreTool implements Tool {
           // Channel path: return the auth URL as text for the user to open manually.
           // Token storage happens asynchronously when the callback arrives.
           try {
-            const callbackTransport = wellKnown?.callbackTransport ?? 'gateway';
+            const callbackTransport = profile?.callbackTransport ?? 'gateway';
 
             // Gateway transport needs a public ingress URL; loopback runs locally
             // on the daemon so it works regardless of ingress configuration.
@@ -756,7 +554,7 @@ class CredentialStoreTool implements Tool {
             const prepared = await prepareOAuth2Flow(
               oauthConfig,
               callbackTransport === 'loopback'
-                ? { callbackTransport, loopbackPort: wellKnown?.loopbackPort }
+                ? { callbackTransport, loopbackPort: profile?.loopbackPort }
                 : undefined,
             );
 
@@ -796,7 +594,7 @@ class CredentialStoreTool implements Tool {
                 context.sendToClient?.({ type: 'open_url', url, title: `Connect ${service}` });
               },
             },
-            wellKnown?.callbackTransport ? { callbackTransport: wellKnown.callbackTransport, loopbackPort: wellKnown.loopbackPort } : undefined,
+            profile?.callbackTransport ? { callbackTransport: profile.callbackTransport, loopbackPort: profile.loopbackPort } : undefined,
           );
 
           const { accountInfo } = await storeOAuth2Tokens({
@@ -822,16 +620,16 @@ class CredentialStoreTool implements Tool {
           return { content: 'Error: service is required for describe action', isError: true };
         }
         const resolvedService = resolveService(rawService);
-        const wellKnown = WELL_KNOWN_OAUTH[resolvedService];
-        if (!wellKnown) {
+        const profile = getProviderProfile(resolvedService);
+        if (!profile) {
           return { content: `No well-known OAuth config found for "${rawService}". Available services: ${Object.keys(SERVICE_ALIASES).join(', ')}`, isError: false };
         }
 
         // Compute the redirect URI based on callback transport
         let redirectUri: string;
-        const transport = wellKnown.callbackTransport ?? 'gateway';
-        if (transport === 'loopback' && wellKnown.loopbackPort) {
-          redirectUri = `http://127.0.0.1:${wellKnown.loopbackPort}/oauth/callback`;
+        const transport = profile.callbackTransport ?? 'gateway';
+        if (transport === 'loopback' && profile.loopbackPort) {
+          redirectUri = `http://127.0.0.1:${profile.loopbackPort}/oauth/callback`;
         } else if (transport === 'loopback') {
           redirectUri = '(automatic — no redirect URI needed, uses random localhost port)';
         } else {
@@ -847,20 +645,20 @@ class CredentialStoreTool implements Tool {
         }
 
         // Prefer explicit setup metadata, fall back to heuristic
-        const requiresClientSecret = wellKnown.setup?.requiresClientSecret
-          ?? !!(wellKnown.tokenEndpointAuthMethod || wellKnown.extraParams);
+        const requiresClientSecret = profile.setup?.requiresClientSecret
+          ?? !!(profile.tokenEndpointAuthMethod || profile.extraParams);
 
         const info: Record<string, unknown> = {
           service: resolvedService,
-          authUrl: wellKnown.authUrl,
-          tokenUrl: wellKnown.tokenUrl,
-          scopes: wellKnown.scopes,
+          authUrl: profile.authUrl,
+          tokenUrl: profile.tokenUrl,
+          scopes: profile.defaultScopes,
           callbackTransport: transport,
           redirectUri,
           requiresClientSecret,
         };
-        if (wellKnown.setup) info.setup = wellKnown.setup;
-        if (wellKnown.extraParams) info.extraParams = wellKnown.extraParams;
+        if (profile.setup) info.setup = profile.setup;
+        if (profile.extraParams) info.extraParams = profile.extraParams;
 
         return { content: JSON.stringify(info, null, 2), isError: false };
       }
