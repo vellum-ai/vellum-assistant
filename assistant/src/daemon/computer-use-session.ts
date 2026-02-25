@@ -32,6 +32,7 @@ const SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 const MAX_HISTORY_ENTRIES = 10;
 const LOOP_DETECTION_WINDOW = 3;
 const CONSECUTIVE_UNCHANGED_WARNING_THRESHOLD = 2;
+const RECORDING_TOOL_BLOCK_MESSAGE = 'Screen recording is already active automatically for this session. Do not start QuickTime/screencapture or any native recording tool. Continue with the user workflow.';
 
 /** Number of most-recent AX tree snapshots to keep in conversation history. */
 const MAX_AX_TREES_IN_HISTORY = 2;
@@ -39,6 +40,28 @@ const MAX_AX_TREES_IN_HISTORY = 2;
 /** Regex that matches the `<ax-tree>…</ax-tree>` markers injected by buildObservationResultContent. */
 const AX_TREE_PATTERN = /<ax-tree>[\s\S]*?<\/ax-tree>/g;
 const AX_TREE_PLACEHOLDER = '<ax_tree_omitted />';
+
+function shouldBlockManualRecordingToolAttempt(
+  toolName: string,
+  input: Record<string, unknown>,
+): boolean {
+  if (toolName === 'computer_use_open_app') {
+    const appName = typeof input.app_name === 'string' ? input.app_name.toLowerCase() : '';
+    return appName.includes('quicktime')
+      || appName.includes('screenshot')
+      || appName.includes('screen capture');
+  }
+
+  if (toolName === 'computer_use_run_applescript') {
+    const script = typeof input.script === 'string' ? input.script.toLowerCase() : '';
+    return script.includes('quicktime')
+      || script.includes('screen recording')
+      || script.includes('screenrecording')
+      || script.includes('screencapture');
+  }
+
+  return false;
+}
 
 type SessionState = 'idle' | 'awaiting_observation' | 'inferring' | 'complete' | 'error';
 
@@ -59,6 +82,7 @@ export class ComputerUseSession {
   private sendToClient: (msg: ServerMessage) => void;
   private readonly interactionType: 'computer_use' | 'text_qa';
   private readonly onTerminal?: (sessionId: string) => void;
+  private readonly requiresRecording: boolean;
   private readonly preactivatedSkillIds: string[];
   private readonly skillProjectionState = new Map<string, string>();
   private readonly skillProjectionCache: SkillProjectionCache = {};
@@ -95,6 +119,7 @@ export class ComputerUseSession {
     interactionType?: 'computer_use' | 'text_qa',
     onTerminal?: (sessionId: string) => void,
     preactivatedSkillIds?: string[],
+    requiresRecording?: boolean,
   ) {
     this.sessionId = sessionId;
     this.task = task;
@@ -105,6 +130,7 @@ export class ComputerUseSession {
     this.interactionType = interactionType ?? 'computer_use';
     this.onTerminal = onTerminal;
     this.preactivatedSkillIds = preactivatedSkillIds ?? ['computer-use'];
+    this.requiresRecording = requiresRecording ?? false;
   }
 
   // ---------------------------------------------------------------------------
@@ -278,7 +304,9 @@ export class ComputerUseSession {
   // ---------------------------------------------------------------------------
 
   private async runAgentLoop(messages: Message[]): Promise<void> {
-    const systemPrompt = buildComputerUseSystemPrompt(this.screenWidth, this.screenHeight);
+    const systemPrompt = buildComputerUseSystemPrompt(this.screenWidth, this.screenHeight, {
+      requiresRecording: this.requiresRecording,
+    });
 
     let cuToolDefs = this.getProjectedCuToolDefinitions();
     if (!cuToolDefs) {
@@ -423,6 +451,22 @@ export class ComputerUseSession {
 
       // ── Computer-use tool proxying ─────────────────────────────────
       const reasoning = typeof input.reasoning === 'string' ? input.reasoning : undefined;
+
+      // When the session recorder is already running, block attempts to start
+      // additional native recording tools from inside CU.
+      if (this.requiresRecording && shouldBlockManualRecordingToolAttempt(toolName, input)) {
+        this.actionHistory.push({
+          step: this.stepCount + 1,
+          toolName,
+          input,
+          reasoning,
+          result: 'blocked: manual recording tool attempt while session recording is active',
+        });
+        return {
+          content: RECORDING_TOOL_BLOCK_MESSAGE,
+          isError: true,
+        };
+      }
 
       // Record action in history
       this.actionHistory.push({

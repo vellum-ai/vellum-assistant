@@ -32,6 +32,7 @@ import { getSubagentManager } from '../../subagent/index.js';
 import {
   log,
   wireEscalationHandler,
+  getScreenDimensions,
   renderHistoryContent,
   mergeToolResults,
   pendingStandaloneSecrets,
@@ -41,6 +42,8 @@ import {
   type HistorySurface,
   type ParsedHistoryMessage,
 } from './shared.js';
+import { detectRecordingIntent, stripRecordingIntent } from '../recording-intent.js';
+import type { CuSessionCreate } from '../ipc-contract.js';
 import { truncate } from '../../util/truncate.js';
 
 export async function handleUserMessage(
@@ -76,6 +79,41 @@ export async function handleUserMessage(
         session.redirectToSecurePrompt(ingressCheck.detectedTypes);
         return;
       }
+    }
+
+    // Intercept recording intent: route to a new CU session instead of text_qa
+    const content = msg.content ?? '';
+    if (detectRecordingIntent(content)) {
+      rlog.info('Recording intent detected in user_message — routing to computer_use');
+      const normalizedTask = stripRecordingIntent(content);
+      const cuSessionId = uuid();
+      const dims = getScreenDimensions();
+      const cuMsg: CuSessionCreate = {
+        type: 'cu_session_create',
+        sessionId: cuSessionId,
+        task: normalizedTask,
+        screenWidth: dims.width,
+        screenHeight: dims.height,
+        attachments: msg.attachments,
+        interactionType: 'computer_use',
+        requiresRecording: true,
+        attachToConversationId: msg.sessionId,
+      };
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy require to avoid circular dependency
+      const { handleCuSessionCreate } = require('./computer-use.js');
+      handleCuSessionCreate(cuMsg, socket, ctx);
+
+      ctx.send(socket, {
+        type: 'task_routed',
+        sessionId: cuSessionId,
+        interactionType: 'computer_use',
+        task: normalizedTask,
+        escalatedFrom: msg.sessionId,
+        requiresRecording: true,
+      });
+      // Signal the text session turn is done so the chat UI exits its thinking state
+      ctx.send(socket, { type: 'message_complete', sessionId: msg.sessionId });
+      return;
     }
 
     session.traceEmitter.emit('request_received', 'User message received', {

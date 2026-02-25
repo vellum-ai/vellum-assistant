@@ -52,8 +52,20 @@ final class ComputerUseSession: ObservableObject {
     let recordingOptions: IPCRecordingOptions?
     /// Conversation ID to attach recording artifacts to (sent with recording_status messages).
     let attachToConversationId: String?
-    /// Current recording lifecycle state.
-    @Published private(set) var recordingState: RecordingState = .pending
+    /// Shared recording manager — injected by AppDelegate when recording is needed.
+    private let recordingManager: RecordingManager?
+
+    /// Current recording lifecycle state, derived from the shared RecordingManager.
+    var recordingState: RecordingState {
+        guard let manager = recordingManager else { return .pending }
+        switch manager.state {
+        case .idle: return .pending
+        case .starting: return .pending
+        case .recording: return .started
+        case .stopping: return .stopped
+        case .failed(let reason): return .failed(reason: reason)
+        }
+    }
 
     /// Weak reference to the chat view model for extracting tool calls for notifications.
     weak var relatedViewModel: ChatViewModel?
@@ -1035,14 +1047,14 @@ final class ComputerUseSession: ObservableObject {
 
     // MARK: - Recording Lifecycle
 
-    /// Whether an action type modifies system state (clicks, keys, typing, drag).
-    /// Non-destructive actions (scroll, wait, openApp, done, respond, runAppleScript) are allowed
+    /// Whether an action type modifies system state (clicks, keys, typing, drag, AppleScript).
+    /// Non-destructive actions (scroll, wait, openApp, done, respond) are allowed
     /// before recording starts.
     private func isDestructiveAction(_ type: ActionType) -> Bool {
         switch type {
-        case .click, .doubleClick, .rightClick, .type, .key, .drag:
+        case .click, .doubleClick, .rightClick, .type, .key, .drag, .runAppleScript:
             return true
-        case .scroll, .wait, .openApp, .runAppleScript, .done, .respond:
+        case .scroll, .wait, .openApp, .done, .respond:
             return false
         }
     }

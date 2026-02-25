@@ -19,7 +19,7 @@ import type {
 } from '../ipc-protocol.js';
 import { log, wireEscalationHandler, renderHistoryContent, defineHandlers, type HandlerContext } from './shared.js';
 import { handleCuSessionCreate } from './computer-use.js';
-import { detectRecordingIntent } from '../recording-intent.js';
+import { detectRecordingIntent, stripRecordingIntent } from '../recording-intent.js';
 
 // ─── Task submit handler ────────────────────────────────────────────────────
 
@@ -80,16 +80,18 @@ export async function handleTaskSubmit(
 
     if (effectiveType === 'computer_use') {
       // Create CU session (reuse handleCuSessionCreate logic)
+      const normalizedTask = isRecordingRequested ? stripRecordingIntent(msg.task) : msg.task;
       const sessionId = uuid();
       const cuMsg: CuSessionCreate = {
         type: 'cu_session_create',
         sessionId,
-        task: msg.task,
+        task: normalizedTask,
         screenWidth: msg.screenWidth,
         screenHeight: msg.screenHeight,
         attachments: msg.attachments,
         interactionType: 'computer_use',
         requiresRecording: isRecordingRequested || undefined,
+        attachToConversationId: msg.conversationId,
       };
       handleCuSessionCreate(cuMsg, socket, ctx);
 
@@ -97,6 +99,7 @@ export async function handleTaskSubmit(
         type: 'task_routed',
         sessionId,
         interactionType: 'computer_use',
+        task: normalizedTask,
         requiresRecording: isRecordingRequested || undefined,
       });
     } else {

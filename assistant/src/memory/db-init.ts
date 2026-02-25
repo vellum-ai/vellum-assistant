@@ -1,4 +1,4 @@
-import { getDb } from './db-connection.js';
+import { getDb, getSqliteFrom } from './db-connection.js';
 import {
   createCoreTables,
   createWatchersAndLogsTables,
@@ -16,6 +16,24 @@ import {
   runLateMigrations,
   createNotificationTables,
   validateMigrationState,
+  migrateJobDeferrals,
+  migrateToolInvocationsFk,
+  migrateMemoryEntityRelationDedup,
+  migrateMemoryItemsFingerprintScopeUnique,
+  migrateMemoryItemsScopeSaltedFingerprints,
+  migrateAssistantIdToSelf,
+  migrateRemoveAssistantIdColumns,
+  migrateLlmUsageEventsDropAssistantId,
+  migrateDropActiveSearchIndex,
+  migrateCallSessionsAddInitiatedFrom,
+  migrateCallSessionsProviderSidDedup,
+  migrateExtConvBindingsChannelChatUnique,
+  migrateBackfillInboxThreadStateFromBindings,
+  migrateGuardianActionTables,
+  migrateMemoryFtsBackfill,
+  migrateMemorySegmentsIndexes,
+  migrateMemoryItemsIndexes,
+  migrateRemainingTableIndexes,
 } from './migrations/index.js';
 
 export function initializeDb(): void {
@@ -95,7 +113,7 @@ export function initializeDb(): void {
     )
   `);
 
-  try { database.run(/*sql*/ `ALTER TABLE message_runs ADD COLUMN pending_secret TEXT`); } catch (e) { log.debug({ err: e }, 'ALTER TABLE message_runs ADD COLUMN pending_secret (likely already exists)'); }
+  try { database.run(/*sql*/ `ALTER TABLE message_runs ADD COLUMN pending_secret TEXT`); } catch (_e) { /* column likely already exists */ }
 
   database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS reminders (
@@ -185,8 +203,8 @@ export function initializeDb(): void {
     )
   `);
 
-  try { database.run(/*sql*/ `ALTER TABLE published_pages ADD COLUMN app_id TEXT`); } catch (e) { log.debug({ err: e }, 'ALTER TABLE published_pages ADD COLUMN app_id (likely already exists)'); }
-  try { database.run(/*sql*/ `ALTER TABLE published_pages ADD COLUMN project_slug TEXT`); } catch (e) { log.debug({ err: e }, 'ALTER TABLE published_pages ADD COLUMN project_slug (likely already exists)'); }
+  try { database.run(/*sql*/ `ALTER TABLE published_pages ADD COLUMN app_id TEXT`); } catch (_e) { /* column likely already exists */ }
+  try { database.run(/*sql*/ `ALTER TABLE published_pages ADD COLUMN project_slug TEXT`); } catch (_e) { /* column likely already exists */ }
 
   database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS shared_app_links (
@@ -756,11 +774,11 @@ export function initializeDb(): void {
   `);
 
   // Work item run contract snapshot
-  try { database.run(/*sql*/ `ALTER TABLE work_items ADD COLUMN required_tools TEXT`); } catch (e) { log.debug({ err: e }, 'ALTER TABLE work_items ADD COLUMN required_tools (likely already exists)'); }
+  try { database.run(/*sql*/ `ALTER TABLE work_items ADD COLUMN required_tools TEXT`); } catch (_e) { /* column likely already exists */ }
 
   // Work item permission preflight columns
-  try { database.run(/*sql*/ `ALTER TABLE work_items ADD COLUMN approved_tools TEXT`); } catch (e) { log.debug({ err: e }, 'ALTER TABLE work_items ADD COLUMN approved_tools (likely already exists)'); }
-  try { database.run(/*sql*/ `ALTER TABLE work_items ADD COLUMN approval_status TEXT DEFAULT 'none'`); } catch (e) { log.debug({ err: e }, 'ALTER TABLE work_items ADD COLUMN approval_status (likely already exists)'); }
+  try { database.run(/*sql*/ `ALTER TABLE work_items ADD COLUMN approved_tools TEXT`); } catch (_e) { /* column likely already exists */ }
+  try { database.run(/*sql*/ `ALTER TABLE work_items ADD COLUMN approval_status TEXT DEFAULT 'none'`); } catch (_e) { /* column likely already exists */ }
 
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_work_items_status ON work_items(status)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_work_items_task_id ON work_items(task_id)`);

@@ -18,10 +18,15 @@ function currentDateString(): string {
 export function buildComputerUseSystemPrompt(
   screenWidth: number,
   screenHeight: number,
+  options?: { requiresRecording?: boolean },
 ): string {
   const dateStr = currentDateString();
 
-  return `You are vellum-assistant's computer use agent. You control the user's Mac to accomplish tasks.
+  const recordingNotice = options?.requiresRecording
+    ? `\n\nSCREEN RECORDING: Screen recording is ALREADY running automatically in the background. Do NOT attempt to start screen recording yourself — do not open QuickTime, do not use screencapture, do not use any recording tools. Focus on performing the user's actual task while recording captures it.\n`
+    : '';
+
+  return `You are vellum-assistant's computer use agent. You control the user's Mac to accomplish tasks.${recordingNotice}
 
 The screen is ${screenWidth}\u00d7${screenHeight} pixels.
 

@@ -85,6 +85,8 @@ export function handleCuSessionCreate(
     sendToClient,
     msg.interactionType,
     onTerminal,
+    undefined, // preactivatedSkillIds
+    msg.requiresRecording,
   );
   sessionRef.current = session;
 

@@ -9,7 +9,7 @@ import type { ClientMessage, CuSessionCreate, ServerMessage, SessionTransportMet
 import type { SecretPromptResult } from '../../permissions/secret-prompter.js';
 import { getConfig } from '../../config/loader.js';
 import type { DebouncerMap } from '../../util/debounce.js';
-import { detectRecordingIntent } from '../recording-intent.js';
+import { detectRecordingIntent, stripRecordingIntent } from '../recording-intent.js';
 import type { GuardianRuntimeContext } from '../session-runtime-assembly.js';
 
 const log = getLogger('handlers');
@@ -232,15 +232,17 @@ export function wireEscalationHandler(
     }
 
     const isRecordingRequested = detectRecordingIntent(task);
+    const normalizedTask = isRecordingRequested ? stripRecordingIntent(task) : task;
     const cuSessionId = uuid();
     const cuMsg: CuSessionCreate = {
       type: 'cu_session_create',
       sessionId: cuSessionId,
-      task,
+      task: normalizedTask,
       screenWidth,
       screenHeight,
       interactionType: 'computer_use',
       requiresRecording: isRecordingRequested || undefined,
+      attachToConversationId: sourceSessionId,
     };
     handleCuSessionCreate(cuMsg, currentSocket, ctx);
 
@@ -248,7 +250,7 @@ export function wireEscalationHandler(
       type: 'task_routed',
       sessionId: cuSessionId,
       interactionType: 'computer_use',
-      task,
+      task: normalizedTask,
       escalatedFrom: sourceSessionId,
       requiresRecording: isRecordingRequested || undefined,
     });

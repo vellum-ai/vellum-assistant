@@ -142,7 +142,9 @@ extension AppDelegate {
 
             let storedMaxSteps = UserDefaults.standard.integer(forKey: "maxStepsPerSession")
             let maxSteps = storedMaxSteps > 0 ? storedMaxSteps : 50
-            let escalationConversationId = self.mainWindow?.threadManager?.activeThread?.sessionId
+            // Use the source session ID from the routed payload — activeThread can
+            // drift if the user switches threads between escalation and this handler.
+            let escalationConversationId = routed.escalatedFrom ?? self.mainWindow?.threadManager.activeThread?.sessionId
             let session = ComputerUseSession(
                 task: routed.task ?? "Escalated task",
                 daemonClient: self.daemonClient,
@@ -235,7 +237,7 @@ extension AppDelegate {
                     extractedText: $0.extractedText
                 )
             }
-            let activeConversationId = self.mainWindow?.threadManager?.activeThread?.sessionId
+            let activeConversationId = self.mainWindow?.threadManager.activeThread?.sessionId
             do {
                 try self.daemonClient.send(TaskSubmitMessage(
                     task: effectiveTask,
@@ -312,7 +314,7 @@ extension AppDelegate {
                 let storedMaxSteps = UserDefaults.standard.integer(forKey: "maxStepsPerSession")
                 let maxSteps = storedMaxSteps > 0 ? storedMaxSteps : 50
                 let session = ComputerUseSession(
-                    task: effectiveTask,
+                    task: routed.task ?? effectiveTask,
                     daemonClient: self.daemonClient,
                     maxSteps: maxSteps,
                     attachments: submission.attachments,
