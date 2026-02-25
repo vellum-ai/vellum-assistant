@@ -2323,6 +2323,8 @@ public struct IPCIngressInviteResponseInvite: Codable, Sendable {
 public struct IPCIngressMemberRequest: Codable, Sendable {
     public let type: String
     public let action: String
+    /// Assistant ID for scoping member operations (defaults to 'self').
+    public let assistantId: String?
     /// Source channel (required for upsert, optional filter for list).
     public let sourceChannel: String?
     /// External user ID (upsert only).
@@ -2342,9 +2344,10 @@ public struct IPCIngressMemberRequest: Codable, Sendable {
     /// Reason for revoke or block (revoke and block only).
     public let reason: String?
 
-    public init(type: String, action: String, sourceChannel: String? = nil, externalUserId: String? = nil, externalChatId: String? = nil, displayName: String? = nil, username: String? = nil, policy: String? = nil, status: String? = nil, memberId: String? = nil, reason: String? = nil) {
+    public init(type: String, action: String, assistantId: String? = nil, sourceChannel: String? = nil, externalUserId: String? = nil, externalChatId: String? = nil, displayName: String? = nil, username: String? = nil, policy: String? = nil, status: String? = nil, memberId: String? = nil, reason: String? = nil) {
         self.type = type
         self.action = action
+        self.assistantId = assistantId
         self.sourceChannel = sourceChannel
         self.externalUserId = externalUserId
         self.externalChatId = externalChatId
