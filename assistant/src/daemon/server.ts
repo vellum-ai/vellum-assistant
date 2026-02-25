@@ -701,10 +701,7 @@ export class DaemonServer {
 
     const resolvedChannel = resolveTurnChannel(sourceChannel, options?.transport?.channelId);
     session.setAssistantId(options?.assistantId ?? 'self');
-    // IPC/desktop callers don't supply guardianContext — the local daemon user
-    // IS the guardian, so default to guardian role to avoid tagging messages as
-    // 'unverified_channel' and blocking memory extraction.
-    session.setGuardianContext(options?.guardianContext ?? { actorRole: 'guardian', sourceChannel: resolvedChannel });
+    session.setGuardianContext(options?.guardianContext ?? null);
     session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel));
     session.setCommandIntent(options?.commandIntent ?? null);
     session.setTurnChannelContext({
@@ -751,10 +748,7 @@ export class DaemonServer {
 
     const resolvedChannel2 = resolveTurnChannel(sourceChannel, options?.transport?.channelId);
     session.setAssistantId(options?.assistantId ?? 'self');
-    // IPC/desktop callers don't supply guardianContext — the local daemon user
-    // IS the guardian, so default to guardian role to avoid tagging messages as
-    // 'unverified_channel' and blocking memory extraction.
-    session.setGuardianContext(options?.guardianContext ?? { actorRole: 'guardian', sourceChannel: resolvedChannel2 });
+    session.setGuardianContext(options?.guardianContext ?? null);
     session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel));
     session.setCommandIntent(options?.commandIntent ?? null);
     session.setTurnChannelContext({
