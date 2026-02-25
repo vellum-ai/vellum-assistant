@@ -619,6 +619,12 @@ extension ChatViewModel {
                     onVoiceResponseComplete?(responseText)
                 }
             }
+            // Fire first-reply callback once when the first complete
+            // assistant message arrives (used for bootstrap gate).
+            if let callback = onFirstAssistantReply {
+                onFirstAssistantReply = nil
+                callback()
+            }
             var completedToolCalls: [ToolCallData]?
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {

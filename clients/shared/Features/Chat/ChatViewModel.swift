@@ -242,6 +242,9 @@ public final class ChatViewModel: ObservableObject {
     public var onVoiceResponseComplete: ((String) -> Void)?
     /// Called when any assistant response completes, with a summary of the response text.
     public var onResponseComplete: ((String) -> Void)?
+    /// Called once when the first complete assistant message arrives during bootstrap.
+    /// Cleared after firing to ensure it only triggers once.
+    public var onFirstAssistantReply: (() -> Void)?
     /// Called with each streaming text delta during a voice-triggered response, for real-time TTS.
     public var onVoiceTextDelta: ((String) -> Void)?
     /// When true, messages are prefixed with a concise-response instruction for voice conversations.
