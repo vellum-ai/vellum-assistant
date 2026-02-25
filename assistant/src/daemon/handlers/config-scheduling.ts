@@ -115,6 +115,10 @@ export async function handleScheduleRunNow(
   }
 
   const conversation = createConversation({ title: GENERATING_TITLE, source: 'schedule' });
+  queueGenerateConversationTitle({
+    conversationId: conversation.id,
+    context: { origin: 'schedule', systemHint: `Schedule (manual): ${schedule.name}` },
+  });
   const runId = createScheduleRun(schedule.id, conversation.id);
 
   try {
