@@ -33,6 +33,7 @@ import { getOrCreateConversation } from '../memory/conversation-key-store.js';
 import { queueGenerateConversationTitle } from '../memory/conversation-title-service.js';
 import { upsertBinding } from '../memory/external-conversation-store.js';
 import { addPointerMessage } from './call-pointer-messages.js';
+import { isGuardian } from '../runtime/channel-guardian-service.js';
 
 const log = getLogger('call-domain');
 
@@ -237,6 +238,12 @@ export function createInboundVoiceSession(
   updateCallSession(session.id, { providerCallSid: callSid });
   session.providerCallSid = callSid;
 
+  const callerIsGuardian = isGuardian(assistantId, 'voice', fromNumber);
+  const metadataHints: string[] = [
+    callerIsGuardian ? 'Caller is the guardian' : 'Caller is not the guardian (external caller)',
+    `Timestamp: ${new Date().toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`,
+  ];
+
   queueGenerateConversationTitle({
     conversationId: voiceConversationId,
     context: {
@@ -244,6 +251,7 @@ export function createInboundVoiceSession(
       sourceChannel: 'voice',
       assistantId,
       systemHint: `Inbound call from ${fromNumber}`,
+      metadataHints,
     },
   });
 
@@ -338,6 +346,9 @@ export async function startCall(input: StartCallInput): Promise<StartCallResult 
         assistantId,
         systemHint: `Outbound call to ${phoneNumber}`,
         triggerTextSnippet: task,
+        metadataHints: [
+          `Timestamp: ${new Date().toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`,
+        ],
       },
     });
 
