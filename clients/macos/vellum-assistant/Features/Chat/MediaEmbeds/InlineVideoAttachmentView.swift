@@ -1,5 +1,6 @@
 import AVKit
 import SwiftUI
+import UniformTypeIdentifiers
 import VellumAssistantShared
 import os
 
@@ -86,6 +87,9 @@ struct InlineVideoAttachmentView: View {
         }
         .frame(maxWidth: 360)
         .aspectRatio(videoAspectRatio, contentMode: .fit)
+        .onDrag {
+            makeVideoItemProvider()
+        }
         .onHover { isHovering = $0 }
         .onDisappear {
             player?.pause()
@@ -214,7 +218,7 @@ struct InlineVideoAttachmentView: View {
         if let fileURL = cachedFileURL {
             Task { await playFromFile(fileURL) }
         } else if attachment.isLazyLoad {
-            fetchAndPlay()
+            streamAndPlay()
         } else {
             Task { await playFromBase64(attachment.data) }
         }
@@ -260,8 +264,16 @@ struct InlineVideoAttachmentView: View {
         await playFromFile(fileURL)
     }
 
-    private func fetchAndPlay() {
+    /// Stream video directly from the daemon /content endpoint using AVURLAsset.
+    /// The server supports Range headers so AVPlayer can seek natively without
+    /// downloading the entire file first.
+    private func streamAndPlay() {
         guard let port = daemonHttpPort, let attachmentId = attachment.id.isEmpty ? nil : attachment.id else {
+            failed = true
+            return
+        }
+
+        guard let contentURL = contentURL(port: port, attachmentId: attachmentId) else {
             failed = true
             return
         }
@@ -269,11 +281,34 @@ struct InlineVideoAttachmentView: View {
         isLoading = true
         Task {
             do {
-                let base64 = try await fetchAttachmentData(port: port, attachmentId: attachmentId)
-                await MainActor.run { isLoading = false }
-                await playFromBase64(base64)
+                let token = try readBearerToken()
+                let headers = ["Authorization": "Bearer \(token)"]
+                let asset = AVURLAsset(url: contentURL, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
+
+                // Load video metadata to get aspect ratio.
+                if let tracks = try? await asset.load(.tracks),
+                   let videoTrack = tracks.first(where: { $0.mediaType == .video }),
+                   let size = try? await videoTrack.load(.naturalSize),
+                   let transform = try? await videoTrack.load(.preferredTransform),
+                   size.width > 0, size.height > 0 {
+                    let transformed = CGRect(origin: .zero, size: size).applying(transform).size
+                    let w = abs(transformed.width)
+                    let h = abs(transformed.height)
+                    if w > 0, h > 0 {
+                        await MainActor.run { videoAspectRatio = w / h }
+                    }
+                }
+
+                let playerItem = AVPlayerItem(asset: asset)
+                let avPlayer = AVPlayer(playerItem: playerItem)
+                await MainActor.run {
+                    isLoading = false
+                    self.player = avPlayer
+                    self.isPlaying = true
+                    avPlayer.play()
+                }
             } catch {
-                log.error("Failed to fetch attachment \(attachmentId): \(error.localizedDescription)")
+                log.error("Failed to stream attachment \(attachmentId): \(error.localizedDescription)")
                 await MainActor.run {
                     isLoading = false
                     failed = true
@@ -315,14 +350,11 @@ struct InlineVideoAttachmentView: View {
             }
             Task {
                 do {
-                    let base64 = try await fetchAttachmentData(port: port, attachmentId: attachmentId)
-                    guard let data = Data(base64Encoded: base64) else {
-                        await MainActor.run { isSaving = false }
-                        return
-                    }
+                    let data = try await downloadAttachmentContent(port: port, attachmentId: attachmentId)
                     try data.write(to: destURL)
                     await MainActor.run { isSaving = false }
                 } catch {
+                    log.error("Failed to save lazy-loaded video: \(error)")
                     await MainActor.run { isSaving = false }
                 }
             }
@@ -347,14 +379,7 @@ struct InlineVideoAttachmentView: View {
             isLoading = true
             Task {
                 do {
-                    let base64 = try await fetchAttachmentData(port: port, attachmentId: attachmentId)
-                    guard let data = Data(base64Encoded: base64) else {
-                        await MainActor.run {
-                            isLoading = false
-                            failed = true
-                        }
-                        return
-                    }
+                    let data = try await downloadAttachmentContent(port: port, attachmentId: attachmentId)
                     let fileURL = safeTempURL()
                     try data.write(to: fileURL)
                     await MainActor.run {
@@ -362,7 +387,10 @@ struct InlineVideoAttachmentView: View {
                         NSWorkspace.shared.open(fileURL)
                     }
                 } catch {
-                    await MainActor.run { isLoading = false }
+                    await MainActor.run {
+                        isLoading = false
+                        failed = true
+                    }
                 }
             }
         } else {
@@ -372,10 +400,64 @@ struct InlineVideoAttachmentView: View {
             NSWorkspace.shared.open(fileURL)
         }
     }
+    // MARK: - Drag support
+
+    /// Creates an NSItemProvider for dragging the video to Finder or other apps.
+    private func makeVideoItemProvider() -> NSItemProvider {
+        // If the file is already cached on disk, provide it directly.
+        if let fileURL = cachedFileURL {
+            return NSItemProvider(contentsOf: fileURL) ?? NSItemProvider()
+        }
+
+        let provider = NSItemProvider()
+
+        // Determine the UTType from the mime type, falling back to .mpeg4Movie.
+        let fileUTType = UTType(mimeType: attachment.mimeType) ?? .mpeg4Movie
+
+        // Capture values needed by the async closure to avoid capturing `self`.
+        let attachmentId = attachment.id.isEmpty ? nil : attachment.id
+        let port = daemonHttpPort
+        let isLazy = attachment.isLazyLoad
+        let base64Data = attachment.data
+        let tempURL = safeTempURL()
+
+        // For lazy-loaded or inline data: use a promise-based provider that
+        // downloads/decodes the file to a temp location first.
+        provider.registerFileRepresentation(forTypeIdentifier: fileUTType.identifier, visibility: .all) { completion in
+            Task {
+                do {
+                    if isLazy, let port, let attachmentId {
+                        let data = try await downloadAttachmentContent(port: port, attachmentId: attachmentId)
+                        try data.write(to: tempURL)
+                    } else if !base64Data.isEmpty,
+                              let data = Data(base64Encoded: base64Data) {
+                        try data.write(to: tempURL)
+                    } else {
+                        completion(nil, false, URLError(.cannotOpenFile))
+                        return
+                    }
+
+                    completion(tempURL, false, nil)
+                } catch {
+                    completion(nil, false, error)
+                }
+            }
+            return nil
+        }
+
+        return provider
+    }
 }
 
-/// Fetch attachment base64 data from the daemon HTTP endpoint.
-private func fetchAttachmentData(port: Int, attachmentId: String) async throws -> String {
+// MARK: - Network helpers
+
+/// Construct the /content URL for streaming raw video binary.
+private func contentURL(port: Int, attachmentId: String) -> URL? {
+    URL(string: "http://localhost:\(port)/v1/attachments/\(attachmentId)/content")
+}
+
+/// Read the daemon's HTTP bearer token from disk.
+private func readBearerToken() throws -> String {
     let tokenBase: String
     if let baseDir = ProcessInfo.processInfo.environment["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines),
        !baseDir.isEmpty {
@@ -389,7 +471,15 @@ private func fetchAttachmentData(port: Int, attachmentId: String) async throws -
           !token.isEmpty else {
         throw URLError(.userAuthenticationRequired)
     }
-    let url = URL(string: "http://localhost:\(port)/v1/attachments/\(attachmentId)")!
+    return token
+}
+
+/// Download raw binary attachment content from the daemon /content endpoint.
+private func downloadAttachmentContent(port: Int, attachmentId: String) async throws -> Data {
+    let token = try readBearerToken()
+    guard let url = contentURL(port: port, attachmentId: attachmentId) else {
+        throw URLError(.badURL)
+    }
     var request = URLRequest(url: url)
     request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
 
@@ -397,12 +487,7 @@ private func fetchAttachmentData(port: Int, attachmentId: String) async throws -
     guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
         throw URLError(.badServerResponse)
     }
-
-    struct AttachmentResponse: Decodable {
-        let data: String
-    }
-    let decoded = try JSONDecoder().decode(AttachmentResponse.self, from: data)
-    return decoded.data
+    return data
 }
 
 /// NSViewRepresentable wrapper for AVPlayerView.
