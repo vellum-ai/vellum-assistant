@@ -273,6 +273,9 @@ export async function handleSendMessage(
   if (deps.sendMessageDeps) {
     const smDeps = deps.sendMessageDeps;
     const session = await smDeps.getOrCreateSession(mapping.conversationId);
+    // HTTP API is a trusted local ingress (same as IPC) — set guardian context
+    // so that memory extraction is not silently disabled by unverified provenance.
+    session.setGuardianContext({ actorRole: 'guardian', sourceChannel: sourceChannel ?? 'http' });
     const onEvent = makeHubPublisher(smDeps, mapping.conversationId, session);
 
     const attachments = hasAttachments

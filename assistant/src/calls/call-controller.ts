@@ -253,9 +253,10 @@ export class CallController {
         }
         this.drainPendingCallerUtterances();
       })
-      .catch((err) =>
-        log.error({ err, callSessionId: this.callSessionId }, 'runTurn failed after user answer'),
-      );
+      .catch((err) => {
+        this.pendingCallerUtterances = [];
+        log.error({ err, callSessionId: this.callSessionId }, 'runTurn failed after user answer');
+      });
     return true;
   }
 
