@@ -54,7 +54,20 @@ export function createCoreIndexes(database: DrizzleDb): void {
   }
   database.run(/*sql*/ `DROP INDEX IF EXISTS idx_memory_embeddings_target`);
   database.run(/*sql*/ `DROP INDEX IF EXISTS idx_memory_embeddings_provider_model`);
-  database.run(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_embeddings_target_provider_model ON memory_embeddings(target_type, target_id, provider, model)`);
+  // Only create the explicit unique index when the table-level UNIQUE constraint
+  // is absent (dropped by migration 026's table rebuild). Fresh databases still
+  // have the autoindex from CREATE TABLE, so creating a second B-tree would be
+  // redundant write overhead.
+  {
+    const rawEmb = getSqliteFrom(database);
+    const ddl = rawEmb.query(
+      `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'memory_embeddings'`,
+    ).get() as { sql: string } | null;
+    const hasTableUniqueConstraint = ddl?.sql?.includes('UNIQUE (target_type, target_id, provider, model)') ?? false;
+    if (!hasTableUniqueConstraint) {
+      database.run(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_embeddings_target_provider_model ON memory_embeddings(target_type, target_id, provider, model)`);
+    }
+  }
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_embeddings_content_hash ON memory_embeddings(content_hash, provider, model)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_jobs_status_run_after ON memory_jobs(status, run_after)`);
   database.run(/*sql*/ `
