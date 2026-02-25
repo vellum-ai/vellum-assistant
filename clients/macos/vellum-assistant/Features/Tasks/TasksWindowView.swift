@@ -11,35 +11,8 @@ struct TasksWindowView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Column headers — fixed above the scrollable list
-            HStack(alignment: .center, spacing: 0) {
-                Text("Task Description")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                Text("Priority")
-                    .frame(width: TasksTableContract.priorityWidth)
-
-                Text("Status")
-                    .frame(width: TasksTableContract.statusWidth)
-
-                Text("Actions")
-                    .frame(width: TasksTableContract.actionsWidth)
-            }
-            .font(VFont.captionMedium)
-            .foregroundColor(VColor.textMuted)
-            .padding(.top, VSpacing.lg)
-            .padding(.bottom, VSpacing.sm)
-            .padding(.horizontal, VSpacing.lg)
-            // Inner horizontal padding matches row padding so labels sit
-            // directly above their respective columns.
-            .padding(.horizontal, VSpacing.md)
-
-            Rectangle()
-                .fill(VColor.surfaceBorder)
-                .frame(height: 1)
-
-            // Content
             if viewModel.isLoading {
+                columnHeaderBar
                 VStack {
                     Spacer()
                     ProgressView()
@@ -48,6 +21,7 @@ struct TasksWindowView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let error = viewModel.errorMessage {
+                columnHeaderBar
                 VStack(spacing: VSpacing.md) {
                     Spacer()
                     Image(systemName: "exclamationmark.triangle")
@@ -66,6 +40,7 @@ struct TasksWindowView: View {
                 .frame(maxWidth: .infinity)
                 .padding(VSpacing.lg)
             } else if viewModel.items.isEmpty {
+                columnHeaderBar
                 VEmptyState(
                     title: "No tasks",
                     subtitle: "Your tasks will appear here",
@@ -73,22 +48,35 @@ struct TasksWindowView: View {
                 )
             } else {
                 ScrollView {
-                    LazyVStack(spacing: VSpacing.xs) {
-                        ForEach(viewModel.items, id: \.id) { item in
-                            TasksWindowRow(
-                                item: item,
-                                hasOutput: viewModel.taskHasOutput(item),
-                                runningIds: viewModel.runInFlightIds,
-                                timeoutIds: viewModel.runTimeoutIds,
-                                cancelInFlightIds: viewModel.cancelInFlightIds,
-                                onTap: { viewModel.fetchOutput(for: item) },
-                                onRun: { viewModel.initiateRun(item: item) },
-                                onCancel: { viewModel.cancelTask(id: item.id) },
-                                onRemove: { viewModel.removeTask(id: item.id) },
-                                onPriorityChange: { newTier in
-                                    viewModel.updatePriority(id: item.id, tier: newTier)
+                    LazyVStack(spacing: VSpacing.xs, pinnedViews: [.sectionHeaders]) {
+                        Section {
+                            ForEach(viewModel.items, id: \.id) { item in
+                                TasksWindowRow(
+                                    item: item,
+                                    hasOutput: viewModel.taskHasOutput(item),
+                                    runningIds: viewModel.runInFlightIds,
+                                    timeoutIds: viewModel.runTimeoutIds,
+                                    cancelInFlightIds: viewModel.cancelInFlightIds,
+                                    onTap: { viewModel.fetchOutput(for: item) },
+                                    onRun: { viewModel.initiateRun(item: item) },
+                                    onCancel: { viewModel.cancelTask(id: item.id) },
+                                    onRemove: { viewModel.removeTask(id: item.id) },
+                                    onPriorityChange: { newTier in
+                                        viewModel.updatePriority(id: item.id, tier: newTier)
+                                    }
+                                )
+                            }
+                        } header: {
+                            columnHeaderLabels
+                                .padding(.horizontal, VSpacing.md)
+                                .padding(.top, VSpacing.lg)
+                                .padding(.bottom, VSpacing.sm)
+                                .background(VColor.background)
+                                .overlay(alignment: .bottom) {
+                                    Rectangle()
+                                        .fill(VColor.surfaceBorder)
+                                        .frame(height: 1)
                                 }
-                            )
                         }
                     }
                     .padding(.horizontal, VSpacing.lg)
@@ -127,6 +115,44 @@ struct TasksWindowView: View {
                     onDismiss: { viewModel.dismissPreflight() }
                 )
             }
+        }
+    }
+}
+
+// MARK: - Column Header Helpers
+
+extension TasksWindowView {
+    /// Column header labels shared between standalone and scroll-pinned headers.
+    fileprivate var columnHeaderLabels: some View {
+        HStack(alignment: .center, spacing: 0) {
+            Text("Task Description")
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Text("Priority")
+                .frame(width: TasksTableContract.priorityWidth)
+
+            Text("Status")
+                .frame(width: TasksTableContract.statusWidth)
+
+            Text("Actions")
+                .frame(width: TasksTableContract.actionsWidth)
+        }
+        .font(VFont.captionMedium)
+        .foregroundColor(VColor.textMuted)
+    }
+
+    /// Standalone column header bar for non-scrolling states (loading/error/empty).
+    fileprivate var columnHeaderBar: some View {
+        VStack(spacing: 0) {
+            columnHeaderLabels
+                .padding(.top, VSpacing.lg)
+                .padding(.bottom, VSpacing.sm)
+                .padding(.horizontal, VSpacing.lg)
+                .padding(.horizontal, VSpacing.md)
+
+            Rectangle()
+                .fill(VColor.surfaceBorder)
+                .frame(height: 1)
         }
     }
 }
@@ -228,6 +254,7 @@ private struct TasksWindowRow: View {
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
+        .fixedSize()
         .accessibilityLabel("Priority \(style.label)")
         .accessibilityHint("Double-click to change priority")
     }

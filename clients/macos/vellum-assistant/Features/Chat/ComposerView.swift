@@ -769,6 +769,10 @@ private final class ComposerNativeTextView: NSTextView {
         let x = textContainerInset.width + linePadding
         let width = max(0, bounds.width - x - textContainerInset.width - linePadding)
 
+        // Skip placeholder if it would wrap to a second line.
+        let placeholderWidth = (placeholderText as NSString).size(withAttributes: attributes).width
+        if placeholderWidth > width { return }
+
         // Draw at the standard text insertion position and let
         // CenteringClipView handle vertical centering of the whole
         // scroll content — avoids double-centering misalignment.
@@ -924,23 +928,21 @@ private final class CenteringClipView: NSClipView {
             layoutManager.ensureLayout(for: textContainer)
             var usedHeight = layoutManager.usedRect(for: textContainer).height
 
-            // When placeholder text is visible, use its rendered height instead
-            // of the (empty) layout manager height so the cursor stays aligned
-            // with the first line of placeholder text that may wrap.
+            // When placeholder text is visible and fits on one line, use its
+            // height so the cursor stays vertically centered with it.
             if textView.string.isEmpty,
                let placeholder = textView.placeholderText,
                !placeholder.isEmpty {
                 let font = textView.font ?? NSFont.systemFont(ofSize: 13)
-                let paragraph = NSMutableParagraphStyle()
-                paragraph.lineBreakMode = .byTruncatingTail
                 let linePadding = textContainer.lineFragmentPadding
                 let availableWidth = max(0, textView.bounds.width - textView.textContainerInset.width * 2 - linePadding * 2)
-                let placeholderSize = (placeholder as NSString).boundingRect(
-                    with: NSSize(width: availableWidth, height: .greatestFiniteMagnitude),
-                    options: [.usesLineFragmentOrigin],
-                    attributes: [.font: font, .paragraphStyle: paragraph]
-                )
-                usedHeight = max(usedHeight, placeholderSize.height)
+                // Only account for placeholder height when it fits on one line
+                // (draw() hides the placeholder when it would wrap).
+                let placeholderWidth = (placeholder as NSString).size(withAttributes: [.font: font]).width
+                if placeholderWidth <= availableWidth {
+                    let singleLineHeight = ceil(font.ascender - font.descender + font.leading)
+                    usedHeight = max(usedHeight, singleLineHeight)
+                }
             }
 
             // Include the textContainerInset in the total content height so
