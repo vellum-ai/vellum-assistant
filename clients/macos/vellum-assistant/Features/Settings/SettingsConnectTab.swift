@@ -892,12 +892,15 @@ struct SettingsConnectTab: View {
     private var guardianLabel: some View {
         HStack(spacing: VSpacing.xs) {
             Text("Guardian Verification")
-            Image(systemName: "info.circle")
-                .font(.system(size: 10))
-                .foregroundColor(VColor.textMuted)
-                .frame(width: 14, height: 14)
-                .contentShape(Rectangle())
-                .help("Guardian verification links your account identity for this channel.")
+            Button {} label: {
+                Image(systemName: "info.circle")
+                    .font(.system(size: 10))
+                    .foregroundColor(VColor.textMuted)
+                    .frame(width: 14, height: 14)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Guardian verification links your account identity for this channel.")
         }
         .font(VFont.caption)
         .foregroundColor(VColor.textSecondary)
@@ -1034,9 +1037,6 @@ struct SettingsConnectTab: View {
             if verified {
                 HStack(spacing: VSpacing.sm) {
                     guardianLabel
-                    Image(systemName: "checkmark.shield.fill")
-                        .foregroundColor(VColor.success)
-                        .font(.system(size: 12))
                     VStack(alignment: .leading, spacing: 2) {
                         if let telegramProfileURL {
                             Link(primaryIdentity ?? "Verified", destination: telegramProfileURL)
@@ -1130,10 +1130,6 @@ struct SettingsConnectTab: View {
 
         HStack(spacing: VSpacing.sm) {
             guardianLabel
-            Image(systemName: "shield.slash")
-                .foregroundColor(VColor.textMuted)
-                .font(.system(size: 12))
-                .help("You have not yet verified yourself as the Guardian in this channel")
 
             TextField(placeholder, text: destinationBinding)
                 .font(VFont.body)
@@ -1162,9 +1158,6 @@ struct SettingsConnectTab: View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             HStack(spacing: VSpacing.sm) {
                 guardianLabel
-                Image(systemName: "shield.lefthalf.filled")
-                    .foregroundColor(VColor.warning)
-                    .font(.system(size: 12))
                 Text("Verification sent")
                     .font(VFont.body)
                     .foregroundColor(VColor.warning)
@@ -1318,9 +1311,6 @@ struct SettingsConnectTab: View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             HStack(spacing: VSpacing.sm) {
                 guardianLabel
-                Image(systemName: "shield.lefthalf.filled")
-                    .foregroundColor(VColor.warning)
-                    .font(.system(size: 12))
                 Text("Verification pending")
                     .font(VFont.body)
                     .foregroundColor(VColor.warning)
