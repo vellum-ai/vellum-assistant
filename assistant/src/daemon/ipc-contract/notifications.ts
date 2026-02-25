@@ -1,6 +1,8 @@
 /** Broadcast to connected macOS clients when a notification should be displayed. */
 export interface NotificationIntent {
   type: 'notification_intent';
+  /** Delivery audit record ID so the client can correlate ack messages. */
+  deliveryId?: string;
   sourceEventName: string;
   title: string;
   body: string;
@@ -16,7 +18,17 @@ export interface NotificationThreadCreated {
   sourceEventName: string;
 }
 
+/** Client ack sent after UNUserNotificationCenter.add() completes (or fails). */
+export interface NotificationIntentResult {
+  type: 'notification_intent_result';
+  deliveryId: string;
+  success: boolean;
+  errorMessage?: string;
+  errorCode?: string;
+}
+
 // --- Domain-level union aliases (consumed by the barrel file) ---
-// Notifications has no client messages.
+
+export type _NotificationsClientMessages = NotificationIntentResult;
 
 export type _NotificationsServerMessages = NotificationIntent | NotificationThreadCreated;

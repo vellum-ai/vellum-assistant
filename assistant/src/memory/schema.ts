@@ -1014,6 +1014,9 @@ export const notificationDeliveries = sqliteTable('notification_deliveries', {
   conversationId: text('conversation_id'),
   messageId: text('message_id'),
   conversationStrategy: text('conversation_strategy'),
+  clientDeliveryStatus: text('client_delivery_status'),
+  clientDeliveryError: text('client_delivery_error'),
+  clientDeliveryAt: integer('client_delivery_at'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });

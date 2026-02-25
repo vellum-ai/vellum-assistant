@@ -1,6 +1,7 @@
 import * as net from 'node:net';
 
 import type { ClientMessage } from '../ipc-protocol.js';
+import { updateDeliveryClientOutcome } from '../../notifications/deliveries-store.js';
 import { handleRideShotgunStart, handleRideShotgunStop } from '../ride-shotgun-handler.js';
 import { handleWatchObservation } from '../watch-handler.js';
 import { appHandlers } from './apps.js';
@@ -99,6 +100,24 @@ const inlineHandlers = defineHandlers({
   // Stub handler: assistant_inbox — real implementation will be added in a follow-up PR.
   assistant_inbox: (_msg, socket, ctx) => {
     ctx.send(socket, { type: 'assistant_inbox_response', success: false, error: 'Not yet implemented' });
+  },
+
+  // Client ack for notification delivery outcome (UNUserNotificationCenter.add result).
+  notification_intent_result: (msg) => {
+    try {
+      const updated = updateDeliveryClientOutcome(
+        msg.deliveryId,
+        msg.success,
+        msg.errorMessage || msg.errorCode
+          ? { code: msg.errorCode, message: msg.errorMessage }
+          : undefined,
+      );
+      if (!updated) {
+        log.warn({ deliveryId: msg.deliveryId }, 'notification_intent_result: no delivery row found for deliveryId');
+      }
+    } catch (err) {
+      log.error({ err, deliveryId: msg.deliveryId }, 'notification_intent_result: failed to persist client delivery outcome');
+    }
   },
 
 });

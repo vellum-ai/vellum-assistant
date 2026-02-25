@@ -175,7 +175,8 @@ extension AppDelegate {
         sourceEventName: String,
         title: String,
         body: String,
-        deepLinkMetadata: [String: AnyCodable]?
+        deepLinkMetadata: [String: AnyCodable]?,
+        deliveryId: String? = nil
     ) {
         let content = UNMutableNotificationContent()
         content.title = title
@@ -207,13 +208,50 @@ extension AppDelegate {
         )
 
         Task {
-            guard await checkNotificationAuthorization() else { return }
+            let authorized = await checkNotificationAuthorization()
+            guard authorized else {
+                self.sendNotificationIntentResult(
+                    deliveryId: deliveryId,
+                    success: false,
+                    errorMessage: "Notification authorization denied",
+                    errorCode: "authorization_denied"
+                )
+                return
+            }
 
             UNUserNotificationCenter.current().add(request) { error in
                 if let error {
                     log.error("Failed to post notification intent (id: \(notificationId), source: \(sourceEventName)): \(error.localizedDescription)")
                 }
+                self.sendNotificationIntentResult(
+                    deliveryId: deliveryId,
+                    success: error == nil,
+                    errorMessage: error?.localizedDescription,
+                    errorCode: nil
+                )
             }
+        }
+    }
+
+    /// Send a `notification_intent_result` ack back to the daemon.
+    private func sendNotificationIntentResult(
+        deliveryId: String?,
+        success: Bool,
+        errorMessage: String?,
+        errorCode: String?
+    ) {
+        guard let deliveryId else { return }
+        let result = IPCNotificationIntentResult(
+            type: "notification_intent_result",
+            deliveryId: deliveryId,
+            success: success,
+            errorMessage: errorMessage,
+            errorCode: errorCode
+        )
+        do {
+            try daemonClient.send(result)
+        } catch {
+            log.warning("Failed to send notification_intent_result for deliveryId \(deliveryId): \(error.localizedDescription)")
         }
     }
 
@@ -238,7 +276,8 @@ extension AppDelegate {
             sourceEventName: msg.sourceEventName,
             title: msg.title,
             body: msg.body,
-            deepLinkMetadata: msg.deepLinkMetadata
+            deepLinkMetadata: msg.deepLinkMetadata,
+            deliveryId: msg.deliveryId
         )
     }
 

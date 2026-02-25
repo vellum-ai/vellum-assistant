@@ -694,6 +694,11 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
   approved_devices_clear: {
     type: 'approved_devices_clear',
   },
+  notification_intent_result: {
+    type: 'notification_intent_result',
+    deliveryId: 'delivery-001',
+    success: true,
+  },
 };
 
 // ---------------------------------------------------------------------------

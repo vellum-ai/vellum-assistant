@@ -2749,18 +2749,38 @@ public struct IPCModelSetRequest: Codable, Sendable {
 /// Broadcast to connected macOS clients when a notification should be displayed.
 public struct IPCNotificationIntent: Codable, Sendable {
     public let type: String
+    /// Delivery audit record ID so the client can correlate ack messages.
+    public let deliveryId: String?
     public let sourceEventName: String
     public let title: String
     public let body: String
     /// Optional deep-link metadata so the client can navigate to the relevant context.
     public let deepLinkMetadata: [String: AnyCodable]?
 
-    public init(type: String, sourceEventName: String, title: String, body: String, deepLinkMetadata: [String: AnyCodable]? = nil) {
+    public init(type: String, deliveryId: String? = nil, sourceEventName: String, title: String, body: String, deepLinkMetadata: [String: AnyCodable]? = nil) {
         self.type = type
+        self.deliveryId = deliveryId
         self.sourceEventName = sourceEventName
         self.title = title
         self.body = body
         self.deepLinkMetadata = deepLinkMetadata
+    }
+}
+
+/// Client ack sent after UNUserNotificationCenter.add() completes (or fails).
+public struct IPCNotificationIntentResult: Codable, Sendable {
+    public let type: String
+    public let deliveryId: String
+    public let success: Bool
+    public let errorMessage: String?
+    public let errorCode: String?
+
+    public init(type: String, deliveryId: String, success: Bool, errorMessage: String? = nil, errorCode: String? = nil) {
+        self.type = type
+        self.deliveryId = deliveryId
+        self.success = success
+        self.errorMessage = errorMessage
+        self.errorCode = errorCode
     }
 }
 
@@ -2776,6 +2796,34 @@ public struct IPCNotificationThreadCreated: Codable, Sendable {
         self.conversationId = conversationId
         self.title = title
         self.sourceEventName = sourceEventName
+    }
+}
+
+public struct IPCOAuthConnectResultResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let grantedScopes: [String]?
+    public let accountInfo: String?
+    public let error: String?
+
+    public init(type: String, success: Bool, grantedScopes: [String]? = nil, accountInfo: String? = nil, error: String? = nil) {
+        self.type = type
+        self.success = success
+        self.grantedScopes = grantedScopes
+        self.accountInfo = accountInfo
+        self.error = error
+    }
+}
+
+public struct IPCOAuthConnectStartRequest: Codable, Sendable {
+    public let type: String
+    public let service: String
+    public let requestedScopes: [String]?
+
+    public init(type: String, service: String, requestedScopes: [String]? = nil) {
+        self.type = type
+        self.service = service
+        self.requestedScopes = requestedScopes
     }
 }
 

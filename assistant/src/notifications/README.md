@@ -206,7 +206,25 @@ Three SQLite tables form the audit chain:
 
 - **`notification_events`** -- every signal that entered the pipeline, with attention hints and context payload
 - **`notification_decisions`** -- the routing decision for each event (shouldNotify, selectedChannels, reasoning, confidence, whether fallback was used)
-- **`notification_deliveries`** -- per-channel delivery attempts with status (pending/sent/failed/skipped), rendered copy, error details, and conversation pairing data (`conversation_id`, `message_id`, `conversation_strategy`)
+- **`notification_deliveries`** -- per-channel delivery attempts with status (pending/sent/failed/skipped), rendered copy, error details, conversation pairing data (`conversation_id`, `message_id`, `conversation_strategy`), and client delivery outcome (`client_delivery_status`, `client_delivery_error`, `client_delivery_at`)
+
+### Client Delivery Ack
+
+For vellum (macOS/iOS) deliveries, the audit trail now extends past the IPC broadcast to the actual OS notification post. The `notification_intent` message carries an optional `deliveryId` that the client echoes back in a `notification_intent_result` ack after `UNUserNotificationCenter.add()` completes (or fails).
+
+The ack populates three columns on `notification_deliveries`:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `client_delivery_status` | TEXT | `'delivered'` if the OS accepted the notification, `'client_failed'` otherwise |
+| `client_delivery_error` | TEXT | Error description when the post failed (e.g. authorization denied) |
+| `client_delivery_at` | INTEGER | Epoch ms timestamp of when the client reported the outcome |
+
+This means the audit trail can now answer three questions for each vellum delivery:
+
+1. **Was the intent broadcast?** -- existing `status` column (`sent`)
+2. **Did the client attempt to post?** -- `client_delivery_status` is non-null
+3. **Did the OS post succeed or fail, and why?** -- `client_delivery_status` + `client_delivery_error`
 
 Query examples:
 
@@ -229,6 +247,12 @@ ORDER BY d.created_at DESC;
 SELECT d.channel, d.conversation_id, d.message_id, d.conversation_strategy, d.rendered_title
 FROM notification_deliveries d
 WHERE d.conversation_id IS NOT NULL
+ORDER BY d.created_at DESC;
+
+-- Vellum deliveries where the client failed to post the notification
+SELECT d.rendered_title, d.client_delivery_status, d.client_delivery_error, d.client_delivery_at
+FROM notification_deliveries d
+WHERE d.channel = 'vellum' AND d.client_delivery_status = 'client_failed'
 ORDER BY d.created_at DESC;
 ```
 

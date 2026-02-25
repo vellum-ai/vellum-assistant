@@ -51,6 +51,8 @@ export interface ChannelDestination {
  * plus contextual fields the adapters need for formatting and routing.
  */
 export interface ChannelDeliveryPayload {
+  /** Delivery audit record ID — passed through to the client for ack correlation. */
+  deliveryId?: string;
   sourceEventName: string;
   copy: RenderedChannelCopy;
   deepLinkTarget?: Record<string, unknown>;

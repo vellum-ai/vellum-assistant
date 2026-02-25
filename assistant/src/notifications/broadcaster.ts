@@ -162,14 +162,15 @@ export class NotificationBroadcaster {
         }
       }
 
+      const deliveryId = uuid();
+      const destinationLabel = destination.endpoint ?? channel;
+
       const payload: ChannelDeliveryPayload = {
+        deliveryId,
         sourceEventName: signal.sourceEventName,
         copy,
         deepLinkTarget,
       };
-
-      const deliveryId = uuid();
-      const destinationLabel = destination.endpoint ?? channel;
 
       // Only create a delivery audit record when we have a persisted decision ID
       // for the FK. If decision persistence failed (persistedDecisionId is

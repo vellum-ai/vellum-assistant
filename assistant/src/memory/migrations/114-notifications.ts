@@ -1,6 +1,7 @@
 import type { DrizzleDb } from '../db-connection.js';
 import { migrateNotificationTablesSchema } from './019-notification-tables-schema-migration.js';
 import { migrateNotificationDeliveryPairingColumns } from './027-notification-delivery-pairing-columns.js';
+import { migrateNotificationDeliveryClientAck } from './028-notification-delivery-client-ack.js';
 
 /**
  * Notification system tables: preferences, events, decisions, and deliveries.
@@ -86,4 +87,7 @@ export function createNotificationTables(database: DrizzleDb): void {
 
   // Add conversation pairing audit columns (idempotent ALTER TABLE)
   migrateNotificationDeliveryPairingColumns(database);
+
+  // Add client delivery ack columns (idempotent ALTER TABLE)
+  migrateNotificationDeliveryClientAck(database);
 }
