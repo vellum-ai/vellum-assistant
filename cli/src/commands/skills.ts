@@ -30,8 +30,30 @@ function getSkillsIndexPath(): string {
 // Platform API client
 // ---------------------------------------------------------------------------
 
-const PLATFORM_URL =
-  process.env.VELLUM_ASSISTANT_PLATFORM_URL ?? "https://assistant.vellum.ai";
+function getConfigPlatformUrl(): string | undefined {
+  try {
+    const configPath = join(getRootDir(), "workspace", "config.json");
+    if (!existsSync(configPath)) return undefined;
+    const raw = JSON.parse(readFileSync(configPath, "utf-8")) as Record<
+      string,
+      unknown
+    >;
+    const platform = raw.platform as Record<string, unknown> | undefined;
+    const baseUrl = platform?.baseUrl;
+    if (typeof baseUrl === "string" && baseUrl.trim()) return baseUrl.trim();
+  } catch {
+    // ignore
+  }
+  return undefined;
+}
+
+function getPlatformUrl(): string {
+  return (
+    process.env.VELLUM_ASSISTANT_getPlatformUrl() ??
+    getConfigPlatformUrl() ??
+    "https://platform.vellum.ai"
+  );
+}
 
 function getPlatformToken(): string | null {
   try {
@@ -73,7 +95,7 @@ interface CatalogManifest {
 // ---------------------------------------------------------------------------
 
 async function fetchCatalog(): Promise<CatalogSkill[]> {
-  const url = `${PLATFORM_URL}/v1/skills/`;
+  const url = `${getPlatformUrl()}/v1/skills/`;
   const response = await fetch(url, {
     headers: buildHeaders(),
     signal: AbortSignal.timeout(10000),
@@ -124,7 +146,7 @@ function extractSkillMdFromTar(tarBuffer: Buffer): string | null {
 }
 
 async function fetchSkillContent(skillId: string): Promise<string> {
-  const url = `${PLATFORM_URL}/v1/skills/${encodeURIComponent(skillId)}/`;
+  const url = `${getPlatformUrl()}/v1/skills/${encodeURIComponent(skillId)}/`;
   const response = await fetch(url, {
     headers: buildHeaders(),
     signal: AbortSignal.timeout(15000),
