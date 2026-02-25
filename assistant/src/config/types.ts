@@ -40,4 +40,5 @@ export type {
   SmsConfig,
   IngressConfig,
   DaemonConfig,
+  RecordingConfig,
 } from './schema.js';

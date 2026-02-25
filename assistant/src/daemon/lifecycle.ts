@@ -47,6 +47,7 @@ import { initializeProvidersAndTools, registerWatcherProviders, registerMessagin
 import { installShutdownHandlers } from './shutdown-handlers.js';
 import { writePid, cleanupPidFile } from './daemon-control.js';
 import { initPairingHandlers } from './handlers/pairing.js';
+import { startRecordingCleanupWorker } from './recording-cleanup.js';
 
 // Re-export public API so existing consumers don't need to change imports
 export {
@@ -182,6 +183,9 @@ export async function runDaemon(): Promise<void> {
   log.info('Daemon startup: starting memory worker');
   const memoryWorker = startMemoryJobsWorker();
 
+  log.info('Daemon startup: starting recording cleanup worker');
+  const recordingCleanup = startRecordingCleanupWorker(config.recording);
+
   registerWatcherProviders();
   registerMessagingProviders();
 
@@ -310,6 +314,7 @@ export async function runDaemon(): Promise<void> {
     runtimeHttp,
     scheduler,
     memoryWorker,
+    recordingCleanup,
     qdrantManager,
     cleanupPidFile,
   });
