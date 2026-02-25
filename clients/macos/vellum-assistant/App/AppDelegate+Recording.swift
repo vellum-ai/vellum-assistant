@@ -81,6 +81,12 @@ extension AppDelegate {
         options: IPCRecordingOptions?,
         attachToConversationId: String?
     ) {
+        // Wire up re-prompt callback so RecordingManager can re-show the
+        // source picker when the selected source is no longer available.
+        recordingManager.onSourceValidationFailed = { [weak self] sessionId, conversationId in
+            self?.showRecordingSourcePicker(recordingId: sessionId, attachToConversationId: conversationId)
+        }
+
         Task {
             // Check microphone permission if microphone is requested
             if options?.includeMicrophone == true {
@@ -98,7 +104,8 @@ extension AppDelegate {
             let started = await recordingManager.start(
                 sessionId: recordingId,
                 options: options,
-                attachToConversationId: attachToConversationId
+                attachToConversationId: attachToConversationId,
+                promptForSource: options?.promptForSource ?? false
             )
 
             guard started else { return }
