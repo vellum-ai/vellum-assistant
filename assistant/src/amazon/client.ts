@@ -507,7 +507,7 @@ export async function getProductDetails(
                 }
               }
             }
-          } catch(ve) { /* skip variation parsing errors */ }
+          } catch(ve) { console.warn('[amazon] variation parsing failed', ve.message); }
 
           // Fallback: look for asinVariationValues
           if (variations.length === 0) {
@@ -530,7 +530,7 @@ export async function getProductDetails(
                   }
                 }
               }
-            } catch(ve2) { /* skip */ }
+            } catch(ve2) { console.warn('[amazon] asinVariationValues parsing failed', ve2.message); }
           }
 
           return JSON.stringify({
@@ -821,7 +821,7 @@ export async function addToCart(opts: {
           var addText = await addResp.text();
           var addOk = addResp.ok;
           var cartJson = null;
-          try { cartJson = JSON.parse(addText); } catch(e) {}
+          try { cartJson = JSON.parse(addText); } catch(e) { console.warn('[amazon] cart response JSON parse failed', e.message); }
 
           var items = [];
           if (cartJson && cartJson.clientResponseModel && Array.isArray(cartJson.clientResponseModel.items)) {
@@ -860,7 +860,7 @@ export async function addToCart(opts: {
                   });
                 }
               }
-            } catch(fe) { /* ignore */ }
+            } catch(fe) { console.warn('[amazon] Fresh cart fallback failed', fe.message); }
           }
 
           return JSON.stringify({
@@ -996,7 +996,7 @@ export async function viewCart(): Promise<CartSummary> {
                                doc.querySelector('.sc-price-sign');
               if (subtotalEl) subtotalText = subtotalEl.textContent.trim();
             }
-          } catch(re) { /* ignore regular cart errors, still try Fresh */ }
+          } catch(re) { console.warn('[amazon] regular cart parsing failed', re.message); }
 
           // --- Fresh cart: get-cart-items JSON endpoint (LOCAL_MARKET only) ---
           try {
@@ -1021,7 +1021,7 @@ export async function viewCart(): Promise<CartSummary> {
                 });
               }
             }
-          } catch(fe) { /* ignore Fresh cart errors */ }
+          } catch(fe) { console.warn('[amazon] Fresh cart fetch failed', fe.message); }
 
           return JSON.stringify({
             __status: 200,
@@ -1221,7 +1221,7 @@ export async function getPaymentMethods(): Promise<PaymentMethod[]> {
                     isDefault: !!inst.isDefault,
                   });
                 });
-              } catch(e) {}
+              } catch(e) { console.warn('[amazon] payment instruments JSON parse failed', e.message); }
             }
           }
 
