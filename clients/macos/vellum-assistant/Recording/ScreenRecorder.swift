@@ -1,6 +1,7 @@
 import AppKit
 import AVFoundation
 import ScreenCaptureKit
+import VideoToolbox
 import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ScreenRecorder")
@@ -11,6 +12,14 @@ struct RecordingResult: Sendable {
     let durationMs: Int
 }
 
+/// Encoder configuration for a single fallback attempt.
+struct EncodeConfig {
+    let codec: AVVideoCodecType
+    let width: Int
+    let height: Int
+    let label: String
+}
+
 /// Errors that can occur during screen recording.
 enum RecorderError: Error, LocalizedError {
     case noMatchingDisplay
@@ -19,6 +28,7 @@ enum RecorderError: Error, LocalizedError {
     case writerSetupFailed(String)
     case notRecording
     case noFramesCaptured
+    case allFallbacksExhausted
 
     var errorDescription: String? {
         switch self {
@@ -28,6 +38,7 @@ enum RecorderError: Error, LocalizedError {
         case .writerSetupFailed(let reason): return "Failed to set up video writer: \(reason)"
         case .notRecording: return "No active recording to stop"
         case .noFramesCaptured: return "Recording produced no video frames"
+        case .allFallbacksExhausted: return "All encoder fallback configurations failed — unable to record"
         }
     }
 }
@@ -58,6 +69,9 @@ final class ScreenRecorder: NSObject {
     private var recordingStartDate: Date?
     private var isRecordingActive = false
     private var hasReceivedVideoFrame = false
+
+    /// Label of the encode config that was successfully used, for telemetry (M9).
+    private(set) var activeConfigLabel: String?
 
     /// Background queue for processing sample buffers from ScreenCaptureKit.
     private let outputQueue = DispatchQueue(label: "com.vellum.screen-recorder.output", qos: .userInitiated)
@@ -156,9 +170,46 @@ final class ScreenRecorder: NSObject {
         return NormalizedDimensions(width: w, height: h, wasAdjusted: wasAdjusted, adjustmentReason: reason)
     }
 
+    // MARK: - Fallback Configs
+
+    /// Build an ordered list of encoder fallback configurations.
+    ///
+    /// Each config's dimensions are normalized through `normalizeDimensions`
+    /// before use. The order is:
+    /// 1. H.264 at primary (source) dimensions
+    /// 2. H.264 at halved dimensions (2x downscale)
+    /// 3. HEVC at primary dimensions (only if hardware-supported)
+    /// 4. H.264 at 1280x720 (conservative safe config)
+    static func buildFallbackConfigs(primaryWidth: Int, primaryHeight: Int) -> [EncodeConfig] {
+        let primary = normalizeDimensions(width: primaryWidth, height: primaryHeight)
+
+        let halfW = max(primaryWidth / 2, 1)
+        let halfH = max(primaryHeight / 2, 1)
+        let halved = normalizeDimensions(width: halfW, height: halfH)
+
+        let safe = normalizeDimensions(width: 1280, height: 720)
+
+        var configs: [EncodeConfig] = [
+            EncodeConfig(codec: .h264, width: primary.width, height: primary.height, label: "primary"),
+            EncodeConfig(codec: .h264, width: halved.width, height: halved.height, label: "fallback-half"),
+        ]
+
+        // Only offer HEVC if hardware decode is available (proxy for hardware encode support)
+        if VTIsHardwareDecodeSupported(kCMVideoCodecType_HEVC) {
+            configs.append(EncodeConfig(codec: .hevc, width: primary.width, height: primary.height, label: "fallback-hevc"))
+        }
+
+        configs.append(EncodeConfig(codec: .h264, width: safe.width, height: safe.height, label: "fallback-720p"))
+
+        return configs
+    }
+
     // MARK: - Start Recording
 
     /// Start recording the screen or a specific window.
+    ///
+    /// Iterates through encoder fallback configurations if the primary config
+    /// fails (writer setup error or no frames received within 3 seconds).
     ///
     /// - Parameters:
     ///   - captureScope: Whether to capture a full display or a single window.
@@ -226,12 +277,79 @@ final class ScreenRecorder: NSObject {
             log.info("Display capture: displayID=\(targetDisplay.displayID), scaleFactor=\(displayScale), sourceSize=\(targetDisplay.width)x\(targetDisplay.height), streamSize=\(captureWidth)x\(captureHeight)")
         }
 
-        // Normalize dimensions for encoder compatibility before configuring stream/writer
-        let normalized = Self.normalizeDimensions(width: captureWidth, height: captureHeight)
-        let encoderWidth = normalized.width
-        let encoderHeight = normalized.height
+        let fallbackConfigs = Self.buildFallbackConfigs(primaryWidth: captureWidth, primaryHeight: captureHeight)
+        log.info("Encoder fallback chain: \(fallbackConfigs.map { "\($0.label)(\($0.width)x\($0.height))" }.joined(separator: " → "), privacy: .public)")
 
-        // Configure stream
+        try Self.ensureRecordingsDirectory()
+
+        for (index, encodeConfig) in fallbackConfigs.enumerated() {
+            let isLastConfig = index == fallbackConfigs.count - 1
+            log.info("Trying encoder config [\(index + 1)/\(fallbackConfigs.count)]: \(encodeConfig.label, privacy: .public) — codec=\(encodeConfig.codec.rawValue, privacy: .public), \(encodeConfig.width)x\(encodeConfig.height)")
+
+            let attemptResult = await attemptStartWithConfig(
+                encodeConfig: encodeConfig,
+                filter: filter,
+                includeAudio: includeAudio,
+                includeMicrophone: includeMicrophone
+            )
+
+            switch attemptResult {
+            case .success:
+                activeConfigLabel = encodeConfig.label
+                log.info("Encoder config '\(encodeConfig.label, privacy: .public)' succeeded")
+                return
+            case .writerSetupFailed(let reason):
+                log.warning("Encoder config '\(encodeConfig.label, privacy: .public)' failed: writer setup error — \(reason, privacy: .public)")
+                if isLastConfig {
+                    throw RecorderError.allFallbacksExhausted
+                }
+            case .noFramesReceived:
+                log.warning("Encoder config '\(encodeConfig.label, privacy: .public)' failed: no frames received within timeout")
+                if isLastConfig {
+                    throw RecorderError.allFallbacksExhausted
+                }
+            case .streamStartFailed(let reason):
+                log.warning("Encoder config '\(encodeConfig.label, privacy: .public)' failed: stream start error — \(reason, privacy: .public)")
+                if isLastConfig {
+                    throw RecorderError.allFallbacksExhausted
+                }
+            }
+        }
+
+        // Should not reach here — the loop either returns on success or throws on last failure
+        throw RecorderError.allFallbacksExhausted
+    }
+
+    // MARK: - Fallback Attempt
+
+    /// Result of a single encoder config attempt.
+    private enum AttemptResult {
+        case success
+        case writerSetupFailed(String)
+        case noFramesReceived
+        case streamStartFailed(String)
+    }
+
+    /// Try to start recording with a single encoder configuration.
+    ///
+    /// Sets up the AVAssetWriter, stream, and waits up to 3 seconds for the
+    /// first video frame. On failure, tears down partial state and returns
+    /// a non-success result so the caller can try the next config.
+    private func attemptStartWithConfig(
+        encodeConfig: EncodeConfig,
+        filter: SCContentFilter,
+        includeAudio: Bool,
+        includeMicrophone: Bool
+    ) async -> AttemptResult {
+        // Clean up any previous attempt state
+        cleanUpWriter()
+        stream = nil
+
+        let encoderWidth = encodeConfig.width
+        let encoderHeight = encodeConfig.height
+
+        // Configure stream — dimensions match the encoder config so ScreenCaptureKit
+        // delivers frames at the size the writer expects.
         let config = SCStreamConfiguration()
         config.width = encoderWidth
         config.height = encoderHeight
@@ -251,8 +369,7 @@ final class ScreenRecorder: NSObject {
             config.captureMicrophone = true
         }
 
-        // Set up AVAssetWriter
-        try Self.ensureRecordingsDirectory()
+        // Each attempt gets a unique output file so failed attempts don't conflict
         let timestamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
         let outputURL = Self.recordingsDirectory.appendingPathComponent("recording-\(timestamp).mov")
 
@@ -260,18 +377,24 @@ final class ScreenRecorder: NSObject {
         do {
             writer = try AVAssetWriter(outputURL: outputURL, fileType: .mov)
         } catch {
-            throw RecorderError.writerSetupFailed(error.localizedDescription)
+            return .writerSetupFailed(error.localizedDescription)
         }
 
-        // Video input: H.264
+        // Video input
         let videoSettings: [String: Any] = [
-            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoCodecKey: encodeConfig.codec,
             AVVideoWidthKey: encoderWidth,
             AVVideoHeightKey: encoderHeight,
         ]
         let vInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
         vInput.expectsMediaDataInRealTime = true
-        writer.add(vInput)
+        if writer.canAdd(vInput) {
+            writer.add(vInput)
+        } else {
+            // Remove the empty output file
+            try? FileManager.default.removeItem(at: outputURL)
+            return .writerSetupFailed("writer rejected video input with codec=\(encodeConfig.codec.rawValue)")
+        }
         self.videoInput = vInput
 
         // Audio input: AAC (optional — system audio)
@@ -288,7 +411,7 @@ final class ScreenRecorder: NSObject {
             self.audioInput = aInput
         }
 
-        // Microphone input: AAC (optional — separate track, macOS 14+)
+        // Microphone input: AAC (optional — separate track, macOS 15+)
         if includeMicrophone, #available(macOS 15, *) {
             let micSettings: [String: Any] = [
                 AVFormatIDKey: kAudioFormatMPEG4AAC,
@@ -304,7 +427,8 @@ final class ScreenRecorder: NSObject {
 
         self.assetWriter = writer
 
-        log.info("Encoder settings: codec=H.264, pixelFormat=32BGRA, frameRate=30fps, dimensions=\(encoderWidth)x\(encoderHeight)")
+        let codecName = encodeConfig.codec == .hevc ? "HEVC" : "H.264"
+        log.info("Encoder settings: codec=\(codecName, privacy: .public), pixelFormat=32BGRA, frameRate=30fps, dimensions=\(encoderWidth)x\(encoderHeight), config=\(encodeConfig.label, privacy: .public)")
         if includeAudio {
             log.info("System audio: sampleRate=48000, channels=2, bitRate=128000")
         }
@@ -322,27 +446,65 @@ final class ScreenRecorder: NSObject {
 
         let captureStream = SCStream(filter: filter, configuration: config, delegate: delegate)
 
-        try captureStream.addStreamOutput(delegate, type: .screen, sampleHandlerQueue: outputQueue)
-        if includeAudio {
-            try captureStream.addStreamOutput(delegate, type: .audio, sampleHandlerQueue: outputQueue)
-        }
-        if includeMicrophone, #available(macOS 15, *) {
-            try captureStream.addStreamOutput(delegate, type: .microphone, sampleHandlerQueue: outputQueue)
+        do {
+            try captureStream.addStreamOutput(delegate, type: .screen, sampleHandlerQueue: outputQueue)
+            if includeAudio {
+                try captureStream.addStreamOutput(delegate, type: .audio, sampleHandlerQueue: outputQueue)
+            }
+            if includeMicrophone, #available(macOS 15, *) {
+                try captureStream.addStreamOutput(delegate, type: .microphone, sampleHandlerQueue: outputQueue)
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: outputURL)
+            cleanUpWriter()
+            return .streamStartFailed(error.localizedDescription)
         }
 
         self.stream = captureStream
 
-        // Start
+        // Start capture
         do {
             try await captureStream.startCapture()
         } catch {
-            throw RecorderError.streamStartFailed(error.localizedDescription)
+            try? FileManager.default.removeItem(at: outputURL)
+            self.stream = nil
+            cleanUpWriter()
+            return .streamStartFailed(error.localizedDescription)
         }
 
         isRecordingActive = true
         hasReceivedVideoFrame = false
         recordingStartDate = Date()
         log.info("Screen recording started → \(outputURL.path, privacy: .public)")
+
+        // Wait up to 3 seconds for the first video frame to verify the encoder is working
+        let frameTimeoutSeconds = 3.0
+        let checkInterval: UInt64 = 100_000_000 // 100ms in nanoseconds
+        let maxChecks = Int(frameTimeoutSeconds / 0.1)
+
+        for _ in 0..<maxChecks {
+            if hasReceivedVideoFrame {
+                return .success
+            }
+            try? await Task.sleep(nanoseconds: checkInterval)
+        }
+
+        // Final check after the loop completes
+        if hasReceivedVideoFrame {
+            return .success
+        }
+
+        // No frames arrived — tear down this attempt
+        log.warning("No video frames received after \(frameTimeoutSeconds)s for config '\(encodeConfig.label, privacy: .public)' — tearing down")
+        if let s = stream {
+            try? await s.stopCapture()
+        }
+        stream = nil
+        assetWriter?.cancelWriting()
+        try? FileManager.default.removeItem(at: outputURL)
+        cleanUpWriter()
+
+        return .noFramesReceived
     }
 
     // MARK: - Stop Recording
@@ -485,6 +647,7 @@ final class ScreenRecorder: NSObject {
         lastVideoTime = nil
         recordingStartDate = nil
         outputDelegate = nil
+        activeConfigLabel = nil
     }
 }
 
