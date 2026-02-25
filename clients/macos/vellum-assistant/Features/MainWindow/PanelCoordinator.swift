@@ -48,8 +48,6 @@ extension MainWindowView {
                 activeSessionId: threadManager.activeViewModel?.sessionId,
                 onClose: { windowState.selection = nil }
             )
-        case .doctor:
-            DoctorPanel(onClose: { windowState.selection = nil })
         case .directory:
             HomeBaseContainerView(
                 daemonClient: daemonClient,
@@ -348,7 +346,7 @@ extension MainWindowView {
                     }
                 }
             } else {
-                // Full-window panels: settings, debug, doctor, identity
+                // Full-window panels: settings, debug, identity
                 fullWindowPanel(panelType)
             }
         case nil:
@@ -444,9 +442,6 @@ extension MainWindowView {
                 onClose: { windowState.dismissOverlay() }
             )
             .overlay(alignment: .topTrailing) { panelDismissButton }
-        case .doctor:
-            DoctorPanel(onClose: { windowState.dismissOverlay() })
-                .overlay(alignment: .topTrailing) { panelDismissButton }
         case .identity:
             IdentityPanel(onClose: { windowState.dismissOverlay() }, onCustomizeAvatar: { windowState.selection = .panel(.avatarCustomization) }, daemonClient: daemonClient)
                 .overlay(alignment: .topTrailing) { panelDismissButton }
@@ -601,7 +596,6 @@ struct ActiveChatViewWrapper: View {
             isRetryableError: viewModel.isRetryableError,
             onRetryError: { viewModel.retryLastMessage() },
             isConnectionError: viewModel.isConnectionError,
-            onOpenDoctor: { windowState.selection = .panel(.doctor) },
             isSecretBlockError: viewModel.isSecretBlockError,
             onSendAnyway: { viewModel.sendAnyway() },
             onAcceptSuggestion: viewModel.acceptSuggestion,

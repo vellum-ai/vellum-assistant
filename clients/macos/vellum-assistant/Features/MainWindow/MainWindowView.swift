@@ -617,10 +617,6 @@ struct MainWindowView: View {
                                 showControlCenterDrawer = false
                                 windowState.selection = .panel(.debug)
                             },
-                            onDoctor: {
-                                showControlCenterDrawer = false
-                                windowState.selection = .panel(.doctor)
-                            }
                         )
                         .frame(width: drawerWidth)
                         .offset(x: drawerX, y: -28)
@@ -1366,8 +1362,6 @@ private struct ControlCenterRow: View {
 private struct DrawerMenuView: View {
     let onSettings: () -> Void
     let onDebug: () -> Void
-    let onDoctor: () -> Void
-
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             DrawerMenuItem(icon: "gearshape", label: "Settings", action: onSettings)
@@ -1376,7 +1370,6 @@ private struct DrawerMenuView: View {
                 .padding(.vertical, VSpacing.xs)
 
             DrawerMenuItem(icon: "ladybug", label: "Debug", action: onDebug)
-            DrawerMenuItem(icon: "stethoscope", label: "Vellum Doctor", action: onDoctor)
         }
         .padding(.vertical, VSpacing.sm)
         .background(VColor.surfaceSubtle)
