@@ -138,6 +138,7 @@ export const memorySummaries = sqliteTable('memory_summaries', {
   updatedAt: integer('updated_at').notNull(),
 }, (table) => [
   index('idx_memory_summaries_scope_id').on(table.scopeId),
+  uniqueIndex('idx_memory_summaries_scope_scope_key').on(table.scope, table.scopeKey),
 ]);
 
 export const memoryEmbeddings = sqliteTable('memory_embeddings', {
@@ -661,6 +662,19 @@ export const channelGuardianVerificationChallenges = sqliteTable('channel_guardi
   createdBySessionId: text('created_by_session_id'),
   consumedByExternalUserId: text('consumed_by_external_user_id'),
   consumedByChatId: text('consumed_by_chat_id'),
+  // Outbound session: expected-identity binding
+  expectedExternalUserId: text('expected_external_user_id'),
+  expectedChatId: text('expected_chat_id'),
+  expectedPhoneE164: text('expected_phone_e164'),
+  identityBindingStatus: text('identity_binding_status').default('bound'),
+  // Outbound session: delivery tracking
+  destinationAddress: text('destination_address'),
+  lastSentAt: integer('last_sent_at'),
+  sendCount: integer('send_count').default(0),
+  nextResendAt: integer('next_resend_at'),
+  // Session configuration
+  codeDigits: integer('code_digits').default(6),
+  maxAttempts: integer('max_attempts').default(3),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });

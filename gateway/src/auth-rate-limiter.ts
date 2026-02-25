@@ -24,9 +24,13 @@ export class AuthRateLimiter {
     let timestamps = this.failures.get(ip);
 
     if (!timestamps) {
-      // Evict stale entries if the map grows too large
       if (this.failures.size >= MAX_TRACKED_IPS) {
         this.evictStale(now);
+        // Hard-cap: if still at capacity after eviction, drop the oldest entry
+        if (this.failures.size >= MAX_TRACKED_IPS) {
+          const oldest = this.failures.keys().next().value;
+          if (oldest !== undefined) this.failures.delete(oldest);
+        }
       }
       timestamps = [];
       this.failures.set(ip, timestamps);

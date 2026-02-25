@@ -21,6 +21,8 @@ export interface QueuedMessage {
   metadata?: Record<string, unknown>;
   turnChannelContext?: TurnChannelContext;
   turnInterfaceContext?: TurnInterfaceContext;
+  /** When false, the turn has no interactive user and should skip clarification prompts. */
+  isInteractive?: boolean;
   /** Timestamp (ms) when the message was enqueued. */
   queuedAt: number;
 }

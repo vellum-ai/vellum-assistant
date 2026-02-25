@@ -240,6 +240,12 @@ Returning `undefined` is acceptable only for **lookup functions** where "not fou
 | Filesystem tools (`path-policy.ts`, `edit-engine.ts`) | Discriminated union (`{ ok, reason }`) | Validation outcomes that the caller must handle (out of bounds, not found, ambiguous) |
 | Subagent manager (`subagent/manager.ts`) | Throws for precondition violations, string literal unions for expected outcomes | Depth limit exceeded is a bug; `sendMessage` returns `'not_found' | 'terminal' | 'queue_full'` as expected states |
 
+## Notification Pipeline
+
+All notification producers **MUST** go through `emitNotificationSignal()` in `notifications/emit-signal.ts`. Do not bypass the pipeline by broadcasting IPC events directly -- the pipeline handles event persistence, deduplication, decision routing, and delivery audit.
+
+When a notification flow creates a server-side conversation (e.g. guardian question threads, task run threads), the conversation and initial message **MUST** be persisted before the IPC thread-created event is emitted. This ensures the macOS/iOS client can immediately fetch the conversation contents when it receives the event.
+
 ## Memory Provenance Invariant
 
 All memory extraction and retrieval decisions must consider actor-role provenance. Untrusted actors (non-guardian, unverified_channel) must not trigger profile extraction or receive memory recall/conflict disclosures. This invariant is enforced in `indexer.ts` (write gate) and `session-memory.ts` (read gate).

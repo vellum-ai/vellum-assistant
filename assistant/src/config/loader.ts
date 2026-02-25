@@ -39,7 +39,7 @@ function ensureMigratedDataDir(): void {
  * (e.g. memory → retrieval → freshness → maxAgeDays),
  * so 5 parses are needed (N+1) to fully cascade.
  */
-function applyNestedDefaults(config: unknown): AssistantConfig {
+export function applyNestedDefaults(config: unknown): AssistantConfig {
   let current: unknown = config;
   for (let i = 0; i < 5; i++) {
     current = AssistantConfigSchema.parse(current);

@@ -1278,11 +1278,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let window = QuickInputWindow()
-        window.onSubmit = { [weak self] message, imageData in
-            self?.handleQuickInputSubmit(message, imageData: imageData)
+        window.onSubmit = { [weak self, weak window] message, imageData in
+            let notify = window?.notifyOnComplete ?? false
+            self?.handleQuickInputSubmit(message, imageData: imageData, notifyOnComplete: notify)
         }
-        window.onSubmitToThread = { [weak self] message, imageData in
-            self?.handleQuickInputSubmitToThread(message, imageData: imageData)
+        window.onSubmitToThread = { [weak self, weak window] message, imageData in
+            let notify = window?.notifyOnComplete ?? false
+            self?.handleQuickInputSubmitToThread(message, imageData: imageData, notifyOnComplete: notify)
         }
         window.onSelectThread = { [weak self] threadId in
             self?.handleQuickInputSelectThread(threadId)
@@ -1325,11 +1327,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
 
             let window = QuickInputWindow()
-            window.onSubmit = { [weak self] message, imgData in
-                self?.handleQuickInputSubmit(message, imageData: imgData)
+            window.onSubmit = { [weak self, weak window] message, imgData in
+                let notify = window?.notifyOnComplete ?? false
+                self?.handleQuickInputSubmit(message, imageData: imgData, notifyOnComplete: notify)
             }
-            window.onSubmitToThread = { [weak self] message, imgData in
-                self?.handleQuickInputSubmitToThread(message, imageData: imgData)
+            window.onSubmitToThread = { [weak self, weak window] message, imgData in
+                let notify = window?.notifyOnComplete ?? false
+                self?.handleQuickInputSubmitToThread(message, imageData: imgData, notifyOnComplete: notify)
             }
             window.onSelectThread = { [weak self] threadId in
                 self?.handleQuickInputSelectThread(threadId)
@@ -1352,21 +1356,22 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         selectionWindow.show()
     }
 
-    private func handleQuickInputSubmit(_ message: String, imageData: Data?) {
-        showMainWindow()
+    private func handleQuickInputSubmit(_ message: String, imageData: Data?, notifyOnComplete: Bool) {
+        // Ensure mainWindow exists so we can get a ChatViewModel.
+        // Never show it — quick input is fire-and-forget.
+        ensureMainWindowExists()
         guard let mainWindow else { return }
         mainWindow.threadManager.createThread()
-        // Navigate the sidebar to the new thread's chat view so the user
-        // sees the conversation immediately (not Home Base or another panel).
         if let threadId = mainWindow.threadManager.activeThreadId {
             mainWindow.windowState.selection = .thread(threadId)
         }
         guard let viewModel = mainWindow.activeViewModel else { return }
 
+        if notifyOnComplete {
+            setupQuickInputNotification(on: viewModel)
+        }
+
         if let imageData {
-            // addAttachment is async — it spawns a Task internally for image
-            // processing. Wait for it to finish before sending the message so
-            // the attachment is included in the API call.
             viewModel.addAttachment(imageData: imageData, filename: "Screenshot.jpg")
             viewModel.inputText = message
             quickInputAttachmentCancellable = viewModel.attachmentManager.$isLoadingAttachment
@@ -1382,14 +1387,29 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func handleQuickInputSubmitToThread(_ message: String, imageData: Data?) {
+    private func handleQuickInputSubmitToThread(_ message: String, imageData: Data?, notifyOnComplete: Bool) {
         guard let mainWindow else { return }
         if let viewModel = mainWindow.activeViewModel {
+            if notifyOnComplete {
+                setupQuickInputNotification(on: viewModel)
+            }
             if let imageData {
                 viewModel.addAttachment(imageData: imageData, filename: "Screenshot.jpg")
             }
             viewModel.inputText = message
             viewModel.sendMessage()
+        }
+    }
+
+    /// Sets a one-shot `onResponseComplete` callback on the view model to send a macOS notification.
+    private func setupQuickInputNotification(on viewModel: ChatViewModel) {
+        let notificationService = services.activityNotificationService
+        viewModel.onResponseComplete = { [weak viewModel] summary in
+            // One-shot — clear the callback after firing
+            viewModel?.onResponseComplete = nil
+            Task {
+                await notificationService.notifyQuickInputComplete(summary: summary)
+            }
         }
     }
 
@@ -1688,27 +1708,33 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Main Window
 
+    /// Creates the MainWindow and wires callbacks, without showing it.
+    /// Safe to call multiple times — no-ops if mainWindow already exists.
+    @discardableResult
+    private func ensureMainWindowExists(isFirstLaunch: Bool = false) -> MainWindow {
+        if let existing = mainWindow { return existing }
+        let main = MainWindow(services: services, isFirstLaunch: isFirstLaunch)
+        main.onMicrophoneToggle = { [weak self] in
+            self?.voiceInput?.toggleRecording()
+        }
+        main.threadManager.onInlineConfirmationResponse = { [weak self] requestId, decision in
+            guard let self else { return }
+            self.toolConfirmationNotificationService.handleInlineResponse(requestId: requestId)
+            UNUserNotificationCenter.current().removeDeliveredNotifications(
+                withIdentifiers: ["tool-confirm-\(requestId)"]
+            )
+        }
+        mainWindow = main
+        observeAssistantStatus()
+        return main
+    }
+
     func showMainWindow(initialMessage: String? = nil, isFirstLaunch: Bool = false) {
         if let existing = mainWindow {
             existing.show()
             return
         }
-        let main = MainWindow(services: services, isFirstLaunch: isFirstLaunch)
-        main.onMicrophoneToggle = { [weak self] in
-            self?.voiceInput?.toggleRecording()
-        }
-        // Voice mode uses OpenAI Whisper + TTS directly (no VoiceInputManager needed)
-        main.threadManager.onInlineConfirmationResponse = { [weak self] requestId, decision in
-            guard let self else { return }
-            // Resume the notification service continuation with a sentinel so
-            // setupToolConfirmationNotifications skips the duplicate IPC send
-            // (the inline chat path already forwarded the response).
-            self.toolConfirmationNotificationService.handleInlineResponse(requestId: requestId)
-            // Remove the delivered notification from Notification Center
-            UNUserNotificationCenter.current().removeDeliveredNotifications(
-                withIdentifiers: ["tool-confirm-\(requestId)"]
-            )
-        }
+        let main = ensureMainWindowExists(isFirstLaunch: isFirstLaunch)
         // On first launch, defer the wake-up message until after the
         // "coming alive" transition so the animation plays uninterrupted.
         // For non-first-launch cases, send the message immediately so
@@ -1722,8 +1748,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         main.show()
-        mainWindow = main
-        observeAssistantStatus()
     }
 
     private func observeAssistantStatus() {
