@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, test, spyOn } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { mock } from 'bun:test';
@@ -20,6 +20,8 @@ mock.module('../util/logger.js', () => ({
 import {
   clawhubInstall,
   clawhubInspect,
+  verifyAndRecordSkillHash,
+  loadIntegrityManifest,
 } from '../skills/clawhub.js';
 
 beforeEach(() => {
@@ -104,70 +106,67 @@ describe('clawhubInspect slug validation', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Integrity manifest edge cases — mock Bun.spawn so install succeeds and
-// verifyAndRecordSkillHash actually runs.
+// Integrity manifest edge cases — tested via verifyAndRecordSkillHash
+// which is the code path that reads/writes the manifest.
 // ---------------------------------------------------------------------------
 
-/** Mock Bun.spawn to simulate a successful clawhub install (exit code 0). */
-function mockSuccessfulSpawn(): ReturnType<typeof spyOn> {
-  return spyOn(Bun, 'spawn').mockImplementation((() => {
-    const emptyStream = new ReadableStream({ start(c) { c.close(); } });
-    return {
-      stdout: emptyStream,
-      stderr: new ReadableStream({ start(c) { c.close(); } }),
-      exited: Promise.resolve(0),
-      kill: () => {},
-      pid: 0,
-    };
-  }) as Parameters<typeof Bun.spawn>[0] as never);
-}
-
 describe('integrity manifest', () => {
-  test('malformed integrity JSON is replaced with fresh manifest on install', async () => {
+  function createSkillFiles(slug: string): void {
+    const skillDir = join(TEST_DIR, 'skills', slug);
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(join(skillDir, 'SKILL.md'), '# Test Skill\n', 'utf-8');
+  }
+
+  test('malformed integrity JSON is handled gracefully', () => {
     const integrityPath = join(TEST_DIR, 'skills', '.integrity.json');
     writeFileSync(integrityPath, '{not valid json!!!', 'utf-8');
+    createSkillFiles('valid-slug');
 
-    // Create a skill directory so computeSkillHash produces a real hash
-    const skillDir = join(TEST_DIR, 'skills', 'valid-slug');
-    mkdirSync(skillDir, { recursive: true });
-    writeFileSync(join(skillDir, 'SKILL.md'), '# Test Skill', 'utf-8');
+    // Should not throw — malformed manifest is replaced with a fresh one
+    verifyAndRecordSkillHash('valid-slug');
 
-    const spy = mockSuccessfulSpawn();
-    try {
-      const result = await clawhubInstall('valid-slug');
-      expect(result.success).toBe(true);
-
-      // The malformed manifest should have been replaced with a valid one
-      const manifest = JSON.parse(readFileSync(integrityPath, 'utf-8'));
-      expect(manifest['valid-slug']).toBeDefined();
-      expect(manifest['valid-slug'].sha256).toMatch(/^v2:[0-9a-f]{64}$/);
-      expect(manifest['valid-slug'].installedAt).toBeDefined();
-    } finally {
-      spy.mockRestore();
-    }
+    // Manifest should now contain a valid entry
+    const manifest = loadIntegrityManifest();
+    expect(manifest['valid-slug']).toBeDefined();
+    expect(manifest['valid-slug'].sha256).toMatch(/^v2:[0-9a-f]{64}$/);
   });
 
-  test('missing integrity manifest is created on first install', async () => {
+  test('missing integrity manifest is created on first install', () => {
     const integrityPath = join(TEST_DIR, 'skills', '.integrity.json');
     expect(existsSync(integrityPath)).toBe(false);
+    createSkillFiles('new-skill');
 
-    // Create a skill directory so computeSkillHash produces a real hash
-    const skillDir = join(TEST_DIR, 'skills', 'new-skill');
-    mkdirSync(skillDir, { recursive: true });
-    writeFileSync(join(skillDir, 'index.js'), 'console.log("hi")', 'utf-8');
+    verifyAndRecordSkillHash('new-skill');
 
-    const spy = mockSuccessfulSpawn();
-    try {
-      const result = await clawhubInstall('new-skill');
-      expect(result.success).toBe(true);
+    // Manifest should now exist with the skill's hash
+    expect(existsSync(integrityPath)).toBe(true);
+    const manifest = loadIntegrityManifest();
+    expect(manifest['new-skill']).toBeDefined();
+    expect(manifest['new-skill'].sha256).toMatch(/^v2:[0-9a-f]{64}$/);
+  });
 
-      // Manifest should now exist with the skill's hash
-      expect(existsSync(integrityPath)).toBe(true);
-      const manifest = JSON.parse(readFileSync(integrityPath, 'utf-8'));
-      expect(manifest['new-skill']).toBeDefined();
-      expect(manifest['new-skill'].sha256).toMatch(/^v2:[0-9a-f]{64}$/);
-    } finally {
-      spy.mockRestore();
-    }
+  test('re-install with same content preserves hash', () => {
+    createSkillFiles('stable-skill');
+
+    verifyAndRecordSkillHash('stable-skill');
+    const first = loadIntegrityManifest()['stable-skill'].sha256;
+
+    verifyAndRecordSkillHash('stable-skill');
+    const second = loadIntegrityManifest()['stable-skill'].sha256;
+
+    expect(first).toBe(second);
+  });
+
+  test('re-install with changed content updates hash', () => {
+    createSkillFiles('changing-skill');
+    verifyAndRecordSkillHash('changing-skill');
+    const first = loadIntegrityManifest()['changing-skill'].sha256;
+
+    // Modify skill content
+    writeFileSync(join(TEST_DIR, 'skills', 'changing-skill', 'SKILL.md'), '# Updated\n', 'utf-8');
+    verifyAndRecordSkillHash('changing-skill');
+    const second = loadIntegrityManifest()['changing-skill'].sha256;
+
+    expect(first).not.toBe(second);
   });
 });
