@@ -1,4 +1,3 @@
-import { getConfig } from '../../../../config/loader.js';
 import { emitNotificationSignal } from '../../../../notifications/emit-signal.js';
 import type { AttentionHints } from '../../../../notifications/signal.js';
 import type { NotificationChannel } from '../../../../notifications/types.js';
@@ -75,14 +74,6 @@ export async function run(input: Record<string, unknown>, context: ToolContext):
   const preferredChannels = parsePreferredChannels(input.preferred_channels);
   if (preferredChannels === INVALID) {
     return err('preferred_channels must be an array containing only "vellum" or "telegram".');
-  }
-
-  const config = getConfig();
-  if (!config.notifications?.enabled) {
-    return err('Notifications are disabled. Set notifications.enabled=true to deliver notifications.');
-  }
-  if (config.notifications.shadowMode) {
-    return err('Notifications are in shadow mode. Set notifications.shadowMode=false to deliver notifications.');
   }
 
   const sourceEventName = asNonEmptyString(input.source_event_name) ?? 'user.send_notification';

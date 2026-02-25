@@ -1,16 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
 
 const emitNotificationSignalMock = mock(async (_params: unknown) => {});
-const getConfigMock = mock(() => ({
-  notifications: {
-    enabled: true,
-    shadowMode: false,
-  },
-}));
-
-mock.module('../config/loader.js', () => ({
-  getConfig: () => getConfigMock() as ReturnType<typeof getConfigMock>,
-}));
 
 mock.module('../notifications/emit-signal.js', () => ({
   emitNotificationSignal: (params: unknown) => emitNotificationSignalMock(params),
@@ -21,13 +11,6 @@ import { run } from '../config/bundled-skills/messaging/tools/send-notification.
 describe('send-notification tool', () => {
   beforeEach(() => {
     emitNotificationSignalMock.mockClear();
-    getConfigMock.mockClear();
-    getConfigMock.mockReturnValue({
-      notifications: {
-        enabled: true,
-        shadowMode: false,
-      },
-    });
   });
 
   test('emits a notification signal with normalized routing context', async () => {
@@ -76,52 +59,6 @@ describe('send-notification tool', () => {
       dedupeKey: 'voice-code-123456',
       throwOnError: true,
     });
-  });
-
-  test('returns an error when notifications are disabled', async () => {
-    getConfigMock.mockReturnValue({
-      notifications: {
-        enabled: false,
-        shadowMode: false,
-      },
-    });
-
-    const result = await run(
-      { message: 'test notification' },
-      {
-        workingDir: '/tmp',
-        sessionId: 'sess-1',
-        conversationId: 'conv-1',
-        assistantId: 'ast-alpha',
-      },
-    );
-
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain('disabled');
-    expect(emitNotificationSignalMock).not.toHaveBeenCalled();
-  });
-
-  test('returns an error when notifications are in shadow mode', async () => {
-    getConfigMock.mockReturnValue({
-      notifications: {
-        enabled: true,
-        shadowMode: true,
-      },
-    });
-
-    const result = await run(
-      { message: 'test notification' },
-      {
-        workingDir: '/tmp',
-        sessionId: 'sess-1',
-        conversationId: 'conv-1',
-        assistantId: 'ast-alpha',
-      },
-    );
-
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain('shadow mode');
-    expect(emitNotificationSignalMock).not.toHaveBeenCalled();
   });
 
   test('returns an error when the notification pipeline throws', async () => {

@@ -10,7 +10,6 @@
  */
 
 import { v4 as uuid } from 'uuid';
-import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
 import { getActiveBinding } from '../memory/channel-guardian-store.js';
 import { createEvent, updateEventDedupeKey } from './events-store.js';
@@ -104,12 +103,6 @@ export interface EmitSignalParams {
  * `throwOnError` is enabled by the caller.
  */
 export async function emitNotificationSignal(params: EmitSignalParams): Promise<void> {
-  const config = getConfig();
-  if (!config.notifications?.enabled) {
-    log.debug({ sourceEventName: params.sourceEventName }, 'Notification system disabled, skipping signal');
-    return;
-  }
-
   const signalId = uuid();
   const assistantId = params.assistantId ?? 'self';
 

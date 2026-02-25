@@ -10,8 +10,6 @@
  */
 
 import { getLogger } from '../util/logger.js';
-import { getConfig } from '../config/loader.js';
-import { getGatewayInternalBaseUrl } from '../config/env.js';
 import { emitNotificationSignal } from '../notifications/emit-signal.js';
 import { getActiveBinding } from '../memory/channel-guardian-store.js';
 import {
@@ -19,21 +17,14 @@ import {
   createGuardianActionDelivery,
   updateDeliveryStatus,
 } from '../memory/guardian-action-store.js';
-import { deliverChannelReply } from '../runtime/gateway-client.js';
 import { getUserConsultationTimeoutMs } from './call-constants.js';
 import { getOrCreateConversation } from '../memory/conversation-key-store.js';
 import { addMessage, updateConversationTitle } from '../memory/conversation-store.js';
 import type { CallPendingQuestion } from './types.js';
-import { readHttpToken } from '../util/platform.js';
 import type { ServerMessage } from '../daemon/ipc-contract.js';
 import { generateGuardianCopy } from './guardian-question-copy.js';
 
 const log = getLogger('guardian-dispatch');
-
-/** Resolve the gateway base URL for internal delivery callbacks. */
-function getGatewayBaseUrl(): string {
-  return getGatewayInternalBaseUrl();
-}
 
 export interface GuardianDispatchParams {
   callSessionId: string;
@@ -103,12 +94,6 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
       },
       dedupeKey: `guardian:${request.id}`,
     });
-
-    // When the notification system is fully active (enabled + not shadow),
-    // it handles external channel delivery (Telegram, SMS) — skip the
-    // legacy dispatch for those channels to avoid duplicate alerts.
-    const notifConfig = getConfig().notifications;
-    const notificationsActive = notifConfig?.enabled === true && notifConfig.shadowMode !== true;
 
     // Determine delivery destinations
     const destinations: Array<{
@@ -197,13 +182,10 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
           destinationChatId: dest.chatId,
           destinationExternalUserId: dest.externalUserId,
         });
-        // External channel — POST to gateway (skip when notification pipeline handles delivery)
-        if (!notificationsActive) {
-          void deliverToExternalChannel(delivery.id, dest.channel, dest.chatId!, request.questionText, request.requestCode, assistantId, readHttpToken() ?? undefined);
-        } else {
-          updateDeliveryStatus(delivery.id, 'sent');
-          log.info({ deliveryId: delivery.id, channel: dest.channel }, 'Skipping legacy external delivery — notification pipeline active');
-        }
+        // External channel delivery is handled by the notification pipeline;
+        // mark the legacy delivery row as sent so auditing stays consistent.
+        updateDeliveryStatus(delivery.id, 'sent');
+        log.info({ deliveryId: delivery.id, channel: dest.channel }, 'Skipping legacy external delivery — notification pipeline active');
       }
     }
   } catch (err) {
@@ -211,37 +193,3 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
   }
 }
 
-async function deliverToExternalChannel(
-  deliveryId: string,
-  channel: string,
-  chatId: string,
-  questionText: string,
-  requestCode: string,
-  assistantId: string,
-  bearerToken?: string,
-): Promise<void> {
-  const gatewayBase = getGatewayBaseUrl();
-  const deliverUrl = `${gatewayBase}/deliver/${channel}`;
-
-  const messageText = [
-    `Your assistant needs your input during a phone call.`,
-    ``,
-    `Question: ${questionText}`,
-    ``,
-    `Reply to this message with your answer. (ref: ${requestCode})`,
-  ].join('\n');
-
-  try {
-    await deliverChannelReply(deliverUrl, {
-      chatId,
-      text: messageText,
-      assistantId,
-    }, bearerToken);
-    updateDeliveryStatus(deliveryId, 'sent');
-    log.info({ deliveryId, channel, chatId }, 'External guardian delivery sent');
-  } catch (err) {
-    const errorMsg = err instanceof Error ? err.message : String(err);
-    updateDeliveryStatus(deliveryId, 'failed', errorMsg);
-    log.error({ err, deliveryId, channel, chatId }, 'External guardian delivery failed');
-  }
-}

@@ -4709,7 +4709,7 @@ Producer → NotificationSignal → Decision Engine (LLM) → Deterministic Chec
 
 **Audit trail (SQLite):** `notification_events` → `notification_decisions` → `notification_deliveries`
 
-**Configuration:** `notifications.enabled`, `notifications.shadowMode`, `notifications.decisionModel` in `config.json`.
+**Configuration:** `notifications.decisionModel` in `config.json`.
 
 ---
 

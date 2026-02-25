@@ -31,7 +31,7 @@ Hard invariants that the LLM cannot override (`deterministic-checks.ts`):
 
 ### 4. Dispatch
 
-`runtime-dispatch.ts` handles three early-exit cases (shouldNotify=false, shadow mode, no channels), then delegates to the broadcaster.
+`runtime-dispatch.ts` handles two early-exit cases (shouldNotify=false, no channels), then delegates to the broadcaster.
 
 ### 5. Broadcast and Delivery
 
@@ -46,7 +46,7 @@ The broadcaster (`broadcaster.ts`) iterates over selected channels, resolves des
 | `types.ts` | Channel adapter interfaces, delivery types, decision output contract |
 | `decision-engine.ts` | LLM-based routing with forced tool_choice; deterministic fallback |
 | `deterministic-checks.ts` | Pre-send gate checks (dedupe, source-active, channel availability) |
-| `runtime-dispatch.ts` | Dispatch gating (shadow mode, no-op decisions) |
+| `runtime-dispatch.ts` | Dispatch gating (no-op decisions, empty channels) |
 | `broadcaster.ts` | Fan-out to channel adapters with delivery audit trail |
 | `copy-composer.ts` | Template-based fallback copy when LLM copy is unavailable |
 | `destination-resolver.ts` | Resolves per-channel endpoints (macOS IPC, Telegram chat ID) |
@@ -127,8 +127,6 @@ All settings live under the `notifications` key in `config.json`:
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `notifications.enabled` | boolean | `false` | Master switch for the notification pipeline |
-| `notifications.shadowMode` | boolean | `true` | When true, decisions are logged but not dispatched |
 | `notifications.decisionModel` | string | `"claude-haiku-4-5-20251001"` | Model used for both the decision engine and preference extraction |
 
-Shadow mode is useful for validating decision quality before enabling live delivery. The audit trail (events + decisions) is written regardless of shadow mode.
+The notification pipeline is always active — signals are processed and dispatched as soon as the daemon is running. The audit trail (events, decisions, deliveries) is written for every signal.

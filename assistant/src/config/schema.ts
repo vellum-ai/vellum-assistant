@@ -457,8 +457,6 @@ export const AssistantConfigSchema = z.object({
     titleGenerationMaxTokens: 30,
   }),
   notifications: NotificationsConfigSchema.default({
-    enabled: false,
-    shadowMode: true,
     decisionModel: 'claude-haiku-4-5-20251001',
   }),
 }).superRefine((config, ctx) => {

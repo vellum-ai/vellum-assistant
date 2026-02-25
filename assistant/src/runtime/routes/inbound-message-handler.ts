@@ -46,7 +46,6 @@ import type {
 } from '../http-types.js';
 import { composeApprovalMessageGenerative } from '../approval-message-composer.js';
 import { refreshThreadEscalation } from '../../memory/inbox-escalation-projection.js';
-import { getConfig } from '../../config/loader.js';
 import { emitNotificationSignal } from '../../notifications/emit-signal.js';
 import {
   type GuardianContext,
@@ -434,46 +433,12 @@ export async function handleChannelInbound(
       dedupeKey: `escalation:${result.eventId}`,
     });
 
-    // Notify the guardian about the pending escalation via channel delivery.
-    // When the notification system is fully active it handles channel delivery,
-    // so skip the legacy path to avoid duplicate alerts.
-    const notifCfg = getConfig().notifications;
-    const notificationsActive = notifCfg.enabled && !notifCfg.shadowMode;
-    const senderIdentifier = body.senderName || body.senderUsername || body.senderExternalUserId || 'Unknown sender';
-    if (!notificationsActive && body.replyCallbackUrl) {
-      try {
-        const notificationText = await composeApprovalMessageGenerative(
-          {
-            scenario: 'guardian_prompt',
-            channel: sourceChannel,
-            toolName: 'ingress_message',
-            requesterIdentifier: senderIdentifier,
-          },
-          {
-            fallbackText: `New message from ${senderIdentifier} requires your review. Reply with "approve" or "deny".`,
-          },
-          approvalCopyGenerator,
-        );
-
-        await deliverChannelReply(
-          body.replyCallbackUrl,
-          { chatId: binding.guardianDeliveryChatId, text: notificationText, assistantId },
-          bearerToken,
-        );
-      } catch (err) {
-        // Fail-closed: approval request is already created in the DB and
-        // thread escalation state is updated — the desktop UI will show
-        // the pending escalation even if channel notification failed.
-        log.error({ err, conversationId: result.conversationId, guardianChatId: binding.guardianDeliveryChatId }, 'Failed to notify guardian of ingress escalation');
-      }
-    } else if (!notificationsActive) {
-      log.warn({ conversationId: result.conversationId }, 'Ingress escalation created but no replyCallbackUrl to notify guardian');
-    } else {
-      log.info(
-        { conversationId: result.conversationId },
-        'Skipping legacy guardian escalation callback delivery — notification pipeline active',
-      );
-    }
+    // Guardian escalation channel delivery is handled by the notification
+    // pipeline — no legacy callback dispatch needed.
+    log.info(
+      { conversationId: result.conversationId },
+      'Guardian escalation created — notification pipeline handles channel delivery',
+    );
 
     return Response.json({ accepted: true, escalated: true, reason: 'policy_escalate' });
   }
