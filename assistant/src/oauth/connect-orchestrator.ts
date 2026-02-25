@@ -96,19 +96,19 @@ export async function orchestrateOAuthConnect(options: OAuthConnectOptions): Pro
       const guidance = scopeResult.allowedScopes
         ? ` Allowed scopes: ${scopeResult.allowedScopes.join(', ')}`
         : '';
-      return { success: false, error: `${scopeResult.error}${guidance}` };
+      return { success: false, error: `${scopeResult.error}${guidance}`, safeError: true };
     }
     finalScopes = scopeResult.scopes;
   } else {
     // No profile and no explicit scopes — cannot proceed
-    return { success: false, error: `No well-known OAuth config found for "${options.service}" and no scopes were provided` };
+    return { success: false, error: `No well-known OAuth config found for "${options.service}" and no scopes were provided`, safeError: true };
   }
 
   if (!authUrl) {
-    return { success: false, error: 'auth_url is required (no well-known config for this service)' };
+    return { success: false, error: 'auth_url is required (no well-known config for this service)', safeError: true };
   }
   if (!tokenUrl) {
-    return { success: false, error: 'token_url is required (no well-known config for this service)' };
+    return { success: false, error: 'token_url is required (no well-known config for this service)', safeError: true };
   }
 
   const oauthConfig = {
@@ -150,6 +150,7 @@ export async function orchestrateOAuthConnect(options: OAuthConnectOptions): Pro
           return {
             success: false,
             error: 'oauth2_connect from a non-interactive session requires a public ingress URL. Configure ingress.publicBaseUrl first.',
+            safeError: true,
           };
         }
       }

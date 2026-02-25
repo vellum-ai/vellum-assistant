@@ -234,6 +234,7 @@ describe('OAuth connect handler', () => {
     orchestratorResult = {
       success: false,
       error: 'Scope "admin" is forbidden for integration:gmail',
+      safeError: true,
     };
 
     const msg: OAuthConnectStartRequest = {
