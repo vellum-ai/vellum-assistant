@@ -41,6 +41,21 @@ interface WellKnownOAuthConfig {
   /** Fixed port for loopback transport. Required for providers like Slack that
    *  need pre-registered redirect URIs and cannot use a random port. */
   loopbackPort?: number;
+  /** Metadata for the generic OAuth setup skill. When present, the assistant
+   *  can guide users through app creation and OAuth connection without a
+   *  provider-specific setup skill. */
+  setup?: {
+    /** Human-readable provider name (e.g., "Discord", "Linear") */
+    displayName: string;
+    /** URL of the developer dashboard where the user creates an app */
+    dashboardUrl: string;
+    /** What the provider calls its apps (e.g., "Discord Application", "Linear OAuth App") */
+    appType: string;
+    /** Whether the provider requires a client_secret for token exchange */
+    requiresClientSecret: boolean;
+    /** Provider-specific notes the LLM should follow during setup */
+    notes?: string[];
+  };
 }
 
 const WELL_KNOWN_OAUTH: Record<string, WellKnownOAuthConfig> = {
@@ -244,8 +259,8 @@ class CredentialStoreTool implements Tool {
         properties: {
           action: {
             type: 'string',
-            enum: ['store', 'list', 'delete', 'prompt', 'oauth2_connect'],
-            description: 'The operation to perform. Use "prompt" to ask the user for a secret via secure UI — the value never enters the conversation. Use "oauth2_connect" to connect an OAuth2 service via browser authorization. For well-known services (gmail, slack), only the service name is required — endpoints, scopes, and stored client credentials are resolved automatically.',
+            enum: ['store', 'list', 'delete', 'prompt', 'oauth2_connect', 'describe'],
+            description: 'The operation to perform. Use "prompt" to ask the user for a secret via secure UI — the value never enters the conversation. Use "oauth2_connect" to connect an OAuth2 service via browser authorization. Use "describe" to get setup metadata for a well-known OAuth service (dashboard URL, scopes, redirect URI, etc.). For well-known services (gmail, slack), only the service name is required — endpoints, scopes, and stored client credentials are resolved automatically.',
           },
           service: {
             type: 'string',
@@ -757,6 +772,43 @@ class CredentialStoreTool implements Tool {
           const message = err instanceof Error ? err.message : 'Unknown error during OAuth flow';
           return { content: `Error connecting "${service}": ${message}`, isError: true };
         }
+      }
+
+      case 'describe': {
+        const rawService = (input.service as string | undefined) ?? '';
+        const service = SERVICE_ALIASES[rawService] ?? rawService;
+        if (!service) {
+          return { content: 'Error: service is required for describe action', isError: true };
+        }
+        const wellKnown = WELL_KNOWN_OAUTH[service];
+        if (!wellKnown) {
+          return { content: `No well-known OAuth config found for "${rawService}". Available services: ${Object.keys(SERVICE_ALIASES).join(', ')}`, isError: false };
+        }
+
+        // Compute the redirect URI based on callback transport
+        let redirectUri: string;
+        const transport = wellKnown.callbackTransport ?? 'gateway';
+        if (transport === 'loopback' && wellKnown.loopbackPort) {
+          redirectUri = `http://127.0.0.1:${wellKnown.loopbackPort}/oauth/callback`;
+        } else if (transport === 'loopback') {
+          redirectUri = '(automatic — no redirect URI needed, uses random localhost port)';
+        } else {
+          redirectUri = '${ingress.publicBaseUrl}/webhooks/oauth/callback (requires public ingress URL)';
+        }
+
+        const info: Record<string, unknown> = {
+          service,
+          authUrl: wellKnown.authUrl,
+          tokenUrl: wellKnown.tokenUrl,
+          scopes: wellKnown.scopes,
+          callbackTransport: transport,
+          redirectUri,
+          requiresClientSecret: !!(wellKnown.tokenEndpointAuthMethod || wellKnown.extraParams),
+        };
+        if (wellKnown.setup) info.setup = wellKnown.setup;
+        if (wellKnown.extraParams) info.extraParams = wellKnown.extraParams;
+
+        return { content: JSON.stringify(info, null, 2), isError: false };
       }
 
       default:
