@@ -62,7 +62,6 @@ struct SettingsConnectTab: View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
             vellumSection
             gatewaySection
-            advancedSection
             connectionsSection
         }
         .onAppear {
@@ -327,10 +326,10 @@ struct SettingsConnectTab: View {
     // MARK: - Bearer Token Content
 
     private var bearerTokenContent: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Bearer Token")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
+                .font(VFont.bodyMedium)
+                .foregroundColor(VColor.textSecondary)
 
             if bearerToken.isEmpty {
                 HStack(spacing: VSpacing.sm) {
@@ -470,48 +469,6 @@ struct SettingsConnectTab: View {
                     Text("Not configured — run the Email Setup skill to assign an address")
                         .font(VFont.caption)
                         .foregroundColor(VColor.textMuted)
-                }
-            }
-        }
-        .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceSubtle)
-    }
-
-    // MARK: - Advanced Section
-
-    private var advancedSection: some View {
-        VDisclosureSection(
-            title: "Advanced",
-            icon: "gearshape",
-            subtitle: "Bearer token, overrides",
-            isExpanded: $advancedExpanded
-        ) {
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                bearerTokenContent
-
-                Divider().background(VColor.surfaceBorder)
-
-                // Developer local pairing content removed in v4 — LAN pairing is automatic via localLanUrl in QR payload.
-
-                // Simple override fields for power users / debugging
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("URL Override (optional)")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                    TextField("Custom gateway URL", text: $iosPairingGatewayOverride)
-                        .vInputStyle()
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
-                }
-
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Token Override (optional)")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                    SecureField("Custom bearer token", text: $iosPairingTokenOverride)
-                        .vInputStyle()
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
                 }
             }
         }
@@ -1526,6 +1483,59 @@ struct SettingsConnectTab: View {
                     VButton(label: "Generate Token", leftIcon: "key", style: .secondary) {
                         regenerateHttpToken()
                     }
+                }
+            }
+
+            // Compact advanced disclosure for power users
+            Divider().background(VColor.surfaceBorder)
+
+            VStack(alignment: .leading, spacing: 0) {
+                Button {
+                    withAnimation(VAnimation.fast) {
+                        advancedExpanded.toggle()
+                    }
+                } label: {
+                    HStack(spacing: VSpacing.xs) {
+                        Text("Advanced")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textMuted)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 8, weight: .semibold))
+                            .foregroundColor(VColor.textMuted)
+                            .rotationEffect(.degrees(advancedExpanded ? 90 : 0))
+                            .animation(VAnimation.fast, value: advancedExpanded)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                if advancedExpanded {
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        bearerTokenContent
+
+                        Divider().background(VColor.surfaceBorder)
+
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                            Text("URL Override (optional)")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textSecondary)
+                            TextField("Custom gateway URL", text: $iosPairingGatewayOverride)
+                                .vInputStyle()
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textPrimary)
+                        }
+
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                            Text("Token Override (optional)")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textSecondary)
+                            SecureField("Custom bearer token", text: $iosPairingTokenOverride)
+                                .vInputStyle()
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textPrimary)
+                        }
+                    }
+                    .padding(.top, VSpacing.sm)
                 }
             }
 
