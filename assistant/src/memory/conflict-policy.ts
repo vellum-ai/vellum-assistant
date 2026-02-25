@@ -33,6 +33,11 @@ const PR_URL_PATTERN = /github\.com\/[^/]+\/[^/]+\/pull\/\d+/i;
 const ISSUE_TICKET_PATTERN = /\b(?:issue|pr|ticket|pull request)\s*#?\d+/i;
 const TRACKING_LANGUAGE_PATTERN = /\b(?:this pr|that issue|while we wait|currently tracking)\b/i;
 
+// Statements about needing clarification are transient conversational artifacts
+// extracted from previous conflict-gate interactions — not durable facts.
+// Allowing them into the conflict pipeline creates self-reinforcing loops.
+const META_CLARIFICATION_PATTERN = /\b(?:needs? clarification|unclear which|user should (?:specify|clarify|choose)|which (?:one|option) (?:to|should)|conflicting (?:notes|instructions))\b/i;
+
 /**
  * Returns true when a statement looks like a transient tracking note
  * (PR URLs, issue references, short-lived progress notes) rather than
@@ -42,6 +47,7 @@ export function isTransientTrackingStatement(statement: string): boolean {
   if (PR_URL_PATTERN.test(statement)) return true;
   if (ISSUE_TICKET_PATTERN.test(statement)) return true;
   if (TRACKING_LANGUAGE_PATTERN.test(statement)) return true;
+  if (META_CLARIFICATION_PATTERN.test(statement)) return true;
   return false;
 }
 

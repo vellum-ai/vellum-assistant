@@ -420,7 +420,7 @@ async function executeApprove(
   // Process the message through the agent loop (no IPC event callback
   // since this is a background execution without a connected client)
   const noop = () => {};
-  await session.processMessage(messageContent, [], noop);
+  await session.processMessage(messageContent, [], noop, undefined, undefined, undefined, { isInteractive: false });
 
   // Deliver the assistant's reply to the external user via the gateway
   const replyCallbackUrl = typeof payload?.replyCallbackUrl === 'string'

@@ -342,6 +342,7 @@ export async function runAgentLoopImpl(
       conversationOriginInterface: getConversationOriginInterface(ctx.conversationId),
     };
 
+    const isInteractiveResolved = options?.isInteractive ?? (!ctx.hasNoClient && !ctx.headlessLock);
     runMessages = applyRuntimeInjections(runMessages, {
       softConflictInstruction,
       activeSurface,
@@ -353,6 +354,7 @@ export async function runAgentLoopImpl(
       guardianContext: ctx.guardianContext ?? null,
       temporalContext,
       voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
+      isNonInteractive: !isInteractiveResolved,
     });
 
     // Pre-run repair
@@ -471,6 +473,7 @@ export async function runAgentLoopImpl(
           guardianContext: ctx.guardianContext ?? null,
           temporalContext,
           voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
+          isNonInteractive: !isInteractiveResolved,
         });
         preRepairMessages = runMessages;
         preRunHistoryLength = runMessages.length;
@@ -508,6 +511,7 @@ export async function runAgentLoopImpl(
             guardianContext: ctx.guardianContext ?? null,
             temporalContext,
             voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
+            isNonInteractive: !isInteractiveResolved,
           });
           preRepairMessages = runMessages;
           preRunHistoryLength = runMessages.length;

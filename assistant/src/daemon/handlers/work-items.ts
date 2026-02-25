@@ -460,7 +460,7 @@ export async function handleWorkItemRunTask(
         }
         await session.processMessage(message, [], (event) => {
           ctx.broadcast(event);
-        });
+        }, undefined, undefined, undefined, { isInteractive: false });
       },
     );
 

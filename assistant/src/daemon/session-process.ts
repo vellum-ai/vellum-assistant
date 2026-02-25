@@ -80,7 +80,7 @@ export interface ProcessSessionContext {
     content: string,
     userMessageId: string,
     onEvent: (msg: ServerMessage) => void,
-    options?: { skipPreMessageRollback?: boolean },
+    options?: { skipPreMessageRollback?: boolean; isInteractive?: boolean },
   ): Promise<void>;
   getTurnChannelContext(): TurnChannelContext | null;
   setTurnChannelContext(ctx: TurnChannelContext): void;
@@ -322,6 +322,7 @@ export async function processMessage(
   requestId?: string,
   activeSurfaceId?: string,
   currentPage?: string,
+  options?: { isInteractive?: boolean },
 ): Promise<string> {
   session.currentActiveSurfaceId = activeSurfaceId;
   session.currentPage = currentPage;
@@ -482,6 +483,8 @@ export async function processMessage(
       });
   }
 
-  await session.runAgentLoop(resolvedContent, userMessageId, onEvent);
+  await session.runAgentLoop(resolvedContent, userMessageId, onEvent,
+    options?.isInteractive !== undefined ? { isInteractive: options.isInteractive } : undefined,
+  );
   return userMessageId;
 }
