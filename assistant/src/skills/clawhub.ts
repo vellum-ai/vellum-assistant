@@ -201,8 +201,9 @@ async function runClawhub(args: string[], opts?: { cwd?: string; timeout?: numbe
     stderr: 'pipe',
   });
 
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    setTimeout(() => {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeoutPromise = new Promise<[string, string]>((_, reject) => {
+    timer = setTimeout(() => {
       proc.kill();
       reject(new Error(`clawhub command timed out after ${timeout}ms`));
     }, timeout);
@@ -213,8 +214,11 @@ async function runClawhub(args: string[], opts?: { cwd?: string; timeout?: numbe
       new Response(proc.stdout).text(),
       new Response(proc.stderr).text(),
     ]),
-    timeoutPromise.then(() => ['', ''] as [string, string]),
-  ]);
+    timeoutPromise,
+  ]).finally(() => clearTimeout(timer!));
+
+  // Suppress unhandled rejection from the losing timeout promise
+  timeoutPromise.catch(() => {});
 
   const exitCode = await proc.exited;
 
