@@ -7,9 +7,9 @@
  */
 
 import type { OAuth2FlowResult, TokenEndpointAuthMethod } from '../security/oauth2.js';
-import { setSecureKey } from '../security/secure-keys.js';
+import { deleteSecureKey, setSecureKey } from '../security/secure-keys.js';
 import type { CredentialInjectionTemplate } from '../tools/credentials/policy-types.js';
-import { upsertCredentialMetadata } from '../tools/credentials/metadata-store.js';
+import { deleteCredentialMetadata, upsertCredentialMetadata } from '../tools/credentials/metadata-store.js';
 import { runPostConnectHook } from '../tools/credentials/post-connect-hooks.js';
 
 // ---------------------------------------------------------------------------
@@ -28,6 +28,8 @@ export interface StoreOAuth2TokensParams {
   userinfoUrl?: string;
   allowedTools?: string[];
   wellKnownInjectionTemplates?: CredentialInjectionTemplate[];
+  /** Fallback account info from an identity verifier (e.g. Twitter @username). */
+  identityAccountInfo?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -87,7 +89,7 @@ export async function storeOAuth2Tokens(params: StoreOAuth2TokensParams): Promis
     allowedTools: allowedTools ?? [],
     expiresAt,
     grantedScopes,
-    accountInfo: accountInfo ?? null,
+    accountInfo: accountInfo ?? params.identityAccountInfo ?? null,
     oauth2TokenUrl: tokenUrl,
     oauth2ClientId: clientId,
     ...(clientSecret ? { oauth2ClientSecret: clientSecret } : {}),
@@ -100,10 +102,16 @@ export async function storeOAuth2Tokens(params: StoreOAuth2TokensParams): Promis
     if (refreshStored) {
       upsertCredentialMetadata(service, 'refresh_token', {});
     }
+  } else {
+    // Re-auth grants that omit refresh_token must clear any stale stored
+    // token — otherwise withValidToken() will attempt refresh with invalid
+    // credentials.
+    deleteSecureKey(`credential:${service}:refresh_token`);
+    deleteCredentialMetadata(service, 'refresh_token');
   }
 
   // Run any provider-specific post-connect actions (e.g. Slack welcome DM)
   await runPostConnectHook({ service, rawTokenResponse });
 
-  return { accountInfo };
+  return { accountInfo: accountInfo ?? params.identityAccountInfo };
 }
