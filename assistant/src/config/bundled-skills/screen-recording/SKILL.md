@@ -1,7 +1,7 @@
 ---
 name: "Screen Recording"
 description: "Record the user's screen as a video file"
-metadata: {"vellum": {"emoji": "🎬"}}
+metadata: {"vellum": {"emoji": "🎬", "os": ["darwin"]}}
 ---
 
 Capture screen recordings as video files attached to the conversation.
