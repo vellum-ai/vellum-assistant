@@ -587,7 +587,18 @@ struct ConstellationView: View {
     /// Computes zoom and pan to fit all hexes in the viewport with padding.
     private func fitAll(viewSize: CGSize) {
         let hexes = positionedHexes
-        guard !hexes.isEmpty else { return }
+
+        // When no skills/files are loaded the center avatar is still rendered.
+        // Reset to default viewport so the user can recover after drag/zoom.
+        guard !hexes.isEmpty else {
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
+                zoomScale = 1.0
+                baseZoomScale = 1.0
+                panOffset = .zero
+                dragOffset = .zero
+            }
+            return
+        }
 
         // Compute bounding box of all hex pixel positions
         var minX = CGFloat.infinity
