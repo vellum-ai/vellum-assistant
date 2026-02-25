@@ -88,6 +88,7 @@ export async function handleTaskSubmit(
           ctx.socketToSession.set(socket, activeSessionId);
         }
         rlog.info('Recording stop intent intercepted');
+        ctx.send(socket, { type: 'task_routed', sessionId: activeSessionId, interactionType: 'text_qa' });
         ctx.send(socket, {
           type: 'assistant_text_delta',
           text: stopped ? 'Stopping the recording.' : 'No active recording to stop.',
