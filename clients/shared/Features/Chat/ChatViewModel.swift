@@ -524,6 +524,7 @@ public final class ChatViewModel: ObservableObject {
                     self?.discardStreamingBuffer()
                     self?.reconnectDebounceTask?.cancel()
                     self?.reconnectDebounceTask = Task { @MainActor [weak self] in
+                        defer { self?.reconnectDebounceTask = nil }
                         try? await Task.sleep(nanoseconds: 500_000_000) // 500ms
                         guard !Task.isCancelled else { return }
                         guard let self, !self.isReconnectHistoryLoading else { return }
