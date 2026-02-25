@@ -301,17 +301,25 @@ function handleRecordingStatus(
 // ─── Socket disconnect cleanup ───────────────────────────────────────────────
 
 /**
- * Clean up all recording state when a client socket disconnects. Since only
- * one recording can be active globally, this clears all entries rather than
- * looking up a single session ID. This avoids missing recordings started in
- * a different conversation than the socket's current session.
+ * Clean up recording state for recordings whose owning conversation is bound
+ * to the disconnecting socket. Accepts a lookup function that resolves a
+ * conversation ID to its current socket, so we only clean up recordings
+ * affected by this specific socket disconnect — not unrelated sessions.
  */
-export function cleanupRecordingsOnDisconnect(): void {
+export function cleanupRecordingsOnDisconnect(
+  disconnectedSocket: net.Socket,
+  findSocketForConversation: (conversationId: string) => net.Socket | undefined,
+): void {
   if (recordingOwnerByConversation.size === 0) return;
   for (const [convId, recId] of [...recordingOwnerByConversation.entries()]) {
-    log.warn({ conversationId: convId, recordingId: recId }, 'Cleaning up recording state for disconnected socket');
-    standaloneRecordingConversationId.delete(recId);
-    recordingOwnerByConversation.delete(convId);
+    const ownerSocket = findSocketForConversation(convId);
+    // Clean up if the owner conversation's socket is the one disconnecting,
+    // or if the owner conversation has no socket bound at all.
+    if (!ownerSocket || ownerSocket === disconnectedSocket) {
+      log.warn({ conversationId: convId, recordingId: recId }, 'Cleaning up recording state for disconnected socket');
+      standaloneRecordingConversationId.delete(recId);
+      recordingOwnerByConversation.delete(convId);
+    }
   }
 }
 

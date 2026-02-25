@@ -461,10 +461,16 @@ export class DaemonServer {
         }
         getSubagentManager().abortAllForParent(sessionId);
       }
-      // Clean up all recording state for the disconnected socket. Runs outside
-      // the sessionId check because recordings may be keyed to a different
-      // conversation than the socket's current session.
-      cleanupRecordingsOnDisconnect();
+      // Clean up recording state for recordings whose owning conversation is
+      // bound to the disconnecting socket. Runs outside the sessionId check
+      // because recordings may be keyed to a different conversation than the
+      // socket's current session.
+      cleanupRecordingsOnDisconnect(socket, (convId) => {
+        for (const [s, sid] of this.socketToSession.entries()) {
+          if (sid === convId) return s;
+        }
+        return undefined;
+      });
       this.socketToSession.delete(socket);
       const cuSessionIds = this.socketToCuSession.get(socket);
       if (cuSessionIds) {
