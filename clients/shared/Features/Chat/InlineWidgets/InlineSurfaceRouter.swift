@@ -33,9 +33,29 @@ public struct InlineSurfaceRouter: View {
         return false
     }
 
+    /// Whether the surface renders as a lightweight chip without card chrome.
+    /// Surfaces that don't have a dedicated inline widget (e.g. browser_view, file_upload)
+    /// render as compact fallback chips — no need for the full card wrapper.
+    private var isChipOnlySurface: Bool {
+        switch surface.data {
+        case .browserView, .fileUpload:
+            return true
+        default:
+            return false
+        }
+    }
+
     public var body: some View {
         if let completion = surface.completionState {
             CompletedSurfaceChip(title: surface.title, summary: completion.summary)
+        } else if case .confirmation(let data) = surface.data {
+            // Confirmations manage their own card chrome — collapse to a chip after user acts
+            ConfirmationSurfaceView(data: data, actions: surface.actions) { actionId in
+                onAction(surface.id, actionId, nil)
+            }
+            .frame(maxWidth: 540, alignment: .leading)
+        } else if isChipOnlySurface {
+            surfaceContent
         } else {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             // Template cards and dynamic page previews handle their own header
