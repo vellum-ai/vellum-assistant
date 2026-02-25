@@ -27,7 +27,7 @@ Returns a JSON object with `ok: true` and a `skills` array. Each skill has:
 vellum skills install <skill-id> --json
 ```
 
-Installs the skill to the managed skills directory. If the skill is already installed, it will be overwritten by default. Pass `--overwrite` to be explicit.
+Installs the skill to the managed skills directory. If the skill is already installed, pass `--overwrite` to replace it.
 
 Returns `{ "ok": true, "skillId": "<id>" }` on success.
 
@@ -46,7 +46,7 @@ Returns `{ "ok": true, "skillId": "<id>" }` on success.
 
 ## Notes
 
-- Skills are fetched from the Vellum platform API with a bundled fallback
-- Installed skills are stored in `~/.vellum/assistant/skills/<skill-id>/`
+- Skills are fetched from the Vellum platform API
+- Installed skills are stored in `~/.vellum/workspace/skills/<skill-id>/`
 - After installing, the skill may need to be enabled in settings
 - Use `--json` on all commands for reliable parsing
