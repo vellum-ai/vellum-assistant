@@ -96,6 +96,7 @@ import * as messagingListConversations from './bundled-skills/messaging/tools/me
 import * as messagingRead from './bundled-skills/messaging/tools/messaging-read.js';
 import * as messagingSearch from './bundled-skills/messaging/tools/messaging-search.js';
 import * as messagingSend from './bundled-skills/messaging/tools/messaging-send.js';
+import * as sendNotification from './bundled-skills/messaging/tools/send-notification.js';
 import * as messagingReply from './bundled-skills/messaging/tools/messaging-reply.js';
 import * as messagingMarkRead from './bundled-skills/messaging/tools/messaging-mark-read.js';
 import * as slackAddReaction from './bundled-skills/messaging/tools/slack-add-reaction.js';
@@ -245,6 +246,7 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ['messaging:tools/messaging-read.ts', messagingRead],
   ['messaging:tools/messaging-search.ts', messagingSearch],
   ['messaging:tools/messaging-send.ts', messagingSend],
+  ['messaging:tools/send-notification.ts', sendNotification],
   ['messaging:tools/messaging-reply.ts', messagingReply],
   ['messaging:tools/messaging-mark-read.ts', messagingMarkRead],
   ['messaging:tools/slack-add-reaction.ts', slackAddReaction],

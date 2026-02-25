@@ -732,6 +732,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        daemonClient.onNotificationIntent = { [weak self] msg in
+            self?.deliverNotificationIntent(msg)
+        }
+
         // Handle open_bundle_response from the daemon
         daemonClient.onOpenBundleResponse = { [weak self] response in
             guard let self else { return }

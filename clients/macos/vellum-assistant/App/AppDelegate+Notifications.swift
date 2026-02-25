@@ -1,6 +1,7 @@
 import AppKit
 import UserNotifications
 import CoreText
+import VellumAssistantShared
 import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate+Notifications")
@@ -84,7 +85,95 @@ extension AppDelegate {
             options: []
         )
 
-        center.setNotificationCategories([activityCategory, toolConfirmationCategory, rideShotgunCategory, voiceResponseCategory, guardianRequestCategory])
+        let viewNotificationIntentAction = UNNotificationAction(
+            identifier: "VIEW_NOTIFICATION_INTENT",
+            title: "View",
+            options: [.foreground]
+        )
+        let notificationIntentCategory = UNNotificationCategory(
+            identifier: "NOTIFICATION_INTENT",
+            actions: [viewNotificationIntentAction],
+            intentIdentifiers: [],
+            options: []
+        )
+
+        center.setNotificationCategories([
+            activityCategory,
+            toolConfirmationCategory,
+            rideShotgunCategory,
+            voiceResponseCategory,
+            guardianRequestCategory,
+            notificationIntentCategory,
+        ])
+    }
+
+    private func normalizeNotificationUserInfoValue(_ value: Any?) -> Any? {
+        switch value {
+        case nil:
+            return nil
+        case let v as String:
+            return v
+        case let v as Int:
+            return v
+        case let v as Double:
+            return v
+        case let v as Bool:
+            return v
+        case let v as [Any]:
+            return v.compactMap { normalizeNotificationUserInfoValue($0) }
+        case let v as [Any?]:
+            return v.compactMap { normalizeNotificationUserInfoValue($0) }
+        case let v as [String: Any]:
+            var out: [String: Any] = [:]
+            for (k, item) in v {
+                if let normalized = normalizeNotificationUserInfoValue(item) {
+                    out[k] = normalized
+                }
+            }
+            return out
+        case let v as [String: Any?]:
+            var out: [String: Any] = [:]
+            for (k, item) in v {
+                if let normalized = normalizeNotificationUserInfoValue(item) {
+                    out[k] = normalized
+                }
+            }
+            return out
+        default:
+            guard let value else { return nil }
+            return String(describing: value)
+        }
+    }
+
+    func deliverNotificationIntent(_ msg: NotificationIntentMessage) {
+        let content = UNMutableNotificationContent()
+        content.title = msg.title
+        content.body = msg.body
+        content.sound = .default
+        content.categoryIdentifier = "NOTIFICATION_INTENT"
+
+        var userInfo: [String: Any] = [
+            "sourceEventName": msg.sourceEventName,
+        ]
+        if let metadata = msg.deepLinkMetadata {
+            for (key, wrapped) in metadata {
+                if let normalized = normalizeNotificationUserInfoValue(wrapped.value) {
+                    userInfo[key] = normalized
+                }
+            }
+        }
+        content.userInfo = userInfo
+
+        let request = UNNotificationRequest(
+            identifier: "notification-intent-\(UUID().uuidString)",
+            content: content,
+            trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error {
+                log.error("Failed to post notification intent: \(error.localizedDescription)")
+            }
+        }
     }
 
     func registerBundledFonts() {
@@ -166,6 +255,21 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
             await MainActor.run {
                 guard !self.isAwaitingFirstLaunchReady else { return }
                 self.openConversationThread(conversationId: conversationId)
+            }
+            return
+        }
+
+        if categoryId == "NOTIFICATION_INTENT" {
+            let conversationId =
+                response.notification.request.content.userInfo["conversationId"] as? String ??
+                response.notification.request.content.userInfo["conversation_id"] as? String
+            await MainActor.run {
+                guard !self.isAwaitingFirstLaunchReady else { return }
+                if let conversationId {
+                    self.openConversationThread(conversationId: conversationId)
+                } else {
+                    self.showMainWindow()
+                }
             }
             return
         }
