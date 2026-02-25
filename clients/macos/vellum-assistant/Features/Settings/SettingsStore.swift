@@ -15,14 +15,12 @@ public final class SettingsStore: ObservableObject {
     @Published var hasBraveKey: Bool
     @Published var hasPerplexityKey: Bool
     @Published var hasImageGenKey: Bool
-    @Published var hasOpenAIKey: Bool
     @Published var hasElevenLabsKey: Bool
     @Published var hasVercelKey: Bool = false
     @Published var maskedKey: String = ""
     @Published var maskedBraveKey: String = ""
     @Published var maskedPerplexityKey: String = ""
     @Published var maskedImageGenKey: String = ""
-    @Published var maskedOpenAIKey: String = ""
     @Published var maskedElevenLabsKey: String = ""
 
     // MARK: - Model Selection
@@ -234,9 +232,6 @@ public final class SettingsStore: ObservableObject {
         let imageGenKey = APIKeyManager.getKey(for: "gemini")
         self.hasImageGenKey = imageGenKey != nil
         self.maskedImageGenKey = Self.maskKey(imageGenKey)
-        let openaiKey = APIKeyManager.getKey(for: "openai")
-        self.hasOpenAIKey = openaiKey != nil
-        self.maskedOpenAIKey = Self.maskKey(openaiKey)
         let elevenLabsKey = APIKeyManager.getKey(for: "elevenlabs")
         self.hasElevenLabsKey = elevenLabsKey != nil
         self.maskedElevenLabsKey = Self.maskKey(elevenLabsKey)
@@ -592,20 +587,6 @@ public final class SettingsStore: ObservableObject {
         maskedImageGenKey = ""
     }
 
-    func saveOpenAIKey(_ raw: String) {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        APIKeyManager.setKey(trimmed, for: "openai")
-        hasOpenAIKey = true
-        maskedOpenAIKey = Self.maskKey(trimmed)
-    }
-
-    func clearOpenAIKey() {
-        APIKeyManager.deleteKey(for: "openai")
-        hasOpenAIKey = false
-        maskedOpenAIKey = ""
-    }
-
     func saveElevenLabsKey(_ raw: String) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -646,10 +627,6 @@ public final class SettingsStore: ObservableObject {
         let imageGenKey = APIKeyManager.getKey(for: "gemini")
         hasImageGenKey = imageGenKey != nil
         maskedImageGenKey = Self.maskKey(imageGenKey)
-
-        let openaiKey = APIKeyManager.getKey(for: "openai")
-        hasOpenAIKey = openaiKey != nil
-        maskedOpenAIKey = Self.maskKey(openaiKey)
 
         let elevenLabsKey = APIKeyManager.getKey(for: "elevenlabs")
         hasElevenLabsKey = elevenLabsKey != nil
