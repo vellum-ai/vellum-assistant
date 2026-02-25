@@ -31,6 +31,9 @@ final class MainWindowState: ObservableObject {
     /// Tracks the "background" thread that persists even when viewing an app or panel overlay.
     @Published var persistentThreadId: UUID?
 
+    /// Tracks which panel originated the avatar customization flow so we can return to it.
+    @Published var avatarCustomizationReturnPanel: SidePanelType = .identity
+
     @Published var selectedSubagentId: String?
     @Published var activeDynamicSurface: UiSurfaceShowMessage?
     @Published var activeDynamicParsedSurface: Surface?
