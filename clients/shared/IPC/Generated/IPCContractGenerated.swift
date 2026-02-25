@@ -1931,13 +1931,15 @@ public struct IPCGuardianVerificationRequest: Codable, Sendable {
     public let channel: String?
     public let sessionId: String?
     public let assistantId: String?
+    public let rebind: Bool?
 
-    public init(type: String, action: String, channel: String? = nil, sessionId: String? = nil, assistantId: String? = nil) {
+    public init(type: String, action: String, channel: String? = nil, sessionId: String? = nil, assistantId: String? = nil, rebind: Bool? = nil) {
         self.type = type
         self.action = action
         self.channel = channel
         self.sessionId = sessionId
         self.assistantId = assistantId
+        self.rebind = rebind
     }
 }
 

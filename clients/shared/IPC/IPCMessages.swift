@@ -1946,14 +1946,16 @@ extension IPCGuardianVerificationRequest {
         action: String,
         channel: String? = nil,
         sessionId: String? = nil,
-        assistantId: String? = nil
+        assistantId: String? = nil,
+        rebind: Bool? = nil
     ) {
         self.init(
             type: "guardian_verification",
             action: action,
             channel: channel,
             sessionId: sessionId,
-            assistantId: assistantId
+            assistantId: assistantId,
+            rebind: rebind
         )
     }
 }

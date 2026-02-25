@@ -1038,13 +1038,15 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         action: String,
         channel: String? = nil,
         sessionId: String? = nil,
-        assistantId: String? = nil
+        assistantId: String? = nil,
+        rebind: Bool? = nil
     ) throws {
         try send(GuardianVerificationRequestMessage(
             action: action,
             channel: channel,
             sessionId: sessionId,
-            assistantId: assistantId
+            assistantId: assistantId,
+            rebind: rebind
         ))
     }
 

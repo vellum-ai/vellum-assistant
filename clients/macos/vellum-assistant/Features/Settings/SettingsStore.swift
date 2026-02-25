@@ -103,6 +103,7 @@ public final class SettingsStore: ObservableObject {
     @Published var telegramGuardianVerificationInProgress: Bool = false
     @Published var telegramGuardianInstruction: String?
     @Published var telegramGuardianError: String?
+    @Published var telegramGuardianAlreadyBound: Bool = false
 
     // MARK: - Channel Guardian State (SMS)
 
@@ -113,6 +114,7 @@ public final class SettingsStore: ObservableObject {
     @Published var smsGuardianVerificationInProgress: Bool = false
     @Published var smsGuardianInstruction: String?
     @Published var smsGuardianError: String?
+    @Published var smsGuardianAlreadyBound: Bool = false
 
     // MARK: - Channel Guardian State (Voice)
 
@@ -123,6 +125,7 @@ public final class SettingsStore: ObservableObject {
     @Published var voiceGuardianVerificationInProgress: Bool = false
     @Published var voiceGuardianInstruction: String?
     @Published var voiceGuardianError: String?
+    @Published var voiceGuardianAlreadyBound: Bool = false
 
     // MARK: - Email Integration State
 
@@ -448,8 +451,13 @@ public final class SettingsStore: ObservableObject {
                         self.telegramGuardianInstruction = instruction
                     }
                     self.telegramGuardianError = nil
+                    self.telegramGuardianAlreadyBound = false
                 } else {
-                    self.telegramGuardianError = response.error
+                    let isAlreadyBound = response.error == "already_bound"
+                    self.telegramGuardianAlreadyBound = isAlreadyBound
+                    self.telegramGuardianError = isAlreadyBound
+                        ? "A guardian is already bound. Revoke it first or replace it."
+                        : response.error
                 }
             case "sms":
                 self.smsGuardianVerificationInProgress = false
@@ -465,8 +473,13 @@ public final class SettingsStore: ObservableObject {
                         self.smsGuardianInstruction = instruction
                     }
                     self.smsGuardianError = nil
+                    self.smsGuardianAlreadyBound = false
                 } else {
-                    self.smsGuardianError = response.error
+                    let isAlreadyBound = response.error == "already_bound"
+                    self.smsGuardianAlreadyBound = isAlreadyBound
+                    self.smsGuardianError = isAlreadyBound
+                        ? "A guardian is already bound. Revoke it first or replace it."
+                        : response.error
                 }
             case "voice":
                 self.voiceGuardianVerificationInProgress = false
@@ -482,8 +495,13 @@ public final class SettingsStore: ObservableObject {
                         self.voiceGuardianInstruction = instruction
                     }
                     self.voiceGuardianError = nil
+                    self.voiceGuardianAlreadyBound = false
                 } else {
-                    self.voiceGuardianError = response.error
+                    let isAlreadyBound = response.error == "already_bound"
+                    self.voiceGuardianAlreadyBound = isAlreadyBound
+                    self.voiceGuardianError = isAlreadyBound
+                        ? "A guardian is already bound. Revoke it first or replace it."
+                        : response.error
                 }
             default:
                 break
@@ -913,20 +931,23 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    func startChannelGuardianVerification(channel: String) {
+    func startChannelGuardianVerification(channel: String, rebind: Bool = false) {
         stopGuardianStatusPolling(for: channel)
         switch channel {
         case "telegram":
             telegramGuardianVerificationInProgress = true
             telegramGuardianError = nil
+            telegramGuardianAlreadyBound = false
             telegramGuardianInstruction = nil
         case "sms":
             smsGuardianVerificationInProgress = true
             smsGuardianError = nil
+            smsGuardianAlreadyBound = false
             smsGuardianInstruction = nil
         case "voice":
             voiceGuardianVerificationInProgress = true
             voiceGuardianError = nil
+            voiceGuardianAlreadyBound = false
             voiceGuardianInstruction = nil
         default:
             return
@@ -951,7 +972,12 @@ public final class SettingsStore: ObservableObject {
             }
             pendingGuardianChallengeChannel = channel
             armGuardianChallengeTimeout(for: channel)
-            try daemonClient.sendGuardianVerification(action: "create_challenge", channel: channel, assistantId: guardianAssistantScope)
+            try daemonClient.sendGuardianVerification(
+                action: "create_challenge",
+                channel: channel,
+                assistantId: guardianAssistantScope,
+                rebind: rebind ? true : nil
+            )
         } catch {
             log.error("Failed to start \(channel) guardian verification: \(error)")
             clearGuardianChallengePending(for: channel)
