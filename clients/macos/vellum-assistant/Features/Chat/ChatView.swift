@@ -84,7 +84,8 @@ struct ChatView: View {
         let base: CGFloat = VSpacing.sm + topPad + bottomPad + contentHeight + buttonRow
         let attachments: CGFloat = pendingAttachments.isEmpty ? 0 : 48
         let error: CGFloat = (sessionError == nil && errorText != nil) ? 36 : 0
-        return base + attachments + error
+        let sessionErrorToast: CGFloat = sessionError != nil ? 52 : 0
+        return base + attachments + error + sessionErrorToast
     }
 
     var body: some View {
@@ -203,6 +204,9 @@ struct ChatView: View {
                             onPaste: onPaste,
                             onMicrophoneToggle: onMicrophoneToggle,
                             onDismissError: onDismissError,
+                            onRetrySessionError: onRetry,
+                            onCopyDebugInfo: onCopyDebugInfo,
+                            onDismissSessionError: onDismissSessionError,
                             watchSession: watchSession,
                             onStopWatch: onStopWatch,
                             isLearnMode: isLearnMode,

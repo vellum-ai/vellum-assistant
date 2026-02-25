@@ -26,6 +26,9 @@ struct ComposerSection: View {
     let onPaste: () -> Void
     let onMicrophoneToggle: () -> Void
     let onDismissError: () -> Void
+    let onRetrySessionError: () -> Void
+    let onCopyDebugInfo: () -> Void
+    let onDismissSessionError: () -> Void
     let watchSession: WatchSession?
     let onStopWatch: () -> Void
     var isLearnMode: Bool = false
@@ -41,6 +44,15 @@ struct ComposerSection: View {
                     .padding(.horizontal, VSpacing.lg)
                     .padding(.bottom, VSpacing.sm)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+
+            if let sessionError {
+                ChatSessionErrorToast(
+                    error: sessionError,
+                    onRetry: onRetrySessionError,
+                    onCopyDebugInfo: onCopyDebugInfo,
+                    onDismiss: onDismissSessionError
+                )
             }
 
             if let errorText, sessionError == nil {
