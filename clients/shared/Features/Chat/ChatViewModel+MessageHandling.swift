@@ -375,17 +375,6 @@ extension ChatViewModel {
 
     // MARK: - Streaming Delta Throttle
 
-    /// Interval between flushing buffered streaming text deltas to the
-    /// `@Published messages` array.  Coalescing multiple token deltas
-    /// into a single array mutation dramatically reduces SwiftUI
-    /// view-graph invalidation frequency during streaming.
-    private static let streamingFlushInterval: TimeInterval = 0.05 // 50 ms
-
-    /// Buffered text that has not yet been flushed to `messages`.
-    private var streamingDeltaBuffer: String = ""
-    /// Scheduled flush work item; cancelled and re-created on each delta.
-    private var streamingFlushTask: Task<Void, Never>?
-
     /// Flush any buffered streaming text into the messages array.
     /// Called on a timer and also eagerly on `messageComplete`.
     func flushStreamingBuffer() {

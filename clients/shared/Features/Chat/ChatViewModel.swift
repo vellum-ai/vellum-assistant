@@ -285,6 +285,19 @@ public final class ChatViewModel: ObservableObject {
     var pendingLocalDeletions: Set<UUID> = []
     /// Tracks the current in-flight suggestion request so stale responses are ignored.
     var pendingSuggestionRequestId: String?
+
+    // MARK: - Streaming Delta Throttle
+
+    /// Interval between flushing buffered streaming text deltas to the
+    /// `@Published messages` array.  Coalescing multiple token deltas
+    /// into a single array mutation dramatically reduces SwiftUI
+    /// view-graph invalidation frequency during streaming.
+    static let streamingFlushInterval: TimeInterval = 0.05 // 50 ms
+
+    /// Buffered text that has not yet been flushed to `messages`.
+    var streamingDeltaBuffer: String = ""
+    /// Scheduled flush work item; cancelled and re-created on each delta.
+    var streamingFlushTask: Task<Void, Never>?
     /// Safety timer that force-resets the UI if the daemon never acknowledges
     /// a cancel request (e.g. a stuck tool blocks the generation_cancelled event).
     var cancelTimeoutTask: Task<Void, Never>?
