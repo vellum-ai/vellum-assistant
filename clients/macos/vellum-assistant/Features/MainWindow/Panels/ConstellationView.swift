@@ -201,18 +201,18 @@ private struct HexTileView: View {
         let hexWidth = sqrt(3) * size
         let hexHeight = 2 * size
 
-        VStack(spacing: 2) {
+        VStack(spacing: 3) {
             if let emoji, !emoji.isEmpty {
                 Text(emoji)
-                    .font(.system(size: 20))
+                    .font(.system(size: 24))
             } else {
                 Image(systemName: icon)
-                    .font(.system(size: 18, weight: .medium))
+                    .font(.system(size: 22, weight: .medium))
                     .foregroundColor(color)
             }
 
             Text(label)
-                .font(VFont.small)
+                .font(VFont.caption)
                 .foregroundColor(VColor.textPrimary)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -266,11 +266,11 @@ private struct HubHexTileView: View {
 
         VStack(spacing: 3) {
             Image(systemName: category.icon)
-                .font(.system(size: 22, weight: .bold))
+                .font(.system(size: 26, weight: .bold))
                 .foregroundColor(category.color)
 
             Text(category.displayName)
-                .font(VFont.captionMedium)
+                .font(VFont.bodyMedium)
                 .foregroundColor(VColor.textPrimary)
                 .lineLimit(1)
         }
