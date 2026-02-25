@@ -26,6 +26,7 @@ import {
   updateSessionStatus as storeUpdateSessionStatus,
   updateSessionDelivery as storeUpdateSessionDelivery,
   bindSessionIdentity as storeBindSessionIdentity,
+  countRecentSendsToDestination as storeCountRecentSendsToDestination,
   revokeBinding as storeRevokeBinding,
   revokePendingChallenges as storeRevokePendingChallenges,
 } from '../memory/channel-guardian-store.js';
@@ -465,6 +466,19 @@ export function updateSessionDelivery(
   nextResendAt: number | null,
 ): void {
   storeUpdateSessionDelivery(id, lastSentAt, sendCount, nextResendAt);
+}
+
+/**
+ * Count total SMS sends to a destination across all sessions within a
+ * rolling time window. Prevents circumvention of per-session limits by
+ * repeatedly creating new sessions to the same phone number.
+ */
+export function countRecentSendsToDestination(
+  channel: string,
+  destinationAddress: string,
+  windowMs: number,
+): number {
+  return storeCountRecentSendsToDestination(channel, destinationAddress, windowMs);
 }
 
 /**
