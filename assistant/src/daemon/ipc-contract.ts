@@ -37,7 +37,7 @@ import type { SkillsListRequest, SkillDetailRequest, SkillsEnableRequest, Skills
 import type { AddTrustRule, TrustRulesList, RemoveTrustRule, UpdateTrustRule, AcceptStarterBundle } from './ipc-contract/trust.js';
 import type { AppDataRequest, AppsListRequest, HomeBaseGetRequest, AppOpenRequest, SharedAppsListRequest, SharedAppDeleteRequest, ForkSharedAppRequest, BundleAppRequest, OpenBundleRequest, SignBundlePayloadResponse, GetSigningIdentityResponse, GalleryListRequest, GalleryInstallRequest, AppHistoryRequest, AppDiffRequest, AppFileAtVersionRequest, AppRestoreRequest, ShareAppCloudRequest, ShareToSlackRequest, AppUpdatePreviewRequest, AppPreviewRequest, PublishPageRequest, UnpublishPageRequest } from './ipc-contract/apps.js';
 import type { SlackWebhookConfigRequest, IngressConfigRequest, PlatformConfigRequest, VercelApiConfigRequest, TwitterIntegrationConfigRequest, TelegramConfigRequest, TwilioConfigRequest, ChannelReadinessRequest, GuardianVerificationRequest, TwitterAuthStartRequest, TwitterAuthStatusRequest, IntegrationListRequest, IntegrationConnectRequest, IntegrationDisconnectRequest, LinkOpenRequest } from './ipc-contract/integrations.js';
-import type { CuSessionCreate, CuSessionAbort, CuObservation, TaskSubmit, RideShotgunStart, RideShotgunStop, WatchObservation } from './ipc-contract/computer-use.js';
+import type { CuSessionCreate, CuSessionAbort, CuObservation, TaskSubmit, RideShotgunStart, RideShotgunStop, WatchObservation, RecordingStatus } from './ipc-contract/computer-use.js';
 import type { WorkItemsListRequest, WorkItemGetRequest, WorkItemUpdateRequest, WorkItemCompleteRequest, WorkItemDeleteRequest, WorkItemRunTaskRequest, WorkItemOutputRequest, WorkItemPreflightRequest, WorkItemApprovePermissionsRequest, WorkItemCancelRequest } from './ipc-contract/work-items.js';
 import type { BrowserCDPResponse, BrowserUserClick, BrowserUserScroll, BrowserUserKeypress, BrowserInteractiveMode } from './ipc-contract/browser.js';
 import type { SubagentAbortRequest, SubagentStatusRequest, SubagentMessageRequest, SubagentDetailRequest, SubagentSpawned, SubagentStatusChanged, SubagentDetailResponse } from './ipc-contract/subagents.js';
@@ -53,7 +53,7 @@ import type { SkillsListResponse, SkillDetailResponse, SkillStateChanged, Skills
 import type { TrustRulesListResponse, AcceptStarterBundleResponse } from './ipc-contract/trust.js';
 import type { AppDataResponse, AppsListResponse, HomeBaseGetResponse, SharedAppsListResponse, SharedAppDeleteResponse, ForkSharedAppResponse, BundleAppResponse, OpenBundleResponse, SignBundlePayloadRequest, GetSigningIdentityRequest, ShareAppCloudResponse, GalleryListResponse, GalleryInstallResponse, AppHistoryResponse, AppDiffResponse, AppFileAtVersionResponse, AppRestoreResponse, ShareToSlackResponse, AppUpdatePreviewResponse, AppPreviewResponse, PublishPageResponse, UnpublishPageResponse, AppFilesChanged } from './ipc-contract/apps.js';
 import type { SlackWebhookConfigResponse, IngressConfigResponse, PlatformConfigResponse, VercelApiConfigResponse, TwitterIntegrationConfigResponse, TelegramConfigResponse, TwilioConfigResponse, ChannelReadinessResponse, GuardianVerificationResponse, TwitterAuthResult, TwitterAuthStatusResponse, IntegrationListResponse, IntegrationConnectResult, OpenUrl } from './ipc-contract/integrations.js';
-import type { CuAction, CuComplete, CuError, TaskRouted, RideShotgunProgress, RideShotgunResult, WatchStarted, WatchCompleteRequest } from './ipc-contract/computer-use.js';
+import type { CuAction, CuComplete, CuError, TaskRouted, RideShotgunProgress, RideShotgunResult, WatchStarted, WatchCompleteRequest, RecordingStart, RecordingStop } from './ipc-contract/computer-use.js';
 import type { WorkItemsListResponse, WorkItemGetResponse, WorkItemUpdateResponse, WorkItemDeleteResponse, WorkItemRunTaskResponse, WorkItemOutputResponse, WorkItemPreflightResponse, WorkItemApprovePermissionsResponse, WorkItemCancelResponse, WorkItemStatusChanged, TaskRunThreadCreated, GuardianRequestThreadCreated, TasksChanged, OpenTasksWindow } from './ipc-contract/work-items.js';
 import type { BrowserFrame, BrowserCDPRequest, BrowserInteractiveModeChanged, BrowserHandoffRequest } from './ipc-contract/browser.js';
 import type { DocumentEditorShow, DocumentEditorUpdate, DocumentSaveResponse, DocumentLoadResponse, DocumentListResponse } from './ipc-contract/documents.js';
@@ -215,7 +215,8 @@ export type ClientMessage =
   | PairingApprovalResponse
   | ApprovedDevicesList
   | ApprovedDeviceRemove
-  | ApprovedDevicesClear;
+  | ApprovedDevicesClear
+  | RecordingStatus;
 
 // === Server → Client aggregate union ===
 
@@ -369,7 +370,9 @@ export type ServerMessage =
   | PairingApprovalRequest
   | ApprovedDevicesListResponse
   | ApprovedDeviceRemoveResponse
-  | NotificationIntent;
+  | NotificationIntent
+  | RecordingStart
+  | RecordingStop;
 
 // === Contract schema ===
 
