@@ -17,14 +17,16 @@ function escapeRegExp(s: string): string {
  *
  * Standard \b only works when the boundary is between a word char (\w) and a non-word char.
  * For triggers like "C++" that start/end with non-word chars, we use lookahead/lookbehind
- * for whitespace or string boundaries instead.
+ * for whitespace, punctuation, or string boundaries so matches work in contexts like
+ * "C++," or "(C++)".
  */
 function wrapWordBoundary(escapedPattern: string, originalTrigger: string): string {
   const startsWithWord = /^\w/.test(originalTrigger);
   const endsWithWord = /\w$/.test(originalTrigger);
 
-  const prefix = startsWithWord ? '\\b' : '(?<=\\s|^)';
-  const suffix = endsWithWord ? '\\b' : '(?=\\s|$)';
+  // For non-word boundaries, allow whitespace, common punctuation, or string edges
+  const prefix = startsWithWord ? '\\b' : '(?<=[\\s,;:!?.()\\[\\]{}"\']|^)';
+  const suffix = endsWithWord ? '\\b' : '(?=[\\s,;:!?.()\\[\\]{}"\']|$)';
 
   return `${prefix}${escapedPattern}${suffix}`;
 }
