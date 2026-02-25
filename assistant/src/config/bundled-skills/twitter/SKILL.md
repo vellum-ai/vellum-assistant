@@ -17,7 +17,7 @@ OAuth uses the official X API v2. It is the most reliable connection method and 
 
 - Supports: **post** and **reply**
 - Read-only operations (timeline, search, home, bookmarks, notifications, likes, followers, following, media) always use the browser path directly, regardless of the strategy setting.
-- Setup: Collect the OAuth Client ID (and optional Client Secret) from the user in chat using `credential_store` with `action: "prompt"`, then initiate the `twitter_auth_start` IPC flow. See the **First-Use Decision Flow** for the full sequence.
+- Setup: Collect the OAuth Client ID (and optional Client Secret) from the user in chat using `credential_store` with `action: "prompt"` (canonical field names: `client_id`, `client_secret`), then initiate the `oauth_connect_start` IPC flow. See the **First-Use Decision Flow** for the full sequence.
 - Set the strategy: `vellum x strategy set oauth`
 
 ### Browser session (no developer credentials needed)
@@ -56,7 +56,7 @@ When the user triggers a Twitter operation and no strategy has been configured y
 
 ### OAuth Setup Sequence
 
-When the user chooses OAuth, collect their X developer credentials conversationally using the secure UI:
+When the user chooses OAuth, collect their X developer credentials conversationally using the secure UI. The OAuth flow delegates to the generic connect orchestrator via `oauth_connect_start`.
 
 1. **Collect the Client ID securely:**
    Call `credential_store` with `action: "prompt"`, `service: "integration:twitter"`, `field: "client_id"`, `label: "X (Twitter) OAuth Client ID"`, `description: "Enter the Client ID from your X Developer App"`, and `placeholder: "your-client-id"`.
@@ -65,7 +65,7 @@ When the user chooses OAuth, collect their X developer credentials conversationa
    Ask the user if their X app uses a confidential client (has a Client Secret). If yes, call `credential_store` with `action: "prompt"`, `service: "integration:twitter"`, `field: "client_secret"`, `label: "X (Twitter) OAuth Client Secret"`, `description: "Enter the Client Secret from your X Developer App (leave blank if using a public client)"`, and `placeholder: "your-client-secret"`.
 
 3. **Initiate the OAuth flow:**
-   Send the `twitter_auth_start` IPC message. This opens the X authorization page in the user's browser. Wait for the flow to complete.
+   Send the `oauth_connect_start` IPC message with `service: "twitter"`. The generic connect orchestrator resolves the Twitter provider profile, computes scopes via policy, opens the X authorization page in the user's browser, verifies the user's identity, and stores tokens. Wait for the `oauth_connect_result` response.
 
 4. **Confirm success:**
    Tell the user: "Great, your X account is connected! You can always update these credentials from the Settings page."
