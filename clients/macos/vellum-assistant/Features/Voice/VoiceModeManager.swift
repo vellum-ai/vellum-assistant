@@ -67,9 +67,12 @@ final class VoiceModeManager: ObservableObject {
 
         guard OpenAIVoiceService.isSpeechRecognitionAuthorized() else {
             log.error("Voice mode: speech recognition not authorized")
-            OpenAIVoiceService.requestSpeechRecognitionAuthorization { authorized in
+            OpenAIVoiceService.requestSpeechRecognitionAuthorization { [weak self] authorized in
+                guard let self else { return }
                 if authorized {
-                    log.info("Speech recognition authorized — retry activating voice mode")
+                    log.info("Speech recognition authorized — retrying activation")
+                    self.activate(chatViewModel: chatViewModel, settingsStore: settingsStore)
+                    self.startListening()
                 } else {
                     log.warning("Speech recognition authorization denied")
                 }
@@ -182,7 +185,11 @@ final class VoiceModeManager: ObservableObject {
         partialTranscription = ""
         errorMessage = ""
         state = .listening
-        voiceService.startRecording()
+        guard voiceService.startRecording() else {
+            errorMessage = "Speech recognition unavailable"
+            state = .idle
+            return
+        }
         log.info("Voice mode: started listening")
     }
 

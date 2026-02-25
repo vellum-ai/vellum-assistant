@@ -118,8 +118,9 @@ final class OpenAIVoiceService: ObservableObject {
         log.info("Audio engine pre-warmed")
     }
 
-    func startRecording() {
-        guard !isRecording else { return }
+    @discardableResult
+    func startRecording() -> Bool {
+        guard !isRecording else { return false }
 
         silenceHandled = false
         hasSpeechOccurred = false
@@ -130,14 +131,14 @@ final class OpenAIVoiceService: ObservableObject {
 
         guard format.channelCount > 0 else {
             log.error("No audio input channels")
-            return
+            return false
         }
 
         // Set up SFSpeechRecognizer
         let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
         guard let recognizer, recognizer.isAvailable else {
             log.error("SFSpeechRecognizer not available")
-            return
+            return false
         }
         speechRecognizer = recognizer
 
@@ -161,9 +162,9 @@ final class OpenAIVoiceService: ObservableObject {
                 }
 
                 if result.isFinal {
+                    let finalText = text
                     Task { @MainActor [weak self] in
                         guard let self else { return }
-                        let finalText = self.latestTranscription
                         log.info("Final transcription: \(finalText, privacy: .public)")
                         self.transcriptionContinuation?.resume(returning: finalText.isEmpty ? nil : finalText)
                         self.transcriptionContinuation = nil
@@ -245,10 +246,12 @@ final class OpenAIVoiceService: ObservableObject {
             lastSpeechTime = Date()
             recordingStartTime = Date()
             log.info("Recording started (SFSpeechRecognizer, onDevice: \(recognizer.supportsOnDeviceRecognition, privacy: .public))")
+            return true
         } catch {
             log.error("Failed to start audio engine: \(error.localizedDescription)")
             audioEngine.inputNode.removeTap(onBus: 0)
             tearDownRecognition()
+            return false
         }
     }
 
