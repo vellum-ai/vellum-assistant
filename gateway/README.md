@@ -193,6 +193,14 @@ The `/deliver/telegram` endpoint accepts an optional `approval` field in the req
 
 **Fallback behavior:** For non-Telegram channels that do not support inline keyboards, the runtime substitutes the `plainTextFallback` string for the structured `promptText` before calling the delivery endpoint. The fallback includes plain-text instructions (e.g., "Reply yes/no/always") so the user can respond via text. The `channelSupportsRichApprovalUI()` function in the runtime determines which format to use; currently only `telegram` is classified as a rich channel.
 
+## Telegram Typing Indicator
+
+The `/deliver/telegram` endpoint also accepts an optional `chatAction` field for ephemeral Telegram chat actions. Current supported value:
+
+- `typing` — triggers Telegram `sendChatAction` with `action: "typing"` for the target `chatId`.
+
+This can be sent as an action-only payload (without `text` or `attachments`) when the runtime wants to show a typing indicator while an assistant response is still in progress.
+
 ## Public Ingress Routes
 
 The gateway serves as the single public ingress point for all external callbacks. The following routes are handled directly by the gateway before any proxy forwarding:

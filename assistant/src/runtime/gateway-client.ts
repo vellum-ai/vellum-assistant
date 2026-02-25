@@ -12,6 +12,7 @@ export interface ChannelReplyPayload {
   assistantId?: string;
   attachments?: RuntimeAttachmentMetadata[];
   approval?: ApprovalUIMetadata;
+  chatAction?: 'typing';
 }
 
 export async function deliverChannelReply(
@@ -40,7 +41,14 @@ export async function deliverChannelReply(
     throw new Error(`Channel reply delivery failed (${response.status}): ${body}`);
   }
 
-  log.info({ chatId: payload.chatId, callbackUrl }, 'Channel reply delivered');
+  if (payload.chatAction) {
+    log.debug(
+      { chatId: payload.chatId, callbackUrl, chatAction: payload.chatAction },
+      'Channel action delivered',
+    );
+  } else {
+    log.info({ chatId: payload.chatId, callbackUrl }, 'Channel reply delivered');
+  }
 }
 
 /**

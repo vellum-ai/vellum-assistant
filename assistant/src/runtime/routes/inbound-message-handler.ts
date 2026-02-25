@@ -874,6 +874,54 @@ interface BackgroundProcessingParams {
   sourceLanguageCode?: string;
 }
 
+const TELEGRAM_TYPING_INTERVAL_MS = 4_000;
+
+function shouldEmitTelegramTyping(
+  sourceChannel: ChannelId,
+  replyCallbackUrl?: string,
+): boolean {
+  if (sourceChannel !== 'telegram' || !replyCallbackUrl) return false;
+  try {
+    return new URL(replyCallbackUrl).pathname.endsWith('/deliver/telegram');
+  } catch {
+    return replyCallbackUrl.endsWith('/deliver/telegram');
+  }
+}
+
+function startTelegramTypingHeartbeat(
+  callbackUrl: string,
+  chatId: string,
+  bearerToken?: string,
+  assistantId?: string,
+): () => void {
+  let active = true;
+  let inFlight = false;
+
+  const emitTyping = (): void => {
+    if (!active || inFlight) return;
+    inFlight = true;
+    void deliverChannelReply(
+      callbackUrl,
+      { chatId, chatAction: 'typing', assistantId },
+      bearerToken,
+    ).catch((err) => {
+      log.debug({ err, chatId }, 'Failed to deliver Telegram typing indicator');
+    }).finally(() => {
+      inFlight = false;
+    });
+  };
+
+  emitTyping();
+
+  const interval = setInterval(emitTyping, TELEGRAM_TYPING_INTERVAL_MS);
+  (interval as { unref?: () => void }).unref?.();
+
+  return () => {
+    active = false;
+    clearInterval(interval);
+  };
+}
+
 function processChannelMessageInBackground(params: BackgroundProcessingParams): void {
   const {
     processMessage,
@@ -895,6 +943,13 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
   } = params;
 
   (async () => {
+    const typingCallbackUrl = shouldEmitTelegramTyping(sourceChannel, replyCallbackUrl)
+      ? replyCallbackUrl
+      : undefined;
+    const stopTypingHeartbeat = typingCallbackUrl
+      ? startTelegramTypingHeartbeat(typingCallbackUrl, externalChatId, bearerToken, assistantId)
+      : undefined;
+
     try {
       const cmdIntent = commandIntent && typeof commandIntent.type === 'string'
         ? { type: commandIntent.type as string, ...(typeof commandIntent.payload === 'string' ? { payload: commandIntent.payload } : {}), ...(sourceLanguageCode ? { languageCode: sourceLanguageCode } : {}) }
@@ -931,6 +986,8 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
     } catch (err) {
       log.error({ err, conversationId }, 'Background channel message processing failed');
       channelDeliveryStore.recordProcessingFailure(eventId, err);
+    } finally {
+      stopTypingHeartbeat?.();
     }
   })();
 }

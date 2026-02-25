@@ -6,12 +6,17 @@ import { createTelegramDeliverHandler } from "./telegram-deliver.js";
 
 // Track calls to sendTelegramReply so we can assert on approval passthrough.
 let sendTelegramReplyCalls: Array<unknown[]> = [];
+let sendTypingIndicatorCalls: Array<unknown[]> = [];
 
 mock.module("../../telegram/send.js", () => ({
   sendTelegramReply: async (...args: unknown[]) => {
     sendTelegramReplyCalls.push(args);
   },
   sendTelegramAttachments: async () => {},
+  sendTypingIndicator: async (...args: unknown[]) => {
+    sendTypingIndicatorCalls.push(args);
+    return true;
+  },
 }));
 
 // ---- Helpers ----
@@ -42,7 +47,7 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     telegramInitialBackoffMs: 1000,
     telegramMaxRetries: 3,
     telegramTimeoutMs: 15000,
-    telegramWebhookSecret: "test-secret",
+    telegramWebhookSecret: undefined,
     twilioAuthToken: undefined,
     twilioAccountSid: undefined,
     twilioPhoneNumber: undefined,
@@ -81,6 +86,7 @@ function makeRequest(body: unknown, headers?: Record<string, string>): Request {
 describe("telegram-deliver endpoint basics", () => {
   beforeEach(() => {
     sendTelegramReplyCalls = [];
+    sendTypingIndicatorCalls = [];
   });
 
   it("rejects GET requests with 405", async () => {
@@ -168,7 +174,29 @@ describe("telegram-deliver endpoint basics", () => {
     const res = await handler(req);
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.error).toBe("text or attachments required");
+    expect(body.error).toBe("text, attachments, or chatAction required");
+  });
+
+  it("returns 400 when chatAction is invalid", async () => {
+    const handler = createTelegramDeliverHandler(makeConfig());
+    const req = makeRequest({ chatId: "123", chatAction: "upload_photo" });
+    const res = await handler(req);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe("chatAction must be \"typing\"");
+  });
+
+  it("accepts typing action-only payloads", async () => {
+    const handler = createTelegramDeliverHandler(makeConfig());
+    const req = makeRequest({ chatId: "42", chatAction: "typing" });
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(sendTypingIndicatorCalls).toHaveLength(1);
+    const [, chatId] = sendTypingIndicatorCalls[0] as [unknown, string];
+    expect(chatId).toBe("42");
+    expect(sendTelegramReplyCalls).toHaveLength(0);
   });
 
   it("returns 400 when JSON is invalid", async () => {
@@ -199,6 +227,7 @@ describe("telegram-deliver endpoint basics", () => {
         throw new Error("Telegram API failure");
       },
       sendTelegramAttachments: async () => {},
+      sendTypingIndicator: async () => true,
     }));
 
     const { createTelegramDeliverHandler: createHandler } = await import(
@@ -217,6 +246,10 @@ describe("telegram-deliver endpoint basics", () => {
         sendTelegramReplyCalls.push(args);
       },
       sendTelegramAttachments: async () => {},
+      sendTypingIndicator: async (...args: unknown[]) => {
+        sendTypingIndicatorCalls.push(args);
+        return true;
+      },
     }));
   });
 

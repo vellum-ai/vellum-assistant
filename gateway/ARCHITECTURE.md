@@ -84,10 +84,10 @@ Inbound (user → assistant):
     (replyCallbackUrl = ${gatewayInternalBaseUrl}/deliver/telegram)
 
 Outbound reply (assistant → user, triggered by inbound):
-  Runtime callback → Gateway POST /deliver/telegram (bearer auth) → Telegram sendMessage/sendPhoto/sendDocument
+  Runtime callback → Gateway POST /deliver/telegram (bearer auth) → Telegram sendMessage/sendPhoto/sendDocument/sendChatAction
 
 Outbound proactive (assistant → user, initiated by messaging provider):
-  Runtime messaging provider → Gateway POST /deliver/telegram (bearer auth) → Telegram sendMessage
+  Runtime messaging provider → Gateway POST /deliver/telegram (bearer auth) → Telegram sendMessage/sendChatAction
 ```
 
 The `replyCallbackUrl` included in the inbound forward is built from the `gatewayInternalBaseUrl` config field, which defaults to `http://127.0.0.1:${GATEWAY_PORT}` and can be overridden via the `GATEWAY_INTERNAL_BASE_URL` environment variable. This allows distributed deployments where the gateway and runtime are not co-located (e.g., separate containers or hosts).
