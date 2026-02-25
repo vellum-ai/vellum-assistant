@@ -120,6 +120,7 @@ export function handleHeartbeatRunsList(
     const runs = bgConversations.map((conv) => {
       // Try to determine result from the last message
       let result = 'unknown';
+      let summary = '';
       try {
         const messages = conversationStore.getMessages(conv.id);
         const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
@@ -127,6 +128,11 @@ export function handleHeartbeatRunsList(
           const content = typeof lastAssistant.content === 'string' ? lastAssistant.content : '';
           if (content.includes('HEARTBEAT_OK')) result = 'ok';
           else if (content.includes('HEARTBEAT_ALERT')) result = 'alert';
+          // Strip the HEARTBEAT_OK / HEARTBEAT_ALERT marker to get the summary
+          summary = content
+            .replace(/HEARTBEAT_OK\s*/g, '')
+            .replace(/HEARTBEAT_ALERT\s*/g, '')
+            .trim();
         }
       } catch {
         // Ignore message read errors
@@ -136,6 +142,7 @@ export function handleHeartbeatRunsList(
         title: conv.title ?? 'Heartbeat',
         createdAt: conv.createdAt,
         result,
+        summary,
       };
     });
 
