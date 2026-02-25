@@ -74,6 +74,12 @@ export async function handleTaskSubmit(
     // Intercept recording-only and stop-recording prompts before they reach
     // the classifier. This prevents "record my screen" from creating a CU
     // session and routes it to the standalone recording flow instead.
+    //
+    // For mixed intent, recording start/stop is deferred until after the
+    // downstream classifier creates the final conversation, so the recording
+    // attachment is linked to the correct conversation (not an orphaned one).
+    let pendingRecordingStart = false;
+    let pendingRecordingStop = false;
     const config = getConfig();
     if (config.daemon.standaloneRecording) {
       const name = getAssistantName();
@@ -132,45 +138,39 @@ export async function handleTaskSubmit(
           return;
         }
         case 'mixed': {
-          // Mixed = recording intent embedded in broader text.
-          // Handle the recording action, then check if remaining text is substantive.
+          // Mixed = recording intent embedded in broader text (e.g., "open Chrome and record my screen").
+          // Defer recording start/stop until after the classifier creates the final conversation,
+          // so the recording attachment is linked to the correct conversation.
           const hasStart = detectRecordingIntent(msg.task);
           const hasStop = detectStopRecordingIntent(msg.task);
-
-          // Ensure we have a session for IPC
-          let mixedSessionId = ctx.socketToSession.get(socket);
-          if (!mixedSessionId) {
-            const conversation = conversationStore.createConversation(msg.task);
-            mixedSessionId = conversation.id;
-            ctx.socketToSession.set(socket, mixedSessionId);
-          }
-
-          if (hasStop) {
-            handleRecordingStop(mixedSessionId, ctx);
-            rlog.info('Mixed intent in task_submit — stopping recording');
-          }
-          if (hasStart) {
-            handleRecordingStart(mixedSessionId, { promptForSource: true }, socket, ctx);
-            rlog.info('Mixed intent in task_submit — starting recording');
-          }
 
           // Strip recording clauses from the task
           let remaining = msg.task;
           if (hasStart) remaining = stripRecordingIntent(remaining);
           if (hasStop) remaining = stripStopRecordingIntent(remaining);
 
-          // If nothing substantive remains, complete now
+          // If nothing substantive remains after stripping, handle as recording-only now
           if (!hasSubstantiveContent(remaining, dynamicNames)) {
-            ctx.send(socket, { type: 'task_routed', sessionId: mixedSessionId, interactionType: 'text_qa' });
+            let sessionId = ctx.socketToSession.get(socket);
+            if (!sessionId) {
+              const conversation = conversationStore.createConversation(msg.task);
+              sessionId = conversation.id;
+              ctx.socketToSession.set(socket, sessionId);
+            }
+            if (hasStop) handleRecordingStop(sessionId, ctx);
+            if (hasStart) handleRecordingStart(sessionId, { promptForSource: true }, socket, ctx);
+            ctx.send(socket, { type: 'task_routed', sessionId, interactionType: 'text_qa' });
             const text = hasStart ? 'Starting screen recording.' : 'Stopping the recording.';
-            ctx.send(socket, { type: 'assistant_text_delta', text, sessionId: mixedSessionId });
-            ctx.send(socket, { type: 'message_complete', sessionId: mixedSessionId });
+            ctx.send(socket, { type: 'assistant_text_delta', text, sessionId });
+            ctx.send(socket, { type: 'message_complete', sessionId });
             return;
           }
 
-          // Continue with stripped text for downstream classification
+          // Set deferred flags — recording will start after the final conversation is created
+          pendingRecordingStart = hasStart;
+          pendingRecordingStop = hasStop;
           (msg as { task: string }).task = remaining;
-          rlog.info({ remaining }, 'Mixed recording intent in task_submit — recording handled, continuing with remaining text');
+          rlog.info({ remaining }, 'Mixed recording intent — deferred, continuing with remaining text');
           break;
         }
         case 'none':
@@ -199,6 +199,14 @@ export async function handleTaskSubmit(
       };
       handleCuSessionCreate(cuMsg, socket, ctx);
 
+      // Start deferred recording from mixed intent (create a DB conversation
+      // for the recording attachment since CU sessions don't have one).
+      if (pendingRecordingStart || pendingRecordingStop) {
+        const recConversation = conversationStore.createConversation('Screen Recording');
+        if (pendingRecordingStop) handleRecordingStop(recConversation.id, ctx);
+        if (pendingRecordingStart) handleRecordingStart(recConversation.id, { promptForSource: true }, socket, ctx);
+      }
+
       ctx.send(socket, {
         type: 'task_routed',
         sessionId,
@@ -217,6 +225,10 @@ export async function handleTaskSubmit(
 
       // Wire escalation handler so the agent can call computer_use_request_control
       wireEscalationHandler(session, socket, ctx, msg.screenWidth, msg.screenHeight);
+
+      // Start deferred recording from mixed intent, now using the real conversation
+      if (pendingRecordingStop) handleRecordingStop(conversation.id, ctx);
+      if (pendingRecordingStart) handleRecordingStart(conversation.id, { promptForSource: true }, socket, ctx);
 
       ctx.send(socket, {
         type: 'task_routed',
