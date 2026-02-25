@@ -892,15 +892,7 @@ struct SettingsConnectTab: View {
     private var guardianLabel: some View {
         HStack(spacing: VSpacing.xs) {
             Text("Guardian Verification")
-            Button {} label: {
-                Image(systemName: "info.circle")
-                    .font(.system(size: 10))
-                    .foregroundColor(VColor.textMuted)
-                    .frame(width: 14, height: 14)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help("Guardian verification links your account identity for this channel.")
+            VInfoTooltip("Guardian verification links your account identity for this channel.")
         }
         .font(VFont.caption)
         .foregroundColor(VColor.textSecondary)
