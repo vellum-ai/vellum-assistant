@@ -550,6 +550,11 @@ function startLoopbackServerForPreparedFlow(
     });
 
     server.on('error', (err) => {
+      if (!settled) {
+        settled = true;
+        cleanup();
+        codeReject(new Error(`OAuth2 loopback server error: ${err.message}`));
+      }
       rejectSetup(new Error(`OAuth2 loopback server error: ${err.message}`));
     });
   });
