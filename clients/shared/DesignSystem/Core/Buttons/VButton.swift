@@ -74,9 +74,9 @@ public struct VButton: View {
 
     private var labelFont: Font {
         switch size {
-        case .small: return VFont.monoSmall
-        case .medium: return VFont.monoBodyMedium
-        case .large: return VFont.monoMedium
+        case .small: return VFont.caption
+        case .medium: return VFont.bodyMedium
+        case .large: return VFont.cardTitle
         }
     }
 }

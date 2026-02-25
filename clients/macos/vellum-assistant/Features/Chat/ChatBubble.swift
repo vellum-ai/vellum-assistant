@@ -24,10 +24,13 @@ struct ChatBubble: View {
     @State private var showCopyConfirmation = false
     @State private var copyConfirmationTimer: DispatchWorkItem?
     @State private var mediaEmbedIntents: [MediaEmbedIntent] = []
-    @State private var stepsExpanded = false
-    @ObservedObject private var taskProgressOverlay = TaskProgressOverlayManager.shared
+    @State var stepsExpanded = false
+    /// Injected from the parent instead of observing the shared singleton directly.
+    /// This avoids every ChatBubble in the list re-rendering whenever the overlay
+    /// manager publishes any change (the "thundering herd" problem).
+    var activeSurfaceId: String?
 
-    private var isUser: Bool { message.role == .user }
+    var isUser: Bool { message.role == .user }
     private var canReportMessage: Bool {
         !isUser && onReportMessage != nil
     }
@@ -70,11 +73,13 @@ struct ChatBubble: View {
         }
     }
 
-    private func bubbleChrome<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+    func bubbleChrome<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         let isPlainAssistant = !isUser && !message.isError
+        let overflowOffset: CGFloat = message.isError ? -(24 + VSpacing.sm) : (24 + VSpacing.sm)
         return content()
             .padding(.horizontal, isPlainAssistant ? 0 : VSpacing.lg)
             .padding(.vertical, isPlainAssistant ? 0 : VSpacing.md)
+            .frame(maxWidth: message.isError ? .infinity : nil, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.lg)
                     .fill(bubbleFill)
@@ -87,7 +92,7 @@ struct ChatBubble: View {
                     overflowMenuButton
                         .opacity(showOverflowMenu ? 1 : 0)
                         .animation(VAnimation.fast, value: showOverflowMenu)
-                        .offset(x: isUser ? -(24 + VSpacing.sm) : (24 + VSpacing.sm))
+                        .offset(x: isUser ? -(24 + VSpacing.sm) : overflowOffset)
                 }
             }
             .frame(maxWidth: message.isError ? .infinity : 520, alignment: isUser ? .trailing : .leading)
@@ -122,7 +127,7 @@ struct ChatBubble: View {
     private var shouldShowBubble: Bool {
         if isUser { return true }
         // Filter out the surface shown in the floating overlay
-        let visibleSurfaces = message.inlineSurfaces.filter { $0.id != taskProgressOverlay.activeSurfaceId }
+        let visibleSurfaces = message.inlineSurfaces.filter { $0.id != activeSurfaceId }
         if !visibleSurfaces.isEmpty {
             // Show bubble text when all visible surfaces are completed (collapsed to chips)
             let allCompleted = visibleSurfaces.allSatisfy { $0.completionState != nil }
@@ -150,7 +155,7 @@ struct ChatBubble: View {
                         // Inline surfaces render below the bubble as full-width cards
                         // Skip surfaces that are currently shown in the floating overlay
                         if !message.inlineSurfaces.isEmpty {
-                            ForEach(message.inlineSurfaces.filter { $0.id != taskProgressOverlay.activeSurfaceId }) { surface in
+                            ForEach(message.inlineSurfaces.filter { $0.id != activeSurfaceId }) { surface in
                                 InlineSurfaceRouter(surface: surface, onAction: onSurfaceAction)
                             }
                         }
@@ -221,12 +226,7 @@ struct ChatBubble: View {
         }
     }
 
-    // MARK: - Compact trailing chips (tool calls + permission)
-
-    /// Whether all tool calls are complete and the message is done streaming.
-    private var allToolCallsComplete: Bool {
-        !message.toolCalls.isEmpty && message.toolCalls.allSatisfy { $0.isComplete } && !message.isStreaming
-    }
+    // MARK: - Overflow Menu
 
     private func copyMessageText() {
         NSPasteboard.general.clearContents()
@@ -265,459 +265,10 @@ struct ChatBubble: View {
         .animation(VAnimation.fast, value: showCopyConfirmation)
     }
 
-    /// Whether the permission was denied, meaning incomplete tools were blocked (not running).
-    private var permissionWasDenied: Bool {
-        decidedConfirmation?.state == .denied || decidedConfirmation?.state == .timedOut
-    }
+    // MARK: - Bubble Content
 
-    @ViewBuilder
-    private var trailingStatus: some View {
-        let hasCompletedTools = allToolCallsComplete && !hideToolCalls && !message.toolCalls.isEmpty
-        /// True when there is at least one tool call that hasn't finished yet.
-        let hasActuallyRunningTool = !hideToolCalls && message.toolCalls.contains(where: { !$0.isComplete })
-        /// All individual tool calls done but message still streaming (model generating next tool call).
-        /// Hide once text is being streamed so the user doesn't see "Thinking" alongside the response.
-        let toolsCompleteButStillStreaming = !hideToolCalls && !message.toolCalls.isEmpty
-            && message.toolCalls.allSatisfy({ $0.isComplete }) && message.isStreaming && !hasText
-        let hasInProgressTools = !message.toolCalls.isEmpty && !hideToolCalls && !allToolCallsComplete
-        let hasPermission = decidedConfirmation != nil
-        let hasStreamingCode = message.isStreaming && message.streamingCodePreview != nil && !(message.streamingCodePreview?.isEmpty ?? true)
-
-        if hasStreamingCode {
-            let rawName = message.streamingCodeToolName ?? ""
-            let activeBuildingStatus = message.toolCalls.last(where: { !$0.isComplete })?.buildingStatus
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                RunningIndicator(
-                    label: Self.friendlyRunningLabel(rawName, buildingStatus: activeBuildingStatus),
-                    onTap: nil
-                )
-                CodePreviewView(code: message.streamingCodePreview!)
-            }
-            .frame(maxWidth: 520, alignment: .leading)
-        } else if hasActuallyRunningTool && !permissionWasDenied {
-            // In progress — show live progress view with completed + running steps
-            let current = message.toolCalls.first(where: { !$0.isComplete })!
-            if current.toolName == "claude_code" && !current.claudeCodeSteps.isEmpty {
-                ClaudeCodeProgressView(steps: current.claudeCodeSteps, isRunning: true)
-                    .frame(maxWidth: 520, alignment: .leading)
-            } else {
-                LiveToolProgressView(toolCalls: message.toolCalls, isRunning: true)
-                    .frame(maxWidth: 520, alignment: .leading)
-            }
-        } else if toolsCompleteButStillStreaming && !permissionWasDenied {
-            // All tools done but model is still working (generating next tool call)
-            LiveToolProgressView(toolCalls: message.toolCalls, isRunning: true, thinkingLabel: "Thinking")
-                .frame(maxWidth: 520, alignment: .leading)
-        } else if hasCompletedTools || hasPermission || (hasInProgressTools && permissionWasDenied) {
-            // All done (or denied) — steps pill + permission chip on one row,
-            // with the expanded steps list in the row below.
-            let onlyPermissionTools = message.toolCalls.allSatisfy { $0.toolName == "request_system_permission" }
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(alignment: .center, spacing: VSpacing.sm) {
-                    if hasCompletedTools && !(onlyPermissionTools && decidedConfirmation != nil) {
-                        UsedToolsList(toolCalls: message.toolCalls, isExpanded: $stepsExpanded)
-                    } else if hasInProgressTools && permissionWasDenied {
-                        compactFailedToolChip
-                    }
-                    if let confirmation = decidedConfirmation {
-                        compactPermissionChip(confirmation)
-                    }
-                    Spacer()
-                }
-
-                if stepsExpanded && hasCompletedTools {
-                    StepsSection(toolCalls: message.toolCalls)
-                        .transition(.opacity.combined(with: .move(edge: .top)))
-                }
-            }
-            .animation(VAnimation.fast, value: stepsExpanded)
-            .padding(.top, VSpacing.xxs)
-        }
-    }
-
-    /// Maps tool names to user-friendly past-tense labels.
-    /// When `inputSummary` is provided, produces contextual labels like "Read config.json".
-    static func friendlyToolLabel(_ toolName: String, inputSummary: String = "") -> String {
-        let name = toolName.lowercased()
-        let summary = inputSummary
-            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespaces)
-
-        // Extract just the filename from a file path.
-        let fileName: String? = {
-            guard !summary.isEmpty else { return nil }
-            let last = (summary as NSString).lastPathComponent
-            guard !last.isEmpty, last != "." else { return nil }
-            return last
-        }()
-
-        switch name {
-        case "run command":
-            if !summary.isEmpty {
-                let display = summary.count > 30 ? String(summary.prefix(27)) + "..." : summary
-                return "Ran `\(display)`"
-            }
-            return "Ran a command"
-        case "read file":
-            if let f = fileName { return "Read \(f)" }
-            return "Read a file"
-        case "write file":
-            if let f = fileName { return "Wrote \(f)" }
-            return "Wrote a file"
-        case "edit file":
-            if let f = fileName { return "Edited \(f)" }
-            return "Edited a file"
-        case "search files":
-            if !summary.isEmpty {
-                let display = summary.count > 25 ? String(summary.prefix(22)) + "..." : summary
-                return "Searched for '\(display)'"
-            }
-            return "Searched files"
-        case "find files":
-            if !summary.isEmpty {
-                let display = summary.count > 25 ? String(summary.prefix(22)) + "..." : summary
-                return "Searched for \(display)"
-            }
-            return "Found files"
-        case "web search":
-            if !summary.isEmpty {
-                let display = summary.count > 25 ? String(summary.prefix(22)) + "..." : summary
-                return "Searched '\(display)'"
-            }
-            return "Searched the web"
-        case "fetch url":              return "Fetched a webpage"
-        case "browser navigate":       return "Opened a page"
-        case "browser click":          return "Clicked on the page"
-        case "browser screenshot":     return "Took a screenshot"
-        case "request system permission":
-            return "\(Self.permissionFriendlyName(from: summary)) granted"
-        default:                       return "Used \(toolName)"
-        }
-    }
-
-    /// Plural past-tense labels for multiple tool calls of the same type.
-    static func friendlyToolLabelPlural(_ toolName: String, count: Int) -> String {
-        switch toolName.lowercased() {
-        case "run command":        return "Ran \(count) commands"
-        case "read file":          return "Read \(count) files"
-        case "write file":         return "Wrote \(count) files"
-        case "edit file":          return "Edited \(count) files"
-        case "search files":       return "Ran \(count) searches"
-        case "find files":         return "Ran \(count) searches"
-        case "web search":         return "Searched the web \(count) times"
-        case "fetch url":          return "Fetched \(count) webpages"
-        case "browser navigate":   return "Opened \(count) pages"
-        case "browser click":      return "Clicked \(count) times"
-        case "browser screenshot":  return "Took \(count) screenshots"
-        default:                   return "Used \(toolName) \(count) times"
-        }
-    }
-
-    /// Maps tool names to user-friendly present-tense labels for the running state.
-    static func friendlyRunningLabel(_ toolName: String, inputSummary: String? = nil, buildingStatus: String? = nil) -> String {
-        // For app file tools, prefer the descriptive building status from tool input
-        if let status = buildingStatus {
-            if toolName == "app_file_edit" || toolName == "app_file_write" || toolName == "app_create" || toolName == "app_update" {
-                return status
-            }
-        }
-        switch toolName {
-        case "bash", "host_bash":               return "Running a command"
-        case "file_read", "host_file_read":     return "Reading a file"
-        case "file_write", "host_file_write":   return "Writing a file"
-        case "file_edit", "host_file_edit":     return "Editing a file"
-        case "grep":                            return "Searching files"
-        case "glob":                            return "Finding files"
-        case "web_search":                      return "Searching the web"
-        case "web_fetch":                       return "Fetching a webpage"
-        case "browser_navigate":                return "Opening a page"
-        case "browser_click":                   return "Clicking on the page"
-        case "browser_screenshot":              return "Taking a screenshot"
-        case "app_create":                      return "Building your app"
-        case "app_update":                      return "Updating your app"
-        case "skill_load":
-            if let name = inputSummary, !name.isEmpty {
-                let display = name.replacingOccurrences(of: "-", with: " ").replacingOccurrences(of: "_", with: " ")
-                return "Loading \(display)"
-            }
-            return "Loading a skill"
-        default:
-            // Convert raw snake_case name to a readable fallback
-            let display = toolName.replacingOccurrences(of: "_", with: " ")
-            return "Running \(display)"
-        }
-    }
-
-    /// Progressive labels for long-running tools. Cycles through these over time.
-    static func progressiveLabels(for toolName: String) -> [String] {
-        switch toolName {
-        case "app_create":
-            return [
-                "Choosing a visual direction",
-                "Designing the layout",
-                "Writing the interface",
-                "Adding styles and colors",
-                "Wiring up interactions",
-                "Polishing the details",
-                "Almost there",
-            ]
-        case "app_update":
-            return [
-                "Reviewing your app",
-                "Applying changes",
-                "Updating the interface",
-                "Polishing the details",
-            ]
-        default:
-            return []
-        }
-    }
-
-    /// Icon for a tool category.
-    static func friendlyToolIcon(_ toolName: String) -> String {
-        switch toolName {
-        case "bash", "host_bash":                               return "terminal"
-        case "file_read", "host_file_read":                     return "doc.text"
-        case "file_write", "host_file_write":                   return "doc.badge.plus"
-        case "file_edit", "host_file_edit":                     return "pencil"
-        case "grep", "glob", "web_search":                      return "magnifyingglass"
-        case "web_fetch":                                       return "globe"
-        case "browser_navigate", "browser_click":               return "safari"
-        case "browser_screenshot":                              return "camera"
-        case "request_system_permission":                       return "lock.shield"
-        default:                                                return "gearshape"
-        }
-    }
-
-    /// Convert raw permission_type (e.g. "full_disk_access") to a user-facing label.
-    static func permissionFriendlyName(from rawType: String) -> String {
-        switch rawType {
-        case "full_disk_access": return "Full Disk Access"
-        case "accessibility": return "Accessibility"
-        case "screen_recording": return "Screen Recording"
-        case "calendar": return "Calendar"
-        case "contacts": return "Contacts"
-        case "photos": return "Photos"
-        case "location": return "Location Services"
-        case "microphone": return "Microphone"
-        case "camera": return "Camera"
-        default:
-            if rawType.isEmpty { return "Permission" }
-            return rawType.replacingOccurrences(of: "_", with: " ").capitalized
-        }
-    }
-
-    /// Failed/denied tool chip — shown when the user denied permission.
-    private var compactFailedToolChip: some View {
-        let uniqueNames = Array(Set(message.toolCalls.map(\.toolName))).sorted()
-        let primary = uniqueNames.first ?? "Tool"
-        let label = Self.friendlyRunningLabel(primary) + " failed"
-
-        return HStack(spacing: VSpacing.xs) {
-            Image(systemName: "xmark.circle.fill")
-                .font(.system(size: 12))
-                .foregroundColor(VColor.error)
-
-            Text(label)
-                .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
-        }
-        .padding(.horizontal, VSpacing.md)
-        .padding(.vertical, VSpacing.xs)
-        .background(
-            Capsule().fill(VColor.surface)
-        )
-        .overlay(
-            Capsule().stroke(VColor.surfaceBorder, lineWidth: 0.5)
-        )
-    }
-
-    private func compactPermissionChip(_ confirmation: ToolConfirmationData) -> some View {
-        let isApproved = confirmation.state == .approved
-        return HStack(spacing: VSpacing.xs) {
-            Group {
-                switch confirmation.state {
-                case .approved:
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(VColor.success)
-                case .denied:
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(VColor.error)
-                case .timedOut:
-                    Image(systemName: "clock.fill")
-                        .foregroundColor(VColor.textMuted)
-                default:
-                    EmptyView()
-                }
-            }
-            .font(.system(size: 12))
-
-            Text(isApproved ? "\(confirmation.toolCategory) allowed" :
-                 confirmation.state == .denied ? "\(confirmation.toolCategory) denied" : "Timed out")
-                .font(VFont.caption)
-                .foregroundColor(isApproved ? VColor.success : VColor.textSecondary)
-        }
-        .padding(.horizontal, VSpacing.md)
-        .padding(.vertical, VSpacing.xs)
-        .background(
-            Capsule().fill(isApproved ? VColor.success.opacity(0.1) : VColor.surface)
-        )
-        .overlay(
-            Capsule().stroke(isApproved ? VColor.success.opacity(0.3) : VColor.surfaceBorder, lineWidth: 0.5)
-        )
-    }
-
-    /// Whether this message has meaningful interleaved content (multiple block types).
-    private var hasInterleavedContent: Bool {
-        // Use interleaved path when contentOrder has more than one distinct block type
-        guard message.contentOrder.count > 1 else { return false }
-        var hasText = false
-        var hasNonText = false
-        for ref in message.contentOrder {
-            switch ref {
-            case .text: hasText = true
-            case .toolCall, .surface: hasNonText = true
-            }
-            if hasText && hasNonText { return true }
-        }
-        return false
-    }
-
-    /// Groups consecutive tool call refs for rendering.
-    private enum ContentGroup {
-        case text(Int)
-        case toolCalls([Int])
-        case surface(Int)
-    }
-
-    private func groupContentBlocks() -> [ContentGroup] {
-        var groups: [ContentGroup] = []
-        for ref in message.contentOrder {
-            switch ref {
-            case .text(let i):
-                groups.append(.text(i))
-            case .toolCall(let i):
-                if case .toolCalls(let indices) = groups.last {
-                    groups[groups.count - 1] = .toolCalls(indices + [i])
-                } else {
-                    groups.append(.toolCalls([i]))
-                }
-            case .surface(let i):
-                groups.append(.surface(i))
-            }
-        }
-        return groups
-    }
-
-    @ViewBuilder
-    private var interleavedContent: some View {
-        let groups = groupContentBlocks()
-
-        // Render all content groups in order: text, tool calls, and surfaces
-        ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
-            switch group {
-            case .text(let i):
-                if i < message.textSegments.count {
-                    let segmentText = message.textSegments[i].trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !segmentText.isEmpty {
-                        textBubble(for: segmentText)
-                    }
-                }
-            case .toolCalls:
-                // Tool calls are rendered by trailingStatus below the message
-                EmptyView()
-            case .surface(let i):
-                if i < message.inlineSurfaces.count,
-                   message.inlineSurfaces[i].id != taskProgressOverlay.activeSurfaceId {
-                    InlineSurfaceRouter(surface: message.inlineSurfaces[i], onAction: onSurfaceAction)
-                }
-            }
-        }
-
-        // Attachments are not part of contentOrder but must still be rendered
-        let partitioned = partitionedAttachments
-        if !partitioned.images.isEmpty {
-            attachmentImageGrid(partitioned.images)
-        }
-        if !partitioned.videos.isEmpty {
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
-                ForEach(partitioned.videos) { attachment in
-                    InlineVideoAttachmentView(attachment: attachment, daemonHttpPort: daemonHttpPort)
-                }
-            }
-        }
-        if !partitioned.files.isEmpty {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                ForEach(partitioned.files) { attachment in
-                    fileAttachmentChip(attachment)
-                }
-            }
-        }
-    }
-
-    /// Render a single text segment as a styled bubble, with table and image support.
-    @ViewBuilder
-    private func textBubble(for segmentText: String) -> some View {
-        let segments = Self.cachedSegments(for: segmentText)
-        let hasRichContent = segments.contains(where: {
-            switch $0 {
-            case .table, .image, .heading, .codeBlock, .horizontalRule, .list: return true
-            case .text: return false
-            }
-        })
-
-        bubbleChrome {
-            if hasRichContent {
-                MarkdownSegmentView(segments: segments)
-            } else {
-                let options = AttributedString.MarkdownParsingOptions(
-                    interpretedSyntax: .inlineOnlyPreservingWhitespace
-                )
-                let attributed = (try? AttributedString(markdown: segmentText, options: options))
-                    ?? AttributedString(segmentText)
-                Text(attributed)
-                    .font(.system(size: 13))
-                    .foregroundColor(VColor.textPrimary)
-                    .tint(VColor.accent)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: 520, alignment: .leading)
-            }
-        }
-    }
-
-    /// Current step indicator rendered outside the bubble.
-    /// Shows only when there are actual tool calls.
-    // Tool call status is rendered via trailingStatus at the bottom of the message.
-
-    private var hasText: Bool {
+    var hasText: Bool {
         !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    private var attachmentSummary: String {
-        let count = message.attachments.count
-        if count == 1 {
-            return "Sent \(message.attachments[0].filename)"
-        }
-        return "Sent \(count) attachments"
-    }
-
-    /// Partitions attachments into decoded images, videos, and non-media files in a single pass,
-    /// avoiding redundant base64 decoding and NSImage construction across render calls.
-    private var partitionedAttachments: (images: [(ChatAttachment, NSImage)], videos: [ChatAttachment], files: [ChatAttachment]) {
-        var images: [(ChatAttachment, NSImage)] = []
-        var videos: [ChatAttachment] = []
-        var files: [ChatAttachment] = []
-        for attachment in message.attachments {
-            if attachment.mimeType.hasPrefix("image/"), let img = nsImage(for: attachment) {
-                images.append((attachment, img))
-            } else if attachment.mimeType.hasPrefix("video/") {
-                videos.append(attachment)
-            } else {
-                files.append(attachment)
-            }
-        }
-        return (images, videos, files)
     }
 
     private var bubbleContent: some View {
@@ -805,6 +356,8 @@ struct ChatBubble: View {
         }
     }
 
+    // MARK: - Document Widget
+
     @ViewBuilder
     private func documentWidget(for toolCall: ToolCallData) -> some View {
         let parsed = DocumentResultParser.parse(from: toolCall)
@@ -827,150 +380,14 @@ struct ChatBubble: View {
         }
     }
 
-    private func attachmentImageGrid(_ images: [(ChatAttachment, NSImage)]) -> some View {
-        let columns = images.count == 1
-            ? [GridItem(.flexible())]
-            : [GridItem(.flexible(), spacing: VSpacing.sm), GridItem(.flexible(), spacing: VSpacing.sm)]
-        return LazyVGrid(columns: columns, alignment: .leading, spacing: VSpacing.sm) {
-            ForEach(images, id: \.0.id) { attachment, nsImage in
-                Image(nsImage: nsImage)
-                    .resizable()
-                    .aspectRatio(contentMode: images.count == 1 ? .fit : .fill)
-                    .frame(maxHeight: images.count == 1 ? 320 : 180)
-                    .clipped()
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                    .onTapGesture {
-                        openImageInPreview(attachment)
-                    }
-            }
-        }
-    }
+    // MARK: - Caches
 
-    private func fileAttachmentChip(_ attachment: ChatAttachment) -> some View {
-        HStack(spacing: VSpacing.xs) {
-            Image(systemName: fileIcon(for: attachment.mimeType))
-                .font(VFont.caption)
-                .foregroundColor(isUser ? VColor.userBubbleTextSecondary : VColor.textSecondary)
-
-            Text(attachment.filename)
-                .font(VFont.caption)
-                .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
-                .lineLimit(1)
-
-            Text(formattedFileSize(base64Length: attachment.dataLength))
-                .font(VFont.small)
-                .foregroundColor(isUser ? VColor.userBubbleTextSecondary : VColor.textMuted)
-        }
-        .padding(.horizontal, VSpacing.sm)
-        .padding(.vertical, VSpacing.xs)
-        .background(
-            RoundedRectangle(cornerRadius: VRadius.sm)
-                .fill(isUser ? VColor.userBubbleText.opacity(0.15) : VColor.surfaceBorder.opacity(0.5))
-        )
-    }
-
-    private func nsImage(for attachment: ChatAttachment) -> NSImage? {
-        // Use pre-decoded thumbnail image — avoids NSImage(data:) during layout, which
-        // can trigger re-entrant AppKit constraint invalidation and crash on scroll.
-        if let img = attachment.thumbnailImage {
-            return img
-        }
-        if let thumbnailData = attachment.thumbnailData, let img = NSImage(data: thumbnailData) {
-            return img
-        }
-        if let data = Data(base64Encoded: attachment.data), let img = NSImage(data: data) {
-            return img
-        }
-        return nil
-    }
-
-    private func openImageInPreview(_ attachment: ChatAttachment) {
-        guard let data = Data(base64Encoded: attachment.data) else { return }
-        let tempDir = FileManager.default.temporaryDirectory
-        let sanitized = (attachment.filename as NSString).lastPathComponent
-        let fileURL = tempDir.appendingPathComponent(sanitized.isEmpty ? "image" : sanitized)
-        do {
-            try data.write(to: fileURL)
-            NSWorkspace.shared.open(fileURL)
-        } catch {
-            // Silently fail — not critical
-        }
-    }
-
-    private func fileIcon(for mimeType: String) -> String {
-        if mimeType.hasPrefix("video/") { return "film" }
-        if mimeType.hasPrefix("audio/") { return "waveform" }
-        if mimeType.hasPrefix("text/") { return "doc.text.fill" }
-        if mimeType == "application/pdf" { return "doc.fill" }
-        if mimeType.contains("zip") || mimeType.contains("archive") { return "doc.zipper" }
-        if mimeType.contains("json") || mimeType.contains("xml") { return "doc.text.fill" }
-        return "doc.fill"
-    }
-
-    private func formattedFileSize(base64Length: Int) -> String {
-        let bytes = base64Length * 3 / 4
-        if bytes < 1024 { return "\(bytes) B" }
-        let kb = Double(bytes) / 1024
-        if kb < 1024 { return String(format: "%.1f KB", kb) }
-        let mb = kb / 1024
-        return String(format: "%.1f MB", mb)
-    }
-
-    /// Cached markdown segment parser to avoid re-parsing on every render.
-    private static var segmentCache = [Int: [MarkdownSegment]]()
-
-    private static func cachedSegments(for text: String) -> [MarkdownSegment] {
-        let key = text.hashValue
-        if let cached = segmentCache[key] { return cached }
-        let result = parseMarkdownSegments(text)
-        if segmentCache.count >= maxCacheSize {
-            if let first = segmentCache.keys.first { segmentCache.removeValue(forKey: first) }
-        }
-        segmentCache[key] = result
-        return result
-    }
-
-    /// Cached markdown parser to avoid re-parsing on every render.
-    /// Uses the message text hash as the cache key.
-    private static var markdownCache = [Int: AttributedString]()
-    private static let maxCacheSize = 100
-
-    private var markdownText: AttributedString {
-        let textToRender = message.text
-        let trimmed = textToRender.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cacheKey = trimmed.hashValue
-
-        // Return cached value if available
-        if let cached = Self.markdownCache[cacheKey] {
-            return cached
-        }
-
-        // Parse markdown
-        let options = AttributedString.MarkdownParsingOptions(
-            interpretedSyntax: .inlineOnlyPreservingWhitespace
-        )
-        var parsed = (try? AttributedString(markdown: trimmed, options: options))
-            ?? AttributedString(trimmed)
-
-        // Highlight slash command token (e.g. /model) in blue
-        if let slashMatch = trimmed.range(of: #"^/\w+"#, options: .regularExpression) {
-            let offset = trimmed.distance(from: trimmed.startIndex, to: slashMatch.lowerBound)
-            let length = trimmed.distance(from: slashMatch.lowerBound, to: slashMatch.upperBound)
-            let attrStart = parsed.index(parsed.startIndex, offsetByCharacters: offset)
-            let attrEnd = parsed.index(attrStart, offsetByCharacters: length)
-            parsed[attrStart..<attrEnd].foregroundColor = VColor.slashCommand
-        }
-
-        // Store in cache (with size limit to prevent unbounded growth)
-        if Self.markdownCache.count >= Self.maxCacheSize {
-            // Simple FIFO eviction - remove first entry
-            if let firstKey = Self.markdownCache.keys.first {
-                Self.markdownCache.removeValue(forKey: firstKey)
-            }
-        }
-        Self.markdownCache[cacheKey] = parsed
-
-        return parsed
-    }
-
+    @MainActor static var segmentCache = [String: [MarkdownSegment]]()
+    @MainActor static var markdownCache = [String: AttributedString]()
+    /// Separate cache for inline markdown (used by interleaved text segments).
+    /// Kept distinct from `markdownCache` because `markdownText` applies
+    /// slash-command highlighting before caching, which would contaminate
+    /// inline results (and vice versa) if they shared a dictionary.
+    @MainActor static var inlineMarkdownCache = [String: AttributedString]()
+    static let maxCacheSize = 100
 }

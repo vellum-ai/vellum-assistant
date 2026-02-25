@@ -7,6 +7,7 @@
 
 import { getLogger } from '../util/logger.js';
 import { createConversation } from '../memory/conversation-store.js';
+import { GENERATING_TITLE, queueGenerateConversationTitle } from '../memory/conversation-title-service.js';
 import { getWatcherProvider } from './provider-registry.js';
 import {
   claimDueWatchers,
@@ -20,6 +21,7 @@ import {
   setWatcherConversationId,
 } from './watcher-store.js';
 import { MAX_CONSECUTIVE_ERRORS } from './constants.js';
+import { checkForSequenceReplies } from '../sequence/reply-matcher.js';
 
 const log = getLogger('watcher-engine');
 
@@ -89,6 +91,7 @@ export async function runWatchersOnce(
 
       // Store new events with dedup
       let newEvents = 0;
+      const newPayloads: Array<Record<string, unknown>> = [];
       for (const item of result.items) {
         const inserted = insertWatcherEvent({
           watcherId: watcher.id,
@@ -97,11 +100,29 @@ export async function runWatchersOnce(
           summary: item.summary,
           payloadJson: JSON.stringify(item.payload),
         });
-        if (inserted) newEvents++;
+        if (inserted) {
+          newEvents++;
+          newPayloads.push(item.payload);
+        }
       }
 
       if (newEvents > 0) {
         log.info({ watcherId: watcher.id, name: watcher.name, newEvents }, 'Detected new events');
+      }
+
+      // Check new events for replies to active sequence enrollments
+      if (newPayloads.length > 0) {
+        try {
+          const replyMatches = checkForSequenceReplies(newPayloads);
+          for (const match of replyMatches) {
+            notify({
+              title: `Sequence reply: ${match.sequenceName}`,
+              body: `${match.contactEmail} replied — enrollment auto-exited.`,
+            });
+          }
+        } catch (replyErr) {
+          log.warn({ err: replyErr, watcherId: watcher.id }, 'Reply matcher failed');
+        }
       }
 
       completeWatcherPoll(watcher.id, {
@@ -143,8 +164,12 @@ export async function runWatchersOnce(
       let conversationId = watcher.conversationId;
       if (!conversationId) {
         const conv = createConversation({
-          title: `Watcher: ${watcher.name}`,
+          title: GENERATING_TITLE,
           threadType: 'background' as 'standard' | 'private',
+        });
+        queueGenerateConversationTitle({
+          conversationId: conv.id,
+          context: { origin: 'watcher', systemHint: `Watcher: ${watcher.name}` },
         });
         conversationId = conv.id;
         setWatcherConversationId(watcher.id, conversationId);

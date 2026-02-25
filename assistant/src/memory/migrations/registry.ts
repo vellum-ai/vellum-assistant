@@ -69,6 +69,16 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     version: 9,
     description: 'Drop old idx_memory_items_active_search so it can be recreated with updated covering columns',
   },
+  {
+    key: 'migration_notification_tables_schema_v1',
+    version: 10,
+    description: 'Drop legacy enum-based notification tables so they can be recreated with the new signal-contract schema',
+  },
+  {
+    key: 'migration_rename_macos_ios_channel_to_vellum_v1',
+    version: 11,
+    description: 'Rename macos and ios channel identifiers to vellum across all tables',
+  },
 ];
 
 export interface MigrationValidationResult {

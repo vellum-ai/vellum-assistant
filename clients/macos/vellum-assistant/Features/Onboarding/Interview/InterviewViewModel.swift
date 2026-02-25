@@ -76,7 +76,7 @@ final class InterviewViewModel {
                 try self.daemonClient.send(SessionCreateMessage(
                     title: "Getting to know you",
                     maxResponseTokens: 220,
-                    transportChannelId: "macos",
+                    transportChannelId: "vellum",
                     transportHints: hints,
                     transportUxBrief: "Onboarding conversation after hatch. Follow the channel playbook and update USER.md directly."
                 ))

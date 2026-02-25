@@ -79,6 +79,8 @@ extension DaemonClient {
             onDictationResponse?(msg)
         case .reminderFired(let msg):
             onReminderFired?(msg)
+        case .notificationIntent(let msg):
+            onNotificationIntent?(msg)
         case .scheduleComplete(let msg):
             onScheduleComplete?(msg)
         case .trustRulesListResponse(let msg):
@@ -97,6 +99,8 @@ extension DaemonClient {
             onSkillsOperationResponse?(msg)
         case .skillsInspectResponse(let msg):
             onSkillsInspectResponse?(msg)
+        case .skillsDraftResponse(let msg):
+            onSkillsDraftResponse?(msg)
         case .appsListResponse(let msg):
             onAppsListResponse?(msg)
         case .homeBaseGetResponse(let msg):

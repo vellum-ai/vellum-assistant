@@ -2,17 +2,13 @@
 name: "Slack OAuth Setup"
 description: "Create Slack App and OAuth credentials for Slack integration using browser automation"
 user-invocable: true
-includes: ["browser", "public-ingress"]
+includes: ["browser"]
 metadata: {"vellum": {"emoji": "🔑"}}
 ---
 
 You are helping your user create a Slack App and OAuth credentials so the Messaging integration can connect to their Slack workspace. Walk through each step below using `browser_navigate`, `browser_snapshot`, `browser_screenshot`, `browser_click`, `browser_type`, and `browser_extract` tools.
 
 **Tone:** Be friendly and reassuring throughout. Narrate what you're doing in plain language so the user always knows what's happening. After each step, briefly confirm what was accomplished before moving on.
-
-## Prerequisites
-
-Before starting, check that `ingress.publicBaseUrl` is configured (Settings > Public Ingress, or `INGRESS_PUBLIC_BASE_URL` env var). If it is not set, load and execute the **public-ingress** skill first (`skill_load` with `skill: "public-ingress"`) to set up an ngrok tunnel and persist the public URL. The OAuth redirect URI depends on this value.
 
 ## Before You Start
 
@@ -67,6 +63,7 @@ Tell the user: "App created! Now let's configure the permissions it needs."
 > - `groups:history` — Read message history in private channels
 > - `im:read` — View direct message info
 > - `im:history` — Read direct message history
+> - `im:write` — Open and send direct messages
 > - `mpim:read` — View group DM info
 > - `mpim:history` — Read group DM history
 > - `users:read` — View user profiles
@@ -89,16 +86,16 @@ Tell the user: "Permissions configured! Now let's set up the redirect URL and ge
 
 Navigate to the "OAuth & Permissions" page if not already there.
 
-The redirect URL must point to the gateway's OAuth callback endpoint. Determine the URL by reading the `ingress.publicBaseUrl` value from the assistant's workspace config (Settings > Public Ingress) or the `INGRESS_PUBLIC_BASE_URL` environment variable. The callback path is `/webhooks/oauth/callback`.
+The redirect URL uses a localhost callback — no public URL or tunnel is needed.
 
 In the "Redirect URLs" section:
 1. Click "Add New Redirect URL"
-2. Enter `${ingress.publicBaseUrl}/webhooks/oauth/callback` (e.g. `https://abc123.ngrok-free.app/webhooks/oauth/callback`)
+2. Enter `http://127.0.0.1:17322/oauth/callback`
 3. Click "Add" then "Save URLs"
 
 Take a `browser_snapshot` to confirm.
 
-Tell the user: "Redirect URL configured. Make sure your tunnel is running and `ingress.publicBaseUrl` is set in Settings so the callback can reach the gateway."
+Tell the user: "Redirect URL configured. This uses a local callback so no tunnel or public URL is needed."
 
 ## Step 5: Extract Client ID and Client Secret
 
@@ -126,7 +123,7 @@ client_secret: "<the extracted Client Secret>"
 auth_url: "https://slack.com/oauth/v2/authorize"
 token_url: "https://slack.com/api/oauth.v2.access"
 scopes: ["channels:read", "channels:history", "groups:read", "groups:history", "im:read", "im:history", "im:write", "mpim:read", "mpim:history", "users:read", "chat:write", "search:read", "reactions:write"]
-extra_params: {"user_scope": "channels:read,channels:history,groups:read,groups:history,im:read,im:history,mpim:read,mpim:history,users:read,chat:write,search:read,reactions:write"}
+extra_params: {"user_scope": "channels:read,channels:history,groups:read,groups:history,im:read,im:history,im:write,mpim:read,mpim:history,users:read,chat:write,search:read,reactions:write"}
 ```
 
 This will open the Slack authorization page in the user's browser. Wait for the flow to complete.
@@ -140,7 +137,7 @@ Once connected, tell the user:
 Summarize what was accomplished:
 - Created a Slack App called "Vellum Assistant"
 - Configured User Token Scopes for reading, writing, and searching
-- Set up the OAuth redirect URL
+- Set up the OAuth redirect URL (localhost callback — no tunnel needed)
 - Connected your Slack workspace
 
 ## Error Handling

@@ -88,6 +88,7 @@ export interface GuardianVerificationRequest {
   channel?: ChannelId;  // Defaults to 'telegram'
   sessionId?: string;
   assistantId?: string;  // Defaults to 'self'
+  rebind?: boolean;  // When true, allows creating a challenge even if a binding already exists
 }
 
 export interface TwitterAuthStartRequest {
@@ -250,6 +251,8 @@ export interface GuardianVerificationResponse {
   /** Whether a pending verification challenge exists for this (assistantId, channel). Used by relay setup to detect active voice verification sessions. */
   hasPendingChallenge?: boolean;
   error?: string;
+  /** Human-readable error detail (e.g. for already_bound failures). */
+  message?: string;
 }
 
 export interface TwitterAuthResult {

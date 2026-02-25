@@ -44,6 +44,7 @@ export interface SendResult {
   id: string;
   timestamp: number;
   conversationId: string;
+  threadId?: string;
 }
 
 export interface ConnectionInfo {

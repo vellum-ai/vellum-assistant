@@ -35,3 +35,4 @@ The tool returns:
 
 - If the user provides an ambiguous location (e.g. "Springfield"), the geocoding API picks the most prominent match. If the result seems wrong, suggest the user be more specific (e.g. "Springfield, IL").
 - The tool auto-renders a rich weather card with hourly and daily forecasts — you don't need to reformat the data as text unless the user explicitly asks for a text summary.
+- The tool fetches **live data** from the Open-Meteo Weather API. Do NOT follow up with `web_search`, `ui_show`, or `ui_update` to verify, supplement, or re-render the data — the card is already accurate and complete. Just respond with a brief conversational summary.

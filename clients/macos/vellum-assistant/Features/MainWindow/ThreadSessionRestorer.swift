@@ -98,6 +98,21 @@ final class ThreadSessionRestorer {
         }
     }
 
+    /// Request history re-fetch for a reconnect catch-up. Registers the sessionId
+    /// so the response is properly routed back via handleHistoryResponse.
+    func requestReconnectHistory(sessionId: String) {
+        guard let delegate else { return }
+        // Find the thread that owns this sessionId.
+        guard let thread = delegate.threads.first(where: { $0.sessionId == sessionId }) else { return }
+        pendingHistoryBySessionId[sessionId] = thread.id
+        do {
+            try daemonClient.sendHistoryRequest(sessionId: sessionId)
+        } catch {
+            log.error("Failed to send reconnect history_request: \(error.localizedDescription)")
+            pendingHistoryBySessionId.removeValue(forKey: sessionId)
+        }
+    }
+
     // MARK: - Response Handlers (internal for testability)
 
     func handleSessionListResponse(_ response: SessionListResponseMessage) {

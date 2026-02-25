@@ -17,7 +17,7 @@ import {
   recordCallEvent,
   expirePendingQuestions,
 } from './call-store.js';
-import { CallOrchestrator } from './call-orchestrator.js';
+import { CallController } from './call-controller.js';
 import { fireCallTranscriptNotifier, fireCallCompletionNotifier } from './call-state.js';
 import { addPointerMessage, formatDuration } from './call-pointer-messages.js';
 import { persistCallCompletionMessage } from './call-conversation-messages.js';
@@ -145,7 +145,7 @@ export class RelayConnection {
     speaker?: PromptSpeakerContext;
   }>;
   private abortController: AbortController;
-  private orchestrator: CallOrchestrator | null = null;
+  private controller: CallController | null = null;
   private speakerIdentityTracker: SpeakerIdentityTracker;
 
   // Verification state (outbound callee verification)
@@ -263,26 +263,26 @@ export class RelayConnection {
   }
 
   /**
-   * Set the orchestrator for this connection.
+   * Set the controller for this connection.
    */
-  setOrchestrator(orchestrator: CallOrchestrator): void {
-    this.orchestrator = orchestrator;
+  setController(controller: CallController): void {
+    this.controller = controller;
   }
 
   /**
-   * Get the orchestrator for this connection.
+   * Get the controller for this connection.
    */
-  getOrchestrator(): CallOrchestrator | null {
-    return this.orchestrator;
+  getController(): CallController | null {
+    return this.controller;
   }
 
   /**
    * Clean up resources on disconnect.
    */
   destroy(): void {
-    if (this.orchestrator) {
-      this.orchestrator.destroy();
-      this.orchestrator = null;
+    if (this.controller) {
+      this.controller.destroy();
+      this.controller = null;
     }
     this.abortController.abort();
     log.info({ callSessionId: this.callSessionId }, 'RelayConnection destroyed');
@@ -382,27 +382,28 @@ export class RelayConnection {
     const assistantId = normalizeAssistantId(session?.assistantId ?? 'self');
     const isInbound = session?.initiatedFromConversationId == null;
 
-    // Create and attach the LLM-driven orchestrator. For inbound voice,
-    // seed guardian actor context from caller identity + active binding so
-    // first-turn behavior matches channel ingress semantics.
-    const initialGuardianContext = isInbound
-      ? toGuardianRuntimeContext(
-        'voice',
-        resolveGuardianContext({
-          assistantId,
-          sourceChannel: 'voice',
-          externalChatId: msg.from,
-          senderExternalUserId: msg.from || undefined,
-        }),
-      )
-      : undefined;
+    // Create and attach the session-backed voice controller. Seed guardian
+    // actor context from the other party's identity + active binding so
+    // first-turn behavior matches channel ingress semantics. For inbound
+    // calls msg.from is the caller; for outbound calls msg.to is the
+    // recipient (msg.from is the assistant's Twilio number).
+    const otherPartyNumber = isInbound ? msg.from : msg.to;
+    const initialGuardianContext = toGuardianRuntimeContext(
+      'voice',
+      resolveGuardianContext({
+        assistantId,
+        sourceChannel: 'voice',
+        externalChatId: otherPartyNumber,
+        senderExternalUserId: otherPartyNumber || undefined,
+      }),
+    );
 
-    const orchestrator = new CallOrchestrator(this.callSessionId, this, session?.task ?? null, {
+    const controller = new CallController(this.callSessionId, this, session?.task ?? null, {
       broadcast: globalBroadcast,
       assistantId,
       guardianContext: initialGuardianContext,
     });
-    this.setOrchestrator(orchestrator);
+    this.setController(controller);
 
     const config = getConfig();
     const verificationConfig = config.calls.verification;
@@ -416,10 +417,10 @@ export class RelayConnection {
       if (pendingChallenge) {
         this.startInboundGuardianVerification(assistantId, msg.from);
       } else {
-        this.startNormalCallFlow(orchestrator, true);
+        this.startNormalCallFlow(controller, true);
       }
     } else {
-      this.startNormalCallFlow(orchestrator, false);
+      this.startNormalCallFlow(controller, false);
     }
   }
 
@@ -469,13 +470,13 @@ export class RelayConnection {
   }
 
   /**
-   * Start normal call flow — fire the orchestrator greeting unless a
+   * Start normal call flow — fire the controller greeting unless a
    * static welcome greeting is configured.
    */
-  private startNormalCallFlow(orchestrator: CallOrchestrator, isInbound: boolean): void {
+  private startNormalCallFlow(controller: CallController, isInbound: boolean): void {
     const hasStaticGreeting = !!process.env.CALL_WELCOME_GREETING?.trim();
     if (!hasStaticGreeting) {
-      orchestrator.startInitialGreeting().catch((err) =>
+      controller.startInitialGreeting().catch((err) =>
         log.error({ err, callSessionId: this.callSessionId }, `Failed to start initial ${isInbound ? 'inbound' : 'outbound'} greeting`),
       );
     }
@@ -582,8 +583,8 @@ export class RelayConnection {
 
       // Proceed to normal call flow (use startNormalCallFlow to respect
       // the CALL_WELCOME_GREETING static greeting guard)
-      if (this.orchestrator) {
-        this.orchestrator.setGuardianContext(
+      if (this.controller) {
+        this.controller.setGuardianContext(
           toGuardianRuntimeContext(
             'voice',
             resolveGuardianContext({
@@ -594,7 +595,7 @@ export class RelayConnection {
             }),
           ),
         );
-        this.startNormalCallFlow(this.orchestrator, true);
+        this.startNormalCallFlow(this.controller, true);
       }
     } else {
       this.verificationAttempts++;
@@ -703,22 +704,34 @@ export class RelayConnection {
 
     const session = getCallSession(this.callSessionId);
     if (session) {
-      // Persist caller transcript to the voice conversation so it survives
-      // even when no live daemon Session is listening.
-      conversationStore.addMessage(
-        session.conversationId,
-        'user',
-        JSON.stringify([{ type: 'text', text: msg.voicePrompt }]),
-        { userMessageChannel: 'voice', assistantMessageChannel: 'voice' },
-      );
+      // User message persistence is handled by the session pipeline
+      // (RunOrchestrator.startRun -> session.persistUserMessage) so we only
+      // need to fire the transcript notifier for UI subscribers here.
       fireCallTranscriptNotifier(session.conversationId, this.callSessionId, 'caller', msg.voicePrompt);
     }
 
-    // Route to orchestrator for LLM-driven response
-    if (this.orchestrator) {
-      await this.orchestrator.handleCallerUtterance(msg.voicePrompt, speaker);
+    // Route to controller for session-backed response
+    if (this.controller) {
+      await this.controller.handleCallerUtterance(msg.voicePrompt, speaker);
     } else {
-      // Fallback if orchestrator not yet initialized
+      // Fallback if controller not yet initialized — persist the caller's
+      // transcript so it is available in conversation history once setup
+      // completes. The session pipeline normally handles persistence, but
+      // this early-utterance path bypasses it entirely.
+      if (session) {
+        try {
+          conversationStore.addMessage(
+            session.conversationId,
+            'user',
+            JSON.stringify([{ type: 'text', text: msg.voicePrompt }]),
+            { userMessageChannel: 'voice', assistantMessageChannel: 'voice' },
+          );
+        } catch (err) {
+          // Best-effort — don't let persistence failures prevent the hold
+          // response from reaching the caller.
+          log.warn({ err, callSessionId: this.callSessionId }, 'Failed to persist early caller utterance');
+        }
+      }
       this.sendTextToken('I\'m still setting up. Please hold.', true);
     }
   }
@@ -733,9 +746,9 @@ export class RelayConnection {
     this.abortController.abort();
     this.abortController = new AbortController();
 
-    // Notify the orchestrator of the interruption
-    if (this.orchestrator) {
-      this.orchestrator.handleInterrupt();
+    // Notify the controller of the interruption
+    if (this.controller) {
+      this.controller.handleInterrupt();
     }
   }
 
@@ -780,8 +793,8 @@ export class RelayConnection {
           log.info({ callSessionId: this.callSessionId }, 'Callee verification succeeded');
 
           // Proceed to the normal call flow
-          if (this.orchestrator) {
-            this.orchestrator.startInitialGreeting().catch((err) =>
+          if (this.controller) {
+            this.controller.startInitialGreeting().catch((err) =>
               log.error({ err, callSessionId: this.callSessionId }, 'Failed to start initial outbound greeting after verification'),
             );
           }

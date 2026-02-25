@@ -293,11 +293,7 @@ public typealias UserMessageMessage = IPCUserMessage
 extension IPCUserMessage {
     /// Platform-derived default channel identifier.
     private static var defaultChannel: String {
-        #if os(iOS)
-        return "ios"
-        #else
-        return "macos"
-        #endif
+        return "vellum"
     }
 
     public init(sessionId: String, content: String, attachments: [IPCAttachment]?, activeSurfaceId: String? = nil, currentPage: String? = nil, bypassSecretCheck: Bool? = nil, channel: String? = nil) {
@@ -644,6 +640,29 @@ extension IPCSkillsInspectRequest {
         self.init(type: "skills_inspect", slug: slug)
     }
 }
+
+/// Draft a skill from source text.
+/// Backed by generated `IPCSkillsDraftRequest`.
+public typealias SkillsDraftRequestMessage = IPCSkillsDraftRequest
+
+extension IPCSkillsDraftRequest {
+    public init(sourceText: String) {
+        self.init(type: "skills_draft", sourceText: sourceText)
+    }
+}
+
+/// Create a managed skill.
+/// Backed by generated `IPCSkillsCreateRequest`.
+public typealias SkillsCreateMessage = IPCSkillsCreateRequest
+
+extension IPCSkillsCreateRequest {
+    public init(skillId: String, name: String, description: String, emoji: String? = nil, bodyMarkdown: String, userInvocable: Bool? = nil, disableModelInvocation: Bool? = nil, overwrite: Bool? = nil) {
+        self.init(type: "skills_create", skillId: skillId, name: name, description: description, emoji: emoji, bodyMarkdown: bodyMarkdown, userInvocable: userInvocable, disableModelInvocation: disableModelInvocation, overwrite: overwrite)
+    }
+}
+
+/// Backed by generated `IPCSkillsDraftResponse`.
+public typealias SkillsDraftResponseMessage = IPCSkillsDraftResponse
 
 /// Response to a sign_bundle_payload request from the daemon.
 /// Backed by generated `IPCSignBundlePayloadResponse`.
@@ -1405,6 +1424,10 @@ public typealias ReminderFiredMessage = IPCReminderFired
 /// Backed by generated `IPCScheduleComplete`.
 public typealias ScheduleCompleteMessage = IPCScheduleComplete
 
+/// Generic notification intent from daemon.
+/// Backed by generated `IPCNotificationIntent`.
+public typealias NotificationIntentMessage = IPCNotificationIntent
+
 /// Watch session started notification from daemon.
 /// Backed by generated `IPCWatchStarted`.
 public typealias WatchStartedMessage = IPCWatchStarted
@@ -1957,14 +1980,16 @@ extension IPCGuardianVerificationRequest {
         action: String,
         channel: String? = nil,
         sessionId: String? = nil,
-        assistantId: String? = nil
+        assistantId: String? = nil,
+        rebind: Bool? = nil
     ) {
         self.init(
             type: "guardian_verification",
             action: action,
             channel: channel,
             sessionId: sessionId,
-            assistantId: assistantId
+            assistantId: assistantId,
+            rebind: rebind
         )
     }
 }
@@ -2149,12 +2174,14 @@ public enum ServerMessage: Decodable, Sendable {
     case skillStateChanged(SkillStateChangedMessage)
     case skillsOperationResponse(SkillsOperationResponseMessage)
     case skillsInspectResponse(SkillsInspectResponseMessage)
+    case skillsDraftResponse(SkillsDraftResponseMessage)
     case suggestionResponse(SuggestionResponseMessage)
     case toolUseStart(ToolUseStartMessage)
     case toolInputDelta(ToolInputDeltaMessage)
     case toolOutputChunk(ToolOutputChunkMessage)
     case toolResult(ToolResultMessage)
     case reminderFired(ReminderFiredMessage)
+    case notificationIntent(NotificationIntentMessage)
     case scheduleComplete(ScheduleCompleteMessage)
     case watchStarted(WatchStartedMessage)
     case watchCompleteRequest(WatchCompleteRequestMessage)
@@ -2384,6 +2411,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "skills_inspect_response":
             let message = try SkillsInspectResponseMessage(from: decoder)
             self = .skillsInspectResponse(message)
+        case "skills_draft_response":
+            let message = try SkillsDraftResponseMessage(from: decoder)
+            self = .skillsDraftResponse(message)
         case "suggestion_response":
             let message = try SuggestionResponseMessage(from: decoder)
             self = .suggestionResponse(message)
@@ -2402,6 +2432,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "reminder_fired":
             let message = try ReminderFiredMessage(from: decoder)
             self = .reminderFired(message)
+        case "notification_intent":
+            let message = try NotificationIntentMessage(from: decoder)
+            self = .notificationIntent(message)
         case "schedule_complete":
             let message = try ScheduleCompleteMessage(from: decoder)
             self = .scheduleComplete(message)

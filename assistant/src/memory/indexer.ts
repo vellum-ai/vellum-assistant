@@ -21,6 +21,8 @@ export interface IndexMessageInput {
   content: string;
   createdAt: number;
   scopeId?: string;
+  // Provenance for trust-aware extraction gating (M3)
+  provenanceActorRole?: 'guardian' | 'non-guardian' | 'unverified_channel';
 }
 
 export interface IndexMessageResult {
@@ -33,6 +35,10 @@ export function indexMessageNow(
   config: MemoryConfig,
 ): IndexMessageResult {
   if (!config.enabled) return { indexedSegments: 0, enqueuedJobs: 0 };
+
+  // Provenance-based trust gating: only guardian and legacy (undefined) actors
+  // are trusted for extraction and conflict resolution.
+  const isTrustedActor = input.provenanceActorRole === 'guardian' || input.provenanceActorRole === undefined;
 
   const text = extractTextFromStoredMessageContent(input.content);
   if (text.length === 0) {
@@ -96,10 +102,10 @@ export function indexMessageNow(
       }
     }
 
-    if (shouldExtract) {
+    if (shouldExtract && isTrustedActor) {
       enqueueMemoryJob('extract_items', { messageId: input.messageId, scopeId: input.scopeId ?? 'default' }, Date.now(), tx);
     }
-    if (shouldResolveConflicts) {
+    if (shouldResolveConflicts && isTrustedActor) {
       enqueueResolvePendingConflictsForMessageJob(input.messageId, input.scopeId ?? 'default', tx);
     }
     enqueueMemoryJob('build_conversation_summary', { conversationId: input.conversationId }, Date.now(), tx);
@@ -109,10 +115,15 @@ export function indexMessageNow(
     log.debug(`Skipped ${skippedEmbedJobs}/${segments.length} embed_segment jobs (content unchanged)`);
   }
 
+  if (!isTrustedActor && (shouldExtract || shouldResolveConflicts)) {
+    log.info(`Skipping extraction/conflict jobs for untrusted actor (role=${input.provenanceActorRole})`);
+  }
+
   bumpMemoryVersion();
   enqueueSummaryRollupJobsIfDue();
 
-  const enqueuedJobs = (segments.length - skippedEmbedJobs) + (shouldExtract ? 2 : 1) + (shouldResolveConflicts ? 1 : 0);
+  const extractionGated = !isTrustedActor;
+  const enqueuedJobs = (segments.length - skippedEmbedJobs) + (shouldExtract && !extractionGated ? 2 : 1) + (shouldResolveConflicts && !extractionGated ? 1 : 0);
   return {
     indexedSegments: segments.length,
     enqueuedJobs,

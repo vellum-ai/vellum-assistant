@@ -46,7 +46,7 @@ export const uiShowTool: Tool = {
     '- list: Selectable list of items. ' +
     'data shape: { items: Array<{ id: string, title: string, subtitle?: string, icon?: string, selected?: boolean }>, selectionMode: "single"|"multiple"|"none" }\n' +
     '- confirmation: Yes/no confirmation dialog. ' +
-    'data shape: { message: string, detail?: string, confirmLabel?: string, cancelLabel?: string, destructive?: boolean }\n' +
+    'data shape: { message: string, detail?: string, confirmLabel?: string, confirmedLabel?: string, cancelLabel?: string, destructive?: boolean }\n' +
     '- dynamic_page: Custom HTML page rendered in a sandboxed container. ' +
     'data shape: { html: string, width?: number, height?: number, preview?: { title: string, subtitle?: string, description?: string, icon?: string (emoji), metrics?: Array<{ label: string, value: string }> } }. ' +
     'When preview is provided, a compact preview card is shown inline in chat with the title, subtitle, description, metric pills, and a "View Output" button that opens the full page.\n' +
@@ -58,7 +58,7 @@ export const uiShowTool: Tool = {
     'Presenting choices: When the user needs to make a choice or provide structured input, prefer interactive surfaces over plain text. ' +
     'Use list (2-8 options, single select), form (structured input with typed fields), confirmation (destructive/important actions), or table (data review with selectable rows).\n\n' +
     'Tool chaining: After gathering data via tools (web search, browser, APIs), synthesize results into a visual output. ' +
-    'Exception: get_weather automatically renders its own surface — do NOT call ui_show or app_create after get_weather, just respond with a brief summary.\n\n' +
+    'Exception: get_weather automatically renders its own surface with live API data — do NOT call ui_show, ui_update, app_create, or web_search after get_weather. Just respond with a brief summary.\n\n' +
     'Task progress for multi-step workflows: Create a card with template "task_progress" and templateData containing steps. ' +
     'As each step completes, call ui_update to patch data.templateData (not top-level fields). ' +
     'Set templateData.status to "completed" or "failed" when done.',

@@ -44,6 +44,13 @@ mock.module('../util/logger.js', () => ({
     warn: () => {},
     error: () => {},
   }),
+  isDebug: () => false,
+}));
+
+// Mock conversation title service
+mock.module('../memory/conversation-title-service.js', () => ({
+  GENERATING_TITLE: 'Generating title...',
+  queueGenerateConversationTitle: () => {},
 }));
 
 // Import after mocks are set up
@@ -120,12 +127,12 @@ describe('AgentHeartbeatService', () => {
     expect(processMessageCalls[0].content).toContain('Check the current weather');
   });
 
-  test('creates background conversation titled "Agent Heartbeat"', async () => {
+  test('creates background conversation with generating title placeholder', async () => {
     const service = createService();
     await service.runOnce();
 
     expect(createdConversations).toHaveLength(1);
-    expect(createdConversations[0].title).toBe('Agent Heartbeat');
+    expect(createdConversations[0].title).toBe('Generating title...');
     expect(createdConversations[0].threadType).toBe('background');
   });
 

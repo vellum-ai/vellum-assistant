@@ -32,7 +32,7 @@
       "name": "Slack OAuth Setup",
       "description": "Create Slack App and OAuth credentials for Slack integration using browser automation",
       "emoji": "\ud83d\udd11",
-      "includes": ["browser", "public-ingress"]
+      "includes": ["browser"]
     },
     {
       "id": "telegram-setup",
@@ -66,6 +66,13 @@
       "name": "Notion",
       "description": "Read and write Notion pages and databases using the Notion API",
       "emoji": "\ud83d\udcdd"
+    },
+    {
+      "id": "oauth-setup",
+      "name": "OAuth Setup",
+      "description": "Connect any OAuth service — create app credentials and authorize via browser automation. Works for any provider with a well-known config.",
+      "emoji": "\ud83d\udd11",
+      "includes": ["browser"]
     }
   ]
 }

@@ -11,6 +11,8 @@ import {
   executeBrowserType,
   executeBrowserPressKey,
   executeBrowserScroll,
+  executeBrowserSelectOption,
+  executeBrowserHover,
   executeBrowserWaitFor,
   executeBrowserExtract,
   executeBrowserFillCredential,
@@ -144,7 +146,7 @@ registerTool(new BrowserCloseTool());
 
 class BrowserClickTool implements Tool {
   name = 'browser_click';
-  description = 'Click an element on the page. Always use element_id from browser_snapshot — do not fabricate CSS selectors. For autocomplete dropdowns, search suggestion lists, or address pickers, prefer browser_press_key with ArrowDown/ArrowUp + Enter instead of clicking dropdown items.';
+  description = 'Click an element on the page. Always use element_id from browser_snapshot — do not fabricate CSS selectors. For native <select> elements, use browser_select_option instead. For autocomplete dropdowns, search suggestion lists, or address pickers, prefer browser_press_key with ArrowDown/ArrowUp + Enter instead of clicking dropdown items.';
   category = 'browser';
   defaultRiskLevel = RiskLevel.Low;
 
@@ -312,6 +314,88 @@ class BrowserScrollTool implements Tool {
 
 registerTool(new BrowserScrollTool());
 
+// ── browser_select_option ────────────────────────────────────────────
+
+class BrowserSelectOptionTool implements Tool {
+  name = 'browser_select_option';
+  description = 'Select an option from a native <select> element. Target by element_id (from browser_snapshot) or CSS selector. Specify the option by value, label, or index.';
+  category = 'browser';
+  defaultRiskLevel = RiskLevel.Low;
+
+  getDefinition(): ToolDefinition {
+    return {
+      name: this.name,
+      description: this.description,
+      input_schema: {
+        type: 'object',
+        properties: {
+          element_id: {
+            type: 'string',
+            description: 'The element ID of the <select> from browser_snapshot (e.g. "e4").',
+          },
+          selector: {
+            type: 'string',
+            description: 'A CSS selector for the <select> element. Used as fallback when element_id is not available.',
+          },
+          value: {
+            type: 'string',
+            description: 'The value attribute of the <option> to select.',
+          },
+          label: {
+            type: 'string',
+            description: 'The visible text of the <option> to select.',
+          },
+          index: {
+            type: 'number',
+            description: 'The zero-based index of the <option> to select.',
+          },
+        },
+      },
+    };
+  }
+
+  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
+    return executeBrowserSelectOption(input, context);
+  }
+}
+
+registerTool(new BrowserSelectOptionTool());
+
+// ── browser_hover ────────────────────────────────────────────────────
+
+class BrowserHoverTool implements Tool {
+  name = 'browser_hover';
+  description = 'Hover over an element on the page. Useful for revealing hover menus, tooltips, or dropdown content. Take a browser_snapshot after hovering to see newly revealed elements.';
+  category = 'browser';
+  defaultRiskLevel = RiskLevel.Low;
+
+  getDefinition(): ToolDefinition {
+    return {
+      name: this.name,
+      description: this.description,
+      input_schema: {
+        type: 'object',
+        properties: {
+          element_id: {
+            type: 'string',
+            description: 'The element ID from a previous browser_snapshot result (e.g. "e2").',
+          },
+          selector: {
+            type: 'string',
+            description: 'A CSS selector to target. Used as fallback when element_id is not available.',
+          },
+        },
+      },
+    };
+  }
+
+  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolExecutionResult> {
+    return executeBrowserHover(input, context);
+  }
+}
+
+registerTool(new BrowserHoverTool());
+
 // ── browser_wait_for ─────────────────────────────────────────────────
 
 class BrowserWaitForTool implements Tool {
@@ -444,6 +528,8 @@ export {
   executeBrowserType,
   executeBrowserPressKey,
   executeBrowserScroll,
+  executeBrowserSelectOption,
+  executeBrowserHover,
   executeBrowserWaitFor,
   executeBrowserExtract,
   executeBrowserFillCredential,

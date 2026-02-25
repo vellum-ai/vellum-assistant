@@ -1,3 +1,4 @@
+import Carbon.HIToolbox
 import Combine
 import Foundation
 import os
@@ -15,14 +16,12 @@ public final class SettingsStore: ObservableObject {
     @Published var hasBraveKey: Bool
     @Published var hasPerplexityKey: Bool
     @Published var hasImageGenKey: Bool
-    @Published var hasOpenAIKey: Bool
     @Published var hasElevenLabsKey: Bool
     @Published var hasVercelKey: Bool = false
     @Published var maskedKey: String = ""
     @Published var maskedBraveKey: String = ""
     @Published var maskedPerplexityKey: String = ""
     @Published var maskedImageGenKey: String = ""
-    @Published var maskedOpenAIKey: String = ""
     @Published var maskedElevenLabsKey: String = ""
 
     // MARK: - Model Selection
@@ -60,6 +59,8 @@ public final class SettingsStore: ObservableObject {
     @Published var maxSteps: Double
     @Published var activityNotificationsEnabled: Bool
     @Published var globalHotkeyShortcut: String
+    @Published var quickInputHotkeyShortcut: String
+    @Published var quickInputHotkeyKeyCode: Int
 
     // MARK: - Media Embed Settings
 
@@ -105,6 +106,7 @@ public final class SettingsStore: ObservableObject {
     @Published var telegramGuardianVerificationInProgress: Bool = false
     @Published var telegramGuardianInstruction: String?
     @Published var telegramGuardianError: String?
+    @Published var telegramGuardianAlreadyBound: Bool = false
 
     // MARK: - Channel Guardian State (SMS)
 
@@ -115,6 +117,7 @@ public final class SettingsStore: ObservableObject {
     @Published var smsGuardianVerificationInProgress: Bool = false
     @Published var smsGuardianInstruction: String?
     @Published var smsGuardianError: String?
+    @Published var smsGuardianAlreadyBound: Bool = false
 
     // MARK: - Channel Guardian State (Voice)
 
@@ -125,6 +128,7 @@ public final class SettingsStore: ObservableObject {
     @Published var voiceGuardianVerificationInProgress: Bool = false
     @Published var voiceGuardianInstruction: String?
     @Published var voiceGuardianError: String?
+    @Published var voiceGuardianAlreadyBound: Bool = false
 
     // MARK: - Email Integration State
 
@@ -239,9 +243,6 @@ public final class SettingsStore: ObservableObject {
         let imageGenKey = APIKeyManager.getKey(for: "gemini")
         self.hasImageGenKey = imageGenKey != nil
         self.maskedImageGenKey = Self.maskKey(imageGenKey)
-        let openaiKey = APIKeyManager.getKey(for: "openai")
-        self.hasOpenAIKey = openaiKey != nil
-        self.maskedOpenAIKey = Self.maskKey(openaiKey)
         let elevenLabsKey = APIKeyManager.getKey(for: "elevenlabs")
         self.hasElevenLabsKey = elevenLabsKey != nil
         self.maskedElevenLabsKey = Self.maskKey(elevenLabsKey)
@@ -258,6 +259,9 @@ public final class SettingsStore: ObservableObject {
         self.activityNotificationsEnabled = UserDefaults.standard.object(forKey: "activityNotificationsEnabled") as? Bool ?? true
 
         self.globalHotkeyShortcut = UserDefaults.standard.string(forKey: "globalHotkeyShortcut") ?? "cmd+shift+g"
+        self.quickInputHotkeyShortcut = UserDefaults.standard.string(forKey: "quickInputHotkeyShortcut") ?? "cmd+shift+/"
+        let storedQIKeyCode = UserDefaults.standard.object(forKey: "quickInputHotkeyKeyCode") as? Int
+        self.quickInputHotkeyKeyCode = storedQIKeyCode ?? kVK_ANSI_Slash
 
         #if DEBUG
         self.isDevMode = UserDefaults.standard.object(forKey: "devModeEnabled") as? Bool ?? true
@@ -306,6 +310,16 @@ public final class SettingsStore: ObservableObject {
         $globalHotkeyShortcut
             .dropFirst()
             .sink { value in UserDefaults.standard.set(value, forKey: "globalHotkeyShortcut") }
+            .store(in: &cancellables)
+
+        $quickInputHotkeyShortcut
+            .dropFirst()
+            .sink { value in UserDefaults.standard.set(value, forKey: "quickInputHotkeyShortcut") }
+            .store(in: &cancellables)
+
+        $quickInputHotkeyKeyCode
+            .dropFirst()
+            .sink { value in UserDefaults.standard.set(value, forKey: "quickInputHotkeyKeyCode") }
             .store(in: &cancellables)
 
         $isDevMode
@@ -477,8 +491,13 @@ public final class SettingsStore: ObservableObject {
                         self.telegramGuardianInstruction = instruction
                     }
                     self.telegramGuardianError = nil
+                    self.telegramGuardianAlreadyBound = false
                 } else {
-                    self.telegramGuardianError = response.error
+                    let isAlreadyBound = response.error == "already_bound"
+                    self.telegramGuardianAlreadyBound = isAlreadyBound
+                    self.telegramGuardianError = isAlreadyBound
+                        ? "A guardian is already bound. Revoke it first or replace it."
+                        : response.error
                 }
             case "sms":
                 self.smsGuardianVerificationInProgress = false
@@ -494,8 +513,13 @@ public final class SettingsStore: ObservableObject {
                         self.smsGuardianInstruction = instruction
                     }
                     self.smsGuardianError = nil
+                    self.smsGuardianAlreadyBound = false
                 } else {
-                    self.smsGuardianError = response.error
+                    let isAlreadyBound = response.error == "already_bound"
+                    self.smsGuardianAlreadyBound = isAlreadyBound
+                    self.smsGuardianError = isAlreadyBound
+                        ? "A guardian is already bound. Revoke it first or replace it."
+                        : response.error
                 }
             case "voice":
                 self.voiceGuardianVerificationInProgress = false
@@ -511,8 +535,13 @@ public final class SettingsStore: ObservableObject {
                         self.voiceGuardianInstruction = instruction
                     }
                     self.voiceGuardianError = nil
+                    self.voiceGuardianAlreadyBound = false
                 } else {
-                    self.voiceGuardianError = response.error
+                    let isAlreadyBound = response.error == "already_bound"
+                    self.voiceGuardianAlreadyBound = isAlreadyBound
+                    self.voiceGuardianError = isAlreadyBound
+                        ? "A guardian is already bound. Revoke it first or replace it."
+                        : response.error
                 }
             default:
                 break
@@ -616,20 +645,6 @@ public final class SettingsStore: ObservableObject {
         maskedImageGenKey = ""
     }
 
-    func saveOpenAIKey(_ raw: String) {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        APIKeyManager.setKey(trimmed, for: "openai")
-        hasOpenAIKey = true
-        maskedOpenAIKey = Self.maskKey(trimmed)
-    }
-
-    func clearOpenAIKey() {
-        APIKeyManager.deleteKey(for: "openai")
-        hasOpenAIKey = false
-        maskedOpenAIKey = ""
-    }
-
     func saveElevenLabsKey(_ raw: String) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -670,10 +685,6 @@ public final class SettingsStore: ObservableObject {
         let imageGenKey = APIKeyManager.getKey(for: "gemini")
         hasImageGenKey = imageGenKey != nil
         maskedImageGenKey = Self.maskKey(imageGenKey)
-
-        let openaiKey = APIKeyManager.getKey(for: "openai")
-        hasOpenAIKey = openaiKey != nil
-        maskedOpenAIKey = Self.maskKey(openaiKey)
 
         let elevenLabsKey = APIKeyManager.getKey(for: "elevenlabs")
         hasElevenLabsKey = elevenLabsKey != nil
@@ -960,20 +971,23 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    func startChannelGuardianVerification(channel: String) {
+    func startChannelGuardianVerification(channel: String, rebind: Bool = false) {
         stopGuardianStatusPolling(for: channel)
         switch channel {
         case "telegram":
             telegramGuardianVerificationInProgress = true
             telegramGuardianError = nil
+            telegramGuardianAlreadyBound = false
             telegramGuardianInstruction = nil
         case "sms":
             smsGuardianVerificationInProgress = true
             smsGuardianError = nil
+            smsGuardianAlreadyBound = false
             smsGuardianInstruction = nil
         case "voice":
             voiceGuardianVerificationInProgress = true
             voiceGuardianError = nil
+            voiceGuardianAlreadyBound = false
             voiceGuardianInstruction = nil
         default:
             return
@@ -998,7 +1012,12 @@ public final class SettingsStore: ObservableObject {
             }
             pendingGuardianChallengeChannel = channel
             armGuardianChallengeTimeout(for: channel)
-            try daemonClient.sendGuardianVerification(action: "create_challenge", channel: channel, assistantId: guardianAssistantScope)
+            try daemonClient.sendGuardianVerification(
+                action: "create_challenge",
+                channel: channel,
+                assistantId: guardianAssistantScope,
+                rebind: rebind ? true : nil
+            )
         } catch {
             log.error("Failed to start \(channel) guardian verification: \(error)")
             clearGuardianChallengePending(for: channel)

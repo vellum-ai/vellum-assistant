@@ -9,13 +9,14 @@ import {
   refreshDevice,
   hashDeviceId,
 } from '../../daemon/approved-devices-store.js';
+import type { ServerMessage } from '../../daemon/ipc-contract.js';
 
 const log = getLogger('runtime-http');
 
 export interface PairingHandlerContext {
   pairingStore: PairingStore;
   bearerToken: string | undefined;
-  pairingBroadcast?: (msg: { type: string; [key: string]: unknown }) => void;
+  pairingBroadcast?: (msg: ServerMessage) => void;
 }
 
 /**

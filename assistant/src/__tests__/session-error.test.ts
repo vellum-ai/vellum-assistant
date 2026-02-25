@@ -128,7 +128,7 @@ describe('classifySessionError', () => {
       it(`classifies "${msg}" as PROVIDER_API with timeout message`, () => {
         const result = classifySessionError(new Error(msg), baseCtx);
         expect(result.code).toBe('PROVIDER_API');
-        expect(result.userMessage).toContain('took too long');
+        expect(result.userMessage).toContain('timed out');
         expect(result.retryable).toBe(true);
       });
     }
@@ -141,7 +141,7 @@ describe('classifySessionError', () => {
     it('does not steal "Gateway timeout" from PROVIDER_API', () => {
       const result = classifySessionError(new Error('Gateway timeout'), baseCtx);
       expect(result.code).toBe('PROVIDER_API');
-      expect(result.userMessage).toContain('returned an error');
+      expect(result.userMessage).toContain('returned a server error');
     });
   });
 
@@ -223,10 +223,11 @@ describe('classifySessionError', () => {
   });
 
   describe('generic errors', () => {
-    it('classifies unknown errors as SESSION_PROCESSING_FAILED', () => {
+    it('classifies unknown errors as SESSION_PROCESSING_FAILED with error summary', () => {
       const result = classifySessionError(new Error('something completely unexpected'), baseCtx);
       expect(result.code).toBe('SESSION_PROCESSING_FAILED');
       expect(result.retryable).toBe(false);
+      expect(result.userMessage).toContain('something completely unexpected');
     });
 
     it('includes debugDetails with stack trace', () => {
@@ -239,7 +240,20 @@ describe('classifySessionError', () => {
     it('handles non-Error values', () => {
       const result = classifySessionError('plain string error', baseCtx);
       expect(result.code).toBe('SESSION_PROCESSING_FAILED');
+      expect(result.userMessage).toContain('plain string error');
       expect(result.debugDetails).toBe('plain string error');
+    });
+
+    it('falls back to generic message for empty error', () => {
+      const result = classifySessionError(new Error(''), baseCtx);
+      expect(result.code).toBe('SESSION_PROCESSING_FAILED');
+      expect(result.userMessage).toBe('Something went wrong processing your message. Please try again.');
+    });
+
+    it('skips leading newlines to find first non-empty line', () => {
+      const result = classifySessionError(new Error('\n\nactual error on line 3'), baseCtx);
+      expect(result.code).toBe('SESSION_PROCESSING_FAILED');
+      expect(result.userMessage).toContain('actual error on line 3');
     });
   });
 

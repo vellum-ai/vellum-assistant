@@ -123,7 +123,9 @@ export class AssistantEventHub {
     for (const entry of snapshot) {
       if (!entry.active) continue;
       if (entry.filter.assistantId !== event.assistantId) continue;
-      if (entry.filter.sessionId != null && entry.filter.sessionId !== event.sessionId) continue;
+      // System events (no sessionId) match all subscribers; scoped events
+      // must match the subscriber's sessionId filter when present.
+      if (event.sessionId != null && entry.filter.sessionId != null && entry.filter.sessionId !== event.sessionId) continue;
       try {
         await entry.callback(event);
       } catch (err) {

@@ -2,7 +2,7 @@ import type { GatewayConfig } from "../config.js";
 import { getLogger } from "../logger.js";
 import { resolveAssistant, isRejection } from "../routing/resolve-assistant.js";
 import type { RouteResult } from "../routing/types.js";
-import { forwardToRuntime } from "../runtime/client.js";
+import { forwardToRuntime, CircuitBreakerOpenError } from "../runtime/client.js";
 import type { RuntimeInboundResponse } from "../runtime/client.js";
 import type { GatewayInboundEventV1 } from "../types.js";
 
@@ -111,6 +111,11 @@ export async function handleInbound(
 
     return { forwarded: true, rejected: false, runtimeResponse: response };
   } catch (err) {
+    // Let CircuitBreakerOpenError propagate so webhook handlers can
+    // return 503 + Retry-After instead of 500, which would cause
+    // Telegram (and similar transports) to retry immediately.
+    if (err instanceof CircuitBreakerOpenError) throw err;
+
     log.error(
       { err, assistantId: routing.assistantId },
       "Failed to forward inbound event to runtime",

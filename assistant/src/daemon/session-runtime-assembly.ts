@@ -16,7 +16,7 @@ import { join } from 'node:path';
  * interacting.  Used to gate UI-specific references and permission asks.
  */
 export interface ChannelCapabilities {
-  /** The raw channel identifier (e.g. "macos", "telegram", "sms"). */
+  /** The raw channel identifier (e.g. "vellum", "telegram", "sms"). */
   channel: string;
   /** Whether this channel can render the dashboard UI (apps, dynamic pages). */
   dashboardCapable: boolean;
@@ -48,17 +48,17 @@ export function resolveChannelCapabilities(sourceChannel?: string | null): Chann
     case 'dashboard':
     case 'http-api':
     case 'mac':
-      channel = 'macos';
+    case 'macos':
+    case 'ios':
+      channel = 'vellum';
       break;
     default:
       channel = sourceChannel;
   }
 
   switch (channel) {
-    case 'macos':
+    case 'vellum':
       return { channel, dashboardCapable: true, supportsDynamicUi: true, supportsVoiceInput: true };
-    case 'ios':
-      return { channel, dashboardCapable: false, supportsDynamicUi: false, supportsVoiceInput: true };
     case 'telegram':
     case 'sms':
     case 'voice':
@@ -259,6 +259,26 @@ export function injectActiveSurfaceContext(message: Message, ctx: ActiveSurfaceC
       ...message.content,
     ],
   };
+}
+
+/**
+ * Append voice call-control protocol instructions to the last user
+ * message so the model knows how to emit control markers during voice
+ * turns routed through the session pipeline.
+ */
+export function injectVoiceCallControlContext(message: Message, prompt: string): Message {
+  return {
+    ...message,
+    content: [
+      ...message.content,
+      { type: 'text', text: prompt },
+    ],
+  };
+}
+
+/** Strip `<voice_call_control>` blocks injected by `injectVoiceCallControlContext`. */
+export function stripVoiceCallControlContext(messages: Message[]): Message[] {
+  return stripUserTextBlocksByPrefix(messages, ['<voice_call_control>']);
 }
 
 /**
@@ -514,6 +534,7 @@ const RUNTIME_INJECTION_PREFIXES = [
   '<channel_command_context>',
   '<channel_turn_context>',
   '<guardian_context>',
+  '<voice_call_control>',
   '<workspace_top_level>',
   TEMPORAL_INJECTED_PREFIX,
   '<active_workspace>',
@@ -558,9 +579,20 @@ export function applyRuntimeInjections(
     channelTurnContext?: ChannelTurnContextParams | null;
     guardianContext?: GuardianRuntimeContext | null;
     temporalContext?: string | null;
+    voiceCallControlPrompt?: string | null;
   },
 ): Message[] {
   let result = runMessages;
+
+  if (options.voiceCallControlPrompt) {
+    const userTail = result[result.length - 1];
+    if (userTail && userTail.role === 'user') {
+      result = [
+        ...result.slice(0, -1),
+        injectVoiceCallControlContext(userTail, options.voiceCallControlPrompt),
+      ];
+    }
+  }
 
   if (options.softConflictInstruction) {
     const userTail = result[result.length - 1];

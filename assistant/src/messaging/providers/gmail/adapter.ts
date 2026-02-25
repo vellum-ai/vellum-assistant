@@ -167,6 +167,7 @@ export const gmailMessagingProvider: MessagingProvider = {
       id: msg.id,
       timestamp: msg.internalDate ? parseInt(msg.internalDate, 10) : Date.now(),
       conversationId: msg.threadId,
+      threadId: msg.threadId,
     };
   },
 

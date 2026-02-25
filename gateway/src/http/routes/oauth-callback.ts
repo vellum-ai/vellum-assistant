@@ -4,6 +4,38 @@ import { forwardOAuthCallback } from "../../runtime/client.js";
 
 const log = getLogger("oauth-callback");
 
+// Minimum length for the state parameter. The runtime generates 32 hex chars
+// (16 random bytes); reject anything shorter to block trivially guessable values.
+const MIN_STATE_LENGTH = 32;
+
+// Track consumed state tokens to prevent replay attacks. Each entry has a TTL
+// so the set doesn't grow unboundedly.
+const CONSUMED_STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const consumedStates = new Map<string, ReturnType<typeof setTimeout>>();
+
+function markStateConsumed(state: string): void {
+  const timer = setTimeout(() => {
+    consumedStates.delete(state);
+  }, CONSUMED_STATE_TTL_MS);
+  // Unref so the timer doesn't prevent process exit
+  if (typeof timer === "object" && "unref" in timer) timer.unref();
+  consumedStates.set(state, timer);
+}
+
+function rollBackConsumedState(state: string): void {
+  const timer = consumedStates.get(state);
+  if (timer !== undefined) {
+    clearTimeout(timer);
+    consumedStates.delete(state);
+  }
+}
+
+/** Exported for testing — clears all consumed state entries. */
+export function _resetConsumedStates(): void {
+  for (const timer of consumedStates.values()) clearTimeout(timer);
+  consumedStates.clear();
+}
+
 export function createOAuthCallbackHandler(config: GatewayConfig) {
   return async (req: Request): Promise<Response> => {
     const url = new URL(req.url);
@@ -17,6 +49,28 @@ export function createOAuthCallbackHandler(config: GatewayConfig) {
         headers: { "Content-Type": "text/html" },
       });
     }
+
+    if (state.length < MIN_STATE_LENGTH) {
+      log.warn({ stateLength: state.length }, "OAuth state too short");
+      return new Response(renderErrorPage("Invalid state parameter"), {
+        status: 400,
+        headers: { "Content-Type": "text/html" },
+      });
+    }
+
+    if (consumedStates.has(state)) {
+      log.warn("OAuth state replay attempt blocked");
+      return new Response(renderErrorPage("State parameter already used"), {
+        status: 400,
+        headers: { "Content-Type": "text/html" },
+      });
+    }
+
+    // Optimistically mark consumed so concurrent duplicate callbacks are
+    // blocked while the runtime processes this one. Rolled back on transient
+    // failures (5xx, transport errors, 401/403 auth failures) — deterministic
+    // rejections (other 4xx) keep state consumed to prevent replay attacks.
+    markStateConsumed(state);
 
     try {
       const response = await forwardOAuthCallback(
@@ -33,11 +87,22 @@ export function createOAuthCallbackHandler(config: GatewayConfig) {
         });
       }
 
+      // Roll back consumed state for transient failures so the user can retry.
+      // 401/403 are transient auth failures (token/secret mismatch) where the
+      // runtime rejected the request before processing the callback state.
+      // 5xx are server errors. Both are safe to retry.
+      // Other 4xx (400/404/422) are deterministic rejections — keep state
+      // consumed to prevent replay/spam.
+      if (response.status >= 500 || response.status === 401 || response.status === 403) {
+        rollBackConsumedState(state);
+      }
       return new Response(
         renderErrorPage("Authorization failed. Please try again."),
         { status: 400, headers: { "Content-Type": "text/html" } },
       );
     } catch (err) {
+      // Transport errors are transient — roll back so the callback can be retried.
+      rollBackConsumedState(state);
       log.error({ err }, "Failed to forward OAuth callback to runtime");
       return new Response(
         renderErrorPage("Authorization failed. Please try again."),

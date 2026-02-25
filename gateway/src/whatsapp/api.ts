@@ -151,6 +151,145 @@ export async function sendWhatsAppTextMessage(
   );
 }
 
+export interface WhatsAppMediaUploadResult {
+  id: string;
+}
+
+/**
+ * Upload media to WhatsApp Business Cloud API and get a reusable media ID.
+ * The media ID can then be used in sendWhatsAppMediaMessage.
+ */
+export async function uploadWhatsAppMedia(
+  config: GatewayConfig,
+  blob: Blob,
+  filename: string,
+  mimeType: string,
+): Promise<WhatsAppMediaUploadResult> {
+  if (!config.whatsappPhoneNumberId || !config.whatsappAccessToken) {
+    throw new Error("WhatsApp credentials not configured");
+  }
+
+  return retryableWhatsAppFetch<WhatsAppMediaUploadResult>(
+    config,
+    "uploadMedia",
+    () => {
+      const form = new FormData();
+      form.set("messaging_product", "whatsapp");
+      form.set("file", blob, filename);
+      form.set("type", mimeType);
+
+      return fetchImpl(
+        `${WHATSAPP_API_BASE}/${config.whatsappPhoneNumberId}/media`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${config.whatsappAccessToken}`,
+          },
+          body: form,
+          signal: AbortSignal.timeout(config.whatsappTimeoutMs),
+        },
+      );
+    },
+  );
+}
+
+export type WhatsAppMediaType = "image" | "video" | "document";
+
+/**
+ * Send a media message via the WhatsApp Business Cloud API.
+ * Requires a previously uploaded media ID from uploadWhatsAppMedia.
+ */
+export async function sendWhatsAppMediaMessage(
+  config: GatewayConfig,
+  to: string,
+  mediaType: WhatsAppMediaType,
+  mediaId: string,
+  filename?: string,
+  caption?: string,
+): Promise<WhatsAppSendMessageResult> {
+  if (!config.whatsappPhoneNumberId || !config.whatsappAccessToken) {
+    throw new Error("WhatsApp credentials not configured");
+  }
+
+  const mediaPayload: Record<string, unknown> = { id: mediaId };
+  if (caption) mediaPayload.caption = caption;
+  // WhatsApp only supports filename on document type
+  if (mediaType === "document" && filename) mediaPayload.filename = filename;
+
+  return retryableWhatsAppFetch<WhatsAppSendMessageResult>(
+    config,
+    "sendMediaMessage",
+    () =>
+      fetchImpl(
+        `${WHATSAPP_API_BASE}/${config.whatsappPhoneNumberId}/messages`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${config.whatsappAccessToken}`,
+          },
+          body: JSON.stringify({
+            messaging_product: "whatsapp",
+            recipient_type: "individual",
+            to,
+            type: mediaType,
+            [mediaType]: mediaPayload,
+          }),
+          signal: AbortSignal.timeout(config.whatsappTimeoutMs),
+        },
+      ),
+  );
+}
+
+/**
+ * Send an interactive button message via the WhatsApp Business Cloud API.
+ * Used for approval prompts where the user can tap a button to respond.
+ * WhatsApp supports up to 3 reply buttons per interactive message.
+ */
+export async function sendWhatsAppInteractiveMessage(
+  config: GatewayConfig,
+  to: string,
+  bodyText: string,
+  buttons: Array<{ id: string; title: string }>,
+): Promise<WhatsAppSendMessageResult> {
+  if (!config.whatsappPhoneNumberId || !config.whatsappAccessToken) {
+    throw new Error("WhatsApp credentials not configured");
+  }
+
+  return retryableWhatsAppFetch<WhatsAppSendMessageResult>(
+    config,
+    "sendInteractiveMessage",
+    () =>
+      fetchImpl(
+        `${WHATSAPP_API_BASE}/${config.whatsappPhoneNumberId}/messages`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${config.whatsappAccessToken}`,
+          },
+          body: JSON.stringify({
+            messaging_product: "whatsapp",
+            recipient_type: "individual",
+            to,
+            type: "interactive",
+            interactive: {
+              type: "button",
+              body: { text: bodyText },
+              action: {
+                buttons: buttons.map((b) => ({
+                  type: "reply",
+                  reply: { id: b.id, title: b.title },
+                })),
+              },
+            },
+          }),
+          signal: AbortSignal.timeout(config.whatsappTimeoutMs),
+        },
+      ),
+  );
+}
+
 /**
  * Mark an incoming WhatsApp message as read.
  * Best-effort — callers should not propagate errors from this.

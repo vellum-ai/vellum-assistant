@@ -48,6 +48,8 @@ export type Page = {
   click(selector: string, options?: { timeout?: number }): Promise<void>;
   fill(selector: string, value: string, options?: { timeout?: number }): Promise<void>;
   press(selector: string, key: string, options?: { timeout?: number }): Promise<void>;
+  selectOption(selector: string, values: Record<string, string | number>, options?: { timeout?: number }): Promise<string[]>;
+  hover(selector: string, options?: { timeout?: number }): Promise<void>;
   waitForSelector(selector: string, options?: { timeout?: number }): Promise<unknown>;
   waitForFunction(expression: string, options?: { timeout?: number }): Promise<unknown>;
   route(pattern: string, handler: RouteHandler): Promise<void>;
@@ -792,7 +794,7 @@ class BrowserManager {
     // Check if an unconsumed download already completed for this session
     const existing = this.downloads.get(sessionId);
     if (existing && existing.length > 0) {
-      const info = existing.pop()!;
+      const info = existing.shift()!;
       if (existing.length === 0) this.downloads.delete(sessionId);
       return Promise.resolve(info);
     }

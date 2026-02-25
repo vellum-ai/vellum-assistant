@@ -1,8 +1,40 @@
 # Vellum Assistant
 
+[![CI](https://github.com/vellum-ai/vellum-assistant/actions/workflows/ci-main-assistant.yaml/badge.svg)](https://github.com/vellum-ai/vellum-assistant/actions/workflows/ci-main-assistant.yaml)
+
 AI-powered assistant platform by Vellum.
 
-## Architecture
+## Table of Contents
+
+- [**Overview**](#overview)
+  - Architecture
+  - Repository Structure
+- [**Getting Started**](#getting-started)
+  - Prerequisites
+  - Git Hooks
+  - Assistant Runtime
+- [**Security & Permissions**](#security--permissions)
+  - Sandbox and Host Access Model
+  - Credential Storage and Secret Security
+  - Permission Modes and Trust Rules
+- [**Features & Capabilities**](#features--capabilities)
+  - Integrations
+  - Dynamic Skill Authoring
+  - Browser Capabilities
+  - Assistant Attachments
+  - Inline Media Embeds
+- [**API & Communication**](#api--communication)
+  - Assistant Events SSE Stream
+  - Remote Access
+- [**Development Workflow**](#development-workflow)
+  - Claude Code Workflow
+  - Release Management
+- [**License**](#license)
+
+## Overview
+
+<details>
+<summary><b>Architecture</b></summary>
 
 The platform has three main components:
 
@@ -10,7 +42,10 @@ The platform has three main components:
 - **Native clients** (`clients/`): Swift Package with macOS and iOS apps sharing ~45-50% of code via `VellumAssistantShared`. The macOS app is a menu bar assistant with computer-use (accessibility + CGEvent). The iOS app is a chat client supporting standalone mode (direct Anthropic API) and connected-to-Mac mode (TCP proxy through the daemon).
 - **Gateway** (`gateway/`): Standalone Bun + TypeScript service that serves as the public ingress boundary for all external webhooks and callbacks. Owns Telegram integration end-to-end (receives webhooks, routes to assistants, delivers replies). Routes Twilio voice and SMS webhooks, handles OAuth callbacks, and optionally acts as an authenticated reverse proxy for the assistant runtime API (client → gateway → runtime).
 
-## Repository Structure
+</details>
+
+<details>
+<summary><b>Repository Structure</b></summary>
 
 ```
 /
@@ -23,11 +58,19 @@ The platform has three main components:
 └── .github/           # GitHub Actions workflows
 ```
 
-## Prerequisites
+</details>
+
+## Getting Started
+
+<details>
+<summary><b>Prerequisites</b></summary>
 
 - **Docker** is required. The sandbox uses Docker as its default backend for container-level isolation. Install [Docker Desktop](https://docs.docker.com/get-docker/) (macOS/Windows) or Docker Engine (Linux) and ensure the daemon is running before starting the assistant.
 
-## Git Hooks
+</details>
+
+<details>
+<summary><b>Git Hooks</b></summary>
 
 This repository includes git hooks to help maintain code quality and security. The hooks are installed by running the install script directly.
 
@@ -38,7 +81,10 @@ To manually install or update hooks:
 
 See [.githooks/README.md](./.githooks/README.md) for more details about available hooks.
 
-## Assistant Runtime
+</details>
+
+<details>
+<summary><b>Assistant Runtime</b></summary>
 
 The assistant runtime lives in `/assistant`.
 
@@ -50,7 +96,12 @@ bun run src/index.ts daemon start
 
 > **Note:** Some dependencies (`agentmail`, `@pydantic/logfire-node`) are optional at runtime but required for full `tsc --noEmit` type-checking to pass. They are installed automatically by `bun install`.
 
-## Sandbox and Host Access Model
+</details>
+
+## Security & Permissions
+
+<details>
+<summary><b>Sandbox and Host Access Model</b></summary>
 
 - Default tool workspace: `~/.vellum/workspace` (persistent global sandbox filesystem).
 - Sandbox-scoped tools: `file_read`, `file_write`, `file_edit`, and `bash`.
@@ -141,7 +192,10 @@ Host tools (`host_bash`, `host_file_read`, `host_file_write`, `host_file_edit`) 
 
 Run `vellum doctor` for a full diagnostic check including sandbox backend status.
 
-## Credential Storage and Secret Security
+</details>
+
+<details>
+<summary><b>Credential Storage and Secret Security</b></summary>
 
 The assistant can store and use credentials (API keys, tokens, passwords) without exposing secret values to the LLM or logs.
 
@@ -192,129 +246,10 @@ If a proxied command receives a 401 or 403 despite having the correct credential
 4. **Check the header template**: Ensure the credential has an `injectionTemplate` with `injectionType: "header"` and the correct `headerName` (e.g., `Authorization`) and `valuePrefix` (e.g., `Bearer `).
 5. **Enable debug logging**: Set `LOG_LEVEL=debug` to see decision traces from the policy engine and rewrite callback, including which patterns matched and which credential was selected.
 
-## Integrations
+</details>
 
-Vellum integrates with third-party services via OAuth2. Each integration is exposed as a bundled skill with its own set of tools.
-
-### Messaging (Gmail, Slack, Telegram, SMS/Twilio)
-
-The unified messaging layer provides platform-agnostic tools (`messaging_send`, `messaging_read`, `messaging_search`, etc.) that delegate to provider adapters. Gmail and Slack each implement the `MessagingProvider` interface. Telegram is also supported as a messaging provider, though with limited capabilities compared to Slack and Gmail: bots can send messages to known chat IDs but cannot list conversations, retrieve message history, or search messages (Bot API limitations). Bots can only message users or groups that have previously interacted with the bot. SMS is supported via Twilio as a send-only provider — it can send outbound SMS messages but does not support listing conversations, reading history, or searching (SMS is stateless). **Note:** SMS only — MMS (media messages) is not currently supported. Platform-specific tools (e.g. `gmail_archive`, `slack_add_reaction`) extend beyond the generic interface where needed.
-
-Connect Gmail and Slack via the Settings UI or `integration_connect` IPC message. OAuth2 tokens are stored in the credential vault — the LLM never sees raw tokens. Telegram uses a bot token (not OAuth) — see the `telegram-setup` skill for setup instructions. SMS uses Twilio credentials (Account SID + Auth Token) — see the `twilio-setup` skill for setup instructions.
-
-#### Per-assistant phone number mapping (SMS)
-
-In multi-assistant setups, each assistant can have its own dedicated Twilio phone number. Inbound SMS is routed to the correct assistant based on which number received the message, and outbound SMS is sent from the assistant's mapped number.
-
-Configure via `sms.assistantPhoneNumbers` in the gateway config file (`~/.vellum/workspace/config.json`):
-
-```json
-{
-  "sms": {
-    "assistantPhoneNumbers": {
-      "assistant-id-1": "+15551234567",
-      "assistant-id-2": "+15559876543"
-    }
-  }
-}
-```
-
-The `TWILIO_PHONE_NUMBER` environment variable (or `sms.phoneNumber` in the config file) serves as the global fallback when no per-assistant mapping matches. If an `assistantId` is provided in a `/deliver/sms` request and has a mapped phone number, that number is used as the sender; otherwise, the global `TWILIO_PHONE_NUMBER` is used.
-
-### Twitter (X)
-
-Twitter integration supports two operation paths: **OAuth** (X API v2) and **Browser** (CDP). A strategy router selects which path is used for each operation.
-
-- **OAuth path**: Uses stored OAuth2 tokens via `withValidToken('integration:twitter', ...)` to call the X API v2 directly. Supports `post` and `reply`. Most reliable when developer credentials are configured — no browser session needed for these operations.
-
-- **Browser path** (CDP): Uses Chrome DevTools Protocol to execute operations through an authenticated x.com browser tab. Supports all operations including read-only ones (timeline, search, home, notifications, bookmarks, likes, followers, following, media). Quick to start — no developer credentials needed. Session cookies are captured via Ride Shotgun (`vellum x refresh`).
-
-- **Strategy selection**: `vellum x strategy set <oauth|browser|auto>` controls which path is used. Default is `auto`, which prefers OAuth when credentials are available and the operation is supported, then falls back to browser. The strategy is persisted in config as `twitterOperationStrategy`.
-
-**OAuth2 PKCE setup** (`local_byo` mode): The user provides their own Twitter OAuth2 Client ID (and optional Client Secret). The daemon runs a standard OAuth2 PKCE flow against `twitter.com/i/oauth2/authorize` and `api.x.com/2/oauth2/token`. The flow verifies the user's identity (`GET /2/users/me`) and stores tokens in the vault for use by both identity verification and the OAuth operation path. Connect via the Settings UI or `twitter_auth_start` IPC message.
-
-**Available tools**: `twitter_post` — posts a tweet via the strategy router (OAuth or CDP depending on configuration). Read operations (timeline, search, etc.) use the browser path.
-
-**Setup**: For OAuth posting, store your Twitter app's Client ID via the credential vault (`credential:integration:twitter:oauth_client_id`), optionally store a Client Secret, and initiate the OAuth2 flow from the Settings UI. For browser operations, ensure Chrome is running with remote debugging enabled and an authenticated x.com tab.
-
-## Dynamic Skill Authoring
-
-The assistant can create, test, and persist new skills at runtime. This is useful when no existing tool or skill covers a user's need.
-
-### Workflow
-
-1. **Evaluate**: The assistant drafts a TypeScript snippet and tests it in a sandbox via `evaluate_typescript_code`. Iterates until it passes.
-2. **Persist**: After successful evaluation and explicit user consent, the assistant calls `scaffold_managed_skill` to write the skill to `~/.vellum/workspace/skills/<id>/`.
-3. **Load**: The assistant calls `skill_load` with the new skill ID to load its instructions.
-4. **Delete**: To remove a managed skill, use `delete_managed_skill`.
-
-### Tools
-
-| Tool | Risk Level | Description |
-|------|-----------|-------------|
-| `evaluate_typescript_code` | High | Run a TypeScript snippet in a sandbox. Returns structured JSON with `ok`, `exitCode`, `result`, `stdout`, `stderr`. |
-| `scaffold_managed_skill` | High | Write a managed skill to `~/.vellum/workspace/skills/<id>/`. Creates `SKILL.md` with frontmatter (including optional `includes` for child skills) and updates `SKILLS.md` index. |
-| `delete_managed_skill` | High | Remove a managed skill directory and its index entry. |
-
-All three tools require explicit user approval before execution (Risk Level = High).
-
-### Constraints
-
-- Snippets must export a `default` or `run` function with signature `(input: unknown) => unknown | Promise<unknown>`.
-- If evaluation fails after 3 attempts, the assistant asks for user guidance instead of retrying.
-- After a skill is written or deleted, the file watcher triggers session eviction. The next turn runs in a fresh session.
-- Managed skills appear in the macOS Settings UI with Inspect and Delete controls.
-
-### Child Skill Includes
-
-Skills can declare relationships to other skills via the `includes` frontmatter field. This is metadata-only — it does **not** auto-activate child tools or instructions.
-
-```yaml
----
-name: "Parent Workflow"
-description: "Orchestrates sub-tasks"
-includes: ["data-analysis", "report-generator"]
----
-```
-
-When a parent skill is loaded via `skill_load`:
-- The include graph is validated recursively (missing children and cycles are rejected).
-- Immediate child metadata (ID, name, description, path) is shown in the output.
-- Child skills are **not** automatically activated — the agent must explicitly call `skill_load` for each child it needs.
-
-The `scaffold_managed_skill` tool accepts an optional `includes` array to set this metadata when creating managed skills.
-
-## Browser Capabilities
-
-Web browsing is provided by the bundled `browser` skill. Browser tools are not available by default — the skill must be loaded first.
-
-### Activating browser tools
-
-There are two ways to activate browser capabilities:
-
-1. **Slash command**: Use `/browser` to explicitly load the browser skill.
-2. **Automatic loading**: When the agent determines that browser capabilities are needed, it calls `skill_load` to load the skill automatically.
-
-Once loaded, the following tools become available for the remainder of the session:
-
-| Tool | Description |
-|------|-------------|
-| `browser_navigate` | Navigate to a URL |
-| `browser_snapshot` | List interactive elements on the current page |
-| `browser_screenshot` | Take a visual screenshot |
-| `browser_close` | Close the browser page |
-| `browser_click` | Click an element |
-| `browser_type` | Type text into an input |
-| `browser_press_key` | Press a keyboard key |
-| `browser_wait_for` | Wait for a condition |
-| `browser_extract` | Extract page text content |
-| `browser_fill_credential` | Fill a stored credential into a form field |
-
-### Permissions
-
-All `browser_*` tools are declared as low-risk. The system seeds default trust rules for `skill_load` and every `browser_*` tool, so they are auto-allowed in both legacy and strict permission modes out of the box. The exception is `browser_navigate` (and `web_fetch`) with `allow_private_network=true` — these are elevated to high-risk and will prompt for approval unless a matching trust rule has `allowHighRisk: true`. Users can override the default rules via `~/.vellum/protected/trust.json` if they want to require explicit approval (default rules cannot be removed, only disabled).
-
-## Permission Modes and Trust Rules
+<details>
+<summary><b>Permission Modes and Trust Rules</b></summary>
 
 The assistant uses a permission system to control which tool actions the agent can execute without explicit user approval. Permission behavior is configured via `permissions.mode`:
 
@@ -380,7 +315,143 @@ When `file_write`, `file_edit`, `host_file_write`, or `host_file_edit` targets a
 
 See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full permission evaluation flow diagrams and [`assistant/docs/skills.md`](assistant/docs/skills.md) for detailed skills security documentation.
 
-## Assistant Attachments
+</details>
+
+## Features & Capabilities
+
+<details>
+<summary><b>Integrations</b></summary>
+
+Vellum integrates with third-party services via OAuth2. Each integration is exposed as a bundled skill with its own set of tools.
+
+### Messaging (Gmail, Slack, Telegram, SMS/Twilio)
+
+The unified messaging layer provides platform-agnostic tools (`messaging_send`, `messaging_read`, `messaging_search`, etc.) that delegate to provider adapters. Gmail and Slack each implement the `MessagingProvider` interface. Telegram is also supported as a messaging provider, though with limited capabilities compared to Slack and Gmail: bots can send messages to known chat IDs but cannot list conversations, retrieve message history, or search messages (Bot API limitations). Bots can only message users or groups that have previously interacted with the bot. SMS is supported via Twilio as a send-only provider — it can send outbound SMS messages but does not support listing conversations, reading history, or searching (SMS is stateless). **Note:** SMS only — MMS (media messages) is not currently supported. Platform-specific tools (e.g. `gmail_archive`, `slack_add_reaction`) extend beyond the generic interface where needed.
+
+Connect Gmail and Slack via the Settings UI or `integration_connect` IPC message. OAuth2 tokens are stored in the credential vault — the LLM never sees raw tokens. Telegram uses a bot token (not OAuth) — see the `telegram-setup` skill for setup instructions. SMS uses Twilio credentials (Account SID + Auth Token) — see the `twilio-setup` skill for setup instructions.
+
+#### Per-assistant phone number mapping (SMS)
+
+In multi-assistant setups, each assistant can have its own dedicated Twilio phone number. Inbound SMS is routed to the correct assistant based on which number received the message, and outbound SMS is sent from the assistant's mapped number.
+
+Configure via `sms.assistantPhoneNumbers` in the gateway config file (`~/.vellum/workspace/config.json`):
+
+```json
+{
+  "sms": {
+    "assistantPhoneNumbers": {
+      "assistant-id-1": "+15551234567",
+      "assistant-id-2": "+15559876543"
+    }
+  }
+}
+```
+
+The `TWILIO_PHONE_NUMBER` environment variable (or `sms.phoneNumber` in the config file) serves as the global fallback when no per-assistant mapping matches. If an `assistantId` is provided in a `/deliver/sms` request and has a mapped phone number, that number is used as the sender; otherwise, the global `TWILIO_PHONE_NUMBER` is used.
+
+### Twitter (X)
+
+Twitter integration supports two operation paths: **OAuth** (X API v2) and **Browser** (CDP). A strategy router selects which path is used for each operation.
+
+- **OAuth path**: Uses stored OAuth2 tokens via `withValidToken('integration:twitter', ...)` to call the X API v2 directly. Supports `post` and `reply`. Most reliable when developer credentials are configured — no browser session needed for these operations.
+
+- **Browser path** (CDP): Uses Chrome DevTools Protocol to execute operations through an authenticated x.com browser tab. Supports all operations including read-only ones (timeline, search, home, notifications, bookmarks, likes, followers, following, media). Quick to start — no developer credentials needed. Session cookies are captured via Ride Shotgun (`vellum x refresh`).
+
+- **Strategy selection**: `vellum x strategy set <oauth|browser|auto>` controls which path is used. Default is `auto`, which prefers OAuth when credentials are available and the operation is supported, then falls back to browser. The strategy is persisted in config as `twitterOperationStrategy`.
+
+**OAuth2 PKCE setup** (`local_byo` mode): The user provides their own Twitter OAuth2 Client ID (and optional Client Secret). The daemon runs a standard OAuth2 PKCE flow against `twitter.com/i/oauth2/authorize` and `api.x.com/2/oauth2/token`. The flow verifies the user's identity (`GET /2/users/me`) and stores tokens in the vault for use by both identity verification and the OAuth operation path. Connect via the Settings UI or `twitter_auth_start` IPC message.
+
+**Available tools**: `twitter_post` — posts a tweet via the strategy router (OAuth or CDP depending on configuration). Read operations (timeline, search, etc.) use the browser path.
+
+**Setup**: For OAuth posting, store your Twitter app's Client ID via the credential vault (`credential:integration:twitter:oauth_client_id`), optionally store a Client Secret, and initiate the OAuth2 flow from the Settings UI. For browser operations, ensure Chrome is running with remote debugging enabled and an authenticated x.com tab.
+
+</details>
+
+<details>
+<summary><b>Dynamic Skill Authoring</b></summary>
+
+The assistant can create, test, and persist new skills at runtime. This is useful when no existing tool or skill covers a user's need.
+
+### Workflow
+
+1. **Evaluate**: The assistant drafts a TypeScript snippet and tests it in a sandbox via `evaluate_typescript_code`. Iterates until it passes.
+2. **Persist**: After successful evaluation and explicit user consent, the assistant calls `scaffold_managed_skill` to write the skill to `~/.vellum/workspace/skills/<id>/`.
+3. **Load**: The assistant calls `skill_load` with the new skill ID to load its instructions.
+4. **Delete**: To remove a managed skill, use `delete_managed_skill`.
+
+### Tools
+
+| Tool | Risk Level | Description |
+|------|-----------|-------------|
+| `evaluate_typescript_code` | High | Run a TypeScript snippet in a sandbox. Returns structured JSON with `ok`, `exitCode`, `result`, `stdout`, `stderr`. |
+| `scaffold_managed_skill` | High | Write a managed skill to `~/.vellum/workspace/skills/<id>/`. Creates `SKILL.md` with frontmatter (including optional `includes` for child skills) and updates `SKILLS.md` index. |
+| `delete_managed_skill` | High | Remove a managed skill directory and its index entry. |
+
+All three tools require explicit user approval before execution (Risk Level = High).
+
+### Constraints
+
+- Snippets must export a `default` or `run` function with signature `(input: unknown) => unknown | Promise<unknown>`.
+- If evaluation fails after 3 attempts, the assistant asks for user guidance instead of retrying.
+- After a skill is written or deleted, the file watcher triggers session eviction. The next turn runs in a fresh session.
+- Managed skills appear in the macOS Settings UI with Inspect and Delete controls.
+
+### Child Skill Includes
+
+Skills can declare relationships to other skills via the `includes` frontmatter field. This is metadata-only — it does **not** auto-activate child tools or instructions.
+
+```yaml
+---
+name: "Parent Workflow"
+description: "Orchestrates sub-tasks"
+includes: ["data-analysis", "report-generator"]
+---
+```
+
+When a parent skill is loaded via `skill_load`:
+- The include graph is validated recursively (missing children and cycles are rejected).
+- Immediate child metadata (ID, name, description, path) is shown in the output.
+- Child skills are **not** automatically activated — the agent must explicitly call `skill_load` for each child it needs.
+
+The `scaffold_managed_skill` tool accepts an optional `includes` array to set this metadata when creating managed skills.
+
+</details>
+
+<details>
+<summary><b>Browser Capabilities</b></summary>
+
+Web browsing is provided by the bundled `browser` skill. Browser tools are not available by default — the skill must be loaded first.
+
+### Activating browser tools
+
+There are two ways to activate browser capabilities:
+
+1. **Slash command**: Use `/browser` to explicitly load the browser skill.
+2. **Automatic loading**: When the agent determines that browser capabilities are needed, it calls `skill_load` to load the skill automatically.
+
+Once loaded, the following tools become available for the remainder of the session:
+
+| Tool | Description |
+|------|-------------|
+| `browser_navigate` | Navigate to a URL |
+| `browser_snapshot` | List interactive elements on the current page |
+| `browser_screenshot` | Take a visual screenshot |
+| `browser_close` | Close the browser page |
+| `browser_click` | Click an element |
+| `browser_type` | Type text into an input |
+| `browser_press_key` | Press a keyboard key |
+| `browser_wait_for` | Wait for a condition |
+| `browser_extract` | Extract page text content |
+| `browser_fill_credential` | Fill a stored credential into a form field |
+
+### Permissions
+
+All `browser_*` tools are declared as low-risk. The system seeds default trust rules for `skill_load` and every `browser_*` tool, so they are auto-allowed in both legacy and strict permission modes out of the box. The exception is `browser_navigate` (and `web_fetch`) with `allow_private_network=true` — these are elevated to high-risk and will prompt for approval unless a matching trust rule has `allowHighRisk: true`. Users can override the default rules via `~/.vellum/protected/trust.json` if they want to require explicit approval (default rules cannot be removed, only disabled).
+
+</details>
+
+<details>
+<summary><b>Assistant Attachments</b></summary>
 
 The assistant can attach files and images to its replies. Attachments flow through three delivery channels:
 
@@ -421,7 +492,43 @@ The assistant creates attachments from two sources:
 
 Limits: up to 5 attachments per turn, 20 MB each.
 
-## Assistant Events SSE Stream
+</details>
+
+<details>
+<summary><b>Inline Media Embeds</b></summary>
+
+The desktop app automatically renders inline previews for images and video URLs that appear in chat messages. Instead of showing a bare link, recognized URLs are replaced with an embedded preview directly in the conversation.
+
+### Supported Content
+
+- **Images**: URLs ending in common image extensions (`.png`, `.jpg`, `.gif`, `.webp`, etc.) are rendered as inline images with lazy loading.
+- **Videos**: Embeds from YouTube, Vimeo, and Loom are rendered as click-to-play video players.
+
+URLs inside code blocks and code spans are never converted to embeds.
+
+### Settings
+
+Media embeds are controlled by settings under `ui.mediaEmbeds` in `~/.vellum/workspace/config.json`. These settings are also accessible from the standalone Settings window and the main-window settings panel.
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `enabled` | `true` | Global toggle for all inline media embeds |
+| `videoAllowlistDomains` | `["youtube.com", "youtu.be", "vimeo.com", "loom.com"]` | Domains allowed to render video embeds |
+| `enabledSince` | *(timestamp)* | Only messages created after this timestamp show embeds, so toggling the feature on does not retroactively modify older conversations |
+
+### Security and Privacy
+
+- Video embeds use **ephemeral webview storage** — no cookies or site data persist between sessions.
+- Videos require an explicit **click to play**; nothing auto-plays.
+- Image loads are **lazy** — off-screen images are not fetched until they scroll into view.
+- Video webviews are **torn down when scrolled offscreen** to free memory and stop background activity.
+
+</details>
+
+## API & Communication
+
+<details>
+<summary><b>Assistant Events SSE Stream</b></summary>
 
 The runtime HTTP server exposes a Server-Sent Events (SSE) endpoint that streams real-time assistant events for a specific conversation. This provides a transport-agnostic alternative to the Unix socket IPC for HTTP clients (web apps, remote integrations, etc.).
 
@@ -527,35 +634,10 @@ while (true) {
 }
 ```
 
-## Inline Media Embeds
+</details>
 
-The desktop app automatically renders inline previews for images and video URLs that appear in chat messages. Instead of showing a bare link, recognized URLs are replaced with an embedded preview directly in the conversation.
-
-### Supported Content
-
-- **Images**: URLs ending in common image extensions (`.png`, `.jpg`, `.gif`, `.webp`, etc.) are rendered as inline images with lazy loading.
-- **Videos**: Embeds from YouTube, Vimeo, and Loom are rendered as click-to-play video players.
-
-URLs inside code blocks and code spans are never converted to embeds.
-
-### Settings
-
-Media embeds are controlled by settings under `ui.mediaEmbeds` in `~/.vellum/workspace/config.json`. These settings are also accessible from the standalone Settings window and the main-window settings panel.
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `enabled` | `true` | Global toggle for all inline media embeds |
-| `videoAllowlistDomains` | `["youtube.com", "youtu.be", "vimeo.com", "loom.com"]` | Domains allowed to render video embeds |
-| `enabledSince` | *(timestamp)* | Only messages created after this timestamp show embeds, so toggling the feature on does not retroactively modify older conversations |
-
-### Security and Privacy
-
-- Video embeds use **ephemeral webview storage** — no cookies or site data persist between sessions.
-- Videos require an explicit **click to play**; nothing auto-plays.
-- Image loads are **lazy** — off-screen images are not fetched until they scroll into view.
-- Video webviews are **torn down when scrolled offscreen** to free memory and stop background activity.
-
-## Remote Access
+<details>
+<summary><b>Remote Access</b></summary>
 
 Access a remote assistant daemon from your local machine via SSH.
 
@@ -596,7 +678,12 @@ Over SSH-forwarded sockets, the probe fails automatically (the filesystems don't
 
 Run `vellum doctor` for a full diagnostic check including socket path and autostart policy.
 
-## Claude Code Workflow
+</details>
+
+## Development Workflow
+
+<details>
+<summary><b>Claude Code Workflow</b></summary>
 
 This repo includes Claude Code slash commands (in `.claude/commands/`) for agent-driven development.
 
@@ -617,7 +704,7 @@ This repo includes Claude Code slash commands (in `.claude/commands/`) for agent
 | `/brainstorm` | Deep-read the codebase, generate a prioritized list of improvements, and update `.private/TODO.md` after approval. |
 | `/swarm [workers] [max-tasks] [--namespace NAME]` | Parallel execution — spawns a pool of agents (default: 12 workers) that work through `.private/TODO.md` concurrently, each in its own worktree. Uses `--namespace` to prefix branch names and avoid collisions with other parallel swarms (auto-generates a random 4-char hex if omitted). When `--namespace` is explicitly provided, only TODO items prefixed with `[<namespace>]` are processed; when auto-generated, all items are processed. PRs are auto-assigned to the current user. |
 | `/blitz <feature>` | End-to-end feature delivery — plans the feature, creates GitHub issues on a project board, swarm-executes them in parallel, then runs a **recursive sweep loop** (check reviews, swarm to address feedback, check reviews on new feedback PRs, repeat) until all PRs — including transitive feedback PRs — are fully reviewed with no remaining action items. Merges directly to main. Derives a namespace from the feature description for branch naming, collision avoidance, and scoping review sweeps/TODO items to only this blitz's PRs. |
-| `/safe-blitz <feature>` | End-to-end feature delivery on a feature branch — plans, creates issues, swarm-executes milestones sequentially with per-milestone **recursive sweep loops** (check reviews, address feedback, repeat until clean), then runs a final sweep on the entire feature branch. All milestone PRs merge into a feature branch (not main). Creates a final PR for manual review. Does not switch your working tree. Derives a namespace from the feature description for branch naming, collision avoidance, and scoping review sweeps/TODO items to only this blitz's PRs. Supports `--auto`, `--workers N`, `--skip-plan`, `--branch NAME`. |
+| `/safe-blitz <feature>` | End-to-end feature delivery on a feature branch — plans, creates issues, executes milestones sequentially with per-milestone **direct-push feedback loops** (check reviews, push fixes directly to the milestone branch, re-request reviews, repeat until clean or 3 cycles), then runs a final sweep on the entire feature branch. All milestone PRs merge into a feature branch (not main). Creates a final PR for manual review. Does not switch your working tree. Derives a namespace from the feature description for branch naming, collision avoidance, and scoping review sweeps/TODO items to only this blitz's PRs. Supports `--auto`, `--workers N`, `--skip-plan`, `--branch NAME`. |
 | `/safe-blitz-done [PR\|branch]` | Finalize a safe-blitz — squash-merges the feature branch PR into main, sets the project issue to Done, closes the issue, and deletes the local branch. Auto-detects the PR from current branch, open `feature/*` PRs, or project board "In Review" items. |
 | `/execute-plan <file>` | Sequential multi-PR rollout — reads a plan file from `.private/plans/`, executes each PR in order, mainlining each before moving to the next. |
 | `/check-reviews-and-swarm [workers] [max-tasks] [--namespace NAME]` | Combined review sweep + execution pass — runs review checks, then swarms on actionable feedback items. When `--namespace` is provided, it is passed to both `/check-reviews` (to filter PRs and prefix TODO items) and `/swarm` (to filter TODO items and namespace branches). When omitted, `/check-reviews` still infers namespaces from PR branch names matching `swarm/<NAME>/...`. |
@@ -671,7 +758,10 @@ All workflows use squash-merge (no merge commits), worktree isolation for parall
 
 **Validation**: Slash commands do **not** run tests, type-checking (`tsc`), or linting by default. These steps are only performed when the task specifically requires it (e.g., "fix the type errors", "make the tests pass"). This keeps agent-driven workflows fast for well-scoped changes.
 
-## Release Management
+</details>
+
+<details>
+<summary><b>Release Management</b></summary>
 
 Releases are cut using the `/release` Claude Code command and follow a fully automated pipeline from tag to client update.
 
@@ -699,6 +789,8 @@ The macOS app uses [Sparkle](https://sparkle-project.org/) for automatic updates
 ### First-time installation
 
 New users download the latest DMG from the [public updates repo releases page](https://github.com/vellum-ai/velly/releases/latest), open it, and drag the app to their Applications folder. All subsequent updates are handled automatically by Sparkle.
+
+</details>
 
 ## License
 

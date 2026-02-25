@@ -7,12 +7,18 @@ import type {
   GmailDraft,
   GmailModifyRequest,
   GmailMessageFormat,
+  GmailAttachment,
+  GmailFilter,
+  GmailFilterCriteria,
+  GmailFilterAction,
+  GmailFiltersListResponse,
+  GmailVacationSettings,
 } from './types.js';
 
 const GMAIL_API_BASE = 'https://gmail.googleapis.com/gmail/v1/users/me';
 
 /** Max concurrent requests for batch operations */
-const BATCH_CONCURRENCY = 5;
+const BATCH_CONCURRENCY = 50;
 
 export class GmailApiError extends Error {
   constructor(
@@ -25,28 +31,64 @@ export class GmailApiError extends Error {
   }
 }
 
-async function request<T>(token: string, path: string, options?: RequestInit): Promise<T> {
+const MAX_RETRIES = 3;
+const INITIAL_BACKOFF_MS = 1000;
+
+function isRetryable(status: number): boolean {
+  return status === 429 || (status >= 500 && status < 600);
+}
+
+const IDEMPOTENT_METHODS = new Set(['GET', 'HEAD', 'PUT', 'DELETE', 'OPTIONS']);
+
+function isIdempotent(options?: RequestInit): boolean {
+  const method = (options?.method ?? 'GET').toUpperCase();
+  return IDEMPOTENT_METHODS.has(method);
+}
+
+interface GmailRequestOptions extends RequestInit {
+  /** Override method-based retry eligibility. When true, retries on 429/5xx even for POST requests. */
+  retryable?: boolean;
+}
+
+async function request<T>(token: string, path: string, options?: GmailRequestOptions): Promise<T> {
   const url = `${GMAIL_API_BASE}${path}`;
-  const resp = await fetch(url, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      ...options?.headers,
-    },
-  });
-  if (!resp.ok) {
-    const body = await resp.text().catch(() => '');
-    throw new GmailApiError(resp.status, resp.statusText, `Gmail API ${resp.status}: ${body}`);
+  const canRetry = options?.retryable ?? isIdempotent(options);
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const resp = await fetch(url, {
+      ...options,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        ...options?.headers,
+      },
+    });
+
+    if (!resp.ok) {
+      if (canRetry && isRetryable(resp.status) && attempt < MAX_RETRIES) {
+        const retryAfter = resp.headers.get('retry-after');
+        const delayMs = retryAfter
+          ? parseInt(retryAfter, 10) * 1000
+          : INITIAL_BACKOFF_MS * Math.pow(2, attempt);
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        continue;
+      }
+      const body = await resp.text().catch(() => '');
+      throw new GmailApiError(resp.status, resp.statusText, `Gmail API ${resp.status}: ${body}`);
+    }
+
+    // Some endpoints (e.g. batchModify) return empty success responses
+    const contentLength = resp.headers.get('content-length');
+    if (resp.status === 204 || contentLength === '0') {
+      return undefined as T;
+    }
+    const text = await resp.text();
+    if (!text) return undefined as T;
+    return JSON.parse(text) as T;
   }
-  // Some endpoints (e.g. batchModify) return empty success responses
-  const contentLength = resp.headers.get('content-length');
-  if (resp.status === 204 || contentLength === '0') {
-    return undefined as T;
-  }
-  const text = await resp.text();
-  if (!text) return undefined as T;
-  return JSON.parse(text) as T;
+
+  // Unreachable — the loop always returns or throws — but TypeScript needs this
+  throw new Error('Unreachable: retry loop exited without returning or throwing');
 }
 
 /** List messages matching a query. */
@@ -108,6 +150,7 @@ export async function modifyMessage(
   return request<GmailMessage>(token, `/messages/${messageId}/modify`, {
     method: 'POST',
     body: JSON.stringify(modifications),
+    retryable: true,
   });
 }
 
@@ -120,6 +163,7 @@ export async function batchModifyMessages(
   await request<void>(token, '/messages/batchModify', {
     method: 'POST',
     body: JSON.stringify({ ids: messageIds, ...modifications }),
+    retryable: true,
   });
 }
 
@@ -130,6 +174,7 @@ export async function trashMessage(
 ): Promise<GmailMessage> {
   return request<GmailMessage>(token, `/messages/${messageId}/trash`, {
     method: 'POST',
+    retryable: true,
   });
 }
 
@@ -201,4 +246,78 @@ export async function sendMessage(
 /** Get the authenticated user's profile (email address). */
 export async function getProfile(token: string): Promise<GmailProfile> {
   return request<GmailProfile>(token, '/profile');
+}
+
+/** Get attachment data for a message. */
+export async function getAttachment(
+  token: string,
+  messageId: string,
+  attachmentId: string,
+): Promise<GmailAttachment> {
+  return request<GmailAttachment>(token, `/messages/${messageId}/attachments/${attachmentId}`);
+}
+
+/** Send an email with a pre-built raw MIME payload (for multipart/attachments). */
+export async function sendMessageRaw(
+  token: string,
+  raw: string,
+  threadId?: string,
+): Promise<GmailMessage> {
+  const payload: Record<string, unknown> = { raw };
+  if (threadId) payload.threadId = threadId;
+  return request<GmailMessage>(token, '/messages/send', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+/** Create a user label. */
+export async function createLabel(
+  token: string,
+  name: string,
+  opts?: { messageListVisibility?: 'show' | 'hide'; labelListVisibility?: 'labelShow' | 'labelShowIfUnread' | 'labelHide' },
+): Promise<GmailLabel> {
+  return request<GmailLabel>(token, '/labels', {
+    method: 'POST',
+    body: JSON.stringify({ name, ...opts }),
+  });
+}
+
+/** List all Gmail filters. */
+export async function listFilters(token: string): Promise<GmailFilter[]> {
+  const resp = await request<GmailFiltersListResponse>(token, '/settings/filters');
+  return resp.filter ?? [];
+}
+
+/** Create a Gmail filter. */
+export async function createFilter(
+  token: string,
+  criteria: GmailFilterCriteria,
+  action: GmailFilterAction,
+): Promise<GmailFilter> {
+  return request<GmailFilter>(token, '/settings/filters', {
+    method: 'POST',
+    body: JSON.stringify({ criteria, action }),
+  });
+}
+
+/** Delete a Gmail filter. */
+export async function deleteFilter(token: string, filterId: string): Promise<void> {
+  await request<void>(token, `/settings/filters/${filterId}`, { method: 'DELETE' });
+}
+
+/** Get vacation auto-reply settings. */
+export async function getVacation(token: string): Promise<GmailVacationSettings> {
+  return request<GmailVacationSettings>(token, '/settings/vacation');
+}
+
+/** Update vacation auto-reply settings. */
+export async function updateVacation(
+  token: string,
+  settings: GmailVacationSettings,
+): Promise<GmailVacationSettings> {
+  return request<GmailVacationSettings>(token, '/settings/vacation', {
+    method: 'PUT',
+    body: JSON.stringify(settings),
+  });
 }

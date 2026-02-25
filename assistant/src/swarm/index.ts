@@ -10,7 +10,7 @@ export type {
 export { VALID_SWARM_ROLES } from './types.js';
 
 export type { SwarmLimits } from './limits.js';
-export { resolveSwarmLimits, SWARM_HARD_LIMITS } from './limits.js';
+export { resolveSwarmLimits, getTimeoutForRole, SWARM_HARD_LIMITS } from './limits.js';
 
 export {
   validateAndNormalizePlan,
@@ -42,3 +42,6 @@ export type { OrchestratorEventKind, OrchestratorEvent, OrchestratorStatusCallba
 export { executeSwarm } from './orchestrator.js';
 
 export { synthesizeResults } from './synthesizer.js';
+
+export type { SwarmCheckpoint } from './checkpoint.js';
+export { writeCheckpoint, loadCheckpoint, removeCheckpoint, isCheckpointCompatible } from './checkpoint.js';

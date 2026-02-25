@@ -37,7 +37,7 @@ exports[`IPC message snapshots ClientMessage types session_create serializes to 
   "threadType": "standard",
   "title": "New session",
   "transport": {
-    "channelId": "macos",
+    "channelId": "vellum",
     "hints": [
       "dashboard-capable",
     ],
@@ -2934,5 +2934,25 @@ exports[`IPC message snapshots ServerMessage types approved_device_remove_respon
 {
   "success": true,
   "type": "approved_device_remove_response",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types session_rename serializes to expected JSON 1`] = `
+{
+  "sessionId": "sess-002",
+  "title": "Renamed session",
+  "type": "session_rename",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types notification_intent serializes to expected JSON 1`] = `
+{
+  "body": "Your assistant needs your input.",
+  "deepLinkMetadata": {
+    "conversationId": "conv-guardian-001",
+  },
+  "sourceEventName": "guardian.question",
+  "title": "⚠️ Attention needed",
+  "type": "notification_intent",
 }
 `;

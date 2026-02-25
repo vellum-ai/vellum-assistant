@@ -1109,13 +1109,15 @@ public struct IPCConfirmationSurfaceData: Codable, Sendable {
     public let message: String
     public let detail: String?
     public let confirmLabel: String?
+    public let confirmedLabel: String?
     public let cancelLabel: String?
     public let destructive: Bool?
 
-    public init(message: String, detail: String? = nil, confirmLabel: String? = nil, cancelLabel: String? = nil, destructive: Bool? = nil) {
+    public init(message: String, detail: String? = nil, confirmLabel: String? = nil, confirmedLabel: String? = nil, cancelLabel: String? = nil, destructive: Bool? = nil) {
         self.message = message
         self.detail = detail
         self.confirmLabel = confirmLabel
+        self.confirmedLabel = confirmedLabel
         self.cancelLabel = cancelLabel
         self.destructive = destructive
     }
@@ -1929,13 +1931,15 @@ public struct IPCGuardianVerificationRequest: Codable, Sendable {
     public let channel: String?
     public let sessionId: String?
     public let assistantId: String?
+    public let rebind: Bool?
 
-    public init(type: String, action: String, channel: String? = nil, sessionId: String? = nil, assistantId: String? = nil) {
+    public init(type: String, action: String, channel: String? = nil, sessionId: String? = nil, assistantId: String? = nil, rebind: Bool? = nil) {
         self.type = type
         self.action = action
         self.channel = channel
         self.sessionId = sessionId
         self.assistantId = assistantId
+        self.rebind = rebind
     }
 }
 
@@ -2323,6 +2327,8 @@ public struct IPCIngressInviteResponseInvite: Codable, Sendable {
 public struct IPCIngressMemberRequest: Codable, Sendable {
     public let type: String
     public let action: String
+    /// Assistant ID for scoping member operations (defaults to 'self').
+    public let assistantId: String?
     /// Source channel (required for upsert, optional filter for list).
     public let sourceChannel: String?
     /// External user ID (upsert only).
@@ -2342,9 +2348,10 @@ public struct IPCIngressMemberRequest: Codable, Sendable {
     /// Reason for revoke or block (revoke and block only).
     public let reason: String?
 
-    public init(type: String, action: String, sourceChannel: String? = nil, externalUserId: String? = nil, externalChatId: String? = nil, displayName: String? = nil, username: String? = nil, policy: String? = nil, status: String? = nil, memberId: String? = nil, reason: String? = nil) {
+    public init(type: String, action: String, assistantId: String? = nil, sourceChannel: String? = nil, externalUserId: String? = nil, externalChatId: String? = nil, displayName: String? = nil, username: String? = nil, policy: String? = nil, status: String? = nil, memberId: String? = nil, reason: String? = nil) {
         self.type = type
         self.action = action
+        self.assistantId = assistantId
         self.sourceChannel = sourceChannel
         self.externalUserId = externalUserId
         self.externalChatId = externalChatId
@@ -2734,6 +2741,24 @@ public struct IPCModelSetRequest: Codable, Sendable {
     public init(type: String, model: String) {
         self.type = type
         self.model = model
+    }
+}
+
+/// Broadcast to connected macOS clients when a notification should be displayed.
+public struct IPCNotificationIntent: Codable, Sendable {
+    public let type: String
+    public let sourceEventName: String
+    public let title: String
+    public let body: String
+    /// Optional deep-link metadata so the client can navigate to the relevant context.
+    public let deepLinkMetadata: [String: AnyCodable]?
+
+    public init(type: String, sourceEventName: String, title: String, body: String, deepLinkMetadata: [String: AnyCodable]? = nil) {
+        self.type = type
+        self.sourceEventName = sourceEventName
+        self.title = title
+        self.body = body
+        self.deepLinkMetadata = deepLinkMetadata
     }
 }
 
@@ -3463,6 +3488,18 @@ public struct IPCSessionListResponseSession: Codable, Sendable {
     }
 }
 
+public struct IPCSessionRenameRequest: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let title: String
+
+    public init(type: String, sessionId: String, title: String) {
+        self.type = type
+        self.sessionId = sessionId
+        self.title = title
+    }
+}
+
 public struct IPCSessionsClearRequest: Codable, Sendable {
     public let type: String
 
@@ -3717,6 +3754,30 @@ public struct IPCSkillsConfigureRequest: Codable, Sendable {
     }
 }
 
+public struct IPCSkillsCreateRequest: Codable, Sendable {
+    public let type: String
+    public let skillId: String
+    public let name: String
+    public let description: String
+    public let emoji: String?
+    public let bodyMarkdown: String
+    public let userInvocable: Bool?
+    public let disableModelInvocation: Bool?
+    public let overwrite: Bool?
+
+    public init(type: String, skillId: String, name: String, description: String, emoji: String? = nil, bodyMarkdown: String, userInvocable: Bool? = nil, disableModelInvocation: Bool? = nil, overwrite: Bool? = nil) {
+        self.type = type
+        self.skillId = skillId
+        self.name = name
+        self.description = description
+        self.emoji = emoji
+        self.bodyMarkdown = bodyMarkdown
+        self.userInvocable = userInvocable
+        self.disableModelInvocation = disableModelInvocation
+        self.overwrite = overwrite
+    }
+}
+
 public struct IPCSkillsDisableRequest: Codable, Sendable {
     public let type: String
     public let name: String
@@ -3724,6 +3785,48 @@ public struct IPCSkillsDisableRequest: Codable, Sendable {
     public init(type: String, name: String) {
         self.type = type
         self.name = name
+    }
+}
+
+public struct IPCSkillsDraftRequest: Codable, Sendable {
+    public let type: String
+    public let sourceText: String
+
+    public init(type: String, sourceText: String) {
+        self.type = type
+        self.sourceText = sourceText
+    }
+}
+
+public struct IPCSkillsDraftResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let draft: IPCSkillsDraftResponseDraft?
+    public let warnings: [String]?
+    public let error: String?
+
+    public init(type: String, success: Bool, draft: IPCSkillsDraftResponseDraft? = nil, warnings: [String]? = nil, error: String? = nil) {
+        self.type = type
+        self.success = success
+        self.draft = draft
+        self.warnings = warnings
+        self.error = error
+    }
+}
+
+public struct IPCSkillsDraftResponseDraft: Codable, Sendable {
+    public let skillId: String
+    public let name: String
+    public let description: String
+    public let emoji: String?
+    public let bodyMarkdown: String
+
+    public init(skillId: String, name: String, description: String, emoji: String? = nil, bodyMarkdown: String) {
+        self.skillId = skillId
+        self.name = name
+        self.description = description
+        self.emoji = emoji
+        self.bodyMarkdown = bodyMarkdown
     }
 }
 
@@ -5289,7 +5392,7 @@ public struct IPCUserMessage: Codable, Sendable {
     public let currentPage: String?
     /// When true, skip the secret-ingress check. Set by the client when the user clicks "Send Anyway".
     public let bypassSecretCheck: Bool?
-    /// Originating channel identifier (e.g. 'macos', 'ios'). Defaults to 'macos' when absent.
+    /// Originating channel identifier (e.g. 'vellum'). Defaults to 'vellum' when absent.
     public let channel: String?
 
     public init(type: String, sessionId: String, content: String? = nil, attachments: [IPCUserMessageAttachment]? = nil, activeSurfaceId: String? = nil, currentPage: String? = nil, bypassSecretCheck: Bool? = nil, channel: String? = nil) {

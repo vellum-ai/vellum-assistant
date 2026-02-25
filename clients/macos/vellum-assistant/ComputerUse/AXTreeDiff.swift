@@ -66,12 +66,26 @@ enum AXTreeDiff {
             var unmatchedPrev = prevByKey[key] ?? []
             var unmatchedCurr = currByKey[key] ?? []
 
-            // Remove identical pairs (unchanged elements)
-            for snap in Array(unmatchedPrev) {
-                if let idx = unmatchedCurr.firstIndex(of: snap) {
-                    unmatchedCurr.remove(at: idx)
-                    unmatchedPrev.remove(at: unmatchedPrev.firstIndex(of: snap)!)
+            // Remove identical pairs (unchanged elements) using frequency map for O(n)
+            var currCounts: [ElementSnapshot: Int] = [:]
+            for snap in unmatchedCurr {
+                currCounts[snap, default: 0] += 1
+            }
+            unmatchedPrev = unmatchedPrev.filter { snap in
+                if let count = currCounts[snap], count > 0 {
+                    currCounts[snap] = count - 1
+                    return false
                 }
+                return true
+            }
+            // currCounts now holds only unmatched remainder counts
+            var remainderCounts = currCounts
+            unmatchedCurr = unmatchedCurr.filter { snap in
+                if let count = remainderCounts[snap], count > 0 {
+                    remainderCounts[snap] = count - 1
+                    return true
+                }
+                return false
             }
 
             // Pair remaining as changes (same structural key, different state)

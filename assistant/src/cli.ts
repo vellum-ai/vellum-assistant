@@ -261,7 +261,13 @@ export async function startCli(): Promise<void> {
     process.stdout.write(`\u2514 > `);
 
     rl.once('line', (answer) => {
-      const idx = parseInt(answer.trim(), 10) - 1;
+      const parsed = parseInt(answer.trim(), 10);
+      if (Number.isNaN(parsed)) {
+        process.stdout.write('  Invalid input — enter a number.\n');
+        renderPatternSelection(req, decision);
+        return;
+      }
+      const idx = parsed - 1;
       if (idx >= 0 && idx < req.allowlistOptions.length) {
         const selectedPattern = req.allowlistOptions[idx].pattern;
         // pendingConfirmation stays true through scope selection
@@ -288,8 +294,14 @@ export async function startCli(): Promise<void> {
     process.stdout.write(`\u2514 > `);
 
     rl.once('line', (answer) => {
+      const parsed = parseInt(answer.trim(), 10);
+      if (Number.isNaN(parsed)) {
+        process.stdout.write('  Invalid input — enter a number.\n');
+        renderScopeSelection(req, selectedPattern, decision);
+        return;
+      }
       pendingConfirmation = false;
-      const idx = parseInt(answer.trim(), 10) - 1;
+      const idx = parsed - 1;
       if (idx >= 0 && idx < req.scopeOptions.length) {
         send({
           type: 'confirmation_response',
@@ -327,7 +339,13 @@ export async function startCli(): Promise<void> {
         send({ type: 'session_create' });
         return;
       }
-      const idx = parseInt(trimmed, 10) - 1;
+      const parsed = parseInt(trimmed, 10);
+      if (Number.isNaN(parsed)) {
+        process.stdout.write('  Invalid input — enter a number or "n".\n');
+        renderSessionPicker(sessions);
+        return;
+      }
+      const idx = parsed - 1;
       if (idx >= 0 && idx < sessions.length) {
         if (sessions[idx].id === sessionId) {
           // Already on this session

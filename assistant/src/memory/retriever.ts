@@ -20,6 +20,7 @@ import { semanticSearch, isQdrantConnectionError } from './search/semantic.js';
 import { entitySearch } from './search/entity.js';
 import { mergeCandidates, applySourceCaps, rerankWithLLM, trimToTokenBudget, markItemUsage } from './search/ranking.js';
 import { buildInjectedText, MEMORY_CONTEXT_ACK } from './search/formatting.js';
+import { createHash } from 'crypto';
 import { getCachedRecall, setCachedRecall, getMemoryVersion } from './recall-cache.js';
 
 // Re-export public types and functions so existing importers continue to work
@@ -36,6 +37,16 @@ export {
 } from './search/formatting.js';
 
 const log = getLogger('memory-retriever');
+
+/** Hash the retrieval-relevant config fields so the recall cache distinguishes different configs. */
+function buildConfigFingerprint(config: AssistantConfig): string {
+  const relevant = {
+    r: config.memory.retrieval,
+    e: { provider: config.memory.embeddings.provider, required: config.memory.embeddings.required },
+    ent: config.memory.entity.enabled,
+  };
+  return createHash('sha256').update(JSON.stringify(relevant)).digest('hex').slice(0, 16);
+}
 
 const EMBED_MAX_RETRIES = 3;
 const EMBED_BASE_DELAY_MS = 500;
@@ -332,7 +343,8 @@ export async function buildMemoryRecall(
 
   // Check recall cache — serves identical results instantly when the query
   // and memory state haven't changed since the last recall.
-  const cached = getCachedRecall(query, conversationId, options);
+  const configFingerprint = buildConfigFingerprint(config);
+  const cached = getCachedRecall(query, conversationId, options, configFingerprint);
   if (cached) {
     log.debug({ query: truncate(query, 120), latencyMs: Date.now() - start }, 'Memory recall served from cache');
     return { ...cached, latencyMs: Date.now() - start };
@@ -535,7 +547,7 @@ export async function buildMemoryRecall(
   // fallback when embeddings fail) would delay quality recovery once the
   // embedding backend comes back.
   if (!result.degraded) {
-    setCachedRecall(query, conversationId, options, result, versionSnapshot);
+    setCachedRecall(query, conversationId, options, result, versionSnapshot, configFingerprint);
   }
   return result;
 }
@@ -779,7 +791,10 @@ function isAbortError(err: unknown): boolean {
  * in the message. This avoids false positives from dimension numbers like 512.
  */
 function getErrorStatusCode(err: Error): unknown {
-  if ('status' in err) return (err as { status: unknown }).status;
+  if ('status' in err) {
+    const status = (err as { status: unknown }).status;
+    if (status != null) return status;
+  }
   if ('statusCode' in err) return (err as { statusCode: unknown }).statusCode;
   return undefined;
 }

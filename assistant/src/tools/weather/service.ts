@@ -535,10 +535,14 @@ export async function executeGetWeather(
         surface_type: 'dynamic_page',
         data: uiShowData,
       });
+      // The trailing notice prevents the model from looping with web_search
+      // to "verify" or "improve" data that is already live and complete.
+      // Only added after a successful emit — if ui_show threw, the card
+      // was NOT rendered and the model should remain free to retry.
+      lines.push('', '[Live data from Open-Meteo Weather API. The weather card is already rendered. Respond with a brief summary — do NOT call web_search, ui_show, or ui_update.]');
     } catch (err) {
       log.warn({ err }, 'Failed to auto-emit weather surface');
     }
-    // Return concise result -- the surface is already displayed
     return { content: lines.join('\n'), isError: false };
   }
 

@@ -299,8 +299,8 @@ function makeCtx(overrides?: Partial<AgentLoopSessionContext> & { agentLoopRun?:
     canHandoffAtCheckpoint: () => false,
     drainQueue: () => {},
     getTurnChannelContext: () => ({
-      userMessageChannel: 'macos' as const,
-      assistantMessageChannel: 'macos' as const,
+      userMessageChannel: 'vellum' as const,
+      assistantMessageChannel: 'vellum' as const,
     }),
 
     ...overrides,

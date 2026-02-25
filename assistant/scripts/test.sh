@@ -10,10 +10,14 @@ set -uo pipefail
 # To avoid order-dependent CI flakes, run each test file in its own Bun process.
 #
 # Files run in parallel (configurable via TEST_WORKERS, default: CPU count).
+#
+# Coverage: set COVERAGE=true to generate per-file lcov reports, merged into
+# coverage/lcov.info at the end.
 # ---------------------------------------------------------------------------
 
 EXCLUDE_EXPERIMENTAL="${EXCLUDE_EXPERIMENTAL:-false}"
 WORKERS="${TEST_WORKERS:-$(sysctl -n hw.logicalcpu 2>/dev/null || nproc 2>/dev/null || echo 8)}"
+COVERAGE="${COVERAGE:-false}"
 
 EXPERIMENTAL_FILES=(
   "skill-load-tool.test.ts"
@@ -55,22 +59,36 @@ echo "Running ${#test_files[@]} test files (${WORKERS} workers)"
 results_dir="$(mktemp -d)"
 trap 'rm -rf "${results_dir}"' EXIT
 
+# When coverage is enabled, each test file writes lcov to its own subdirectory
+if [[ "${COVERAGE}" == "true" ]]; then
+  coverage_base="$(pwd)/coverage"
+  rm -rf "${coverage_base}"
+  mkdir -p "${coverage_base}"
+fi
+
 # Run tests in parallel, capturing output per file
 printf '%s\n' "${test_files[@]}" | xargs -P "${WORKERS}" -I {} bash -c '
   test_file="$1"
   results_dir="$2"
   exclude_exp="$3"
+  coverage_enabled="$4"
 
   safe_name="$(echo "${test_file}" | tr "/" "_")"
   out_file="${results_dir}/${safe_name}.out"
-  time_file="${results_dir}/${safe_name}.time"
+
+  coverage_args=""
+  if [[ "${coverage_enabled}" == "true" ]]; then
+    cov_dir="${results_dir}/cov_${safe_name}"
+    mkdir -p "${cov_dir}"
+    coverage_args="--coverage --coverage-reporter=lcov --coverage-dir=${cov_dir}"
+  fi
 
   start_ms=$(perl -MTime::HiRes=time -e "printf \"%d\", time*1000")
 
   if [[ "${exclude_exp}" == "true" ]]; then
-    bun test --test-name-pattern "^(?!.*\\[experimental\\])" "${test_file}" > "${out_file}" 2>&1
+    bun test ${coverage_args} --test-name-pattern "^(?!.*\\[experimental\\])" "${test_file}" > "${out_file}" 2>&1
   else
-    bun test "${test_file}" > "${out_file}" 2>&1
+    bun test ${coverage_args} "${test_file}" > "${out_file}" 2>&1
   fi
   exit_code=$?
 
@@ -84,7 +102,7 @@ printf '%s\n' "${test_files[@]}" | xargs -P "${WORKERS}" -I {} bash -c '
   else
     echo "  ✓ ${base} (${elapsed}ms)"
   fi
-' _ {} "${results_dir}" "${EXCLUDE_EXPERIMENTAL}"
+' _ {} "${results_dir}" "${EXCLUDE_EXPERIMENTAL}" "${COVERAGE}"
 xargs_exit=$?
 
 # Verify tests actually ran — catch xargs startup failures (e.g. invalid TEST_WORKERS)
@@ -122,6 +140,173 @@ if [[ -f "${results_dir}/failures" ]]; then
   done < "${results_dir}/failures"
   echo "========================================"
   exit 1
+fi
+
+# Merge per-file lcov reports into a single coverage/lcov.info
+# Uses an awk-based merge to deduplicate source files that appear in multiple
+# test shards — raw concatenation would count shared files multiple times.
+if [[ "${COVERAGE}" == "true" ]]; then
+  merged="${coverage_base}/lcov.info"
+  raw="${results_dir}/raw_lcov.info"
+  : > "${raw}"
+  for lcov_file in "${results_dir}"/cov_*/lcov.info; do
+    if [[ -f "${lcov_file}" ]]; then
+      cat "${lcov_file}" >> "${raw}"
+    fi
+  done
+  if [[ -s "${raw}" ]]; then
+    awk '
+    /^SF:/ {
+      sf = $0
+      sub(/^SF:/, "", sf)
+      # Reset per-block FN/FNDA positional counters for this source block
+      for (k = 1; k <= blk_fn_count; k++) delete blk_fn_at[k]
+      blk_fn_count = 0
+      blk_fnda_idx = 0
+      next
+    }
+    /^DA:/ {
+      # DA:line_number,execution_count
+      sub(/^DA:/, "")
+      split($0, parts, ",")
+      line = parts[1]
+      count = parts[2] + 0
+      key = sf SUBSEP line
+      if (key in da) {
+        da[key] += count
+      } else {
+        da[key] = count
+        # Track insertion order per source file
+        file_lines[sf] = file_lines[sf] SUBSEP line
+      }
+      files[sf] = 1
+      next
+    }
+    /^FN:/ {
+      # FN:line_number,function_name — deduplicate by line+name
+      sub(/^FN:/, "")
+      key = sf SUBSEP $0
+      if (!(key in fn_seen)) {
+        fn_seen[key] = 1
+        fn_list[sf] = fn_list[sf] SUBSEP $0
+      }
+      # Track FN order within this lcov block so we can pair
+      # each subsequent FNDA with its corresponding FN by position
+      blk_fn_count++
+      blk_fn_at[blk_fn_count] = $0
+      next
+    }
+    /^FNDA:/ {
+      # FNDA:execution_count,function_name — pair with FN by position
+      sub(/^FNDA:/, "")
+      split($0, parts, ",")
+      count = parts[1] + 0
+      # Use positional index to find the matching FN (line,name)
+      blk_fnda_idx++
+      fn_full = blk_fn_at[blk_fnda_idx]
+      if (fn_full == "") fn_full = parts[2]
+      key = sf SUBSEP fn_full
+      if (key in fnda) {
+        fnda[key] += count
+      } else {
+        fnda[key] = count
+        fnda_order[sf] = fnda_order[sf] SUBSEP fn_full
+      }
+      next
+    }
+    /^BRDA:/ {
+      # BRDA:line,block,branch,taken — sum taken counts
+      sub(/^BRDA:/, "")
+      split($0, parts, ",")
+      bkey = sf SUBSEP parts[1] "," parts[2] "," parts[3]
+      taken = parts[4]
+      if (taken == "-") {
+        # "-" means not executed — only set if no shard provided a numeric value
+        if (!(bkey in brda_numeric)) {
+          brda[bkey] = 0
+        }
+      } else {
+        taken += 0
+        if (bkey in brda_numeric) {
+          brda[bkey] += taken
+        } else {
+          brda[bkey] = taken
+        }
+        brda_numeric[bkey] = 1
+      }
+      if (!(bkey in brda_seen)) {
+        brda_seen[bkey] = 1
+        brda_id[sf] = brda_id[sf] SUBSEP parts[1] "," parts[2] "," parts[3]
+      }
+      next
+    }
+    { next }
+    END {
+      for (sf in files) {
+        print "SF:" sf
+
+        # Function declarations
+        n = split(fn_list[sf], fns, SUBSEP)
+        for (i = 2; i <= n; i++) {
+          print "FN:" fns[i]
+        }
+
+        # Function execution counts
+        n = split(fnda_order[sf], fn_entries, SUBSEP)
+        fnf = 0; fnh = 0
+        for (i = 2; i <= n; i++) {
+          key = sf SUBSEP fn_entries[i]
+          # fn_entries[i] is "line,name" — strip leading "line," to get the name
+          # Uses sub() instead of split() so commas in function names are preserved
+          fname_out = fn_entries[i]
+          sub(/^[^,]*,/, "", fname_out)
+          if (fname_out == "" || fname_out == fn_entries[i]) fname_out = fn_entries[i]
+          print "FNDA:" fnda[key] "," fname_out
+          fnf++
+          if (fnda[key] > 0) fnh++
+        }
+        print "FNF:" fnf
+        print "FNH:" fnh
+
+        # Branch data
+        n = split(brda_id[sf], brs, SUBSEP)
+        brf = 0; brh = 0
+        for (i = 2; i <= n; i++) {
+          key = sf SUBSEP brs[i]
+          taken = brda[key]
+          if (key in brda_numeric) {
+            print "BRDA:" brs[i] "," taken
+            brf++
+            if (taken > 0) brh++
+          } else {
+            print "BRDA:" brs[i] ",-"
+            brf++
+          }
+        }
+        if (brf > 0) {
+          print "BRF:" brf
+          print "BRH:" brh
+        }
+
+        # Line data
+        n = split(file_lines[sf], lines, SUBSEP)
+        lf = 0; lh = 0
+        for (i = 2; i <= n; i++) {
+          key = sf SUBSEP lines[i]
+          print "DA:" lines[i] "," da[key]
+          lf++
+          if (da[key] > 0) lh++
+        }
+        print "LF:" lf
+        print "LH:" lh
+        print "end_of_record"
+      }
+    }
+    ' "${raw}" > "${merged}"
+    echo "Coverage report written to coverage/lcov.info"
+  else
+    echo "Warning: no coverage data was generated"
+  fi
 fi
 
 echo "All ${#test_files[@]} test files passed"

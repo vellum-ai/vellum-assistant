@@ -15,6 +15,7 @@ export const conversations = sqliteTable('conversations', {
   source: text('source').notNull().default('user'),
   memoryScopeId: text('memory_scope_id').notNull().default('default'),
   originChannel: text('origin_channel'),
+  isAutoTitle: integer('is_auto_title').notNull().default(1),
 });
 
 export const messages = sqliteTable('messages', {
@@ -64,7 +65,6 @@ export const memorySegments = sqliteTable('memory_segments', {
   updatedAt: integer('updated_at').notNull(),
 }, (table) => [
   index('idx_memory_segments_scope_id').on(table.scopeId),
-  index('idx_memory_segments_conversation_id').on(table.conversationId),
 ]);
 
 export const memoryItems = sqliteTable('memory_items', {
@@ -830,7 +830,7 @@ export const guardianActionDeliveries = sqliteTable('guardian_action_deliveries'
   requestId: text('request_id')
     .notNull()
     .references(() => guardianActionRequests.id, { onDelete: 'cascade' }),
-  destinationChannel: text('destination_channel').notNull(),       // 'telegram' | 'sms' | 'macos'
+  destinationChannel: text('destination_channel').notNull(),       // 'telegram' | 'sms' | 'vellum'
   destinationConversationId: text('destination_conversation_id'),
   destinationChatId: text('destination_chat_id'),
   destinationExternalUserId: text('destination_external_user_id'),
@@ -898,6 +898,99 @@ export const assistantInboxThreadState = sqliteTable('assistant_inbox_thread_sta
   unreadCount: integer('unread_count').notNull().default(0),
   pendingEscalationCount: integer('pending_escalation_count').notNull().default(0),
   hasPendingEscalation: integer('has_pending_escalation').notNull().default(0),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+// ── Notification System ──────────────────────────────────────────────
+
+export const notificationEvents = sqliteTable('notification_events', {
+  id: text('id').primaryKey(),
+  assistantId: text('assistant_id').notNull(),
+  sourceEventName: text('source_event_name').notNull(),
+  sourceChannel: text('source_channel').notNull(),
+  sourceSessionId: text('source_session_id').notNull(),
+  attentionHintsJson: text('attention_hints_json').notNull().default('{}'),
+  payloadJson: text('payload_json').notNull().default('{}'),
+  dedupeKey: text('dedupe_key'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+export const notificationDecisions = sqliteTable('notification_decisions', {
+  id: text('id').primaryKey(),
+  notificationEventId: text('notification_event_id')
+    .notNull()
+    .references(() => notificationEvents.id, { onDelete: 'cascade' }),
+  shouldNotify: integer('should_notify').notNull(),
+  selectedChannels: text('selected_channels').notNull().default('[]'),
+  reasoningSummary: text('reasoning_summary').notNull(),
+  confidence: real('confidence').notNull(),
+  fallbackUsed: integer('fallback_used').notNull().default(0),
+  promptVersion: text('prompt_version'),
+  validationResults: text('validation_results'),
+  createdAt: integer('created_at').notNull(),
+});
+
+export const notificationPreferences = sqliteTable('notification_preferences', {
+  id: text('id').primaryKey(),
+  assistantId: text('assistant_id').notNull(),
+  preferenceText: text('preference_text').notNull(),
+  appliesWhenJson: text('applies_when_json').notNull().default('{}'),
+  priority: integer('priority').notNull().default(0),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+// ── Sequences (multi-step outreach) ──────────────────────────────────
+
+export const sequences = sqliteTable('sequences', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  description: text('description'),
+  channel: text('channel').notNull(),
+  steps: text('steps').notNull(),                                    // JSON array of SequenceStep
+  exitOnReply: integer('exit_on_reply', { mode: 'boolean' }).notNull().default(true),
+  status: text('status').notNull().default('active'),                // active | paused | archived
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+export const sequenceEnrollments = sqliteTable('sequence_enrollments', {
+  id: text('id').primaryKey(),
+  sequenceId: text('sequence_id')
+    .notNull()
+    .references(() => sequences.id, { onDelete: 'cascade' }),
+  contactEmail: text('contact_email').notNull(),
+  contactName: text('contact_name'),
+  currentStep: integer('current_step').notNull().default(0),
+  status: text('status').notNull().default('active'),                // active | paused | completed | replied | cancelled | failed
+  threadId: text('thread_id'),
+  nextStepAt: integer('next_step_at'),                               // epoch ms
+  context: text('context'),                                          // JSON
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+}, (table) => [
+  index('idx_seq_enrollments_status_next_step').on(table.status, table.nextStepAt),
+  index('idx_seq_enrollments_sequence_id').on(table.sequenceId),
+  index('idx_seq_enrollments_contact_email').on(table.contactEmail),
+]);
+
+export const notificationDeliveries = sqliteTable('notification_deliveries', {
+  id: text('id').primaryKey(),
+  notificationDecisionId: text('notification_decision_id')
+    .notNull()
+    .references(() => notificationDecisions.id, { onDelete: 'cascade' }),
+  assistantId: text('assistant_id').notNull(),
+  channel: text('channel').notNull(),
+  destination: text('destination').notNull(),
+  status: text('status').notNull().default('pending'),
+  attempt: integer('attempt').notNull().default(1),
+  renderedTitle: text('rendered_title'),
+  renderedBody: text('rendered_body'),
+  errorCode: text('error_code'),
+  errorMessage: text('error_message'),
+  sentAt: integer('sent_at'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });

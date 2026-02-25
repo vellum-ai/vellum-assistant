@@ -3,11 +3,20 @@ import SwiftUI
 public struct ConfirmationSurfaceView: View {
     public let data: ConfirmationSurfaceData
     public let actions: [SurfaceActionButton]
+    public let showCardChrome: Bool
     public let onAction: (String) -> Void
 
-    public init(data: ConfirmationSurfaceData, actions: [SurfaceActionButton], onAction: @escaping (String) -> Void) {
+    private enum SelectedAction {
+        case confirmed
+        case cancelled
+    }
+
+    @State private var selectedAction: SelectedAction?
+
+    public init(data: ConfirmationSurfaceData, actions: [SurfaceActionButton], showCardChrome: Bool = false, onAction: @escaping (String) -> Void) {
         self.data = data
         self.actions = actions
+        self.showCardChrome = showCardChrome
         self.onAction = onAction
     }
 
@@ -30,6 +39,24 @@ public struct ConfirmationSurfaceView: View {
     }
 
     public var body: some View {
+        Group {
+            if let selectedAction {
+                selectedActionFeedback(selectedAction)
+            } else if showCardChrome {
+                pendingContent
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .inlineWidgetCard()
+            } else {
+                pendingContent
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .onChange(of: data) { _, _ in
+            selectedAction = nil
+        }
+    }
+
+    private var pendingContent: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             // Header with icon
             HStack(spacing: VSpacing.md) {
@@ -56,6 +83,7 @@ public struct ConfirmationSurfaceView: View {
                     label: data.cancelLabel ?? "Cancel",
                     style: .tertiary
                 ) {
+                    selectedAction = .cancelled
                     onAction(cancelActionId)
                 }
 
@@ -63,9 +91,38 @@ public struct ConfirmationSurfaceView: View {
                     label: data.confirmLabel ?? "Confirm",
                     style: data.destructive ? .danger : .primary
                 ) {
+                    selectedAction = .confirmed
                     onAction(confirmActionId)
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func selectedActionFeedback(_ action: SelectedAction) -> some View {
+        HStack(spacing: VSpacing.sm) {
+            switch action {
+            case .confirmed:
+                Image(systemName: "checkmark.circle.fill")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.success)
+                Text(data.confirmedLabel ?? "Done")
+                    .font(VFont.captionMedium)
+                    .foregroundColor(VColor.textPrimary)
+            case .cancelled:
+                Image(systemName: "xmark.circle.fill")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+                Text("Dismissed")
+                    .font(VFont.captionMedium)
+                    .foregroundColor(VColor.textSecondary)
+            }
+        }
+        .padding(.horizontal, VSpacing.md)
+        .padding(.vertical, VSpacing.sm)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .fill(VColor.backgroundSubtle.opacity(0.5))
+        )
     }
 }

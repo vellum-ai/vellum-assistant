@@ -11,6 +11,7 @@ export interface CatalogEntry {
   description: string;
   emoji?: string;
   includes?: string[];
+  version?: string;
 }
 
 export { fetchCatalogEntries as listCatalogEntries, checkVellumSkill };
@@ -23,9 +24,10 @@ export { fetchCatalogEntries as listCatalogEntries, checkVellumSkill };
 export async function installFromVellumCatalog(skillId: string, options?: { overwrite?: boolean }): Promise<{ success: boolean; skillName?: string; error?: string }> {
   const trimmedId = skillId.trim();
 
-  // Verify skill exists in catalog
-  const exists = await checkVellumSkill(trimmedId);
-  if (!exists) {
+  // Verify skill exists in catalog and get its metadata
+  const catalogEntries = await fetchCatalogEntries();
+  const catalogEntry = catalogEntries.find((e) => e.id === trimmedId);
+  if (!catalogEntry) {
     return { success: false, error: `Skill "${trimmedId}" not found in the Vellum catalog` };
   }
 
@@ -83,6 +85,7 @@ export async function installFromVellumCatalog(skillId: string, options?: { over
     includes,
     overwrite: options?.overwrite ?? true,
     addToIndex: true,
+    version: catalogEntry.version,
   });
 
   if (!result.created) {

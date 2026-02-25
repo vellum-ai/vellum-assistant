@@ -34,7 +34,7 @@ function getIntegrityPath(): string {
   return join(getManagedSkillsDir(), '.integrity.json');
 }
 
-function loadIntegrityManifest(): IntegrityManifest {
+export function loadIntegrityManifest(): IntegrityManifest {
   const path = getIntegrityPath();
   if (!existsSync(path)) return {};
   try {
@@ -97,7 +97,7 @@ function computeSkillHash(skillDir: string): string | null {
  * Hash format migration: v1 (legacy, no prefix) → v2 (prefixed "v2:sha256hex").
  * When stored hash is v1, silently re-record with v2 instead of warning.
  */
-function verifyAndRecordSkillHash(slug: string): void {
+export function verifyAndRecordSkillHash(slug: string): void {
   const skillDir = join(getManagedSkillsDir(), slug);
   const hash = computeSkillHash(skillDir);
   if (!hash) {
@@ -201,8 +201,9 @@ async function runClawhub(args: string[], opts?: { cwd?: string; timeout?: numbe
     stderr: 'pipe',
   });
 
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    setTimeout(() => {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeoutPromise = new Promise<[string, string]>((_, reject) => {
+    timer = setTimeout(() => {
       proc.kill();
       reject(new Error(`clawhub command timed out after ${timeout}ms`));
     }, timeout);
@@ -213,8 +214,11 @@ async function runClawhub(args: string[], opts?: { cwd?: string; timeout?: numbe
       new Response(proc.stdout).text(),
       new Response(proc.stderr).text(),
     ]),
-    timeoutPromise.then(() => ['', ''] as [string, string]),
-  ]);
+    timeoutPromise,
+  ]).finally(() => clearTimeout(timer!));
+
+  // Suppress unhandled rejection from the losing timeout promise
+  timeoutPromise.catch(() => {});
 
   const exitCode = await proc.exited;
 

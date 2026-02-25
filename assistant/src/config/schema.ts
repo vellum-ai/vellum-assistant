@@ -91,6 +91,13 @@ export type {
 } from './agent-schema.js';
 
 export {
+  NotificationsConfigSchema,
+} from './notifications-schema.js';
+export type {
+  NotificationsConfig,
+} from './notifications-schema.js';
+
+export {
   TimeoutConfigSchema,
   RateLimitConfigSchema,
   SecretDetectionConfigSchema,
@@ -131,6 +138,7 @@ import { CallsConfigSchema } from './calls-schema.js';
 import { SandboxConfigSchema } from './sandbox-schema.js';
 import { SkillsConfigSchema } from './skills-schema.js';
 import { AgentHeartbeatConfigSchema, SwarmConfigSchema, WorkspaceGitConfigSchema } from './agent-schema.js';
+import { NotificationsConfigSchema } from './notifications-schema.js';
 import {
   TimeoutConfigSchema,
   RateLimitConfigSchema,
@@ -180,6 +188,11 @@ export const AssistantConfigSchema = z.object({
     .int('maxTokens must be an integer')
     .positive('maxTokens must be a positive integer')
     .default(16000),
+  maxToolUseTurns: z
+    .number({ error: 'maxToolUseTurns must be a number' })
+    .int('maxToolUseTurns must be an integer')
+    .positive('maxToolUseTurns must be a positive integer')
+    .default(60),
   thinking: ThinkingConfigSchema.default({
     enabled: false,
     budgetTokens: 10000,
@@ -258,6 +271,7 @@ export const AssistantConfigSchema = z.object({
       enqueueIntervalMs: 6 * 60 * 60 * 1000,
       resolvedConflictRetentionMs: 30 * 24 * 60 * 60 * 1000,
       supersededItemRetentionMs: 30 * 24 * 60 * 60 * 1000,
+      conversationRetentionDays: 90,
     },
     extraction: {
       useLLM: true,
@@ -355,6 +369,7 @@ export const AssistantConfigSchema = z.object({
     maxTasks: 8,
     maxRetriesPerTask: 1,
     workerTimeoutSec: 900,
+    roleTimeoutsSec: {},
     plannerModel: 'claude-haiku-4-5-20251001',
     synthesizerModel: 'claude-sonnet-4-6',
   }),
@@ -440,6 +455,11 @@ export const AssistantConfigSchema = z.object({
     stopTimeoutMs: 5000,
     sigkillGracePeriodMs: 2000,
     titleGenerationMaxTokens: 30,
+  }),
+  notifications: NotificationsConfigSchema.default({
+    enabled: false,
+    shadowMode: true,
+    decisionModel: 'claude-haiku-4-5-20251001',
   }),
 }).superRefine((config, ctx) => {
   if (config.contextWindow.targetInputTokens >= config.contextWindow.maxInputTokens) {

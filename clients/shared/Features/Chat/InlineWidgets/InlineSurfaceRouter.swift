@@ -6,6 +6,7 @@ public struct InlineSurfaceRouter: View {
     public let onAction: (String, String, [String: AnyCodable]?) -> Void
 
     @State private var selectionPayload: [String: AnyCodable]?
+    @State private var clickedActionLabel: String?
 
     public init(surface: InlineSurfaceData, onAction: @escaping (String, String, [String: AnyCodable]?) -> Void) {
         self.surface = surface
@@ -33,9 +34,30 @@ public struct InlineSurfaceRouter: View {
         return false
     }
 
+    /// Whether the surface renders as a lightweight chip without card chrome.
+    /// Surfaces that don't have a dedicated inline widget (e.g. browser_view, file_upload)
+    /// render as compact fallback chips — no need for the full card wrapper.
+    private var isChipOnlySurface: Bool {
+        switch surface.data {
+        case .browserView, .fileUpload:
+            return true
+        default:
+            return false
+        }
+    }
+
     public var body: some View {
+        Group {
         if let completion = surface.completionState {
             CompletedSurfaceChip(title: surface.title, summary: completion.summary)
+        } else if case .confirmation(let data) = surface.data {
+            // Confirmations manage their own card chrome — collapse to a chip after user acts
+            ConfirmationSurfaceView(data: data, actions: surface.actions, showCardChrome: true) { actionId in
+                onAction(surface.id, actionId, nil)
+            }
+            .frame(maxWidth: 540, alignment: .leading)
+        } else if isChipOnlySurface {
+            surfaceContent
         } else {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             // Template cards and dynamic page previews handle their own header
@@ -100,6 +122,10 @@ public struct InlineSurfaceRouter: View {
         }
         // Consistent width for all widget cards; dynamic page previews and document previews are more compact.
         .frame(maxWidth: isDynamicPreview || isDocumentPreview ? 350 : 540, alignment: .leading)
+        }
+        }
+        .onChange(of: surface) { _, _ in
+            clickedActionLabel = nil
         }
     }
 
@@ -177,24 +203,46 @@ public struct InlineSurfaceRouter: View {
         }
     }
 
+    @ViewBuilder
     private var actionButtons: some View {
-        HStack(spacing: VSpacing.sm) {
-            Spacer()
-            ForEach(surface.actions) { action in
-                Button {
-                    onAction(surface.id, action.id, selectionPayload)
-                } label: {
-                    Text(action.label)
-                        .font(VFont.bodyMedium)
-                        .foregroundColor(buttonForeground(action.style))
-                        .padding(.horizontal, VSpacing.lg)
-                        .padding(.vertical, VSpacing.sm)
-                        .background(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .fill(buttonBackground(action.style))
-                        )
+        if let label = clickedActionLabel {
+            HStack(spacing: VSpacing.sm) {
+                Spacer()
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.success)
+                    Text(label)
+                        .font(VFont.captionMedium)
+                        .foregroundColor(VColor.textPrimary)
                 }
-                .buttonStyle(.plain)
+                .padding(.horizontal, VSpacing.md)
+                .padding(.vertical, VSpacing.sm)
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .fill(VColor.backgroundSubtle.opacity(0.5))
+                )
+            }
+        } else {
+            HStack(spacing: VSpacing.sm) {
+                Spacer()
+                ForEach(surface.actions) { action in
+                    Button {
+                        clickedActionLabel = action.label
+                        onAction(surface.id, action.id, selectionPayload)
+                    } label: {
+                        Text(action.label)
+                            .font(VFont.bodyMedium)
+                            .foregroundColor(buttonForeground(action.style))
+                            .padding(.horizontal, VSpacing.lg)
+                            .padding(.vertical, VSpacing.sm)
+                            .background(
+                                RoundedRectangle(cornerRadius: VRadius.md)
+                                    .fill(buttonBackground(action.style))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
     }

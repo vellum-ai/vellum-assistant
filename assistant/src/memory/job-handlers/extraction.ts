@@ -14,6 +14,7 @@ import { extractAndUpsertMemoryItemsForMessage } from '../items-extractor.js';
 import { enqueueMemoryJob, type MemoryJob } from '../jobs-store.js';
 import { asString } from '../job-utils.js';
 import { extractTextFromStoredMessageContent } from '../message-content.js';
+import { isConversationFailed } from '../task-memory-cleanup.js';
 import { memoryItemSources, messages } from '../schema.js';
 
 const log = getLogger('memory-jobs-worker');
@@ -21,11 +22,27 @@ const log = getLogger('memory-jobs-worker');
 export async function extractItemsJob(job: MemoryJob): Promise<void> {
   const messageId = asString(job.payload.messageId);
   if (!messageId) return;
+
+  // If the conversation that owns this message has been marked as failed,
+  // skip extraction entirely. This prevents async extraction jobs from
+  // re-creating assistant_inferred items after the one-shot invalidation.
+  const db = getDb();
+  const msg = db
+    .select({ conversationId: messages.conversationId })
+    .from(messages)
+    .where(eq(messages.id, messageId))
+    .get();
+  if (msg && isConversationFailed(msg.conversationId)) {
+    log.info({ messageId, conversationId: msg.conversationId }, 'Skipping extraction for failed conversation');
+    return;
+  }
+
   // Backward compat: old payloads may lack scopeId — default to 'default'
   const scopeId = typeof job.payload.scopeId === 'string' && job.payload.scopeId
     ? job.payload.scopeId
     : 'default';
-  await extractAndUpsertMemoryItemsForMessage(messageId, scopeId);
+
+  await extractAndUpsertMemoryItemsForMessage(messageId, scopeId, msg?.conversationId);
   // Queue entity extraction for this message after items are extracted
   const config = getConfig();
   if (config.memory.entity.enabled) {
@@ -38,6 +55,21 @@ export async function extractEntitiesJob(job: MemoryJob, config: AssistantConfig
   if (!messageId) return;
 
   const db = getDb();
+
+  // Guard: skip entity extraction for failed conversations. Entity extraction
+  // jobs are enqueued by extractItemsJob after items are extracted; while new
+  // jobs won't be queued (extractItemsJob returns early for failed convos),
+  // any entity jobs enqueued before the failure marker was set must be caught.
+  const msgRow = db
+    .select({ conversationId: messages.conversationId })
+    .from(messages)
+    .where(eq(messages.id, messageId))
+    .get();
+  if (msgRow && isConversationFailed(msgRow.conversationId)) {
+    log.info({ messageId, conversationId: msgRow.conversationId }, 'Skipping entity extraction for failed conversation');
+    return;
+  }
+
   const message = db
     .select({
       id: messages.id,

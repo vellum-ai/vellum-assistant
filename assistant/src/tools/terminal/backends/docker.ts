@@ -40,7 +40,11 @@ let dockerCliAvailable = false;
 let dockerDaemonReachable = false;
 const imageAvailableCache = new Set<string>();
 const mountProbeCache = new Set<string>();
-/** Maps image → resolved shell path (e.g. 'bash' → 'bash', or fell back to 'sh'). */
+/**
+ * Maps (image, shell, configHash) → resolved shell path.
+ * The config hash is included so that any DockerConfig change
+ * (e.g. swapping image tags, changing resource limits) invalidates the cache.
+ */
 const shellResolvedCache = new Map<string, string>();
 
 /** Exported for tests to reset cached state between runs. */
@@ -190,8 +194,8 @@ function checkMountProbe(sandboxRoot: string, image: string): void {
  * (e.g. 'bash') is missing, fall back to 'sh' which is available on virtually
  * every Linux image.  If neither exists the image is too minimal to use.
  */
-function resolveShell(image: string, shell: string): string {
-  const cacheKey = `${image}\0${shell}`;
+function resolveShell(image: string, shell: string, configHash: string): string {
+  const cacheKey = `${image}\0${shell}\0${configHash}`;
   const cached = shellResolvedCache.get(cacheKey);
   if (cached) return cached;
 
@@ -259,6 +263,7 @@ function validatePathSafety(path: string, label: string): void {
 export class DockerBackend implements SandboxBackend {
   private readonly sandboxRoot: string;
   private readonly config: Required<DockerConfig>;
+  private readonly configHash: string;
   private readonly uid: number;
   private readonly gid: number;
 
@@ -274,6 +279,7 @@ export class DockerBackend implements SandboxBackend {
     this.sandboxRoot = realpathSync(resolved);
     validatePathSafety(this.sandboxRoot, 'Sandbox root');
     this.config = { ...DEFAULTS, ...config };
+    this.configHash = JSON.stringify(this.config);
     if (uid != null) {
       this.uid = uid;
     } else if (process.getuid) {
@@ -297,7 +303,7 @@ export class DockerBackend implements SandboxBackend {
     checkDockerDaemon();
     checkImageAvailable(this.config.image);
     checkMountProbe(this.sandboxRoot, this.config.image);
-    return resolveShell(this.config.image, this.config.shell);
+    return resolveShell(this.config.image, this.config.shell, this.configHash);
   }
 
   wrap(command: string, workingDir: string, options?: WrapOptions): SandboxResult {

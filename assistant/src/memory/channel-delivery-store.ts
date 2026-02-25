@@ -376,10 +376,14 @@ export function getDeadLetterEvents(): Array<{
 // of them actually sends the message. The guard is run-scoped so old
 // assistant messages from previous runs are not affected.
 
-const deliveredRuns = new Set<string>();
+/** Map from runId to insertion timestamp (ms). */
+const deliveredRuns = new Map<string, number>();
 
 /** TTL for delivery claims — 10 minutes, well beyond the poll max-wait. */
 const CLAIM_TTL_MS = 10 * 60 * 1000;
+
+/** Hard cap to bound memory even under sustained high throughput within the TTL window. */
+const MAX_DELIVERED_RUNS = 10_000;
 
 /**
  * Atomically claim the right to deliver the final reply for a run.
@@ -387,15 +391,30 @@ const CLAIM_TTL_MS = 10 * 60 * 1000;
  * delivery). Returns `false` if another caller already claimed it.
  *
  * This is an in-memory guard — sufficient because both racing pollers
- * execute within the same process. The Set is never persisted; on restart
+ * execute within the same process. The Map is never persisted; on restart
  * there are no in-flight pollers to race.
  *
- * Claims are automatically evicted after CLAIM_TTL_MS to prevent
- * unbounded Set growth over the lifetime of the process.
+ * Claims are evicted after CLAIM_TTL_MS. When the hard cap is reached,
+ * only TTL-expired entries are evicted — active claims are never removed
+ * early, preserving the at-most-once delivery guarantee.
  */
 export function claimRunDelivery(runId: string): boolean {
   if (deliveredRuns.has(runId)) return false;
-  deliveredRuns.add(runId);
+  if (deliveredRuns.size >= MAX_DELIVERED_RUNS) {
+    // Only evict entries whose TTL has expired. Map iteration order
+    // matches insertion order, so oldest entries come first.
+    const now = Date.now();
+    for (const [id, insertedAt] of deliveredRuns) {
+      if (now - insertedAt >= CLAIM_TTL_MS) {
+        deliveredRuns.delete(id);
+      } else {
+        // Remaining entries are newer; stop scanning.
+        break;
+      }
+    }
+  }
+  const now = Date.now();
+  deliveredRuns.set(runId, now);
   setTimeout(() => deliveredRuns.delete(runId), CLAIM_TTL_MS);
   return true;
 }

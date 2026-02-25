@@ -69,7 +69,7 @@ final class FirstMeetingIntroductionViewModel {
                 try self.daemonClient.send(SessionCreateMessage(
                     title: "First meeting",
                     maxResponseTokens: 220,
-                    transportChannelId: "macos",
+                    transportChannelId: "vellum",
                     transportHints: [
                         "onboarding-active",
                         "onboarding-phase:post_hatch",

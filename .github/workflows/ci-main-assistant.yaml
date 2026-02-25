@@ -43,17 +43,57 @@ jobs:
       - name: Lint
         run: bun run lint
 
-      - name: Test
-        run: bun run test
+      - name: Test with coverage
+        run: bun run test:coverage
         env:
           EXCLUDE_EXPERIMENTAL: 'true'
+
+      - name: Coverage summary
+        if: success()
+        run: |
+          LCOV="coverage/lcov.info"
+          if [[ ! -s "${LCOV}" ]]; then
+            echo "No coverage data found"
+            exit 0
+          fi
+
+          # Parse lcov: count lines found (LF) and lines hit (LH)
+          TOTAL_LF=0
+          TOTAL_LH=0
+          while IFS= read -r line; do
+            case "${line}" in
+              LF:*) TOTAL_LF=$(( TOTAL_LF + ${line#LF:} )) ;;
+              LH:*) TOTAL_LH=$(( TOTAL_LH + ${line#LH:} )) ;;
+            esac
+          done < "${LCOV}"
+
+          if [[ ${TOTAL_LF} -gt 0 ]]; then
+            PCT=$(( TOTAL_LH * 100 / TOTAL_LF ))
+            echo "Line coverage: ${TOTAL_LH}/${TOTAL_LF} (${PCT}%)"
+            echo "### Code Coverage: ${PCT}%" >> "${GITHUB_STEP_SUMMARY}"
+            echo "${TOTAL_LH} of ${TOTAL_LF} lines covered" >> "${GITHUB_STEP_SUMMARY}"
+          else
+            echo "No line data in coverage report"
+          fi
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: assistant/coverage/lcov.info
+          retention-days: 30
 
       - name: Track consecutive failures
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          WORKFLOW_NAME="${{ github.workflow }}"
+          # github.workflow returns the display name, not the filename.
+          # Extract the filename from github.workflow_ref instead.
+          WORKFLOW_REF="${{ github.workflow_ref }}"
+          WORKFLOW_NAME="${WORKFLOW_REF%%@*}"
+          WORKFLOW_NAME="${WORKFLOW_NAME##*/}"
 
           # Get the last 10 completed runs of this workflow on main (excluding current)
           RUNS=$(gh api "/repos/${{ github.repository }}/actions/workflows/${WORKFLOW_NAME}/runs?branch=main&status=completed&per_page=10" \

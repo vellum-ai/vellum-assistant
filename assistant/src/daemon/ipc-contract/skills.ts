@@ -59,6 +59,23 @@ export interface SkillsInspectRequest {
   slug: string;
 }
 
+export interface SkillsDraftRequest {
+  type: 'skills_draft';
+  sourceText: string;
+}
+
+export interface SkillsCreateRequest {
+  type: 'skills_create';
+  skillId: string;
+  name: string;
+  description: string;
+  emoji?: string;
+  bodyMarkdown: string;
+  userInvocable?: boolean;
+  disableModelInvocation?: boolean;
+  overwrite?: boolean;
+}
+
 // === Server → Client ===
 
 export interface SkillsListResponse {
@@ -100,6 +117,20 @@ export interface SkillDetailResponse {
   skillId: string;
   body: string;
   icon?: string;
+  error?: string;
+}
+
+export interface SkillsDraftResponse {
+  type: 'skills_draft_response';
+  success: boolean;
+  draft?: {
+    skillId: string;
+    name: string;
+    description: string;
+    emoji?: string;
+    bodyMarkdown: string;
+  };
+  warnings?: string[];
   error?: string;
 }
 

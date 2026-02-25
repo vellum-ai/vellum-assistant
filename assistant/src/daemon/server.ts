@@ -13,6 +13,7 @@ import { buildSystemPrompt } from '../config/system-prompt.js';
 import { checkIngressForSecrets } from '../security/secret-ingress.js';
 import { IngressBlockedError } from '../util/errors.js';
 import * as conversationStore from '../memory/conversation-store.js';
+import { provenanceFromGuardianContext } from '../memory/conversation-store.js';
 import * as attachmentsStore from '../memory/attachments-store.js';
 import { Session, DEFAULT_MEMORY_POLICY, type SessionMemoryPolicy } from './session.js';
 import { parseChannelId, type ChannelId } from '../channels/types.js';
@@ -68,7 +69,7 @@ function resolveTurnChannel(sourceChannel?: string, transportChannelId?: string)
     }
     return parsed;
   }
-  return 'macos';
+  return 'vellum';
 }
 
 export class DaemonServer {
@@ -698,11 +699,11 @@ export class DaemonServer {
       throw new Error('Session is already processing a message');
     }
 
+    const resolvedChannel = resolveTurnChannel(sourceChannel, options?.transport?.channelId);
     session.setAssistantId(options?.assistantId ?? 'self');
     session.setGuardianContext(options?.guardianContext ?? null);
     session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel));
     session.setCommandIntent(options?.commandIntent ?? null);
-    const resolvedChannel = resolveTurnChannel(sourceChannel, options?.transport?.channelId);
     session.setTurnChannelContext({
       userMessageChannel: resolvedChannel,
       assistantMessageChannel: resolvedChannel,
@@ -745,11 +746,11 @@ export class DaemonServer {
       throw new Error('Session is already processing a message');
     }
 
+    const resolvedChannel2 = resolveTurnChannel(sourceChannel, options?.transport?.channelId);
     session.setAssistantId(options?.assistantId ?? 'self');
     session.setGuardianContext(options?.guardianContext ?? null);
     session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel));
     session.setCommandIntent(options?.commandIntent ?? null);
-    const resolvedChannel2 = resolveTurnChannel(sourceChannel, options?.transport?.channelId);
     session.setTurnChannelContext({
       userMessageChannel: resolvedChannel2,
       assistantMessageChannel: resolvedChannel2,
@@ -768,9 +769,13 @@ export class DaemonServer {
 
     if (slashResult.kind === 'unknown') {
       const serverTurnCtx = session.getTurnChannelContext();
-      const serverChannelMeta = serverTurnCtx
-        ? { userMessageChannel: serverTurnCtx.userMessageChannel, assistantMessageChannel: serverTurnCtx.assistantMessageChannel }
-        : undefined;
+      const serverProvenance = provenanceFromGuardianContext(session.guardianContext);
+      const serverChannelMeta = {
+        ...serverProvenance,
+        ...(serverTurnCtx
+          ? { userMessageChannel: serverTurnCtx.userMessageChannel, assistantMessageChannel: serverTurnCtx.assistantMessageChannel }
+          : {}),
+      };
       const userMsg = createUserMessage(content, attachments);
       const persisted = conversationStore.addMessage(
         conversationId,
@@ -817,6 +822,14 @@ export class DaemonServer {
     await session.runAgentLoop(resolvedContent, messageId, () => {});
 
     return { messageId };
+  }
+
+  /**
+   * Expose session lookup for the POST /v1/messages handler.
+   * The handler manages busy-state checking and queueing itself.
+   */
+  async getSessionForMessages(conversationId: string): Promise<Session> {
+    return this.getOrCreateSession(conversationId, undefined, true);
   }
 
   createRunOrchestrator(): RunOrchestrator {

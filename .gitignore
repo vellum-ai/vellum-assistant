@@ -11,7 +11,7 @@ node_modules
 !.yarn/versions
 
 # testing
-/coverage
+coverage/
 
 # next.js
 .next/
@@ -78,3 +78,6 @@ next-env.d.ts
 
 # MCP config
 .mcp.json
+
+# bun build artifacts
+*.bun-build

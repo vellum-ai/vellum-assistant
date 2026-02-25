@@ -39,23 +39,23 @@ public enum SessionErrorCategory: Equatable, Sendable {
     public var recoverySuggestion: String {
         switch self {
         case .providerNetwork:
-            return "Check your internet connection and try again."
+            return "Check your internet connection, then click Retry."
         case .rateLimit:
-            return "You've hit a rate limit. Please wait a moment before retrying."
+            return "Wait 30–60 seconds, then click Retry."
         case .providerApi:
-            return "The AI provider returned an error. Try again or check your API key."
+            return "This is usually temporary — click Retry, or check your API key in Settings if it persists."
         case .contextTooLarge:
-            return "Start a new conversation or try a shorter message."
+            return "Start a new thread to reset context, or try a shorter message."
         case .queueFull:
-            return "Too many pending messages. Wait for current messages to finish processing."
+            return "Wait for pending messages to finish, then resend."
         case .sessionAborted:
-            return "The session was interrupted. Send a new message to continue."
+            return "Send a new message to continue the conversation."
         case .processingFailed:
-            return "Message processing failed. Try sending your message again."
+            return "Click Retry or send your message again. Copy debug info if the problem repeats."
         case .regenerateFailed:
-            return "Could not regenerate the response. Try again."
+            return "Click Retry to regenerate, or send a new message instead."
         case .unknown:
-            return "An unexpected error occurred. Try again."
+            return "Click Retry or send a new message. Copy debug info if the problem repeats."
         }
     }
 }

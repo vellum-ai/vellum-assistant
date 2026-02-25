@@ -375,7 +375,7 @@ function collectUserTurnStartIndexes(messages: Message[]): number[] {
   for (let i = 0; i < messages.length; i++) {
     const message = messages[i];
     if (message.role !== 'user') continue;
-    if (getSummaryFromContextMessage(message) !== undefined) continue;
+    if (getSummaryFromContextMessage(message) != null) continue;
     if (isToolResultOnly(message)) continue;
     starts.push(i);
   }
@@ -390,7 +390,7 @@ function collectUserTurnStartIndexes(messages: Message[]): number[] {
  */
 function countPersistedMessages(messages: Message[]): number {
   return messages.filter((message) => {
-    return getSummaryFromContextMessage(message) === undefined;
+    return getSummaryFromContextMessage(message) == null;
   }).length;
 }
 

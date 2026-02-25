@@ -1,6 +1,6 @@
 import type { Message } from '../../providers/types.js';
 
-/** The 10 browser tool names that are being migrated from core to skill. */
+/** The 14 browser tool names provided by the browser skill. */
 export const BROWSER_TOOL_NAMES = [
   'browser_navigate',
   'browser_snapshot',
@@ -9,12 +9,16 @@ export const BROWSER_TOOL_NAMES = [
   'browser_click',
   'browser_type',
   'browser_press_key',
+  'browser_scroll',
+  'browser_select_option',
+  'browser_hover',
   'browser_wait_for',
   'browser_extract',
+  'browser_wait_for_download',
   'browser_fill_credential',
 ] as const;
 
-/** Number of browser tools being migrated. */
+/** Number of browser tools provided by the skill. */
 export const BROWSER_TOOL_COUNT = BROWSER_TOOL_NAMES.length;
 
 /** Skill ID for the bundled browser skill. */

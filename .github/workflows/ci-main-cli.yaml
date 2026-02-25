@@ -35,7 +35,7 @@ jobs:
 
       - name: Compile check
         run: |
-          bun build --compile src/index.ts --external react-devtools-core --outfile /tmp/vellum-cli-compile-check
+          bun build --compile src/index.ts --outfile /tmp/vellum-cli-compile-check
           rm -f /tmp/vellum-cli-compile-check
 
       - name: Track consecutive failures
@@ -43,7 +43,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          WORKFLOW_NAME="${{ github.workflow }}"
+          # github.workflow returns the display name, not the filename.
+          # Extract the filename from github.workflow_ref instead.
+          WORKFLOW_REF="${{ github.workflow_ref }}"
+          WORKFLOW_NAME="${WORKFLOW_REF%%@*}"
+          WORKFLOW_NAME="${WORKFLOW_NAME##*/}"
 
           # Get the last 10 completed runs of this workflow on main (excluding current)
           RUNS=$(gh api "/repos/${{ github.repository }}/actions/workflows/${WORKFLOW_NAME}/runs?branch=main&status=completed&per_page=10" \

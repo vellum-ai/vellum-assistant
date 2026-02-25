@@ -46,8 +46,13 @@ public struct InlineTableWidget: View {
             }
         }
         .onAppear {
-            // Initialize selection from data
+            // Initialize selection from data and notify the parent so action
+            // buttons always carry the current selection — even if the user
+            // never toggles a checkbox.
             selectedIds = Set(data.rows.filter(\.selected).map(\.id))
+            if data.selectionMode != .none {
+                onAction("selection_changed", ["selectedIds": AnyCodable(Array(selectedIds))])
+            }
         }
     }
 

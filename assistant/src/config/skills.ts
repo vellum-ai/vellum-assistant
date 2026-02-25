@@ -317,6 +317,16 @@ function parseFrontmatter(content: string, skillFilePath: string): ParsedFrontma
     }
   }
 
+  // Read standalone emoji frontmatter field (written by buildSkillMarkdown)
+  const emojiField = fields.emoji?.trim() || undefined;
+
+  // If metadata doesn't already have an emoji, inject the standalone field value
+  if (emojiField && metadata && !metadata.emoji) {
+    metadata.emoji = emojiField;
+  } else if (emojiField && !metadata) {
+    metadata = { emoji: emojiField };
+  }
+
   const includes = parseIncludes(fields.includes, skillFilePath);
 
   return {

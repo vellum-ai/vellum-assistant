@@ -60,7 +60,7 @@ These are the most commonly used slash commands defined in `.claude/commands/`:
 | `/safe-do <description>` | Like `/do` but creates a PR without auto-merging — pauses for human review. Keeps the worktree in place for addressing feedback. The PR body includes the original prompt for traceability. |
 | `/swarm [workers] [max-tasks] [--namespace NAME]` | Process `.private/TODO.md` in parallel — one worktree per agent, auto-merge PRs (auto-assigned to the current user), respawn agents until the list is empty. Uses `--namespace` to prefix branch names and avoid collisions with other parallel swarms (auto-generates a random 4-char hex if omitted). When `--namespace` is explicitly provided, only TODO items prefixed with `[<namespace>]` are processed; when auto-generated, all items are processed. |
 | `/blitz <feature>` | End-to-end feature delivery: plan, create GitHub issues on a project board, swarm-execute in parallel, then run a recursive sweep loop (check reviews, swarm to address feedback, repeat) until all PRs — including transitive feedback PRs — are fully reviewed. Derives a namespace from the feature description for branch naming, collision avoidance, and scoping review sweeps/TODO items to only this blitz's PRs. |
-| `/safe-blitz <feature>` | Like `/blitz` but merges milestone PRs into a feature branch instead of main, with per-milestone recursive sweep loops and a final sweep before opening a PR for manual review. Derives a namespace from the feature description for branch naming, collision avoidance, and scoping review sweeps/TODO items to only this blitz's PRs. Supports `--auto`, `--workers N`, `--skip-plan`, `--branch NAME`. |
+| `/safe-blitz <feature>` | Like `/blitz` but merges milestone PRs into a feature branch instead of main, with per-milestone direct-push feedback loops (push fixes to milestone branch, re-request reviews, repeat until clean or 3 cycles) and a final sweep before opening a PR for manual review. Derives a namespace from the feature description for branch naming, collision avoidance, and scoping review sweeps/TODO items to only this blitz's PRs. Supports `--auto`, `--workers N`, `--skip-plan`, `--branch NAME`. |
 | `/safe-blitz-done [PR\|branch]` | Finalize a safe-blitz — squash-merge the feature branch PR into main, set the project issue to Done, close the issue, and clean up locally. Auto-detects from current branch, open `feature/*` PRs, or project board. |
 | `/mainline [title]` | Ship the current uncommitted changes to main via a squash-merged PR. The PR body includes the original prompt (if provided) for traceability. |
 | `/ship-and-merge [title]` | Create a PR, wait for Codex and Devin reviews, fix valid feedback (up to 3 rounds), and squash-merge once approved. The PR body includes the original prompt (if provided) for traceability. |
@@ -162,12 +162,87 @@ The `RetryProvider` resolves intents to provider-specific models automatically. 
 
 Use generic terms in comments, logs, and variable names — write "LLM" instead of "Haiku"/"Sonnet"/"Claude". The system is multi-provider; naming should reflect that.
 
+### Text generation goes through the assistant daemon
+
+When you need to generate text (summaries, replies, rewrites, classifications, etc.), route the request through the assistant/daemon process — do **not** make direct calls to an LLM provider or side-step the daemon.
+
+Why: the assistant daemon carries context, identity, and user preferences. Text produced through the daemon is shaped by all of that, which is what we want in almost every case. Calling a provider directly discards that context and produces generic output.
+
+There may be narrow cases where a direct provider call is acceptable (e.g., a low-level embedding or a purely mechanical transformation with no user-facing prose). If you believe your case qualifies, call it out explicitly in the PR description and get sign-off — don't silently bypass the daemon.
+
 ## Approval Flow Resilience
 
 - **Rich delivery failures must degrade gracefully.** If delivering a rich approval prompt (e.g., Telegram inline buttons) fails, fall back to plain text with parser-compatible instructions (e.g., `Reply "yes" to approve`) — never auto-deny.
 - **Non-rich channels** (SMS, http-api) receive plain-text approval prompts without approval metadata payloads.
 - **Race conditions:** Always check whether a decision has already been resolved before delivering the engine's optimistic reply. If `handleChannelDecision` returns `applied: false`, deliver an "already resolved" notice and return `stale_ignored`.
 - **Requester self-cancel:** A requester with a pending guardian approval must be able to cancel their own request (but not self-approve).
+
+## Error Handling Conventions
+
+Use the right error signaling mechanism for the situation. The codebase has three patterns — pick the one that matches the failure mode:
+
+### 1. Throw for programming errors and unrecoverable failures
+
+Throw an exception (using the error hierarchy from `util/errors.ts`) when:
+- A precondition or invariant is violated (indicates a bug in the caller).
+- The failure is unrecoverable and the caller cannot meaningfully continue.
+- An external dependency is completely unavailable and there is no fallback.
+
+Use the existing `VellumError` hierarchy (`ToolError`, `ConfigError`, `ProviderError`, etc.) rather than bare `Error`. This ensures structured error codes propagate to logging and monitoring.
+
+```typescript
+// Good: typed error for a precondition violation
+throw new ConfigError('Missing required provider configuration');
+
+// Good: subagent manager throws when depth limit is exceeded
+throw new AssistantError('Cannot spawn subagent: parent is itself a subagent', ErrorCode.DAEMON_ERROR);
+```
+
+### 2. Result objects for operations that can fail in expected ways
+
+Return a discriminated union or result object when:
+- The caller is expected to handle both success and failure paths.
+- The failure is a normal operational outcome, not a bug (e.g., "file not found", "path out of bounds", "ambiguous match").
+
+The codebase uses two result patterns — both are acceptable:
+
+**Discriminated union with `ok` flag** (preferred for new code):
+```typescript
+type EditResult =
+  | { ok: true; updatedContent: string }
+  | { ok: false; reason: 'not_found' }
+  | { ok: false; reason: 'ambiguous'; matchCount: number };
+```
+
+**Content + error flag** (used by tool execution):
+```typescript
+interface ToolExecutionResult {
+  content: string;
+  isError: boolean;
+}
+```
+
+Existing examples: `EditEngineResult` in `edit-engine.ts`, `PathResult` in `path-policy.ts`, `ToolExecutionResult` in `tools/types.ts`, `MemoryRecallResult` in `memory/retriever.ts`.
+
+### 3. Never return null/undefined to indicate failure
+
+Do not use `null` or `undefined` as a failure signal. When a function can legitimately fail, use a result object (pattern 2 above) so the caller can distinguish between "no result" and "operation failed, here's why."
+
+Returning `undefined` is acceptable only for **lookup functions** where "not found" is a normal query result rather than a failure — e.g., `Map.get()`, `getState(id): State | undefined`. In these cases, `undefined` means "this entity does not exist," not "something went wrong."
+
+### Where each pattern is used
+
+| Module | Pattern | Rationale |
+|---|---|---|
+| Agent loop (`agent/loop.ts`) | Throws + catch-and-emit | Unrecoverable provider errors break the loop; expected errors (abort, tool-use limits) are caught and emitted as events |
+| Tool executor (`tools/executor.ts`) | Result object (`ToolExecutionResult`) | Tool failures are expected operational outcomes — permission denied, unknown tool, sandbox violations. Never throws to callers |
+| Memory retriever (`memory/retriever.ts`) | Result object (`MemoryRecallResult`) with degraded/reason fields | Graceful degradation — embedding failures, search failures degrade quality without crashing |
+| Filesystem tools (`path-policy.ts`, `edit-engine.ts`) | Discriminated union (`{ ok, reason }`) | Validation outcomes that the caller must handle (out of bounds, not found, ambiguous) |
+| Subagent manager (`subagent/manager.ts`) | Throws for precondition violations, string literal unions for expected outcomes | Depth limit exceeded is a bug; `sendMessage` returns `'not_found' | 'terminal' | 'queue_full'` as expected states |
+
+## Memory Provenance Invariant
+
+All memory extraction and retrieval decisions must consider actor-role provenance. Untrusted actors (non-guardian, unverified_channel) must not trigger profile extraction or receive memory recall/conflict disclosures. This invariant is enforced in `indexer.ts` (write gate) and `session-memory.ts` (read gate).
 
 ## Tooling Direction
 

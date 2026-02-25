@@ -699,15 +699,18 @@ export class ToolExecutor {
     } catch (err) {
       const durationMs = Date.now() - startTime;
       const msg = err instanceof Error ? err.message : String(err);
-      const isExpected = err instanceof PermissionDeniedError || err instanceof ToolError || err instanceof TokenExpiredError;
+      const isAbort = err instanceof Error && err.name === 'AbortError';
+      const isExpected = isAbort || err instanceof PermissionDeniedError || err instanceof ToolError || err instanceof TokenExpiredError;
 
-      const errorCategory = err instanceof PermissionDeniedError
-        ? 'permission_denied' as const
-        : err instanceof TokenExpiredError
-          ? 'auth' as const
-          : err instanceof ToolError
-            ? 'tool_failure' as const
-            : 'unexpected' as const;
+      const errorCategory = isAbort
+        ? 'tool_failure' as const
+        : err instanceof PermissionDeniedError
+          ? 'permission_denied' as const
+          : err instanceof TokenExpiredError
+            ? 'auth' as const
+            : err instanceof ToolError
+              ? 'tool_failure' as const
+              : 'unexpected' as const;
 
       emitLifecycleEvent(context, {
         type: 'error',
@@ -763,6 +766,9 @@ const SIDE_EFFECT_TOOLS: ReadonlySet<string> = new Set([
   'browser_click',
   'browser_type',
   'browser_press_key',
+  'browser_scroll',
+  'browser_select_option',
+  'browser_hover',
   'browser_close',
   'browser_fill_credential',
   'document_create',

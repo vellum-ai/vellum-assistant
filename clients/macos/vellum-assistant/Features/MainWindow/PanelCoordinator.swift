@@ -48,8 +48,6 @@ extension MainWindowView {
                 activeSessionId: threadManager.activeViewModel?.sessionId,
                 onClose: { windowState.selection = nil }
             )
-        case .doctor:
-            DoctorPanel(onClose: { windowState.selection = nil })
         case .directory:
             HomeBaseContainerView(
                 daemonClient: daemonClient,
@@ -75,7 +73,7 @@ extension MainWindowView {
             )
         case .generated:
             GeneratedPanel(
-                onClose: { showSharePicker = false; windowState.closeDynamicPanel() },
+                onClose: { sharing.showSharePicker = false; windowState.closeDynamicPanel() },
                 isExpanded: Binding(
                     get: { windowState.isDynamicExpanded },
                     set: { windowState.isDynamicExpanded = $0 }
@@ -99,16 +97,9 @@ extension MainWindowView {
             VoiceModePanel(
                 manager: voiceModeManager,
                 voiceService: voiceModeManager.voiceService,
-                settingsStore: settingsStore,
                 onClose: {
                     voiceModeManager.deactivate()
                     windowState.selection = nil
-                },
-                onKeySaved: {
-                    if let viewModel = threadManager.activeViewModel {
-                        voiceModeManager.activate(chatViewModel: viewModel, settingsStore: settingsStore)
-                        voiceModeManager.startListening()
-                    }
                 }
             )
         case .assistantInbox:
@@ -185,7 +176,7 @@ extension MainWindowView {
             } else {
                 // Gallery mode fallback
                 GeneratedPanel(
-                    onClose: { showSharePicker = false; windowState.closeDynamicPanel() },
+                    onClose: { sharing.showSharePicker = false; windowState.closeDynamicPanel() },
                     isExpanded: Binding(
                         get: { windowState.isDynamicExpanded },
                         set: { windowState.isDynamicExpanded = $0 }
@@ -355,7 +346,7 @@ extension MainWindowView {
                     }
                 }
             } else {
-                // Full-window panels: settings, debug, doctor, identity
+                // Full-window panels: settings, debug, identity
                 fullWindowPanel(panelType)
             }
         case nil:
@@ -451,9 +442,6 @@ extension MainWindowView {
                 onClose: { windowState.dismissOverlay() }
             )
             .overlay(alignment: .topTrailing) { panelDismissButton }
-        case .doctor:
-            DoctorPanel(onClose: { windowState.dismissOverlay() })
-                .overlay(alignment: .topTrailing) { panelDismissButton }
         case .identity:
             IdentityPanel(onClose: { windowState.dismissOverlay() }, onCustomizeAvatar: { windowState.selection = .panel(.avatarCustomization) }, daemonClient: daemonClient)
                 .overlay(alignment: .topTrailing) { panelDismissButton }
@@ -509,13 +497,7 @@ extension MainWindowView {
                 daemonClient: daemonClient,
                 trafficLightPadding: trafficLightPadding,
                 isSidebarOpen: sidebarExpanded,
-                isPublishing: $isPublishing,
-                publishedUrl: $publishedUrl,
-                publishError: $publishError,
-                isBundling: $isBundling,
-                showSharePicker: $showSharePicker,
-                shareFileURL: $shareFileURL,
-                workspaceEditorContentHeight: $workspaceEditorContentHeight,
+                sharing: sharing,
                 onPublishPage: publishPage,
                 onBundleAndShare: bundleAndShare,
                 isChatDockOpen: windowState.isChatDockOpen,
@@ -608,7 +590,7 @@ struct ActiveChatViewWrapper: View {
             isRetryableError: viewModel.isRetryableError,
             onRetryError: { viewModel.retryLastMessage() },
             isConnectionError: viewModel.isConnectionError,
-            onOpenDoctor: { windowState.selection = .panel(.doctor) },
+            hasRetryPayload: viewModel.hasRetryPayload,
             isSecretBlockError: viewModel.isSecretBlockError,
             onSendAnyway: { viewModel.sendAnyway() },
             onAcceptSuggestion: viewModel.acceptSuggestion,
@@ -742,13 +724,7 @@ struct DynamicWorkspaceWrapper: View {
     let daemonClient: DaemonClient
     let trafficLightPadding: CGFloat
     let isSidebarOpen: Bool
-    @Binding var isPublishing: Bool
-    @Binding var publishedUrl: String?
-    @Binding var publishError: String?
-    @Binding var isBundling: Bool
-    @Binding var showSharePicker: Bool
-    @Binding var shareFileURL: URL?
-    @Binding var workspaceEditorContentHeight: CGFloat
+    var sharing: SharingState
     let onPublishPage: (String, String?, String?) -> Void
     let onBundleAndShare: (String) -> Void
     let isChatDockOpen: Bool
@@ -844,11 +820,11 @@ struct DynamicWorkspaceWrapper: View {
                             .accessibilityLabel("Version history")
                         }
 
-                        if isPublishing {
+                        if sharing.isPublishing {
                             ProgressView()
                                 .controlSize(.small)
                                 .frame(height: 24)
-                        } else if let url = publishedUrl {
+                        } else if let url = sharing.publishedUrl {
                             VButton(label: "Copied!", icon: "checkmark", style: .tertiary) {
                                 NSPasteboard.general.clearContents()
                                 NSPasteboard.general.setString(url, forType: .string)
@@ -862,7 +838,7 @@ struct DynamicWorkspaceWrapper: View {
                         }
 
                         VButton(label: "X", style: .tertiary) {
-                            showSharePicker = false
+                            sharing.showSharePicker = false
                             windowState.activeDynamicSurface = nil
                             windowState.activeDynamicParsedSurface = nil
                             windowState.dismissOverlay()
@@ -879,7 +855,7 @@ struct DynamicWorkspaceWrapper: View {
                         .clipShape(UnevenRoundedRectangle(topLeadingRadius: VRadius.lg, topTrailingRadius: VRadius.lg))
                 )
 
-                if let error = publishError {
+                if let error = sharing.publishError {
                     HStack {
                         Spacer()
                         Text(error)

@@ -16,6 +16,7 @@ struct AgentPanelContent: View {
     @State private var selectedSkillSlug: String?
     @State private var selectedInstalledSkillId: String?
     @State private var skillToDelete: SkillInfo?
+    @State private var showNewSkillSheet = false
 
     private enum SkillsTab {
         case installed, available
@@ -61,6 +62,18 @@ struct AgentPanelContent: View {
                     tabButton(installedTabTitle, tab: .installed)
                     tabButton(availableTabTitle, tab: .available)
                     Spacer()
+                    Button {
+                        showNewSkillSheet = true
+                    } label: {
+                        HStack(spacing: VSpacing.xs) {
+                            Image(systemName: "plus")
+                            Text("New Skill")
+                        }
+                        .font(VFont.body)
+                        .foregroundColor(VColor.accent)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("New Skill")
                 }
 
                 Divider().background(VColor.surfaceBorder)
@@ -113,6 +126,9 @@ struct AgentPanelContent: View {
                 }
             )
         }
+        .sheet(isPresented: $showNewSkillSheet) {
+            NewSkillSheet(skillsManager: skillsManager)
+        }
     }
 
     @ViewBuilder
@@ -140,25 +156,12 @@ struct AgentPanelContent: View {
 
     // MARK: - Available Skills Tab
 
-    /// ClaWHub skills filtered to exclude already-installed ones, with local search and sort.
-    /// When filtering to Vellum-only, installed Vellum skills are kept so the catalog is always visible.
+    /// Available skills filtered to exclude already-installed ones.
     private var availableClawhubSkills: [ClawhubSkillItem] {
         let installedNames = Set(skillsManager.skills.map(\.name))
 
-        // Source filter — applied before installed-name exclusion so we can
-        // relax the exclusion for Vellum-only view.
-        var filtered: [ClawhubSkillItem]
-        switch skillSourceFilter {
-        case .all:
-            filtered = skillsManager.searchResults
-                .filter { !installedNames.contains($0.name) }
-        case .vellum:
-            // Show all Vellum catalog skills even if already installed
-            filtered = skillsManager.searchResults.filter { $0.isVellum }
-        case .community:
-            filtered = skillsManager.searchResults
-                .filter { !$0.isVellum && !installedNames.contains($0.name) }
-        }
+        var filtered = skillsManager.searchResults
+            .filter { !installedNames.contains($0.name) }
 
         // Local fuzzy filter by name/description
         if hasActiveSearch {
@@ -170,14 +173,7 @@ struct AgentPanelContent: View {
             }
         }
 
-        switch skillSortOrder {
-        case .installs:
-            return filtered.sorted { $0.installs > $1.installs }
-        case .stars:
-            return filtered.sorted { $0.stars > $1.stars }
-        case .newest:
-            return filtered.sorted { $0.createdAt > $1.createdAt }
-        }
+        return filtered.sorted { $0.installs > $1.installs }
     }
 
     @ViewBuilder
@@ -210,51 +206,6 @@ struct AgentPanelContent: View {
     @ViewBuilder
     private var availableSkillsList: some View {
         VStack(spacing: VSpacing.lg) {
-            // Source filter
-            HStack(spacing: VSpacing.sm) {
-                Text("Source:")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-
-                ForEach(SkillSourceFilter.allCases, id: \.self) { filter in
-                    Button(action: { skillSourceFilter = filter }) {
-                        Text(filter.rawValue)
-                            .font(VFont.caption)
-                            .foregroundColor(skillSourceFilter == filter ? VColor.accent : VColor.textMuted)
-                            .padding(.horizontal, VSpacing.sm)
-                            .padding(.vertical, VSpacing.xs)
-                            .background(skillSourceFilter == filter ? VColor.accent.opacity(0.15) : Color.clear)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                Spacer()
-            }
-
-            // Sort picker
-            HStack(spacing: VSpacing.sm) {
-                Text("Sort:")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-
-                ForEach(SkillSortOrder.allCases, id: \.self) { order in
-                    Button(action: { skillSortOrder = order }) {
-                        Text(order.rawValue)
-                            .font(VFont.caption)
-                            .foregroundColor(skillSortOrder == order ? VColor.accent : VColor.textMuted)
-                            .padding(.horizontal, VSpacing.sm)
-                            .padding(.vertical, VSpacing.xs)
-                            .background(skillSortOrder == order ? VColor.accent.opacity(0.15) : Color.clear)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                Spacer()
-            }
-
-            // ClaWHub skills
             if skillsManager.isSearching {
                 HStack {
                     Spacer()
@@ -267,17 +218,15 @@ struct AgentPanelContent: View {
                 ForEach(availableClawhubSkills) { skill in
                     clawhubSkillCard(skill)
                 }
-            } else if hasActiveSearch || skillSourceFilter != .all {
+            } else if hasActiveSearch {
                 VStack(spacing: VSpacing.md) {
                     VEmptyState(
-                        title: hasActiveSearch ? "No matches in Available" : "No results",
-                        subtitle: hasActiveSearch
-                            ? "No available skills matched \"\(globalSkillSearchQuery)\""
-                            : "No \(skillSourceFilter.rawValue) skills found",
+                        title: "No matches in Available",
+                        subtitle: "No available skills matched \"\(globalSkillSearchQuery)\"",
                         icon: "magnifyingglass"
                     )
 
-                    if hasActiveSearch, !filteredUserSkills.isEmpty {
+                    if !filteredUserSkills.isEmpty {
                         Button {
                             withAnimation(VAnimation.fast) { selectedTab = .installed }
                         } label: {
@@ -291,28 +240,6 @@ struct AgentPanelContent: View {
                 .frame(minHeight: 100)
             }
 
-            // Community disclaimer — hidden when filtering to Vellum-only
-            if skillSourceFilter != .vellum {
-                VStack(spacing: VSpacing.sm) {
-                    HStack(spacing: VSpacing.sm) {
-                        Image(systemName: "exclamationmark.shield.fill")
-                            .font(.system(size: 10))
-                            .foregroundColor(Amber._500)
-                        Text("Community skills are not verified by Vellum. Review before installing.")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                    }
-
-                    HStack(spacing: VSpacing.sm) {
-                        Image(systemName: "sparkles")
-                            .font(.system(size: 10))
-                            .foregroundColor(VColor.accent)
-                        Text("Browse more on ClawhHub")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textMuted)
-                    }
-                }
-            }
         }
         .onAppear {
             skillsManager.searchSkills()
@@ -323,26 +250,12 @@ struct AgentPanelContent: View {
     @State private var installAttemptId: UUID?
     @State private var installTimeoutTask: Task<Void, Never>?
     @State private var globalSkillSearchQuery = ""
-    @State private var skillSortOrder: SkillSortOrder = .installs
-    @State private var skillSourceFilter: SkillSourceFilter = .all
 
     private var normalizedSkillQuery: String {
         globalSkillSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
     private var hasActiveSearch: Bool { !normalizedSkillQuery.isEmpty }
-
-    private enum SkillSortOrder: String, CaseIterable {
-        case installs = "Installs"
-        case stars = "Stars"
-        case newest = "Newest"
-    }
-
-    private enum SkillSourceFilter: String, CaseIterable {
-        case all = "All"
-        case vellum = "Vellum"
-        case community = "Community"
-    }
 
     /// How long ago a skill was published, as a human-readable string.
     private func skillAge(_ createdAt: Int) -> String {
@@ -1030,7 +943,7 @@ struct AgentPanelContent: View {
         case "bundled":
             return "Bundled"
         case "managed":
-            return "Managed"
+            return "Custom"
         case "workspace":
             return "Workspace"
         case "clawhub":

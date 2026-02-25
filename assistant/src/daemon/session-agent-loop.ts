@@ -15,7 +15,7 @@ import type { AgentLoop, CheckpointDecision, AgentEvent } from '../agent/loop.js
 import type { Provider } from '../providers/types.js';
 import { createAssistantMessage } from '../agent/message-types.js';
 import * as conversationStore from '../memory/conversation-store.js';
-import { getConversationOriginChannel } from '../memory/conversation-store.js';
+import { getConversationOriginChannel, provenanceFromGuardianContext } from '../memory/conversation-store.js';
 import type { PermissionPrompter } from '../permissions/prompter.js';
 import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
@@ -25,6 +25,7 @@ import type { ToolProfiler } from '../events/tool-profiling-listener.js';
 import type { ContextWindowManager } from '../context/window-manager.js';
 import { getHookManager } from '../hooks/manager.js';
 import { truncate } from '../util/truncate.js';
+import { isReplaceableTitle, queueGenerateConversationTitle, queueRegenerateConversationTitle } from '../memory/conversation-title-service.js';
 import { stripMemoryRecallMessages } from '../memory/retriever.js';
 import { getApp, listAppFiles } from '../memory/app-store.js';
 import type { ConflictGate } from './session-conflict-gate.js';
@@ -100,6 +101,7 @@ export interface AgentLoopSessionContext {
   channelCapabilities?: ChannelCapabilities;
   commandIntent?: { type: string; payload?: string; languageCode?: string };
   guardianContext?: GuardianRuntimeContext;
+  voiceCallControlPrompt?: string;
 
   readonly coreToolNames: Set<string>;
   allowedToolNames?: Set<string>;
@@ -158,7 +160,7 @@ export async function runAgentLoopImpl(
     if (live) return live;
     const origin = getConversationOriginChannel(ctx.conversationId);
     if (origin) return { userMessageChannel: origin, assistantMessageChannel: origin };
-    return { userMessageChannel: 'macos' as ChannelId, assistantMessageChannel: 'macos' as ChannelId };
+    return { userMessageChannel: 'vellum' as ChannelId, assistantMessageChannel: 'vellum' as ChannelId };
   })();
 
   ctx.lastAssistantAttachments = [];
@@ -234,6 +236,7 @@ export async function runAgentLoopImpl(
         conflictGate: ctx.conflictGate,
         scopeId: ctx.memoryPolicy.scopeId,
         includeDefaultFallback: ctx.memoryPolicy.includeDefaultFallback,
+        guardianActorRole: ctx.guardianContext?.actorRole,
       },
       content,
       userMessageId,
@@ -243,6 +246,7 @@ export async function runAgentLoopImpl(
 
     if (memoryResult.conflictClarification) {
       const loopChannelMeta = {
+        ...provenanceFromGuardianContext(ctx.guardianContext),
         userMessageChannel: capturedTurnChannelContext.userMessageChannel,
         assistantMessageChannel: capturedTurnChannelContext.assistantMessageChannel,
       };
@@ -321,6 +325,7 @@ export async function runAgentLoopImpl(
       channelTurnContext,
       guardianContext: ctx.guardianContext ?? null,
       temporalContext,
+      voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
     });
 
     // Pre-run repair
@@ -333,11 +338,16 @@ export async function runAgentLoopImpl(
 
     let preRunHistoryLength = runMessages.length;
 
+    const shouldGenerateTitle = isReplaceableTitle(
+      conversationStore.getConversation(ctx.conversationId)?.title ?? null,
+    );
+
     const deps: EventHandlerDeps = {
       ctx,
       onEvent,
       reqId,
       isFirstMessage,
+      shouldGenerateTitle,
       rlog,
       turnChannelContext: capturedTurnChannelContext,
     };
@@ -431,6 +441,7 @@ export async function runAgentLoopImpl(
           channelTurnContext,
           guardianContext: ctx.guardianContext ?? null,
           temporalContext,
+          voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
         });
         preRepairMessages = runMessages;
         preRunHistoryLength = runMessages.length;
@@ -466,6 +477,7 @@ export async function runAgentLoopImpl(
             channelTurnContext,
             guardianContext: ctx.guardianContext ?? null,
             temporalContext,
+            voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
           });
           preRepairMessages = runMessages;
           preRunHistoryLength = runMessages.length;
@@ -522,6 +534,7 @@ export async function runAgentLoopImpl(
         }),
       );
       const toolResultMetadata = {
+        ...provenanceFromGuardianContext(ctx.guardianContext),
         userMessageChannel: capturedTurnChannelContext.userMessageChannel,
         assistantMessageChannel: capturedTurnChannelContext.assistantMessageChannel,
       };
@@ -544,6 +557,7 @@ export async function runAgentLoopImpl(
     const hasAssistantResponse = newMessages.some((msg) => msg.role === 'assistant');
     if (!hasAssistantResponse && state.providerErrorUserMessage && !abortController.signal.aborted && !yieldedForHandoff) {
       const errChannelMeta = {
+        ...provenanceFromGuardianContext(ctx.guardianContext),
         userMessageChannel: capturedTurnChannelContext.userMessageChannel,
         assistantMessageChannel: capturedTurnChannelContext.assistantMessageChannel,
       };
@@ -625,11 +639,43 @@ export async function runAgentLoopImpl(
       });
     }
 
-    if (isFirstMessage) {
-      generateTitle(ctx, content, state.firstAssistantText, onEvent, abortController.signal)
-        .catch((err) => {
-          log.warn({ err, conversationId: ctx.conversationId }, 'Failed to generate conversation title (non-fatal, using default title)');
-        });
+    // Generate title if the current conversation title is still a replaceable
+    // placeholder. This replaces the previous `isFirstMessage` gate so that
+    // assistant-seeded/system-seeded threads also receive generated titles.
+    const currentConv = conversationStore.getConversation(ctx.conversationId);
+    if (isReplaceableTitle(currentConv?.title ?? null)) {
+      queueGenerateConversationTitle({
+        conversationId: ctx.conversationId,
+        provider: ctx.provider,
+        userMessage: content,
+        assistantResponse: state.firstAssistantText || undefined,
+        onTitleUpdated: (title) => {
+          onEvent({
+            type: 'session_title_updated',
+            sessionId: ctx.conversationId,
+            title,
+          });
+        },
+        signal: abortController.signal,
+      });
+    }
+
+    // Second title pass: after 3 completed turns, re-generate the title
+    // using the last 3 messages for better context. Only fires when the
+    // current title was auto-generated (isAutoTitle = 1).
+    if (ctx.turnCount === 2) { // turnCount is 0-indexed, incremented in finally; 2 = about to become 3rd turn
+      queueRegenerateConversationTitle({
+        conversationId: ctx.conversationId,
+        provider: ctx.provider,
+        onTitleUpdated: (title) => {
+          onEvent({
+            type: 'session_title_updated',
+            sessionId: ctx.conversationId,
+            title,
+          });
+        },
+        signal: abortController.signal,
+      });
     }
   } catch (err) {
     const errorCtx = { phase: 'agent_loop' as const, aborted: abortController.signal.aborted };
@@ -649,8 +695,8 @@ export async function runAgentLoopImpl(
         status: 'error',
         attributes: { errorClass, message: truncate(message, 500, '') },
       });
-      onEvent({ type: 'error', message: `Failed to process message: ${message}` });
       const classified = classifySessionError(err, errorCtx);
+      onEvent({ type: 'error', message: classified.userMessage });
       onEvent(buildSessionErrorMessage(ctx.conversationId, classified));
       void getHookManager().trigger('on-error', {
         error: err instanceof Error ? err.name : 'Error',
@@ -700,44 +746,6 @@ export async function runAgentLoopImpl(
     }
 
     ctx.drainQueue(yieldedForHandoff ? 'checkpoint_handoff' : 'loop_complete');
-  }
-}
-
-// ── generateTitle ────────────────────────────────────────────────────
-
-async function generateTitle(
-  ctx: Pick<AgentLoopSessionContext, 'conversationId' | 'provider'>,
-  userMessage: string,
-  assistantResponse: string,
-  onEvent: (msg: ServerMessage) => void,
-  sessionSignal?: AbortSignal,
-): Promise<void> {
-  const config = getConfig();
-  const prompt = `Generate a very short title for this conversation. Rules: at most 5 words, at most 40 characters, no quotes.\n\nUser: ${truncate(userMessage, 200, '')}\nAssistant: ${truncate(assistantResponse, 200, '')}`;
-  const signal = sessionSignal
-    ? AbortSignal.any([sessionSignal, AbortSignal.timeout(10_000)])
-    : AbortSignal.timeout(10_000);
-  const response = await ctx.provider.sendMessage(
-    [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
-    [],
-    undefined,
-    { config: { max_tokens: config.daemon.titleGenerationMaxTokens }, signal },
-  );
-
-  const textBlock = response.content.find((b) => b.type === 'text');
-  if (textBlock && textBlock.type === 'text') {
-    let title = textBlock.text.trim().replace(/^["']|["']$/g, '');
-    const words = title.split(/\s+/);
-    if (words.length > 5) title = words.slice(0, 5).join(' ');
-    if (title.length > 40) title = title.slice(0, 40).trimEnd();
-    if (!title) return;
-    conversationStore.updateConversationTitle(ctx.conversationId, title);
-    onEvent({
-      type: 'session_title_updated',
-      sessionId: ctx.conversationId,
-      title,
-    });
-    log.info({ conversationId: ctx.conversationId, title }, 'Auto-generated conversation title');
   }
 }
 

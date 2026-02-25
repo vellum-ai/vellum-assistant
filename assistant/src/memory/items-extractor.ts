@@ -10,6 +10,7 @@ import { enqueueMemoryJob } from './jobs-store.js';
 import { extractTextFromStoredMessageContent } from './message-content.js';
 import { getDb } from './db.js';
 import { memoryItemConflicts, memoryItems, memoryItemSources, messages } from './schema.js';
+import { isConversationFailed } from './task-memory-cleanup.js';
 import { clampUnitInterval } from './validation.js';
 
 const log = getLogger('memory-items-extractor');
@@ -99,6 +100,7 @@ For each item, provide:
 Rules:
 - Only extract genuinely memorable information. Skip pleasantries, filler, and transient discussion.
 - Do NOT extract information about what tools the assistant used or what files it read — only extract substantive facts about the user, their projects, and their preferences.
+- Do NOT extract claims about actions the assistant performed, outcomes it achieved, or progress it reported (e.g., "I booked an appointment", "I sent the email"). Only extract facts stated by the user or from external sources — the assistant's self-reports are not reliable memory material.
 - Prefer fewer high-quality items over many low-quality ones.
 - If the message contains no memorable information, return an empty array.`;
 
@@ -223,7 +225,7 @@ async function extractItemsWithLLM(
 
 // ── Public API ─────────────────────────────────────────────────────────
 
-export async function extractAndUpsertMemoryItemsForMessage(messageId: string, scopeId?: string): Promise<number> {
+export async function extractAndUpsertMemoryItemsForMessage(messageId: string, scopeId?: string, conversationId?: string): Promise<number> {
   const db = getDb();
   const message = db
     .select({
@@ -252,6 +254,14 @@ export async function extractAndUpsertMemoryItemsForMessage(messageId: string, s
     : extractItemsPatternBased(text, effectiveScopeId);
 
   if (extracted.length === 0) return 0;
+
+  // Guard: re-check after the async LLM call. The event loop yields during
+  // extractItemsWithLLM, so another task could have marked the conversation
+  // as failed in the meantime. Bail before writing to the DB.
+  if (conversationId && isConversationFailed(conversationId)) {
+    log.info({ messageId, conversationId }, 'Skipping upsert — conversation marked failed during extraction');
+    return 0;
+  }
 
   // Determine verification state from message role
   const verificationState = message.role === 'user' ? 'user_reported' : 'assistant_inferred';

@@ -258,6 +258,68 @@ Guardian bindings, verification challenges, and approval requests are all scoped
 
 The channel guardian service generates verification challenge instructions with channel-appropriate wording. The `channelLabel()` function maps `sourceChannel` values to human-readable labels (e.g., `"telegram"` -> `"Telegram"`, `"sms"` -> `"SMS"`), so challenge prompts reference the correct channel name.
 
+### Operator Notes
+
+- **Verify command formats:** The `/guardian_verify` command accepts both `/guardian_verify <code>` and `/guardian_verify@BotName <code>` (Telegram appends the bot username in group chats). The handler normalizes both formats automatically.
+- **Rebind requirement:** Creating a new guardian challenge when a binding already exists requires `rebind: true` in the IPC request. Without it, the daemon returns `already_bound`. This prevents accidental guardian replacement.
+- **Takeover prevention:** Verification is rejected when an active binding exists for a different external user. Same-user re-verification is allowed.
+
+## Guardian Verification and Ingress ACL
+
+This section documents the end-to-end flow from guardian verification through ingress membership enforcement, showing how the two systems work together to gate channel access.
+
+### Guardian Verification Flow
+
+Guardian verification establishes a cryptographic trust binding between a human identity and an `(assistantId, channel)` pair. The flow is:
+
+1. **Challenge creation** — The owner initiates verification from the desktop UI, which sends a `guardian_verify` IPC message (action: `create_challenge`) to the daemon. The daemon generates a random secret (32-byte hex for text channels, 6-digit numeric for voice), hashes it with SHA-256, stores the hash with a 10-minute TTL, and returns the raw secret to the desktop.
+2. **Secret sharing** — The desktop displays the secret and instructs the owner to send `/guardian_verify <secret>` to the bot on the target channel (e.g., Telegram).
+3. **Verification** — When the message arrives at `/channels/inbound`, the handler intercepts the `/guardian_verify` prefix before normal message processing. It hashes the provided secret, looks up a matching pending challenge, validates expiry, and consumes the challenge (preventing replay).
+4. **Binding** — On success, any existing active binding for the `(assistantId, channel)` pair is revoked, and a new guardian binding is created with the verifier's `externalUserId` and `chatId`. The verifier receives a confirmation message.
+
+Rate limiting protects against brute-force attempts: 5 invalid attempts within 15 minutes trigger a 30-minute lockout per `(assistantId, channel, actor)` tuple. The same generic failure message is returned for both invalid codes and rate-limited attempts to avoid leaking state.
+
+### Ingress ACL Enforcement
+
+The ingress ACL runs at the top of the channel inbound handler, before guardian role resolution and message processing. When `senderExternalUserId` is present, the handler enforces this decision chain:
+
+1. **Member lookup** — Look up the sender in `assistant_ingress_members` by `(sourceChannel, externalUserId)` or `(sourceChannel, externalChatId)`.
+2. **Non-member denial** — If no member record exists, the message is denied with `not_a_member`.
+3. **Status check** — If the member exists but is not `active` (e.g., `revoked` or `blocked`), the message is denied.
+4. **Policy check** — The member's `policy` field determines routing:
+   - `allow` — Message proceeds to normal agent processing.
+   - `deny` — Message is rejected with `policy_deny`.
+   - `escalate` — Message is held for guardian approval (see Escalation Flow below).
+
+### Escalation Flow
+
+When a member's policy is `escalate`:
+
+1. The handler looks up the guardian binding for the `(assistantId, channel)` pair. If no binding exists, the message is denied with `escalate_no_guardian` (fail-closed).
+2. The raw message payload is stored so it can be recovered on approval.
+3. A `channel_guardian_approval_request` is created with a 30-minute TTL.
+4. The guardian is notified via two surfaces: channel push notification (Telegram/SMS) and desktop inbox UI (15-second polling). Both surfaces write to the same approval table.
+5. On **approve**, the stored payload is replayed through the agent pipeline and the assistant's response is delivered to the external user. On **deny**, a refusal message is sent.
+
+### How the Systems Connect
+
+Guardian verification and ingress membership are complementary but independent systems:
+
+- **Guardian verification** establishes *who controls the assistant* on a given channel. The guardian can approve sensitive actions, approve escalated messages, and is the trust anchor.
+- **Ingress membership** controls *who can interact with the assistant* on a given channel. Members are created via invite redemption, not via guardian verification.
+- **Dependency**: Escalation requires a guardian binding — if no guardian has been verified for the channel, `escalate` policy messages are denied. This means guardian verification must precede any escalation-based access control.
+
+### Key Modules
+
+| File | Purpose |
+|------|---------|
+| `src/runtime/channel-guardian-service.ts` | Challenge lifecycle: `createVerificationChallenge`, `validateAndConsumeChallenge`, `getGuardianBinding`, `isGuardian` |
+| `src/runtime/guardian-context-resolver.ts` | Actor role classification: guardian / non-guardian / unverified_channel |
+| `src/runtime/routes/inbound-message-handler.ts` | Ingress ACL enforcement, `/guardian_verify` command intercept, escalation creation |
+| `src/memory/ingress-member-store.ts` | Member CRUD: `findMember`, `upsertMember`, `revokeMember`, `blockMember` |
+| `src/memory/ingress-invite-store.ts` | Invite lifecycle: `createInvite`, `redeemInvite` (atomically creates member record) |
+| `src/memory/channel-guardian-store.ts` | Persistence for guardian bindings, verification challenges, and approval requests |
+
 ## Channel Readiness
 
 The `channel_readiness` IPC contract provides a unified way to check whether a channel (SMS, Telegram, etc.) is fully configured and operational. It runs local checks (credential presence, phone number assignment, ingress config) synchronously and optional remote checks (API reachability) asynchronously with a 5-minute TTL cache.

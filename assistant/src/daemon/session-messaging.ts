@@ -12,9 +12,11 @@ import { parseChannelId } from '../channels/types.js';
 import type { ServerMessage, UserMessageAttachment } from './ipc-protocol.js';
 import { createUserMessage } from '../agent/message-types.js';
 import * as conversationStore from '../memory/conversation-store.js';
+import { provenanceFromGuardianContext } from '../memory/conversation-store.js';
 import type { SecretPrompter } from '../permissions/secret-prompter.js';
 import type { MessageQueue } from './session-queue-manager.js';
 import { getLogger } from '../util/logger.js';
+import type { GuardianRuntimeContext } from './session-runtime-assembly.js';
 
 const log = getLogger('session-messaging');
 
@@ -27,6 +29,7 @@ export interface MessagingSessionContext {
   abortController: AbortController | null;
   currentRequestId?: string;
   readonly queue: MessageQueue;
+  guardianContext?: GuardianRuntimeContext;
   getTurnChannelContext(): TurnChannelContext | null;
 }
 
@@ -105,13 +108,17 @@ export function persistUserMessage(
 
   try {
     const turnCtx = extractTurnChannelContext(metadata) ?? ctx.getTurnChannelContext();
-    const mergedMetadata = turnCtx
-      ? {
-          ...(metadata ?? {}),
-          userMessageChannel: turnCtx.userMessageChannel,
-          assistantMessageChannel: turnCtx.assistantMessageChannel,
-        }
-      : metadata;
+    const provenance = provenanceFromGuardianContext(ctx.guardianContext);
+    const mergedMetadata = {
+      ...(metadata ?? {}),
+      ...provenance,
+      ...(turnCtx
+        ? {
+            userMessageChannel: turnCtx.userMessageChannel,
+            assistantMessageChannel: turnCtx.assistantMessageChannel,
+          }
+        : {}),
+    };
 
     const persistedUserMessage = conversationStore.addMessage(
       ctx.conversationId,

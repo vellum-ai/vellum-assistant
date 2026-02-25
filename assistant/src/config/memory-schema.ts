@@ -272,6 +272,11 @@ export const MemoryCleanupConfigSchema = z.object({
     .int('memory.cleanup.supersededItemRetentionMs must be an integer')
     .positive('memory.cleanup.supersededItemRetentionMs must be a positive integer')
     .default(30 * 24 * 60 * 60 * 1000),
+  conversationRetentionDays: z
+    .number({ error: 'memory.cleanup.conversationRetentionDays must be a number' })
+    .int('memory.cleanup.conversationRetentionDays must be an integer')
+    .nonnegative('memory.cleanup.conversationRetentionDays must be non-negative')
+    .default(90),
 });
 
 export const MemoryExtractionConfigSchema = z.object({
@@ -470,6 +475,7 @@ export const MemoryConfigSchema = z.object({
     enqueueIntervalMs: 6 * 60 * 60 * 1000,
     resolvedConflictRetentionMs: 30 * 24 * 60 * 60 * 1000,
     supersededItemRetentionMs: 30 * 24 * 60 * 60 * 1000,
+    conversationRetentionDays: 90,
   }),
   extraction: MemoryExtractionConfigSchema.default({
     useLLM: true,

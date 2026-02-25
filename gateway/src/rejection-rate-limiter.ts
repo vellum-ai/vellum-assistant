@@ -3,11 +3,9 @@
 
 const REJECTION_NOTICE_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_REJECTION_CACHE_SIZE = 10_000;
-const SWEEP_INTERVAL = 100; // sweep every N calls
 
 export class RejectionRateLimiter {
   private timestamps = new Map<string, number>();
-  private callCount = 0;
 
   /**
    * Returns true if a rejection notice should be sent for this recipient,
@@ -18,37 +16,36 @@ export class RejectionRateLimiter {
   shouldSend(recipientId: string): boolean {
     const now = Date.now();
 
-    this.callCount++;
-    if (this.callCount >= SWEEP_INTERVAL) {
-      this.callCount = 0;
-      this.sweep(now);
+    const lastSent = this.timestamps.get(recipientId);
+    if (lastSent !== undefined) {
+      if (now - lastSent < REJECTION_NOTICE_COOLDOWN_MS) {
+        return false;
+      }
+      // Expired — remove stale entry before re-inserting below
+      this.timestamps.delete(recipientId);
     }
 
-    const lastSent = this.timestamps.get(recipientId);
-    if (lastSent !== undefined && now - lastSent < REJECTION_NOTICE_COOLDOWN_MS) {
-      return false;
+    // Safety valve: if too many unique recipients accumulate, purge expired
+    // entries in bulk. This only fires in degenerate cases (10k+ distinct
+    // recipients within 5 minutes) and keeps memory bounded.
+    if (this.timestamps.size >= MAX_REJECTION_CACHE_SIZE) {
+      for (const [key, ts] of this.timestamps) {
+        if (now - ts >= REJECTION_NOTICE_COOLDOWN_MS) {
+          this.timestamps.delete(key);
+        }
+      }
+      // Hard cap: if still over limit after purging expired entries,
+      // drop the oldest entries until we're under the limit.
+      if (this.timestamps.size >= MAX_REJECTION_CACHE_SIZE) {
+        const sorted = [...this.timestamps.entries()].sort((a, b) => a[1] - b[1]);
+        const toRemove = sorted.length - MAX_REJECTION_CACHE_SIZE + 1; // +1 for the incoming entry
+        for (let i = 0; i < toRemove; i++) {
+          this.timestamps.delete(sorted[i][0]);
+        }
+      }
     }
+
     this.timestamps.set(recipientId, now);
     return true;
-  }
-
-  /**
-   * Evict expired entries. If the map still exceeds the max size after
-   * removing stale entries, drop the oldest entries until it fits.
-   */
-  private sweep(now: number): void {
-    for (const [key, ts] of this.timestamps) {
-      if (now - ts >= REJECTION_NOTICE_COOLDOWN_MS) {
-        this.timestamps.delete(key);
-      }
-    }
-
-    if (this.timestamps.size > MAX_REJECTION_CACHE_SIZE) {
-      const sorted = [...this.timestamps.entries()].sort((a, b) => a[1] - b[1]);
-      const toRemove = sorted.length - MAX_REJECTION_CACHE_SIZE;
-      for (let i = 0; i < toRemove; i++) {
-        this.timestamps.delete(sorted[i][0]);
-      }
-    }
   }
 }

@@ -434,7 +434,7 @@ graph TB
   - `/channels/inbound` (Telegram/SMS/WhatsApp path) before run orchestration.
   - Inbound Twilio voice setup (`RelayConnection.handleSetup`) to seed call-time actor context.
 - Runtime channel runs pass this as `guardianContext`, and session runtime assembly injects `<guardian_context>` into provider-facing prompts.
-- Voice call orchestration mirrors the same prompt contract: `CallOrchestrator` receives guardian context on setup and refreshes it immediately after successful voice challenge verification, so the first post-verification turn is grounded as `actor_role: guardian`.
+- Voice calls mirror the same prompt contract: `CallController` receives guardian context on setup and refreshes it immediately after successful voice challenge verification, so the first post-verification turn is grounded as `actor_role: guardian`.
 - Voice-specific behavior (DTMF/speech verification flow, relay state machine) remains voice-local; only actor-role resolution is shared.
 
 ### SMS Channel (Twilio)
@@ -986,6 +986,18 @@ Runtime profile flow (per turn):
 1. `ProfileCompiler` builds a trusted profile block from active `profile` / `preference` / `constraint` / `instruction` items under strict token cap.
 2. Session injects that block only into runtime prompt state.
 3. Session strips the injected profile block before persisting conversation history, so dynamic profile context never pollutes durable message rows.
+
+### Provenance-Aware Memory Pipeline
+
+Every persisted message carries provenance metadata (`provenanceActorRole`, `provenanceSourceChannel`, etc.) derived from the `GuardianRuntimeContext` resolved by `guardian-context-resolver.ts`. This metadata records which actor produced the message and through which channel, enabling downstream trust decisions without re-resolving identity at read time.
+
+Two trust gates enforce actor-role-based access control over the memory pipeline:
+
+- **Write gate** (`indexer.ts`): The `extract_items` and `resolve_conflicts` jobs only run for messages from trusted actors (guardian or legacy/undefined provenance). Messages from untrusted actors (non-guardian, unverified_channel) are still segmented and embedded — so they appear in conversation context — but no profile extraction or conflict resolution is triggered. This prevents untrusted channels from injecting or mutating long-term memory items.
+
+- **Read gate** (`session-memory.ts`): When the current session's actor is untrusted, the memory recall pipeline returns a no-op context — no recall injection, no dynamic profile, no conflict clarification prompts. This ensures untrusted actors cannot surface or exploit previously extracted memory.
+
+Trust policy is **cross-channel and actor-role-based**: decisions use `guardianContext.actorRole`, not the channel string. Desktop/IPC sessions default to `actorRole: 'guardian'`. External channels (Telegram, SMS, WhatsApp, voice) provide explicit guardian context via the resolver. Legacy messages without provenance metadata are treated as trusted for backwards compatibility; going forward, all new messages carry provenance.
 
 ---
 
@@ -1833,6 +1845,13 @@ graph TB
 - After persist or delete, the file watcher triggers session eviction; the next turn runs in a fresh session. The model's system prompt instructs it to continue normally.
 - macOS UI shows Inspect and Delete controls for managed skills only (source = "managed").
 - `skill_load` validates the recursive include graph (via `include-graph.ts`) before emitting output. Missing children and cycles produce `isError: true` with no `<loaded_skill>` marker. Valid includes produce an "Included Skills (immediate)" metadata section showing child ID, name, description, and path.
+
+### Skills Authoring via IPC
+
+The Skills page in the macOS client can author managed skills through daemon IPC without going through the agent loop:
+
+1. **Draft** (`skills_draft`): The client sends source text (with optional YAML frontmatter). The daemon parses frontmatter for metadata fields (skillId, name, description, emoji), fills missing fields via a latency-optimized LLM call, and falls back to deterministic heuristics if the provider is unavailable. Returns `skills_draft_response` with the complete draft.
+2. **Create** (`skills_create`): The client sends finalized skill metadata and body. The daemon calls `createManagedSkill()` from `managed-store.ts`, auto-enables the skill in config, and broadcasts `skills_state_changed`.
 
 ### Include Graph Validation
 
@@ -3847,6 +3866,27 @@ All approval/guardian/verification user-facing copy routes through this composer
 
 The guardian system adds a cryptographic trust layer for channel-based interactions. A **guardian** is the designated human authority for a given `(assistantId, channel)` pair. Once verified, the guardian's identity gates sensitive actions by non-guardian users and provides an approval pathway. All guardian operations (bindings, challenges, approval requests) are scoped by `assistantId` -- verifying as guardian on one assistant does not grant guardian status on another.
 
+#### Canonical Assistant ID Scoping
+
+All channel ingress paths canonicalize the `assistantId` via `normalizeAssistantId()` (from `util/platform.ts`) before any DB operations. The system uses `"self"` as the canonical single-tenant identifier, but callers may pass the real assistant name (e.g., `"vellum-true-eel"`) or `"self"` depending on context. `normalizeAssistantId()` maps any known lockfile assistant ID to `"self"`, ensuring consistent DB key usage regardless of how the caller identifies the assistant. This canonicalization runs at every ingress boundary: the guardian IPC handler (`config-channels.ts`), the guardian context resolver, the relay server, and the inbound message handler.
+
+#### Guardian Verify Command Parsing
+
+The `/guardian_verify` command supports two formats to accommodate Telegram's bot command convention:
+
+- `/guardian_verify <code>` -- standard format
+- `/guardian_verify@BotName <code>` -- Telegram auto-appends the bot's username to commands in group chats
+
+The inbound message handler (`inbound-message-handler.ts`) normalizes both formats: it strips the `@BotName` suffix and collapses whitespace before extracting the verification token. This means users can verify from group chats without needing to manually edit the command.
+
+#### Explicit Rebind Policy
+
+Creating a new guardian challenge when a binding already exists for the `(assistantId, channel)` pair requires explicit `rebind: true` in the IPC request. Without it, the daemon returns `already_bound` to the caller. This prevents accidental guardian replacement -- the desktop UI must explicitly acknowledge that it is replacing an existing guardian before a new challenge is issued. On the verification side, `validateAndConsumeChallenge` always revokes any existing active binding before creating the new one, so the actual binding swap is atomic.
+
+#### Guardian Takeover Prevention
+
+`validateAndConsumeChallenge` rejects verification when an active binding exists for a *different* external user. This prevents an attacker who intercepts a verification code from hijacking an established guardian binding. Same-user re-verification (e.g., re-verifying after a session timeout) is allowed, since the external user ID matches the existing binding.
+
 #### Guardian Verification Flow
 
 A challenge-response handshake binds a Telegram user as the guardian:
@@ -3876,7 +3916,43 @@ sequenceDiagram
     GW->>TG: sendMessage: "You are now the guardian"
 ```
 
-The raw secret is shown only once in the desktop UI. Only the SHA-256 hash is persisted. Challenges expire after 10 minutes. Consumed challenges cannot be reused.
+The raw secret is shown only once in the desktop UI. Only the SHA-256 hash is persisted. Challenges expire after 10 minutes. Consumed challenges cannot be reused. Rate limiting (5 invalid attempts per 15-minute window, 30-minute lockout) protects against brute-force attacks.
+
+#### Inbound Message Decision Chain
+
+The channel inbound handler (`inbound-message-handler.ts`) evaluates incoming messages through a strict decision chain. Ingress ACL enforcement runs first, before guardian role resolution and message processing:
+
+```mermaid
+flowchart TD
+    MSG["Inbound message arrives<br/>POST /channels/inbound"] --> GW_CHECK{"Gateway-origin<br/>proof valid?"}
+    GW_CHECK -- No --> REJECT_403["403 GATEWAY_ORIGIN_REQUIRED"]
+    GW_CHECK -- Yes --> HAS_SENDER{"senderExternalUserId<br/>present?"}
+
+    HAS_SENDER -- Yes --> ACL_LOOKUP["Look up ingress member<br/>by (channel, userId/chatId)"]
+    HAS_SENDER -- No --> RECORD["Record inbound event"]
+
+    ACL_LOOKUP --> HAS_MEMBER{"Member record<br/>found?"}
+    HAS_MEMBER -- No --> DENY_MEMBER["Deny: not_a_member"]
+    HAS_MEMBER -- Yes --> STATUS_CHECK{"Member status<br/>= active?"}
+    STATUS_CHECK -- No --> DENY_STATUS["Deny: member_{status}"]
+    STATUS_CHECK -- Yes --> POLICY_CHECK{"Member policy?"}
+
+    POLICY_CHECK -- deny --> DENY_POLICY["Deny: policy_deny"]
+    POLICY_CHECK -- allow --> RECORD
+    POLICY_CHECK -- escalate --> RECORD
+
+    RECORD --> ESCALATE_CHECK{"Policy = escalate?"}
+    ESCALATE_CHECK -- Yes --> HAS_BINDING{"Guardian binding<br/>exists?"}
+    HAS_BINDING -- No --> DENY_ESCALATE["Deny: escalate_no_guardian"]
+    HAS_BINDING -- Yes --> CREATE_APPROVAL["Create approval request<br/>+ notify guardian (dual-surface)"]
+
+    ESCALATE_CHECK -- No --> VERIFY_CHECK{"Starts with<br/>/guardian_verify?"}
+    VERIFY_CHECK -- Yes --> VERIFY["Validate challenge<br/>→ create guardian binding"]
+    VERIFY_CHECK -- No --> ROLE_RESOLVE["Resolve actor role<br/>(guardian-context-resolver)"]
+    ROLE_RESOLVE --> APPROVAL_INTERCEPT["Approval interception<br/>+ message processing"]
+```
+
+This ordering ensures that ingress ACL decisions are finalized before any agent processing occurs. The `/guardian_verify` command is intercepted after ACL enforcement but before the agent loop, so it never triggers inference.
 
 #### Actor Role Resolution
 
@@ -3926,7 +4002,9 @@ The `channelGuardianApprovalRequests` table tracks per-run approval state. Each 
 |--------|---------|
 | `assistant/src/memory/channel-guardian-store.ts` | CRUD for guardian bindings, verification challenges, and approval requests (all scoped by `assistantId`) |
 | `assistant/src/runtime/channel-guardian-service.ts` | Challenge creation/validation, guardian identity checks (`isGuardian()`, `getGuardianBinding()`) -- all accept `assistantId` |
-| `assistant/src/runtime/routes/channel-routes.ts` | Guardian verification intercept (`/guardian_verify` command), actor role resolution, approval routing to guardian, proactive expiry sweep (`sweepExpiredGuardianApprovals`, `startGuardianExpirySweep`) |
+| `assistant/src/runtime/guardian-context-resolver.ts` | Actor role classification: guardian / non-guardian / unverified_channel based on binding state + sender identity |
+| `assistant/src/runtime/routes/inbound-message-handler.ts` | Ingress ACL enforcement, `/guardian_verify` command intercept, escalation creation, actor role resolution |
+| `assistant/src/runtime/routes/channel-routes.ts` | Approval routing to guardian, proactive expiry sweep (`sweepExpiredGuardianApprovals`, `startGuardianExpirySweep`) |
 | `assistant/src/calls/guardian-dispatch.ts` | Cross-channel ASK_GUARDIAN dispatch: creates guardian_action_requests, fans out to mac/telegram/sms, manages deliveries |
 | `assistant/src/calls/guardian-action-sweep.ts` | Periodic 60s sweep for expired guardian action requests; sends expiry notices to delivery channels |
 | `assistant/src/memory/guardian-action-store.ts` | CRUD for guardian_action_requests and guardian_action_deliveries tables; first-writer-wins resolution via atomic status check |
@@ -3937,13 +4015,16 @@ The assistant inbox extends the guardian security model to support controlled cr
 
 #### Ingress Membership ACL
 
-The channel inbound handler (`channel-routes.ts`) enforces an access control layer between message receipt and agent processing:
+The channel inbound handler (`inbound-message-handler.ts`) enforces an access control layer between message receipt and agent processing. The ACL runs at the top of the handler, before guardian role resolution or `/guardian_verify` command interception (see [Inbound Message Decision Chain](#inbound-message-decision-chain) for the full ordering):
 
-1. When `senderExternalUserId` is present and the sender is not the guardian, the handler looks up the sender in `assistant_ingress_members` by `(sourceChannel, externalUserId)`.
+1. When `senderExternalUserId` is present, the handler looks up the sender in `assistant_ingress_members` by `(sourceChannel, externalUserId)` or `(sourceChannel, externalChatId)`.
 2. If no member record exists, the message is denied (`not_a_member`).
-3. If a member exists, their individual `policy` field determines behavior (allow, deny, or escalate).
+3. If a member exists but is not `active` (e.g., `revoked`, `blocked`), the message is denied.
+4. If the member's `policy` is `deny`, the message is rejected. If `allow`, the message proceeds to normal processing. If `escalate`, the message is held for guardian approval.
 
-Invite tokens are created via the `ingress_invite` IPC contract. Each token is SHA-256 hashed before storage — the raw token is returned exactly once at creation time. External users redeem invites by sending the token as a channel message, which creates a member record with `allow` policy.
+**Invite-based onboarding:** Invite tokens are created via the `ingress_invite` IPC contract. Each token is SHA-256 hashed before storage — the raw token is returned exactly once at creation time. External users redeem invites by sending the token as a channel message, which atomically creates a member record with `active` status and `allow` policy.
+
+**Relationship to guardian verification:** Guardian verification and ingress membership are independent systems. Guardian verification establishes who controls the assistant on a channel (the trust anchor for approvals and escalations). Ingress membership controls who can interact with the assistant. Escalation (`policy=escalate`) depends on a guardian binding existing for the channel — without one, escalated messages are denied (fail-closed).
 
 #### Escalation Data Flow
 
@@ -4091,14 +4172,16 @@ The Calls subsystem supports both **outbound** and **inbound** voice calls via T
 ```mermaid
 sequenceDiagram
     participant User as User (Chat UI)
-    participant Session as Session / Tool Executor
     participant CallStore as CallStore (SQLite)
     participant TwilioProvider as TwilioProvider
     participant TwilioAPI as Twilio REST API
     participant Gateway as Gateway (public)
     participant Routes as twilio-routes.ts (runtime)
     participant WS as RelayConnection (WebSocket)
-    participant Orch as CallOrchestrator
+    participant Ctrl as CallController
+    participant Bridge as voice-session-bridge
+    participant RunOrch as RunOrchestrator
+    participant Session as Session / AgentLoop
     participant LLM as Anthropic Claude
     participant State as CallState (Notifiers)
     participant GuardianDispatch as GuardianDispatch
@@ -4123,35 +4206,40 @@ sequenceDiagram
     TwilioAPI->>Gateway: WebSocket /webhooks/twilio/relay
     Gateway->>WS: proxy WS to runtime /v1/calls/relay
     WS->>WS: setup message (callSid)
-    WS->>Orch: new CallOrchestrator()
-    Orch->>State: registerCallOrchestrator()
+    WS->>Ctrl: new CallController()
+    Ctrl->>State: registerCallController()
 
     loop Conversation turns
         TwilioAPI->>WS: prompt (caller utterance)
         WS->>WS: extract speaker metadata + map speaker identity
-        WS->>Orch: handleCallerUtterance(transcript, speakerContext)
-        Orch->>LLM: messages.stream()
-        LLM-->>Orch: text tokens (streaming)
-        Orch->>WS: sendTextToken() (for TTS)
-        Orch->>CallStore: recordCallEvent()
+        WS->>Ctrl: handleCallerUtterance(transcript, speakerContext)
+        Ctrl->>Bridge: startVoiceTurn()
+        Bridge->>RunOrch: startRun(conversationId, content, {sourceChannel: 'voice', eventSink})
+        RunOrch->>Session: route to session pipeline
+        Session->>LLM: agent loop (tools, memory, skills)
+        LLM-->>Session: text tokens (streaming)
+        Session-->>Bridge: eventSink.onTextDelta()
+        Bridge-->>Ctrl: onTextDelta callback
+        Ctrl->>WS: sendTextToken() (for TTS)
+        Ctrl->>CallStore: recordCallEvent()
     end
 
     alt ASK_GUARDIAN pattern detected
-        Orch->>CallStore: createPendingQuestion()
-        Orch->>GuardianDispatch: dispatchGuardianQuestion()
+        Ctrl->>CallStore: createPendingQuestion()
+        Ctrl->>GuardianDispatch: dispatchGuardianQuestion()
         GuardianDispatch->>Mac: guardian_request_thread_created IPC
         GuardianDispatch->>TG/SMS: POST /deliver/{channel}
         Note over Mac,TG/SMS: First channel to respond wins
         Mac/TG/SMS->>Routes: guardian answer
         Routes->>CallDomain: answerCall()
-        CallDomain->>Orch: handleUserAnswer()
-        Orch->>LLM: continue with [USER_ANSWERED: ...]
+        CallDomain->>Ctrl: handleUserAnswer()
+        Ctrl->>Bridge: startVoiceTurn([USER_ANSWERED: ...])
     end
 
     alt END_CALL pattern detected
-        Orch->>WS: endSession()
-        Orch->>CallStore: updateCallSession(completed)
-        Orch->>State: fireCallCompletionNotifier()
+        Ctrl->>WS: endSession()
+        Ctrl->>CallStore: updateCallSession(completed)
+        Ctrl->>State: fireCallCompletionNotifier()
     end
 
     TwilioAPI->>Gateway: POST /webhooks/twilio/status
@@ -4162,7 +4250,7 @@ sequenceDiagram
 
 ### Inbound Call Flow
 
-Inbound calls are triggered when someone dials the assistant's Twilio phone number. The gateway resolves which assistant owns the number, the runtime bootstraps a session keyed by CallSid, and the relay connection optionally gates the call behind guardian voice verification before handing off to the LLM orchestrator.
+Inbound calls are triggered when someone dials the assistant's Twilio phone number. The gateway resolves which assistant owns the number, the runtime bootstraps a session keyed by CallSid, and the relay connection optionally gates the call behind guardian voice verification before handing off to the CallController.
 
 ```mermaid
 sequenceDiagram
@@ -4174,7 +4262,10 @@ sequenceDiagram
     participant CallStore as CallStore (SQLite)
     participant WS as RelayConnection (WebSocket)
     participant GuardianSvc as ChannelGuardianService
-    participant Orch as CallOrchestrator
+    participant Ctrl as CallController
+    participant Bridge as voice-session-bridge
+    participant RunOrch as RunOrchestrator
+    participant Session as Session / AgentLoop
     participant LLM as Anthropic Claude
 
     Caller->>TwilioAPI: Dials assistant phone number
@@ -4213,7 +4304,7 @@ sequenceDiagram
             WS->>GuardianSvc: validateAndConsumeChallenge(code)
             alt Code matches
                 GuardianSvc-->>WS: success + guardian binding created
-                WS->>Orch: startNormalCallFlow(isInbound=true)
+                WS->>Ctrl: startNormalCallFlow(isInbound=true)
             else Code incorrect + attempts remaining
                 WS->>Caller: TTS "That code was incorrect. Please try again."
             else Max attempts exceeded
@@ -4223,28 +4314,37 @@ sequenceDiagram
             end
         end
     else No pending guardian challenge
-        WS->>Orch: startNormalCallFlow(isInbound=true)
+        WS->>Ctrl: startNormalCallFlow(isInbound=true)
     end
 
-    Orch->>Orch: buildInboundSystemPrompt()
-    Note over Orch: "You are answering an incoming call<br/>on behalf of [user]. Greet warmly,<br/>find out what they need."
-    Orch->>LLM: initial greeting turn
-    LLM-->>Orch: receptionist-style greeting
-    Orch->>WS: sendTextToken() (TTS to caller)
+    Ctrl->>Bridge: startVoiceTurn([CALL_OPENING])
+    Bridge->>RunOrch: startRun(conversationId, [CALL_OPENING], {sourceChannel: 'voice', eventSink})
+    RunOrch->>Session: route to session pipeline
+    Note over Session: Session runtime assembly injects<br/>voice channel context + system prompt
+    Session->>LLM: agent loop (initial greeting turn)
+    LLM-->>Session: receptionist-style greeting
+    Session-->>Bridge: eventSink.onTextDelta()
+    Bridge-->>Ctrl: onTextDelta callback
+    Ctrl->>WS: sendTextToken() (TTS to caller)
 
     loop Conversation turns
         Caller->>WS: prompt (caller utterance)
-        WS->>Orch: handleCallerUtterance(transcript, speakerContext)
-        Orch->>LLM: messages.stream()
-        LLM-->>Orch: text tokens (streaming)
-        Orch->>WS: sendTextToken() (for TTS)
-        Orch->>CallStore: recordCallEvent()
+        WS->>Ctrl: handleCallerUtterance(transcript, speakerContext)
+        Ctrl->>Bridge: startVoiceTurn()
+        Bridge->>RunOrch: startRun(conversationId, content, {sourceChannel: 'voice', eventSink})
+        RunOrch->>Session: route to session pipeline
+        Session->>LLM: agent loop (tools, memory, skills)
+        LLM-->>Session: text tokens (streaming)
+        Session-->>Bridge: eventSink.onTextDelta()
+        Bridge-->>Ctrl: onTextDelta callback
+        Ctrl->>WS: sendTextToken() (for TTS)
+        Ctrl->>CallStore: recordCallEvent()
     end
 ```
 
 **Inbound vs. outbound detection**: The relay server determines call direction by checking `session.initiatedFromConversationId`. Outbound calls are initiated from an existing conversation (`initiatedFromConversationId` set). Inbound calls are bootstrapped from Twilio webhooks and therefore have `initiatedFromConversationId == null`.
 
-**Inbound system prompt**: The `CallOrchestrator.buildInboundSystemPrompt()` generates a receptionist-style prompt: "You are on a live phone call, answering an incoming call on behalf of [user]. The caller dialed in to reach you. You do not have a specific task -- your role is to greet them warmly, find out what they need, and assist them."
+**Inbound system prompt**: The session pipeline (via voice-session-bridge) generates system prompts appropriate for the voice channel context. For inbound calls, this produces a receptionist-style prompt that greets the caller warmly and helps them with what they need.
 
 **Guardian voice verification gate**: When a pending voice guardian challenge exists (created via the desktop UI), inbound callers must enter a six-digit code via DTMF or by speaking the digits before the call proceeds. Up to 3 attempts are allowed. On success, a guardian binding is created and the call transitions to normal flow. On failure, the call ends with a "Verification failed" message. This allows guardians to verify their identity over voice before being granted channel access.
 
@@ -4265,8 +4365,9 @@ sequenceDiagram
 | `assistant/src/calls/twilio-routes.ts` | HTTP webhook handlers: voice webhook (returns TwiML with WS-A/WS-B guardrails), status callback, connect action |
 | `assistant/src/calls/relay-server.ts` | WebSocket handler for the Twilio ConversationRelay protocol; manages RelayConnection instances per call |
 | `assistant/src/calls/speaker-identification.ts` | Reusable speaker recognition primitive for voice prompts: extracts provider speaker metadata (top-level and nested fields), resolves stable per-call speaker identities, and emits speaker context for personalization |
-| `assistant/src/calls/call-orchestrator.ts` | LLM-driven conversation manager: receives caller utterances, streams responses via Anthropic Claude, detects ASK_GUARDIAN and END_CALL control markers |
-| `assistant/src/calls/call-state.ts` | Notifier pattern (Maps with register/unregister/fire helpers) for cross-component communication: question notifiers, completion notifiers, and orchestrator registry |
+| `assistant/src/calls/call-controller.ts` | Session-backed voice controller: routes voice turns through the daemon session pipeline via voice-session-bridge, detects ASK_GUARDIAN and END_CALL control markers |
+| `assistant/src/calls/voice-session-bridge.ts` | Bridge between voice relay and the daemon session/run pipeline: wraps RunOrchestrator.startRun() with voice-specific defaults, translating agent-loop events into callbacks for real-time TTS streaming |
+| `assistant/src/calls/call-state.ts` | Notifier pattern (Maps with register/unregister/fire helpers) for cross-component communication: question notifiers, completion notifiers, and controller registry |
 | `assistant/src/calls/call-constants.ts` | Config-backed constants: max call duration, user consultation timeout, silence timeout, denied emergency numbers |
 | `assistant/src/calls/voice-provider.ts` | Abstract VoiceProvider interface for provider-agnostic call initiation |
 | `assistant/src/calls/voice-quality.ts` | Voice quality profile resolution: `resolveVoiceQualityProfile()` reads `calls.voice` config and returns effective TTS provider, voice spec, and fallback settings for the active mode |
@@ -4303,7 +4404,7 @@ The `validateTransition(current, next)` function is called by `updateCallSession
 
 ### Cross-Channel Guardian Consultation
 
-When the LLM emits `[ASK_GUARDIAN: question]` during a voice call, the orchestrator creates a pending question and calls `dispatchGuardianQuestion()` on the guardian dispatch engine. The dispatch engine handles the full cross-channel fan-out:
+When the LLM emits `[ASK_GUARDIAN: question]` during a voice call, the controller creates a pending question and calls `dispatchGuardianQuestion()` on the guardian dispatch engine. The dispatch engine handles the full cross-channel fan-out:
 
 1. **Request creation**: A `guardian_action_request` row is created with a unique 6-character hex request code, the question text, a `pending` status, and an expiry timestamp.
 
@@ -4383,7 +4484,7 @@ This makes ingress URL updates smoother in local tunnel workflows because Twilio
 | GET | `/v1/calls/:callSessionId` | Get call status, including any pending question |
 | POST | `/v1/calls/:callSessionId/cancel` | Cancel an active call |
 | POST | `/v1/calls/:callSessionId/answer` | Answer a pending question via HTTP (alternative to in-thread bridge) |
-| POST | `/v1/calls/:callSessionId/instruction` | Relay a steering instruction to an active call's orchestrator (alternative to in-thread bridge) |
+| POST | `/v1/calls/:callSessionId/instruction` | Relay a steering instruction to an active call's controller (alternative to in-thread bridge) |
 | POST | `/v1/internal/twilio/status` | Internal status callback used by gateway; accepts JSON `{ params }` |
 | POST | `/v1/internal/twilio/connect-action` | Internal connect action callback used by gateway; accepts JSON `{ params }` |
 | WS | `/v1/calls/relay` | ConversationRelay WebSocket (bidirectional: prompt/interrupt/dtmf from Twilio, text tokens/end to Twilio) |
@@ -4400,10 +4501,10 @@ Both tools and HTTP routes delegate to the same domain functions in `call-domain
 
 ### Control Markers
 
-The CallOrchestrator detects two special markers in the LLM's response text:
+The CallController detects two special markers in the LLM's response text:
 
-- **`[ASK_GUARDIAN: question]`** — The AI needs to consult the guardian. The orchestrator creates a pending question, notifies the session via `fireCallQuestionNotifier`, puts the caller on hold, and waits for a guardian answer (timeout configured via `calls.userConsultTimeoutSeconds`).
-- **`[END_CALL]`** — The AI has determined the call's purpose is fulfilled. The orchestrator sends a goodbye, closes the ConversationRelay session, and marks the call as completed.
+- **`[ASK_GUARDIAN: question]`** — The AI needs to consult the guardian. The controller creates a pending question, notifies the session via `fireCallQuestionNotifier`, puts the caller on hold, and waits for a guardian answer (timeout configured via `calls.userConsultTimeoutSeconds`).
+- **`[END_CALL]`** — The AI has determined the call's purpose is fulfilled. The controller sends a goodbye, closes the ConversationRelay session, and marks the call as completed.
 
 Both markers are stripped from the TTS output so the callee never hears the raw control text.
 
@@ -4431,7 +4532,7 @@ Call behavior is controlled via the `calls` config block in the assistant config
 | `calls.disclosure.enabled` | boolean | `true` | Whether the AI should disclose it is an AI at the start of the call. |
 | `calls.disclosure.text` | string | *(default disclosure prompt)* | The disclosure instruction included in the system prompt. |
 | `calls.safety.denyCategories` | string[] | `[]` | Categories of calls to deny (e.g., emergency numbers are always denied regardless of this setting). |
-| `calls.model` | string | *(unset — uses default model)* | Optional override for the LLM model used in call orchestration. |
+| `calls.model` | string | *(unset — uses default model)* | Optional override for the LLM model used in voice call conversations. |
 | `calls.voice.mode` | enum | `'twilio_standard'` | Voice quality mode. Options: `twilio_standard` (standard Twilio TTS with Google voices — fully supported), `twilio_elevenlabs_tts` (ElevenLabs voices through Twilio ConversationRelay — fully supported), `elevenlabs_agent` (full ElevenLabs conversational agent — experimental/restricted, blocked by runtime guard). |
 | `calls.voice.language` | string | `'en-US'` | Language code for TTS and transcription. |
 | `calls.voice.transcriptionProvider` | enum | `'Deepgram'` | Speech-to-text provider (`Deepgram` or `Google`). |
@@ -4583,6 +4684,35 @@ Keep-alive heartbeats (every 30 s by default):
 
 ---
 
+## Notification System — Signal-Driven Decision Engine
+
+The notification module (`assistant/src/notifications/`) uses a signal-based architecture where producers emit free-form events and an LLM-backed decision engine determines whether, where, and how to notify the user. See `assistant/src/notifications/README.md` for the full developer guide.
+
+```
+Producer → NotificationSignal → Decision Engine (LLM) → Deterministic Checks → Broadcaster → Adapters → Delivery
+                                       ↑
+                               Preference Summary
+```
+
+**Key modules:**
+
+| Module | Purpose |
+|--------|---------|
+| `assistant/src/notifications/emit-signal.ts` | Single entry point for all producers; orchestrates the full pipeline |
+| `assistant/src/notifications/decision-engine.ts` | LLM-based routing decisions with deterministic fallback |
+| `assistant/src/notifications/deterministic-checks.ts` | Hard invariant checks (dedupe, source-active suppression, channel availability) |
+| `assistant/src/notifications/broadcaster.ts` | Dispatches decisions to channel adapters |
+| `assistant/src/notifications/adapters/` | Per-channel delivery (macOS IPC, Telegram gateway) |
+| `assistant/src/notifications/preference-extractor.ts` | Detects preference statements in conversation messages |
+| `assistant/src/notifications/preferences-store.ts` | CRUD for user notification preferences |
+| `assistant/src/config/bundled-skills/messaging/tools/send-notification.ts` | Explicit producer tool for user-requested notifications; emits signals into the same routing pipeline |
+
+**Audit trail (SQLite):** `notification_events` → `notification_decisions` → `notification_deliveries`
+
+**Configuration:** `notifications.enabled`, `notifications.shadowMode`, `notifications.decisionModel` in `config.json`.
+
+---
+
 ## Storage Summary
 
 | What | Where | Format | ORM/Driver | Retention |
@@ -4616,13 +4746,17 @@ Keep-alive heartbeats (every 30 s by default):
 | Proxy leaf certs | `{dataDir}/proxy-ca/issued/` | PEM files per hostname | openssl CLI, cached | 1-year validity, re-issued on CA change |
 | Proxy sessions | In-memory (SessionManager) | Map<ProxySessionId, ManagedSession> | Manual lifecycle | Ephemeral; 5min idle timeout, cleared on shutdown |
 | Call sessions, events, pending questions | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent, cascade on session delete |
-| Active call orchestrators | In-memory (CallState) | Map<callSessionId, CallOrchestrator> | Manual lifecycle | Ephemeral; cleared on call end or destroy |
+| Active call controllers | In-memory (CallState) | Map<callSessionId, CallController> | Manual lifecycle | Ephemeral; cleared on call end or destroy |
 | Guardian bindings | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; revoked bindings retained |
 | Guardian verification challenges | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; consumed/expired challenges retained |
 | Guardian approval requests | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; decision outcome retained |
 | Ingress invites | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; token hash stored, raw token never persisted |
 | Ingress members | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; revoked/blocked members retained |
 | Inbox thread state | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; denormalized projection of per-contact threads |
+| Notification events | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; deduplicated by dedupeKey |
+| Notification decisions | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; FK to notification_events |
+| Notification deliveries | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; FK to notification_decisions |
+| Notification preferences | `~/.vellum/workspace/data/db/assistant.db` | SQLite | Drizzle ORM | Permanent; per-assistant conversational preferences |
 | IPC transport | `~/.vellum/vellum.sock` | Unix domain socket | NWConnection (Swift) / Bun net | Ephemeral |
 
 ## SMS/Twilio Parity Verification Checklist

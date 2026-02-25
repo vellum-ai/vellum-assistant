@@ -10,12 +10,14 @@ import type { Message } from '../providers/types.js';
 import type { TurnChannelContext } from '../channels/types.js';
 import { parseChannelId } from '../channels/types.js';
 import type { ServerMessage, UserMessageAttachment } from './ipc-protocol.js';
+import type { GuardianRuntimeContext } from './session-runtime-assembly.js';
 import type { UsageStats } from './ipc-contract.js';
 import type { MessageQueue } from './session-queue-manager.js';
 import type { QueueDrainReason } from './session-queue-manager.js';
 import type { TraceEmitter } from './trace-emitter.js';
 import { createUserMessage, createAssistantMessage } from '../agent/message-types.js';
 import * as conversationStore from '../memory/conversation-store.js';
+import { provenanceFromGuardianContext } from '../memory/conversation-store.js';
 import {
   getPendingDeliveryByConversation,
   getGuardianActionRequest,
@@ -24,6 +26,8 @@ import {
 import { answerCall } from '../calls/call-domain.js';
 import { resolveSlash, type SlashContext } from './session-slash.js';
 import { getConfig } from '../config/loader.js';
+import { extractPreferences } from '../notifications/preference-extractor.js';
+import { createPreference } from '../notifications/preferences-store.js';
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('session-process');
@@ -68,6 +72,9 @@ export interface ProcessSessionContext {
   readonly usageStats: UsageStats;
   /** Request-scoped skill IDs preactivated via slash resolution. */
   preactivatedSkillIds?: string[];
+  /** Assistant identity — used for scoping notification preferences. */
+  readonly assistantId?: string;
+  guardianContext?: GuardianRuntimeContext;
   persistUserMessage(content: string, attachments: UserMessageAttachment[], requestId?: string, metadata?: Record<string, unknown>): string;
   runAgentLoop(
     content: string,
@@ -150,9 +157,13 @@ export function drainQueue(session: ProcessSessionContext, reason: QueueDrainRea
   // failed write never leaves an unpersisted message in memory.
   if (slashResult.kind === 'unknown') {
     try {
-      const drainChannelMeta = queuedTurnCtx
-        ? { userMessageChannel: queuedTurnCtx.userMessageChannel, assistantMessageChannel: queuedTurnCtx.assistantMessageChannel }
-        : undefined;
+      const drainProvenance = provenanceFromGuardianContext(session.guardianContext);
+      const drainChannelMeta = {
+        ...drainProvenance,
+        ...(queuedTurnCtx
+          ? { userMessageChannel: queuedTurnCtx.userMessageChannel, assistantMessageChannel: queuedTurnCtx.assistantMessageChannel }
+          : {}),
+      };
       const userMsg = createUserMessage(next.content, next.attachments);
       conversationStore.addMessage(
         session.conversationId,
@@ -231,6 +242,29 @@ export function drainQueue(session: ProcessSessionContext, reason: QueueDrainRea
   session.currentActiveSurfaceId = next.activeSurfaceId;
   session.currentPage = next.currentPage;
 
+  // Fire-and-forget: detect notification preferences in the queued message
+  // and persist any that are found, mirroring the logic in processMessage.
+  if (session.assistantId && getConfig().notifications.enabled) {
+    const aid = session.assistantId;
+    extractPreferences(resolvedContent)
+      .then((result) => {
+        if (!result.detected) return;
+        for (const pref of result.preferences) {
+          createPreference({
+            assistantId: aid,
+            preferenceText: pref.preferenceText,
+            appliesWhen: pref.appliesWhen,
+            priority: pref.priority,
+          });
+        }
+        log.info({ count: result.preferences.length, conversationId: session.conversationId }, 'Persisted extracted notification preferences (queued)');
+      })
+      .catch((err) => {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        log.warn({ err: errMsg, conversationId: session.conversationId }, 'Background preference extraction failed (queued)');
+      });
+  }
+
   // Fire-and-forget: persistUserMessage set session.processing = true
   // so subsequent messages will still be enqueued.
   // runAgentLoop's finally block will call drainQueue when this run completes.
@@ -266,7 +300,7 @@ export async function processMessage(
   if (guardianDelivery) {
     const guardianRequest = getGuardianActionRequest(guardianDelivery.requestId);
     if (guardianRequest && guardianRequest.status === 'pending') {
-      const guardianChannelMeta = { userMessageChannel: 'macos' as const, assistantMessageChannel: 'macos' as const };
+      const guardianChannelMeta = { userMessageChannel: 'vellum' as const, assistantMessageChannel: 'vellum' as const, provenanceActorRole: 'guardian' as const };
       const userMsg = createUserMessage(content, attachments);
       const persisted = conversationStore.addMessage(
         session.conversationId,
@@ -283,7 +317,7 @@ export async function processMessage(
       const answerResult = await answerCall({ callSessionId: guardianRequest.callSessionId, answer: content });
 
       if ('ok' in answerResult && answerResult.ok) {
-        const resolved = resolveGuardianActionRequest(guardianRequest.id, content, 'macos');
+        const resolved = resolveGuardianActionRequest(guardianRequest.id, content, 'vellum');
         const replyText = resolved
           ? 'Your answer has been relayed to the call.'
           : 'This question has already been answered from another channel.';
@@ -322,9 +356,13 @@ export async function processMessage(
   // so that a failed write never leaves an unpersisted message in memory.
   if (slashResult.kind === 'unknown') {
     const pmTurnCtx = session.getTurnChannelContext();
-    const pmChannelMeta = pmTurnCtx
-      ? { userMessageChannel: pmTurnCtx.userMessageChannel, assistantMessageChannel: pmTurnCtx.assistantMessageChannel }
-      : undefined;
+    const pmProvenance = provenanceFromGuardianContext(session.guardianContext);
+    const pmChannelMeta = {
+      ...pmProvenance,
+      ...(pmTurnCtx
+        ? { userMessageChannel: pmTurnCtx.userMessageChannel, assistantMessageChannel: pmTurnCtx.assistantMessageChannel }
+        : {}),
+    };
     const userMsg = createUserMessage(content, attachments);
     const persisted = conversationStore.addMessage(
       session.conversationId,
@@ -373,6 +411,30 @@ export async function processMessage(
     // runAgentLoop never ran, so its finally block won't clear this
     session.preactivatedSkillIds = undefined;
     return '';
+  }
+
+  // Fire-and-forget: detect notification preferences in the user message
+  // and persist any that are found. Runs in the background so it doesn't
+  // block the main conversation flow.
+  if (session.assistantId && getConfig().notifications.enabled) {
+    const aid = session.assistantId;
+    extractPreferences(resolvedContent)
+      .then((result) => {
+        if (!result.detected) return;
+        for (const pref of result.preferences) {
+          createPreference({
+            assistantId: aid,
+            preferenceText: pref.preferenceText,
+            appliesWhen: pref.appliesWhen,
+            priority: pref.priority,
+          });
+        }
+        log.info({ count: result.preferences.length, conversationId: session.conversationId }, 'Persisted extracted notification preferences');
+      })
+      .catch((err) => {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        log.warn({ err: errMsg, conversationId: session.conversationId }, 'Background preference extraction failed');
+      });
   }
 
   await session.runAgentLoop(resolvedContent, userMessageId, onEvent);

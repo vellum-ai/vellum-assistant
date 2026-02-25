@@ -1,9 +1,22 @@
 import type { GatewayConfig } from "../../config.js";
-import { validateBearerToken } from "../auth/bearer.js";
 import { getLogger } from "../../logger.js";
-import { sendWhatsAppReply } from "../../whatsapp/send.js";
+import type { RuntimeAttachmentMeta } from "../../runtime/client.js";
+import { checkDeliverAuth } from "../middleware/deliver-auth.js";
+import { sendWhatsAppAttachments, sendWhatsAppReply } from "../../whatsapp/send.js";
 
 const log = getLogger("whatsapp-deliver");
+
+export type ApprovalAction = {
+  id: string;
+  label: string;
+};
+
+export type ApprovalPayload = {
+  runId: string;
+  requestId: string;
+  actions: ApprovalAction[];
+  plainTextFallback: string;
+};
 
 export function createWhatsAppDeliverHandler(config: GatewayConfig) {
   return async (req: Request): Promise<Response> => {
@@ -14,27 +27,8 @@ export function createWhatsAppDeliverHandler(config: GatewayConfig) {
       return Response.json({ error: "Method not allowed" }, { status: 405 });
     }
 
-    // Fail-closed auth: when no bearer token is configured and the explicit
-    // dev-only bypass flag is not set, refuse to serve requests (503) rather
-    // than silently allowing unauthenticated access.
-    if (!config.runtimeProxyBearerToken) {
-      if (config.whatsappDeliverAuthBypass) {
-        // Dev-only bypass — skip auth entirely.
-      } else {
-        return Response.json(
-          { error: "Service not configured: bearer token required" },
-          { status: 503 },
-        );
-      }
-    } else {
-      const authResult = validateBearerToken(
-        req.headers.get("authorization"),
-        config.runtimeProxyBearerToken,
-      );
-      if (!authResult.authorized) {
-        return Response.json({ error: "Unauthorized" }, { status: 401 });
-      }
-    }
+    const authResponse = checkDeliverAuth(req, config, "whatsappDeliverAuthBypass");
+    if (authResponse) return authResponse;
 
     // Verify WhatsApp sending is configured
     if (!config.whatsappPhoneNumberId || !config.whatsappAccessToken) {
@@ -50,7 +44,8 @@ export function createWhatsAppDeliverHandler(config: GatewayConfig) {
       to?: string;
       text?: string;
       assistantId?: string;
-      attachments?: unknown[];
+      attachments?: RuntimeAttachmentMeta[];
+      approval?: ApprovalPayload;
     };
     try {
       body = (await req.json()) as typeof body;
@@ -65,28 +60,90 @@ export function createWhatsAppDeliverHandler(config: GatewayConfig) {
       return Response.json({ error: "to is required" }, { status: 400 });
     }
 
-    const { text } = body;
+    const { text, assistantId, attachments, approval } = body;
 
-    // When text is missing but attachments are present, produce a graceful fallback
-    // since WhatsApp media delivery is not yet implemented.
-    const hasAttachments = Array.isArray(body.attachments) && body.attachments.length > 0;
-    const effectiveText =
-      (!text || (typeof text === "string" && text.trim().length === 0)) && hasAttachments
-        ? "I have a media attachment to share, but WhatsApp media delivery is not yet supported."
-        : text;
-
-    if (!effectiveText || typeof effectiveText !== "string") {
-      return Response.json({ error: "text is required" }, { status: 400 });
+    if (text !== undefined && typeof text !== "string") {
+      return Response.json({ error: "text must be a string" }, { status: 400 });
     }
 
+    // Validate approval payload shape when present.
+    if (approval !== undefined) {
+      if (approval === null || typeof approval !== "object" || Array.isArray(approval)) {
+        return Response.json({ error: "approval must be an object" }, { status: 400 });
+      }
+      if (!text) {
+        return Response.json(
+          { error: "text is required when approval is present" },
+          { status: 400 },
+        );
+      }
+      if (!approval.runId || typeof approval.runId !== "string") {
+        return Response.json({ error: "approval.runId is required" }, { status: 400 });
+      }
+      if (!approval.requestId || typeof approval.requestId !== "string") {
+        return Response.json({ error: "approval.requestId is required" }, { status: 400 });
+      }
+      if (!Array.isArray(approval.actions) || approval.actions.length === 0) {
+        return Response.json({ error: "approval.actions must be a non-empty array" }, { status: 400 });
+      }
+      for (const action of approval.actions) {
+        if (action === null || typeof action !== "object" || Array.isArray(action)) {
+          return Response.json({ error: "each approval action must be an object" }, { status: 400 });
+        }
+        if (!action.id || typeof action.id !== "string") {
+          return Response.json({ error: "each approval action must have an id" }, { status: 400 });
+        }
+        if (!action.label || typeof action.label !== "string") {
+          return Response.json({ error: "each approval action must have a label" }, { status: 400 });
+        }
+      }
+    }
+
+    if (!text && (!attachments || attachments.length === 0)) {
+      return Response.json({ error: "text or attachments required" }, { status: 400 });
+    }
+
+    if (attachments) {
+      if (!Array.isArray(attachments)) {
+        return Response.json({ error: "attachments must be an array" }, { status: 400 });
+      }
+      for (const att of attachments) {
+        if (att === null || typeof att !== "object" || Array.isArray(att)) {
+          return Response.json({ error: "each attachment must be an object" }, { status: 400 });
+        }
+        if (!att.id || typeof att.id !== "string") {
+          return Response.json({ error: "each attachment must have an id" }, { status: 400 });
+        }
+      }
+    }
+
+    let textSent = false;
+
     try {
-      await sendWhatsAppReply(config, to, effectiveText);
+      if (text) {
+        await sendWhatsAppReply(config, to, text, approval);
+        textSent = true;
+      }
     } catch (err) {
-      tlog.error({ err, to }, "Failed to deliver WhatsApp reply");
+      tlog.error({ err, to }, "Failed to deliver WhatsApp text");
       return Response.json({ error: "Delivery failed" }, { status: 502 });
     }
 
-    tlog.info({ to, textLength: effectiveText.length }, "WhatsApp reply sent");
+    if (attachments && attachments.length > 0) {
+      const result = await sendWhatsAppAttachments(config, to, assistantId, attachments);
+
+      if (result.allFailed && !textSent) {
+        // Nothing was delivered at all -- signal failure so the caller can retry
+        tlog.error({ to, failureCount: result.failureCount }, "All attachments failed and no text was sent");
+        return Response.json({ error: "Delivery failed" }, { status: 502 });
+      }
+
+      if (result.failureCount > 0) {
+        tlog.warn({ to, failureCount: result.failureCount, totalCount: result.totalCount }, "Partial attachment delivery failure");
+      }
+    }
+
+    tlog.info({ to, hasText: !!text, attachmentCount: attachments?.length ?? 0, hasApproval: !!approval }, "WhatsApp reply sent");
     return Response.json({ ok: true });
   };
 }

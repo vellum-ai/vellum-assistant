@@ -130,6 +130,7 @@ export class Session {
   /** @internal */ currentPage?: string;
   /** @internal */ channelCapabilities?: ChannelCapabilities;
   /** @internal */ guardianContext?: GuardianRuntimeContext;
+  /** @internal */ voiceCallControlPrompt?: string;
   /** @internal */ assistantId?: string;
   /** @internal */ commandIntent?: { type: string; payload?: string; languageCode?: string };
   /** @internal */ pendingSurfaceActions = new Map<string, { surfaceType: SurfaceType }>();
@@ -204,7 +205,7 @@ export class Session {
     this.agentLoop = new AgentLoop(
       provider,
       systemPrompt,
-      { maxTokens, maxInputTokens: config.contextWindow.maxInputTokens, thinking: config.thinking },
+      { maxTokens, maxInputTokens: config.contextWindow.maxInputTokens, thinking: config.thinking, maxToolUseTurns: config.maxToolUseTurns },
       toolDefs.length > 0 ? toolDefs : undefined,
       toolDefs.length > 0 ? toolExecutor : undefined,
       resolveTools,
@@ -342,6 +343,10 @@ export class Session {
 
   setGuardianContext(ctx: GuardianRuntimeContext | null): void {
     this.guardianContext = ctx ?? undefined;
+  }
+
+  setVoiceCallControlPrompt(prompt: string | null): void {
+    this.voiceCallControlPrompt = prompt ?? undefined;
   }
 
   setAssistantId(assistantId: string | null): void {

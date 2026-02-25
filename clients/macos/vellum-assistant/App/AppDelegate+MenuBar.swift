@@ -10,15 +10,33 @@ extension AppDelegate {
     // MARK: - Menu Bar
 
     func setupMenuBar() {
+        if statusItem != nil {
+            NSStatusBar.system.removeStatusItem(statusItem)
+            statusItem = nil
+        }
+
+        // Set saved position to right side of menu bar (visible area, right of notch)
+        UserDefaults.standard.set(1200, forKey: "NSStatusItem Preferred Position VellumMenuBar")
+
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        statusItem.autosaveName = "VellumMenuBar"
+        statusItem.isVisible = true
         if let button = statusItem.button {
             configureMenuBarIcon(button)
             button.action = #selector(statusBarButtonClicked(_:))
             button.target = self
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
 
-        // Start observing daemon connection state immediately so the icon
-        // reflects disconnected/connected before the main window opens.
+        rebindConnectionStatusObserver()
+    }
+
+    /// (Re-)subscribe to `daemonClient.$isConnected` so the menu bar icon
+    /// tracks the current daemon client. Called from `setupMenuBar()` and
+    /// again from `setupDaemonClient()` after transport reconfiguration,
+    /// which may replace the underlying `DaemonClient` instance.
+    func rebindConnectionStatusObserver() {
+        connectionStatusCancellable?.cancel()
         connectionStatusCancellable = daemonClient.$isConnected
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
@@ -78,13 +96,18 @@ extension AppDelegate {
         let dotSize: CGFloat = 6
         let dotPadding: CGFloat = 0.5
 
-        let appIcon = ResourceBundle.bundle.image(forResource: "MenuBarIcon")
-            ?? NSImage(named: "MenuBarIcon")
-            ?? NSApp.applicationIconImage
-        guard let appIcon else {
-            button.image = NSImage(systemSymbolName: "sparkles", accessibilityDescription: "Vellum")
-            return
-        }
+        let appIcon: NSImage = {
+            let bundle = ResourceBundle.bundle
+            if let url = bundle.url(
+                forResource: "icon-64",
+                withExtension: "png",
+                subdirectory: "Assets.xcassets/MenuBarIcon.imageset"
+            ), let img = NSImage(contentsOf: url) {
+                return img
+            }
+            return NSImage(systemSymbolName: "sparkles", accessibilityDescription: "Vellum")
+                ?? NSImage()
+        }()
 
         let status = currentAssistantStatus
         let dotColor = status.statusColor
@@ -117,12 +140,20 @@ extension AppDelegate {
         if status.shouldPulse {
             guard pulseTimer == nil else { return }
             pulsePhase = 1.0
+            pulseDirection = -1.0
             pulseTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
                 Task { @MainActor in
                     guard let self, self.statusItem != nil, let button = self.statusItem.button else { return }
-                    // Triangle wave between 0.3 and 1.0 over ~1.4s (28 frames at 50ms)
-                    self.pulsePhase -= 0.05
-                    if self.pulsePhase <= 0.3 { self.pulsePhase = 1.0 }
+                    // Triangle wave: smoothly oscillate between 1.0 and 0.3,
+                    // reversing direction at each boundary to avoid abrupt jumps.
+                    self.pulsePhase += self.pulseDirection * 0.05
+                    if self.pulsePhase <= 0.3 {
+                        self.pulsePhase = 0.3
+                        self.pulseDirection = 1.0
+                    } else if self.pulsePhase >= 1.0 {
+                        self.pulsePhase = 1.0
+                        self.pulseDirection = -1.0
+                    }
                     self.configureMenuBarIcon(button)
                 }
             }
@@ -130,6 +161,7 @@ extension AppDelegate {
             pulseTimer?.invalidate()
             pulseTimer = nil
             pulsePhase = 1.0
+            pulseDirection = -1.0
         }
     }
 
@@ -142,7 +174,17 @@ extension AppDelegate {
     }
 
     @objc func statusBarButtonClicked(_ sender: NSStatusBarButton) {
-        showStatusMenu()
+        guard let event = NSApp.currentEvent else {
+            showStatusMenu()
+            return
+        }
+        if event.type == .rightMouseUp || event.modifierFlags.contains(.control) {
+            showStatusMenu()
+        } else if PermissionManager.screenRecordingStatus() == .granted {
+            startScreenCapture()
+        } else {
+            toggleQuickInput(aboveDock: true, requestScreenPermission: true)
+        }
     }
 
     func showStatusMenu() {
@@ -282,6 +324,11 @@ extension AppDelegate {
         galleryItem.target = self
         menu.addItem(galleryItem)
         #endif
+
+        let restartItem = NSMenuItem(title: "Restart", action: #selector(performRestart), keyEquivalent: "")
+        restartItem.target = self
+        restartItem.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: nil)
+        menu.addItem(restartItem)
 
         menu.addItem(NSMenuItem.separator())
 
