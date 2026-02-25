@@ -28,7 +28,7 @@ import type {
   ConversationSearchRequest,
 } from '../ipc-protocol.js';
 import { getConfig } from '../../config/loader.js';
-import { GENERATING_TITLE } from '../../memory/conversation-title-service.js';
+import { GENERATING_TITLE, queueGenerateConversationTitle, isReplaceableTitle, UNTITLED_FALLBACK } from '../../memory/conversation-title-service.js';
 import { getSubagentManager } from '../../subagent/index.js';
 import {
   log,
@@ -302,6 +302,26 @@ export async function handleSessionCreate(
 
   // Auto-send the initial message if provided, kick-starting the skill.
   if (msg.initialMessage) {
+    // Queue title generation immediately (matches all other creation paths).
+    // The agent loop success path will also attempt title generation, but
+    // queueGenerateConversationTitle is safe to call redundantly — the
+    // replaceability check prevents double-writes. This ensures the title
+    // is generated even if the agent loop fails or is cancelled.
+    if (title === GENERATING_TITLE) {
+      queueGenerateConversationTitle({
+        conversationId: conversation.id,
+        context: { origin: 'ipc' },
+        userMessage: msg.initialMessage,
+        onTitleUpdated: (newTitle) => {
+          ctx.send(socket, {
+            type: 'session_title_updated',
+            sessionId: conversation.id,
+            title: newTitle,
+          });
+        },
+      });
+    }
+
     ctx.socketToSession.set(socket, conversation.id);
     const sendEvent = (event: ServerMessage) => ctx.send(socket, event);
     const requestId = uuid();
@@ -314,6 +334,23 @@ export async function handleSessionCreate(
       const message = err instanceof Error ? err.message : String(err);
       log.error({ err, sessionId: conversation.id }, 'Error processing initial message');
       ctx.send(socket, { type: 'error', message: `Failed to process initial message: ${message}` });
+
+      // Replace stuck loading placeholder with a stable fallback title
+      // if title generation hasn't already completed or been renamed.
+      try {
+        const current = conversationStore.getConversation(conversation.id);
+        if (current && current.title === GENERATING_TITLE) {
+          const fallback = UNTITLED_FALLBACK;
+          conversationStore.updateConversationTitle(conversation.id, fallback);
+          ctx.send(socket, {
+            type: 'session_title_updated',
+            sessionId: conversation.id,
+            title: fallback,
+          });
+        }
+      } catch {
+        // Best-effort fallback
+      }
     });
   }
 }

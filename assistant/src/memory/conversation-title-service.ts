@@ -150,6 +150,15 @@ export async function generateAndPersistConversationTitle(
   }
 
   // No text in response — use fallback
+  // Re-check replaceability before persisting (race guard — same as the
+  // text-response path above). A concurrent custom rename may have landed
+  // while the LLM request was in-flight; writing unconditionally would
+  // clobber the user's intent.
+  const currentForFallback = conversationStore.getConversation(conversationId);
+  if (currentForFallback && !isReplaceableTitle(currentForFallback.title)) {
+    return { title: currentForFallback.title!, updated: false };
+  }
+
   const fallback = deriveFallbackTitle(context) ?? UNTITLED_FALLBACK;
   conversationStore.updateConversationTitle(conversationId, fallback, 1);
   onTitleUpdated?.(fallback);
