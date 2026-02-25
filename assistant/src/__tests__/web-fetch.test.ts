@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+ 
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { PassThrough } from 'node:stream';
 import type { IncomingHttpHeaders } from 'node:http';

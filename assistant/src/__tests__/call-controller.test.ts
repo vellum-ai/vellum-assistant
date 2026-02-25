@@ -101,7 +101,7 @@ function createMockVoiceTurn(tokens: string[]) {
   };
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 let mockStartVoiceTurn: Mock<any>;
 
 mock.module('../calls/voice-session-bridge.js', () => {

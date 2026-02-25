@@ -1152,7 +1152,7 @@ describe('Surface-action queue-full trace', () => {
     expect(session.getQueueDepth()).toBe(MAX_QUEUE_DEPTH);
 
     // Register a pending surface action so handleSurfaceAction doesn't bail early
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- access private property for testing
+     
     (session as any).pendingSurfaceActions.set('surf-1', { surfaceType: 'confirmation' });
 
     // Trigger the surface action — queue is full, should be rejected
@@ -1169,7 +1169,7 @@ describe('Surface-action queue-full trace', () => {
     );
     expect(errorTrace).toBeDefined();
     expect(errorTrace).toHaveProperty('attributes');
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- access trace attributes
+     
     const attrs = (errorTrace as any).attributes;
     expect(attrs.reason).toBe('queue_full');
     expect(attrs.source).toBe('surface_action');
@@ -1310,7 +1310,7 @@ describe('Session attachment event payloads', () => {
       content: 'ok',
       isError: false,
       contentBlocks: [
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mock content block
+         
         { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0K' } } as any,
       ],
     });
@@ -1354,7 +1354,7 @@ describe('Session attachment event payloads', () => {
       content: 'ok',
       isError: false,
       contentBlocks: [
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mock content block
+         
         { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0K' } } as any,
       ],
     });
@@ -1430,7 +1430,7 @@ describe('Regression: cancel semantics and error channel split', () => {
       content: 'ok',
       isError: false,
       contentBlocks: [
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mock content block
+         
         { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0K' } } as any,
       ],
     });

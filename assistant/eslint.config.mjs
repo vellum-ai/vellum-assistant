@@ -10,6 +10,7 @@ const eslintConfig = defineConfig([
         "error",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
+      "@typescript-eslint/no-explicit-any": "error",
 
       // Standardize on `undefined` only — avoid `null` in new code.
       // Prefer `=== undefined`, `?? fallback`, or `?.` optional chaining
@@ -41,6 +42,12 @@ const eslintConfig = defineConfig([
             "Avoid `null !==`. Prefer `!== undefined`, nullish coalescing `??`, or optional chaining `?.` instead.",
         },
       ],
+    },
+  },
+  {
+    files: ["**/__tests__/**/*.ts", "**/*.test.ts"],
+    rules: {
+      "@typescript-eslint/no-explicit-any": "off",
     },
   },
 ]);
