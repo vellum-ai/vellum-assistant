@@ -125,7 +125,7 @@ struct MarkdownSegmentView: View {
     /// Keyed by a hash of the segment descriptions so identical segment
     /// arrays return the cached value instead of re-parsing markdown and
     /// re-creating `AttributedString` on every SwiftUI body evaluation.
-    private static var attributedStringCache: [Int: AttributedString] = [:]
+    @MainActor private static var attributedStringCache: [Int: AttributedString] = [:]
     private static let attributedStringCacheLimit = 200
 
     /// Clears the attributed string cache.  Called when switching threads
@@ -153,7 +153,8 @@ struct MarkdownSegmentView: View {
 
         let result = Self.buildAttributedStringUncached(from: segments, secondaryTextColor: secondaryTextColor)
 
-        // Evict oldest entry when the cache is full.
+        // Evict an arbitrary entry when the cache is full (Dictionary
+        // iteration order is unspecified, so this is not strictly FIFO).
         if Self.attributedStringCache.count >= Self.attributedStringCacheLimit {
             if let firstKey = Self.attributedStringCache.keys.first {
                 Self.attributedStringCache.removeValue(forKey: firstKey)

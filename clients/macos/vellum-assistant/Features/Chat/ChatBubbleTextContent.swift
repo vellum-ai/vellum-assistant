@@ -33,41 +33,39 @@ extension ChatBubble {
 
     /// Cached inline markdown AttributedString to avoid re-parsing on every render.
     static func cachedInlineMarkdown(for text: String) -> AttributedString {
-        let key = text.hashValue
-        if let cached = markdownCache[key] { return cached }
+        if let cached = markdownCache[text] { return cached }
         let options = AttributedString.MarkdownParsingOptions(
             interpretedSyntax: .inlineOnlyPreservingWhitespace
         )
         let result = (try? AttributedString(markdown: text, options: options))
             ?? AttributedString(text)
         if markdownCache.count >= maxCacheSize {
+            // Dictionary iteration order is unspecified; this evicts an arbitrary entry.
             if let first = markdownCache.keys.first { markdownCache.removeValue(forKey: first) }
         }
-        markdownCache[key] = result
+        markdownCache[text] = result
         return result
     }
 
     /// Cached markdown segment parser to avoid re-parsing on every render.
     static func cachedSegments(for text: String) -> [MarkdownSegment] {
-        let key = text.hashValue
-        if let cached = segmentCache[key] { return cached }
+        if let cached = segmentCache[text] { return cached }
         let result = parseMarkdownSegments(text)
         if segmentCache.count >= maxCacheSize {
+            // Dictionary iteration order is unspecified; this evicts an arbitrary entry.
             if let first = segmentCache.keys.first { segmentCache.removeValue(forKey: first) }
         }
-        segmentCache[key] = result
+        segmentCache[text] = result
         return result
     }
 
     /// Cached markdown parser to avoid re-parsing on every render.
-    /// Uses the message text hash as the cache key.
     var markdownText: AttributedString {
         let textToRender = message.text
         let trimmed = textToRender.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cacheKey = trimmed.hashValue
 
         // Return cached value if available
-        if let cached = Self.markdownCache[cacheKey] {
+        if let cached = Self.markdownCache[trimmed] {
             return cached
         }
 
@@ -89,12 +87,12 @@ extension ChatBubble {
 
         // Store in cache (with size limit to prevent unbounded growth)
         if Self.markdownCache.count >= Self.maxCacheSize {
-            // Simple FIFO eviction - remove first entry
+            // Dictionary iteration order is unspecified; this evicts an arbitrary entry.
             if let firstKey = Self.markdownCache.keys.first {
                 Self.markdownCache.removeValue(forKey: firstKey)
             }
         }
-        Self.markdownCache[cacheKey] = parsed
+        Self.markdownCache[trimmed] = parsed
 
         return parsed
     }

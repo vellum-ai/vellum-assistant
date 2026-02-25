@@ -382,7 +382,7 @@ struct ChatBubble: View {
 
     // MARK: - Caches
 
-    static var segmentCache = [Int: [MarkdownSegment]]()
-    static var markdownCache = [Int: AttributedString]()
+    @MainActor static var segmentCache = [String: [MarkdownSegment]]()
+    @MainActor static var markdownCache = [String: AttributedString]()
     static let maxCacheSize = 100
 }

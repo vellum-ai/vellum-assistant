@@ -22,10 +22,6 @@ struct MessageListView: View {
     var onSubagentTap: ((String) -> Void)?
     var subagentDetailStore: SubagentDetailStore?
 
-    /// Hard cap on the number of messages rendered in the LazyVStack.
-    /// Keeps the SwiftUI view graph bounded even for very long conversations.
-    private static let displayMessageCap = 200
-
     @Binding var isNearBottom: Bool
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
     @AppStorage("completedConversationCount") private var completedConversationCount: Int = 0
@@ -77,17 +73,10 @@ struct MessageListView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: VSpacing.md) {
-                    // Filter and cap visible messages to prevent unbounded view-graph growth.
-                    // The most recent `displayMessageCap` messages are shown; older ones
-                    // are still in the model but not rendered, keeping the SwiftUI view
-                    // graph bounded regardless of conversation length.
-                    let allDisplayMessages = messages.filter { msg in
+                    let displayMessages = messages.filter { msg in
                         if msg.isSubagentNotification { return false }
                         return true
                     }
-                    let displayMessages = allDisplayMessages.count > Self.displayMessageCap
-                        ? Array(allDisplayMessages.suffix(Self.displayMessageCap))
-                        : allDisplayMessages
                     let activePendingRequestId = PendingConfirmationFocusSelector.activeRequestId(from: displayMessages)
                     ForEach(Array(displayMessages.enumerated()), id: \.element.id) { index, message in
                         if shouldShowTimestamp(at: index, in: displayMessages) {
