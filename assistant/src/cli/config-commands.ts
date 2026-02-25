@@ -17,7 +17,7 @@ import {
 } from '../memory/admin.js';
 import { listPendingConflictDetails } from '../memory/conflict-store.js';
 import { listConversations } from '../memory/conversation-store.js';
-import { initializeDb } from '../memory/db.js';
+import { initializeDb, rawGet } from '../memory/db.js';
 import {
   clearAllRules,
   getAllRules,
@@ -354,16 +354,29 @@ export function registerMemoryCommand(program: Command): void {
 
       if (opts.dryRun) {
         const scopeId = opts.scope ?? 'default';
-        const pending = listPendingConflictDetails(scopeId, 1000);
+        const totalPending = rawGet<{ c: number }>(
+          `SELECT COUNT(*) AS c FROM memory_item_conflicts WHERE scope_id = ? AND status = 'pending_clarification'`,
+          scopeId,
+        )?.c ?? 0;
+
+        // Show a sample of conflicts (can't paginate without dismissing)
+        const sample = listPendingConflictDetails(scopeId, 1000);
         let matchCount = 0;
-        for (const conflict of pending) {
+        for (const conflict of sample) {
           const matches = opts.all
             || (pattern && (pattern.test(conflict.existingStatement) || pattern.test(conflict.candidateStatement)));
           if (!matches) continue;
           matchCount++;
           log.info(`  [${conflict.id.slice(0, SHORT_HASH_LENGTH)}] "${conflict.existingStatement}" vs "${conflict.candidateStatement}"`);
         }
-        log.info(`\nDry run: ${matchCount} of ${pending.length} pending conflicts would be dismissed.`);
+
+        if (opts.all) {
+          // --all matches everything, so matchCount is just the sample size
+          log.info(`\nDry run: ${totalPending} of ${totalPending} pending conflicts would be dismissed.`);
+        } else {
+          const moreNote = totalPending > sample.length ? ` (showing first ${sample.length} of ${totalPending})` : '';
+          log.info(`\nDry run: ${matchCount} of ${totalPending} pending conflicts would be dismissed.${moreNote}`);
+        }
         return;
       }
 
