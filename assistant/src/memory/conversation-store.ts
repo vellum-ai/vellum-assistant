@@ -12,7 +12,7 @@ import { createRowMapper } from '../util/row-mapper.js';
 import { deleteOrphanAttachments } from './attachments-store.js';
 import { getDb, rawAll, rawExec,rawGet } from './db.js';
 import { indexMessageNow } from './indexer.js';
-import { channelInboundEvents, conversations, llmRequestLogs,memoryEmbeddings, memoryItemEntities, memoryItems, memoryItemSources, memorySegments, messageAttachments, messageRuns, messages, toolInvocations } from './schema.js';
+import { channelInboundEvents, conversations, llmRequestLogs,memoryEmbeddings, memoryItemEntities, memoryItems, memoryItemSources, memorySegments, messageAttachments, messages, toolInvocations } from './schema.js';
 import { buildFtsMatchQuery } from './search/lexical.js';
 
 const log = getLogger('conversation-store');
@@ -576,10 +576,6 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
     const candidateItemIds = linkedItems.map((r) => r.memoryItemId);
 
     // Detach nullable FK references so the cascade doesn't destroy them.
-    tx.update(messageRuns)
-      .set({ messageId: null })
-      .where(eq(messageRuns.messageId, messageId))
-      .run();
     tx.update(channelInboundEvents)
       .set({ messageId: null })
       .where(eq(channelInboundEvents.messageId, messageId))

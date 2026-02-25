@@ -14,7 +14,6 @@ import { provenanceFromGuardianContext } from '../memory/conversation-store.js';
 import { RateLimitProvider } from '../providers/ratelimit.js';
 import { getFailoverProvider, initializeProviders } from '../providers/registry.js';
 import * as pendingInteractions from '../runtime/pending-interactions.js';
-import { RunOrchestrator } from '../runtime/run-orchestrator.js';
 import { checkIngressForSecrets } from '../security/secret-ingress.js';
 import { cleanupRecordingsOnDisconnect } from './handlers/recording.js';
 import { getSubagentManager } from '../subagent/index.js';
@@ -906,22 +905,6 @@ export class DaemonServer {
    */
   async getSessionForMessages(conversationId: string): Promise<Session> {
     return this.getOrCreateSession(conversationId, undefined, true);
-  }
-
-  createRunOrchestrator(): RunOrchestrator {
-    return new RunOrchestrator({
-      getOrCreateSession: (conversationId, transport) =>
-        this.getOrCreateSession(conversationId, undefined, true, transport ? { transport } : undefined),
-      resolveAttachments: (attachmentIds) =>
-        attachmentsStore.getAttachmentsByIds(attachmentIds).map((a) => ({
-          id: a.id,
-          filename: a.originalFilename,
-          mimeType: a.mimeType,
-          data: a.dataBase64,
-        })),
-      deriveDefaultStrictSideEffects: (conversationId) =>
-        this.deriveMemoryPolicy(conversationId).strictSideEffects,
-    });
   }
 
 }

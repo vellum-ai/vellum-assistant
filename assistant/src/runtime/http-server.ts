@@ -110,15 +110,7 @@ import {
   handlePairingRequest,
   handlePairingStatus,
 } from './routes/pairing-routes.js';
-import {
-  handleAddTrustRule,
-  handleCreateRun,
-  handleGetRun,
-  handleRunDecision,
-  handleRunSecret,
-} from './routes/run-routes.js';
 import { handleAddSecret } from './routes/secret-routes.js';
-import type { RunOrchestrator } from './run-orchestrator.js';
 
 // Re-export for consumers
 export { isPrivateAddress } from './middleware/auth.js';
@@ -159,7 +151,6 @@ export class RuntimeHttpServer {
   private bearerToken: string | undefined;
   private processMessage?: MessageProcessor;
   private persistAndProcessMessage?: NonBlockingMessageProcessor;
-  private runOrchestrator?: RunOrchestrator;
   private approvalCopyGenerator?: ApprovalCopyGenerator;
   private approvalConversationGenerator?: ApprovalConversationGenerator;
   private interfacesDir: string | null;
@@ -177,7 +168,6 @@ export class RuntimeHttpServer {
     this.bearerToken = options.bearerToken;
     this.processMessage = options.processMessage;
     this.persistAndProcessMessage = options.persistAndProcessMessage;
-    this.runOrchestrator = options.runOrchestrator;
     this.approvalCopyGenerator = options.approvalCopyGenerator;
     this.approvalConversationGenerator = options.approvalConversationGenerator;
     this.interfacesDir = options.interfacesDir ?? null;
@@ -601,25 +591,6 @@ export class RuntimeHttpServer {
           suggestionCache: this.suggestionCache,
           suggestionInFlight: this.suggestionInFlight,
         });
-      }
-
-      if (endpoint === 'runs' && req.method === 'POST') {
-        if (!this.runOrchestrator) return Response.json({ error: 'Run orchestration not configured' }, { status: 503 });
-        return await handleCreateRun(req, this.runOrchestrator);
-      }
-
-      const runsMatch = endpoint.match(/^runs\/([^/]+)(\/decision|\/trust-rule|\/secret)?$/);
-      if (runsMatch) {
-        if (!this.runOrchestrator) return Response.json({ error: 'Run orchestration not configured' }, { status: 503 });
-        const runId = runsMatch[1];
-        if (runsMatch[2] === '/decision' && req.method === 'POST') return await handleRunDecision(runId, req, this.runOrchestrator);
-        if (runsMatch[2] === '/secret' && req.method === 'POST') return await handleRunSecret(runId, req, this.runOrchestrator);
-        if (runsMatch[2] === '/trust-rule' && req.method === 'POST') {
-          const run = this.runOrchestrator.getRun(runId);
-          if (!run) return Response.json({ error: 'Run not found' }, { status: 404 });
-          return await handleAddTrustRule(runId, req);
-        }
-        if (req.method === 'GET') return handleGetRun(runId, this.runOrchestrator);
       }
 
       const interfacesMatch = endpoint.match(/^interfaces\/(.+)$/);

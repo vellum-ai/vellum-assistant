@@ -49,8 +49,8 @@ export function handleSubscribeAssistantEvents(
   // closures are in place before events can arrive.  `controllerRef` is set
   // synchronously inside ReadableStream's start(), so it is non-null by the
   // time any event or eviction fires.
-  // 'self' is the assistantId that RunOrchestrator assigns to all HTTP-run
-  // events (see buildAssistantEvent('self', ...) in run-orchestrator.ts).
+  // 'self' is the assistantId used by buildAssistantEvent('self', ...) for
+  // all HTTP and voice session events.
   let controllerRef: ReadableStreamDefaultController<Uint8Array> | null = null;
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   let sub!: AssistantEventSubscription;
