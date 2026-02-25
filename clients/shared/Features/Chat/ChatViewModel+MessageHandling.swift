@@ -951,26 +951,40 @@ extension ChatViewModel {
                 default: return nil
                 }
             }()
-            var toolCall = ToolCallData(
-                toolName: msg.toolName,
-                inputSummary: summarizeToolInput(msg.input),
-                inputFull: formatAllToolInput(msg.input),
-                inputRawValue: extractToolInput(msg.input),
-                arrivedBeforeText: !currentAssistantHasText,
-                startedAt: Date()
-            )
-            toolCall.buildingStatus = buildingStatus
-            // Add to existing assistant message or create one
+            let inputSummary = summarizeToolInput(msg.input)
+            let inputFull = formatAllToolInput(msg.input)
+            let inputRawValue = extractToolInput(msg.input)
+            // Check if a preliminary ToolCallData was already created by toolInputDelta
             if let existingId = currentAssistantMessageId,
-               let index = messages.firstIndex(where: { $0.id == existingId }) {
-                let tcIdx = messages[index].toolCalls.count
-                messages[index].toolCalls.append(toolCall)
-                messages[index].contentOrder.append(.toolCall(tcIdx))
+               let index = messages.firstIndex(where: { $0.id == existingId }),
+               let tcIndex = messages[index].toolCalls.lastIndex(where: { !$0.isComplete && $0.toolName == msg.toolName && $0.inputSummary.isEmpty }) {
+                // Update the preliminary entry with full input details
+                messages[index].toolCalls[tcIndex].inputSummary = inputSummary
+                messages[index].toolCalls[tcIndex].inputFull = inputFull
+                messages[index].toolCalls[tcIndex].inputRawValue = inputRawValue
+                messages[index].toolCalls[tcIndex].buildingStatus = buildingStatus
             } else {
-                var newMsg = ChatMessage(role: .assistant, text: "", isStreaming: true, toolCalls: [toolCall])
-                newMsg.contentOrder = [.toolCall(0)]
-                currentAssistantMessageId = newMsg.id
-                messages.append(newMsg)
+                var toolCall = ToolCallData(
+                    toolName: msg.toolName,
+                    inputSummary: inputSummary,
+                    inputFull: inputFull,
+                    inputRawValue: inputRawValue,
+                    arrivedBeforeText: !currentAssistantHasText,
+                    startedAt: Date()
+                )
+                toolCall.buildingStatus = buildingStatus
+                // Add to existing assistant message or create one
+                if let existingId = currentAssistantMessageId,
+                   let index = messages.firstIndex(where: { $0.id == existingId }) {
+                    let tcIdx = messages[index].toolCalls.count
+                    messages[index].toolCalls.append(toolCall)
+                    messages[index].contentOrder.append(.toolCall(tcIdx))
+                } else {
+                    var newMsg = ChatMessage(role: .assistant, text: "", isStreaming: true, toolCalls: [toolCall])
+                    newMsg.contentOrder = [.toolCall(0)]
+                    currentAssistantMessageId = newMsg.id
+                    messages.append(newMsg)
+                }
             }
             lastContentWasToolCall = true
 
@@ -982,10 +996,36 @@ extension ChatViewModel {
                let msgIndex = messages.firstIndex(where: { $0.id == existingId }) {
                 messages[msgIndex].streamingCodePreview = preview
                 messages[msgIndex].streamingCodeToolName = msg.toolName
+                // For non-app tools (where code preview is nil), eagerly create
+                // a preliminary ToolCallData so the running indicator appears
+                // immediately during streaming, not just after tool_use_start.
+                if preview == nil && messages[msgIndex].toolCalls.isEmpty {
+                    let toolCall = ToolCallData(
+                        toolName: msg.toolName,
+                        inputSummary: "",
+                        arrivedBeforeText: !currentAssistantHasText,
+                        startedAt: Date()
+                    )
+                    messages[msgIndex].toolCalls.append(toolCall)
+                    messages[msgIndex].contentOrder.append(.toolCall(0))
+                    lastContentWasToolCall = true
+                }
             } else {
                 var newMsg = ChatMessage(role: .assistant, text: "", isStreaming: true)
                 newMsg.streamingCodePreview = preview
                 newMsg.streamingCodeToolName = msg.toolName
+                // For non-app tools, include a preliminary ToolCallData
+                if preview == nil {
+                    let toolCall = ToolCallData(
+                        toolName: msg.toolName,
+                        inputSummary: "",
+                        arrivedBeforeText: true,
+                        startedAt: Date()
+                    )
+                    newMsg.toolCalls = [toolCall]
+                    newMsg.contentOrder = [.toolCall(0)]
+                    lastContentWasToolCall = true
+                }
                 currentAssistantMessageId = newMsg.id
                 messages.append(newMsg)
             }

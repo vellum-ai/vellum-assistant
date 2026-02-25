@@ -371,6 +371,15 @@ extension DaemonClient {
             do {
                 let message = try decoder.decode(ServerMessage.self, from: Data(lineData))
                 handleServerMessage(message)
+
+                // After a toolUseStart, yield to the RunLoop so SwiftUI can render
+                // the running state before the tool_result arrives in the same buffer.
+                if case .toolUseStart = message, !receiveBuffer.isEmpty {
+                    DispatchQueue.main.async { [self] in
+                        self.processReceivedData(Data())
+                    }
+                    return
+                }
             } catch {
                 // Log a safe summary — never include raw line content which may contain secrets.
                 let byteCount = lineData.count

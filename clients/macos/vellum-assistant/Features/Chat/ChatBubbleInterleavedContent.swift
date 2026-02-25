@@ -60,9 +60,14 @@ extension ChatBubble {
                         textBubble(for: segmentText)
                     }
                 }
-            case .toolCalls:
-                // Tool calls are rendered by trailingStatus below the message
-                EmptyView()
+            case .toolCalls(let indices):
+                // Only show completed tool calls inline; running ones render in trailingStatus
+                let completedCalls = indices.compactMap { i in
+                    i < message.toolCalls.count && message.toolCalls[i].isComplete ? message.toolCalls[i] : nil
+                }
+                ForEach(completedCalls, id: \.id) { toolCall in
+                    InlineToolCallRow(toolCall: toolCall)
+                }
             case .surface(let i):
                 if i < message.inlineSurfaces.count,
                    message.inlineSurfaces[i].id != activeSurfaceId {

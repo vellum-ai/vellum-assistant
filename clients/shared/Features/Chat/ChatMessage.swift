@@ -583,13 +583,13 @@ public struct ClaudeCodeSubStep: Identifiable, Equatable {
 public struct ToolCallData: Identifiable, Equatable {
     public let id: UUID
     public let toolName: String
-    public let inputSummary: String
+    public var inputSummary: String
     /// Full (untruncated) input text for display in expanded views.
-    public let inputFull: String
+    public var inputFull: String
     /// Untruncated raw value of the primary input key (e.g. file path).
     /// Unlike inputSummary (truncated to 80 chars) this preserves the full value
     /// for use in file existence checks and opening files.
-    public let inputRawValue: String
+    public var inputRawValue: String
     public var result: String?
     public var isError: Bool
     public var isComplete: Bool

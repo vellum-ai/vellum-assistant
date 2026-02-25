@@ -16,8 +16,13 @@ extension ChatBubble {
 
     @ViewBuilder
     var trailingStatus: some View {
-        let hasCompletedTools = allToolCallsComplete && !hideToolCalls && !message.toolCalls.isEmpty
+        // When tools are rendered inline (interleaved content), skip the trailing
+        // completed-tools pill — they're already visible between text blocks.
+        // Still show running indicators, permission chips, and code previews.
+        let toolsShownInline = hasInterleavedContent
+        let hasCompletedTools = allToolCallsComplete && !hideToolCalls && !message.toolCalls.isEmpty && !toolsShownInline
         /// True when there is at least one tool call that hasn't finished yet.
+        /// Always show running tools in trailingStatus (even if interleaved) to guarantee visibility.
         let hasActuallyRunningTool = !hideToolCalls && message.toolCalls.contains(where: { !$0.isComplete })
         /// All individual tool calls done but message still streaming (model generating next tool call).
         /// Hide once text is being streamed so the user doesn't see "Thinking" alongside the response.
@@ -27,7 +32,35 @@ extension ChatBubble {
         let hasPermission = decidedConfirmation != nil
         let hasStreamingCode = message.isStreaming && message.streamingCodePreview != nil && !(message.streamingCodePreview?.isEmpty ?? true)
 
-        if hasStreamingCode {
+        // Streaming but nothing visible yet — show a thinking indicator
+        let isThinking = message.isStreaming && !hasText && message.toolCalls.isEmpty && !hasStreamingCode
+
+        if isThinking {
+            HStack(spacing: VSpacing.sm) {
+                ProgressView()
+                    .controlSize(.mini)
+                    .scaleEffect(0.8)
+                    .frame(width: 16, height: 16)
+
+                Text("Thinking")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
+                    .lineLimit(1)
+
+                Spacer()
+            }
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.sm + 2)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .fill(VColor.surface.opacity(0.7))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .stroke(VColor.surfaceBorder.opacity(0.6), lineWidth: 0.5)
+            )
+            .frame(maxWidth: 520, alignment: .leading)
+        } else if hasStreamingCode {
             let rawName = message.streamingCodeToolName ?? ""
             let activeBuildingStatus = message.toolCalls.last(where: { !$0.isComplete })?.buildingStatus
             VStack(alignment: .leading, spacing: VSpacing.xs) {
@@ -39,42 +72,44 @@ extension ChatBubble {
             }
             .frame(maxWidth: 520, alignment: .leading)
         } else if hasActuallyRunningTool && !permissionWasDenied {
-            // In progress — show live progress view with completed + running steps
+            // In progress — show each tool call as an inline row (running ones get a spinner)
             let current = message.toolCalls.first(where: { !$0.isComplete })!
             if current.toolName == "claude_code" && !current.claudeCodeSteps.isEmpty {
                 ClaudeCodeProgressView(steps: current.claudeCodeSteps, isRunning: true)
                     .frame(maxWidth: 520, alignment: .leading)
             } else {
-                LiveToolProgressView(toolCalls: message.toolCalls, isRunning: true)
-                    .frame(maxWidth: 520, alignment: .leading)
-            }
-        } else if toolsCompleteButStillStreaming && !permissionWasDenied {
-            // All tools done but model is still working (generating next tool call)
-            LiveToolProgressView(toolCalls: message.toolCalls, isRunning: true, thinkingLabel: "Thinking")
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    ForEach(message.toolCalls, id: \.id) { toolCall in
+                        InlineToolCallRow(toolCall: toolCall)
+                    }
+                }
                 .frame(maxWidth: 520, alignment: .leading)
-        } else if hasCompletedTools || hasPermission || (hasInProgressTools && permissionWasDenied) {
-            // All done (or denied) — steps pill + permission chip on one row,
-            // with the expanded steps list in the row below.
-            let onlyPermissionTools = message.toolCalls.allSatisfy { $0.toolName == "request_system_permission" }
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(alignment: .center, spacing: VSpacing.sm) {
-                    if hasCompletedTools && !(onlyPermissionTools && decidedConfirmation != nil) {
-                        UsedToolsList(toolCalls: message.toolCalls, isExpanded: $stepsExpanded)
-                    } else if hasInProgressTools && permissionWasDenied {
-                        compactFailedToolChip
-                    }
-                    if let confirmation = decidedConfirmation {
-                        compactPermissionChip(confirmation)
-                    }
-                    Spacer()
-                }
-
-                if stepsExpanded && hasCompletedTools {
-                    StepsSection(toolCalls: message.toolCalls)
-                        .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        } else if toolsCompleteButStillStreaming && !permissionWasDenied && !toolsShownInline {
+            // All tools done but model is still working — show completed rows
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                ForEach(message.toolCalls, id: \.id) { toolCall in
+                    InlineToolCallRow(toolCall: toolCall)
                 }
             }
-            .animation(VAnimation.fast, value: stepsExpanded)
+            .frame(maxWidth: 520, alignment: .leading)
+        } else if hasCompletedTools || hasPermission || (hasInProgressTools && permissionWasDenied && !toolsShownInline) {
+            // All done (or denied) — show inline tool rows + permission chip
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                if hasCompletedTools {
+                    ForEach(message.toolCalls, id: \.id) { toolCall in
+                        InlineToolCallRow(toolCall: toolCall)
+                    }
+                } else if hasInProgressTools && permissionWasDenied {
+                    compactFailedToolChip
+                }
+                if let confirmation = decidedConfirmation {
+                    HStack {
+                        compactPermissionChip(confirmation)
+                        Spacer()
+                    }
+                }
+            }
             .padding(.top, VSpacing.xxs)
         }
     }
