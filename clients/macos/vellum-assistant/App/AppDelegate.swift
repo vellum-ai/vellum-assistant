@@ -443,9 +443,18 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Dismisses the bootstrap interstitial window and cancels any retry tasks.
+    /// Use this for external cleanup callers that need to stop the retry loop.
     private func dismissBootstrapInterstitial() {
         bootstrapRetryTask?.cancel()
         bootstrapRetryTask = nil
+        bootstrapInterstitialWindow?.close()
+        bootstrapInterstitialWindow = nil
+    }
+
+    /// Closes only the interstitial window without cancelling the retry task.
+    /// Use this from within `startBootstrapRetryCoordinator()` to avoid
+    /// self-cancellation when the task dismisses the window upon success.
+    private func dismissBootstrapInterstitialWindow() {
         bootstrapInterstitialWindow?.close()
         bootstrapInterstitialWindow = nil
     }
@@ -468,8 +477,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 if daemonClient.isConnected {
                     log.info("Daemon connected during bootstrap retry — proceeding to wake-up send")
                     transitionBootstrap(to: .pendingWakeupSend)
-                    dismissBootstrapInterstitial()
+                    dismissBootstrapInterstitialWindow()
                     await performRetriableWakeUpSend()
+                    bootstrapRetryTask = nil
                     return
                 }
 
@@ -485,8 +495,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 if daemonClient.isConnected {
                     log.info("Daemon connected after bootstrap retry connect — proceeding to wake-up send")
                     transitionBootstrap(to: .pendingWakeupSend)
-                    dismissBootstrapInterstitial()
+                    dismissBootstrapInterstitialWindow()
                     await performRetriableWakeUpSend()
+                    bootstrapRetryTask = nil
                     return
                 }
 
