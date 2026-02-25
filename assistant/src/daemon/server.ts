@@ -16,7 +16,7 @@ import * as conversationStore from '../memory/conversation-store.js';
 import { provenanceFromGuardianContext } from '../memory/conversation-store.js';
 import * as attachmentsStore from '../memory/attachments-store.js';
 import { Session, DEFAULT_MEMORY_POLICY, type SessionMemoryPolicy } from './session.js';
-import { parseChannelId, type ChannelId } from '../channels/types.js';
+import { parseChannelId, parseInterfaceId, type ChannelId, type InterfaceId } from '../channels/types.js';
 import { resolveChannelCapabilities } from './session-runtime-assembly.js';
 import { ComputerUseSession } from './computer-use-session.js';
 import {
@@ -70,6 +70,18 @@ function resolveTurnChannel(sourceChannel?: string, transportChannelId?: string)
     return parsed;
   }
   return 'vellum';
+}
+
+function resolveTurnInterface(sourceInterface?: string, resolvedChannel?: ChannelId): InterfaceId {
+  if (sourceInterface != null) {
+    const parsed = parseInterfaceId(sourceInterface);
+    if (!parsed) {
+      throw new Error(`Invalid sourceInterface: ${sourceInterface}`);
+    }
+    return parsed;
+  }
+  // Fall back to the resolved channel — every ChannelId is also a valid InterfaceId.
+  return resolvedChannel ?? 'vellum';
 }
 
 export class DaemonServer {
@@ -687,6 +699,7 @@ export class DaemonServer {
     attachmentIds?: string[],
     options?: SessionCreateOptions,
     sourceChannel?: string,
+    sourceInterface?: string,
   ): Promise<{ messageId: string }> {
     const ingressCheck = checkIngressForSecrets(content);
     if (ingressCheck.blocked) {
@@ -700,6 +713,7 @@ export class DaemonServer {
     }
 
     const resolvedChannel = resolveTurnChannel(sourceChannel, options?.transport?.channelId);
+    const resolvedInterface = resolveTurnInterface(sourceInterface, resolvedChannel);
     session.setAssistantId(options?.assistantId ?? 'self');
     session.setGuardianContext(options?.guardianContext ?? null);
     session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel));
@@ -707,6 +721,10 @@ export class DaemonServer {
     session.setTurnChannelContext({
       userMessageChannel: resolvedChannel,
       assistantMessageChannel: resolvedChannel,
+    });
+    session.setTurnInterfaceContext({
+      userMessageInterface: resolvedInterface,
+      assistantMessageInterface: resolvedInterface,
     });
 
     const attachments = attachmentIds
@@ -734,6 +752,7 @@ export class DaemonServer {
     attachmentIds?: string[],
     options?: SessionCreateOptions,
     sourceChannel?: string,
+    sourceInterface?: string,
   ): Promise<{ messageId: string }> {
     const ingressCheck = checkIngressForSecrets(content);
     if (ingressCheck.blocked) {
@@ -747,6 +766,7 @@ export class DaemonServer {
     }
 
     const resolvedChannel2 = resolveTurnChannel(sourceChannel, options?.transport?.channelId);
+    const resolvedInterface2 = resolveTurnInterface(sourceInterface, resolvedChannel2);
     session.setAssistantId(options?.assistantId ?? 'self');
     session.setGuardianContext(options?.guardianContext ?? null);
     session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel));
@@ -754,6 +774,10 @@ export class DaemonServer {
     session.setTurnChannelContext({
       userMessageChannel: resolvedChannel2,
       assistantMessageChannel: resolvedChannel2,
+    });
+    session.setTurnInterfaceContext({
+      userMessageInterface: resolvedInterface2,
+      assistantMessageInterface: resolvedInterface2,
     });
 
     const attachments = attachmentIds

@@ -842,6 +842,7 @@ function processChannelMessageInBackground(params: BackgroundProcessingParams): 
           ...(cmdIntent ? { commandIntent: cmdIntent } : {}),
         },
         sourceChannel,
+        sourceChannel, // Channel inbound: interface matches channel
       );
       channelDeliveryStore.linkMessage(eventId, userMessageId);
       channelDeliveryStore.markProcessed(eventId);

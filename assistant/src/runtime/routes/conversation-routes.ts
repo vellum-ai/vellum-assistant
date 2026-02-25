@@ -325,6 +325,7 @@ export async function handleSendMessage(
       hasAttachments ? attachmentIds : undefined,
       { guardianContext: { actorRole: 'guardian', sourceChannel } },
       sourceChannel,
+      sourceChannel, // HTTP POST /messages: interface matches channel
     );
     return Response.json({ accepted: true, messageId: result.messageId }, { status: 202 });
   } catch (err) {

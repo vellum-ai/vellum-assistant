@@ -1,6 +1,6 @@
 // User/assistant messages, tool results, confirmations, secrets, errors, and generation lifecycle.
 
-import type { ChannelId } from '../../channels/types.js';
+import type { ChannelId, InterfaceId } from '../../channels/types.js';
 import type { UserMessageAttachment } from './shared.js';
 
 // === Client → Server ===
@@ -17,6 +17,8 @@ export interface UserMessage {
   bypassSecretCheck?: boolean;
   /** Originating channel identifier (e.g. 'vellum'). Defaults to 'vellum' when absent. */
   channel?: ChannelId;
+  /** Originating interface identifier (e.g. 'macos'). Falls back to channel when absent. */
+  interface?: InterfaceId;
 }
 
 export interface ConfirmationResponse {
