@@ -1415,6 +1415,10 @@ public typealias ReminderFiredMessage = IPCReminderFired
 /// Backed by generated `IPCScheduleComplete`.
 public typealias ScheduleCompleteMessage = IPCScheduleComplete
 
+/// Generic notification intent from daemon.
+/// Backed by generated `IPCNotificationIntent`.
+public typealias NotificationIntentMessage = IPCNotificationIntent
+
 /// Watch session started notification from daemon.
 /// Backed by generated `IPCWatchStarted`.
 public typealias WatchStartedMessage = IPCWatchStarted
@@ -2131,6 +2135,7 @@ public enum ServerMessage: Decodable, Sendable {
     case toolOutputChunk(ToolOutputChunkMessage)
     case toolResult(ToolResultMessage)
     case reminderFired(ReminderFiredMessage)
+    case notificationIntent(NotificationIntentMessage)
     case scheduleComplete(ScheduleCompleteMessage)
     case watchStarted(WatchStartedMessage)
     case watchCompleteRequest(WatchCompleteRequestMessage)
@@ -2377,6 +2382,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "reminder_fired":
             let message = try ReminderFiredMessage(from: decoder)
             self = .reminderFired(message)
+        case "notification_intent":
+            let message = try NotificationIntentMessage(from: decoder)
+            self = .notificationIntent(message)
         case "schedule_complete":
             let message = try ScheduleCompleteMessage(from: decoder)
             self = .scheduleComplete(message)

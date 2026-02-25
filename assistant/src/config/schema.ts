@@ -91,6 +91,13 @@ export type {
 } from './agent-schema.js';
 
 export {
+  NotificationsConfigSchema,
+} from './notifications-schema.js';
+export type {
+  NotificationsConfig,
+} from './notifications-schema.js';
+
+export {
   TimeoutConfigSchema,
   RateLimitConfigSchema,
   SecretDetectionConfigSchema,
@@ -131,6 +138,7 @@ import { CallsConfigSchema } from './calls-schema.js';
 import { SandboxConfigSchema } from './sandbox-schema.js';
 import { SkillsConfigSchema } from './skills-schema.js';
 import { AgentHeartbeatConfigSchema, SwarmConfigSchema, WorkspaceGitConfigSchema } from './agent-schema.js';
+import { NotificationsConfigSchema } from './notifications-schema.js';
 import {
   TimeoutConfigSchema,
   RateLimitConfigSchema,
@@ -362,6 +370,7 @@ export const AssistantConfigSchema = z.object({
     maxTasks: 8,
     maxRetriesPerTask: 1,
     workerTimeoutSec: 900,
+    roleTimeoutsSec: {},
     plannerModel: 'claude-haiku-4-5-20251001',
     synthesizerModel: 'claude-sonnet-4-6',
   }),
@@ -446,6 +455,11 @@ export const AssistantConfigSchema = z.object({
     stopTimeoutMs: 5000,
     sigkillGracePeriodMs: 2000,
     titleGenerationMaxTokens: 30,
+  }),
+  notifications: NotificationsConfigSchema.default({
+    enabled: false,
+    shadowMode: true,
+    decisionModel: 'claude-haiku-4-5-20251001',
   }),
 }).superRefine((config, ctx) => {
   if (config.contextWindow.targetInputTokens >= config.contextWindow.maxInputTokens) {

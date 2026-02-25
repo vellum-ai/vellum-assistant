@@ -4,6 +4,34 @@
 import * as attachmentsStore from '../../memory/attachments-store.js';
 import { validateAttachmentUpload, AttachmentUploadError } from '../../memory/attachments-store.js';
 
+/**
+ * Parse an RFC 7233 byte-range header into resolved start/end offsets.
+ * Supports: bytes=start-end, bytes=start-, bytes=-suffix.
+ * Returns null for invalid or unsatisfiable ranges.
+ */
+function parseRangeHeader(header: string, size: number): { start: number; end: number } | null {
+  // bytes=-suffix (last N bytes)
+  const suffixMatch = header.match(/^bytes=-(\d+)$/);
+  if (suffixMatch) {
+    const suffix = parseInt(suffixMatch[1], 10);
+    if (suffix <= 0) return null;
+    const start = Math.max(0, size - suffix);
+    return { start, end: size - 1 };
+  }
+
+  // bytes=start-end or bytes=start-
+  const rangeMatch = header.match(/^bytes=(\d+)-(\d*)$/);
+  if (!rangeMatch) return null;
+
+  const start = parseInt(rangeMatch[1], 10);
+  const rawEnd = rangeMatch[2] ? parseInt(rangeMatch[2], 10) : size - 1;
+
+  if (start >= size || start > rawEnd) return null;
+
+  const end = Math.min(rawEnd, size - 1);
+  return { start, end };
+}
+
 /** 30 MB — base64-encoded 20 MB attachment ≈ 27 MB plus JSON wrapper overhead. */
 const MAX_UPLOAD_BODY_BYTES = 30 * 1024 * 1024;
 
@@ -166,27 +194,15 @@ export function handleGetAttachmentContent(attachmentId: string, req: Request): 
       });
     }
 
-    const match = rangeHeader.match(/^bytes=(\d+)-(\d*)$/);
-    if (!match) {
+    const parsed = parseRangeHeader(rangeHeader, fileSize);
+    if (!parsed) {
       return new Response('Invalid Range header', {
         status: 416,
         headers: { 'Content-Range': `bytes */${fileSize}` },
       });
     }
 
-    const start = parseInt(match[1], 10);
-    const rawEnd = match[2] ? parseInt(match[2], 10) : fileSize - 1;
-
-    // Per RFC 7233, only return 416 when start is beyond the resource.
-    // When end exceeds the resource, clamp it to the last byte.
-    if (start >= fileSize || start > rawEnd) {
-      return new Response('Range not satisfiable', {
-        status: 416,
-        headers: { 'Content-Range': `bytes */${fileSize}` },
-      });
-    }
-
-    const end = Math.min(rawEnd, fileSize - 1);
+    const { start, end } = parsed;
     const contentLength = end - start + 1;
     return new Response(file.slice(start, end + 1), {
       status: 206,
@@ -215,27 +231,15 @@ export function handleGetAttachmentContent(attachmentId: string, req: Request): 
     });
   }
 
-  const match = rangeHeader.match(/^bytes=(\d+)-(\d*)$/);
-  if (!match) {
+  const parsed = parseRangeHeader(rangeHeader, totalSize);
+  if (!parsed) {
     return new Response('Invalid Range header', {
       status: 416,
       headers: { 'Content-Range': `bytes */${totalSize}` },
     });
   }
 
-  const start = parseInt(match[1], 10);
-  const rawEnd = match[2] ? parseInt(match[2], 10) : totalSize - 1;
-
-  // Per RFC 7233, only return 416 when start is beyond the resource.
-  // When end exceeds the resource, clamp it to the last byte.
-  if (start >= totalSize || start > rawEnd) {
-    return new Response('Range not satisfiable', {
-      status: 416,
-      headers: { 'Content-Range': `bytes */${totalSize}` },
-    });
-  }
-
-  const end = Math.min(rawEnd, totalSize - 1);
+  const { start, end } = parsed;
   const contentLength = end - start + 1;
   return new Response(buffer.subarray(start, end + 1), {
     status: 206,

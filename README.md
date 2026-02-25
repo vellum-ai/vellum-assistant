@@ -1,5 +1,7 @@
 # Vellum Assistant
 
+[![CI](https://github.com/vellum-ai/vellum-assistant/actions/workflows/ci-main-assistant.yaml/badge.svg)](https://github.com/vellum-ai/vellum-assistant/actions/workflows/ci-main-assistant.yaml)
+
 AI-powered assistant platform by Vellum.
 
 ## Architecture

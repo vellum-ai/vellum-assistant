@@ -381,6 +381,9 @@ const deliveredRuns = new Set<string>();
 /** TTL for delivery claims — 10 minutes, well beyond the poll max-wait. */
 const CLAIM_TTL_MS = 10 * 60 * 1000;
 
+/** Hard cap to bound memory even under sustained high throughput within the TTL window. */
+const MAX_DELIVERED_RUNS = 10_000;
+
 /**
  * Atomically claim the right to deliver the final reply for a run.
  * Returns `true` if this caller won the claim (and should proceed with
@@ -390,11 +393,18 @@ const CLAIM_TTL_MS = 10 * 60 * 1000;
  * execute within the same process. The Set is never persisted; on restart
  * there are no in-flight pollers to race.
  *
- * Claims are automatically evicted after CLAIM_TTL_MS to prevent
- * unbounded Set growth over the lifetime of the process.
+ * Claims are evicted after CLAIM_TTL_MS and the Set is hard-capped at
+ * MAX_DELIVERED_RUNS entries. When the cap is reached, the oldest entries
+ * (by insertion order) are evicted first — safe because older runs are
+ * long past the race window.
  */
 export function claimRunDelivery(runId: string): boolean {
   if (deliveredRuns.has(runId)) return false;
+  if (deliveredRuns.size >= MAX_DELIVERED_RUNS) {
+    // Set iteration order matches insertion order; evict the oldest entry.
+    const oldest = deliveredRuns.values().next().value!;
+    deliveredRuns.delete(oldest);
+  }
   deliveredRuns.add(runId);
   setTimeout(() => deliveredRuns.delete(runId), CLAIM_TTL_MS);
   return true;

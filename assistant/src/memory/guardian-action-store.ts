@@ -7,7 +7,7 @@
  * answer resolves the request and all other deliveries are marked answered.
  */
 
-import { and, eq, lt, inArray } from 'drizzle-orm';
+import { and, eq, inArray, lt } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb, rawChanges } from './db.js';
 import {
@@ -337,7 +337,7 @@ export function createGuardianActionDelivery(params: {
 }
 
 /**
- * Look up pending deliveries for a specific destination.
+ * Look up sent deliveries for a specific destination.
  * Used by inbound message routing to match incoming answers to deliveries.
  */
 export function getPendingDeliveriesByDestination(

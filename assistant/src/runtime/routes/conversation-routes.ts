@@ -18,7 +18,14 @@ import type {
   NonBlockingMessageProcessor,
   RuntimeAttachmentMetadata,
   RuntimeMessagePayload,
+  SendMessageDeps,
 } from '../http-types.js';
+import type { ServerMessage } from '../../daemon/ipc-protocol.js';
+import { buildAssistantEvent } from '../assistant-event.js';
+import * as pendingInteractions from '../pending-interactions.js';
+import { getLogger } from '../../util/logger.js';
+
+const log = getLogger('conversation-routes');
 
 const SUGGESTION_CACHE_MAX = 100;
 
@@ -134,11 +141,69 @@ export function handleListMessages(
   return Response.json({ messages });
 }
 
+/**
+ * Build an `onEvent` callback that publishes every outbound event to the
+ * assistant event hub, maintaining ordered delivery through a serial chain.
+ *
+ * Also registers pending interactions when confirmation_request or
+ * secret_request events flow through, so standalone approval endpoints
+ * can look up the session by requestId.
+ */
+function makeHubPublisher(
+  deps: SendMessageDeps,
+  conversationId: string,
+  session: import('../../daemon/session.js').Session,
+): (msg: ServerMessage) => void {
+  let hubChain: Promise<void> = Promise.resolve();
+  return (msg: ServerMessage) => {
+    // Register pending interactions for approval events
+    if (msg.type === 'confirmation_request') {
+      pendingInteractions.register(msg.requestId, {
+        session,
+        conversationId,
+        kind: 'confirmation',
+        confirmationDetails: {
+          toolName: msg.toolName,
+          input: msg.input,
+          riskLevel: msg.riskLevel,
+          executionTarget: msg.executionTarget,
+          allowlistOptions: msg.allowlistOptions,
+          scopeOptions: msg.scopeOptions,
+          persistentDecisionsAllowed: msg.persistentDecisionsAllowed,
+        },
+      });
+    } else if (msg.type === 'secret_request') {
+      pendingInteractions.register(msg.requestId, {
+        session,
+        conversationId,
+        kind: 'secret',
+      });
+    }
+
+    const msgRecord = msg as unknown as Record<string, unknown>;
+    const msgSessionId =
+      'sessionId' in msg && typeof msgRecord.sessionId === 'string'
+        ? (msgRecord.sessionId as string)
+        : undefined;
+    const resolvedSessionId = msgSessionId ?? conversationId;
+    const event = buildAssistantEvent('self', msg, resolvedSessionId);
+    hubChain = (async () => {
+      await hubChain;
+      try {
+        await deps.assistantEventHub.publish(event);
+      } catch (err) {
+        log.warn({ err }, 'assistant-events hub subscriber threw during POST /messages');
+      }
+    })();
+  };
+}
+
 export async function handleSendMessage(
   req: Request,
   deps: {
     processMessage?: MessageProcessor;
     persistAndProcessMessage?: NonBlockingMessageProcessor;
+    sendMessageDeps?: SendMessageDeps;
   },
 ): Promise<Response> {
   const body = await req.json() as {
@@ -204,6 +269,47 @@ export async function handleSendMessage(
 
   const mapping = getOrCreateConversation(conversationKey);
 
+  // ── Queue-if-busy path (preferred when sendMessageDeps is wired) ────
+  if (deps.sendMessageDeps) {
+    const smDeps = deps.sendMessageDeps;
+    const session = await smDeps.getOrCreateSession(mapping.conversationId);
+    const onEvent = makeHubPublisher(smDeps, mapping.conversationId, session);
+
+    const attachments = hasAttachments
+      ? smDeps.resolveAttachments(attachmentIds)
+      : [];
+
+    if (session.isProcessing()) {
+      // Queue the message so it's processed when the current turn completes
+      const requestId = crypto.randomUUID();
+      const result = session.enqueueMessage(
+        content ?? '',
+        attachments,
+        onEvent,
+        requestId,
+      );
+      if (result.rejected) {
+        return Response.json(
+          { error: 'Message queue is full. Please retry later.' },
+          { status: 429 },
+        );
+      }
+      return Response.json({ accepted: true, queued: true }, { status: 202 });
+    }
+
+    // Session is idle — persist and fire agent loop immediately
+    const requestId = crypto.randomUUID();
+    const messageId = session.persistUserMessage(content ?? '', attachments, requestId);
+
+    // Fire-and-forget the agent loop; events flow to the hub via onEvent
+    session.runAgentLoop(content ?? '', messageId, onEvent).catch((err) => {
+      log.error({ err, conversationId: mapping.conversationId }, 'Agent loop failed (POST /messages)');
+    });
+
+    return Response.json({ accepted: true, messageId }, { status: 202 });
+  }
+
+  // ── Legacy path (fallback when sendMessageDeps not wired) ───────────
   const processor = deps.persistAndProcessMessage ?? deps.processMessage;
   if (!processor) {
     return Response.json({ error: 'Message processing not configured' }, { status: 503 });
@@ -217,7 +323,7 @@ export async function handleSendMessage(
       undefined,
       sourceChannel,
     );
-    return Response.json({ accepted: true, messageId: result.messageId });
+    return Response.json({ accepted: true, messageId: result.messageId }, { status: 202 });
   } catch (err) {
     if (err instanceof Error && err.message === 'Session is already processing a message') {
       return Response.json(

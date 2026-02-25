@@ -5,6 +5,8 @@ import type { ChannelId } from '../channels/types.js';
 import type { RunOrchestrator } from './run-orchestrator.js';
 import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
 import type { ApprovalMessageContext, ComposeApprovalMessageGenerativeOptions } from './approval-message-composer.js';
+import type { Session } from '../daemon/session.js';
+import type { AssistantEventHub } from './assistant-event-hub.js';
 
 /**
  * Daemon-injected function that generates approval copy using a provider.
@@ -84,6 +86,24 @@ export type NonBlockingMessageProcessor = (
   sourceChannel?: ChannelId,
 ) => Promise<{ messageId: string }>;
 
+/**
+ * Dependencies for the POST /v1/messages handler.
+ *
+ * The handler needs direct access to the session so it can check busy state,
+ * persist user messages, fire the agent loop, or queue messages when busy.
+ * Hub publishing wires outbound events to the SSE stream.
+ */
+export interface SendMessageDeps {
+  getOrCreateSession: (conversationId: string) => Promise<Session>;
+  assistantEventHub: AssistantEventHub;
+  resolveAttachments: (attachmentIds: string[]) => Array<{
+    id: string;
+    filename: string;
+    mimeType: string;
+    data: string;
+  }>;
+}
+
 export interface RuntimeHttpServerOptions {
   port?: number;
   /** Hostname / IP to bind to. Defaults to '127.0.0.1' (loopback-only). */
@@ -101,6 +121,8 @@ export interface RuntimeHttpServerOptions {
   approvalCopyGenerator?: ApprovalCopyGenerator;
   /** Daemon-injected generator for conversational approval flow (provider-backed). */
   approvalConversationGenerator?: ApprovalConversationGenerator;
+  /** Dependencies for the POST /v1/messages queue-if-busy handler. */
+  sendMessageDeps?: SendMessageDeps;
 }
 
 export interface RuntimeAttachmentMetadata {

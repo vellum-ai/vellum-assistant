@@ -61,30 +61,17 @@ interface PendingConfirmation {
   persistentDecisionsAllowed?: boolean;
 }
 
-interface CreateRunResponse {
-  id: string;
-  status: string;
-  messageId: string | null;
-  createdAt: string;
-}
-
-interface GetRunResponse {
-  id: string;
-  status: string;
-  messageId: string | null;
-  pendingConfirmation: PendingConfirmation | null;
-  pendingSecret: PendingSecret | null;
-  error: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
 interface SubmitDecisionResponse {
   accepted: boolean;
 }
 
 interface AddTrustRuleResponse {
   accepted: boolean;
+}
+
+interface PendingInteractionsResponse {
+  pendingConfirmation: (PendingConfirmation & { requestId: string }) | null;
+  pendingSecret: (PendingSecret & { requestId?: string }) | null;
 }
 
 type TrustDecision = "always_allow" | "always_allow_high_risk" | "always_deny";
@@ -177,55 +164,20 @@ async function sendMessage(
   );
 }
 
-async function createRun(
-  baseUrl: string,
-  assistantId: string,
-  content: string,
-  signal?: AbortSignal,
-  bearerToken?: string,
-): Promise<CreateRunResponse> {
-  return runtimeRequest<CreateRunResponse>(
-    baseUrl,
-    assistantId,
-    "/runs",
-    {
-      method: "POST",
-      body: JSON.stringify({ conversationKey: assistantId, content }),
-      signal,
-    },
-    bearerToken,
-  );
-}
-
-async function getRun(
-  baseUrl: string,
-  assistantId: string,
-  runId: string,
-  bearerToken?: string,
-): Promise<GetRunResponse> {
-  return runtimeRequest<GetRunResponse>(
-    baseUrl,
-    assistantId,
-    `/runs/${runId}`,
-    undefined,
-    bearerToken,
-  );
-}
-
 async function submitDecision(
   baseUrl: string,
   assistantId: string,
-  runId: string,
+  requestId: string,
   decision: "allow" | "deny",
   bearerToken?: string,
 ): Promise<SubmitDecisionResponse> {
   return runtimeRequest<SubmitDecisionResponse>(
     baseUrl,
     assistantId,
-    `/runs/${runId}/decision`,
+    "/confirm",
     {
       method: "POST",
-      body: JSON.stringify({ decision }),
+      body: JSON.stringify({ requestId, decision }),
     },
     bearerToken,
   );
@@ -234,7 +186,7 @@ async function submitDecision(
 async function addTrustRule(
   baseUrl: string,
   assistantId: string,
-  runId: string,
+  requestId: string,
   pattern: string,
   scope: string,
   decision: "allow" | "deny",
@@ -243,11 +195,26 @@ async function addTrustRule(
   return runtimeRequest<AddTrustRuleResponse>(
     baseUrl,
     assistantId,
-    `/runs/${runId}/trust-rule`,
+    "/trust-rules",
     {
       method: "POST",
-      body: JSON.stringify({ pattern, scope, decision }),
+      body: JSON.stringify({ requestId, pattern, scope, decision }),
     },
+    bearerToken,
+  );
+}
+
+async function pollPendingInteractions(
+  baseUrl: string,
+  assistantId: string,
+  bearerToken?: string,
+): Promise<PendingInteractionsResponse> {
+  const params = new URLSearchParams({ conversationKey: assistantId });
+  return runtimeRequest<PendingInteractionsResponse>(
+    baseUrl,
+    assistantId,
+    `/pending-interactions?${params.toString()}`,
+    undefined,
     bearerToken,
   );
 }
@@ -282,7 +249,7 @@ function formatConfirmationPreview(toolName: string, input: Record<string, unkno
 async function handleConfirmationPrompt(
   baseUrl: string,
   assistantId: string,
-  runId: string,
+  requestId: string,
   confirmation: PendingConfirmation,
   chatApp: ChatAppHandle,
   bearerToken?: string,
@@ -305,7 +272,7 @@ async function handleConfirmationPrompt(
   const index = await chatApp.showSelection("Tool Approval", options);
 
   if (index === 0) {
-    await submitDecision(baseUrl, assistantId, runId, "allow", bearerToken);
+    await submitDecision(baseUrl, assistantId, requestId, "allow", bearerToken);
     chatApp.addStatus("\u2714 Allowed", "green");
     return;
   }
@@ -313,7 +280,7 @@ async function handleConfirmationPrompt(
     await handlePatternSelection(
       baseUrl,
       assistantId,
-      runId,
+      requestId,
       confirmation,
       chatApp,
       "always_allow",
@@ -325,7 +292,7 @@ async function handleConfirmationPrompt(
     await handlePatternSelection(
       baseUrl,
       assistantId,
-      runId,
+      requestId,
       confirmation,
       chatApp,
       "always_deny",
@@ -334,14 +301,14 @@ async function handleConfirmationPrompt(
     return;
   }
 
-  await submitDecision(baseUrl, assistantId, runId, "deny", bearerToken);
+  await submitDecision(baseUrl, assistantId, requestId, "deny", bearerToken);
   chatApp.addStatus("\u2718 Denied", "yellow");
 }
 
 async function handlePatternSelection(
   baseUrl: string,
   assistantId: string,
-  runId: string,
+  requestId: string,
   confirmation: PendingConfirmation,
   chatApp: ChatAppHandle,
   trustDecision: TrustDecision,
@@ -358,7 +325,7 @@ async function handlePatternSelection(
     await handleScopeSelection(
       baseUrl,
       assistantId,
-      runId,
+      requestId,
       confirmation,
       chatApp,
       selectedPattern,
@@ -368,14 +335,14 @@ async function handlePatternSelection(
     return;
   }
 
-  await submitDecision(baseUrl, assistantId, runId, "deny", bearerToken);
+  await submitDecision(baseUrl, assistantId, requestId, "deny", bearerToken);
   chatApp.addStatus("\u2718 Denied", "yellow");
 }
 
 async function handleScopeSelection(
   baseUrl: string,
   assistantId: string,
-  runId: string,
+  requestId: string,
   confirmation: PendingConfirmation,
   chatApp: ChatAppHandle,
   selectedPattern: string,
@@ -393,7 +360,7 @@ async function handleScopeSelection(
     await addTrustRule(
       baseUrl,
       assistantId,
-      runId,
+      requestId,
       selectedPattern,
       scopeOptions[index].scope,
       ruleDecision,
@@ -402,7 +369,7 @@ async function handleScopeSelection(
     await submitDecision(
       baseUrl,
       assistantId,
-      runId,
+      requestId,
       ruleDecision === "deny" ? "deny" : "allow",
       bearerToken,
     );
@@ -415,7 +382,7 @@ async function handleScopeSelection(
     return;
   }
 
-  await submitDecision(baseUrl, assistantId, runId, "deny", bearerToken);
+  await submitDecision(baseUrl, assistantId, requestId, "deny", bearerToken);
   chatApp.addStatus("\u2718 Denied", "yellow");
 }
 
@@ -1474,9 +1441,8 @@ function ChatApp({
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), SEND_TIMEOUT_MS);
 
-        let runId: string | undefined;
         try {
-          const runResult = await createRun(
+          const sendResult = await sendMessage(
             runtimeUrl,
             assistantId,
             trimmed,
@@ -1484,29 +1450,20 @@ function ChatApp({
             bearerToken,
           );
           clearTimeout(timeoutId);
-          runId = runResult.id;
-        } catch (createErr) {
-          clearTimeout(timeoutId);
-          const is409 = createErr instanceof Error && createErr.message.includes("HTTP 409");
-          if (is409) {
-            h.setBusy(false);
-            h.hideSpinner();
-            h.showError("Assistant is still working. Please wait and try again.");
-            return;
-          }
-          const sendResult = await sendMessage(
-            runtimeUrl,
-            assistantId,
-            trimmed,
-            undefined,
-            bearerToken,
-          );
           if (!sendResult.accepted) {
             h.setBusy(false);
             h.hideSpinner();
             h.showError("Message was not accepted by the assistant");
             return;
           }
+        } catch (sendErr) {
+          clearTimeout(timeoutId);
+          h.setBusy(false);
+          h.hideSpinner();
+          const errorMsg = `Failed to send: ${sendErr instanceof Error ? sendErr.message : sendErr}`;
+          h.showError(errorMsg);
+          chatLogRef.current.push({ role: "error", content: errorMsg });
+          return;
         }
 
         h.showSpinner("Working...");
@@ -1514,75 +1471,47 @@ function ChatApp({
         while (true) {
           await new Promise((resolve) => setTimeout(resolve, RESPONSE_POLL_INTERVAL_MS));
 
-          if (runId) {
-            try {
-              const runStatus = await getRun(runtimeUrl, assistantId, runId, bearerToken);
+          // Check for pending confirmations/secrets
+          try {
+            const pending = await pollPendingInteractions(runtimeUrl, assistantId, bearerToken);
 
-              if (runStatus.status === "needs_confirmation" && runStatus.pendingConfirmation) {
-                h.hideSpinner();
-                await handleConfirmationPrompt(
+            if (pending.pendingConfirmation) {
+              h.hideSpinner();
+              await handleConfirmationPrompt(
+                runtimeUrl,
+                assistantId,
+                pending.pendingConfirmation.requestId,
+                pending.pendingConfirmation,
+                h,
+                bearerToken,
+              );
+              h.showSpinner("Working...");
+              continue;
+            }
+
+            if (pending.pendingSecret) {
+              const secretRequestId = pending.pendingSecret.requestId ?? "";
+              h.hideSpinner();
+              await h.handleSecretPrompt(pending.pendingSecret, async (value, delivery) => {
+                await runtimeRequest(
                   runtimeUrl,
                   assistantId,
-                  runId,
-                  runStatus.pendingConfirmation,
-                  h,
+                  "/secret",
+                  {
+                    method: "POST",
+                    body: JSON.stringify({ requestId: secretRequestId, value, delivery }),
+                  },
                   bearerToken,
                 );
-                h.showSpinner("Working...");
-                continue;
-              }
-
-              if (runStatus.status === "needs_secret" && runStatus.pendingSecret) {
-                h.hideSpinner();
-                await h.handleSecretPrompt(runStatus.pendingSecret, async (value, delivery) => {
-                  await runtimeRequest(
-                    runtimeUrl,
-                    assistantId,
-                    `/runs/${runId}/secret`,
-                    {
-                      method: "POST",
-                      body: JSON.stringify({ value, delivery }),
-                    },
-                    bearerToken,
-                  );
-                });
-                h.showSpinner("Working...");
-                continue;
-              }
-
-              if (runStatus.status === "completed") {
-                try {
-                  const pollResult = await pollMessages(runtimeUrl, assistantId, bearerToken);
-                  for (const msg of pollResult.messages) {
-                    if (!seenMessageIdsRef.current.has(msg.id)) {
-                      seenMessageIdsRef.current.add(msg.id);
-                      if (msg.role === "assistant") {
-                        h.addMessage(msg);
-                        chatLogRef.current.push({ role: "assistant", content: msg.content });
-                      }
-                    }
-                  }
-                } catch {
-                  // Final poll failure; continue to cleanup
-                }
-                h.setBusy(false);
-                h.hideSpinner();
-                return;
-              }
-
-              if (runStatus.status === "failed") {
-                h.setBusy(false);
-                h.hideSpinner();
-                const errorMsg = runStatus.error ?? "Run failed";
-                h.showError(errorMsg);
-                chatLogRef.current.push({ role: "error", content: errorMsg });
-                return;
-              }
-            } catch {
-              // Run status poll failure; fall through to message poll
+              });
+              h.showSpinner("Working...");
+              continue;
             }
+          } catch {
+            // Pending interactions poll failure; fall through to message poll
           }
 
+          // Poll for new messages to detect completion
           try {
             const pollResult = await pollMessages(runtimeUrl, assistantId, bearerToken);
             for (const msg of pollResult.messages) {
@@ -1591,11 +1520,9 @@ function ChatApp({
                 if (msg.role === "assistant") {
                   h.addMessage(msg);
                   chatLogRef.current.push({ role: "assistant", content: msg.content });
-                  if (!runId) {
-                    h.setBusy(false);
-                    h.hideSpinner();
-                    return;
-                  }
+                  h.setBusy(false);
+                  h.hideSpinner();
+                  return;
                 }
               }
             }
@@ -1613,14 +1540,9 @@ function ChatApp({
           h.showError(errorMsg);
           chatLogRef.current.push({ role: "error", content: errorMsg });
         } else {
-          const is409 = error instanceof Error && error.message.includes("HTTP 409");
-          if (is409) {
-            h.showError("Assistant is still working. Please wait and try again.");
-          } else {
-            const errorMsg = `Failed to send: ${error instanceof Error ? error.message : error}`;
-            h.showError(errorMsg);
-            chatLogRef.current.push({ role: "error", content: errorMsg });
-          }
+          const errorMsg = `Failed to send: ${error instanceof Error ? error.message : error}`;
+          h.showError(errorMsg);
+          chatLogRef.current.push({ role: "error", content: errorMsg });
         }
       }
     },

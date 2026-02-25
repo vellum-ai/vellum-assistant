@@ -25,6 +25,7 @@ import {
   removeSkillsIndexEntry,
   createManagedSkill,
   deleteManagedSkill,
+  readSkillVersion,
 } from '../skills/managed-store.js';
 import { loadSkillCatalog } from '../config/skills.js';
 
@@ -604,5 +605,117 @@ describe('deleteManagedSkill', () => {
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+describe('version metadata', () => {
+  test('readSkillVersion returns null for non-existent skill', () => {
+    expect(readSkillVersion('nonexistent')).toBeNull();
+  });
+
+  test('readSkillVersion returns null when skill exists but has no version.json', () => {
+    createManagedSkill({
+      id: 'no-version',
+      name: 'No Version',
+      description: 'Created without version',
+      bodyMarkdown: 'Body.',
+    });
+    expect(readSkillVersion('no-version')).toBeNull();
+  });
+
+  test('createManagedSkill writes version.json when version is provided', () => {
+    createManagedSkill({
+      id: 'versioned',
+      name: 'Versioned',
+      description: 'Has a version',
+      bodyMarkdown: 'Body.',
+      version: 'v1:abc123',
+    });
+
+    const version = readSkillVersion('versioned');
+    expect(version).toBe('v1:abc123');
+  });
+
+  test('version.json contains valid JSON with version and installedAt', () => {
+    createManagedSkill({
+      id: 'version-meta',
+      name: 'Meta',
+      description: 'Check metadata shape',
+      bodyMarkdown: 'Body.',
+      version: 'v1:deadbeef',
+    });
+
+    const metaPath = join(TEST_DIR, 'skills', 'version-meta', 'version.json');
+    expect(existsSync(metaPath)).toBe(true);
+    const meta = JSON.parse(readFileSync(metaPath, 'utf-8'));
+    expect(meta.version).toBe('v1:deadbeef');
+    expect(typeof meta.installedAt).toBe('string');
+    // installedAt should be a valid ISO date
+    expect(new Date(meta.installedAt).toISOString()).toBe(meta.installedAt);
+  });
+
+  test('overwrite updates version.json', () => {
+    createManagedSkill({
+      id: 'update-version',
+      name: 'V1',
+      description: 'First',
+      bodyMarkdown: 'Body.',
+      version: 'v1:first',
+    });
+    expect(readSkillVersion('update-version')).toBe('v1:first');
+
+    createManagedSkill({
+      id: 'update-version',
+      name: 'V2',
+      description: 'Second',
+      bodyMarkdown: 'Body.',
+      version: 'v1:second',
+      overwrite: true,
+    });
+    expect(readSkillVersion('update-version')).toBe('v1:second');
+  });
+
+  test('readSkillVersion returns null for corrupted version.json', () => {
+    createManagedSkill({
+      id: 'corrupt-version',
+      name: 'Corrupt',
+      description: 'Will corrupt version file',
+      bodyMarkdown: 'Body.',
+      version: 'v1:valid',
+    });
+
+    // Corrupt the version.json
+    const metaPath = join(TEST_DIR, 'skills', 'corrupt-version', 'version.json');
+    writeFileSync(metaPath, '{invalid json!!!', 'utf-8');
+
+    expect(readSkillVersion('corrupt-version')).toBeNull();
+  });
+});
+
+describe('validateManagedSkillId edge cases', () => {
+  test('rejects non-string input', () => {
+    // @ts-expect-error testing runtime validation
+    expect(validateManagedSkillId(null)).not.toBeNull();
+    // @ts-expect-error testing runtime validation
+    expect(validateManagedSkillId(undefined)).not.toBeNull();
+    // @ts-expect-error testing runtime validation
+    expect(validateManagedSkillId(123)).not.toBeNull();
+  });
+
+  test('rejects IDs with only dots', () => {
+    expect(validateManagedSkillId('...')).not.toBeNull();
+  });
+
+  test('rejects single dot (hidden dir)', () => {
+    expect(validateManagedSkillId('.')).not.toBeNull();
+  });
+
+  test('accepts single character ID', () => {
+    expect(validateManagedSkillId('a')).toBeNull();
+    expect(validateManagedSkillId('0')).toBeNull();
+  });
+
+  test('accepts ID with all allowed character types', () => {
+    expect(validateManagedSkillId('a1.b2-c3_d4')).toBeNull();
   });
 });

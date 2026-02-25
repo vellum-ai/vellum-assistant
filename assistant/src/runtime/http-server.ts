@@ -37,6 +37,12 @@ import {
   handleAddTrustRule,
 } from './routes/run-routes.js';
 import {
+  handleConfirm,
+  handleSecret,
+  handleTrustRule,
+  handleListPendingInteractions,
+} from './routes/approval-routes.js';
+import {
   handleDeleteConversation,
   handleChannelInbound,
   handleChannelDeliveryAck,
@@ -122,6 +128,7 @@ export type {
   RuntimeAttachmentMetadata,
   ApprovalCopyGenerator,
   ApprovalConversationGenerator,
+  SendMessageDeps,
 } from './http-types.js';
 
 import type {
@@ -130,6 +137,7 @@ import type {
   RuntimeHttpServerOptions,
   ApprovalCopyGenerator,
   ApprovalConversationGenerator,
+  SendMessageDeps,
 } from './http-types.js';
 
 const log = getLogger('runtime-http');
@@ -157,6 +165,7 @@ export class RuntimeHttpServer {
   private sweepInProgress = false;
   private pairingStore = new PairingStore();
   private pairingBroadcast?: (msg: ServerMessage) => void;
+  private sendMessageDeps?: SendMessageDeps;
 
   constructor(options: RuntimeHttpServerOptions = {}) {
     this.port = options.port ?? DEFAULT_PORT;
@@ -168,6 +177,7 @@ export class RuntimeHttpServer {
     this.approvalCopyGenerator = options.approvalCopyGenerator;
     this.approvalConversationGenerator = options.approvalConversationGenerator;
     this.interfacesDir = options.interfacesDir ?? null;
+    this.sendMessageDeps = options.sendMessageDeps;
   }
 
   /** The port the server is actually listening on (resolved after start). */
@@ -559,8 +569,15 @@ export class RuntimeHttpServer {
         return await handleSendMessage(req, {
           processMessage: this.processMessage,
           persistAndProcessMessage: this.persistAndProcessMessage,
+          sendMessageDeps: this.sendMessageDeps,
         });
       }
+
+      // Standalone approval endpoints — keyed by requestId, orthogonal to message sending
+      if (endpoint === 'confirm' && req.method === 'POST') return await handleConfirm(req);
+      if (endpoint === 'secret' && req.method === 'POST') return await handleSecret(req);
+      if (endpoint === 'trust-rules' && req.method === 'POST') return await handleTrustRule(req);
+      if (endpoint === 'pending-interactions' && req.method === 'GET') return handleListPendingInteractions(url);
 
       if (endpoint === 'attachments' && req.method === 'POST') return await handleUploadAttachment(req);
       if (endpoint === 'attachments' && req.method === 'DELETE') return await handleDeleteAttachment(req);

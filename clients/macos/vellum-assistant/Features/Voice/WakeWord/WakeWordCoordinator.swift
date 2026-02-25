@@ -16,6 +16,7 @@ final class WakeWordCoordinator: ObservableObject {
     private let audioMonitor: AlwaysOnAudioMonitor
     private let voiceModeManager: VoiceModeManager
     private let threadManager: ThreadManager
+    private let windowState: MainWindowState
     private weak var voiceInputManager: VoiceInputManager?
 
     /// When a wake word fires before the app is fully initialized,
@@ -27,19 +28,26 @@ final class WakeWordCoordinator: ObservableObject {
     private let activationWindow = WakeWordActivationWindow()
     private var stateCancellable: AnyCancellable?
 
+    /// Cooldown after activation to prevent re-triggering from leftover audio.
+    private var lastActivationTime: Date?
+    private static let activationCooldown: TimeInterval = 3.0
+
     init(
         audioMonitor: AlwaysOnAudioMonitor,
         voiceModeManager: VoiceModeManager,
         threadManager: ThreadManager,
+        windowState: MainWindowState,
         voiceInputManager: VoiceInputManager? = nil
     ) {
         self.audioMonitor = audioMonitor
         self.voiceModeManager = voiceModeManager
         self.threadManager = threadManager
+        self.windowState = windowState
         self.voiceInputManager = voiceInputManager
 
         setupWakeWordHandler()
         observeVoiceModeState()
+        observeVoiceInputRecording()
     }
 
     // MARK: - Readiness
@@ -88,7 +96,15 @@ final class WakeWordCoordinator: ObservableObject {
             return
         }
 
+        // Cooldown to prevent re-triggering from leftover audio after activation
+        if let lastActivation = lastActivationTime,
+           Date().timeIntervalSince(lastActivation) < Self.activationCooldown {
+            log.info("Wake word ignored — within cooldown period")
+            return
+        }
+
         log.info("Wake word detected — activating voice mode")
+        lastActivationTime = Date()
 
         // 1. Play activation chime and show visual indicator
         WakeWordFeedback.playActivationChime()
@@ -100,10 +116,12 @@ final class WakeWordCoordinator: ObservableObject {
         // 3. Ensure we have an active ChatViewModel (create a new thread if needed)
         let chatViewModel = ensureChatViewModel()
 
-        // 4. Activate voice mode and start listening
+        // 4. Show voice mode panel and activate (same as the UI button)
+        windowState.selection = .panel(.voiceMode)
         voiceModeManager.activate(chatViewModel: chatViewModel)
         guard voiceModeManager.state != .off else {
             log.warning("Voice mode activation failed — resuming wake word listening")
+            windowState.selection = nil
             audioMonitor.startMonitoring()
             return
         }
@@ -122,6 +140,34 @@ final class WakeWordCoordinator: ObservableObject {
         return threadManager.activeViewModel!
     }
 
+    // MARK: - PTT Recording Observation
+
+    /// macOS only allows one active SFSpeechRecognitionTask per process.
+    /// When VoiceInputManager starts PTT recording, pause the wake word
+    /// engine to avoid conflicts. Resume when recording stops.
+    private func observeVoiceInputRecording() {
+        guard let voiceInputManager else { return }
+
+        // Chain onto the existing callback rather than replacing it
+        let existingCallback = voiceInputManager.onRecordingStateChanged
+        voiceInputManager.onRecordingStateChanged = { [weak self, existingCallback] isRecording in
+            existingCallback?(isRecording)
+            guard let self else { return }
+            guard UserDefaults.standard.bool(forKey: "wakeWordEnabled") else { return }
+            guard self.audioMonitor.isListening || isRecording else { return }
+
+            if isRecording {
+                log.info("PTT recording started — pausing wake word engine")
+                self.audioMonitor.stopMonitoring()
+            } else {
+                // Only resume if voice mode isn't active (voice mode has its own resume logic)
+                guard self.voiceModeManager.state == .off else { return }
+                log.info("PTT recording stopped — resuming wake word engine")
+                self.audioMonitor.startMonitoring()
+            }
+        }
+    }
+
     // MARK: - Voice Mode State Observation
 
     /// Watch VoiceModeManager.state — when it transitions to .off, resume the audio monitor.
@@ -134,14 +180,24 @@ final class WakeWordCoordinator: ObservableObject {
                 if newState == .off {
                     // Only resume monitoring if wake word is enabled in settings
                     if UserDefaults.standard.bool(forKey: "wakeWordEnabled") {
-                        log.info("Voice mode deactivated — resuming wake word listening")
+                        log.info("Voice mode deactivated — resuming wake word listening after delay")
                         if self.activatedViaWakeWord {
                             WakeWordFeedback.playDeactivationChime()
                             self.activationWindow.show(state: .listening)
                         }
-                        self.audioMonitor.startMonitoring()
+                        // Delay to let voice mode's audio engine fully release the mic
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                            guard let self else { return }
+                            guard self.voiceModeManager.state == .off else { return }
+                            self.audioMonitor.startMonitoring()
+                        }
                     }
                     self.activatedViaWakeWord = false  // always reset, regardless of setting
+                } else if self.audioMonitor.isListening {
+                    // Voice mode activated (via button or other path) — stop wake word
+                    // engine so it doesn't compete for the microphone.
+                    log.info("Voice mode activated externally — pausing wake word engine")
+                    self.audioMonitor.stopMonitoring()
                 }
             }
     }

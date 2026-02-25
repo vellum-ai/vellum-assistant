@@ -562,6 +562,10 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                 self.updateLastInteracted(threadId: threadId)
             }
         }
+        viewModel.onReconnectHistoryNeeded = { [weak self] sessionId in
+            guard let self else { return }
+            self.sessionRestorer.requestReconnectHistory(sessionId: sessionId)
+        }
         return viewModel
     }
 

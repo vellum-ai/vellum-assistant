@@ -19,6 +19,10 @@ const DAEMON_TIMEOUT_DEFAULTS = {
   sigkillGracePeriodMs: 2000,
 };
 
+function isPositiveInteger(v: unknown): v is number {
+  return typeof v === 'number' && Number.isInteger(v) && v > 0;
+}
+
 /**
  * Read daemon timeout values directly from the config JSON file, bypassing
  * loadConfig() and its ensureMigratedDataDir()/ensureDataDir() side effects.
@@ -30,18 +34,15 @@ function readDaemonTimeouts(): typeof DAEMON_TIMEOUT_DEFAULTS {
     const raw = JSON.parse(readFileSync(getWorkspaceConfigPath(), 'utf-8'));
     if (raw.daemon && typeof raw.daemon === 'object') {
       return {
-        startupSocketWaitMs:
-          typeof raw.daemon.startupSocketWaitMs === 'number'
-            ? raw.daemon.startupSocketWaitMs
-            : DAEMON_TIMEOUT_DEFAULTS.startupSocketWaitMs,
-        stopTimeoutMs:
-          typeof raw.daemon.stopTimeoutMs === 'number'
-            ? raw.daemon.stopTimeoutMs
-            : DAEMON_TIMEOUT_DEFAULTS.stopTimeoutMs,
-        sigkillGracePeriodMs:
-          typeof raw.daemon.sigkillGracePeriodMs === 'number'
-            ? raw.daemon.sigkillGracePeriodMs
-            : DAEMON_TIMEOUT_DEFAULTS.sigkillGracePeriodMs,
+        startupSocketWaitMs: isPositiveInteger(raw.daemon.startupSocketWaitMs)
+          ? raw.daemon.startupSocketWaitMs
+          : DAEMON_TIMEOUT_DEFAULTS.startupSocketWaitMs,
+        stopTimeoutMs: isPositiveInteger(raw.daemon.stopTimeoutMs)
+          ? raw.daemon.stopTimeoutMs
+          : DAEMON_TIMEOUT_DEFAULTS.stopTimeoutMs,
+        sigkillGracePeriodMs: isPositiveInteger(raw.daemon.sigkillGracePeriodMs)
+          ? raw.daemon.sigkillGracePeriodMs
+          : DAEMON_TIMEOUT_DEFAULTS.sigkillGracePeriodMs,
       };
     }
   } catch {

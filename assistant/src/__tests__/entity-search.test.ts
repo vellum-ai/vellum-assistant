@@ -359,6 +359,101 @@ describe('entity search', () => {
       });
       expect(result.neighborDepths.size).toBe(0);
     });
+
+    test('deep chain: maxDepth caps traversal on a long linear chain', () => {
+      // Build a linear chain of 20 entities: N0 -> N1 -> ... -> N19
+      const chain: string[] = [];
+      for (let i = 0; i < 20; i++) {
+        chain.push(upsertEntity({ name: `DeepChain${i}`, type: 'concept', aliases: [] }));
+      }
+      for (let i = 0; i < chain.length - 1; i++) {
+        upsertEntityRelation({
+          sourceEntityId: chain[i],
+          targetEntityId: chain[i + 1],
+          relation: 'related_to',
+          evidence: null,
+        });
+      }
+
+      const maxDepth = 3;
+      const result = findNeighborEntities([chain[0]], {
+        maxEdges: 200,
+        maxNeighborEntities: 200,
+        maxDepth,
+      });
+
+      // Should find exactly nodes at depth 1..3 (chain[1], chain[2], chain[3])
+      expect(result.neighborEntityIds).toHaveLength(maxDepth);
+      for (let d = 1; d <= maxDepth; d++) {
+        expect(result.neighborEntityIds).toContain(chain[d]);
+        expect(result.neighborDepths.get(chain[d])).toBe(d);
+      }
+      // Nodes beyond maxDepth should not be reached
+      for (let i = maxDepth + 1; i < chain.length; i++) {
+        expect(result.neighborEntityIds).not.toContain(chain[i]);
+      }
+    });
+
+    test('large cycle: traversal terminates on a fully-connected ring', () => {
+      // Build a ring: N0 -> N1 -> ... -> N9 -> N0
+      const ringSize = 10;
+      const ring: string[] = [];
+      for (let i = 0; i < ringSize; i++) {
+        ring.push(upsertEntity({ name: `Ring${i}`, type: 'concept', aliases: [] }));
+      }
+      for (let i = 0; i < ringSize; i++) {
+        upsertEntityRelation({
+          sourceEntityId: ring[i],
+          targetEntityId: ring[(i + 1) % ringSize],
+          relation: 'related_to',
+          evidence: null,
+        });
+      }
+
+      // With maxDepth high enough to go around the ring multiple times if
+      // cycle detection were broken, the visited set must prevent revisiting.
+      const result = findNeighborEntities([ring[0]], {
+        maxEdges: 500,
+        maxNeighborEntities: 500,
+        maxDepth: 20,
+      });
+
+      // Should discover exactly ringSize - 1 neighbors (all except the seed)
+      expect(result.neighborEntityIds).toHaveLength(ringSize - 1);
+      for (let i = 1; i < ringSize; i++) {
+        expect(result.neighborEntityIds).toContain(ring[i]);
+      }
+    });
+
+    test('dense cyclic graph: traversal terminates with multiple cycles and back-edges', () => {
+      // Build a graph where every node connects to multiple others with back-edges
+      const nodes: string[] = [];
+      for (let i = 0; i < 8; i++) {
+        nodes.push(upsertEntity({ name: `Dense${i}`, type: 'concept', aliases: [] }));
+      }
+      // Create a mesh: each node connects to the next 2 nodes (wrapping)
+      for (let i = 0; i < nodes.length; i++) {
+        for (let offset = 1; offset <= 2; offset++) {
+          upsertEntityRelation({
+            sourceEntityId: nodes[i],
+            targetEntityId: nodes[(i + offset) % nodes.length],
+            relation: 'related_to',
+            evidence: null,
+          });
+        }
+      }
+
+      const result = findNeighborEntities([nodes[0]], {
+        maxEdges: 500,
+        maxNeighborEntities: 500,
+        maxDepth: 10,
+      });
+
+      // All non-seed nodes should be reachable, and traversal must terminate
+      expect(result.neighborEntityIds).toHaveLength(nodes.length - 1);
+      // No duplicate IDs in the result
+      expect(new Set(result.neighborEntityIds).size).toBe(result.neighborEntityIds.length);
+    });
   });
 
   // ── findMatchedEntities ────────────────────────────────────────────

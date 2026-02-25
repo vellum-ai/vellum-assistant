@@ -1,9 +1,15 @@
 import type { SwarmPlan, SwarmTaskNode, SwarmTaskResult, SwarmExecutionSummary } from './types.js';
 import type { SwarmLimits } from './limits.js';
+import { getTimeoutForRole } from './limits.js';
 import type { SwarmWorkerBackend } from './worker-backend.js';
 import { runWorkerTask } from './worker-runner.js';
 import type { Provider } from '../providers/types.js';
 import { synthesizeResults } from './synthesizer.js';
+import { detectCycles } from './graph-utils.js';
+import { getLogger } from '../util/logger.js';
+import { writeCheckpoint, loadCheckpoint, removeCheckpoint, isCheckpointCompatible } from './checkpoint.js';
+
+const log = getLogger('swarm-orchestrator');
 
 export type OrchestratorEventKind =
   | 'plan_created'
@@ -33,6 +39,10 @@ export interface ExecuteSwarmOptions {
   synthesisModel?: string;
   onStatus?: OrchestratorStatusCallback;
   signal?: AbortSignal;
+  /** Stable identifier for this swarm run, used for checkpoint persistence. */
+  runId?: string;
+  /** When true, attempt to resume from the last checkpoint for this runId. */
+  resume?: boolean;
 }
 
 /**
@@ -40,19 +50,38 @@ export interface ExecuteSwarmOptions {
  * bounded concurrency, and per-task retries.
  */
 export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExecutionSummary> {
-  const { plan, limits, backend, workingDir, model, onStatus, signal } = opts;
+  const { plan, limits, backend, workingDir, model, onStatus, signal, runId, resume } = opts;
   const startTime = Date.now();
 
   // Safety net: reject cyclic plans even if the caller skipped validation
-  const cyclePath = detectCycle(plan.tasks);
-  if (cyclePath) {
-    throw new Error(`Swarm plan contains a dependency cycle: ${cyclePath.join(' -> ')}`);
+  const cycleNodes = detectCycles(plan.tasks);
+  if (cycleNodes) {
+    throw new Error(`Swarm plan contains a dependency cycle: ${cycleNodes.join(' -> ')}`);
   }
 
   onStatus?.({ kind: 'plan_created', message: `Plan with ${plan.tasks.length} tasks` });
 
   const results = new Map<string, SwarmTaskResult>();
   const blocked = new Set<string>();
+
+  // Restore from checkpoint if resuming
+  if (runId && resume) {
+    const checkpoint = loadCheckpoint(runId);
+    if (checkpoint && isCheckpointCompatible(checkpoint, plan)) {
+      for (const result of checkpoint.results) {
+        results.set(result.taskId, result);
+      }
+      for (const taskId of checkpoint.blockedTaskIds) {
+        blocked.add(taskId);
+      }
+      const restored = checkpoint.results.length;
+      const restoredBlocked = checkpoint.blockedTaskIds.length;
+      log.info({ runId, restored, restoredBlocked }, 'Resumed from checkpoint');
+      onStatus?.({ kind: 'plan_created', message: `Resumed ${restored} completed tasks from checkpoint` });
+    } else if (checkpoint) {
+      log.warn({ runId }, 'Checkpoint incompatible with current plan, starting fresh');
+    }
+  }
 
   // Build adjacency for dependency tracking
   const dependents = new Map<string, string[]>();
@@ -65,17 +94,21 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
     }
   }
 
-  // Determine initial ready tasks (no dependencies)
+  // Determine initial ready tasks — skip tasks already completed or blocked
+  // from a restored checkpoint
   const ready: SwarmTaskNode[] = [];
   const remaining = new Map<string, SwarmTaskNode>();
   const pendingDeps = new Map<string, Set<string>>();
 
   for (const task of plan.tasks) {
+    if (results.has(task.id) || blocked.has(task.id)) continue;
     remaining.set(task.id, task);
-    if (task.dependencies.length === 0) {
+    // Remove already-completed dependencies from this task's pending set
+    const unresolvedDeps = task.dependencies.filter((d) => !results.has(d));
+    if (unresolvedDeps.length === 0) {
       ready.push(task);
     } else {
-      pendingDeps.set(task.id, new Set(task.dependencies));
+      pendingDeps.set(task.id, new Set(unresolvedDeps));
     }
   }
 
@@ -124,6 +157,10 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
       onStatus?.({ kind: 'task_failed', taskId: result.taskId });
       blockDependents(result.taskId, dependents, blocked, onStatus);
     }
+
+    if (runId) {
+      writeCheckpoint(runId, plan, results, blocked);
+    }
   }
 
   async function runTask(task: SwarmTaskNode): Promise<void> {
@@ -136,39 +173,61 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
       })
       .filter((d): d is { taskId: string; summary: string } => d != null);
 
-    let result = await runWorkerTask({
-      task,
-      upstreamContext: plan.objective,
-      dependencyOutputs: depOutputs,
-      backend,
-      workingDir,
-      model,
-      timeoutMs: limits.workerTimeoutSec * 1000,
-      signal,
-    });
+    try {
+      const taskTimeoutMs = getTimeoutForRole(limits, task.role) * 1000;
 
-    let retries = 0;
-    while (result.status === 'failed' && retries < limits.maxRetriesPerTask && !signal?.aborted) {
-      retries++;
-      // Exponential backoff with ±25% jitter to prevent thundering herd
-      const baseDelayMs = 1000 * Math.pow(2, retries - 1);
-      const jitter = baseDelayMs * 0.25 * (2 * Math.random() - 1);
-      await abortableSleep(baseDelayMs + jitter, signal);
-      if (signal?.aborted) break;
-      result = await runWorkerTask({
+      let result = await runWorkerTask({
         task,
         upstreamContext: plan.objective,
         dependencyOutputs: depOutputs,
         backend,
         workingDir,
         model,
-        timeoutMs: limits.workerTimeoutSec * 1000,
+        timeoutMs: taskTimeoutMs,
         signal,
       });
-    }
-    result.retryCount = retries;
 
-    processResult(result);
+      let retries = 0;
+      while (result.status === 'failed' && retries < limits.maxRetriesPerTask && !signal?.aborted) {
+        retries++;
+        // Exponential backoff with ±25% jitter to prevent thundering herd
+        const baseDelayMs = 1000 * Math.pow(2, retries - 1);
+        const jitter = baseDelayMs * 0.25 * (2 * Math.random() - 1);
+        await abortableSleep(baseDelayMs + jitter, signal);
+        if (signal?.aborted) break;
+        result = await runWorkerTask({
+          task,
+          upstreamContext: plan.objective,
+          dependencyOutputs: depOutputs,
+          backend,
+          workingDir,
+          model,
+          timeoutMs: taskTimeoutMs,
+          signal,
+        });
+      }
+      result.retryCount = retries;
+
+      if (result.status === 'failed') {
+        log.error({ taskId: task.id, error: result.summary, retries }, 'Swarm task execution failed');
+      }
+
+      processResult(result);
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      log.error({ taskId: task.id, error: error.message, stack: error.stack }, 'Swarm task execution failed unexpectedly');
+      processResult({
+        taskId: task.id,
+        status: 'failed',
+        summary: `Unexpected error: ${error.message}`,
+        artifacts: [],
+        issues: [error.message],
+        nextSteps: [],
+        rawOutput: '',
+        durationMs: 0,
+        retryCount: 0,
+      });
+    }
   }
 
   while (ready.length > 0 || activeCount > 0) {
@@ -188,7 +247,10 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
           activeCount--;
           signalProgress();
         })
-        .catch(() => {});
+        .catch((err) => {
+          const error = err instanceof Error ? err : new Error(String(err));
+          log.error({ taskId: task.id, error: error.message, stack: error.stack }, 'Swarm task runner failed');
+        });
     }
 
     // Nothing left to launch and nothing running — we're done
@@ -224,7 +286,9 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
       objective: plan.objective,
       results: allResults,
       provider: opts.synthesisProvider,
-      model: opts.synthesisModel ?? 'claude-sonnet-4-6',
+      ...(opts.synthesisModel
+        ? { model: opts.synthesisModel }
+        : { modelIntent: 'quality-optimized' as const }),
     });
   } else {
     if (!signal?.aborted) onStatus?.({ kind: 'synthesis_started' });
@@ -232,6 +296,12 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
   }
 
   const totalDurationMs = Date.now() - startTime;
+
+  // Clean up checkpoint on successful completion (not on abort, so it can be resumed)
+  if (runId && !signal?.aborted) {
+    removeCheckpoint(runId);
+  }
+
   onStatus?.({ kind: 'done', message: `Completed in ${totalDurationMs}ms` });
 
   return {
@@ -262,72 +332,6 @@ function blockDependents(
       blockDependents(depId, dependents, blocked, onStatus);
     }
   }
-}
-
-/**
- * DFS-based cycle detection. Returns the cycle path (e.g. ['a', 'b', 'c', 'a'])
- * if a cycle exists, or null if the graph is a valid DAG.
- */
-function detectCycle(tasks: SwarmTaskNode[]): string[] | null {
-  const adj = new Map<string, string[]>();
-  for (const t of tasks) {
-    adj.set(t.id, []);
-  }
-  for (const t of tasks) {
-    for (const dep of t.dependencies) {
-      // Edge from dep -> t.id (dep must finish before t)
-      adj.get(dep)?.push(t.id);
-    }
-  }
-
-  const WHITE = 0, GRAY = 1, BLACK = 2;
-  const color = new Map<string, number>();
-  for (const t of tasks) color.set(t.id, WHITE);
-
-  const parent = new Map<string, string>();
-
-  // Iterative DFS to avoid stack overflow on deep acyclic chains
-  for (const t of tasks) {
-    if (color.get(t.id) !== WHITE) continue;
-
-    const stack: Array<{ node: string; neighborIdx: number }> = [
-      { node: t.id, neighborIdx: 0 },
-    ];
-    color.set(t.id, GRAY);
-
-    while (stack.length > 0) {
-      const frame = stack[stack.length - 1];
-      const neighbors = adj.get(frame.node) ?? [];
-
-      if (frame.neighborIdx >= neighbors.length) {
-        // All neighbors visited — mark node as fully processed
-        color.set(frame.node, BLACK);
-        stack.pop();
-        continue;
-      }
-
-      const neighbor = neighbors[frame.neighborIdx];
-      frame.neighborIdx++;
-
-      if (color.get(neighbor) === GRAY) {
-        // Back edge found — reconstruct cycle path
-        const cycle = [neighbor];
-        for (let i = stack.length - 1; i >= 0; i--) {
-          cycle.push(stack[i].node);
-          if (stack[i].node === neighbor) break;
-        }
-        cycle.reverse();
-        return cycle;
-      }
-
-      if (color.get(neighbor) === WHITE) {
-        parent.set(neighbor, frame.node);
-        color.set(neighbor, GRAY);
-        stack.push({ node: neighbor, neighborIdx: 0 });
-      }
-    }
-  }
-  return null;
 }
 
 /** Resolves after `ms` milliseconds, or immediately if the signal fires first. */

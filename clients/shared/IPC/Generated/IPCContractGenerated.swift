@@ -2746,6 +2746,24 @@ public struct IPCModelSetRequest: Codable, Sendable {
     }
 }
 
+/// Broadcast to connected macOS clients when a notification should be displayed.
+public struct IPCNotificationIntent: Codable, Sendable {
+    public let type: String
+    public let sourceEventName: String
+    public let title: String
+    public let body: String
+    /// Optional deep-link metadata so the client can navigate to the relevant context.
+    public let deepLinkMetadata: [String: AnyCodable]?
+
+    public init(type: String, sourceEventName: String, title: String, body: String, deepLinkMetadata: [String: AnyCodable]? = nil) {
+        self.type = type
+        self.sourceEventName = sourceEventName
+        self.title = title
+        self.body = body
+        self.deepLinkMetadata = deepLinkMetadata
+    }
+}
+
 public struct IPCOpenBundleRequest: Codable, Sendable {
     public let type: String
     public let filePath: String

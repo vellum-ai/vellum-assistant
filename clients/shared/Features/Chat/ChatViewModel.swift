@@ -206,6 +206,14 @@ public final class ChatViewModel: ObservableObject {
     /// Cleared and actioned in the sessionId didSet observer.
     private var needsOfflineFlush: Bool = false
     #endif
+    /// Set to true when reconnecting after an SSE gap while a run was in progress.
+    /// Causes `populateFromHistory` to do a full message replace instead of
+    /// prepending, so the missed assistant response is displayed.
+    private var needsReconnectCatchUp: Bool = false
+    /// Called when the SSE stream reconnects while a run was in progress.
+    /// The store/restorer registers the sessionId in pendingHistoryBySessionId
+    /// and sends a history request so the response is routed back properly.
+    public var onReconnectHistoryNeeded: ((_ sessionId: String) -> Void)?
     var pendingUserMessage: String?
     /// Optional callback for sending notifications when tool-use messages complete
     public var onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)?
@@ -439,6 +447,19 @@ public final class ChatViewModel: ObservableObject {
                 // produce a false healthy state after transient disconnects — the banner
                 // would disappear until the user sends another message. Preserve the
                 // last-known state; it will be updated when the next turn is processed.
+                // If a run was in progress when the connection dropped, the
+                // client may have missed the messageComplete (or the full
+                // assistant response). Reset the spinner and re-fetch history
+                // so the UI catches up on anything that happened during the gap.
+                if self?.isThinking == true || self?.isSending == true {
+                    self?.isThinking = false
+                    self?.isSending = false
+                    self?.currentAssistantMessageId = nil
+                    if let sessionId = self?.sessionId {
+                        self?.needsReconnectCatchUp = true
+                        self?.onReconnectHistoryNeeded?(sessionId)
+                    }
+                }
                 #if os(iOS)
                 // If we already have a session ID, flush immediately. Otherwise
                 // defer: sessionId's didSet will trigger flushOfflineQueue() once
@@ -1710,8 +1731,14 @@ public final class ChatViewModel: ObservableObject {
         }
 
         self.isLoadingHistory = true
-        let hasUserSentMessages = messages.contains { $0.role == .user }
-        if hasUserSentMessages {
+        if needsReconnectCatchUp {
+            // Reconnect catch-up: the SSE stream dropped while a run was
+            // in progress, so the client may have missed the assistant's
+            // response. Do a full replace with the server's authoritative
+            // message list instead of the normal prepend-only dedup.
+            needsReconnectCatchUp = false
+            self.messages = chatMessages
+        } else if messages.contains(where: { $0.role == .user }) {
             // History arrived after the user already sent messages.
             // The history payload includes ALL persisted messages — including
             // ones the user sent (and any assistant replies) before the

@@ -1,217 +1,67 @@
-import { getDb, getSqliteFrom } from './db-connection.js';
-import { getLogger } from '../util/logger.js';
+import { getDb } from './db-connection.js';
 import {
-  migrateJobDeferrals,
-  migrateToolInvocationsFk,
-  migrateMemoryEntityRelationDedup,
-  migrateMemoryItemsFingerprintScopeUnique,
-  migrateMemoryItemsScopeSaltedFingerprints,
-  migrateAssistantIdToSelf,
-  migrateRemoveAssistantIdColumns,
-  migrateLlmUsageEventsDropAssistantId,
-  migrateExtConvBindingsChannelChatUnique,
-  migrateCallSessionsProviderSidDedup,
-  migrateCallSessionsAddInitiatedFrom,
-  migrateMemoryFtsBackfill,
-  migrateGuardianActionTables,
-  migrateBackfillInboxThreadStateFromBindings,
-  migrateDropActiveSearchIndex,
-  migrateMemorySegmentsIndexes,
-  migrateMemoryItemsIndexes,
-  migrateRemainingTableIndexes,
+  createCoreTables,
+  createWatchersAndLogsTables,
+  addCoreColumns,
+  runComplexMigrations,
+  createCoreIndexes,
+  createContactsAndTriageTables,
+  createCallSessionsTables,
+  createFollowupsTables,
+  createTasksAndWorkItemsTables,
+  createExternalConversationBindingsTables,
+  createChannelGuardianTables,
+  createMediaAssetsTables,
+  createAssistantInboxTables,
+  runLateMigrations,
+  createNotificationTables,
   validateMigrationState,
-} from './schema-migration.js';
-
-const log = getLogger('memory-db');
+} from './migrations/index.js';
 
 export function initializeDb(): void {
   const database = getDb();
 
-  database.run(/*sql*/ `
-    CREATE TABLE IF NOT EXISTS conversations (
-      id TEXT PRIMARY KEY,
-      title TEXT,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      total_input_tokens INTEGER NOT NULL DEFAULT 0,
-      total_output_tokens INTEGER NOT NULL DEFAULT 0,
-      total_estimated_cost REAL NOT NULL DEFAULT 0,
-      context_summary TEXT,
-      context_compacted_message_count INTEGER NOT NULL DEFAULT 0,
-      context_compacted_at INTEGER,
-      source TEXT NOT NULL DEFAULT 'user'
-    )
-  `);
+  // 1. Create core tables (conversations, messages, memory, etc.)
+  createCoreTables(database);
 
-  database.run(/*sql*/ `
-    CREATE TABLE IF NOT EXISTS messages (
-      id TEXT PRIMARY KEY,
-      conversation_id TEXT NOT NULL REFERENCES conversations(id),
-      role TEXT NOT NULL,
-      content TEXT NOT NULL,
-      created_at INTEGER NOT NULL
-    )
-  `);
+  // 2. Create watchers, logs, entities, FTS, and conversation keys
+  createWatchersAndLogsTables(database);
 
-  database.run(/*sql*/ `
-    CREATE TABLE IF NOT EXISTS tool_invocations (
-      id TEXT PRIMARY KEY,
-      conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
-      tool_name TEXT NOT NULL,
-      input TEXT NOT NULL,
-      result TEXT NOT NULL,
-      decision TEXT NOT NULL,
-      risk_level TEXT NOT NULL,
-      duration_ms INTEGER NOT NULL,
-      created_at INTEGER NOT NULL
-    )
-  `);
+  // 3. ALTER TABLE ADD COLUMN migrations for core tables
+  addCoreColumns(database);
 
-  database.run(/*sql*/ `
-    CREATE TABLE IF NOT EXISTS memory_segments (
-      id TEXT PRIMARY KEY,
-      message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
-      conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
-      role TEXT NOT NULL,
-      segment_index INTEGER NOT NULL,
-      text TEXT NOT NULL,
-      token_estimate INTEGER NOT NULL,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    )
-  `);
+  // 4. Complex multi-step migrations (dedup, FK fixes, assistant_id normalization)
+  runComplexMigrations(database);
 
-  database.run(/*sql*/ `
-    CREATE TABLE IF NOT EXISTS memory_items (
-      id TEXT PRIMARY KEY,
-      kind TEXT NOT NULL,
-      subject TEXT NOT NULL,
-      statement TEXT NOT NULL,
-      status TEXT NOT NULL,
-      confidence REAL NOT NULL,
-      fingerprint TEXT NOT NULL,
-      first_seen_at INTEGER NOT NULL,
-      last_seen_at INTEGER NOT NULL,
-      last_used_at INTEGER
-    )
-  `);
+  // 5. Indexes for core tables + attachment dedup
+  createCoreIndexes(database);
 
-  database.run(/*sql*/ `
-    CREATE TABLE IF NOT EXISTS memory_item_sources (
-      memory_item_id TEXT NOT NULL REFERENCES memory_items(id) ON DELETE CASCADE,
-      message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
-      evidence TEXT,
-      created_at INTEGER NOT NULL,
-      PRIMARY KEY (memory_item_id, message_id)
-    )
-  `);
+  // 6. Contacts and triage
+  createContactsAndTriageTables(database);
 
-  database.run(/*sql*/ `
-    CREATE TABLE IF NOT EXISTS memory_item_conflicts (
-      id TEXT PRIMARY KEY,
-      scope_id TEXT NOT NULL DEFAULT 'default',
-      existing_item_id TEXT NOT NULL REFERENCES memory_items(id) ON DELETE CASCADE,
-      candidate_item_id TEXT NOT NULL REFERENCES memory_items(id) ON DELETE CASCADE,
-      relationship TEXT NOT NULL,
-      status TEXT NOT NULL,
-      clarification_question TEXT,
-      resolution_note TEXT,
-      last_asked_at INTEGER,
-      resolved_at INTEGER,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    )
-  `);
+  // 7. Call sessions (outgoing AI phone calls)
+  createCallSessionsTables(database);
 
-  database.run(/*sql*/ `
-    CREATE TABLE IF NOT EXISTS memory_summaries (
-      id TEXT PRIMARY KEY,
-      scope TEXT NOT NULL,
-      scope_key TEXT NOT NULL,
-      summary TEXT NOT NULL,
-      token_estimate INTEGER NOT NULL,
-      start_at INTEGER NOT NULL,
-      end_at INTEGER NOT NULL,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      UNIQUE (scope, scope_key)
-    )
-  `);
+  // 8. Follow-ups
+  createFollowupsTables(database);
 
-  database.run(/*sql*/ `
-    CREATE TABLE IF NOT EXISTS memory_embeddings (
-      id TEXT PRIMARY KEY,
-      target_type TEXT NOT NULL,
-      target_id TEXT NOT NULL,
-      provider TEXT NOT NULL,
-      model TEXT NOT NULL,
-      dimensions INTEGER NOT NULL,
-      vector_json TEXT NOT NULL,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      UNIQUE (target_type, target_id, provider, model)
-    )
-  `);
+  // 9. Tasks and work items
+  createTasksAndWorkItemsTables(database);
 
-  database.run(/*sql*/ `
-    CREATE TABLE IF NOT EXISTS memory_jobs (
-      id TEXT PRIMARY KEY,
-      type TEXT NOT NULL,
-      payload TEXT NOT NULL,
-      status TEXT NOT NULL,
-      attempts INTEGER NOT NULL DEFAULT 0,
-      run_after INTEGER NOT NULL,
-      last_error TEXT,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    )
-  `);
+  // 10. External conversation bindings
+  createExternalConversationBindingsTables(database);
 
-  database.run(/*sql*/ `
-    CREATE TABLE IF NOT EXISTS memory_checkpoints (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL,
-      updated_at INTEGER NOT NULL
-    )
-  `);
+  // 11. Channel guardian
+  createChannelGuardianTables(database);
 
-  database.run(/*sql*/ `
-    CREATE TABLE IF NOT EXISTS attachments (
-      id TEXT PRIMARY KEY,
-      original_filename TEXT NOT NULL,
-      mime_type TEXT NOT NULL,
-      size_bytes INTEGER NOT NULL,
-      kind TEXT NOT NULL,
-      data_base64 TEXT NOT NULL,
-      created_at INTEGER NOT NULL
-    )
-  `);
+  // 12. Media assets
+  createMediaAssetsTables(database);
 
-  database.run(/*sql*/ `
-    CREATE TABLE IF NOT EXISTS message_attachments (
-      id TEXT PRIMARY KEY,
-      message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
-      attachment_id TEXT NOT NULL REFERENCES attachments(id) ON DELETE CASCADE,
-      position INTEGER NOT NULL DEFAULT 0,
-      created_at INTEGER NOT NULL
-    )
-  `);
+  // 13. Assistant inbox
+  createAssistantInboxTables(database);
 
-  database.run(/*sql*/ `
-    CREATE TABLE IF NOT EXISTS message_surfaces (
-      id TEXT PRIMARY KEY,
-      message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
-      surface_id TEXT NOT NULL,
-      surface_type TEXT NOT NULL,
-      title TEXT,
-      data TEXT NOT NULL,
-      actions TEXT,
-      surface_message TEXT,
-      display TEXT,
-      position INTEGER NOT NULL DEFAULT 0,
-      created_at INTEGER NOT NULL
-    )
-  `);
+  // 14. Late-stage migrations (guardian actions, FTS backfill, index migrations)
+  runLateMigrations(database);
 
   database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS channel_inbound_events (
@@ -1276,6 +1126,9 @@ export function initializeDb(): void {
   migrateMemoryItemsIndexes(database);
 
   migrateRemainingTableIndexes(database);
+
+  // 15. Notification system
+  createNotificationTables(database);
 
   validateMigrationState(database);
 }
