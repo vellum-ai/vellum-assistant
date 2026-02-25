@@ -316,7 +316,7 @@ describe('recordingHandlers.recording_status', () => {
     expect(recordingId).not.toBeNull();
     sent.length = 0;
 
-    // Add a mock assistant message for the attachment to link to
+    // Even with an existing assistant message, a NEW one should be created
     mockMessages.push({ id: 'existing-msg', role: 'assistant', content: 'Hello' });
 
     const statusMsg: RecordingStatus = {
@@ -343,6 +343,10 @@ describe('recordingHandlers.recording_status', () => {
     expect(mockAttachments.length).toBe(1);
     expect(mockAttachments[0].mimeType).toBe('video/quicktime');
     expect(mockAttachments[0].sizeBytes).toBe(mockFileSize);
+
+    // A new assistant message should have been created (not reuse existing-msg)
+    const createdMsg = mockMessages.find((m) => m.id !== 'existing-msg' && m.role === 'assistant');
+    expect(createdMsg).toBeTruthy();
   });
 
   test('handles stopped status and creates assistant message when none exists', () => {
@@ -373,7 +377,7 @@ describe('recordingHandlers.recording_status', () => {
     expect(createdMsg).toBeTruthy();
   });
 
-  test('handles stopped status when file does not exist', () => {
+  test('handles stopped status when file does not exist — notifies client', () => {
     const { ctx, sent, fakeSocket } = createCtx();
     const conversationId = 'conv-status-no-file';
 
@@ -392,13 +396,22 @@ describe('recordingHandlers.recording_status', () => {
       durationMs: 1000,
     };
 
-    // Should not throw — the handler logs the error and skips attachment
+    // Should not throw — the handler logs the error and notifies the client
     expect(() => {
       recordingHandlers.recording_status(statusMsg, fakeSocket, ctx);
     }).not.toThrow();
 
     // No attachment should have been created
     expect(mockAttachments.length).toBe(0);
+
+    // Client should be notified that the file is unavailable
+    const textDeltas = sent.filter((m) => m.type === 'assistant_text_delta');
+    expect(textDeltas.length).toBeGreaterThanOrEqual(1);
+    expect(textDeltas[0].text).toContain('unavailable');
+
+    const completes = sent.filter((m) => m.type === 'message_complete');
+    expect(completes.length).toBeGreaterThanOrEqual(1);
+    expect(completes[0].sessionId).toBe(conversationId);
   });
 
   test('handles failed status and notifies client', () => {
