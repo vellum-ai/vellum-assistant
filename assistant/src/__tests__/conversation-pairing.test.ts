@@ -101,6 +101,8 @@ describe('pairDeliveryWithConversation', () => {
     expect(result.strategy).toBe('start_new_conversation');
     expect(createConversationMock).toHaveBeenCalledTimes(1);
     expect(addMessageMock).toHaveBeenCalledTimes(1);
+    const callArgs = createConversationMock.mock.calls[0]![0] as Record<string, unknown>;
+    expect(callArgs.threadType).toBe('standard');
   });
 
   test('uses threadTitle for conversation title when available', () => {
@@ -159,6 +161,8 @@ describe('pairDeliveryWithConversation', () => {
     expect(result.messageId).toBe('msg-001');
     expect(result.strategy).toBe('continue_existing_conversation');
     expect(createConversationMock).toHaveBeenCalledTimes(1);
+    const callArgs = createConversationMock.mock.calls[0]![0] as Record<string, unknown>;
+    expect(callArgs.threadType).toBe('background');
   });
 
   // ── not_deliverable (voice) ───────────────────────────────────────

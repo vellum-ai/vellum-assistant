@@ -4776,7 +4776,7 @@ Producer → NotificationSignal → Decision Engine (LLM) → Deterministic Chec
 - **`deliveryEnabled`** — whether the channel can receive notification deliveries. The `NotificationChannel` type is derived from this flag: only channels with `deliveryEnabled: true` are valid notification targets.
 - **`conversationStrategy`** — how the notification pipeline materializes conversations for the channel:
   - `start_new_conversation` — creates a fresh conversation per delivery (e.g. vellum desktop/mobile threads)
-  - `continue_existing_conversation` — appends to an existing channel-scoped conversation (e.g. Telegram)
+  - `continue_existing_conversation` — intended to append to an existing channel-scoped conversation; currently materializes a background audit conversation per delivery (e.g. Telegram)
   - `not_deliverable` — channel cannot receive notifications (e.g. voice)
 
 Helper functions: `getDeliverableChannels()`, `getChannelPolicy()`, `isNotificationDeliverable()`, `getConversationStrategy()`.
