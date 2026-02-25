@@ -7,7 +7,7 @@ import { getSqliteFrom, type DrizzleDb } from '../db-connection.js';
  * This migration adds a vector_blob column (Float32Array BLOB) and converts
  * all existing vector_json values into the compact binary format.
  *
- * After migration, new writes go to vector_blob only (vector_json is set to NULL).
+ * After migration, new writes go to vector_blob only.
  * Reads prefer vector_blob and fall back to vector_json for safety.
  */
 export function migrateEmbeddingVectorBlob(database: DrizzleDb): void {
@@ -28,7 +28,7 @@ export function migrateEmbeddingVectorBlob(database: DrizzleDb): void {
 
   if (rows.length > 0) {
     const update = raw.prepare(
-      `UPDATE memory_embeddings SET vector_blob = ?, vector_json = NULL WHERE id = ?`,
+      `UPDATE memory_embeddings SET vector_blob = ? WHERE id = ?`,
     );
     raw.exec('BEGIN');
     try {
