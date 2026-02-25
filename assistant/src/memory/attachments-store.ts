@@ -6,9 +6,10 @@
  */
 
 import { eq } from 'drizzle-orm';
+import { unlinkSync } from 'node:fs';
 import { v4 as uuid } from 'uuid';
 
-import { getDb, rawGet, rawRun } from './db.js';
+import { getDb, rawAll, rawGet, rawRun } from './db.js';
 import { attachments, messageAttachments } from './schema.js';
 
 export interface StoredAttachment {
@@ -461,9 +462,28 @@ export function getAttachmentById(
  */
 export function deleteOrphanAttachments(candidateIds: string[]): number {
   if (candidateIds.length === 0) return 0;
+
+  // Identify truly orphaned attachment IDs first (not referenced by any message)
   const placeholders = candidateIds.map(() => '?').join(', ');
-  return rawRun(
-    `DELETE FROM attachments WHERE id IN (${placeholders}) AND id NOT IN (SELECT attachment_id FROM message_attachments)`,
+  const orphanIds = rawAll<{ id: string }>(
+    `SELECT id FROM attachments WHERE id IN (${placeholders}) AND id NOT IN (SELECT attachment_id FROM message_attachments)`,
     ...candidateIds,
+  ).map(row => row.id);
+
+  if (orphanIds.length === 0) return 0;
+
+  // Clean up on-disk files only for confirmed orphans
+  for (const id of orphanIds) {
+    const filePath = getFilePathForAttachment(id);
+    if (filePath) {
+      try { unlinkSync(filePath); } catch { /* file may already be gone */ }
+    }
+  }
+
+  // Delete the orphaned DB rows
+  const orphanPlaceholders = orphanIds.map(() => '?').join(', ');
+  return rawRun(
+    `DELETE FROM attachments WHERE id IN (${orphanPlaceholders})`,
+    ...orphanIds,
   );
 }
