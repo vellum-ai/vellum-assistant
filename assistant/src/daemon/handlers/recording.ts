@@ -214,8 +214,14 @@ function handleRecordingStatus(
           process.env.HOME ?? '',
           'Library/Application Support/vellum-assistant/recordings',
         );
-        if (!resolvedPath.startsWith(allowedDir + path.sep) && resolvedPath !== allowedDir) {
-          log.warn({ recordingId, filePath: msg.filePath, allowedDir }, 'Recording file path outside allowed directory — rejecting');
+        let resolvedAllowedDir: string;
+        try {
+          resolvedAllowedDir = realpathSync(allowedDir);
+        } catch {
+          resolvedAllowedDir = allowedDir;
+        }
+        if (!resolvedPath.startsWith(resolvedAllowedDir + path.sep) && resolvedPath !== resolvedAllowedDir) {
+          log.warn({ recordingId, filePath: msg.filePath, allowedDir, resolvedAllowedDir }, 'Recording file path outside allowed directory — rejecting');
           if (notifySocket) {
             ctx.send(notifySocket, {
               type: 'assistant_text_delta',
