@@ -22,7 +22,7 @@ final class SpeechWakeWordEngine: WakeWordEngine {
     private(set) var isRunning = false
 
     /// The keyword phrase to detect (e.g. "computer", "hey vellum").
-    let keyword: String
+    private(set) var keyword: String
 
     private let audioEngine = AVAudioEngine()
     private var speechRecognizer: SFSpeechRecognizer?
@@ -42,7 +42,7 @@ final class SpeechWakeWordEngine: WakeWordEngine {
     private var sessionGeneration = 0
 
     /// Word-boundary regex for matching the keyword in transcriptions.
-    private let keywordPattern: Regex<Substring>?
+    private var keywordPattern: Regex<Substring>?
 
     /// Rolling session duration — restart before the ~60s timeout.
     private static let sessionDuration: TimeInterval = 55
@@ -117,6 +117,28 @@ final class SpeechWakeWordEngine: WakeWordEngine {
         speechRecognizer = nil
 
         log.info("SpeechWakeWordEngine stopped")
+    }
+
+    // MARK: - Keyword Update
+
+    func updateKeyword(_ newKeyword: String) {
+        let trimmed = newKeyword.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolved = trimmed.isEmpty ? "computer" : trimmed
+        guard resolved != keyword else { return }
+
+        let escaped = NSRegularExpression.escapedPattern(for: resolved)
+        guard let pattern = try? Regex<Substring>("(?i)\\b\(escaped)\\b") else {
+            log.error("Failed to compile keyword regex for '\(resolved)' — keeping current keyword")
+            return
+        }
+
+        log.info("Updating keyword from '\(self.keyword, privacy: .public)' to '\(resolved, privacy: .public)'")
+        keyword = resolved
+        keywordPattern = pattern
+
+        if isRunning {
+            restartSession()
+        }
     }
 
     // MARK: - Recognition session management

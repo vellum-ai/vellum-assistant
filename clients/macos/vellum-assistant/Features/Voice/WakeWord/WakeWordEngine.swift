@@ -15,4 +15,7 @@ protocol WakeWordEngine: AnyObject {
 
     /// Stop the detection engine and release resources.
     func stop()
+
+    /// Update the keyword phrase and restart detection if running.
+    func updateKeyword(_ keyword: String)
 }

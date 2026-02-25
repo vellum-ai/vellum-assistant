@@ -94,7 +94,7 @@ struct WakeWordSettingsView: View {
                 }
             }
 
-            Text("Type any word or phrase. Uses on-device speech recognition — no data leaves your Mac. Requires restart of wake word listening to take effect.")
+            Text("Type any word or phrase. Uses on-device speech recognition — no data leaves your Mac.")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textMuted)
         }
