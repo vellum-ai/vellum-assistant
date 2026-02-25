@@ -1254,6 +1254,9 @@ extension ChatViewModel {
                    messages.last?.toolCalls.isEmpty == true {
                     messages.removeAll(where: { $0.id == existingId })
                 }
+                // Keep inline error message as fallback for platforms without the session error toast
+                let errorMsg = ChatMessage(role: .assistant, text: msg.userMessage, isError: true)
+                messages.append(errorMsg)
             }
             for i in messages.indices {
                 if messages[i].role == .user && messages[i].status == .processing {

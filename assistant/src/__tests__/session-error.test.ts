@@ -243,6 +243,18 @@ describe('classifySessionError', () => {
       expect(result.userMessage).toContain('plain string error');
       expect(result.debugDetails).toBe('plain string error');
     });
+
+    it('falls back to generic message for empty error', () => {
+      const result = classifySessionError(new Error(''), baseCtx);
+      expect(result.code).toBe('SESSION_PROCESSING_FAILED');
+      expect(result.userMessage).toBe('Something went wrong processing your message. Please try again.');
+    });
+
+    it('skips leading newlines to find first non-empty line', () => {
+      const result = classifySessionError(new Error('\n\nactual error on line 3'), baseCtx);
+      expect(result.code).toBe('SESSION_PROCESSING_FAILED');
+      expect(result.userMessage).toContain('actual error on line 3');
+    });
   });
 
   describe('ProviderError with statusCode (deterministic classification)', () => {

@@ -264,13 +264,16 @@ function classifyByMessage(message: string): Omit<ClassifiedSessionError, 'debug
     }
   }
 
-  // Default: processing failure — include the first line of the actual error
+  // Default: processing failure — include the first non-empty line of the actual error
   // so users know what went wrong instead of seeing a completely generic message.
-  const firstLine = message.split('\n')[0].trim();
+  const firstLine = message.split('\n').map(l => l.trim()).find(l => l.length > 0) ?? '';
   const summary = firstLine.length > 150 ? firstLine.slice(0, 150) + '...' : firstLine;
+  const userMessage = summary
+    ? `Processing failed: ${summary}`
+    : 'Something went wrong processing your message. Please try again.';
   return {
     code: 'SESSION_PROCESSING_FAILED',
-    userMessage: `Processing failed: ${summary}`,
+    userMessage,
     retryable: false,
   };
 }
