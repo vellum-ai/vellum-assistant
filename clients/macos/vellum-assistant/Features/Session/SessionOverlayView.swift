@@ -13,6 +13,20 @@ struct SessionOverlayView: View {
                 Text("Vellum is working...")
                     .font(VFont.headline)
                     .lineLimit(1)
+
+                Spacer()
+
+                if session.recordingState == .started {
+                    HStack(spacing: VSpacing.xs) {
+                        Circle()
+                            .fill(VColor.error)
+                            .frame(width: 8, height: 8)
+                        Text("Recording")
+                            .font(VFont.caption)
+                            .foregroundStyle(VColor.error)
+                    }
+                    .accessibilityLabel("Screen recording active")
+                }
             }
 
             // Task text
@@ -149,13 +163,22 @@ struct SessionOverlayView: View {
             .frame(width: 380)
 
         case .failed(let reason):
-            HStack(spacing: 6) {
-                Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(.red)
-                Text(reason)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(3)
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                HStack(spacing: 6) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(VColor.error)
+                    Text("Failed")
+                        .font(VFont.caption)
+                        .foregroundStyle(VColor.error)
+                }
+                ScrollView {
+                    Text(reason)
+                        .font(VFont.caption)
+                        .foregroundStyle(VColor.textSecondary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: 120)
             }
 
         case .cancelled:
