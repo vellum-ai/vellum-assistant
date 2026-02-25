@@ -113,8 +113,23 @@ public final class ToolConfirmationNotificationService {
             let command = commandPreview(toolName: message.toolName, input: message.input)
             if let reason = message.input["reason"]?.value as? String, !reason.isEmpty {
                 let capitalizedReason = reason.prefix(1).uppercased() + reason.dropFirst()
-                let body = "\(capitalizedReason)\n$ \(command)"
-                return body.count > 200 ? String(body.prefix(197)) + "..." : body
+                // Don't append a dangling "$ " when command is empty
+                guard !command.isEmpty else {
+                    return capitalizedReason.count > 200 ? String(capitalizedReason.prefix(197)) + "..." : capitalizedReason
+                }
+                let commandLine = "$ \(command)"
+                let body = "\(capitalizedReason)\n\(commandLine)"
+                if body.count <= 200 { return body }
+                // Truncate reason first to preserve the command
+                let commandBudget = min(commandLine.count, 200)
+                let reasonBudget = 200 - commandBudget - 1 // 1 for newline
+                if reasonBudget >= 4 {
+                    let truncatedReason = String(capitalizedReason.prefix(reasonBudget - 3)) + "..."
+                    let truncatedBody = "\(truncatedReason)\n\(commandLine)"
+                    if truncatedBody.count <= 200 { return truncatedBody }
+                }
+                // Command alone exceeds the limit — truncate it
+                return commandLine.count > 200 ? String(commandLine.prefix(197)) + "..." : commandLine
             }
             return command.count > 200 ? String(command.prefix(197)) + "..." : command
         }
