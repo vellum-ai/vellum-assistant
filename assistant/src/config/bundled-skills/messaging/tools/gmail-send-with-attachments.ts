@@ -69,7 +69,8 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
       const result = await sendMessageRaw(token, raw, threadId);
 
       const filenames = attachments.map((a) => a.filename).join(', ');
-      return ok(`Message sent with ${attachments.length} attachment(s): ${filenames} (ID: ${result.id}).`);
+      const threadSuffix = result.threadId ? `, "thread_id": "${result.threadId}"` : '';
+      return ok(`Message sent with ${attachments.length} attachment(s): ${filenames} (ID: ${result.id}${threadSuffix}).`);
     });
   } catch (e) {
     return err(e instanceof Error ? e.message : String(e));
