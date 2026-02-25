@@ -438,8 +438,22 @@ export class ToolExecutor {
 
       // Execute the tool — proxy tools delegate to an external resolver
       let execResult: ToolExecutionResult;
-      const rawTimeoutSec = getConfig().timeouts.toolExecutionTimeoutSec;
-      const toolTimeoutMs = safeTimeoutMs(rawTimeoutSec);
+      let toolTimeoutMs: number;
+      if (name === 'bash' || name === 'host_bash') {
+        // Shell tools manage their own timeouts (SIGKILL on expiry).
+        // Compute the same effective timeout so the executor wrapper
+        // doesn't prematurely kill them with the generic toolExecutionTimeoutSec.
+        const { shellDefaultTimeoutSec, shellMaxTimeoutSec } = getConfig().timeouts;
+        const requestedSec = typeof input.timeout_seconds === 'number'
+          ? input.timeout_seconds
+          : shellDefaultTimeoutSec;
+        const shellTimeoutSec = Math.max(1, Math.min(requestedSec, shellMaxTimeoutSec));
+        // Buffer so the shell's own timeout fires first and handles cleanup
+        toolTimeoutMs = (shellTimeoutSec + 5) * 1000;
+      } else {
+        const rawTimeoutSec = getConfig().timeouts.toolExecutionTimeoutSec;
+        toolTimeoutMs = safeTimeoutMs(rawTimeoutSec);
+      }
 
       const execContext = context;
 
