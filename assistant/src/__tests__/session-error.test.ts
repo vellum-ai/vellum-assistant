@@ -223,10 +223,11 @@ describe('classifySessionError', () => {
   });
 
   describe('generic errors', () => {
-    it('classifies unknown errors as SESSION_PROCESSING_FAILED', () => {
+    it('classifies unknown errors as SESSION_PROCESSING_FAILED with error summary', () => {
       const result = classifySessionError(new Error('something completely unexpected'), baseCtx);
       expect(result.code).toBe('SESSION_PROCESSING_FAILED');
       expect(result.retryable).toBe(false);
+      expect(result.userMessage).toContain('something completely unexpected');
     });
 
     it('includes debugDetails with stack trace', () => {
@@ -239,6 +240,7 @@ describe('classifySessionError', () => {
     it('handles non-Error values', () => {
       const result = classifySessionError('plain string error', baseCtx);
       expect(result.code).toBe('SESSION_PROCESSING_FAILED');
+      expect(result.userMessage).toContain('plain string error');
       expect(result.debugDetails).toBe('plain string error');
     });
   });
