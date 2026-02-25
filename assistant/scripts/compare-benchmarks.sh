@@ -54,12 +54,13 @@ while IFS= read -r file; do
   fi
 
   # Calculate percentage change with awk to avoid integer truncation
-  pct_change=$(awk "BEGIN { printf \"%.1f\", ($current_ms - $baseline_ms) / $baseline_ms * 100 }")
+  # Uses -v to pass shell variables safely (prevents awk code injection via crafted values)
+  pct_change=$(awk -v c="$current_ms" -v b="$baseline_ms" 'BEGIN { printf "%.1f", (c - b) / b * 100 }')
 
-  if awk "BEGIN { exit !($pct_change > $THRESHOLD) }"; then
+  if awk -v p="$pct_change" -v t="$THRESHOLD" 'BEGIN { exit !(p > t) }'; then
     echo "  REGR ${file}: ${baseline_ms}ms -> ${current_ms}ms (+${pct_change}%)"
     regressions=$((regressions + 1))
-  elif awk "BEGIN { exit !($pct_change < -$THRESHOLD) }"; then
+  elif awk -v p="$pct_change" -v t="$THRESHOLD" 'BEGIN { exit !(p < -t) }'; then
     echo "  IMPR ${file}: ${baseline_ms}ms -> ${current_ms}ms (${pct_change}%)"
   else
     echo "  OK   ${file}: ${baseline_ms}ms -> ${current_ms}ms (${pct_change}%)"
