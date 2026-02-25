@@ -33,6 +33,8 @@ enum RecorderError: Error, LocalizedError {
     case sourceUnavailable(String)
     case permissionDenied
     case sessionInterrupted(String)
+    case writerFailed(status: Int)
+    case invalidOutputFile
 
     var errorDescription: String? {
         switch self {
@@ -47,6 +49,8 @@ enum RecorderError: Error, LocalizedError {
         case .sourceUnavailable(let reason): return "Recording source became unavailable: \(reason)"
         case .permissionDenied: return "Screen recording permission was not granted or has been revoked"
         case .sessionInterrupted(let reason): return "Recording session was interrupted: \(reason)"
+        case .writerFailed(let status): return "Video writer finished with non-completed status \(status)"
+        case .invalidOutputFile: return "Recording produced an invalid or unplayable file"
         }
     }
 }
@@ -504,9 +508,10 @@ final class ScreenRecorder: NSObject {
             config.captureMicrophone = true
         }
 
-        // Each attempt gets a unique output file so failed attempts don't conflict
+        // Each attempt gets a unique output file so failed attempts don't conflict.
+        // Use .tmp.mov during recording; stop() atomically renames to .mov after validation.
         let timestamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
-        let outputURL = Self.recordingsDirectory.appendingPathComponent("recording-\(timestamp)-\(UUID().uuidString.prefix(8)).mov")
+        let outputURL = Self.recordingsDirectory.appendingPathComponent("recording-\(timestamp)-\(UUID().uuidString.prefix(8)).tmp.mov")
 
         let writer: AVAssetWriter
         do {
@@ -652,6 +657,11 @@ final class ScreenRecorder: NSObject {
             throw RecorderError.notRecording
         }
 
+        // Gate early: prevent in-flight handleSampleBuffer Tasks from appending
+        // new samples after we begin teardown. The MainActor tasks dispatched by
+        // handleSampleBuffer check `isRecordingActive` and will bail out.
+        isRecordingActive = false
+
         // Unregister display monitoring early to avoid the reconfiguration
         // callback racing with teardown.
         unregisterDisplayReconfiguration()
@@ -661,6 +671,11 @@ final class ScreenRecorder: NSObject {
             try? await stream.stopCapture()
         }
         stream = nil
+
+        // Drain window: yield to let any in-flight MainActor tasks from
+        // handleSampleBuffer complete before marking inputs as finished.
+        await Task.yield()
+        await Task.yield()
 
         guard hasReceivedVideoFrame else {
             log.error("Stop: no video frames captured — discarding recording")
@@ -700,7 +715,41 @@ final class ScreenRecorder: NSObject {
             log.info("Writer: finishWriting completed successfully")
         } else {
             log.error("Writer: finishWriting ended with status=\(writerStatus.rawValue), error=\(writer.error?.localizedDescription ?? "none")")
+            // Writer did not complete successfully — the output file is likely corrupt.
+            // Clean up and throw so RecordingManager sends status: "failed".
+            try? FileManager.default.removeItem(at: outputURL)
+            let durationMs: Int
+            if let startDate = recordingStartDate {
+                durationMs = Int(Date().timeIntervalSince(startDate) * 1000)
+            } else {
+                durationMs = 0
+            }
+            let fileSize = 0
+            RecordingTelemetry.logStop(durationMs: durationMs, fileSize: fileSize, status: .error)
+            cleanUpWriter()
+            clearTelemetryState()
+            throw RecorderError.writerFailed(status: Int(writerStatus.rawValue))
         }
+
+        // Playability integrity gate: validate that the output file has a positive
+        // duration, catching corrupt files that exist on disk but aren't playable.
+        let asset = AVURLAsset(url: outputURL)
+        let duration = try await asset.load(.duration)
+        guard duration.seconds > 0 else {
+            log.error("Stop: output file has zero or negative duration — discarding as invalid")
+            try? FileManager.default.removeItem(at: outputURL)
+            cleanUpWriter()
+            clearTelemetryState()
+            throw RecorderError.invalidOutputFile
+        }
+
+        // Atomic file publication: rename from .tmp.mov to .mov now that the
+        // file is validated. Clients observing the recordings directory will
+        // only see the final file after it is complete and playable.
+        let finalURL = outputURL.deletingPathExtension().deletingPathExtension()
+            .appendingPathExtension("mov")
+        try FileManager.default.moveItem(at: outputURL, to: finalURL)
+        log.info("Atomically renamed recording: \(outputURL.lastPathComponent, privacy: .public) → \(finalURL.lastPathComponent, privacy: .public)")
 
         let durationMs: Int
         if let startDate = recordingStartDate {
@@ -709,16 +758,15 @@ final class ScreenRecorder: NSObject {
             durationMs = 0
         }
 
-        let fileSize = (try? FileManager.default.attributesOfItem(atPath: outputURL.path)[.size] as? Int) ?? 0
+        let fileSize = (try? FileManager.default.attributesOfItem(atPath: finalURL.path)[.size] as? Int) ?? 0
 
-        let stopStatus: RecordingTelemetry.TerminalStatus = writerStatus == .completed ? .success : .error
-        RecordingTelemetry.logStop(durationMs: durationMs, fileSize: fileSize, status: stopStatus)
+        RecordingTelemetry.logStop(durationMs: durationMs, fileSize: fileSize, status: .success)
 
         cleanUpWriter()
         clearTelemetryState()
-        log.info("Recording complete — duration=\(durationMs)ms, fileSize=\(fileSize) bytes, file=\(outputURL.path, privacy: .public)")
+        log.info("Recording complete — duration=\(durationMs)ms, fileSize=\(fileSize) bytes, file=\(finalURL.path, privacy: .public)")
 
-        return RecordingResult(filePath: outputURL.path, durationMs: durationMs)
+        return RecordingResult(filePath: finalURL.path, durationMs: durationMs)
     }
 
     // MARK: - Internal

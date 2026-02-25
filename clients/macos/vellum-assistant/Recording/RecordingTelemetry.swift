@@ -37,10 +37,12 @@ enum RecordingTelemetry {
             return .permission
         case .streamStartFailed, .sessionInterrupted:
             return .stream
-        case .writerSetupFailed:
+        case .writerSetupFailed, .writerFailed:
             return .writer
         case .noMatchingDisplay, .noMatchingWindow, .sourceUnavailable:
             return .source
+        case .invalidOutputFile:
+            return .writer
         case .notRecording, .noFramesCaptured:
             return .unknown
         }
