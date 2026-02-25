@@ -764,6 +764,20 @@ export class DaemonServer {
     const resolvedInterface = resolveTurnInterface(sourceInterface);
     session.setAssistantId(options?.assistantId ?? 'self');
     session.setGuardianContext(options?.guardianContext ?? null);
+
+    // Force strict side-effects for non-guardian and unverified_channel actors
+    // so all side-effect tools require guardian approval. This restores the
+    // invariant that was lost when the runs-store migration moved to
+    // processMessage — without it, these actors could execute side-effect
+    // tools without guaranteed guardian approval prompts.
+    const actorRole = options?.guardianContext?.actorRole;
+    if (actorRole === 'non-guardian' || actorRole === 'unverified_channel') {
+      session.memoryPolicy = {
+        ...session.memoryPolicy,
+        strictSideEffects: true,
+      };
+    }
+
     session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel, sourceInterface));
     session.setCommandIntent(options?.commandIntent ?? null);
     session.setTurnChannelContext({
