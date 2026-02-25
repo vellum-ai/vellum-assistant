@@ -31,13 +31,19 @@ export function handleRecordingStart(
   socket: net.Socket,
   ctx: HandlerContext,
 ): string {
-  const recordingId = uuid();
-
   const existingRecordingId = recordingOwnerByConversation.get(conversationId);
   if (existingRecordingId) {
-    log.warn({ conversationId, existingRecordingId }, 'Overwriting active recording for conversation');
-    standaloneRecordingConversationId.delete(existingRecordingId);
+    log.warn({ conversationId, existingRecordingId }, 'Recording already active for conversation');
+    ctx.send(socket, {
+      type: 'assistant_text_delta',
+      text: 'A recording is already active.',
+      sessionId: conversationId,
+    });
+    ctx.send(socket, { type: 'message_complete', sessionId: conversationId });
+    return existingRecordingId;
   }
+
+  const recordingId = uuid();
 
   standaloneRecordingConversationId.set(recordingId, conversationId);
   recordingOwnerByConversation.set(conversationId, recordingId);
