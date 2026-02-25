@@ -260,7 +260,11 @@ struct HeartbeatSettingsTab: View {
             return "\(minutes) min"
         }
         let hours = minutes / 60
-        return hours == 1 ? "1 hour" : "\(hours) hours"
+        let remainingMinutes = minutes % 60
+        if remainingMinutes == 0 {
+            return hours == 1 ? "1 hour" : "\(hours) hours"
+        }
+        return "\(hours)h \(remainingMinutes)m"
     }
 
     private func formatHour(_ hour: Int) -> String {
