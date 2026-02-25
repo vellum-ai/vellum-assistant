@@ -2,17 +2,13 @@
 name: "Google OAuth Setup"
 description: "Create Google Cloud OAuth credentials for Gmail integration using browser automation"
 user-invocable: true
-includes: ["browser", "public-ingress"]
+includes: ["browser"]
 metadata: {"vellum": {"emoji": "\ud83d\udd11"}}
 ---
 
 You are helping your user create Google Cloud OAuth credentials so the Gmail and Google Calendar integrations can connect. Walk through each step below using `browser_navigate`, `browser_snapshot`, `browser_screenshot`, `browser_click`, `browser_type`, and `browser_extract` tools.
 
 **Tone:** Be friendly and reassuring throughout. Narrate what you're doing in plain language so the user always knows what's happening. After each step, briefly confirm what was accomplished before moving on.
-
-## Prerequisites
-
-Before starting, check that `ingress.publicBaseUrl` is configured (Settings > Public Ingress, or `INGRESS_PUBLIC_BASE_URL` env var). If it is not set, load and execute the **public-ingress** skill first (`skill_load` with `skill: "public-ingress"`) to set up an ngrok tunnel and persist the public URL. The OAuth redirect URI depends on this value.
 
 ## Before You Start
 
@@ -128,7 +124,7 @@ Tell the user: "Consent screen is configured! Almost there — just need to crea
 
 > **Create OAuth Credentials**
 >
-> I'm about to create OAuth Web Application credentials for Vellum Assistant. This generates a client ID that Vellum uses to initiate the authorization flow. The redirect URI will point to the gateway's OAuth callback endpoint.
+> I'm about to create OAuth Desktop Application credentials for Vellum Assistant. This generates a client ID that Vellum uses to initiate the authorization flow. No redirect URIs are needed — desktop apps use a secure localhost callback automatically.
 
 Wait for the user to approve. If they decline, explain that credentials are the final step needed and offer to try again or cancel.
 
@@ -137,21 +133,38 @@ Once approved, navigate to `https://console.cloud.google.com/apis/credentials?pr
 Use `browser_click` on "+ Create Credentials" at the top, then select "OAuth client ID" from the dropdown.
 
 Take a `browser_snapshot` and fill in:
-1. **Application type:** Select "Web application" from the dropdown
+1. **Application type:** Select **"Desktop app"** from the dropdown
 2. **Name:** "Vellum Assistant"
-3. **Authorized redirect URIs:** Click "Add URI" and enter `${ingress.publicBaseUrl}/webhooks/oauth/callback` (e.g. `https://abc123.ngrok-free.app/webhooks/oauth/callback`). Read the `ingress.publicBaseUrl` value from the assistant's workspace config (Settings > Public Ingress) or the `INGRESS_PUBLIC_BASE_URL` environment variable.
+
+**Do NOT add any redirect URIs** — Desktop app credentials handle localhost redirects automatically.
 
 Use `browser_click` on the "Create" button.
 
-## Step 6: Extract and Store the Client ID
+## Step 6: Store Credentials
 
-After creation, a dialog should appear showing the client ID and client secret.
+After creation, a dialog appears showing the client ID and client secret.
 
-Use `browser_snapshot` or `browser_extract` to read the **Client ID** value from the dialog. The client ID looks like `NUMBERS-CHARS.apps.googleusercontent.com`.
+Tell the user: "Credentials created! Please enter the values from the dialog below — I won't see what you type, they go directly to secure storage."
 
-**Important:** You only need the Client ID, not the client secret (PKCE flow is used).
+Use `credential_store` to securely collect:
 
-Tell the user: "Credentials created! Now let's connect your Gmail account using the client ID."
+```
+credential_store prompt:
+  service: "integration:gmail"
+  field: "client_id"
+  label: "Google OAuth Client ID"
+  description: "Copy the Client ID from the dialog"
+  placeholder: "123456789.apps.googleusercontent.com"
+```
+
+```
+credential_store prompt:
+  service: "integration:gmail"
+  field: "client_secret"
+  label: "Google OAuth Client Secret"
+  description: "Copy the Client secret from the dialog"
+  placeholder: "GOCSPX-..."
+```
 
 ## Step 7: Connect Gmail
 
@@ -162,17 +175,13 @@ Use the `credential_store` tool to connect Gmail via OAuth2:
 ```
 action: "oauth2_connect"
 service: "integration:gmail"
-client_id: "<the extracted client ID>"
-auth_url: "https://accounts.google.com/o/oauth2/v2/auth"
-token_url: "https://oauth2.googleapis.com/token"
-scopes: ["https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/gmail.modify", "https://www.googleapis.com/auth/gmail.send", "https://www.googleapis.com/auth/calendar.readonly", "https://www.googleapis.com/auth/calendar.events", "https://www.googleapis.com/auth/userinfo.email"]
-userinfo_url: "https://www.googleapis.com/oauth2/v2/userinfo"
-extra_params: {"access_type": "offline", "prompt": "consent"}
 ```
 
-This will open the Google authorization page in the user's browser. Wait for the flow to complete.
+This auto-reads client_id/client_secret from the secure store and auto-fills endpoints, scopes, and params from well-known config. The OAuth flow uses a localhost callback — no public URL or tunnel is needed.
 
-**If the user sees a "This app isn't verified" warning:** Tell them this is normal for apps in testing mode. They should click "Advanced" → "Go to Vellum Assistant (unsafe)" to proceed. This warning appears because the app hasn't gone through Google's verification process, which is only needed for apps used by many people.
+Wait for the flow to complete.
+
+**If the user sees a "This app isn't verified" warning:** Tell them this is normal for apps in testing mode. They should click "Advanced" then "Go to Vellum Assistant (unsafe)" to proceed. This warning appears because the app hasn't gone through Google's verification process, which is only needed for apps used by many people.
 
 ## Step 8: Celebrate!
 
@@ -184,7 +193,7 @@ Summarize what was accomplished:
 - Created a Google Cloud project (or used an existing one)
 - Enabled the Gmail API and Google Calendar API
 - Configured the OAuth consent screen with appropriate scopes (including calendar)
-- Created OAuth Web Application credentials with gateway callback redirect URI
+- Created OAuth Desktop Application credentials
 - Connected your Gmail and Google Calendar accounts
 
 ## Error Handling
@@ -195,5 +204,5 @@ Summarize what was accomplished:
 - **Element not found for click/type:** Take a fresh `browser_snapshot` to re-assess the page layout. GCP UI may have changed; adapt your selectors. Tell the user what you're looking for if you get stuck.
 - **User declines an approval gate:** Don't push back aggressively. Explain briefly why the step matters, offer to try again, or offer to cancel the whole setup gracefully. Never proceed without approval.
 - **OAuth flow timeout or failure:** Tell the user what happened and offer to retry the connect step. The client ID is already stored, so they can also connect later from Settings.
-- **"This app isn't verified" warning:** Guide the user through clicking "Advanced" → "Go to Vellum Assistant (unsafe)". Reassure them this is expected for personal-use OAuth apps.
+- **"This app isn't verified" warning:** Guide the user through clicking "Advanced" then "Go to Vellum Assistant (unsafe)". Reassure them this is expected for personal-use OAuth apps.
 - **Any unexpected state:** Take a `browser_screenshot` and `browser_snapshot`, describe what you see, and ask the user for guidance rather than guessing.
