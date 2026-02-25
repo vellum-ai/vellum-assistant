@@ -122,4 +122,9 @@ private struct GIFView: NSViewRepresentable {
     func updateNSView(_ nsView: NSImageView, context: Context) {
         // Data is immutable per GIF URL — no updates needed
     }
+
+    static func dismantleNSView(_ nsView: NSImageView, coordinator: ()) {
+        nsView.animates = false
+        nsView.image = nil
+    }
 }
