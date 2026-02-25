@@ -625,6 +625,7 @@ final class ScreenRecorder: NSObject {
         }
 
         guard let writer = assetWriter else {
+            clearTelemetryState()
             throw RecorderError.notRecording
         }
 
@@ -873,6 +874,17 @@ final class ScreenRecorder: NSObject {
             // Stop the stream and notify via the error callback
             Task { @MainActor in
                 guard self.isRecordingActive else { return }
+
+                // Log telemetry before tearing down state so source dimensions
+                // and config label are still available.
+                RecordingTelemetry.logError(
+                    category: .source,
+                    sourceWidth: self.telemetrySourceWidth,
+                    sourceHeight: self.telemetrySourceHeight,
+                    configLabel: self.activeConfigLabel,
+                    message: "Recorded display \(displayID) was disconnected or removed during active recording"
+                )
+
                 // Unregister display monitoring since the recording session is ending.
                 self.unregisterDisplayReconfiguration()
                 self.assetWriter?.cancelWriting()
