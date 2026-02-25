@@ -115,28 +115,6 @@ struct SettingsConnectTab: View {
 
     // MARK: - Vellum Section
 
-    private var platformHealthIcon: String {
-        if store.isCheckingVellumPlatform {
-            return "arrow.trianglehead.2.counterclockwise"
-        }
-        switch store.vellumPlatformReachable {
-        case .some(true): return "checkmark.circle.fill"
-        case .some(false): return "xmark.circle.fill"
-        case .none: return "questionmark.circle"
-        }
-    }
-
-    private var platformHealthIconColor: Color {
-        if store.isCheckingVellumPlatform {
-            return VColor.textMuted
-        }
-        switch store.vellumPlatformReachable {
-        case .some(true): return VColor.success
-        case .some(false): return VColor.error
-        case .none: return VColor.textMuted
-        }
-    }
-
     private var vellumSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             Text("Vellum")
@@ -182,50 +160,12 @@ struct SettingsConnectTab: View {
                     .foregroundColor(VColor.error)
             }
 
-            Divider().background(VColor.surfaceBorder)
-
-            // Platform URL connection status
-            connectionStatusRow(
-                label: "Platform",
-                status: platformUrlStatusInfo
-            )
-
-            HStack(spacing: VSpacing.sm) {
-                if store.isCheckingVellumPlatform {
-                    VLoadingIndicator(size: 14, color: VColor.accent)
-                    Text("Checking...")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textSecondary)
-                } else {
-                    VButton(
-                        label: "Test Connection",
-                        leftIcon: "antenna.radiowaves.left.and.right",
-                        style: .secondary,
-                        isDisabled: store.isCheckingVellumPlatform
-                    ) {
-                        Task { await store.checkVellumPlatform() }
-                    }
-                }
-            }
-
-            if let lastChecked = store.platformLastChecked {
-                Text("Last verified: \(relativeTimeString(from: lastChecked))")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-            }
-
             if store.isDevMode {
                 Divider().background(VColor.surfaceBorder)
 
-                HStack(spacing: VSpacing.sm) {
-                    Image(systemName: platformHealthIcon)
-                        .foregroundColor(platformHealthIconColor)
-                        .font(.system(size: 12))
-                    Text("Platform URL")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                }
-                .help(store.vellumPlatformError ?? "")
+                Text("Platform URL")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
 
                 HStack(spacing: VSpacing.sm) {
                     TextField("https://platform.vellum.ai", text: $platformUrlText)
@@ -241,6 +181,17 @@ struct SettingsConnectTab: View {
                         Task { await store.checkVellumPlatform() }
                     }
                 }
+            }
+
+            Divider().background(VColor.surfaceBorder)
+
+            connectionStatusRow(
+                label: "Platform",
+                status: platformUrlStatusInfo,
+                isRefreshing: store.isCheckingVellumPlatform,
+                lastChecked: store.platformLastChecked
+            ) {
+                Task { await store.checkVellumPlatform() }
             }
         }
         .padding(VSpacing.lg)
@@ -306,8 +257,12 @@ struct SettingsConnectTab: View {
                 // Gateway connection status (checks local daemon)
                 connectionStatusRow(
                     label: "Gateway",
-                    status: gatewayStatusInfo
-                )
+                    status: gatewayStatusInfo,
+                    isRefreshing: store.isCheckingGateway,
+                    lastChecked: store.gatewayLastChecked
+                ) {
+                    Task { await store.testGatewayOnly() }
+                }
 
                 Divider()
                     .background(VColor.surfaceBorder)
@@ -334,8 +289,12 @@ struct SettingsConnectTab: View {
                 // Tunnel connection status (checks public URL)
                 connectionStatusRow(
                     label: "Tunnel",
-                    status: tunnelStatusInfo
-                )
+                    status: tunnelStatusInfo,
+                    isRefreshing: store.isCheckingTunnel,
+                    lastChecked: store.tunnelLastChecked
+                ) {
+                    Task { await store.testTunnelOnly() }
+                }
 
                 // Diagnostic message when gateway is up but tunnel is down
                 if store.gatewayReachable == true,
@@ -349,35 +308,6 @@ struct SettingsConnectTab: View {
                             .font(VFont.caption)
                             .foregroundColor(VColor.warning)
                     }
-                }
-
-                Divider()
-                    .background(VColor.surfaceBorder)
-
-                // Test Connection button
-                HStack(spacing: VSpacing.sm) {
-                    if store.isCheckingGateway {
-                        VLoadingIndicator(size: 14, color: VColor.accent)
-                        Text("Checking...")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
-                    } else {
-                        VButton(
-                            label: "Test Connection",
-                            leftIcon: "antenna.radiowaves.left.and.right",
-                            style: .secondary,
-                            isDisabled: store.isCheckingGateway
-                        ) {
-                            Task { await store.testGatewayConnection() }
-                        }
-                    }
-                }
-
-                // Last verified timestamp
-                if let lastChecked = store.gatewayLastChecked {
-                    Text("Last verified: \(relativeTimeString(from: lastChecked))")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
                 }
             }
         }
@@ -1461,9 +1391,6 @@ struct SettingsConnectTab: View {
     }
 
     private var platformUrlStatusInfo: ConnectionStatusInfo {
-        if store.isCheckingVellumPlatform {
-            return ConnectionStatusInfo(label: "Checking...", color: VColor.textMuted, icon: "arrow.trianglehead.2.counterclockwise")
-        }
         guard let reachable = store.vellumPlatformReachable else {
             return ConnectionStatusInfo(label: "Unknown", color: VColor.textMuted, icon: "questionmark.circle.fill")
         }
@@ -1502,7 +1429,13 @@ struct SettingsConnectTab: View {
         }
     }
 
-    private func connectionStatusRow(label: String, status: ConnectionStatusInfo) -> some View {
+    private func connectionStatusRow(
+        label: String,
+        status: ConnectionStatusInfo,
+        isRefreshing: Bool = false,
+        lastChecked: Date? = nil,
+        onRefresh: (() -> Void)? = nil
+    ) -> some View {
         HStack(spacing: VSpacing.sm) {
             Text(label)
                 .font(VFont.bodyMedium)
@@ -1516,6 +1449,31 @@ struct SettingsConnectTab: View {
             Text(status.label)
                 .font(VFont.body)
                 .foregroundColor(status.color)
+
+            Spacer()
+
+            if let onRefresh {
+                let tooltipText: String = {
+                    if isRefreshing { return "Checking..." }
+                    if let lastChecked { return "Last verified: \(relativeTimeString(from: lastChecked))" }
+                    return "Test connection"
+                }()
+
+                Button {
+                    if !isRefreshing { onRefresh() }
+                } label: {
+                    Image(systemName: "arrow.trianglehead.2.counterclockwise")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(isRefreshing ? VColor.accent : VColor.textMuted)
+                        .rotationEffect(.degrees(isRefreshing ? 360 : 0))
+                        .animation(isRefreshing ? .linear(duration: 1).repeatForever(autoreverses: false) : .default, value: isRefreshing)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Refresh \(label) status")
+                .help(tooltipText)
+            }
         }
     }
 

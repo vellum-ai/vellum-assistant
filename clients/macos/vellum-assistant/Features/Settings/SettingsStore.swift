@@ -152,6 +152,8 @@ public final class SettingsStore: ObservableObject {
     @Published var ingressReachable: Bool?
     @Published var gatewayLastChecked: Date?
     @Published var isCheckingGateway: Bool = false
+    @Published var isCheckingTunnel: Bool = false
+    @Published var tunnelLastChecked: Date?
 
     @Published var vellumPlatformReachable: Bool?
     @Published var vellumPlatformError: String?
@@ -1276,22 +1278,26 @@ public final class SettingsStore: ObservableObject {
 
     // MARK: - Connection Health Check
 
-    /// Tests reachability of both the local gateway process and the public tunnel.
-    /// Updates `gatewayReachable`, `ingressReachable`, and `gatewayLastChecked` with results.
-    func testGatewayConnection() async {
+    /// Tests reachability of the local gateway process.
+    func testGatewayOnly() async {
         isCheckingGateway = true
         defer {
             isCheckingGateway = false
             gatewayLastChecked = Date()
         }
-
-        // Test local gateway
         gatewayReachable = await Self.checkHealthEndpoint(
             baseUrl: localGatewayTarget,
             timeoutSeconds: 3
         )
+    }
 
-        // Test public tunnel (only if URL is non-empty)
+    /// Tests reachability of the public tunnel URL.
+    func testTunnelOnly() async {
+        isCheckingTunnel = true
+        defer {
+            isCheckingTunnel = false
+            tunnelLastChecked = Date()
+        }
         let trimmedUrl = ingressPublicBaseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmedUrl.isEmpty {
             ingressReachable = nil
