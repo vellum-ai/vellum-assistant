@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "crypto";
 import { buildWhatsAppTransportMetadata } from "../../channels/transport-hints.js";
 import type { GatewayConfig } from "../../config.js";
 import { StringDedupCache } from "../../dedup-cache.js";
@@ -31,7 +32,10 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
       const challenge = url.searchParams.get("hub.challenge");
 
       if (mode === "subscribe" && token && config.whatsappWebhookVerifyToken) {
-        if (token === config.whatsappWebhookVerifyToken) {
+        const a = Buffer.from(token);
+        const b = Buffer.from(config.whatsappWebhookVerifyToken);
+        const match = a.length === b.length && timingSafeEqual(a, b);
+        if (match) {
           tlog.info("WhatsApp webhook verify token validated");
           // Return the challenge as plain text to complete the handshake
           return new Response(challenge ?? "", { status: 200 });
