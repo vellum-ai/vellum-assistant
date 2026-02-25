@@ -1,4 +1,4 @@
-import type { Provider, Message } from '../providers/types.js';
+import type { Provider, Message, ModelIntent } from '../providers/types.js';
 import type { SwarmTaskResult } from './types.js';
 
 /**
@@ -9,9 +9,10 @@ export async function synthesizeResults(opts: {
   objective: string;
   results: SwarmTaskResult[];
   provider: Provider;
-  model: string;
+  model?: string;
+  modelIntent?: ModelIntent;
 }): Promise<string> {
-  const { objective, results, provider, model } = opts;
+  const { objective, results, provider, model, modelIntent } = opts;
 
   const taskSummaries = results.map((r) => {
     const status = r.status === 'completed' ? 'completed' : 'FAILED';
@@ -36,7 +37,7 @@ Synthesize these results into a clear, complete answer for the user.`;
       messages,
       undefined,
       systemPrompt,
-      { config: { max_tokens: 4096, model } },
+      { config: { max_tokens: 4096, ...(model ? { model } : { modelIntent }) } },
     );
 
     const textBlock = response.content.find((b) => b.type === 'text');

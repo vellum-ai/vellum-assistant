@@ -224,7 +224,9 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
       objective: plan.objective,
       results: allResults,
       provider: opts.synthesisProvider,
-      model: opts.synthesisModel ?? 'claude-sonnet-4-6',
+      ...(opts.synthesisModel
+        ? { model: opts.synthesisModel }
+        : { modelIntent: 'quality-optimized' as const }),
     });
   } else {
     if (!signal?.aborted) onStatus?.({ kind: 'synthesis_started' });
