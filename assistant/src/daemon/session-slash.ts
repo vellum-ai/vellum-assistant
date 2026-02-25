@@ -1,3 +1,6 @@
+import { randomBytes, randomUUID } from 'node:crypto';
+
+import { getGatewayPort, getIngressPublicBaseUrl } from '../config/env.js';
 import { getConfig, loadRawConfig, saveRawConfig } from '../config/loader.js';
 import { resolveSkillStates } from '../config/skill-state.js';
 import { loadSkillCatalog } from '../config/skills.js';
@@ -7,12 +10,27 @@ import {
   resolveSlashSkillCommand,
   rewriteKnownSlashCommandPrompt,
 } from '../skills/slash-commands.js';
+import { getLocalIPv4 } from '../util/network-info.js';
 import { getAssistantName } from './identity-helpers.js';
+import type { PairingStore } from './pairing-store.js';
 
 export type SlashResolution =
   | { kind: 'passthrough'; content: string }
   | { kind: 'rewritten'; content: string; skillId: string }
   | { kind: 'unknown'; message: string };
+
+// ── /pair command — module-level pairing context ────────────────────
+
+let pairingStoreRef: PairingStore | null = null;
+
+/**
+ * Initialise the pairing context so the /pair slash command can register
+ * pairing requests directly (synchronous, no HTTP round-trip).
+ * Called once from the daemon lifecycle after the RuntimeHttpServer starts.
+ */
+export function initSlashPairingContext(store: PairingStore): void {
+  pairingStoreRef = store;
+}
 
 // ── /status command ──────────────────────────────────────────────────
 
@@ -273,6 +291,10 @@ export function resolveSlash(content: string, context?: SlashContext): SlashReso
   const modelResult = resolveModelCommand(content);
   if (modelResult) return modelResult;
 
+  // Handle /pair command
+  const pairResult = resolvePairCommand(content);
+  if (pairResult) return pairResult;
+
   // Handle /status command
   if (content.trim() === '/status') {
     if (!context) {
@@ -287,6 +309,7 @@ export function resolveSlash(content: string, context?: SlashContext): SlashReso
       '/commands — List all available commands',
       '/model — Show or switch the current model',
       '/models — List all available models',
+      '/pair — Generate pairing info for connecting a mobile device',
     ];
     if (context) {
       lines.push('/status — Show session status and context usage');
@@ -322,6 +345,79 @@ export function resolveSlash(content: string, context?: SlashContext): SlashReso
   }
 
   return { kind: 'passthrough', content };
+}
+
+// ── /pair command ────────────────────────────────────────────────────
+
+function resolvePairCommand(content: string): SlashResolution | null {
+  if (content.trim() !== '/pair') return null;
+
+  if (!pairingStoreRef) {
+    return {
+      kind: 'unknown',
+      message: 'Pairing is not available — the runtime HTTP server has not started yet.',
+    };
+  }
+
+  const gatewayUrl = getIngressPublicBaseUrl();
+  const lanIp = getLocalIPv4();
+  const localLanUrl = lanIp ? `http://${lanIp}:${getGatewayPort()}` : null;
+
+  if (!gatewayUrl && !localLanUrl) {
+    return {
+      kind: 'unknown',
+      message:
+        'Cannot generate pairing info — no gateway URL is configured and no LAN address was detected.\n\n' +
+        'Set a public gateway URL with `config set ingress.publicBaseUrl <url>` or the `INGRESS_PUBLIC_BASE_URL` environment variable.',
+    };
+  }
+
+  const effectiveGatewayUrl = gatewayUrl || localLanUrl!;
+
+  const pairingRequestId = randomUUID();
+  const pairingSecret = randomBytes(32).toString('hex');
+
+  const result = pairingStoreRef.register({
+    pairingRequestId,
+    pairingSecret,
+    gatewayUrl: effectiveGatewayUrl,
+    localLanUrl,
+  });
+
+  if (!result.ok) {
+    return {
+      kind: 'unknown',
+      message: 'Failed to register pairing request (ID conflict). Please try `/pair` again.',
+    };
+  }
+
+  const payload: Record<string, unknown> = {
+    type: 'vellum-daemon',
+    v: 4,
+    g: effectiveGatewayUrl,
+    pairingRequestId,
+    pairingSecret,
+  };
+  if (localLanUrl) {
+    payload.localLanUrl = localLanUrl;
+  }
+
+  const lines = [
+    'Pairing Ready\n',
+    'Scan the QR code below with the Vellum iOS app, or use the pairing payload to connect manually.\n',
+    '```json',
+    JSON.stringify(payload, null, 2),
+    '```\n',
+    `Gateway:  ${effectiveGatewayUrl}`,
+  ];
+  if (localLanUrl) {
+    lines.push(`LAN URL:  ${localLanUrl}`);
+  }
+  lines.push(
+    '\nThis pairing request expires in 5 minutes. Run `/pair` again to generate a new one.',
+  );
+
+  return { kind: 'unknown', message: lines.join('\n') };
 }
 
 // ── Provider Ordering Error Detection ────────────────────────────────

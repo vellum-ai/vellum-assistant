@@ -53,6 +53,7 @@ import type { ServerMessage } from './ipc-protocol.js';
 import { initializeProvidersAndTools, registerMessagingProviders,registerWatcherProviders } from './providers-setup.js';
 import { seedInterfaceFiles } from './seed-files.js';
 import { DaemonServer } from './server.js';
+import { initSlashPairingContext } from './session-slash.js';
 import { installShutdownHandlers } from './shutdown-handlers.js';
 
 // Re-export public API so existing consumers don't need to change imports
@@ -315,6 +316,7 @@ export async function runDaemon(): Promise<void> {
     setRelayBroadcast((msg) => server.broadcast(msg));
     runtimeHttp.setPairingBroadcast((msg) => server.broadcast(msg as ServerMessage));
     initPairingHandlers(runtimeHttp.getPairingStore(), bearerToken);
+    initSlashPairingContext(runtimeHttp.getPairingStore());
     server.setHttpPort(httpPort);
     log.info({ port: httpPort, hostname }, 'Daemon startup: runtime HTTP server listening');
   } catch (err) {
