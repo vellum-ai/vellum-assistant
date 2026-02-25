@@ -101,7 +101,7 @@ public struct ConfirmationSurfaceView: View {
                 Image(systemName: "checkmark.circle.fill")
                     .font(VFont.caption)
                     .foregroundColor(VColor.success)
-                Text(data.confirmLabel ?? "Done")
+                Text(data.confirmedLabel ?? "Done")
                     .font(VFont.captionMedium)
                     .foregroundColor(VColor.textPrimary)
             case .cancelled:

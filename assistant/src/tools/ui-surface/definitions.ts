@@ -46,7 +46,7 @@ export const uiShowTool: Tool = {
     '- list: Selectable list of items. ' +
     'data shape: { items: Array<{ id: string, title: string, subtitle?: string, icon?: string, selected?: boolean }>, selectionMode: "single"|"multiple"|"none" }\n' +
     '- confirmation: Yes/no confirmation dialog. ' +
-    'data shape: { message: string, detail?: string, confirmLabel?: string, cancelLabel?: string, destructive?: boolean }\n' +
+    'data shape: { message: string, detail?: string, confirmLabel?: string, confirmedLabel?: string, cancelLabel?: string, destructive?: boolean }\n' +
     '- dynamic_page: Custom HTML page rendered in a sandboxed container. ' +
     'data shape: { html: string, width?: number, height?: number, preview?: { title: string, subtitle?: string, description?: string, icon?: string (emoji), metrics?: Array<{ label: string, value: string }> } }. ' +
     'When preview is provided, a compact preview card is shown inline in chat with the title, subtitle, description, metric pills, and a "View Output" button that opens the full page.\n' +

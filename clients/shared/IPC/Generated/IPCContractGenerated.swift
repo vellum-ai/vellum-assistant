@@ -1109,13 +1109,15 @@ public struct IPCConfirmationSurfaceData: Codable, Sendable {
     public let message: String
     public let detail: String?
     public let confirmLabel: String?
+    public let confirmedLabel: String?
     public let cancelLabel: String?
     public let destructive: Bool?
 
-    public init(message: String, detail: String? = nil, confirmLabel: String? = nil, cancelLabel: String? = nil, destructive: Bool? = nil) {
+    public init(message: String, detail: String? = nil, confirmLabel: String? = nil, confirmedLabel: String? = nil, cancelLabel: String? = nil, destructive: Bool? = nil) {
         self.message = message
         self.detail = detail
         self.confirmLabel = confirmLabel
+        self.confirmedLabel = confirmedLabel
         self.cancelLabel = cancelLabel
         self.destructive = destructive
     }

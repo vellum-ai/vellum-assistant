@@ -192,13 +192,15 @@ public struct ConfirmationSurfaceData: Sendable, Equatable {
     public let message: String
     public let detail: String?
     public let confirmLabel: String?
+    public let confirmedLabel: String?
     public let cancelLabel: String?
     public let destructive: Bool
 
-    public init(message: String, detail: String? = nil, confirmLabel: String? = nil, cancelLabel: String? = nil, destructive: Bool) {
+    public init(message: String, detail: String? = nil, confirmLabel: String? = nil, confirmedLabel: String? = nil, cancelLabel: String? = nil, destructive: Bool) {
         self.message = message
         self.detail = detail
         self.confirmLabel = confirmLabel
+        self.confirmedLabel = confirmedLabel
         self.cancelLabel = cancelLabel
         self.destructive = destructive
     }
@@ -653,6 +655,8 @@ public extension Surface {
         let detail: String? = update.keys.contains("detail") ? (update["detail"] as? String) : existing.detail
         let confirmLabel: String? = update.keys.contains("confirmLabel")
             ? (update["confirmLabel"] as? String) : existing.confirmLabel
+        let confirmedLabel: String? = update.keys.contains("confirmedLabel")
+            ? (update["confirmedLabel"] as? String) : existing.confirmedLabel
         let cancelLabel: String? = update.keys.contains("cancelLabel")
             ? (update["cancelLabel"] as? String) : existing.cancelLabel
         let destructive: Bool = (update["destructive"] as? Bool) ?? existing.destructive
@@ -661,6 +665,7 @@ public extension Surface {
             message: message,
             detail: detail,
             confirmLabel: confirmLabel,
+            confirmedLabel: confirmedLabel,
             cancelLabel: cancelLabel,
             destructive: destructive
         )
@@ -826,6 +831,7 @@ public extension Surface {
             message: message,
             detail: dict["detail"] as? String,
             confirmLabel: dict["confirmLabel"] as? String,
+            confirmedLabel: dict["confirmedLabel"] as? String,
             cancelLabel: dict["cancelLabel"] as? String,
             destructive: dict["destructive"] as? Bool ?? false
         )
