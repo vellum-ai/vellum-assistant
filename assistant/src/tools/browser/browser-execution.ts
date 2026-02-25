@@ -802,6 +802,100 @@ export async function executeBrowserScroll(
   }
 }
 
+// ── browser_select_option ────────────────────────────────────────────
+
+export async function executeBrowserSelectOption(
+  input: Record<string, unknown>,
+  context: ToolContext,
+): Promise<ToolExecutionResult> {
+  const { selector, error } = resolveSelector(context.sessionId, input);
+  if (error) return { content: error, isError: true };
+
+  const value = typeof input.value === 'string' ? input.value : undefined;
+  const label = typeof input.label === 'string' ? input.label : undefined;
+  const index = typeof input.index === 'number' ? input.index : undefined;
+
+  if (value === undefined && label === undefined && index === undefined) {
+    return { content: 'Error: One of value, label, or index is required.', isError: true };
+  }
+
+  const sender = getSender(context.sessionId);
+  if (sender) {
+    await ensureScreencast(context.sessionId, sender);
+    updateBrowserStatus(context.sessionId, sender, 'interacting', 'Selecting option');
+    const bounds = await getElementBounds(context.sessionId, selector!);
+    if (bounds) {
+      updateHighlights(context.sessionId, sender, [{ ...bounds, label: 'Selecting option' }]);
+    }
+  }
+
+  try {
+    const page = await browserManager.getOrCreateSessionPage(context.sessionId);
+
+    const option: Record<string, string | number> = {};
+    if (value !== undefined) option.value = value;
+    else if (label !== undefined) option.label = label;
+    else if (index !== undefined) option.index = index;
+
+    await page.selectOption(selector!, option);
+
+    if (sender) {
+      updateHighlights(context.sessionId, sender, []);
+      updateBrowserStatus(context.sessionId, sender, 'idle');
+    }
+
+    const desc = value !== undefined ? `value="${value}"` : label !== undefined ? `label="${label}"` : `index=${index}`;
+    return { content: `Selected option (${desc}) on element: ${selector}`, isError: false };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error({ err, selector }, 'Select option failed');
+    if (sender) {
+      updateHighlights(context.sessionId, sender, []);
+      updateBrowserStatus(context.sessionId, sender, 'idle');
+    }
+    return { content: `Error: Select option failed: ${msg}`, isError: true };
+  }
+}
+
+// ── browser_hover ────────────────────────────────────────────────────
+
+export async function executeBrowserHover(
+  input: Record<string, unknown>,
+  context: ToolContext,
+): Promise<ToolExecutionResult> {
+  const { selector, error } = resolveSelector(context.sessionId, input);
+  if (error) return { content: error, isError: true };
+
+  const sender = getSender(context.sessionId);
+  if (sender) {
+    await ensureScreencast(context.sessionId, sender);
+    updateBrowserStatus(context.sessionId, sender, 'interacting', 'Hovering element');
+    const bounds = await getElementBounds(context.sessionId, selector!);
+    if (bounds) {
+      updateHighlights(context.sessionId, sender, [{ ...bounds, label: 'Hovering' }]);
+    }
+  }
+
+  try {
+    const page = await browserManager.getOrCreateSessionPage(context.sessionId);
+    await page.hover(selector!, { timeout: ACTION_TIMEOUT_MS });
+
+    if (sender) {
+      updateHighlights(context.sessionId, sender, []);
+      updateBrowserStatus(context.sessionId, sender, 'idle');
+    }
+    return { content: `Hovered element: ${selector}`, isError: false };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error({ err, selector }, 'Hover failed');
+    if (sender) {
+      updateHighlights(context.sessionId, sender, []);
+      updateBrowserStatus(context.sessionId, sender, 'idle');
+    }
+    return { content: `Error: Hover failed: ${msg}`, isError: true };
+  }
+}
+
 // ── browser_wait_for ─────────────────────────────────────────────────
 
 export async function executeBrowserWaitFor(

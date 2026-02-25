@@ -187,8 +187,12 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     'browser_click',
     'browser_type',
     'browser_press_key',
+    'browser_scroll',
+    'browser_select_option',
+    'browser_hover',
     'browser_wait_for',
     'browser_extract',
+    'browser_wait_for_download',
     'browser_fill_credential',
   ] as const;
 

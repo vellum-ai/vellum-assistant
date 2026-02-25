@@ -58,6 +58,8 @@ const NETWORK_TOOLS = new Set([
   'browser_click',
   'browser_type',
   'browser_scroll',
+  'browser_select_option',
+  'browser_hover',
   'browser_screenshot',
   'browser_close',
   'network_request',
