@@ -505,7 +505,13 @@ export async function handleChannelInbound(
   // loop. Instead of composing a canned reply and short-circuiting, inject
   // the verification result as a commandIntent so the full assistant
   // generates a dynamic, context-aware response.
+  //
+  // The raw content is replaced with just the command text to prevent an
+  // unapproved sender from smuggling arbitrary prompt text after the
+  // verification code (the ACL bypass window would otherwise let it reach
+  // the assistant pipeline).
   let guardianVerifyOutcome: 'verified' | 'failed' | undefined;
+  let effectiveContent: string | undefined = content;
   if (
     !result.duplicate &&
     guardianVerifyCode !== undefined &&
@@ -546,6 +552,10 @@ export async function handleChannelInbound(
         ? 'success: The user has been verified and is now set as the guardian for this channel.'
         : `failed: ${stripVerificationFailurePrefix(verifyResult.reason)}`,
     };
+
+    // Sanitize content to only the command itself — strip any arbitrary
+    // text the sender may have appended after the verification code.
+    effectiveContent = `/guardian_verify ${guardianVerifyCode}`;
   }
 
   // ── Guardian action answer interception ──
@@ -738,7 +748,7 @@ export async function handleChannelInbound(
     // replayed. If the ingress check later detects secrets we clear it
     // before throwing, so secret-bearing content is never left on disk.
     channelDeliveryStore.storePayload(result.eventId, {
-      sourceChannel, externalChatId, externalMessageId, content,
+      sourceChannel, externalChatId, externalMessageId, content: effectiveContent,
       attachmentIds, sourceMetadata: body.sourceMetadata,
       senderName: body.senderName,
       senderExternalUserId: body.senderExternalUserId,
@@ -748,7 +758,7 @@ export async function handleChannelInbound(
       assistantId: canonicalAssistantId,
     });
 
-    const contentToCheck = content ?? '';
+    const contentToCheck = effectiveContent ?? '';
     let ingressCheck: ReturnType<typeof checkIngressForSecrets>;
     try {
       ingressCheck = checkIngressForSecrets(contentToCheck);
@@ -774,7 +784,7 @@ export async function handleChannelInbound(
         orchestrator: runOrchestrator,
         conversationId: result.conversationId,
         eventId: result.eventId,
-        content: content ?? '',
+        content: effectiveContent ?? '',
         attachmentIds: hasAttachments ? attachmentIds : undefined,
         externalChatId,
         sourceChannel,
@@ -796,7 +806,7 @@ export async function handleChannelInbound(
         processMessage,
         conversationId: result.conversationId,
         eventId: result.eventId,
-        content: content ?? '',
+        content: effectiveContent ?? '',
         attachmentIds: hasAttachments ? attachmentIds : undefined,
         sourceChannel,
         sourceInterface,
