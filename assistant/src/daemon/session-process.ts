@@ -186,6 +186,9 @@ export function drainQueue(session: ProcessSessionContext, reason: QueueDrainRea
         ...(queuedTurnCtx
           ? { userMessageChannel: queuedTurnCtx.userMessageChannel, assistantMessageChannel: queuedTurnCtx.assistantMessageChannel }
           : {}),
+        ...(queuedInterfaceCtx
+          ? { userMessageInterface: queuedInterfaceCtx.userMessageInterface, assistantMessageInterface: queuedInterfaceCtx.assistantMessageInterface }
+          : {}),
       };
       const userMsg = createUserMessage(next.content, next.attachments);
       conversationStore.addMessage(
@@ -204,6 +207,13 @@ export function drainQueue(session: ProcessSessionContext, reason: QueueDrainRea
         drainChannelMeta,
       );
       session.messages.push(assistantMsg);
+
+      if (queuedTurnCtx) {
+        conversationStore.setConversationOriginChannelIfUnset(session.conversationId, queuedTurnCtx.userMessageChannel);
+      }
+      if (queuedInterfaceCtx) {
+        conversationStore.setConversationOriginInterfaceIfUnset(session.conversationId, queuedInterfaceCtx.userMessageInterface);
+      }
 
       // Emit fresh model info before the text delta so the client has
       // up-to-date configuredProviders when rendering /model or /models UI.
@@ -323,7 +333,8 @@ export async function processMessage(
   if (guardianDelivery) {
     const guardianRequest = getGuardianActionRequest(guardianDelivery.requestId);
     if (guardianRequest && guardianRequest.status === 'pending') {
-      const guardianChannelMeta = { userMessageChannel: 'vellum' as const, assistantMessageChannel: 'vellum' as const, provenanceActorRole: 'guardian' as const };
+      const guardianIfCtx = session.getTurnInterfaceContext();
+      const guardianChannelMeta = { userMessageChannel: 'vellum' as const, assistantMessageChannel: 'vellum' as const, userMessageInterface: guardianIfCtx?.userMessageInterface ?? 'vellum', assistantMessageInterface: guardianIfCtx?.assistantMessageInterface ?? 'vellum', provenanceActorRole: 'guardian' as const };
       const userMsg = createUserMessage(content, attachments);
       const persisted = conversationStore.addMessage(
         session.conversationId,
@@ -379,11 +390,15 @@ export async function processMessage(
   // so that a failed write never leaves an unpersisted message in memory.
   if (slashResult.kind === 'unknown') {
     const pmTurnCtx = session.getTurnChannelContext();
+    const pmInterfaceCtx = session.getTurnInterfaceContext();
     const pmProvenance = provenanceFromGuardianContext(session.guardianContext);
     const pmChannelMeta = {
       ...pmProvenance,
       ...(pmTurnCtx
         ? { userMessageChannel: pmTurnCtx.userMessageChannel, assistantMessageChannel: pmTurnCtx.assistantMessageChannel }
+        : {}),
+      ...(pmInterfaceCtx
+        ? { userMessageInterface: pmInterfaceCtx.userMessageInterface, assistantMessageInterface: pmInterfaceCtx.assistantMessageInterface }
         : {}),
     };
     const userMsg = createUserMessage(content, attachments);
@@ -403,6 +418,13 @@ export async function processMessage(
       pmChannelMeta,
     );
     session.messages.push(assistantMsg);
+
+    if (pmTurnCtx) {
+      conversationStore.setConversationOriginChannelIfUnset(session.conversationId, pmTurnCtx.userMessageChannel);
+    }
+    if (pmInterfaceCtx) {
+      conversationStore.setConversationOriginInterfaceIfUnset(session.conversationId, pmInterfaceCtx.userMessageInterface);
+    }
 
     // Emit fresh model info before the text delta so the client has
     // up-to-date configuredProviders when rendering /model or /models UI.

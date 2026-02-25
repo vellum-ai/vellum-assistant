@@ -1,7 +1,7 @@
 import * as net from 'node:net';
 import type { IngressInviteRequest, IngressMemberRequest, AssistantInboxEscalationRequest, AssistantInboxReplyRequest } from '../ipc-protocol.js';
 import type { ChannelId } from '../../channels/types.js';
-import { isChannelId } from '../../channels/types.js';
+import { isChannelId, isInterfaceId } from '../../channels/types.js';
 import { log, defineHandlers, type HandlerContext } from './shared.js';
 import {
   createInvite,
@@ -402,6 +402,13 @@ async function executeApprove(
       userMessageChannel: sourceChannel,
       assistantMessageChannel: sourceChannel,
     });
+    const sourceInterface = isInterfaceId(sourceChannel) ? sourceChannel : undefined;
+    if (sourceInterface) {
+      session.setTurnInterfaceContext({
+        userMessageInterface: sourceInterface,
+        assistantMessageInterface: sourceInterface,
+      });
+    }
   }
   session.setAssistantId(assistantId);
   // Daemon inbox handler — the guardian approved this escalation, so tag as
@@ -481,10 +488,12 @@ async function executeDeny(
   }, bearerToken);
 
   // Store a system note about the denial in the conversation
+  const denialInterface = isInterfaceId(sourceChannel) ? sourceChannel : undefined;
   addMessage(conversationId, 'assistant', denialText, {
     provenanceActorRole: 'guardian' as const,
     userMessageChannel: sourceChannel,
     assistantMessageChannel: sourceChannel,
+    ...(denialInterface ? { userMessageInterface: denialInterface, assistantMessageInterface: denialInterface } : {}),
   });
   updateThreadActivity(conversationId, 'outbound');
 
@@ -513,6 +522,7 @@ export function handleAssistantInboxReply(
 
     // Store the reply as an assistant message
     const bindingChannel = isChannelId(binding.sourceChannel) ? binding.sourceChannel : null;
+    const bindingInterface = isInterfaceId(binding.sourceChannel) ? binding.sourceChannel : null;
     const message = addMessage(
       conversationId,
       'assistant',
@@ -521,6 +531,9 @@ export function handleAssistantInboxReply(
         provenanceActorRole: 'guardian' as const,
         ...(bindingChannel
           ? { userMessageChannel: bindingChannel, assistantMessageChannel: bindingChannel }
+          : {}),
+        ...(bindingInterface
+          ? { userMessageInterface: bindingInterface, assistantMessageInterface: bindingInterface }
           : {}),
       },
     );

@@ -37,7 +37,7 @@ export function addPointerMessage(
     conversationId,
     'assistant',
     JSON.stringify([{ type: 'text', text }]),
-    { userMessageChannel: 'voice', assistantMessageChannel: 'voice' },
+    { userMessageChannel: 'voice', assistantMessageChannel: 'voice', userMessageInterface: 'voice', assistantMessageInterface: 'voice' },
   );
 }
 

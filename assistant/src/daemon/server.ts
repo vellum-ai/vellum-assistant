@@ -793,11 +793,15 @@ export class DaemonServer {
 
     if (slashResult.kind === 'unknown') {
       const serverTurnCtx = session.getTurnChannelContext();
+      const serverInterfaceCtx = session.getTurnInterfaceContext();
       const serverProvenance = provenanceFromGuardianContext(session.guardianContext);
       const serverChannelMeta = {
         ...serverProvenance,
         ...(serverTurnCtx
           ? { userMessageChannel: serverTurnCtx.userMessageChannel, assistantMessageChannel: serverTurnCtx.assistantMessageChannel }
+          : {}),
+        ...(serverInterfaceCtx
+          ? { userMessageInterface: serverInterfaceCtx.userMessageInterface, assistantMessageInterface: serverInterfaceCtx.assistantMessageInterface }
           : {}),
       };
       const userMsg = createUserMessage(content, attachments);
@@ -814,6 +818,13 @@ export class DaemonServer {
           conversationStore.setConversationOriginChannelIfUnset(conversationId, serverTurnCtx.userMessageChannel);
         } catch (err) {
           log.warn({ err, conversationId }, 'Failed to set origin channel (best-effort)');
+        }
+      }
+      if (serverInterfaceCtx) {
+        try {
+          conversationStore.setConversationOriginInterfaceIfUnset(conversationId, serverInterfaceCtx.userMessageInterface);
+        } catch (err) {
+          log.warn({ err, conversationId }, 'Failed to set origin interface (best-effort)');
         }
       }
 

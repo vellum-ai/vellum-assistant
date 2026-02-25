@@ -119,6 +119,7 @@ export function persistUserMessage(
 
   try {
     const turnCtx = extractTurnChannelContext(metadata) ?? ctx.getTurnChannelContext();
+    const turnIfCtx = extractTurnInterfaceContext(metadata) ?? ctx.getTurnInterfaceContext();
     const provenance = provenanceFromGuardianContext(ctx.guardianContext);
     const mergedMetadata = {
       ...(metadata ?? {}),
@@ -127,6 +128,12 @@ export function persistUserMessage(
         ? {
             userMessageChannel: turnCtx.userMessageChannel,
             assistantMessageChannel: turnCtx.assistantMessageChannel,
+          }
+        : {}),
+      ...(turnIfCtx
+        ? {
+            userMessageInterface: turnIfCtx.userMessageInterface,
+            assistantMessageInterface: turnIfCtx.assistantMessageInterface,
           }
         : {}),
     };
@@ -140,6 +147,9 @@ export function persistUserMessage(
 
     if (turnCtx) {
       conversationStore.setConversationOriginChannelIfUnset(ctx.conversationId, turnCtx.userMessageChannel);
+    }
+    if (turnIfCtx) {
+      conversationStore.setConversationOriginInterfaceIfUnset(ctx.conversationId, turnIfCtx.userMessageInterface);
     }
 
     if (!persistedUserMessage.id) {

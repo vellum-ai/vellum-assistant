@@ -105,7 +105,7 @@ export function registerSessionNotifiers(
       conversationId,
       'assistant',
       JSON.stringify([{ type: 'text', text: questionText }]),
-      { ...provenanceFromGuardianContext(ctx.guardianContext), userMessageChannel: 'voice', assistantMessageChannel: 'voice' },
+      { ...provenanceFromGuardianContext(ctx.guardianContext), userMessageChannel: 'voice', assistantMessageChannel: 'voice', userMessageInterface: 'voice', assistantMessageInterface: 'voice' },
     );
 
     ctx.messages.push(createAssistantMessage(questionText));
