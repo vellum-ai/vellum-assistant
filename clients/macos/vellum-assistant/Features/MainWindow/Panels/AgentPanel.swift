@@ -943,7 +943,7 @@ struct AgentPanelContent: View {
         case "bundled":
             return "Bundled"
         case "managed":
-            return "Managed"
+            return "Custom"
         case "workspace":
             return "Workspace"
         case "clawhub":

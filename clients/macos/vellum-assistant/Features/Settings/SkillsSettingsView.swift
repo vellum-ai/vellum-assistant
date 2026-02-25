@@ -178,7 +178,7 @@ struct SkillsSettingsView: View {
                 List {
                     // Managed skills section
                     if !managedSkills.isEmpty {
-                        Section("Managed Skills") {
+                        Section("Custom Skills") {
                             ForEach(managedSkills) { skill in
                                 SkillRow(
                                     skill: skill,
