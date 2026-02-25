@@ -1,4 +1,3 @@
-#if os(iOS)
 import Foundation
 import os
 
@@ -117,4 +116,3 @@ final class OfflineMessageQueue {
         UserDefaults.standard.removeObject(forKey: Self.userDefaultsKey)
     }
 }
-#endif
