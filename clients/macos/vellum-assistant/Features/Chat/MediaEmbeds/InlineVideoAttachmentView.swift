@@ -56,6 +56,9 @@ struct InlineVideoAttachmentView: View {
     @State private var thumbnailImage: NSImage?
     /// Prevents multiple auto-retries from stacking up.
     @State private var hasAutoRetried = false
+    /// Tracks whether we already retried from the failed tile tap so the
+    /// next tap falls back to opening in an external player.
+    @State private var hasRetriedFromFailedTile = false
 
     init(attachment: ChatAttachment, resolveDaemonPort: @escaping () -> Int?) {
         self.attachment = attachment
@@ -133,6 +136,7 @@ struct InlineVideoAttachmentView: View {
             guard failureReason == .portMissing, !hasAutoRetried else { return }
             log.info("Daemon reconnected — auto-retrying playback for attachment \(self.attachment.id, privacy: .public)")
             hasAutoRetried = true
+            hasRetriedFromFailedTile = false
             failureReason = nil
             prepareAndPlay()
         }
@@ -201,9 +205,16 @@ struct InlineVideoAttachmentView: View {
 
     // MARK: - Retry Logic
 
-    /// Tap on failed tile: retry playback first, fall back to external player
-    /// if the retry also fails.
+    /// Tap on failed tile: retry playback first. If the view was already in a
+    /// failed state from a previous retry (i.e. this is the second consecutive
+    /// tap on a failed tile), open in an external player as a fallback.
     private func retryOrOpenExternal() {
+        if hasRetriedFromFailedTile {
+            // Second tap on failed tile — fall back to external player.
+            openInExternalPlayer()
+            return
+        }
+        hasRetriedFromFailedTile = true
         failureReason = nil
         prepareAndPlay()
     }
@@ -354,7 +365,13 @@ struct InlineVideoAttachmentView: View {
         isLoading = true
         loadingMessage = "Loading video..."
         Task {
-            let port = resolveDaemonPort()!
+            guard let port = resolveDaemonPort() else {
+                await MainActor.run {
+                    isLoading = false
+                    failureReason = .portMissing
+                }
+                return
+            }
             await doFetch(port: port)
         }
     }
