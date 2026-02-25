@@ -131,7 +131,7 @@ function cleanupMaps(recordingId: string, conversationId: string | undefined): v
 
 function handleRecordingStatus(
   msg: RecordingStatus,
-  _socket: net.Socket,
+  reportingSocket: net.Socket,
   ctx: HandlerContext,
 ): void {
   const recordingId = msg.sessionId;
@@ -150,6 +150,10 @@ function handleRecordingStatus(
     log.warn({ recordingId }, 'Ignoring recording_status for unknown recording ID with no attachToConversationId');
     return;
   }
+
+  // Use the reporting socket (which delivered this message) as the primary
+  // recipient. Fall back to session-based lookup if the user switched sessions.
+  const notifySocket = reportingSocket ?? findSocketForSession(conversationId, ctx);
 
   switch (msg.status) {
     case 'started':
@@ -173,14 +177,13 @@ function handleRecordingStatus(
         );
         if (!resolvedPath.startsWith(allowedDir + path.sep) && resolvedPath !== allowedDir) {
           log.warn({ recordingId, filePath: msg.filePath, allowedDir }, 'Recording file path outside allowed directory — rejecting');
-          const errSocket = findSocketForSession(conversationId, ctx);
-          if (errSocket) {
-            ctx.send(errSocket, {
+          if (notifySocket) {
+            ctx.send(notifySocket, {
               type: 'assistant_text_delta',
               text: 'Recording file is unavailable or expired.',
               sessionId: conversationId,
             });
-            ctx.send(errSocket, { type: 'message_complete', sessionId: conversationId });
+            ctx.send(notifySocket, { type: 'message_complete', sessionId: conversationId });
           }
           // Clean up maps before breaking so future recordings aren't blocked
           cleanupMaps(recordingId, conversationId);
@@ -190,16 +193,13 @@ function handleRecordingStatus(
         try {
           if (!existsSync(resolvedPath)) {
             log.error({ recordingId, filePath: msg.filePath }, 'Recording file does not exist');
-            if (conversationId) {
-              const errSocket = findSocketForSession(conversationId, ctx);
-              if (errSocket) {
-                ctx.send(errSocket, {
-                  type: 'assistant_text_delta',
-                  text: 'Recording file is unavailable or expired.',
-                  sessionId: conversationId,
-                });
-                ctx.send(errSocket, { type: 'message_complete', sessionId: conversationId });
-              }
+            if (notifySocket) {
+              ctx.send(notifySocket, {
+                type: 'assistant_text_delta',
+                text: 'Recording file is unavailable or expired.',
+                sessionId: conversationId,
+              });
+              ctx.send(notifySocket, { type: 'message_complete', sessionId: conversationId });
             }
           } else {
             const stat = statSync(resolvedPath);
@@ -228,15 +228,14 @@ function handleRecordingStatus(
             linkAttachmentToMessage(messageId, attachment.id, 0);
             log.info({ recordingId, messageId, attachmentId: attachment.id }, 'Linked recording attachment to assistant message');
 
-            // Notify the client
-            const socket = findSocketForSession(conversationId, ctx);
-            if (socket) {
-              ctx.send(socket, {
+            // Notify the client via the reporting socket
+            if (notifySocket) {
+              ctx.send(notifySocket, {
                 type: 'assistant_text_delta',
                 text: 'Screen recording complete. Your recording has been saved.',
                 sessionId: conversationId,
               });
-              ctx.send(socket, {
+              ctx.send(notifySocket, {
                 type: 'message_complete',
                 sessionId: conversationId,
                 attachments: [{
@@ -251,30 +250,25 @@ function handleRecordingStatus(
           }
         } catch (err) {
           log.error({ err, recordingId, filePath: msg.filePath }, 'Failed to create attachment for standalone recording');
-          // Notify the client about the finalization failure
-          if (conversationId) {
-            const errSocket = findSocketForSession(conversationId, ctx);
-            if (errSocket) {
-              ctx.send(errSocket, {
-                type: 'assistant_text_delta',
-                text: 'Recording saved but failed to attach to conversation.',
-                sessionId: conversationId,
-              });
-              ctx.send(errSocket, { type: 'message_complete', sessionId: conversationId });
-            }
+          if (notifySocket) {
+            ctx.send(notifySocket, {
+              type: 'assistant_text_delta',
+              text: 'Recording saved but failed to attach to conversation.',
+              sessionId: conversationId,
+            });
+            ctx.send(notifySocket, { type: 'message_complete', sessionId: conversationId });
           }
         }
       } else {
         // No file path — recording stopped without producing a file
         log.warn({ recordingId, conversationId }, 'Recording stopped without file path');
-        const errSocket = findSocketForSession(conversationId, ctx);
-        if (errSocket) {
-          ctx.send(errSocket, {
+        if (notifySocket) {
+          ctx.send(notifySocket, {
             type: 'assistant_text_delta',
             text: 'Recording stopped but no file was produced.',
             sessionId: conversationId,
           });
-          ctx.send(errSocket, { type: 'message_complete', sessionId: conversationId });
+          ctx.send(notifySocket, { type: 'message_complete', sessionId: conversationId });
         }
       }
 
@@ -288,20 +282,16 @@ function handleRecordingStatus(
         'Standalone recording failed',
       );
 
-      // Notify the client about the failure
-      if (conversationId) {
-        const socket = findSocketForSession(conversationId, ctx);
-        if (socket) {
-          ctx.send(socket, {
-            type: 'assistant_text_delta',
-            text: `Recording failed: ${msg.error ?? 'unknown error'}`,
-            sessionId: conversationId,
-          });
-          ctx.send(socket, {
-            type: 'message_complete',
-            sessionId: conversationId,
-          });
-        }
+      if (notifySocket) {
+        ctx.send(notifySocket, {
+          type: 'assistant_text_delta',
+          text: `Recording failed: ${msg.error ?? 'unknown error'}`,
+          sessionId: conversationId,
+        });
+        ctx.send(notifySocket, {
+          type: 'message_complete',
+          sessionId: conversationId,
+        });
       }
 
       cleanupMaps(recordingId, conversationId);
