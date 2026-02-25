@@ -470,7 +470,15 @@ class IOSThreadStore: ObservableObject {
     /// Request an older page of history for pagination.
     private func requestPaginatedHistory(sessionId: String, beforeTimestamp: Double) {
         guard let daemon = daemonClient as? DaemonClient,
-              let thread = threads.first(where: { $0.sessionId == sessionId }) else { return }
+              let thread = threads.first(where: { $0.sessionId == sessionId }) else {
+            // Clear loading state so the user isn't stuck with a permanent spinner.
+            // The daemon cast may fail (e.g. HTTP transport) while the thread is still findable.
+            if let thread = threads.first(where: { $0.sessionId == sessionId }),
+               let vm = viewModels[thread.id] {
+                vm.isLoadingMoreMessages = false
+            }
+            return
+        }
         pendingHistoryBySessionId[sessionId] = thread.id
         do {
             try daemon.sendHistoryRequest(sessionId: sessionId, limit: 50, beforeTimestamp: beforeTimestamp, mode: "light")

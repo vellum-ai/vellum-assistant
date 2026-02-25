@@ -26,6 +26,8 @@ protocol ThreadRestorerDelegate: AnyObject {
     func isSessionArchived(_ sessionId: String) -> Bool
     func restoreLastActiveThread()
     func appendThreads(from response: SessionListResponseMessage)
+    /// Returns an existing ChatViewModel matching the given session ID, if any.
+    func existingChatViewModel(forSessionId sessionId: String) -> ChatViewModel?
 }
 
 /// Handles daemon session restoration: fetching the session list on connect,
@@ -126,7 +128,12 @@ final class ThreadSessionRestorer {
     /// trigger in the message list when all locally loaded messages are visible.
     func requestPaginatedHistory(sessionId: String, beforeTimestamp: Double) {
         guard let delegate else { return }
-        guard let thread = delegate.threads.first(where: { $0.sessionId == sessionId }) else { return }
+        guard let thread = delegate.threads.first(where: { $0.sessionId == sessionId }) else {
+            // Thread removed from the list during a concurrent reconnect/refresh.
+            // Reset loading state so the user isn't stuck with a permanent spinner.
+            delegate.existingChatViewModel(forSessionId: sessionId)?.isLoadingMoreMessages = false
+            return
+        }
         pendingHistoryBySessionId[sessionId] = thread.id
         do {
             try daemonClient.sendHistoryRequest(sessionId: sessionId, limit: 50, beforeTimestamp: beforeTimestamp, mode: "light")

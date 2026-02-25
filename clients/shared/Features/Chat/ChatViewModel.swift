@@ -390,6 +390,9 @@ public final class ChatViewModel: ObservableObject {
     /// True while a previous-page load is in progress (brief async delay for UX).
     @Published public var isLoadingMoreMessages: Bool = false
 
+    /// Timeout task that resets `isLoadingMoreMessages` if the daemon never responds.
+    private var loadMoreTimeoutTask: Task<Void, Never>?
+
     /// The subset of messages that are actually displayed (excludes subagent notifications
     /// and other UI-only messages that the view filters before rendering).
     public var displayedMessages: [ChatMessage] { messages.filter { !$0.isSubagentNotification } }
@@ -446,6 +449,14 @@ public final class ChatViewModel: ObservableObject {
         // All local messages are visible — fetch the next page from the daemon.
         guard hasMoreHistory, let cursor = historyCursor, let sessionId else { return false }
         isLoadingMoreMessages = true
+        // Safety timeout: if the daemon drops the connection or never responds,
+        // reset the flag so the user can retry.
+        loadMoreTimeoutTask?.cancel()
+        loadMoreTimeoutTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 15_000_000_000) // 15 seconds
+            guard let self, self.isLoadingMoreMessages else { return }
+            self.isLoadingMoreMessages = false
+        }
         onLoadMoreHistory?(sessionId, cursor)
         // The loading indicator is cleared by populateFromHistory when the response arrives.
         return true
@@ -1936,6 +1947,8 @@ public final class ChatViewModel: ObservableObject {
             } else {
                 displayedMessageCount = Int.max
             }
+            self.loadMoreTimeoutTask?.cancel()
+            self.loadMoreTimeoutTask = nil
             self.isLoadingMoreMessages = false
             trimOldMessagesIfNeeded()
             return

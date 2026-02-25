@@ -513,6 +513,14 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         return vm
     }
 
+    func existingChatViewModel(forSessionId sessionId: String) -> ChatViewModel? {
+        for (threadId, vm) in chatViewModels where vm.sessionId == sessionId {
+            touchVMAccessOrder(threadId)
+            return vm
+        }
+        return nil
+    }
+
     func setChatViewModel(_ vm: ChatViewModel, for threadId: UUID) {
         chatViewModels[threadId] = vm
         touchVMAccessOrder(threadId)
