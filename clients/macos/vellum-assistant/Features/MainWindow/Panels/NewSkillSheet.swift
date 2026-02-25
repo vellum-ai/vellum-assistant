@@ -292,8 +292,7 @@ struct NewSkillSheet: View {
         guard let provider = providers.first else { return false }
 
         provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
-            guard let data = item as? Data,
-                  let url = URL(dataRepresentation: data, relativeTo: nil) else {
+            guard let url = Self.fileURL(from: item) else {
                 DispatchQueue.main.async { dropError = "Could not read the dropped file." }
                 return
             }
@@ -315,6 +314,10 @@ struct NewSkillSheet: View {
                 }
 
                 DispatchQueue.main.async {
+                    guard !skillsManager.isDrafting else {
+                        dropError = "A draft is already being generated. Please wait or go back and try again."
+                        return
+                    }
                     sourceText = trimmed
                     droppedFileName = url.lastPathComponent
                     // Auto-trigger draft generation
@@ -326,6 +329,21 @@ struct NewSkillSheet: View {
         }
 
         return true
+    }
+
+    /// Parse a file URL from a drop item, handling Data, URL, and String representations.
+    /// NSItemProvider.loadItem may return any of these depending on drag source.
+    private static func fileURL(from item: NSSecureCoding?) -> URL? {
+        if let data = item as? Data {
+            return URL(dataRepresentation: data, relativeTo: nil)
+        }
+        if let url = item as? URL {
+            return url
+        }
+        if let str = item as? String, let url = URL(string: str), url.isFileURL {
+            return url
+        }
+        return nil
     }
 
     // MARK: - Helpers
