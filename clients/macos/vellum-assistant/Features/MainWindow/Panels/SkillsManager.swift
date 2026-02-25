@@ -45,6 +45,8 @@ final class SkillsManager: ObservableObject {
     private let daemonClient: DaemonClient
     private var currentInspectSlug: String?
     private var lastSearchQuery: String?
+    private var draftTask: Task<Void, Never>?
+    private var createTask: Task<Void, Never>?
 
     init(daemonClient: DaemonClient) {
         self.daemonClient = daemonClient
@@ -275,7 +277,7 @@ final class SkillsManager: ObservableObject {
         draftError = nil
         draftResult = nil
 
-        Task {
+        draftTask = Task {
             let stream = daemonClient.subscribe()
 
             do {
@@ -287,6 +289,7 @@ final class SkillsManager: ObservableObject {
             }
 
             for await message in stream {
+                guard !Task.isCancelled else { break }
                 if case .skillsDraftResponse(let response) = message {
                     if response.success, let draft = response.draft {
                         draftResult = SkillDraftResult(
@@ -313,7 +316,7 @@ final class SkillsManager: ObservableObject {
         isCreating = true
         createError = nil
 
-        Task {
+        createTask = Task {
             let stream = daemonClient.subscribe()
 
             do {
@@ -331,6 +334,7 @@ final class SkillsManager: ObservableObject {
             }
 
             for await message in stream {
+                guard !Task.isCancelled else { break }
                 if case .skillsOperationResponse(let response) = message,
                    response.operation == "create" {
                     if !response.success {
@@ -347,6 +351,10 @@ final class SkillsManager: ObservableObject {
     }
 
     func resetDraftState() {
+        draftTask?.cancel()
+        createTask?.cancel()
+        draftTask = nil
+        createTask = nil
         draftResult = nil
         isDrafting = false
         draftError = nil
