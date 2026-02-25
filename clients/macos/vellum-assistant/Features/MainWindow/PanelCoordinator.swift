@@ -121,6 +121,28 @@ extension MainWindowView {
                     }
                 }
             )
+        case .intelligence:
+            IntelligencePanel(
+                onClose: { windowState.selection = nil },
+                onCustomizeAvatar: { windowState.selection = .panel(.avatarCustomization) },
+                onInvokeSkill: { skill in
+                    if threadManager.activeViewModel == nil {
+                        threadManager.createThread()
+                    }
+                    if let viewModel = threadManager.activeViewModel {
+                        viewModel.pendingSkillInvocation = SkillInvocationData(
+                            name: skill.name,
+                            emoji: skill.emoji,
+                            description: skill.description
+                        )
+                        viewModel.inputText = "Use the \(skill.name) skill"
+                        viewModel.sendMessage()
+                        viewModel.pendingSkillInvocation = nil
+                    }
+                    windowState.selection = nil
+                },
+                daemonClient: daemonClient
+            )
         }
     }
 
@@ -549,6 +571,30 @@ extension MainWindowView {
                         windowState.selection = .panel(.directory)
                     }
                 }
+            )
+            .overlay(alignment: .topTrailing) { panelDismissButton }
+            .background(adaptiveColor(light: Moss._50, dark: Moss._950))
+        case .intelligence:
+            IntelligencePanel(
+                onClose: { windowState.dismissOverlay() },
+                onCustomizeAvatar: { windowState.selection = .panel(.avatarCustomization) },
+                onInvokeSkill: { skill in
+                    if threadManager.activeViewModel == nil {
+                        threadManager.createThread()
+                    }
+                    if let viewModel = threadManager.activeViewModel {
+                        viewModel.pendingSkillInvocation = SkillInvocationData(
+                            name: skill.name,
+                            emoji: skill.emoji,
+                            description: skill.description
+                        )
+                        viewModel.inputText = "Use the \(skill.name) skill"
+                        viewModel.sendMessage()
+                        viewModel.pendingSkillInvocation = nil
+                    }
+                    windowState.dismissOverlay()
+                },
+                daemonClient: daemonClient
             )
             .overlay(alignment: .topTrailing) { panelDismissButton }
             .background(adaptiveColor(light: Moss._50, dark: Moss._950))
