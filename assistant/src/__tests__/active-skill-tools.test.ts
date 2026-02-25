@@ -375,4 +375,48 @@ describe('deriveActiveSkills', () => {
     ];
     expect(deriveActiveSkillIds(messages)).toEqual(['deploy', 'oncall']);
   });
+
+  test('tool_result with empty string content is handled gracefully', () => {
+    const messages: Message[] = [
+      skillLoadUseMsg('t1'),
+      toolResultMsg('t1', ''),
+    ];
+    expect(deriveActiveSkills(messages)).toEqual([]);
+  });
+
+  test('marker with extra whitespace in attributes still matches', () => {
+    const messages: Message[] = [
+      skillLoadUseMsg('t1'),
+      toolResultMsg('t1', '<loaded_skill  id="deploy"  version="v1:abc"  />'),
+    ];
+    const entries = deriveActiveSkills(messages);
+    expect(entries).toEqual([{ id: 'deploy', version: 'v1:abc' }]);
+  });
+
+  test('marker with empty id attribute is rejected', () => {
+    const messages: Message[] = [
+      skillLoadUseMsg('t1'),
+      toolResultMsg('t1', '<loaded_skill id="" />'),
+    ];
+    expect(deriveActiveSkills(messages)).toEqual([]);
+  });
+
+  test('many duplicate markers across many messages are all deduplicated', () => {
+    const messages: Message[] = [];
+    for (let i = 0; i < 10; i++) {
+      const id = `t${i}`;
+      messages.push(skillLoadUseMsg(id));
+      messages.push(toolResultMsg(id, '<loaded_skill id="repeat" version="v1:same" />'));
+    }
+    const entries = deriveActiveSkills(messages);
+    expect(entries).toEqual([{ id: 'repeat', version: 'v1:same' }]);
+  });
+
+  test('marker with version but missing id is rejected', () => {
+    const messages: Message[] = [
+      skillLoadUseMsg('t1'),
+      toolResultMsg('t1', '<loaded_skill version="v1:abc" />'),
+    ];
+    expect(deriveActiveSkills(messages)).toEqual([]);
+  });
 });
