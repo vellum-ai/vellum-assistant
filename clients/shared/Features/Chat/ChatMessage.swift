@@ -979,6 +979,7 @@ public struct InlineSurfaceData: Identifiable, Equatable {
             && lhs.completionState == rhs.completionState
             && lhs.surfaceType == rhs.surfaceType
             && lhs.title == rhs.title
+            && lhs.data == rhs.data
             && lhs.actions == rhs.actions
     }
 
