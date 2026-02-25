@@ -26,6 +26,42 @@ public enum SelectionMode: String, Sendable, Equatable {
     case none
 }
 
+// MARK: - Helpers
+
+/// Recursively strip Optional boxing from dictionary values so that
+/// NSDictionary equality compares the underlying values, not Optional wrappers.
+/// Swift's `as [String: Any]` cast on a `[String: Any?]` preserves the Optional
+/// wrapper (e.g., `Optional(1)`), which NSDictionary treats as a different object
+/// than the bare `1`.
+private func unwrapOptionals(_ dict: [String: Any?]) -> [String: Any] {
+    var result: [String: Any] = [:]
+    for (key, value) in dict {
+        guard let value = value else { continue }
+        if let nested = value as? [String: Any?] {
+            result[key] = unwrapOptionals(nested)
+        } else if let array = value as? [Any?] {
+            result[key] = unwrapOptionalsInArray(array)
+        } else {
+            result[key] = value
+        }
+    }
+    return result
+}
+
+/// Recursively strip Optional boxing from array elements.
+private func unwrapOptionalsInArray(_ array: [Any?]) -> [Any] {
+    return array.compactMap { element -> Any? in
+        guard let element = element else { return nil }
+        if let nested = element as? [String: Any?] {
+            return unwrapOptionals(nested)
+        } else if let nestedArray = element as? [Any?] {
+            return unwrapOptionalsInArray(nestedArray)
+        } else {
+            return element
+        }
+    }
+}
+
 // MARK: - Surface Data Models
 
 public struct CardSurfaceData: @unchecked Sendable, Equatable {
@@ -63,12 +99,14 @@ public struct CardSurfaceData: @unchecked Sendable, Equatable {
             return false
         }
 
-        // Compare templateData via NSDictionary bridging (handles nested Any values)
+        // Compare templateData via NSDictionary bridging (handles nested Any values).
+        // We must unwrap Optional boxing first: casting [String: Any?] to [String: Any]
+        // preserves Optional(...) wrappers, making logically equal values compare unequal.
         switch (lhs.templateData, rhs.templateData) {
         case (.none, .none):
             return true
         case let (.some(l), .some(r)):
-            return NSDictionary(dictionary: l as [String: Any]).isEqual(to: r as [String: Any])
+            return NSDictionary(dictionary: unwrapOptionals(l)).isEqual(to: unwrapOptionals(r))
         default:
             return false
         }
