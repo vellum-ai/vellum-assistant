@@ -830,9 +830,93 @@ jobs:
         run: bun run test
         working-directory: gateway
 
+  ci-playwright:
+    runs-on: macos-14
+    continue-on-error: true
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
+      actions: read
+    env:
+      APP_DISPLAY_NAME: Vellum
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 16.2
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Fetch Anthropic API key from Secret Manager
+        id: secrets
+        uses: google-github-actions/get-secretmanager-secrets@v2
+        with:
+          secrets: |-
+            ANTHROPIC_API_KEY:vellum-nonprod/ANTHROPIC_API_KEY
+
+      - name: Set Anthropic API key in env
+        run: echo "ANTHROPIC_API_KEY=${{ steps.secrets.outputs.ANTHROPIC_API_KEY }}" >> "$GITHUB_ENV"
+
+      - name: Cache SPM build artifacts
+        uses: actions/cache@v4
+        with:
+          path: clients/.build
+          key: macos-spm-${{ hashFiles('clients/Package.resolved') }}-${{ hashFiles('clients/**/*.swift') }}
+          restore-keys: |
+            macos-spm-${{ hashFiles('clients/Package.resolved') }}-
+            macos-spm-
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Build daemon binary
+        working-directory: assistant
+        run: |
+          bun install
+          bun build --compile --target=bun-darwin-arm64 src/daemon/main.ts \
+            --external electron --external "chromium-bidi/*" \
+            --outfile ../clients/macos/daemon-bin/vellum-daemon
+          chmod +x ../clients/macos/daemon-bin/vellum-daemon
+          cp node_modules/web-tree-sitter/web-tree-sitter.wasm ../clients/macos/daemon-bin/
+          cp node_modules/tree-sitter-bash/tree-sitter-bash.wasm ../clients/macos/daemon-bin/
+          cp -R src/config/bundled-skills ../clients/macos/daemon-bin/bundled-skills
+
+      - name: Build CLI binary
+        working-directory: cli
+        run: |
+          bun install
+          bun build --compile --target=bun-darwin-arm64 src/index.ts \
+            --external react-devtools-core \
+            --outfile ../clients/macos/cli-bin/vellum-cli
+          chmod +x ../clients/macos/cli-bin/vellum-cli
+
+      - name: Build macOS app
+        working-directory: clients/macos
+        run: |
+          SKIP_CLEAN=1 \
+          BUNDLE_DISPLAY_NAME="$APP_DISPLAY_NAME" \
+          SIGN_IDENTITY="-" \
+          ./build.sh build
+
+      - name: Install Playwright dependencies
+        working-directory: playwright
+        run: bun install
+
+      - name: Run Playwright tests
+        working-directory: playwright
+        run: bun run test
+
   notify:
     if: always() && !cancelled()
-    needs: [bump-and-tag, publish-npm, publish-meta, build-macos, push-assistant-image, push-gateway-image, release, update-platform, ci-assistant, ci-cli, ci-gateway]
+    needs: [bump-and-tag, publish-npm, publish-meta, build-macos, push-assistant-image, push-gateway-image, release, update-platform, ci-assistant, ci-cli, ci-gateway, ci-playwright]
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
@@ -881,11 +965,12 @@ jobs:
           A=$(ci_icon "${{ needs.ci-assistant.outcome }}")
           C=$(ci_icon "${{ needs.ci-cli.outcome }}")
           G=$(ci_icon "${{ needs.ci-gateway.outcome }}")
+          P=$(ci_icon "${{ needs.ci-playwright.outcome }}")
           D=$(ci_icon "${{ needs.build-macos.result }}")
           AI=$(ci_icon "${{ needs.push-assistant-image.result }}")
           GI=$(ci_icon "${{ needs.push-gateway-image.result }}")
 
-          CI_LINE="*CI Checks:*  ${A} assistant    ${C} cli    ${G} gateway    ${D} desktop    ${AI} assistant-docker    ${GI} gateway-docker"
+          CI_LINE="*CI Checks:*  ${A} assistant    ${C} cli    ${G} gateway    ${P} playwright    ${D} desktop    ${AI} assistant-docker    ${GI} gateway-docker"
           META_LINE="*Version:* \`${VERSION}\`\n*Triggered by:* ${{ github.actor }}"
 
           # Fetch release notes from GitHub release
