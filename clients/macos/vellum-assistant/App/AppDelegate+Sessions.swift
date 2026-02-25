@@ -257,14 +257,12 @@ extension AppDelegate {
             return
         }
 
-        deliverNotificationIntent(
-            NotificationIntentMessage(
-                type: "notification_intent",
-                sourceEventName: msg.sourceEventName,
-                title: msg.title,
-                body: "A guardian question needs your attention.",
-                deepLinkMetadata: ["conversationId": AnyCodable(msg.conversationId)]
-            )
+        // notification_intent is normally emitted moments later by the
+        // vellum adapter. Schedule a fallback so guardian alerts are still
+        // guaranteed if that intent fails to arrive.
+        scheduleGuardianNotificationFallback(
+            conversationId: msg.conversationId,
+            title: msg.title
         )
     }
 

@@ -53,7 +53,7 @@ Each policy defines:
 | Strategy | Behavior | Used by |
 |----------|----------|---------|
 | `start_new_conversation` | Creates a fresh conversation per delivery. The thread is surfaced via IPC. | `vellum` |
-| `continue_existing_conversation` | Appends to an existing channel-scoped conversation (future: lookup by binding key). Currently creates a new conversation per delivery and records the intended strategy for audit. | `telegram`, `sms`, `whatsapp`, `slack`, `email` |
+| `continue_existing_conversation` | Appends to an existing channel-scoped conversation (future: lookup by binding key). Currently materializes a background audit conversation per delivery and records the intended strategy. | `telegram`, `sms`, `whatsapp`, `slack`, `email` |
 | `not_deliverable` | Channel cannot receive notifications. Pairing returns null IDs. | `voice` |
 
 ### Helper Functions
@@ -76,7 +76,7 @@ Each policy defines:
 **Every notification delivery gets a conversation.** Before the adapter sends a notification, `pairDeliveryWithConversation()` (in `conversation-pairing.ts`) materializes a conversation and seed message based on the channel's conversation strategy:
 
 - **`start_new_conversation`**: Creates a new conversation with `threadType: 'standard'` and `source: 'notification'`, plus an assistant message containing the notification copy. Memory indexing is skipped on the seed message to prevent notification copy from polluting conversational recall.
-- **`continue_existing_conversation`**: Currently creates a new conversation per delivery (true continuation via binding key lookup is planned for a future PR). The audit trail records the intended strategy.
+- **`continue_existing_conversation`**: Currently materializes a background audit conversation per delivery (true continuation via binding key lookup is planned for a future PR). The audit trail records the intended strategy without adding visible sidebar threads.
 - **`not_deliverable`**: Returns `{ conversationId: null, messageId: null }`.
 
 The pairing function is resilient -- errors are caught and logged. A pairing failure never breaks the delivery pipeline.

@@ -157,6 +157,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var refreshSkillsTask: Task<Void, Never>?
     var cachedApps: [AppItem] = []
     var refreshAppsTask: Task<Void, Never>?
+    /// Pending guardian fallback notification tokens, keyed by conversationId.
+    /// Used to avoid duplicate native alerts when notification_intent arrives.
+    var pendingGuardianFallbackNotifications: [String: UUID] = [:]
+    /// Recently delivered guardian fallback notifications (epoch ms), keyed by
+    /// conversationId. Incoming notification_intent for the same conversation
+    /// inside a short window is treated as a duplicate and suppressed.
+    var guardianFallbackDeliveredAtMs: [String: Double] = [:]
 
     /// Whether the current assistant runs remotely (cloud != "local").
     /// When true, local daemon hatching is skipped.
