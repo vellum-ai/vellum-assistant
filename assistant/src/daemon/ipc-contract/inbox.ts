@@ -28,6 +28,8 @@ export interface IngressInviteRequest {
 export interface IngressMemberRequest {
   type: 'ingress_member';
   action: 'list' | 'upsert' | 'revoke' | 'block';
+  /** Assistant ID for scoping member operations (defaults to 'self'). */
+  assistantId?: string;
   /** Source channel (required for upsert, optional filter for list). */
   sourceChannel?: string;
   /** External user ID (upsert only). */

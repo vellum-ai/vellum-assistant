@@ -155,6 +155,7 @@ export async function handleChannelInbound(
 
   if (body.senderExternalUserId) {
     resolvedMember = findMember({
+      assistantId,
       sourceChannel,
       externalUserId: body.senderExternalUserId,
       externalChatId,

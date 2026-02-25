@@ -188,6 +188,7 @@ export function handleIngressMember(
     switch (msg.action) {
       case 'list': {
         const members = listMembers({
+          assistantId: msg.assistantId,
           sourceChannel: msg.sourceChannel,
           status: msg.status,
           policy: msg.policy,
@@ -210,6 +211,7 @@ export function handleIngressMember(
           return;
         }
         const member = upsertMember({
+          assistantId: msg.assistantId,
           sourceChannel: msg.sourceChannel,
           externalUserId: msg.externalUserId,
           externalChatId: msg.externalChatId,
