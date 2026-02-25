@@ -457,13 +457,6 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
     func updateLastInteracted(threadId: UUID) {
         guard let index = threads.firstIndex(where: { $0.id == threadId }) else { return }
-        // Don't reshuffle threads that are already visible in the collapsed sidebar.
-        // The sidebar shows regular threads (top 5) and schedule/reminder threads (top 3) separately.
-        let visible = visibleThreads
-        let regularIds = visible.filter { !$0.isScheduleThread }.prefix(5).map(\.id)
-        let scheduleIds = visible.filter { $0.isScheduleThread }.prefix(3).map(\.id)
-        let visibleIds = Set(regularIds + scheduleIds)
-        guard !visibleIds.contains(threadId) else { return }
         threads[index].lastInteractedAt = Date()
     }
 
