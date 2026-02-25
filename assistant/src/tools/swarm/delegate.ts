@@ -81,6 +81,7 @@ export const swarmDelegateTool: Tool = {
         maxTasks: config.swarm.maxTasks,
         maxRetriesPerTask: config.swarm.maxRetriesPerTask,
         workerTimeoutSec: config.swarm.workerTimeoutSec,
+        roleTimeoutsSec: config.swarm.roleTimeoutsSec,
       });
 
       // Generate plan
