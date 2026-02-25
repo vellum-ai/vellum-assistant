@@ -1,6 +1,6 @@
 import type { GatewayConfig } from "../../config.js";
-import { validateBearerToken } from "../auth/bearer.js";
 import { getLogger } from "../../logger.js";
+import { checkDeliverAuth } from "../middleware/deliver-auth.js";
 import type { RuntimeAttachmentMeta } from "../../runtime/client.js";
 import { sendTelegramAttachments, sendTelegramReply } from "../../telegram/send.js";
 
@@ -27,27 +27,8 @@ export function createTelegramDeliverHandler(config: GatewayConfig) {
       return Response.json({ error: "Method not allowed" }, { status: 405 });
     }
 
-    // Fail-closed auth: when no bearer token is configured and the explicit
-    // dev-only bypass flag is not set, refuse to serve requests (503) rather
-    // than silently allowing unauthenticated access.
-    if (!config.runtimeProxyBearerToken) {
-      if (config.telegramDeliverAuthBypass) {
-        // Dev-only bypass — skip auth entirely.
-      } else {
-        return Response.json(
-          { error: "Service not configured: bearer token required" },
-          { status: 503 },
-        );
-      }
-    } else {
-      const authResult = validateBearerToken(
-        req.headers.get("authorization"),
-        config.runtimeProxyBearerToken,
-      );
-      if (!authResult.authorized) {
-        return Response.json({ error: "Unauthorized" }, { status: 401 });
-      }
-    }
+    const authResponse = checkDeliverAuth(req, config, "telegramDeliverAuthBypass");
+    if (authResponse) return authResponse;
 
     let body: {
       chatId?: string;
