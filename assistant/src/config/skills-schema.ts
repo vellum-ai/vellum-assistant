@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { emptyDefault } from './schema-utils.js';
 
 export const SkillEntryConfigSchema = z.object({
   enabled: z.boolean({ error: 'skills.entries[].enabled must be a boolean' }).default(true),
@@ -21,8 +22,8 @@ export const SkillsInstallConfigSchema = z.object({
 
 export const SkillsConfigSchema = z.object({
   entries: z.record(z.string(), SkillEntryConfigSchema).default({}),
-  load: SkillsLoadConfigSchema.default({}),
-  install: SkillsInstallConfigSchema.default({}),
+  load: emptyDefault(SkillsLoadConfigSchema),
+  install: emptyDefault(SkillsInstallConfigSchema),
   allowBundled: z.array(z.string()).nullable().default(null),
 });
 

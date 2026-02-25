@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { emptyDefault } from './schema-utils.js';
 
 const VALID_SECRET_ACTIONS = ['redact', 'warn', 'block', 'prompt'] as const;
 const VALID_PERMISSIONS_MODES = ['legacy', 'strict', 'workspace'] as const;
@@ -223,8 +224,8 @@ const IngressBaseSchema = z.object({
       'ingress.publicBaseUrl must be an absolute URL starting with http:// or https://',
     )
     .default(''),
-  webhook: IngressWebhookConfigSchema.default({}),
-  rateLimit: IngressRateLimitConfigSchema.default({}),
+  webhook: emptyDefault(IngressWebhookConfigSchema),
+  rateLimit: emptyDefault(IngressRateLimitConfigSchema),
   shutdownDrainMs: z
     .number({ error: 'ingress.shutdownDrainMs must be a number' })
     .int('ingress.shutdownDrainMs must be an integer')
@@ -232,8 +233,7 @@ const IngressBaseSchema = z.object({
     .default(5_000),
 });
 
-export const IngressConfigSchema = IngressBaseSchema
-  .default({})
+export const IngressConfigSchema = emptyDefault(IngressBaseSchema)
   .transform((val) => ({
     ...val,
     // Backward compatibility: if `enabled` was never explicitly set (undefined),

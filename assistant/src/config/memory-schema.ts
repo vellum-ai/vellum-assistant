@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { emptyDefault } from './schema-utils.js';
 
 const VALID_MEMORY_EMBEDDING_PROVIDERS = ['auto', 'local', 'openai', 'gemini', 'ollama'] as const;
 const VALID_MEMORY_ITEM_KINDS = [
@@ -124,7 +125,7 @@ const MemoryFreshnessConfigSchema = z.object({
   enabled: z
     .boolean({ error: 'memory.retrieval.freshness.enabled must be a boolean' })
     .default(true),
-  maxAgeDays: z.object({
+  maxAgeDays: emptyDefault(z.object({
     fact: z
       .number({ error: 'memory.retrieval.freshness.maxAgeDays.fact must be a number' })
       .nonnegative('memory.retrieval.freshness.maxAgeDays.fact must be non-negative')
@@ -145,7 +146,7 @@ const MemoryFreshnessConfigSchema = z.object({
       .number({ error: 'memory.retrieval.freshness.maxAgeDays.opinion must be a number' })
       .nonnegative('memory.retrieval.freshness.maxAgeDays.opinion must be non-negative')
       .default(60),
-  }).default({}),
+  })),
   staleDecay: z
     .number({ error: 'memory.retrieval.freshness.staleDecay must be a number' })
     .min(0, 'memory.retrieval.freshness.staleDecay must be >= 0')
@@ -181,15 +182,15 @@ export const MemoryRetrievalConfigSchema = z.object({
       error: 'memory.retrieval.injectionStrategy must be "prepend_user_block" or "separate_context_message"',
     })
     .default('prepend_user_block'),
-  reranking: MemoryRerankingConfigSchema.default({}),
-  freshness: MemoryFreshnessConfigSchema.default({}),
+  reranking: emptyDefault(MemoryRerankingConfigSchema),
+  freshness: emptyDefault(MemoryFreshnessConfigSchema),
   scopePolicy: z
     .enum(['allow_global_fallback', 'strict'], {
       error: 'memory.retrieval.scopePolicy must be "allow_global_fallback" or "strict"',
     })
     .default('allow_global_fallback'),
-  dynamicBudget: MemoryDynamicBudgetConfigSchema.default({}),
-  earlyTermination: MemoryEarlyTerminationConfigSchema.default({}),
+  dynamicBudget: emptyDefault(MemoryDynamicBudgetConfigSchema),
+  earlyTermination: emptyDefault(MemoryEarlyTerminationConfigSchema),
 });
 
 export const MemorySegmentationConfigSchema = z.object({
@@ -273,7 +274,7 @@ export const MemoryEntityConfigSchema = z.object({
       error: 'memory.entity.modelIntent must be a valid model intent',
     })
     .default('latency-optimized'),
-  extractRelations: z.object({
+  extractRelations: emptyDefault(z.object({
     enabled: z
       .boolean({ error: 'memory.entity.extractRelations.enabled must be a boolean' })
       .default(true),
@@ -282,8 +283,8 @@ export const MemoryEntityConfigSchema = z.object({
       .int('memory.entity.extractRelations.backfillBatchSize must be an integer')
       .positive('memory.entity.extractRelations.backfillBatchSize must be a positive integer')
       .default(200),
-  }).default({}),
-  relationRetrieval: z.object({
+  })),
+  relationRetrieval: emptyDefault(z.object({
     enabled: z
       .boolean({ error: 'memory.entity.relationRetrieval.enabled must be a boolean' })
       .default(true),
@@ -315,7 +316,7 @@ export const MemoryEntityConfigSchema = z.object({
     depthDecay: z
       .boolean({ error: 'memory.entity.relationRetrieval.depthDecay must be a boolean' })
       .default(true),
-  }).default({}),
+  })),
 });
 
 export const MemoryConflictsConfigSchema = z.object({
@@ -379,18 +380,18 @@ export const MemoryConfigSchema = z.object({
   enabled: z
     .boolean({ error: 'memory.enabled must be a boolean' })
     .default(true),
-  embeddings: MemoryEmbeddingsConfigSchema.default({}),
-  qdrant: QdrantConfigSchema.default({}),
-  retrieval: MemoryRetrievalConfigSchema.default({}),
-  segmentation: MemorySegmentationConfigSchema.default({}),
-  jobs: MemoryJobsConfigSchema.default({}),
-  retention: MemoryRetentionConfigSchema.default({}),
-  cleanup: MemoryCleanupConfigSchema.default({}),
-  extraction: MemoryExtractionConfigSchema.default({}),
-  summarization: MemorySummarizationConfigSchema.default({}),
-  entity: MemoryEntityConfigSchema.default({}),
-  conflicts: MemoryConflictsConfigSchema.default({}),
-  profile: MemoryProfileConfigSchema.default({}),
+  embeddings: emptyDefault(MemoryEmbeddingsConfigSchema),
+  qdrant: emptyDefault(QdrantConfigSchema),
+  retrieval: emptyDefault(MemoryRetrievalConfigSchema),
+  segmentation: emptyDefault(MemorySegmentationConfigSchema),
+  jobs: emptyDefault(MemoryJobsConfigSchema),
+  retention: emptyDefault(MemoryRetentionConfigSchema),
+  cleanup: emptyDefault(MemoryCleanupConfigSchema),
+  extraction: emptyDefault(MemoryExtractionConfigSchema),
+  summarization: emptyDefault(MemorySummarizationConfigSchema),
+  entity: emptyDefault(MemoryEntityConfigSchema),
+  conflicts: emptyDefault(MemoryConflictsConfigSchema),
+  profile: emptyDefault(MemoryProfileConfigSchema),
 });
 
 export type MemoryEmbeddingsConfig = z.infer<typeof MemoryEmbeddingsConfigSchema>;

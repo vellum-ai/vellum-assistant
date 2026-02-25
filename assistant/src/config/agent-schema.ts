@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { emptyDefault } from './schema-utils.js';
 
 export const AgentHeartbeatConfigSchema = z.object({
   enabled: z
@@ -128,7 +129,7 @@ export const WorkspaceGitConfigSchema = z.object({
     .int('workspaceGit.enrichmentMaxRetries must be an integer')
     .nonnegative('workspaceGit.enrichmentMaxRetries must be non-negative')
     .default(2),
-  commitMessageLLM: z.object({
+  commitMessageLLM: emptyDefault(z.object({
     enabled: z.boolean({ error: 'workspaceGit.commitMessageLLM.enabled must be a boolean' }).default(false),
     useConfiguredProvider: z.boolean({ error: 'workspaceGit.commitMessageLLM.useConfiguredProvider must be a boolean' }).default(true),
     providerFastModelOverrides: z.record(z.string(), z.string()).default({}),
@@ -156,15 +157,15 @@ export const WorkspaceGitConfigSchema = z.object({
       .int('workspaceGit.commitMessageLLM.minRemainingTurnBudgetMs must be an integer')
       .nonnegative('workspaceGit.commitMessageLLM.minRemainingTurnBudgetMs must be non-negative')
       .default(1000),
-    breaker: z.object({
+    breaker: emptyDefault(z.object({
       openAfterFailures: z.number({ error: 'workspaceGit.commitMessageLLM.breaker.openAfterFailures must be a number' })
         .int().positive().default(3),
       backoffBaseMs: z.number({ error: 'workspaceGit.commitMessageLLM.breaker.backoffBaseMs must be a number' })
         .int().positive().default(2000),
       backoffMaxMs: z.number({ error: 'workspaceGit.commitMessageLLM.breaker.backoffMaxMs must be a number' })
         .int().positive().default(60000),
-    }).default({}),
-  }).default({}),
+    })),
+  })),
 });
 
 export type AgentHeartbeatConfig = z.infer<typeof AgentHeartbeatConfigSchema>;

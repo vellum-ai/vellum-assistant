@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { emptyDefault } from './schema-utils.js';
 
 const VALID_SANDBOX_BACKENDS = ['native', 'docker'] as const;
 const VALID_DOCKER_NETWORKS = ['none', 'bridge'] as const;
@@ -41,7 +42,7 @@ export const SandboxConfigSchema = z.object({
       error: `sandbox.backend must be one of: ${VALID_SANDBOX_BACKENDS.join(', ')}`,
     })
     .default('docker'),
-  docker: DockerConfigSchema.default({}),
+  docker: emptyDefault(DockerConfigSchema),
 });
 
 export type SandboxConfig = z.infer<typeof SandboxConfigSchema>;

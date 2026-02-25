@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { emptyDefault } from './schema-utils.js';
 import { getDataDir } from '../util/platform.js';
 
 // Re-export all domain schemas
@@ -193,32 +194,32 @@ export const AssistantConfigSchema = z.object({
     .int('maxToolUseTurns must be an integer')
     .positive('maxToolUseTurns must be a positive integer')
     .default(60),
-  thinking: ThinkingConfigSchema.default({}),
-  contextWindow: ContextWindowConfigSchema.default({}),
-  memory: MemoryConfigSchema.default({}),
+  thinking: emptyDefault(ThinkingConfigSchema),
+  contextWindow: emptyDefault(ContextWindowConfigSchema),
+  memory: emptyDefault(MemoryConfigSchema),
   dataDir: z
     .string({ error: 'dataDir must be a string' })
     .default(getDataDir()),
-  timeouts: TimeoutConfigSchema.default({}),
-  sandbox: SandboxConfigSchema.default({}),
-  rateLimit: RateLimitConfigSchema.default({}),
-  secretDetection: SecretDetectionConfigSchema.default({}),
-  permissions: PermissionsConfigSchema.default({}),
-  auditLog: AuditLogConfigSchema.default({}),
-  logFile: LogFileConfigSchema.default({}),
+  timeouts: emptyDefault(TimeoutConfigSchema),
+  sandbox: emptyDefault(SandboxConfigSchema),
+  rateLimit: emptyDefault(RateLimitConfigSchema),
+  secretDetection: emptyDefault(SecretDetectionConfigSchema),
+  permissions: emptyDefault(PermissionsConfigSchema),
+  auditLog: emptyDefault(AuditLogConfigSchema),
+  logFile: emptyDefault(LogFileConfigSchema),
   pricingOverrides: z
     .array(ModelPricingOverrideSchema)
     .default([]),
-  agentHeartbeat: AgentHeartbeatConfigSchema.default({}),
-  swarm: SwarmConfigSchema.default({}),
-  skills: SkillsConfigSchema.default({}),
-  workspaceGit: WorkspaceGitConfigSchema.default({}),
-  calls: CallsConfigSchema.default({}),
-  sms: SmsConfigSchema.default({}),
+  agentHeartbeat: emptyDefault(AgentHeartbeatConfigSchema),
+  swarm: emptyDefault(SwarmConfigSchema),
+  skills: emptyDefault(SkillsConfigSchema),
+  workspaceGit: emptyDefault(WorkspaceGitConfigSchema),
+  calls: emptyDefault(CallsConfigSchema),
+  sms: emptyDefault(SmsConfigSchema),
   ingress: IngressConfigSchema,
-  platform: PlatformConfigSchema.default({}),
-  daemon: DaemonConfigSchema.default({}),
-  notifications: NotificationsConfigSchema.default({}),
+  platform: emptyDefault(PlatformConfigSchema),
+  daemon: emptyDefault(DaemonConfigSchema),
+  notifications: emptyDefault(NotificationsConfigSchema),
 }).superRefine((config, ctx) => {
   if (config.contextWindow.targetInputTokens >= config.contextWindow.maxInputTokens) {
     ctx.addIssue({

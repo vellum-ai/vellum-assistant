@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { emptyDefault } from './schema-utils.js';
 
 const VALID_CALL_PROVIDERS = ['twilio'] as const;
 const VALID_CALL_VOICE_MODES = ['twilio_standard', 'twilio_elevenlabs_tts', 'elevenlabs_agent'] as const;
@@ -76,7 +77,7 @@ export const CallsVoiceConfigSchema = z.object({
   fallbackToStandardOnError: z
     .boolean({ error: 'calls.voice.fallbackToStandardOnError must be a boolean' })
     .default(true),
-  elevenlabs: CallsElevenLabsConfigSchema.default({}),
+  elevenlabs: emptyDefault(CallsElevenLabsConfigSchema),
 });
 
 export const CallerIdentityConfigSchema = z.object({
@@ -125,14 +126,14 @@ export const CallsConfigSchema = z.object({
     .positive('calls.userConsultTimeoutSeconds must be a positive integer')
     .max(2_147_483, 'calls.userConsultTimeoutSeconds must be at most 2147483 (setTimeout-safe limit)')
     .default(120),
-  disclosure: CallsDisclosureConfigSchema.default({}),
-  safety: CallsSafetyConfigSchema.default({}),
-  voice: CallsVoiceConfigSchema.default({}),
+  disclosure: emptyDefault(CallsDisclosureConfigSchema),
+  safety: emptyDefault(CallsSafetyConfigSchema),
+  voice: emptyDefault(CallsVoiceConfigSchema),
   model: z
     .string({ error: 'calls.model must be a string' })
     .optional(),
-  callerIdentity: CallerIdentityConfigSchema.default({}),
-  verification: CallsVerificationConfigSchema.default({}),
+  callerIdentity: emptyDefault(CallerIdentityConfigSchema),
+  verification: emptyDefault(CallsVerificationConfigSchema),
 });
 
 export type CallsConfig = z.infer<typeof CallsConfigSchema>;
