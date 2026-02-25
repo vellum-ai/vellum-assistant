@@ -24,4 +24,5 @@ export {
   migrateMemoryItemsIndexes,
   migrateRemainingTableIndexes,
   migrateAddOriginInterface,
+  migrateMemoryItemSourcesIndexes,
 } from './migrations/index.js';
