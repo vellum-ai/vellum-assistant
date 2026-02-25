@@ -8,7 +8,15 @@ export interface NotificationIntent {
   deepLinkMetadata?: Record<string, unknown>;
 }
 
+/** Server push — broadcast when a notification creates a new vellum conversation thread. */
+export interface NotificationThreadCreated {
+  type: 'notification_thread_created';
+  conversationId: string;
+  title: string;
+  sourceEventName: string;
+}
+
 // --- Domain-level union aliases (consumed by the barrel file) ---
 // Notifications has no client messages.
 
-export type _NotificationsServerMessages = NotificationIntent;
+export type _NotificationsServerMessages = NotificationIntent | NotificationThreadCreated;

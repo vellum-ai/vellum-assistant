@@ -191,6 +191,27 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         log.info("Created guardian request thread \(thread.id) for conversation \(conversationId) (request \(requestId), call \(callSessionId))")
     }
 
+    /// Create a visible thread bound to a notification-created conversation.
+    /// Called when the daemon broadcasts `notification_thread_created` so the user
+    /// can see notification threads and deep-link into them.
+    func createNotificationThread(conversationId: String, title: String, sourceEventName: String) {
+        // Avoid creating a duplicate thread if one already exists for this conversation
+        if threads.contains(where: { $0.sessionId == conversationId }) {
+            return
+        }
+
+        let thread = ThreadModel(title: title, sessionId: conversationId)
+        let viewModel = makeViewModel()
+        viewModel.sessionId = conversationId
+        // Start the message loop so the view model receives streamed messages
+        viewModel.startMessageLoop()
+
+        threads.insert(thread, at: 0)
+        chatViewModels[thread.id] = viewModel
+
+        log.info("Created notification thread \(thread.id) for conversation \(conversationId) (source: \(sourceEventName))")
+    }
+
     func closeThread(id: UUID) {
         // No-op if only 1 thread remains
         guard threads.count > 1 else { return }

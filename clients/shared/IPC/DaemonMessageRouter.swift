@@ -81,6 +81,8 @@ extension DaemonClient {
             onReminderFired?(msg)
         case .notificationIntent(let msg):
             onNotificationIntent?(msg)
+        case .notificationThreadCreated(let msg):
+            onNotificationThreadCreated?(msg)
         case .scheduleComplete(let msg):
             onScheduleComplete?(msg)
         case .trustRulesListResponse(let msg):

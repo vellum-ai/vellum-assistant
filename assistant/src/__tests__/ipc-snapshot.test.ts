@@ -1111,6 +1111,12 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
       conversationId: 'conv-guardian-001',
     },
   },
+  notification_thread_created: {
+    type: 'notification_thread_created',
+    conversationId: 'conv-notif-001',
+    title: 'Weather alert for your area',
+    sourceEventName: 'watcher.escalation',
+  },
   schedule_complete: {
     type: 'schedule_complete',
     scheduleId: 'sched-001',

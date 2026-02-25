@@ -185,6 +185,36 @@ export async function emitNotificationSignal(params: EmitSignalParams): Promise<
     const broadcaster = getBroadcaster();
     const dispatchResult = await dispatchDecision(signal, decision, broadcaster);
 
+    // Step 5: Emit notification_thread_created for vellum deliveries that
+    // created a new conversation (start_new_conversation strategy), so the
+    // macOS client can immediately surface the thread in the sidebar.
+    if (registeredBroadcastFn && dispatchResult.dispatched) {
+      for (const delivery of dispatchResult.deliveryResults) {
+        if (
+          delivery.channel === 'vellum' &&
+          delivery.status === 'sent' &&
+          delivery.conversationId &&
+          delivery.conversationStrategy === 'start_new_conversation'
+        ) {
+          const vellumCopy = decision.renderedCopy[delivery.channel];
+          const threadTitle =
+            vellumCopy?.threadTitle ??
+            vellumCopy?.title ??
+            params.sourceEventName;
+          registeredBroadcastFn({
+            type: 'notification_thread_created',
+            conversationId: delivery.conversationId,
+            title: threadTitle,
+            sourceEventName: params.sourceEventName,
+          });
+          log.info(
+            { signalId, conversationId: delivery.conversationId },
+            'Emitted notification_thread_created push event',
+          );
+        }
+      }
+    }
+
     log.info(
       {
         signalId,

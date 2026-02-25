@@ -1799,6 +1799,15 @@ exports[`IPC message snapshots ServerMessage types notification_intent serialize
 }
 `;
 
+exports[`IPC message snapshots ServerMessage types notification_thread_created serializes to expected JSON 1`] = `
+{
+  "conversationId": "conv-notif-001",
+  "sourceEventName": "watcher.escalation",
+  "title": "Weather alert for your area",
+  "type": "notification_thread_created",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types schedule_complete serializes to expected JSON 1`] = `
 {
   "name": "Daily backup",

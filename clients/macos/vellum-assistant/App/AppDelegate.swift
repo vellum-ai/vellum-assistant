@@ -822,6 +822,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        // Notification threads — created when the notification pipeline delivers
+        // to the vellum channel with start_new_conversation strategy.
+        daemonClient.onNotificationThreadCreated = { [weak self] msg in
+            guard let self, !self.isAwaitingFirstLaunchReady else { return }
+            self.mainWindow?.threadManager.createNotificationThread(
+                conversationId: msg.conversationId,
+                title: msg.title,
+                sourceEventName: msg.sourceEventName
+            )
+        }
+
         // Handle escalation: text_qa -> computer_use via computer_use_request_control
         daemonClient.onTaskRouted = { [weak self] routed in
             guard let self else { return }
