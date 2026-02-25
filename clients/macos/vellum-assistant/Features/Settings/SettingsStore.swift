@@ -1,3 +1,4 @@
+import Carbon.HIToolbox
 import Combine
 import Foundation
 import os
@@ -58,6 +59,8 @@ public final class SettingsStore: ObservableObject {
     @Published var maxSteps: Double
     @Published var activityNotificationsEnabled: Bool
     @Published var globalHotkeyShortcut: String
+    @Published var quickInputHotkeyShortcut: String
+    @Published var quickInputHotkeyKeyCode: Int
 
     // MARK: - Media Embed Settings
 
@@ -251,6 +254,9 @@ public final class SettingsStore: ObservableObject {
         self.activityNotificationsEnabled = UserDefaults.standard.object(forKey: "activityNotificationsEnabled") as? Bool ?? true
 
         self.globalHotkeyShortcut = UserDefaults.standard.string(forKey: "globalHotkeyShortcut") ?? "cmd+shift+g"
+        self.quickInputHotkeyShortcut = UserDefaults.standard.string(forKey: "quickInputHotkeyShortcut") ?? "cmd+shift+/"
+        let storedQIKeyCode = UserDefaults.standard.integer(forKey: "quickInputHotkeyKeyCode")
+        self.quickInputHotkeyKeyCode = storedQIKeyCode > 0 ? storedQIKeyCode : kVK_ANSI_Slash
 
         #if DEBUG
         self.isDevMode = UserDefaults.standard.object(forKey: "devModeEnabled") as? Bool ?? true
@@ -299,6 +305,16 @@ public final class SettingsStore: ObservableObject {
         $globalHotkeyShortcut
             .dropFirst()
             .sink { value in UserDefaults.standard.set(value, forKey: "globalHotkeyShortcut") }
+            .store(in: &cancellables)
+
+        $quickInputHotkeyShortcut
+            .dropFirst()
+            .sink { value in UserDefaults.standard.set(value, forKey: "quickInputHotkeyShortcut") }
+            .store(in: &cancellables)
+
+        $quickInputHotkeyKeyCode
+            .dropFirst()
+            .sink { value in UserDefaults.standard.set(value, forKey: "quickInputHotkeyKeyCode") }
             .store(in: &cancellables)
 
         $isDevMode

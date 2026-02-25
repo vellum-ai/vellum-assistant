@@ -55,7 +55,7 @@ enum InteractionType {
     case textQA
 }
 
-/// Carbon event handler for the Quick Input hotkey (Cmd+/).
+/// Carbon event handler for the Quick Input hotkey (Cmd+Shift+/).
 /// Must be a free function because Carbon callbacks are C function pointers.
 private func quickInputHotKeyHandler(
     _: EventHandlerCallRef?,
@@ -94,6 +94,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem!
     private var hotKeyMonitor: Any?
     private var lastRegisteredGlobalHotkey: String?
+    private var lastRegisteredQuickInputHotkey: String?
     private var globalHotkeyObserver: AnyCancellable?
     private var escapeMonitor: Any?
     private var fnVGlobalMonitor: Any?
@@ -417,6 +418,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             quickInputWindow?.dismiss()
             quickInputWindow = nil
             lastRegisteredGlobalHotkey = nil
+            lastRegisteredQuickInputHotkey = nil
             globalHotkeyObserver?.cancel()
             globalHotkeyObserver = nil
             if let escapeMonitor {
@@ -1187,24 +1189,44 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.registerGlobalHotkeyMonitor()
+                self?.registerQuickInputMonitor()
             }
     }
 
-    /// Registers a Carbon hotkey (Cmd+/) that intercepts system-wide,
+    /// Registers a Carbon hotkey for Quick Input that intercepts system-wide,
     /// before the frontmost app's menu system can consume it.
+    /// Reads the shortcut and key code from UserDefaults. Skips re-registration if unchanged.
     private func registerQuickInputMonitor() {
+        let shortcut = UserDefaults.standard.string(forKey: "quickInputHotkeyShortcut") ?? "cmd+shift+/"
+
+        if shortcut == lastRegisteredQuickInputHotkey { return }
+
+        // Tear down previous registration
+        if let ref = quickInputHotKeyRef {
+            UnregisterEventHotKey(ref)
+            quickInputHotKeyRef = nil
+        }
+        if let ref = quickInputEventHandlerRef {
+            RemoveEventHandler(ref)
+            quickInputEventHandlerRef = nil
+        }
+
+        let storedKeyCode = UserDefaults.standard.integer(forKey: "quickInputHotkeyKeyCode")
+        let keyCode = UInt32(storedKeyCode > 0 ? storedKeyCode : kVK_ANSI_Slash)
+        let (modifierFlags, _) = ShortcutHelper.parseShortcut(shortcut)
+        let carbonMods = ShortcutHelper.carbonModifiers(from: modifierFlags)
+
         // Install Carbon event handler for hotkey events
         var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
         var handlerRef: EventHandlerRef?
         InstallEventHandler(GetApplicationEventTarget(), quickInputHotKeyHandler, 1, &eventType, nil, &handlerRef)
         quickInputEventHandlerRef = handlerRef
 
-        // Register Cmd+/ (keyCode 44) as a system-wide hotkey
         let hotKeyID = EventHotKeyID(signature: OSType(0x564C_4D51), id: 1) // "VLMQ"
         var hotKeyRef: EventHotKeyRef?
         let status = RegisterEventHotKey(
-            UInt32(kVK_ANSI_Slash),
-            UInt32(cmdKey),
+            keyCode,
+            carbonMods,
             hotKeyID,
             GetApplicationEventTarget(),
             0,
@@ -1212,10 +1234,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         if status == noErr {
             quickInputHotKeyRef = hotKeyRef
-            log.info("Quick Input: Carbon hotkey Cmd+/ registered successfully")
+            log.info("Quick Input: Carbon hotkey \(ShortcutHelper.displayString(for: shortcut)) registered successfully")
         } else {
             log.error("Quick Input: Failed to register Carbon hotkey, status: \(status)")
         }
+
+        lastRegisteredQuickInputHotkey = shortcut
     }
 
     /// Removes the Carbon hotkey and event handler registrations.

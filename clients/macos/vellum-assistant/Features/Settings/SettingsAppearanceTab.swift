@@ -7,6 +7,7 @@ struct SettingsAppearanceTab: View {
     @AppStorage("themePreference") private var themePreference: String = "system"
     @State private var newAllowlistDomain = ""
     @State private var isRecordingGlobalHotkey = false
+    @State private var isRecordingQuickInputHotkey = false
     @State private var shortcutMonitor: Any?
     @State private var shortcutConflictWarning: String?
 
@@ -83,7 +84,34 @@ struct SettingsAppearanceTab: View {
                         .foregroundColor(VColor.warning)
                 }
 
-                ShortcutRow(label: "Quick Input", shortcut: "⌘⇧V")
+                // Quick Input (configurable)
+                HStack {
+                    Text("Quick Input")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
+                    Spacer()
+                    Text(ShortcutHelper.displayString(for: store.quickInputHotkeyShortcut))
+                        .font(VFont.mono)
+                        .foregroundColor(VColor.textPrimary)
+                        .padding(.horizontal, VSpacing.sm)
+                        .padding(.vertical, VSpacing.xs)
+                        .background(VColor.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: VRadius.sm)
+                                .stroke(VColor.surfaceBorder, lineWidth: 1)
+                        )
+
+                    if isRecordingQuickInputHotkey {
+                        VButton(label: "Press shortcut...", style: .tertiary) {
+                            stopRecording()
+                        }
+                    } else {
+                        VButton(label: "Record", style: .tertiary) {
+                            startRecordingQuickInput()
+                        }
+                    }
+                }
                 ShortcutRow(label: "Start voice input", shortcut: "Hold Fn")
             }
             .padding(VSpacing.lg)
@@ -175,7 +203,23 @@ struct SettingsAppearanceTab: View {
     // MARK: - Shortcut Recording
 
     private func startRecording() {
+        startRecordingShortcut { shortcut, _ in
+            store.globalHotkeyShortcut = shortcut
+        }
         isRecordingGlobalHotkey = true
+    }
+
+    private func startRecordingQuickInput() {
+        startRecordingShortcut { shortcut, keyCode in
+            store.quickInputHotkeyShortcut = shortcut
+            store.quickInputHotkeyKeyCode = Int(keyCode)
+        }
+        isRecordingQuickInputHotkey = true
+    }
+
+    /// Shared recording logic. The callback receives the shortcut string and the raw NSEvent key code.
+    private func startRecordingShortcut(onRecord: @escaping (String, UInt16) -> Void) {
+        stopRecording()
         shortcutConflictWarning = nil
 
         shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
@@ -198,7 +242,7 @@ struct SettingsAppearanceTab: View {
             )
 
             shortcutConflictWarning = nil
-            store.globalHotkeyShortcut = shortcut
+            onRecord(shortcut, event.keyCode)
             stopRecording()
             return nil
         }
@@ -206,6 +250,7 @@ struct SettingsAppearanceTab: View {
 
     private func stopRecording() {
         isRecordingGlobalHotkey = false
+        isRecordingQuickInputHotkey = false
         if let monitor = shortcutMonitor {
             NSEvent.removeMonitor(monitor)
             shortcutMonitor = nil
