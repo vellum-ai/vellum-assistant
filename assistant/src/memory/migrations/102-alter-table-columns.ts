@@ -26,6 +26,7 @@ export function addCoreColumns(database: DrizzleDb): void {
   try { database.run(/*sql*/ `ALTER TABLE conversations ADD COLUMN source TEXT NOT NULL DEFAULT 'user'`); } catch { /* already exists */ }
   try { database.run(/*sql*/ `ALTER TABLE conversations ADD COLUMN memory_scope_id TEXT NOT NULL DEFAULT 'default'`); } catch { /* already exists */ }
   try { database.run(/*sql*/ `ALTER TABLE conversations ADD COLUMN origin_channel TEXT`); } catch { /* already exists */ }
+  try { database.run(/*sql*/ `ALTER TABLE conversations ADD COLUMN is_auto_title INTEGER NOT NULL DEFAULT 1`); } catch { /* already exists */ }
 
   // memory_items
   try { database.run(/*sql*/ `ALTER TABLE memory_items ADD COLUMN importance REAL`); } catch { /* already exists */ }

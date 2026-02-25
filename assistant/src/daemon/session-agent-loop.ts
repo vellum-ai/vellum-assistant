@@ -25,7 +25,7 @@ import type { ToolProfiler } from '../events/tool-profiling-listener.js';
 import type { ContextWindowManager } from '../context/window-manager.js';
 import { getHookManager } from '../hooks/manager.js';
 import { truncate } from '../util/truncate.js';
-import { isReplaceableTitle, queueGenerateConversationTitle } from '../memory/conversation-title-service.js';
+import { isReplaceableTitle, queueGenerateConversationTitle, queueRegenerateConversationTitle } from '../memory/conversation-title-service.js';
 import { stripMemoryRecallMessages } from '../memory/retriever.js';
 import { getApp, listAppFiles } from '../memory/app-store.js';
 import type { ConflictGate } from './session-conflict-gate.js';
@@ -649,6 +649,24 @@ export async function runAgentLoopImpl(
         provider: ctx.provider,
         userMessage: content,
         assistantResponse: state.firstAssistantText || undefined,
+        onTitleUpdated: (title) => {
+          onEvent({
+            type: 'session_title_updated',
+            sessionId: ctx.conversationId,
+            title,
+          });
+        },
+        signal: abortController.signal,
+      });
+    }
+
+    // Second title pass: after 3 completed turns, re-generate the title
+    // using the last 3 messages for better context. Only fires when the
+    // current title was auto-generated (isAutoTitle = 1).
+    if (ctx.turnCount === 2) { // turnCount is 0-indexed, incremented in finally; 2 = about to become 3rd turn
+      queueRegenerateConversationTitle({
+        conversationId: ctx.conversationId,
+        provider: ctx.provider,
         onTitleUpdated: (title) => {
           onEvent({
             type: 'session_title_updated',

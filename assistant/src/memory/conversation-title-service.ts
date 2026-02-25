@@ -8,6 +8,7 @@
  */
 
 import * as conversationStore from './conversation-store.js';
+import type { MessageRow } from './conversation-store.js';
 import { getConfiguredProvider } from '../providers/provider-send-message.js';
 import { getConfig } from '../config/loader.js';
 import { truncate } from '../util/truncate.js';
@@ -110,7 +111,7 @@ export async function generateAndPersistConversationTitle(
   if (!provider) {
     // No provider available — fall back to context-derived title or untitled
     const fallback = deriveFallbackTitle(context) ?? UNTITLED_FALLBACK;
-    conversationStore.updateConversationTitle(conversationId, fallback);
+    conversationStore.updateConversationTitle(conversationId, fallback, 1);
     onTitleUpdated?.(fallback);
     return { title: fallback, updated: true };
   }
@@ -142,7 +143,7 @@ export async function generateAndPersistConversationTitle(
       return { title: current.title!, updated: false };
     }
 
-    conversationStore.updateConversationTitle(conversationId, title);
+    conversationStore.updateConversationTitle(conversationId, title, 1);
     onTitleUpdated?.(title);
     log.info({ conversationId, title }, 'Auto-generated conversation title');
     return { title, updated: true };
@@ -150,7 +151,7 @@ export async function generateAndPersistConversationTitle(
 
   // No text in response — use fallback
   const fallback = deriveFallbackTitle(context) ?? UNTITLED_FALLBACK;
-  conversationStore.updateConversationTitle(conversationId, fallback);
+  conversationStore.updateConversationTitle(conversationId, fallback, 1);
   onTitleUpdated?.(fallback);
   return { title: fallback, updated: true };
 }
@@ -179,6 +180,91 @@ export function queueGenerateConversationTitle(
     } catch {
       // Best-effort
     }
+  });
+}
+
+// ── Title regeneration (second pass) ─────────────────────────────────
+
+export interface RegenerateTitleParams {
+  conversationId: string;
+  provider?: Provider;
+  onTitleUpdated?: (title: string) => void;
+  signal?: AbortSignal;
+}
+
+/**
+ * Re-generate a conversation title using the last 3 stored messages.
+ * Only fires when the current title was auto-generated (isAutoTitle = 1).
+ * Skips if the user has manually renamed the conversation.
+ */
+export async function regenerateConversationTitle(
+  params: RegenerateTitleParams,
+): Promise<{ title: string; updated: boolean }> {
+  const { conversationId, onTitleUpdated, signal } = params;
+
+  const conversation = conversationStore.getConversation(conversationId);
+  if (!conversation || !conversation.isAutoTitle) {
+    return { title: conversation?.title ?? UNTITLED_FALLBACK, updated: false };
+  }
+
+  const provider = params.provider ?? getConfiguredProvider();
+  if (!provider) {
+    return { title: conversation.title ?? UNTITLED_FALLBACK, updated: false };
+  }
+
+  const allMessages = conversationStore.getMessages(conversationId);
+  const recentMessages = allMessages.slice(-3);
+  if (recentMessages.length === 0) {
+    return { title: conversation.title ?? UNTITLED_FALLBACK, updated: false };
+  }
+
+  const prompt = buildRegenerationPrompt(recentMessages);
+  const config = getConfig();
+  const timeoutSignal = AbortSignal.timeout(10_000);
+  const combinedSignal = signal
+    ? AbortSignal.any([signal, timeoutSignal])
+    : timeoutSignal;
+
+  const response = await provider.sendMessage(
+    [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
+    [],
+    undefined,
+    { config: { max_tokens: config.daemon.titleGenerationMaxTokens }, signal: combinedSignal },
+  );
+
+  const textBlock = response.content.find((b) => b.type === 'text');
+  if (textBlock && textBlock.type === 'text') {
+    let title = normalizeTitle(textBlock.text);
+    if (!title) {
+      return { title: conversation.title ?? UNTITLED_FALLBACK, updated: false };
+    }
+
+    // Re-check isAutoTitle before persisting (race guard against manual rename)
+    const current = conversationStore.getConversation(conversationId);
+    if (!current || !current.isAutoTitle) {
+      return { title: current?.title ?? UNTITLED_FALLBACK, updated: false };
+    }
+
+    conversationStore.updateConversationTitle(conversationId, title, 1);
+    onTitleUpdated?.(title);
+    log.info({ conversationId, title }, 'Re-generated conversation title (second pass)');
+    return { title, updated: true };
+  }
+
+  return { title: conversation.title ?? UNTITLED_FALLBACK, updated: false };
+}
+
+/**
+ * Fire-and-forget wrapper for title regeneration.
+ */
+export function queueRegenerateConversationTitle(
+  params: RegenerateTitleParams,
+): void {
+  regenerateConversationTitle(params).catch((err) => {
+    log.warn(
+      { err, conversationId: params.conversationId },
+      'Failed to regenerate conversation title (non-fatal)',
+    );
   });
 }
 
@@ -228,4 +314,19 @@ function deriveFallbackTitle(context?: TitleContext): string | null {
   if (context.systemHint) return truncate(context.systemHint, 40, '');
   if (context.uxBrief) return truncate(context.uxBrief, 40, '');
   return null;
+}
+
+function buildRegenerationPrompt(recentMessages: MessageRow[]): string {
+  const parts: string[] = [
+    'Generate a very short title for this conversation based on the recent messages below. Rules: at most 5 words, at most 40 characters, no quotes.',
+    '',
+    'Recent messages:',
+  ];
+
+  for (const msg of recentMessages) {
+    const role = msg.role === 'user' ? 'User' : 'Assistant';
+    parts.push(`${role}: ${truncate(msg.content, 200, '')}`);
+  }
+
+  return parts.join('\n');
 }

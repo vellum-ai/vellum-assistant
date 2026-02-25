@@ -367,7 +367,7 @@ export function handleSessionRename(
     ctx.send(socket, { type: 'error', message: `Session ${msg.sessionId} not found` });
     return;
   }
-  conversationStore.updateConversationTitle(msg.sessionId, msg.title);
+  conversationStore.updateConversationTitle(msg.sessionId, msg.title, 0);
   ctx.send(socket, {
     type: 'session_title_updated',
     sessionId: msg.sessionId,

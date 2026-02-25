@@ -73,6 +73,7 @@ export interface ConversationRow {
   source: string;
   memoryScopeId: string;
   originChannel: string | null;
+  isAutoTitle: number;
 }
 
 const parseConversation = createRowMapper<typeof conversations.$inferSelect, ConversationRow>({
@@ -90,6 +91,7 @@ const parseConversation = createRowMapper<typeof conversations.$inferSelect, Con
   source: 'source',
   memoryScopeId: 'memoryScopeId',
   originChannel: 'originChannel',
+  isAutoTitle: 'isAutoTitle',
 });
 
 export interface MessageRow {
@@ -312,10 +314,12 @@ export function getMessages(conversationId: string): MessageRow[] {
     .map(parseMessage);
 }
 
-export function updateConversationTitle(id: string, title: string): void {
+export function updateConversationTitle(id: string, title: string, isAutoTitle?: number): void {
   const db = getDb();
+  const set: Record<string, unknown> = { title, updatedAt: Date.now() };
+  if (isAutoTitle !== undefined) set.isAutoTitle = isAutoTitle;
   db.update(conversations)
-    .set({ title, updatedAt: Date.now() })
+    .set(set)
     .where(eq(conversations.id, id))
     .run();
 }
