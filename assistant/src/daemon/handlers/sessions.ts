@@ -137,7 +137,9 @@ export async function handleUserMessage(
       assistantMessageChannel: ipcChannel,
     });
     session.setAssistantId('self');
-    session.setGuardianContext(null);
+    // IPC/desktop user IS the guardian — default to guardian role so messages
+    // are not tagged 'unverified_channel' (which blocks memory extraction).
+    session.setGuardianContext({ actorRole: 'guardian', sourceChannel: ipcChannel });
     session.setCommandIntent(null);
     // Fire-and-forget: don't block the IPC handler so the connection can
     // continue receiving messages (e.g. cancel, confirmations, or

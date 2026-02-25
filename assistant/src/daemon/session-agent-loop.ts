@@ -236,6 +236,7 @@ export async function runAgentLoopImpl(
         conflictGate: ctx.conflictGate,
         scopeId: ctx.memoryPolicy.scopeId,
         includeDefaultFallback: ctx.memoryPolicy.includeDefaultFallback,
+        guardianActorRole: ctx.guardianContext?.actorRole,
       },
       content,
       userMessageId,

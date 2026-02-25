@@ -4524,4 +4524,193 @@ describe('Memory regressions', () => {
       .all();
     expect(segments.length).toBeGreaterThan(0);
   });
+
+  // ── Trust-aware extraction gating tests (M3) ───────────────────────
+
+  test('untrusted actor messages do not enqueue extract_items', () => {
+    const db = getDb();
+    const now = Date.now();
+    db.insert(conversations).values({
+      id: 'conv-untrusted-gate',
+      title: null,
+      createdAt: now,
+      updatedAt: now,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      contextCompactedAt: null,
+    }).run();
+    db.insert(messages).values({
+      id: 'msg-untrusted-gate',
+      conversationId: 'conv-untrusted-gate',
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'Untrusted user preference for dark mode.' }]),
+      createdAt: now,
+    }).run();
+
+    const result = indexMessageNow({
+      messageId: 'msg-untrusted-gate',
+      conversationId: 'conv-untrusted-gate',
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'Untrusted user preference for dark mode.' }]),
+      createdAt: now,
+      provenanceActorRole: 'non-guardian',
+    }, DEFAULT_CONFIG.memory);
+
+    expect(result.indexedSegments).toBeGreaterThan(0);
+
+    // No extract_items or resolve_conflicts jobs should be enqueued
+    const extractJobs = db.select().from(memoryJobs)
+      .where(
+        and(
+          eq(memoryJobs.type, 'extract_items'),
+        ),
+      )
+      .all()
+      .filter(j => JSON.parse(j.payload).messageId === 'msg-untrusted-gate');
+    expect(extractJobs.length).toBe(0);
+
+    // enqueuedJobs should reflect: embed jobs + summary (1), no extract (0), no conflict (0)
+    const expectedJobs = result.indexedSegments + 1; // embed per segment + summary
+    expect(result.enqueuedJobs).toBe(expectedJobs);
+  });
+
+  test('trusted guardian messages still enqueue extraction', () => {
+    const db = getDb();
+    const now = Date.now();
+    db.insert(conversations).values({
+      id: 'conv-trusted-gate',
+      title: null,
+      createdAt: now,
+      updatedAt: now,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      contextCompactedAt: null,
+    }).run();
+    db.insert(messages).values({
+      id: 'msg-trusted-gate',
+      conversationId: 'conv-trusted-gate',
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'Trusted guardian preference for light mode.' }]),
+      createdAt: now,
+    }).run();
+
+    const result = indexMessageNow({
+      messageId: 'msg-trusted-gate',
+      conversationId: 'conv-trusted-gate',
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'Trusted guardian preference for light mode.' }]),
+      createdAt: now,
+      provenanceActorRole: 'guardian',
+    }, DEFAULT_CONFIG.memory);
+
+    expect(result.indexedSegments).toBeGreaterThan(0);
+
+    // extract_items job should be enqueued for trusted guardian
+    const extractJobs = db.select().from(memoryJobs)
+      .where(eq(memoryJobs.type, 'extract_items'))
+      .all()
+      .filter(j => JSON.parse(j.payload).messageId === 'msg-trusted-gate');
+    expect(extractJobs.length).toBe(1);
+
+    // enqueuedJobs: embed per segment + extract_items (counts as 2: extract + summary) + conflict
+    // For user role: shouldExtract=true, shouldResolveConflicts=true (if enabled)
+    expect(result.enqueuedJobs).toBeGreaterThan(result.indexedSegments + 1);
+  });
+
+  test('legacy messages without provenance still enqueue extraction', () => {
+    const db = getDb();
+    const now = Date.now();
+    db.insert(conversations).values({
+      id: 'conv-legacy-gate',
+      title: null,
+      createdAt: now,
+      updatedAt: now,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      contextCompactedAt: null,
+    }).run();
+    db.insert(messages).values({
+      id: 'msg-legacy-gate',
+      conversationId: 'conv-legacy-gate',
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'Legacy message with no provenance info.' }]),
+      createdAt: now,
+    }).run();
+
+    const result = indexMessageNow({
+      messageId: 'msg-legacy-gate',
+      conversationId: 'conv-legacy-gate',
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'Legacy message with no provenance info.' }]),
+      createdAt: now,
+      // provenanceActorRole is intentionally omitted (undefined) for backwards compat
+    }, DEFAULT_CONFIG.memory);
+
+    expect(result.indexedSegments).toBeGreaterThan(0);
+
+    // extract_items job should still be enqueued for legacy messages (backwards compat)
+    const extractJobs = db.select().from(memoryJobs)
+      .where(eq(memoryJobs.type, 'extract_items'))
+      .all()
+      .filter(j => JSON.parse(j.payload).messageId === 'msg-legacy-gate');
+    expect(extractJobs.length).toBe(1);
+
+    // enqueuedJobs should include extraction jobs
+    expect(result.enqueuedJobs).toBeGreaterThan(result.indexedSegments + 1);
+  });
+
+  test('unverified_channel messages do not enqueue extract_items', () => {
+    const db = getDb();
+    const now = Date.now();
+    db.insert(conversations).values({
+      id: 'conv-unverified-gate',
+      title: null,
+      createdAt: now,
+      updatedAt: now,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      contextCompactedAt: null,
+    }).run();
+    db.insert(messages).values({
+      id: 'msg-unverified-gate',
+      conversationId: 'conv-unverified-gate',
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'Unverified channel preference for compact layout.' }]),
+      createdAt: now,
+    }).run();
+
+    const result = indexMessageNow({
+      messageId: 'msg-unverified-gate',
+      conversationId: 'conv-unverified-gate',
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'Unverified channel preference for compact layout.' }]),
+      createdAt: now,
+      provenanceActorRole: 'unverified_channel',
+    }, DEFAULT_CONFIG.memory);
+
+    expect(result.indexedSegments).toBeGreaterThan(0);
+
+    // No extract_items jobs should be enqueued for unverified channel
+    const extractJobs = db.select().from(memoryJobs)
+      .where(eq(memoryJobs.type, 'extract_items'))
+      .all()
+      .filter(j => JSON.parse(j.payload).messageId === 'msg-unverified-gate');
+    expect(extractJobs.length).toBe(0);
+
+    // enqueuedJobs should reflect: embed jobs + summary (1), no extract (0), no conflict (0)
+    const expectedJobs = result.indexedSegments + 1; // embed per segment + summary
+    expect(result.enqueuedJobs).toBe(expectedJobs);
+  });
 });
