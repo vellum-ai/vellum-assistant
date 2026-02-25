@@ -179,7 +179,7 @@ function validateExtractionOutput(input: Record<string, unknown>): ExtractionRes
   const preferences: ExtractedPreference[] = [];
 
   for (const raw of input.preferences) {
-    if (typeof raw !== 'object' || raw === null) continue;
+    if (typeof raw !== 'object' || !raw) continue;
     const p = raw as Record<string, unknown>;
 
     if (typeof p.preferenceText !== 'string' || !p.preferenceText.trim()) continue;

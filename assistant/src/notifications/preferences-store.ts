@@ -7,7 +7,7 @@
  * resolution.
  */
 
-import { and, desc, eq } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb } from '../memory/db.js';
 import { notificationPreferences } from '../memory/schema.js';
