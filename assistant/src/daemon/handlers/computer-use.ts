@@ -209,6 +209,22 @@ export function handleRecordingStatus(
         return;
       }
 
+      // Find the latest assistant message BEFORE creating the attachment to
+      // avoid orphaned attachment rows when no message exists to link to.
+      const conversationId = msg.sessionId;
+      const db = getDb();
+      const latestAssistantMsg = db
+        .select({ id: messages.id })
+        .from(messages)
+        .where(and(eq(messages.conversationId, conversationId), eq(messages.role, 'assistant')))
+        .orderBy(desc(messages.createdAt))
+        .get();
+
+      if (!latestAssistantMsg) {
+        log.warn({ sessionId: msg.sessionId }, 'No assistant message found in session to link recording attachment — skipping attachment creation');
+        return;
+      }
+
       const stat = statSync(msg.filePath);
       const sizeBytes = stat.size;
       const filename = basename(msg.filePath);
@@ -220,23 +236,8 @@ export function handleRecordingStatus(
       const attachment = uploadFileBackedAttachment(filename, mimeType, msg.filePath, sizeBytes);
       log.info({ sessionId: msg.sessionId, attachmentId: attachment.id, sizeBytes, filePath: msg.filePath }, 'Created file-backed attachment for recording');
 
-      // The CU session uses sessionId as the conversationId in the agent loop.
-      // Find the latest assistant message in that conversation to link the attachment.
-      const conversationId = msg.sessionId;
-      const db = getDb();
-      const latestAssistantMsg = db
-        .select({ id: messages.id })
-        .from(messages)
-        .where(and(eq(messages.conversationId, conversationId), eq(messages.role, 'assistant')))
-        .orderBy(desc(messages.createdAt))
-        .get();
-
-      if (latestAssistantMsg) {
-        linkAttachmentToMessage(latestAssistantMsg.id, attachment.id, 0);
-        log.info({ sessionId: msg.sessionId, messageId: latestAssistantMsg.id, attachmentId: attachment.id }, 'Linked recording attachment to assistant message');
-      } else {
-        log.warn({ sessionId: msg.sessionId }, 'No assistant message found in session to link recording attachment');
-      }
+      linkAttachmentToMessage(latestAssistantMsg.id, attachment.id, 0);
+      log.info({ sessionId: msg.sessionId, messageId: latestAssistantMsg.id, attachmentId: attachment.id }, 'Linked recording attachment to assistant message');
     } catch (err) {
       log.error({ err, sessionId: msg.sessionId, filePath: msg.filePath }, 'Failed to create attachment for recording');
     }
