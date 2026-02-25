@@ -78,3 +78,6 @@ next-env.d.ts
 
 # MCP config
 .mcp.json
+
+# bun build artifacts
+*.bun-build
