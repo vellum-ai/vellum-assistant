@@ -479,7 +479,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                     transitionBootstrap(to: .pendingWakeupSend)
                     dismissBootstrapInterstitialWindow()
                     await performRetriableWakeUpSend()
-                    bootstrapRetryTask = nil
+                    // Only nil out if we're still the active task (no new coordinator was started)
+                    if !Task.isCancelled {
+                        bootstrapRetryTask = nil
+                    }
                     return
                 }
 
@@ -497,7 +500,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                     transitionBootstrap(to: .pendingWakeupSend)
                     dismissBootstrapInterstitialWindow()
                     await performRetriableWakeUpSend()
-                    bootstrapRetryTask = nil
+                    // Only nil out if we're still the active task (no new coordinator was started)
+                    if !Task.isCancelled {
+                        bootstrapRetryTask = nil
+                    }
                     return
                 }
 
