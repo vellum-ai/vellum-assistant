@@ -508,7 +508,9 @@ describe('credential_store tool — oauth2_connect error paths', () => {
 
     // Should pass client_id and client_secret checks — the flow proceeds
     // through the channel path (gmail uses loopback transport so no
-    // public ingress URL is needed).
+    // public ingress URL is needed) and returns the authorization URL.
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('To connect gmail, open this link');
     expect(result.content).not.toContain('client_id is required');
     expect(result.content).not.toContain('client_secret is required');
   });
