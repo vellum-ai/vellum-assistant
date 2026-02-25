@@ -78,6 +78,8 @@ export type GatewayConfig = {
   whatsappTimeoutMs: number;
   whatsappMaxRetries: number;
   whatsappInitialBackoffMs: number;
+  /** When true, trust X-Forwarded-For for client IP resolution (set when behind a reverse proxy). */
+  trustProxy: boolean;
 };
 
 function parseRoutingJson(raw: string): RoutingEntry[] {
@@ -371,6 +373,14 @@ export function loadConfig(): GatewayConfig {
     }
   }
 
+  const trustProxyRaw = process.env.GATEWAY_TRUST_PROXY;
+  if (trustProxyRaw !== undefined && trustProxyRaw !== "true" && trustProxyRaw !== "false") {
+    throw new Error(
+      `GATEWAY_TRUST_PROXY must be "true" or "false", got "${trustProxyRaw}"`,
+    );
+  }
+  const trustProxy = trustProxyRaw === "true";
+
   const ingressPublicBaseUrl = process.env.INGRESS_PUBLIC_BASE_URL || undefined;
 
   // Assistant email from workspace config file
@@ -421,6 +431,7 @@ export function loadConfig(): GatewayConfig {
       hasWhatsAppAppSecret: !!whatsappAppSecret,
       hasWhatsAppWebhookVerifyToken: !!whatsappWebhookVerifyToken,
       whatsappDeliverAuthBypass,
+      trustProxy,
     },
     "Configuration loaded",
   );
@@ -467,5 +478,6 @@ export function loadConfig(): GatewayConfig {
     whatsappTimeoutMs,
     whatsappMaxRetries,
     whatsappInitialBackoffMs,
+    trustProxy,
   };
 }
