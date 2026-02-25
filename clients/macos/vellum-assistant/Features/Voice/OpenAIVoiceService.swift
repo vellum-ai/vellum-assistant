@@ -8,6 +8,7 @@ private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "Op
 enum VoiceServiceError: Error, LocalizedError {
     case speechRecognitionUnavailable
     case notAuthorized
+    case noAPIKey
     case invalidResponse
     case apiError(statusCode: Int, message: String)
     case noAudioData
@@ -17,6 +18,7 @@ enum VoiceServiceError: Error, LocalizedError {
         switch self {
         case .speechRecognitionUnavailable: return "Speech recognition unavailable"
         case .notAuthorized: return "Speech recognition not authorized"
+        case .noAPIKey: return "API key not configured"
         case .invalidResponse: return "Invalid API response"
         case .apiError(let code, let msg): return "API error (\(code)): \(msg)"
         case .noAudioData: return "No audio data recorded"
@@ -474,7 +476,7 @@ final class OpenAIVoiceService: ObservableObject {
     /// Call ElevenLabs REST API to convert text to speech. Returns MP3 audio data.
     private func fetchElevenLabsTTS(text: String) async throws -> Data {
         guard let elevenLabsKey else {
-            throw VoiceServiceError.noAudioData
+            throw VoiceServiceError.noAPIKey
         }
 
         let voiceId = Self.elevenLabsVoiceId

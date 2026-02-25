@@ -30,6 +30,8 @@ final class VoiceModeManager: ObservableObject {
     private weak var settingsStore: SettingsStore?
     private var previousOnVoiceResponseComplete: ((String) -> Void)?
     private var previousOnVoiceTextDelta: ((String) -> Void)?
+    /// Guards against async auth callback activating after the panel is closed.
+    private var awaitingAuthorization = false
     /// Safety timeout to recover from stuck TTS.
     private var ttsTimeoutTask: Task<Void, Never>?
     /// Timer that fires when the conversation has been idle too long.
@@ -67,8 +69,10 @@ final class VoiceModeManager: ObservableObject {
 
         guard OpenAIVoiceService.isSpeechRecognitionAuthorized() else {
             log.error("Voice mode: speech recognition not authorized")
+            awaitingAuthorization = true
             OpenAIVoiceService.requestSpeechRecognitionAuthorization { [weak self] authorized in
-                guard let self else { return }
+                guard let self, self.awaitingAuthorization else { return }
+                self.awaitingAuthorization = false
                 if authorized {
                     log.info("Speech recognition authorized — retrying activation")
                     self.activate(chatViewModel: chatViewModel, settingsStore: settingsStore)
@@ -80,6 +84,7 @@ final class VoiceModeManager: ObservableObject {
             return
         }
 
+        awaitingAuthorization = false
         self.chatViewModel = chatViewModel
         self.settingsStore = settingsStore
 
@@ -131,6 +136,7 @@ final class VoiceModeManager: ObservableObject {
     }
 
     func deactivate() {
+        awaitingAuthorization = false
         guard state != .off else { return }
 
         // Cancel conversation timeout before setting state to .off
