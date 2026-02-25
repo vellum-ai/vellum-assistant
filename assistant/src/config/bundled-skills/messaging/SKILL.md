@@ -208,6 +208,28 @@ Medium and high risk tools require a confidence score between 0 and 1:
 
 Use `messaging_analyze_activity` to classify channels or conversations by activity level (high, medium, low, dead). Useful for decluttering — suggest leaving dead channels or archiving old emails.
 
+## Newsletter Decluttering
+
+Use `gmail_sender_digest` to help users identify and clean up high-volume senders like newsletters, marketing emails, and automated notifications.
+
+### Workflow
+
+1. **Scan**: Call `gmail_sender_digest` (default query targets emails with unsubscribe headers from the last 90 days)
+2. **Present**: Show results as a `ui_show` table with `selectionMode: "multiple"`:
+   - Columns: Sender, Email Count, Unsubscribable, Date Range, Sample Subject
+   - Action buttons: "Archive & Unsubscribe" (primary), "Archive Only" (secondary)
+3. **Act on selection**: For each selected sender:
+   - Call `gmail_batch_archive` with the sender's `message_ids`
+   - If `has_more` is true, use the sender's `search_query` to find and archive remaining messages
+   - If the action is "Archive & Unsubscribe" and `has_unsubscribe` is true, call `gmail_unsubscribe` with the sender's `newest_message_id`
+4. **Report**: Summarize results — e.g. "Archived 247 messages from 8 senders. Unsubscribed from 6."
+
+### Edge Cases
+
+- **Zero results**: Tell the user "No newsletter emails found" and suggest broadening the query (e.g. removing `has:unsubscribe` or extending the date range)
+- **Unsubscribe failures**: Report per-sender success/failure; the existing `gmail_unsubscribe` tool handles edge cases
+- **Large sender counts**: The `has_more` flag indicates a sender had more messages than collected — use `search_query` for follow-up archiving
+
 ## Batch Operations
 
 - Gmail batch tools (`gmail_batch_archive`, `gmail_batch_label`) accept arrays of message IDs.
