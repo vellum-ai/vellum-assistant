@@ -118,6 +118,7 @@ export interface AgentLoopSessionContext {
   lastAttachmentWarnings: string[];
 
   hasNoClient: boolean;
+  headlessLock?: boolean;
   readonly streamThinking: boolean;
   readonly prompter: PermissionPrompter;
   readonly queue: MessageQueue;
@@ -142,7 +143,7 @@ export async function runAgentLoopImpl(
   content: string,
   userMessageId: string,
   onEvent: (msg: ServerMessage) => void,
-  options?: { skipPreMessageRollback?: boolean },
+  options?: { skipPreMessageRollback?: boolean; isInteractive?: boolean },
 ): Promise<void> {
   if (!ctx.abortController) {
     throw new Error('runAgentLoop called without prior persistUserMessage');
@@ -253,7 +254,7 @@ export async function runAgentLoopImpl(
         scopeId: ctx.memoryPolicy.scopeId,
         includeDefaultFallback: ctx.memoryPolicy.includeDefaultFallback,
         guardianActorRole: ctx.guardianContext?.actorRole,
-        isInteractive: !ctx.hasNoClient,
+        isInteractive: options?.isInteractive ?? (!ctx.hasNoClient && !ctx.headlessLock),
       },
       content,
       userMessageId,

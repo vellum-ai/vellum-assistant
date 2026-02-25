@@ -755,7 +755,7 @@ export class DaemonServer {
     const requestId = crypto.randomUUID();
     const messageId = session.persistUserMessage(content, attachments, requestId);
 
-    session.runAgentLoop(content, messageId, () => {}).catch((err) => {
+    session.runAgentLoop(content, messageId, () => {}, { isInteractive: false }).catch((err) => {
       log.error({ err, conversationId }, 'Background agent loop failed');
     });
 
@@ -839,7 +839,7 @@ export class DaemonServer {
       throw err;
     }
 
-    await session.runAgentLoop(resolvedContent, messageId, () => {});
+    await session.runAgentLoop(resolvedContent, messageId, () => {}, { isInteractive: false });
 
     return { messageId };
   }

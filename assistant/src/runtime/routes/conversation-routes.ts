@@ -335,8 +335,9 @@ export async function handleSendMessage(
     const requestId = crypto.randomUUID();
     const messageId = session.persistUserMessage(content ?? '', attachments, requestId);
 
-    // Fire-and-forget the agent loop; events flow to the hub via onEvent
-    session.runAgentLoop(content ?? '', messageId, onEvent).catch((err) => {
+    // Fire-and-forget the agent loop; events flow to the hub via onEvent.
+    // Mark non-interactive so conflict clarification doesn't block the turn.
+    session.runAgentLoop(content ?? '', messageId, onEvent, { isInteractive: false }).catch((err) => {
       log.error({ err, conversationId: mapping.conversationId }, 'Agent loop failed (POST /messages)');
     });
 
