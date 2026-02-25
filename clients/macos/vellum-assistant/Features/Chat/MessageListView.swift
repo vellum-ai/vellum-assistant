@@ -344,12 +344,21 @@ struct MessageListView: View {
             }
             .onChange(of: streamingScrollTrigger) {
                 if isNearBottom {
-                    scrollDebounceTask?.cancel()
-                    scrollDebounceTask = Task {
-                        try? await Task.sleep(nanoseconds: 200_000_000)
-                        guard !Task.isCancelled else { return }
-                        withAnimation(VAnimation.fast) {
-                            proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                    // Throttle pattern: fire immediately then suppress for 200ms.
+                    // Unlike debounce (cancel+recreate), this guarantees scrolls
+                    // execute during active streaming, not only after the last token.
+                    if scrollDebounceTask == nil {
+                        scrollDebounceTask = Task {
+                            // Re-check after the sleep — user may have scrolled away.
+                            guard isNearBottom else {
+                                scrollDebounceTask = nil
+                                return
+                            }
+                            withAnimation(VAnimation.fast) {
+                                proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                            }
+                            try? await Task.sleep(nanoseconds: 200_000_000)
+                            scrollDebounceTask = nil
                         }
                     }
                 }
