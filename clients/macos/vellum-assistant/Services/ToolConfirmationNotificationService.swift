@@ -141,7 +141,7 @@ public final class ToolConfirmationNotificationService {
 
     private func commandPreview(toolName: String, input: [String: AnyCodable]) -> String {
         switch toolName {
-        case "bash":
+        case "bash", "host_bash":
             return (input["command"]?.value as? String) ?? ""
         case "file_read":
             return "read \((input["path"]?.value as? String) ?? "")"

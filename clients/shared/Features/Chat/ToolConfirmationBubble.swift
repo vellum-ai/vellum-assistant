@@ -21,6 +21,7 @@ public struct ToolConfirmationBubble: View {
     @State private var showScopePickerMenu = false
     @State private var keyboardModel: ToolConfirmationKeyboardModel?
     @State private var popoverKeyboardModel: ToolConfirmationPopoverKeyboardModel?
+    @AppStorage("hasSeenCommandExplanation") private var hasSeenCommandExplanation = false
     #if os(macOS)
     @State private var keyMonitor: Any?
     #endif
@@ -39,6 +40,10 @@ public struct ToolConfirmationBubble: View {
 
     private var needsScopeChoice: Bool {
         !confirmation.scopeOptions.isEmpty
+    }
+
+    private var isCommandTool: Bool {
+        confirmation.toolName == "bash" || confirmation.toolName == "host_bash"
     }
 
     private var isDecided: Bool {
@@ -167,12 +172,47 @@ public struct ToolConfirmationBubble: View {
     // MARK: - Tool Permission (pending)
 
     @ViewBuilder
+    private var commandExplanationBanner: some View {
+        HStack(alignment: .top, spacing: VSpacing.sm) {
+            Image(systemName: "info.circle.fill")
+                .font(.system(size: 14))
+                .foregroundColor(VColor.accent)
+                .padding(.top, 1)
+
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("What is this?")
+                    .font(VFont.captionMedium)
+                    .foregroundColor(VColor.textPrimary)
+
+                Text("Sometimes your assistant needs to run commands on your computer to complete tasks \u{2014} like installing software, checking settings, or organizing files. You\u{2019}ll always be asked for permission first, and nothing runs without your approval.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(VSpacing.sm)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.sm)
+                .fill(VColor.accent.opacity(0.08))
+        )
+        .onDisappear {
+            hasSeenCommandExplanation = true
+        }
+    }
+
+    @ViewBuilder
     private var pendingContent: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             // Bold non-technical question
             Text(confirmation.humanDescription)
                 .font(VFont.bodyBold)
                 .foregroundColor(VColor.textPrimary)
+
+            // First-time educational banner for command confirmations
+            if isCommandTool && !hasSeenCommandExplanation {
+                commandExplanationBanner
+            }
 
             // Action buttons at top
             buttonRow

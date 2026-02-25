@@ -65,7 +65,8 @@ class ShellTool implements Tool {
           },
           reason: {
             type: 'string',
-            description: 'Brief human-readable explanation of what this command does and why, shown to the user in the permission prompt (e.g. "to find available location services")',
+            description:
+              'Brief non-technical explanation of what this command does and why, shown to a non-technical user in the permission prompt. Avoid jargon and technical terms. Good: "to check if a required program is installed on your computer". Bad: "to check if gcloud CLI is installed". Good: "to download a helper program". Bad: "to run npm install".',
           },
           timeout_seconds: {
             type: 'number',
