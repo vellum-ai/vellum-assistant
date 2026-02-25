@@ -8,6 +8,7 @@
  *   config-scheduling.ts  — Schedules & reminders
  *   config-slack.ts       — Slack webhook sharing
  *   config-ingress.ts     — Public ingress URL & gateway reconciliation
+ *   config-platform.ts    — Platform base URL configuration
  *   config-integrations.ts — Vercel API & Twitter integration
  *   config-telegram.ts    — Telegram bot configuration
  *   config-twilio.ts      — Twilio SMS/voice configuration
@@ -22,6 +23,7 @@ export { handleAddTrustRule, handleTrustRulesList, handleRemoveTrustRule, handle
 export { handleSchedulesList, handleScheduleToggle, handleScheduleRemove, handleScheduleRunNow, handleRemindersList, handleReminderCancel } from './config-scheduling.js';
 export { handleShareToSlack, handleSlackWebhookConfig } from './config-slack.js';
 export { handleIngressConfig, computeGatewayTarget, triggerGatewayReconcile, syncTwilioWebhooks } from './config-ingress.js';
+export { handlePlatformConfig } from './config-platform.js';
 export { handleVercelApiConfig, handleTwitterIntegrationConfig } from './config-integrations.js';
 export { handleTelegramConfig, summarizeTelegramError } from './config-telegram.js';
 export { handleTwilioConfig } from './config-twilio.js';
@@ -35,6 +37,7 @@ import { trustHandlers } from './config-trust.js';
 import { schedulingHandlers } from './config-scheduling.js';
 import { slackHandlers } from './config-slack.js';
 import { ingressHandlers } from './config-ingress.js';
+import { platformHandlers } from './config-platform.js';
 import { integrationHandlers } from './config-integrations.js';
 import { telegramHandlers } from './config-telegram.js';
 import { twilioHandlers } from './config-twilio.js';
@@ -48,6 +51,7 @@ export const configHandlers = {
   ...schedulingHandlers,
   ...slackHandlers,
   ...ingressHandlers,
+  ...platformHandlers,
   ...integrationHandlers,
   ...telegramHandlers,
   ...twilioHandlers,

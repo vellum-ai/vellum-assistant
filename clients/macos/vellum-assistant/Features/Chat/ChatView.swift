@@ -21,7 +21,7 @@ struct ChatView: View {
     let isRetryableError: Bool
     let onRetryError: () -> Void
     let isConnectionError: Bool
-    let onOpenDoctor: () -> Void
+    var hasRetryPayload: Bool = true
     let isSecretBlockError: Bool
     let onSendAnyway: () -> Void
     let onAcceptSuggestion: () -> Void
@@ -62,27 +62,10 @@ struct ChatView: View {
     var memoryDegradedReason: String? = nil
     var connectionDiagnosticHint: String? = nil
 
-    /// Triggers auto-scroll when the last message's text length changes (e.g. during streaming).
-    /// Sums utf8.count over each segment (O(1) per contiguous segment) instead of joining first,
-    /// which would allocate a new String and re-scan O(n) bytes every delta.
-    /// Uses total message text length (monotonically increasing) rather than the last segment's
-    /// length, which resets when a new text segment starts after a tool call.
-    private var streamingScrollTrigger: Int {
-        // Use last non-queued message so streaming deltas still trigger
-        // auto-scroll even when queued user messages sit at the array tail.
-        let last = messages.last(where: { if case .queued = $0.status { return false }; return true })
-        let textLen = last?.textSegments.reduce(0) { $0 + $1.utf8.count } ?? 0
-        return textLen + (last?.toolCalls.count ?? 0) + (last?.inlineSurfaces.count ?? 0)
-    }
-
     @State private var isNearBottom = true
     @State private var isDropTargeted = false
     @State private var editorContentHeight: CGFloat = 20
     @State private var isComposerExpanded = false
-    @State private var identity: IdentityInfo? = IdentityInfo.load()
-    @State private var appearance = AvatarAppearanceManager.shared
-    @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
-    @AppStorage("completedConversationCount") private var completedConversationCount: Int = 0
 
     private var isEmptyState: Bool {
         messages.isEmpty && isHistoryLoaded
@@ -90,11 +73,30 @@ struct ChatView: View {
 
     private let composerMinHeight: CGFloat = 34
 
+    /// Height reserved at the bottom of the scroll view so the last message isn't hidden behind the composer.
+    private var composerReservedHeight: CGFloat {
+        let editorClamped = min(max(editorContentHeight, 34), 200)
+        let contentHeight = max(editorClamped, 34)
+        let expanded = isComposerExpanded
+        let topPad: CGFloat = expanded ? VSpacing.md : VSpacing.sm
+        let bottomPad: CGFloat = expanded ? VSpacing.sm : VSpacing.sm
+        let buttonRow: CGFloat = expanded ? 34 + VSpacing.xs : 0
+        let base: CGFloat = VSpacing.sm + topPad + bottomPad + contentHeight + buttonRow
+        let attachments: CGFloat = pendingAttachments.isEmpty ? 0 : 48
+        let error: CGFloat = (sessionError == nil && errorText != nil) ? 36 : 0
+        let sessionErrorToast: CGFloat = sessionError != nil ? 52 : 0
+        return base + attachments + error + sessionErrorToast
+    }
+
     var body: some View {
         ZStack {
             VStack(spacing: 0) {
-                apiKeyBanner
-                memoryDegradedBanner
+                if !hasAPIKey {
+                    APIKeyBanner(onOpenSettings: onOpenSettings)
+                }
+                if isMemoryDegraded {
+                    MemoryDegradedBanner(reason: memoryDegradedReason)
+                }
                 if messages.isEmpty && !isHistoryLoaded {
                     Spacer()
                     HStack {
@@ -150,13 +152,69 @@ struct ChatView: View {
                     }
                 } else {
                     ZStack(alignment: .bottom) {
-                        messageList
-                            .safeAreaInset(edge: .bottom) {
-                                Color.clear.frame(height: composerReservedHeight)
-                                    .animation(VAnimation.fast, value: editorContentHeight)
-                            }
+                        MessageListView(
+                            messages: messages,
+                            isSending: isSending,
+                            isThinking: isThinking,
+                            selectedModel: selectedModel,
+                            configuredProviders: configuredProviders,
+                            activeSubagents: activeSubagents,
+                            dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
+                            onConfirmationAllow: onConfirmationAllow,
+                            onConfirmationDeny: onConfirmationDeny,
+                            onAlwaysAllow: onAlwaysAllow,
+                            onSurfaceAction: onSurfaceAction,
+                            onDismissDocumentWidget: onDismissDocumentWidget,
+                            onReportMessage: onReportMessage,
+                            mediaEmbedSettings: mediaEmbedSettings,
+                            daemonHttpPort: daemonHttpPort,
+                            onModelPickerSelect: onModelPickerSelect,
+                            onAbortSubagent: onAbortSubagent,
+                            onSubagentTap: onSubagentTap,
+                            subagentDetailStore: subagentDetailStore,
+                            isNearBottom: $isNearBottom
+                        )
+                        .safeAreaInset(edge: .bottom) {
+                            Color.clear.frame(height: composerReservedHeight)
+                                .animation(VAnimation.fast, value: editorContentHeight)
+                        }
 
-                        composerOverlay
+                        ComposerSection(
+                            inputText: $inputText,
+                            hasAPIKey: hasAPIKey,
+                            isSending: isSending,
+                            isRecording: isRecording,
+                            suggestion: suggestion,
+                            pendingAttachments: pendingAttachments,
+                            isLoadingAttachment: isLoadingAttachment,
+                            errorText: errorText,
+                            sessionError: sessionError,
+                            isSecretBlockError: isSecretBlockError,
+                            onSendAnyway: onSendAnyway,
+                            isRetryableError: isRetryableError,
+                            onRetryError: onRetryError,
+                            isConnectionError: isConnectionError,
+                            hasRetryPayload: hasRetryPayload,
+                            connectionDiagnosticHint: connectionDiagnosticHint,
+                            onSend: onSend,
+                            onStop: onStop,
+                            onAcceptSuggestion: onAcceptSuggestion,
+                            onAttach: onAttach,
+                            onRemoveAttachment: onRemoveAttachment,
+                            onPaste: onPaste,
+                            onMicrophoneToggle: onMicrophoneToggle,
+                            onDismissError: onDismissError,
+                            onRetrySessionError: onRetry,
+                            onCopyDebugInfo: onCopyDebugInfo,
+                            onDismissSessionError: onDismissSessionError,
+                            watchSession: watchSession,
+                            onStopWatch: onStopWatch,
+                            isLearnMode: isLearnMode,
+                            networkEntryCount: networkEntryCount,
+                            idleHint: idleHint,
+                            editorContentHeight: $editorContentHeight,
+                            isComposerExpanded: $isComposerExpanded
+                        )
                     }
                 }
             }
@@ -199,93 +257,6 @@ struct ChatView: View {
         }
     }
 
-    /// Height reserved at the bottom of the scroll view so the last message isn't hidden behind the composer.
-    private var composerReservedHeight: CGFloat {
-        let editorClamped = min(max(editorContentHeight, 34), 200)
-        let contentHeight = max(editorClamped, 34)
-        let expanded = isComposerExpanded
-        let topPad: CGFloat = expanded ? VSpacing.md : VSpacing.sm
-        let bottomPad: CGFloat = expanded ? VSpacing.sm : VSpacing.sm
-        let buttonRow: CGFloat = expanded ? 34 + VSpacing.xs : 0
-        let base: CGFloat = VSpacing.sm + topPad + bottomPad + contentHeight + buttonRow
-        let attachments: CGFloat = pendingAttachments.isEmpty ? 0 : 48
-        let error: CGFloat = (sessionError == nil && errorText != nil) ? 36 : 0
-        return base + attachments + error
-    }
-
-    private func modelPickerView(for message: ChatMessage) -> some View {
-        ModelPickerBubble(
-            models: SettingsStore.availableModels.map { id in
-                (id: id, name: SettingsStore.modelDisplayNames[id] ?? id)
-            },
-            selectedModelId: selectedModel,
-            onSelect: { modelId in
-                onModelPickerSelect?(message.id, modelId)
-            }
-        )
-    }
-
-    private func modelListView(for message: ChatMessage) -> some View {
-        ModelListBubble(currentModel: selectedModel, configuredProviders: configuredProviders)
-    }
-
-    @MainActor private var composerOverlay: some View {
-        VStack(spacing: 0) {
-            if let watchSession, watchSession.state == .capturing {
-                WatchProgressView(session: watchSession, onStop: onStopWatch, isLearnMode: isLearnMode, networkEntryCount: networkEntryCount, idleHint: idleHint)
-                    .padding(.horizontal, VSpacing.lg)
-                    .padding(.bottom, VSpacing.sm)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-
-            if let errorText, sessionError == nil {
-                ChatErrorBanner(
-                    text: errorText,
-                    isSecretBlockError: isSecretBlockError,
-                    onSendAnyway: onSendAnyway,
-                    isRetryableError: isRetryableError,
-                    onRetryError: onRetryError,
-                    isConnectionError: isConnectionError,
-                    connectionDiagnosticHint: connectionDiagnosticHint,
-                    onOpenDoctor: onOpenDoctor,
-                    onDismissError: onDismissError
-                )
-            }
-            ComposerView(
-                inputText: $inputText,
-                hasAPIKey: hasAPIKey,
-                isSending: isSending,
-                isRecording: isRecording,
-                suggestion: suggestion,
-                pendingAttachments: pendingAttachments,
-                isLoadingAttachment: isLoadingAttachment,
-                onSend: onSend,
-                onStop: onStop,
-                onAcceptSuggestion: onAcceptSuggestion,
-                onAttach: onAttach,
-                onRemoveAttachment: onRemoveAttachment,
-                onPaste: onPaste,
-                onMicrophoneToggle: onMicrophoneToggle,
-                placeholderText: "What would you like to do?",
-                editorContentHeight: $editorContentHeight,
-                isComposerExpanded: $isComposerExpanded
-            )
-        }
-        .background(
-            // Gentle fade that never becomes fully opaque — background stays visible
-            LinearGradient(
-                stops: [
-                    .init(color: VColor.chatBackground.opacity(0), location: 0),
-                    .init(color: VColor.chatBackground.opacity(0.5), location: 0.5),
-                    .init(color: VColor.chatBackground.opacity(0.65), location: 1.0)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .allowsHitTesting(false)
-        )
-    }
-
     @Environment(\.colorScheme) private var colorScheme
 
     @ViewBuilder
@@ -314,7 +285,6 @@ struct ChatView: View {
                             urls.append(url)
                             group.leave()
                         } else if hasImageFallback {
-                            // File URL failed (e.g. screenshot not saved yet) — load raw image data instead
                             let typeIdentifier: String
                             if provider.hasItemConformingToTypeIdentifier(UTType.png.identifier) {
                                 typeIdentifier = UTType.png.identifier
@@ -371,355 +341,6 @@ struct ChatView: View {
         }
         return true
     }
-
-    // MARK: - Message List
-
-    private func shouldShowTimestamp(at index: Int, in list: [ChatMessage]) -> Bool {
-        if index == 0 { return true }
-        let current = list[index].timestamp
-        let previous = list[index - 1].timestamp
-        // Always show a divider when crossing a calendar-day boundary (in local timezone)
-        var calendar = Calendar.current
-        calendar.timeZone = ChatTimestampTimeZone.resolve()
-        if !calendar.isDate(current, inSameDayAs: previous) { return true }
-        let gap = current.timeIntervalSince(previous)
-        return gap > 300
-    }
-
-    private var messageList: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: VSpacing.md) {
-                    // Render all chat messages inline except subagent notification placeholders.
-                    let displayMessages = messages.filter { msg in
-                        if msg.isSubagentNotification { return false }
-                        return true
-                    }
-                    let activePendingRequestId = PendingConfirmationFocusSelector.activeRequestId(from: displayMessages)
-                    ForEach(Array(displayMessages.enumerated()), id: \.element.id) { index, message in
-                        if shouldShowTimestamp(at: index, in: displayMessages) {
-                            TimestampDivider(date: message.timestamp)
-                        }
-
-                        if let confirmation = message.confirmation {
-                            if confirmation.state == .pending {
-                                // Show pending confirmations as inline buttons
-                                ToolConfirmationBubble(
-                                    confirmation: confirmation,
-                                    isKeyboardActive: confirmation.requestId == activePendingRequestId,
-                                    onAllow: { onConfirmationAllow(confirmation.requestId) },
-                                    onDeny: { onConfirmationDeny(confirmation.requestId) },
-                                    onAlwaysAllow: onAlwaysAllow
-                                )
-                                .id(message.id)
-                                .transition(.opacity.combined(with: .move(edge: .bottom)))
-                            }
-                            // Decided confirmations are normally rendered as compact chips
-                            // on the preceding assistant message's ChatBubble. But if there
-                            // is no preceding assistant message, render them inline so they
-                            // don't disappear entirely.
-                            else {
-                                let hasPrecedingAssistant: Bool = {
-                                    guard index > 0 else { return false }
-                                    return displayMessages[index - 1].role == .assistant
-                                }()
-
-                                if !hasPrecedingAssistant {
-                                    ToolConfirmationBubble(
-                                        confirmation: confirmation,
-                                        onAllow: { onConfirmationAllow(confirmation.requestId) },
-                                        onDeny: { onConfirmationDeny(confirmation.requestId) },
-                                        onAlwaysAllow: onAlwaysAllow
-                                    )
-                                    .id(message.id)
-                                    .transition(.opacity.combined(with: .move(edge: .bottom)))
-                                }
-                                // When there IS a preceding assistant message, the decided
-                                // confirmation is rendered as a chip on that bubble — skip here.
-                            }
-                        } else if message.modelPicker != nil {
-                            modelPickerView(for: message)
-                                .id(message.id)
-                                .transition(.opacity.combined(with: .move(edge: .bottom)))
-                        } else if message.modelList != nil {
-                            modelListView(for: message)
-                                .id(message.id)
-                                .transition(.opacity.combined(with: .move(edge: .bottom)))
-                        } else if message.commandList != nil {
-                            CommandListBubble()
-                                .id(message.id)
-                                .transition(.opacity.combined(with: .move(edge: .bottom)))
-                        } else {
-                            // Hide tool call chips when the next message is a pending
-                            // confirmation — the tool hasn't been approved yet.
-                            let nextIsPendingConfirmation = index + 1 < displayMessages.count
-                                && displayMessages[index + 1].confirmation?.state == .pending
-
-                            // Pass decided confirmation from the next message so it
-                            // renders as a compact chip at the bottom of this bubble.
-                            let nextDecidedConfirmation: ToolConfirmationData? = {
-                                guard index + 1 < displayMessages.count,
-                                      let conf = displayMessages[index + 1].confirmation,
-                                      conf.state != .pending else { return nil }
-                                return conf
-                            }()
-
-                            // Hide the avatar when the previous visible message is also from the assistant
-                            let previousIsAssistant = index > 0 && displayMessages[index - 1].role == .assistant
-
-                            ChatBubble(
-                                message: message,
-                                hideToolCalls: nextIsPendingConfirmation,
-                                decidedConfirmation: nextDecidedConfirmation,
-                                onSurfaceAction: onSurfaceAction,
-                                onDismissDocumentWidget: { surfaceId in
-                                    onDismissDocumentWidget?(surfaceId)
-                                },
-                                dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
-                                onReportMessage: onReportMessage,
-                                mediaEmbedSettings: mediaEmbedSettings,
-                                daemonHttpPort: daemonHttpPort,
-                                showAvatar: !previousIsAssistant,
-                                isLatestAssistantMessage: message.role == .assistant && displayMessages.last(where: { $0.role == .assistant })?.id == message.id
-                            )
-                                .id(message.id)
-                                .transition(.opacity.combined(with: .move(edge: .bottom)))
-                        }
-
-                        // Subagent thread indicators anchored to the message that spawned them
-                        // Indent to align with message text (past the 28pt avatar + 8pt spacing)
-                        ForEach(activeSubagents.filter { $0.parentMessageId == message.id }) { subagent in
-                            SubagentThreadView(
-                                subagent: subagent,
-                                events: subagentDetailStore?.eventsBySubagent[subagent.id] ?? [],
-                                onAbort: { onAbortSubagent?(subagent.id) },
-                                onTap: { onSubagentTap?(subagent.id) }
-                            )
-                                .frame(maxWidth: 520, alignment: .leading)
-                                .padding(.leading, 36)
-                                .id("subagent-\(subagent.id)")
-                                .transition(.opacity.combined(with: .move(edge: .bottom)))
-                        }
-                    }
-
-                    // Subagents with no parent message (e.g. from history load)
-                    ForEach(activeSubagents.filter { $0.parentMessageId == nil }) { subagent in
-                        SubagentThreadView(
-                            subagent: subagent,
-                            events: subagentDetailStore?.eventsBySubagent[subagent.id] ?? [],
-                            onAbort: { onAbortSubagent?(subagent.id) },
-                            onTap: { onSubagentTap?(subagent.id) }
-                        )
-                            .frame(maxWidth: 520, alignment: .leading)
-                            .padding(.leading, 36)
-                            .id("subagent-\(subagent.id)")
-                            .transition(.opacity.combined(with: .move(edge: .bottom)))
-                    }
-
-                    let lastVisible = displayMessages.last
-                    let hasPendingConfirmation = lastVisible?.confirmation?.state == .pending
-                    // Check the current assistant turn for active tool calls.
-                    // We scope to messages after the last user message that
-                    // started an assistant turn so that stale incomplete tool
-                    // calls from earlier turns (e.g. after daemon errors) don't
-                    // permanently suppress the thinking indicator. When the
-                    // last message is .user while isSending and the assistant
-                    // isn't actively processing (not streaming and no pending
-                    // confirmation), we return an empty slice so stale tool
-                    // calls don't suppress the indicator. When the user queued
-                    // a follow-up while the assistant is still streaming or
-                    // awaiting confirmation, we fall through so active tool
-                    // calls remain visible. We still scan beyond lastVisible
-                    // because confirmation messages are inserted after the
-                    // assistant message that owns the tool call.
-                    let currentTurnMessages: ArraySlice<ChatMessage> = {
-                        // When the very last message is from the user and we're
-                        // still sending, check whether the assistant is actively
-                        // responding in the current turn. Skip past trailing
-                        // user messages (queued follow-ups) and examine the
-                        // last non-user message. Only fall through to
-                        // lastTurnStart (preserving active tool-call detection)
-                        // if that message is still streaming or has a pending
-                        // confirmation — both indicate the assistant is
-                        // genuinely in-flight. A finalized (non-streaming)
-                        // assistant message with incomplete tool calls but no
-                        // pending confirmation is stale (daemon errored or
-                        // completed), so we return an empty slice to prevent
-                        // those stale tool calls from suppressing the thinking
-                        // indicator.
-                        if isSending, let last = displayMessages.last, last.role == .user {
-                            let lastNonUser = displayMessages.last(where: {
-                                $0.role != .user
-                            })
-                            let isActivelyProcessing = lastNonUser?.isStreaming == true
-                                || lastNonUser?.confirmation?.state == .pending
-                            if !isActivelyProcessing {
-                                return displayMessages[displayMessages.endIndex...]
-                            }
-                        }
-                        // Find the boundary of the current assistant turn by
-                        // locating the last user message that is followed by at
-                        // least one non-user message. This ignores queued user
-                        // messages appended at the tail during isSending.
-                        let lastTurnStart = displayMessages.indices.reversed().first(where: { idx in
-                            displayMessages[idx].role == .user
-                                && displayMessages.index(after: idx) < displayMessages.endIndex
-                                && displayMessages[displayMessages.index(after: idx)].role != .user
-                        })
-                        if let idx = lastTurnStart {
-                            return displayMessages[displayMessages.index(after: idx)...]
-                        }
-                        return displayMessages[displayMessages.startIndex...]
-                    }()
-                    let hasActiveToolCall = currentTurnMessages.contains(where: {
-                        $0.toolCalls.contains(where: { !$0.isComplete })
-                    })
-                    if isSending && !(lastVisible?.isStreaming == true) && !hasPendingConfirmation && !hasActiveToolCall {
-                        HStack(alignment: .top, spacing: VSpacing.sm) {
-                            Image(nsImage: appearance.chatAvatarImage)
-                                .interpolation(.none)
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                                .frame(width: 28, height: 28)
-                                .clipShape(Circle())
-                                .padding(.top, 2)
-
-                            RunningIndicator(
-                                label: !hasEverSentMessage && displayMessages.contains(where: { $0.role == .user })
-                                    ? "Waking up..."
-                                    : completedConversationCount <= 5 && identity?.name != nil
-                                        ? "\(identity!.name) is thinking"
-                                        : "Thinking",
-                                showIcon: false
-                            )
-                        }
-                        .frame(maxWidth: 520, alignment: .leading)
-                        .id("thinking-indicator")
-                        .transition(.opacity.combined(with: .move(edge: .bottom)))
-                    }
-
-                    // Invisible anchor at the very bottom of all content
-                    Color.clear.frame(height: 1)
-                        .id("scroll-bottom-anchor")
-                        .onAppear {
-                            isNearBottom = true
-                        }
-                }
-                .padding(.horizontal, VSpacing.xl)
-                .padding(.top, VSpacing.md)
-                .padding(.bottom, VSpacing.md)
-                .frame(maxWidth: 700)
-                .frame(maxWidth: .infinity)
-            }
-            .scrollContentBackground(.hidden)
-            .scrollDisabled(messages.isEmpty && !isSending)
-            .background {
-                ScrollWheelDetector(
-                    onScrollUp: { isNearBottom = false },
-                    onScrollToBottom: { isNearBottom = true }
-                )
-            }
-            .overlay(alignment: .bottom) {
-                if !isNearBottom {
-                    Button(action: {
-                        isNearBottom = true
-                        withAnimation(VAnimation.fast) {
-                            proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
-                        }
-                    }) {
-                        HStack(spacing: VSpacing.xs) {
-                            Image(systemName: "arrow.down")
-                                .font(.system(size: 10, weight: .semibold))
-                            Text("Scroll to latest")
-                                .font(VFont.monoSmall)
-                        }
-                        .padding(.horizontal, VSpacing.md)
-                        .padding(.vertical, VSpacing.sm)
-                        .background(.ultraThinMaterial)
-                        .clipShape(Capsule())
-                        .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
-                    }
-                    .buttonStyle(.plain)
-                    .background { ScrollWheelPassthrough() }
-                    .padding(.bottom, VSpacing.lg)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-            }
-            .onAppear {
-                // Scroll to bottom on initial load
-                proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
-            }
-            .onChange(of: isSending) {
-                if isSending {
-                    isNearBottom = true
-                    withAnimation(VAnimation.standard) {
-                        proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
-                    }
-                }
-            }
-            .onChange(of: isThinking) {
-                if !isThinking {
-                    // Thinking finished — mark flag so next message shows "Thinking"
-                    if !hasEverSentMessage && messages.contains(where: { $0.role == .user }) {
-                        hasEverSentMessage = true
-                    }
-                }
-            }
-            .onChange(of: streamingScrollTrigger) {
-                if isNearBottom {
-                    withAnimation(VAnimation.fast) {
-                        proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
-                    }
-                }
-            }
-            .onChange(of: messages.count) {
-                if isNearBottom {
-                    withAnimation(VAnimation.fast) {
-                        proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
-                    }
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var memoryDegradedBanner: some View {
-        if isMemoryDegraded {
-            HStack(spacing: VSpacing.sm) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(VColor.warning)
-                Text("Memory is temporarily unavailable")
-                    .font(VFont.caption)
-                    .foregroundStyle(VColor.textPrimary)
-                Spacer()
-            }
-            .padding(.horizontal, VSpacing.md)
-            .padding(.vertical, VSpacing.sm)
-            .background(Color(hex: 0xF5F3EB), in: RoundedRectangle(cornerRadius: VRadius.md))
-            .padding(.horizontal)
-            .transition(.move(edge: .top).combined(with: .opacity))
-        }
-    }
-
-    @ViewBuilder
-    private var apiKeyBanner: some View {
-        if !hasAPIKey {
-            HStack(spacing: VSpacing.sm) {
-                Image(systemName: "key.fill")
-                    .font(VFont.caption)
-                Text("API key not set. Add one in Settings to start chatting.")
-                    .font(VFont.caption)
-                    .lineLimit(2)
-                Spacer()
-                Button("Open Settings", action: onOpenSettings)
-                    .buttonStyle(.borderedProminent)
-            }
-            .padding(.horizontal, VSpacing.lg)
-            .padding(.vertical, VSpacing.sm)
-            .foregroundColor(.white)
-            .background(VColor.warning)
-        }
-    }
 }
 
 // MARK: - Scroll Wheel Detection
@@ -727,7 +348,7 @@ struct ChatView: View {
 /// Detects user-initiated scroll events scoped to the chat scroll view.
 /// Fires `onScrollUp` when the user scrolls toward older content (untethers auto-scroll),
 /// and `onScrollToBottom` when the user manually scrolls back to the bottom (re-tethers).
-private struct ScrollWheelDetector: NSViewRepresentable {
+struct ScrollWheelDetector: NSViewRepresentable {
     let onScrollUp: () -> Void
     let onScrollToBottom: () -> Void
 
@@ -817,7 +438,7 @@ private struct ScrollWheelDetector: NSViewRepresentable {
 
 /// Forwards scroll-wheel events to the chat's NSScrollView so that overlaid
 /// controls (like the "Scroll to latest" pill) don't swallow trackpad/mouse-wheel input.
-private struct ScrollWheelPassthrough: NSViewRepresentable {
+struct ScrollWheelPassthrough: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> NSView {
@@ -920,7 +541,6 @@ private struct ChatViewPreviewWrapper: View {
                 isRetryableError: false,
                 onRetryError: {},
                 isConnectionError: false,
-                onOpenDoctor: {},
                 isSecretBlockError: false,
                 onSendAnyway: {},
                 onAcceptSuggestion: {},

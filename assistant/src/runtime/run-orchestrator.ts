@@ -13,8 +13,8 @@
  * status and submit a decision or secret via the respective endpoints.
  */
 
-import type { ChannelId, TurnChannelContext } from '../channels/types.js';
-import { parseChannelId } from '../channels/types.js';
+import type { ChannelId, InterfaceId, TurnChannelContext } from '../channels/types.js';
+import { parseChannelId, parseInterfaceId } from '../channels/types.js';
 import * as runsStore from '../memory/runs-store.js';
 import type { Run } from '../memory/runs-store.js';
 import type { Session } from '../daemon/session.js';
@@ -94,9 +94,15 @@ export interface RunStartOptions {
   /**
    * The originating channel (e.g. 'telegram', 'slack'). When provided,
    * channel capabilities are resolved for this channel instead of the
-   * default 'macos'.
+   * default 'vellum'.
    */
   sourceChannel?: ChannelId;
+  /**
+   * The originating interface (e.g. 'macos', 'ios', 'telegram'). When
+   * provided, the session's turn interface context is set to this value
+   * so interface-aware metadata flows through the agent loop.
+   */
+  sourceInterface?: InterfaceId;
   /**
    * Transport hints from sourceMetadata (e.g. reply-context cues).
    * Forwarded to the session so the agent loop can incorporate them.
@@ -178,6 +184,7 @@ export class RunOrchestrator {
     content: string,
     attachmentIds?: string[],
     options?: RunStartOptions,
+    signal?: AbortSignal,
   ): Promise<RunHandle> {
     // Block inbound content that contains secrets — mirrors the IPC check in sessions.ts
     const ingressCheck = checkIngressForSecrets(content);
@@ -200,12 +207,20 @@ export class RunOrchestrator {
     if (session.isProcessing()) {
       // Voice barge-in can race with turn teardown. Wait briefly for the
       // previous run to finish aborting before giving up.
+      // The caller can pass an AbortSignal so superseded turns bail out
+      // of this wait early instead of occupying the session.
       const maxWaitMs = 3000;
       const pollIntervalMs = 50;
       let waited = 0;
       while (session.isProcessing() && waited < maxWaitMs) {
+        if (signal?.aborted) {
+          throw new Error('Run aborted while waiting for session');
+        }
         await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
         waited += pollIntervalMs;
+      }
+      if (signal?.aborted) {
+        throw new Error('Run aborted while waiting for session');
       }
       if (session.isProcessing()) {
         throw new Error('Session is already processing a message');
@@ -227,8 +242,13 @@ export class RunOrchestrator {
     session.setGuardianContext(options?.guardianContext ?? null);
     session.setCommandIntent(options?.commandIntent ?? null);
     session.setTurnChannelContext(options?.turnChannelContext ?? {
-      userMessageChannel: parseChannelId(options?.sourceChannel) ?? 'macos',
-      assistantMessageChannel: parseChannelId(options?.sourceChannel) ?? 'macos',
+      userMessageChannel: parseChannelId(options?.sourceChannel) ?? 'vellum',
+      assistantMessageChannel: parseChannelId(options?.sourceChannel) ?? 'vellum',
+    });
+    const resolvedInterface = parseInterfaceId(options?.sourceInterface) ?? ('vellum' as InterfaceId);
+    session.setTurnInterfaceContext({
+      userMessageInterface: resolvedInterface,
+      assistantMessageInterface: resolvedInterface,
     });
 
     const attachments = attachmentIds
@@ -241,8 +261,8 @@ export class RunOrchestrator {
 
     // Set channel capabilities based on the originating channel so capabilities
     // (e.g. attachment scope) match the actual transport rather than always
-    // defaulting to 'macos'.
-    session.setChannelCapabilities(resolveChannelCapabilities(options?.sourceChannel ?? 'macos'));
+    // defaulting to 'vellum'.
+    session.setChannelCapabilities(resolveChannelCapabilities(options?.sourceChannel ?? 'vellum', resolvedInterface));
     session.setVoiceCallControlPrompt(options?.voiceCallControlPrompt ?? null);
 
     // Serialized publish chain so hub subscribers observe events in order.
@@ -376,6 +396,12 @@ export class RunOrchestrator {
       session.setCommandIntent(null);
       session.setAssistantId('self');
       session.setVoiceCallControlPrompt(null);
+      // Reset turn interface context so a subsequent IPC/desktop session on the
+      // same conversation is not incorrectly treated as an HTTP-API interface.
+      session.setTurnInterfaceContext({
+        userMessageInterface: 'vellum' as InterfaceId,
+        assistantMessageInterface: 'vellum' as InterfaceId,
+      });
       // Reset the session's client callback to a no-op so the stale
       // closure doesn't intercept events from future runs on the same session.
       // Set hasNoClient=true here since the run is done and no HTTP caller

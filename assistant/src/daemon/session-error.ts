@@ -124,7 +124,7 @@ export function classifySessionError(
   if (ctx.phase === 'queue') {
     return {
       code: 'QUEUE_FULL',
-      userMessage: 'Message queue is full (max depth: 10). Please wait for current messages to be processed.',
+      userMessage: 'Message queue is full (10 messages pending).',
       retryable: true,
       debugDetails: truncateDebugDetails(message),
     };
@@ -134,7 +134,7 @@ export function classifySessionError(
     const base = classifyCore(error, message);
     return {
       code: 'REGENERATE_FAILED',
-      userMessage: `Failed to regenerate response. ${base.userMessage}`,
+      userMessage: `Could not regenerate the response. ${base.userMessage}`,
       retryable: true,
       debugDetails,
     };
@@ -161,14 +161,14 @@ function classifyCore(
     if (error.statusCode === 429) {
       return {
         code: 'PROVIDER_RATE_LIMIT',
-        userMessage: 'The AI provider is rate limiting requests. Please wait a moment and try again.',
+        userMessage: 'The AI provider is rate limiting requests.',
         retryable: true,
       };
     }
     if (error.statusCode >= 500) {
       return {
         code: 'PROVIDER_API',
-        userMessage: 'The AI provider returned an error. This is usually temporary — try again shortly.',
+        userMessage: 'The AI provider returned a server error.',
         retryable: true,
       };
     }
@@ -177,13 +177,13 @@ function classifyCore(
       if (isContextTooLarge(message)) {
         return {
           code: 'CONTEXT_TOO_LARGE',
-          userMessage: 'The conversation is too long for the model to process. Start a new conversation or try a shorter message.',
+          userMessage: 'This conversation exceeds the model\'s context limit.',
           retryable: false,
         };
       }
       return {
         code: 'PROVIDER_API',
-        userMessage: 'The AI provider rejected the request. Please try again or check your settings.',
+        userMessage: 'The AI provider rejected the request.',
         retryable: false,
       };
     }
@@ -203,7 +203,7 @@ function classifyByMessage(message: string): Omit<ClassifiedSessionError, 'debug
   if (isContextTooLarge(message)) {
     return {
       code: 'CONTEXT_TOO_LARGE',
-      userMessage: 'The conversation is too long for the model to process. Start a new conversation or try a shorter message.',
+      userMessage: 'This conversation exceeds the model\'s context limit.',
       retryable: false,
     };
   }
@@ -213,7 +213,7 @@ function classifyByMessage(message: string): Omit<ClassifiedSessionError, 'debug
     if (pattern.test(message)) {
       return {
         code: 'PROVIDER_RATE_LIMIT',
-        userMessage: 'The AI provider is rate limiting requests. Please wait a moment and try again.',
+        userMessage: 'The AI provider is rate limiting requests.',
         retryable: true,
       };
     }
@@ -224,7 +224,7 @@ function classifyByMessage(message: string): Omit<ClassifiedSessionError, 'debug
     if (pattern.test(message)) {
       return {
         code: 'PROVIDER_NETWORK',
-        userMessage: 'Unable to reach the AI provider. Check your connection and try again.',
+        userMessage: 'Could not connect to the AI provider.',
         retryable: true,
       };
     }
@@ -235,7 +235,7 @@ function classifyByMessage(message: string): Omit<ClassifiedSessionError, 'debug
     if (pattern.test(message)) {
       return {
         code: 'PROVIDER_API',
-        userMessage: 'The AI provider returned an error. This is usually temporary — try again shortly.',
+        userMessage: 'The AI provider returned a server error.',
         retryable: true,
       };
     }
@@ -247,7 +247,7 @@ function classifyByMessage(message: string): Omit<ClassifiedSessionError, 'debug
     if (pattern.test(message)) {
       return {
         code: 'PROVIDER_API',
-        userMessage: 'The request took too long. This is usually temporary — try again shortly.',
+        userMessage: 'The request to the AI provider timed out.',
         retryable: true,
       };
     }
@@ -258,16 +258,22 @@ function classifyByMessage(message: string): Omit<ClassifiedSessionError, 'debug
     if (pattern.test(message)) {
       return {
         code: 'SESSION_ABORTED',
-        userMessage: 'The request was interrupted. You can try sending your message again.',
+        userMessage: 'The request was interrupted.',
         retryable: true,
       };
     }
   }
 
-  // Default: processing failure
+  // Default: processing failure — include the first non-empty line of the actual error
+  // so users know what went wrong instead of seeing a completely generic message.
+  const firstLine = message.split('\n').map(l => l.trim()).find(l => l.length > 0) ?? '';
+  const summary = firstLine.length > 150 ? firstLine.slice(0, 150) + '...' : firstLine;
+  const userMessage = summary
+    ? `Processing failed: ${summary}`
+    : 'Something went wrong processing your message. Please try again.';
   return {
     code: 'SESSION_PROCESSING_FAILED',
-    userMessage: 'Something went wrong processing your message. Please try again.',
+    userMessage,
     retryable: false,
   };
 }

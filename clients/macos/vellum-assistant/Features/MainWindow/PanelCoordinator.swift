@@ -48,8 +48,6 @@ extension MainWindowView {
                 activeSessionId: threadManager.activeViewModel?.sessionId,
                 onClose: { windowState.selection = nil }
             )
-        case .doctor:
-            DoctorPanel(onClose: { windowState.selection = nil })
         case .directory:
             HomeBaseContainerView(
                 daemonClient: daemonClient,
@@ -75,7 +73,7 @@ extension MainWindowView {
             )
         case .generated:
             GeneratedPanel(
-                onClose: { showSharePicker = false; windowState.closeDynamicPanel() },
+                onClose: { sharing.showSharePicker = false; windowState.closeDynamicPanel() },
                 isExpanded: Binding(
                     get: { windowState.isDynamicExpanded },
                     set: { windowState.isDynamicExpanded = $0 }
@@ -99,20 +97,30 @@ extension MainWindowView {
             VoiceModePanel(
                 manager: voiceModeManager,
                 voiceService: voiceModeManager.voiceService,
-                settingsStore: settingsStore,
                 onClose: {
                     voiceModeManager.deactivate()
                     windowState.selection = nil
-                },
-                onKeySaved: {
-                    if let viewModel = threadManager.activeViewModel {
-                        voiceModeManager.activate(chatViewModel: viewModel, settingsStore: settingsStore)
-                        voiceModeManager.startListening()
-                    }
                 }
             )
         case .assistantInbox:
             AssistantInboxPanel(onClose: { windowState.selection = nil }, daemonClient: daemonClient)
+        case .apps:
+            AppsGridView(
+                appListManager: appListManager,
+                daemonClient: daemonClient,
+                onOpenApp: { appId in
+                    try? daemonClient.sendAppOpen(appId: appId)
+                    windowState.selection = .app(appId)
+                },
+                onOpenHomeBase: {
+                    if let homeBase = appListManager.displayApps.first(where: { $0.name.caseInsensitiveCompare("Home Base") == .orderedSame }) {
+                        try? daemonClient.sendAppOpen(appId: homeBase.id)
+                        windowState.selection = .app(homeBase.id)
+                    } else {
+                        windowState.selection = .panel(.directory)
+                    }
+                }
+            )
         }
     }
 
@@ -185,7 +193,7 @@ extension MainWindowView {
             } else {
                 // Gallery mode fallback
                 GeneratedPanel(
-                    onClose: { showSharePicker = false; windowState.closeDynamicPanel() },
+                    onClose: { sharing.showSharePicker = false; windowState.closeDynamicPanel() },
                     isExpanded: Binding(
                         get: { windowState.isDynamicExpanded },
                         set: { windowState.isDynamicExpanded = $0 }
@@ -303,6 +311,60 @@ extension MainWindowView {
                     .overlay(alignment: .topTrailing) { panelDismissButton }
                     .background(adaptiveColor(light: Moss._50, dark: Moss._950))
                 }
+            } else if panelType == .apps {
+                if isAppChatOpen {
+                    // VSplitView: ChatView (left) + Apps grid (right)
+                    let contentWidth = Double(geometry.size.width) / zoomManager.zoomLevel - Double(VSpacing.sm)
+                    let effectiveWidth = Binding<Double>(
+                        get: { appPanelWidth > 0 ? appPanelWidth : contentWidth * 0.7 },
+                        set: { appPanelWidth = $0 }
+                    )
+                    VSplitView(
+                        panelWidth: effectiveWidth,
+                        showPanel: true,
+                        main: {
+                            chatView
+                        },
+                        panel: {
+                            AppsGridView(
+                                appListManager: appListManager,
+                                daemonClient: daemonClient,
+                                onOpenApp: { appId in
+                                    try? daemonClient.sendAppOpen(appId: appId)
+                                    windowState.selection = .app(appId)
+                                },
+                                onOpenHomeBase: {
+                                    windowState.selection = .panel(.directory)
+                                }
+                            )
+                            .background(adaptiveColor(light: Moss._100, dark: Moss._900))
+                            .clipShape(UnevenRoundedRectangle(topLeadingRadius: VRadius.xl, bottomLeadingRadius: VRadius.xl))
+                        }
+                    )
+                    .onAppear {
+                        if threadManager.activeViewModel == nil {
+                            if let firstThread = threadManager.visibleThreads.first {
+                                threadManager.selectThread(id: firstThread.id)
+                            } else {
+                                threadManager.createThread()
+                            }
+                        }
+                    }
+                } else {
+                    AppsGridView(
+                        appListManager: appListManager,
+                        daemonClient: daemonClient,
+                        onOpenApp: { appId in
+                            try? daemonClient.sendAppOpen(appId: appId)
+                            windowState.selection = .app(appId)
+                        },
+                        onOpenHomeBase: {
+                            windowState.selection = .panel(.directory)
+                        }
+                    )
+                    .overlay(alignment: .topTrailing) { panelDismissButton }
+                    .background(adaptiveColor(light: Moss._50, dark: Moss._950))
+                }
             } else if panelType == .documentEditor {
                 let config = windowState.layoutConfig
                 VSplitView(
@@ -355,7 +417,7 @@ extension MainWindowView {
                     }
                 }
             } else {
-                // Full-window panels: settings, debug, doctor, identity
+                // Full-window panels: settings, debug, identity
                 fullWindowPanel(panelType)
             }
         case nil:
@@ -451,12 +513,8 @@ extension MainWindowView {
                 onClose: { windowState.dismissOverlay() }
             )
             .overlay(alignment: .topTrailing) { panelDismissButton }
-        case .doctor:
-            DoctorPanel(onClose: { windowState.dismissOverlay() })
-                .overlay(alignment: .topTrailing) { panelDismissButton }
         case .identity:
             IdentityPanel(onClose: { windowState.dismissOverlay() }, onCustomizeAvatar: { windowState.selection = .panel(.avatarCustomization) }, daemonClient: daemonClient)
-                .overlay(alignment: .topTrailing) { panelDismissButton }
                 .background(adaptiveColor(light: Color(hex: 0xF5F3EB), dark: Moss._900))
         case .avatarCustomization:
             AvatarCustomizationPanel(onClose: { windowState.selection = .panel(.identity) })
@@ -474,6 +532,25 @@ extension MainWindowView {
             AssistantInboxPanel(onClose: { windowState.dismissOverlay() }, daemonClient: daemonClient)
                 .overlay(alignment: .topTrailing) { panelDismissButton }
                 .background(adaptiveColor(light: Moss._50, dark: Moss._950))
+        case .apps:
+            AppsGridView(
+                appListManager: appListManager,
+                daemonClient: daemonClient,
+                onOpenApp: { appId in
+                    try? daemonClient.sendAppOpen(appId: appId)
+                    windowState.selection = .app(appId)
+                },
+                onOpenHomeBase: {
+                    if let homeBase = appListManager.displayApps.first(where: { $0.name.caseInsensitiveCompare("Home Base") == .orderedSame }) {
+                        try? daemonClient.sendAppOpen(appId: homeBase.id)
+                        windowState.selection = .app(homeBase.id)
+                    } else {
+                        windowState.selection = .panel(.directory)
+                    }
+                }
+            )
+            .overlay(alignment: .topTrailing) { panelDismissButton }
+            .background(adaptiveColor(light: Moss._50, dark: Moss._950))
         default:
             EmptyView()
         }
@@ -509,13 +586,7 @@ extension MainWindowView {
                 daemonClient: daemonClient,
                 trafficLightPadding: trafficLightPadding,
                 isSidebarOpen: sidebarExpanded,
-                isPublishing: $isPublishing,
-                publishedUrl: $publishedUrl,
-                publishError: $publishError,
-                isBundling: $isBundling,
-                showSharePicker: $showSharePicker,
-                shareFileURL: $shareFileURL,
-                workspaceEditorContentHeight: $workspaceEditorContentHeight,
+                sharing: sharing,
                 onPublishPage: publishPage,
                 onBundleAndShare: bundleAndShare,
                 isChatDockOpen: windowState.isChatDockOpen,
@@ -608,7 +679,7 @@ struct ActiveChatViewWrapper: View {
             isRetryableError: viewModel.isRetryableError,
             onRetryError: { viewModel.retryLastMessage() },
             isConnectionError: viewModel.isConnectionError,
-            onOpenDoctor: { windowState.selection = .panel(.doctor) },
+            hasRetryPayload: viewModel.hasRetryPayload,
             isSecretBlockError: viewModel.isSecretBlockError,
             onSendAnyway: { viewModel.sendAnyway() },
             onAcceptSuggestion: viewModel.acceptSuggestion,
@@ -742,13 +813,7 @@ struct DynamicWorkspaceWrapper: View {
     let daemonClient: DaemonClient
     let trafficLightPadding: CGFloat
     let isSidebarOpen: Bool
-    @Binding var isPublishing: Bool
-    @Binding var publishedUrl: String?
-    @Binding var publishError: String?
-    @Binding var isBundling: Bool
-    @Binding var showSharePicker: Bool
-    @Binding var shareFileURL: URL?
-    @Binding var workspaceEditorContentHeight: CGFloat
+    var sharing: SharingState
     let onPublishPage: (String, String?, String?) -> Void
     let onBundleAndShare: (String) -> Void
     let isChatDockOpen: Bool
@@ -844,11 +909,11 @@ struct DynamicWorkspaceWrapper: View {
                             .accessibilityLabel("Version history")
                         }
 
-                        if isPublishing {
+                        if sharing.isPublishing {
                             ProgressView()
                                 .controlSize(.small)
                                 .frame(height: 24)
-                        } else if let url = publishedUrl {
+                        } else if let url = sharing.publishedUrl {
                             VButton(label: "Copied!", icon: "checkmark", style: .tertiary) {
                                 NSPasteboard.general.clearContents()
                                 NSPasteboard.general.setString(url, forType: .string)
@@ -862,7 +927,7 @@ struct DynamicWorkspaceWrapper: View {
                         }
 
                         VButton(label: "X", style: .tertiary) {
-                            showSharePicker = false
+                            sharing.showSharePicker = false
                             windowState.activeDynamicSurface = nil
                             windowState.activeDynamicParsedSurface = nil
                             windowState.dismissOverlay()
@@ -879,7 +944,7 @@ struct DynamicWorkspaceWrapper: View {
                         .clipShape(UnevenRoundedRectangle(topLeadingRadius: VRadius.lg, topTrailingRadius: VRadius.lg))
                 )
 
-                if let error = publishError {
+                if let error = sharing.publishError {
                     HStack {
                         Spacer()
                         Text(error)

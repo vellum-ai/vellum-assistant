@@ -24,7 +24,6 @@ struct SettingsPanel: View {
     @State private var braveKeyText: String = ""
     @State private var perplexityKeyText: String = ""
     @State private var imageGenKeyText: String = ""
-    @State private var openaiKeyText: String = ""
     @State private var elevenLabsKeyText: String = ""
     @State private var showingTrustRules = false
     @State private var showingReminders = false
@@ -463,54 +462,6 @@ struct SettingsPanel: View {
                     VButton(label: "Save", style: .primary) {
                         store.saveImageGenKey(imageGenKeyText)
                         imageGenKeyText = ""
-                    }
-                }
-            }
-            .padding(VSpacing.lg)
-            .vCard(background: VColor.surfaceSubtle)
-
-            // OPENAI section (for Voice Mode — Whisper + TTS)
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("OpenAI")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-
-                if store.hasOpenAIKey {
-                    HStack(spacing: VSpacing.sm) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(VColor.success)
-                            .font(.system(size: 14))
-                        Text(store.maskedOpenAIKey)
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textSecondary)
-                        Spacer()
-                        VButton(label: "Clear", style: .danger) {
-                            store.clearOpenAIKey()
-                            openaiKeyText = ""
-                        }
-                    }
-                } else {
-                    HStack(spacing: VSpacing.xs) {
-                        Text("Enter OpenAI API Key")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.textSecondary)
-                        Image(systemName: "info.circle")
-                            .font(.system(size: 12))
-                            .foregroundColor(VColor.textMuted)
-                    }
-
-                    SecureField("Your OpenAI API key", text: $openaiKeyText)
-                        .vInputStyle()
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textPrimary)
-
-                    Text("Used for Voice Mode (Whisper transcription). Get your key at platform.openai.com/api-keys")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-
-                    VButton(label: "Save", style: .primary) {
-                        store.saveOpenAIKey(openaiKeyText)
-                        openaiKeyText = ""
                     }
                 }
             }

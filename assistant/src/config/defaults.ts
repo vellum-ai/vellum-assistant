@@ -9,6 +9,7 @@ export const DEFAULT_CONFIG: AssistantConfig = {
   webSearchProvider: 'perplexity',
   providerOrder: [],
   maxTokens: 16000,
+  maxToolUseTurns: 60,
   thinking: {
     enabled: false,
     budgetTokens: 10000,
@@ -87,6 +88,7 @@ export const DEFAULT_CONFIG: AssistantConfig = {
       enqueueIntervalMs: 6 * 60 * 60 * 1000,
       resolvedConflictRetentionMs: 30 * 24 * 60 * 60 * 1000,
       supersededItemRetentionMs: 30 * 24 * 60 * 60 * 1000,
+      conversationRetentionDays: 90,
     },
     extraction: {
       useLLM: true,
@@ -184,6 +186,7 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     maxTasks: 8,
     maxRetriesPerTask: 1,
     workerTimeoutSec: 900,
+    roleTimeoutsSec: {},
     plannerModel: 'claude-haiku-4-5-20251001',
     synthesizerModel: 'claude-sonnet-4-6',
   },
@@ -263,6 +266,9 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     provider: 'twilio' as const,
     phoneNumber: '',
   },
+  platform: {
+    baseUrl: 'https://platform.vellum.ai',
+  },
   ingress: {
     enabled: undefined,
     publicBaseUrl: '',
@@ -286,8 +292,6 @@ export const DEFAULT_CONFIG: AssistantConfig = {
     titleGenerationMaxTokens: 30,
   },
   notifications: {
-    enabled: false,
-    shadowMode: true,
     decisionModel: 'claude-haiku-4-5-20251001',
   },
 };

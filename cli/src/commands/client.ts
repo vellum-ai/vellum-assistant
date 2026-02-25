@@ -80,10 +80,10 @@ function parseArgs(): ParsedArgs {
 }
 
 function printUsage(): void {
-  console.log(`${ANSI.bold}vellum-cli client${ANSI.reset} - Connect to a hatched assistant
+  console.log(`${ANSI.bold}vellum client${ANSI.reset} - Connect to a hatched assistant
 
 ${ANSI.bold}USAGE:${ANSI.reset}
-    vellum-cli client [name] [options]
+    vellum client [name] [options]
 
 ${ANSI.bold}ARGUMENTS:${ANSI.reset}
     [name]                     Instance name (default: latest)
@@ -94,14 +94,14 @@ ${ANSI.bold}OPTIONS:${ANSI.reset}
     -h, --help                 Show this help message
 
 ${ANSI.bold}DEFAULTS:${ANSI.reset}
-    Reads from ~/.vellum.lock.json (created by vellum-cli hatch).
+    Reads from ~/.vellum.lock.json (created by vellum hatch).
     Override with flags above or env vars RUNTIME_URL / ASSISTANT_ID.
 
 ${ANSI.bold}EXAMPLES:${ANSI.reset}
-    vellum-cli client
-    vellum-cli client vellum-assistant-foo
-    vellum-cli client --url http://34.56.78.90:${GATEWAY_PORT}
-    vellum-cli client vellum-assistant-foo --url http://localhost:${GATEWAY_PORT}
+    vellum client
+    vellum client vellum-assistant-foo
+    vellum client --url http://34.56.78.90:${GATEWAY_PORT}
+    vellum client vellum-assistant-foo --url http://localhost:${GATEWAY_PORT}
 `);
 }
 

@@ -987,6 +987,18 @@ Runtime profile flow (per turn):
 2. Session injects that block only into runtime prompt state.
 3. Session strips the injected profile block before persisting conversation history, so dynamic profile context never pollutes durable message rows.
 
+### Provenance-Aware Memory Pipeline
+
+Every persisted message carries provenance metadata (`provenanceActorRole`, `provenanceSourceChannel`, etc.) derived from the `GuardianRuntimeContext` resolved by `guardian-context-resolver.ts`. This metadata records which actor produced the message and through which channel, enabling downstream trust decisions without re-resolving identity at read time.
+
+Two trust gates enforce actor-role-based access control over the memory pipeline:
+
+- **Write gate** (`indexer.ts`): The `extract_items` and `resolve_conflicts` jobs only run for messages from trusted actors (guardian or legacy/undefined provenance). Messages from untrusted actors (non-guardian, unverified_channel) are still segmented and embedded — so they appear in conversation context — but no profile extraction or conflict resolution is triggered. This prevents untrusted channels from injecting or mutating long-term memory items.
+
+- **Read gate** (`session-memory.ts`): When the current session's actor is untrusted, the memory recall pipeline returns a no-op context — no recall injection, no dynamic profile, no conflict clarification prompts. This ensures untrusted actors cannot surface or exploit previously extracted memory.
+
+Trust policy is **cross-channel and actor-role-based**: decisions use `guardianContext.actorRole`, not the channel string. Desktop/IPC sessions default to `actorRole: 'guardian'`. External channels (Telegram, SMS, WhatsApp, voice) provide explicit guardian context via the resolver. Legacy messages without provenance metadata are treated as trusted for backwards compatibility; going forward, all new messages carry provenance.
+
 ---
 
 ## Private Threads — Isolated Memory and Strict Side-Effect Controls
@@ -1833,6 +1845,13 @@ graph TB
 - After persist or delete, the file watcher triggers session eviction; the next turn runs in a fresh session. The model's system prompt instructs it to continue normally.
 - macOS UI shows Inspect and Delete controls for managed skills only (source = "managed").
 - `skill_load` validates the recursive include graph (via `include-graph.ts`) before emitting output. Missing children and cycles produce `isError: true` with no `<loaded_skill>` marker. Valid includes produce an "Included Skills (immediate)" metadata section showing child ID, name, description, and path.
+
+### Skills Authoring via IPC
+
+The Skills page in the macOS client can author managed skills through daemon IPC without going through the agent loop:
+
+1. **Draft** (`skills_draft`): The client sends source text (with optional YAML frontmatter). The daemon parses frontmatter for metadata fields (skillId, name, description, emoji), fills missing fields via a latency-optimized LLM call, and falls back to deterministic heuristics if the provider is unavailable. Returns `skills_draft_response` with the complete draft.
+2. **Create** (`skills_create`): The client sends finalized skill metadata and body. The daemon calls `createManagedSkill()` from `managed-store.ts`, auto-enables the skill in config, and broadcasts `skills_state_changed`.
 
 ### Include Graph Validation
 
@@ -3847,6 +3866,27 @@ All approval/guardian/verification user-facing copy routes through this composer
 
 The guardian system adds a cryptographic trust layer for channel-based interactions. A **guardian** is the designated human authority for a given `(assistantId, channel)` pair. Once verified, the guardian's identity gates sensitive actions by non-guardian users and provides an approval pathway. All guardian operations (bindings, challenges, approval requests) are scoped by `assistantId` -- verifying as guardian on one assistant does not grant guardian status on another.
 
+#### Canonical Assistant ID Scoping
+
+All channel ingress paths canonicalize the `assistantId` via `normalizeAssistantId()` (from `util/platform.ts`) before any DB operations. The system uses `"self"` as the canonical single-tenant identifier, but callers may pass the real assistant name (e.g., `"vellum-true-eel"`) or `"self"` depending on context. `normalizeAssistantId()` maps any known lockfile assistant ID to `"self"`, ensuring consistent DB key usage regardless of how the caller identifies the assistant. This canonicalization runs at every ingress boundary: the guardian IPC handler (`config-channels.ts`), the guardian context resolver, the relay server, and the inbound message handler.
+
+#### Guardian Verify Command Parsing
+
+The `/guardian_verify` command supports two formats to accommodate Telegram's bot command convention:
+
+- `/guardian_verify <code>` -- standard format
+- `/guardian_verify@BotName <code>` -- Telegram auto-appends the bot's username to commands in group chats
+
+The inbound message handler (`inbound-message-handler.ts`) normalizes both formats: it strips the `@BotName` suffix and collapses whitespace before extracting the verification token. This means users can verify from group chats without needing to manually edit the command.
+
+#### Explicit Rebind Policy
+
+Creating a new guardian challenge when a binding already exists for the `(assistantId, channel)` pair requires explicit `rebind: true` in the IPC request. Without it, the daemon returns `already_bound` to the caller. This prevents accidental guardian replacement -- the desktop UI must explicitly acknowledge that it is replacing an existing guardian before a new challenge is issued. On the verification side, `validateAndConsumeChallenge` always revokes any existing active binding before creating the new one, so the actual binding swap is atomic.
+
+#### Guardian Takeover Prevention
+
+`validateAndConsumeChallenge` rejects verification when an active binding exists for a *different* external user. This prevents an attacker who intercepts a verification code from hijacking an established guardian binding. Same-user re-verification (e.g., re-verifying after a session timeout) is allowed, since the external user ID matches the existing binding.
+
 #### Guardian Verification Flow
 
 A challenge-response handshake binds a Telegram user as the guardian:
@@ -3876,7 +3916,43 @@ sequenceDiagram
     GW->>TG: sendMessage: "You are now the guardian"
 ```
 
-The raw secret is shown only once in the desktop UI. Only the SHA-256 hash is persisted. Challenges expire after 10 minutes. Consumed challenges cannot be reused.
+The raw secret is shown only once in the desktop UI. Only the SHA-256 hash is persisted. Challenges expire after 10 minutes. Consumed challenges cannot be reused. Rate limiting (5 invalid attempts per 15-minute window, 30-minute lockout) protects against brute-force attacks.
+
+#### Inbound Message Decision Chain
+
+The channel inbound handler (`inbound-message-handler.ts`) evaluates incoming messages through a strict decision chain. Ingress ACL enforcement runs first, before guardian role resolution and message processing:
+
+```mermaid
+flowchart TD
+    MSG["Inbound message arrives<br/>POST /channels/inbound"] --> GW_CHECK{"Gateway-origin<br/>proof valid?"}
+    GW_CHECK -- No --> REJECT_403["403 GATEWAY_ORIGIN_REQUIRED"]
+    GW_CHECK -- Yes --> HAS_SENDER{"senderExternalUserId<br/>present?"}
+
+    HAS_SENDER -- Yes --> ACL_LOOKUP["Look up ingress member<br/>by (channel, userId/chatId)"]
+    HAS_SENDER -- No --> RECORD["Record inbound event"]
+
+    ACL_LOOKUP --> HAS_MEMBER{"Member record<br/>found?"}
+    HAS_MEMBER -- No --> DENY_MEMBER["Deny: not_a_member"]
+    HAS_MEMBER -- Yes --> STATUS_CHECK{"Member status<br/>= active?"}
+    STATUS_CHECK -- No --> DENY_STATUS["Deny: member_{status}"]
+    STATUS_CHECK -- Yes --> POLICY_CHECK{"Member policy?"}
+
+    POLICY_CHECK -- deny --> DENY_POLICY["Deny: policy_deny"]
+    POLICY_CHECK -- allow --> RECORD
+    POLICY_CHECK -- escalate --> RECORD
+
+    RECORD --> ESCALATE_CHECK{"Policy = escalate?"}
+    ESCALATE_CHECK -- Yes --> HAS_BINDING{"Guardian binding<br/>exists?"}
+    HAS_BINDING -- No --> DENY_ESCALATE["Deny: escalate_no_guardian"]
+    HAS_BINDING -- Yes --> CREATE_APPROVAL["Create approval request<br/>+ notify guardian (dual-surface)"]
+
+    ESCALATE_CHECK -- No --> VERIFY_CHECK{"Starts with<br/>/guardian_verify?"}
+    VERIFY_CHECK -- Yes --> VERIFY["Validate challenge<br/>→ create guardian binding"]
+    VERIFY_CHECK -- No --> ROLE_RESOLVE["Resolve actor role<br/>(guardian-context-resolver)"]
+    ROLE_RESOLVE --> APPROVAL_INTERCEPT["Approval interception<br/>+ message processing"]
+```
+
+This ordering ensures that ingress ACL decisions are finalized before any agent processing occurs. The `/guardian_verify` command is intercepted after ACL enforcement but before the agent loop, so it never triggers inference.
 
 #### Actor Role Resolution
 
@@ -3926,7 +4002,9 @@ The `channelGuardianApprovalRequests` table tracks per-run approval state. Each 
 |--------|---------|
 | `assistant/src/memory/channel-guardian-store.ts` | CRUD for guardian bindings, verification challenges, and approval requests (all scoped by `assistantId`) |
 | `assistant/src/runtime/channel-guardian-service.ts` | Challenge creation/validation, guardian identity checks (`isGuardian()`, `getGuardianBinding()`) -- all accept `assistantId` |
-| `assistant/src/runtime/routes/channel-routes.ts` | Guardian verification intercept (`/guardian_verify` command), actor role resolution, approval routing to guardian, proactive expiry sweep (`sweepExpiredGuardianApprovals`, `startGuardianExpirySweep`) |
+| `assistant/src/runtime/guardian-context-resolver.ts` | Actor role classification: guardian / non-guardian / unverified_channel based on binding state + sender identity |
+| `assistant/src/runtime/routes/inbound-message-handler.ts` | Ingress ACL enforcement, `/guardian_verify` command intercept, escalation creation, actor role resolution |
+| `assistant/src/runtime/routes/channel-routes.ts` | Approval routing to guardian, proactive expiry sweep (`sweepExpiredGuardianApprovals`, `startGuardianExpirySweep`) |
 | `assistant/src/calls/guardian-dispatch.ts` | Cross-channel ASK_GUARDIAN dispatch: creates guardian_action_requests, fans out to mac/telegram/sms, manages deliveries |
 | `assistant/src/calls/guardian-action-sweep.ts` | Periodic 60s sweep for expired guardian action requests; sends expiry notices to delivery channels |
 | `assistant/src/memory/guardian-action-store.ts` | CRUD for guardian_action_requests and guardian_action_deliveries tables; first-writer-wins resolution via atomic status check |
@@ -3937,13 +4015,16 @@ The assistant inbox extends the guardian security model to support controlled cr
 
 #### Ingress Membership ACL
 
-The channel inbound handler (`channel-routes.ts`) enforces an access control layer between message receipt and agent processing:
+The channel inbound handler (`inbound-message-handler.ts`) enforces an access control layer between message receipt and agent processing. The ACL runs at the top of the handler, before guardian role resolution or `/guardian_verify` command interception (see [Inbound Message Decision Chain](#inbound-message-decision-chain) for the full ordering):
 
-1. When `senderExternalUserId` is present and the sender is not the guardian, the handler looks up the sender in `assistant_ingress_members` by `(sourceChannel, externalUserId)`.
+1. When `senderExternalUserId` is present, the handler looks up the sender in `assistant_ingress_members` by `(sourceChannel, externalUserId)` or `(sourceChannel, externalChatId)`.
 2. If no member record exists, the message is denied (`not_a_member`).
-3. If a member exists, their individual `policy` field determines behavior (allow, deny, or escalate).
+3. If a member exists but is not `active` (e.g., `revoked`, `blocked`), the message is denied.
+4. If the member's `policy` is `deny`, the message is rejected. If `allow`, the message proceeds to normal processing. If `escalate`, the message is held for guardian approval.
 
-Invite tokens are created via the `ingress_invite` IPC contract. Each token is SHA-256 hashed before storage — the raw token is returned exactly once at creation time. External users redeem invites by sending the token as a channel message, which creates a member record with `allow` policy.
+**Invite-based onboarding:** Invite tokens are created via the `ingress_invite` IPC contract. Each token is SHA-256 hashed before storage — the raw token is returned exactly once at creation time. External users redeem invites by sending the token as a channel message, which atomically creates a member record with `active` status and `allow` policy.
+
+**Relationship to guardian verification:** Guardian verification and ingress membership are independent systems. Guardian verification establishes who controls the assistant on a channel (the trust anchor for approvals and escalations). Ingress membership controls who can interact with the assistant. Escalation (`policy=escalate`) depends on a guardian binding existing for the channel — without one, escalated messages are denied (fail-closed).
 
 #### Escalation Data Flow
 
@@ -4624,10 +4705,11 @@ Producer → NotificationSignal → Decision Engine (LLM) → Deterministic Chec
 | `assistant/src/notifications/adapters/` | Per-channel delivery (macOS IPC, Telegram gateway) |
 | `assistant/src/notifications/preference-extractor.ts` | Detects preference statements in conversation messages |
 | `assistant/src/notifications/preferences-store.ts` | CRUD for user notification preferences |
+| `assistant/src/config/bundled-skills/messaging/tools/send-notification.ts` | Explicit producer tool for user-requested notifications; emits signals into the same routing pipeline |
 
 **Audit trail (SQLite):** `notification_events` → `notification_decisions` → `notification_deliveries`
 
-**Configuration:** `notifications.enabled`, `notifications.shadowMode`, `notifications.decisionModel` in `config.json`.
+**Configuration:** `notifications.decisionModel` in `config.json`.
 
 ---
 

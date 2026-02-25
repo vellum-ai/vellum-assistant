@@ -157,7 +157,7 @@ async function sendMessage(
     "/messages",
     {
       method: "POST",
-      body: JSON.stringify({ conversationKey: assistantId, content }),
+      body: JSON.stringify({ conversationKey: assistantId, content, sourceChannel: "vellum", interface: "cli" }),
       signal,
     },
     bearerToken,

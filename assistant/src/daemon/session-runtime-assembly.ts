@@ -5,7 +5,7 @@
  * before it is sent to the provider.  They are pure (no side effects).
  */
 
-import type { ChannelId, TurnChannelContext } from '../channels/types.js';
+import { parseInterfaceId, type ChannelId, type TurnChannelContext, type InterfaceId, type TurnInterfaceContext } from '../channels/types.js';
 import type { Message } from '../providers/types.js';
 import { listAppFiles, getAppsDir } from '../memory/app-store.js';
 import { statSync } from 'node:fs';
@@ -16,7 +16,7 @@ import { join } from 'node:path';
  * interacting.  Used to gate UI-specific references and permission asks.
  */
 export interface ChannelCapabilities {
-  /** The raw channel identifier (e.g. "macos", "telegram", "sms"). */
+  /** The raw channel identifier (e.g. "vellum", "telegram", "sms"). */
   channel: string;
   /** Whether this channel can render the dashboard UI (apps, dynamic pages). */
   dashboardCapable: boolean;
@@ -38,8 +38,11 @@ export interface GuardianRuntimeContext {
   denialReason?: 'no_binding' | 'no_identity';
 }
 
-/** Derive channel capabilities from a raw source channel identifier. */
-export function resolveChannelCapabilities(sourceChannel?: string | null): ChannelCapabilities {
+/** Derive channel capabilities from source channel + interface identifiers. */
+export function resolveChannelCapabilities(
+  sourceChannel?: string | null,
+  sourceInterface?: string | null,
+): ChannelCapabilities {
   // Normalise legacy pseudo-channel IDs to canonical ChannelId values.
   let channel: string;
   switch (sourceChannel) {
@@ -48,17 +51,41 @@ export function resolveChannelCapabilities(sourceChannel?: string | null): Chann
     case 'dashboard':
     case 'http-api':
     case 'mac':
-      channel = 'macos';
+    case 'macos':
+    case 'ios':
+      channel = 'vellum';
       break;
     default:
       channel = sourceChannel;
   }
 
+  let iface = parseInterfaceId(sourceInterface);
+  if (!iface) {
+    switch (sourceInterface) {
+      case 'mac':
+        iface = 'macos';
+        break;
+      case 'desktop':
+      case 'http-api':
+      case 'dashboard':
+        iface = 'vellum';
+        break;
+      default:
+        iface = null;
+        break;
+    }
+  }
+
   switch (channel) {
-    case 'macos':
-      return { channel, dashboardCapable: true, supportsDynamicUi: true, supportsVoiceInput: true };
-    case 'ios':
-      return { channel, dashboardCapable: false, supportsDynamicUi: false, supportsVoiceInput: true };
+    case 'vellum': {
+      const supportsDesktopUi = iface === 'macos';
+      return {
+        channel,
+        dashboardCapable: supportsDesktopUi,
+        supportsDynamicUi: supportsDesktopUi,
+        supportsVoiceInput: supportsDesktopUi,
+      };
+    }
     case 'telegram':
     case 'sms':
     case 'voice':
@@ -528,12 +555,58 @@ export function stripChannelTurnContext(messages: Message[]): Message[] {
   return stripUserTextBlocksByPrefix(messages, ['<channel_turn_context>']);
 }
 
+// ---------------------------------------------------------------------------
+// Interface turn context injection
+// ---------------------------------------------------------------------------
+
+/** Parameters for building the interface turn context block. */
+export interface InterfaceTurnContextParams {
+  turnContext: TurnInterfaceContext;
+  conversationOriginInterface: InterfaceId | null;
+}
+
+/**
+ * Build the `<interface_turn_context>` text block that informs the model
+ * which interfaces are active for the current turn and the conversation's
+ * origin interface.
+ */
+export function buildInterfaceTurnContextBlock(params: InterfaceTurnContextParams): string {
+  const { turnContext, conversationOriginInterface } = params;
+  const lines: string[] = ['<interface_turn_context>'];
+  lines.push(`user_message_interface: ${turnContext.userMessageInterface}`);
+  lines.push(`assistant_message_interface: ${turnContext.assistantMessageInterface}`);
+  lines.push(`conversation_origin_interface: ${conversationOriginInterface ?? 'unknown'}`);
+  lines.push('</interface_turn_context>');
+  return lines.join('\n');
+}
+
+/**
+ * Prepend interface turn context to the last user message so the model
+ * knows which interfaces are involved in this turn.
+ */
+export function injectInterfaceTurnContext(message: Message, params: InterfaceTurnContextParams): Message {
+  const block = buildInterfaceTurnContextBlock(params);
+  return {
+    ...message,
+    content: [
+      { type: 'text', text: block },
+      ...message.content,
+    ],
+  };
+}
+
+/** Strip `<interface_turn_context>` blocks injected by `injectInterfaceTurnContext`. */
+export function stripInterfaceTurnContext(messages: Message[]): Message[] {
+  return stripUserTextBlocksByPrefix(messages, ['<interface_turn_context>']);
+}
+
 /** Prefixes stripped by the pipeline (order doesn't matter — single pass). */
 const RUNTIME_INJECTION_PREFIXES = [
   '<channel_capabilities>',
   '<channel_command_context>',
   '<channel_turn_context>',
   '<guardian_context>',
+  '<interface_turn_context>',
   '<voice_call_control>',
   '<workspace_top_level>',
   TEMPORAL_INJECTED_PREFIX,
@@ -577,6 +650,7 @@ export function applyRuntimeInjections(
     channelCapabilities?: ChannelCapabilities | null;
     channelCommandContext?: ChannelCommandContext | null;
     channelTurnContext?: ChannelTurnContextParams | null;
+    interfaceTurnContext?: InterfaceTurnContextParams | null;
     guardianContext?: GuardianRuntimeContext | null;
     temporalContext?: string | null;
     voiceCallControlPrompt?: string | null;
@@ -640,6 +714,16 @@ export function applyRuntimeInjections(
       result = [
         ...result.slice(0, -1),
         injectChannelTurnContext(userTail, options.channelTurnContext),
+      ];
+    }
+  }
+
+  if (options.interfaceTurnContext) {
+    const userTail = result[result.length - 1];
+    if (userTail && userTail.role === 'user') {
+      result = [
+        ...result.slice(0, -1),
+        injectInterfaceTurnContext(userTail, options.interfaceTurnContext),
       ];
     }
   }

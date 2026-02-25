@@ -27,7 +27,7 @@ export function persistCallCompletionMessage(conversationId: string, callSession
     conversationId,
     'assistant',
     JSON.stringify([{ type: 'text', text: summaryText }]),
-    { userMessageChannel: 'voice', assistantMessageChannel: 'voice' },
+    { userMessageChannel: 'voice', assistantMessageChannel: 'voice', userMessageInterface: 'voice', assistantMessageInterface: 'voice' },
   );
   return summaryText;
 }

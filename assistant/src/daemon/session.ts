@@ -16,7 +16,7 @@
  */
 
 import type { Message } from '../providers/types.js';
-import type { TurnChannelContext } from '../channels/types.js';
+import type { TurnChannelContext, TurnInterfaceContext } from '../channels/types.js';
 import type { ServerMessage, UsageStats, UserMessageAttachment, SurfaceType, SurfaceData } from './ipc-protocol.js';
 import { AgentLoop } from '../agent/loop.js';
 import type { Provider } from '../providers/types.js';
@@ -149,6 +149,7 @@ export class Session {
   public lastAssistantAttachments: AssistantAttachmentDraft[] = [];
   public lastAttachmentWarnings: string[] = [];
   /** @internal */ currentTurnChannelContext: TurnChannelContext | null = null;
+  /** @internal */ currentTurnInterfaceContext: TurnInterfaceContext | null = null;
 
   constructor(
     conversationId: string,
@@ -205,7 +206,7 @@ export class Session {
     this.agentLoop = new AgentLoop(
       provider,
       systemPrompt,
-      { maxTokens, maxInputTokens: config.contextWindow.maxInputTokens, thinking: config.thinking },
+      { maxTokens, maxInputTokens: config.contextWindow.maxInputTokens, thinking: config.thinking, maxToolUseTurns: config.maxToolUseTurns },
       toolDefs.length > 0 ? toolDefs : undefined,
       toolDefs.length > 0 ? toolExecutor : undefined,
       resolveTools,
@@ -363,6 +364,14 @@ export class Session {
 
   getTurnChannelContext(): TurnChannelContext | null {
     return this.currentTurnChannelContext;
+  }
+
+  setTurnInterfaceContext(ctx: TurnInterfaceContext): void {
+    this.currentTurnInterfaceContext = ctx;
+  }
+
+  getTurnInterfaceContext(): TurnInterfaceContext | null {
+    return this.currentTurnInterfaceContext;
   }
 
   persistUserMessage(

@@ -382,20 +382,21 @@ export class RelayConnection {
     const assistantId = normalizeAssistantId(session?.assistantId ?? 'self');
     const isInbound = session?.initiatedFromConversationId == null;
 
-    // Create and attach the session-backed voice controller. For inbound voice,
-    // seed guardian actor context from caller identity + active binding so
-    // first-turn behavior matches channel ingress semantics.
-    const initialGuardianContext = isInbound
-      ? toGuardianRuntimeContext(
-        'voice',
-        resolveGuardianContext({
-          assistantId,
-          sourceChannel: 'voice',
-          externalChatId: msg.from,
-          senderExternalUserId: msg.from || undefined,
-        }),
-      )
-      : undefined;
+    // Create and attach the session-backed voice controller. Seed guardian
+    // actor context from the other party's identity + active binding so
+    // first-turn behavior matches channel ingress semantics. For inbound
+    // calls msg.from is the caller; for outbound calls msg.to is the
+    // recipient (msg.from is the assistant's Twilio number).
+    const otherPartyNumber = isInbound ? msg.from : msg.to;
+    const initialGuardianContext = toGuardianRuntimeContext(
+      'voice',
+      resolveGuardianContext({
+        assistantId,
+        sourceChannel: 'voice',
+        externalChatId: otherPartyNumber,
+        senderExternalUserId: otherPartyNumber || undefined,
+      }),
+    );
 
     const controller = new CallController(this.callSessionId, this, session?.task ?? null, {
       broadcast: globalBroadcast,
@@ -458,7 +459,7 @@ export class RelayConnection {
         session.initiatedFromConversationId,
         'assistant',
         JSON.stringify([{ type: 'text', text: codeMsg }]),
-        { userMessageChannel: 'voice', assistantMessageChannel: 'voice' },
+        { userMessageChannel: 'voice', assistantMessageChannel: 'voice', userMessageInterface: 'voice', assistantMessageInterface: 'voice' },
       );
     }
 
@@ -718,12 +719,18 @@ export class RelayConnection {
       // completes. The session pipeline normally handles persistence, but
       // this early-utterance path bypasses it entirely.
       if (session) {
-        conversationStore.addMessage(
-          session.conversationId,
-          'user',
-          JSON.stringify([{ type: 'text', text: msg.voicePrompt }]),
-          { userMessageChannel: 'voice', assistantMessageChannel: 'voice' },
-        );
+        try {
+          conversationStore.addMessage(
+            session.conversationId,
+            'user',
+            JSON.stringify([{ type: 'text', text: msg.voicePrompt }]),
+            { userMessageChannel: 'voice', assistantMessageChannel: 'voice', userMessageInterface: 'voice', assistantMessageInterface: 'voice' },
+          );
+        } catch (err) {
+          // Best-effort — don't let persistence failures prevent the hold
+          // response from reaching the caller.
+          log.warn({ err, callSessionId: this.callSessionId }, 'Failed to persist early caller utterance');
+        }
       }
       this.sendTextToken('I\'m still setting up. Please hold.', true);
     }

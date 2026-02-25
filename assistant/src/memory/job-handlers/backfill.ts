@@ -7,7 +7,7 @@ import {
   resetMessageCursorCheckpoint,
   writeMessageCursorCheckpoint,
 } from '../checkpoints.js';
-import { getConversationMemoryScopeId } from '../conversation-store.js';
+import { getConversationMemoryScopeId, messageMetadataSchema } from '../conversation-store.js';
 import { indexMessageNow } from '../indexer.js';
 import {
   enqueueBackfillEntityRelationsJob,
@@ -22,6 +22,23 @@ const BACKFILL_CHECKPOINT_KEY = 'memory:backfill:last_created_at';
 const BACKFILL_CHECKPOINT_ID_KEY = 'memory:backfill:last_message_id';
 const RELATION_BACKFILL_CHECKPOINT_KEY = 'memory:relation_backfill:last_created_at';
 const RELATION_BACKFILL_CHECKPOINT_ID_KEY = 'memory:relation_backfill:last_message_id';
+
+type ProvenanceActorRole = 'guardian' | 'non-guardian' | 'unverified_channel';
+
+function parseProvenanceActorRole(rawMetadata: string | null): ProvenanceActorRole | undefined {
+  if (!rawMetadata) return undefined;
+  try {
+    const parsedJson: unknown = JSON.parse(rawMetadata);
+    const parsed = messageMetadataSchema.safeParse(parsedJson);
+    return parsed.success ? parsed.data.provenanceActorRole : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function isTrustedActorRole(actorRole: ProvenanceActorRole | undefined): boolean {
+  return actorRole === 'guardian' || actorRole === undefined;
+}
 
 export function backfillJob(job: MemoryJob, config: AssistantConfig): void {
   const db = getDb();
@@ -50,6 +67,7 @@ export function backfillJob(job: MemoryJob, config: AssistantConfig): void {
         scopeId = getConversationMemoryScopeId(message.conversationId);
         scopeCache.set(message.conversationId, scopeId);
       }
+      const provenanceActorRole = parseProvenanceActorRole(message.metadata ?? null);
       indexMessageNow({
         messageId: message.id,
         conversationId: message.conversationId,
@@ -57,6 +75,7 @@ export function backfillJob(job: MemoryJob, config: AssistantConfig): void {
         content: message.content,
         createdAt: message.createdAt,
         scopeId,
+        provenanceActorRole,
       }, config.memory);
     }
     const lastMessage = batch[batch.length - 1];
@@ -108,7 +127,7 @@ export function backfillEntityRelationsJob(job: MemoryJob, config: AssistantConf
     : afterCursor;
 
   const batch = db
-    .select({ id: messages.id, role: messages.role, createdAt: messages.createdAt })
+    .select({ id: messages.id, role: messages.role, createdAt: messages.createdAt, metadata: messages.metadata })
     .from(messages)
     .where(conditions)
     .orderBy(asc(messages.createdAt), asc(messages.id))
@@ -116,8 +135,16 @@ export function backfillEntityRelationsJob(job: MemoryJob, config: AssistantConf
     .all();
   if (batch.length === 0) return;
 
+  let queuedExtractEntityJobs = 0;
+  let skippedUntrusted = 0;
   for (const message of batch) {
+    const provenanceActorRole = parseProvenanceActorRole(message.metadata ?? null);
+    if (!isTrustedActorRole(provenanceActorRole)) {
+      skippedUntrusted += 1;
+      continue;
+    }
     enqueueMemoryJob('extract_entities', { messageId: message.id });
+    queuedExtractEntityJobs += 1;
   }
 
   const lastMessage = batch[batch.length - 1];
@@ -131,7 +158,8 @@ export function backfillEntityRelationsJob(job: MemoryJob, config: AssistantConf
   }
 
   log.debug({
-    queuedExtractEntityJobs: batch.length,
+    queuedExtractEntityJobs,
+    skippedUntrusted,
     batchSize,
     lastCreatedAt: lastMessage.createdAt,
     lastMessageId: lastMessage.id,

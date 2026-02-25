@@ -41,7 +41,7 @@ Notification preferences are statements about HOW, WHEN, or WHERE the user wants
 - "Use Telegram for urgent alerts"
 - "Don't notify me on desktop during work calls"
 - "Weeknights after 10pm: only critical notifications"
-- "Send me everything on macOS"
+- "Send me everything on the desktop app"
 - "Only bug me for high priority stuff"
 - "Mute notifications between 11pm and 7am"
 - "I prefer Telegram over desktop notifications"
@@ -91,7 +91,7 @@ const EXTRACTION_TOOL = {
                 channels: {
                   type: 'array',
                   items: { type: 'string' },
-                  description: 'Channels this preference applies to (e.g. telegram, macos)',
+                  description: 'Channels this preference applies to (e.g. telegram, vellum)',
                 },
                 urgencyLevels: {
                   type: 'array',
@@ -179,7 +179,7 @@ function validateExtractionOutput(input: Record<string, unknown>): ExtractionRes
   const preferences: ExtractedPreference[] = [];
 
   for (const raw of input.preferences) {
-    if (typeof raw !== 'object' || raw === null) continue;
+    if (typeof raw !== 'object' || !raw) continue;
     const p = raw as Record<string, unknown>;
 
     if (typeof p.preferenceText !== 'string' || !p.preferenceText.trim()) continue;

@@ -1,7 +1,7 @@
 import type { GatewayConfig } from "../../config.js";
 import { fetchImpl } from "../../fetch.js";
-import { validateBearerToken } from "../auth/bearer.js";
 import { getLogger } from "../../logger.js";
+import { checkDeliverAuth } from "../middleware/deliver-auth.js";
 
 const log = getLogger("sms-deliver");
 
@@ -88,27 +88,8 @@ export function createSmsDeliverHandler(config: GatewayConfig) {
       return Response.json({ error: "Method not allowed" }, { status: 405 });
     }
 
-    // Fail-closed auth: when no bearer token is configured and the explicit
-    // dev-only bypass flag is not set, refuse to serve requests (503) rather
-    // than silently allowing unauthenticated access.
-    if (!config.runtimeProxyBearerToken) {
-      if (config.smsDeliverAuthBypass) {
-        // Dev-only bypass — skip auth entirely.
-      } else {
-        return Response.json(
-          { error: "Service not configured: bearer token required" },
-          { status: 503 },
-        );
-      }
-    } else {
-      const authResult = validateBearerToken(
-        req.headers.get("authorization"),
-        config.runtimeProxyBearerToken,
-      );
-      if (!authResult.authorized) {
-        return Response.json({ error: "Unauthorized" }, { status: 401 });
-      }
-    }
+    const authResponse = checkDeliverAuth(req, config, "smsDeliverAuthBypass");
+    if (authResponse) return authResponse;
 
     // Verify Twilio SMS sending is configured
     if (!config.twilioAccountSid || !config.twilioAuthToken) {
@@ -125,6 +106,12 @@ export function createSmsDeliverHandler(config: GatewayConfig) {
       text?: string;
       assistantId?: string;
       attachments?: unknown[];
+      approval?: {
+        runId?: string;
+        requestId?: string;
+        actions?: Array<{ id?: string; label?: string }>;
+        plainTextFallback?: string;
+      };
     };
     try {
       body = (await req.json()) as typeof body;
@@ -132,7 +119,7 @@ export function createSmsDeliverHandler(config: GatewayConfig) {
       return Response.json({ error: "Invalid JSON" }, { status: 400 });
     }
 
-    const { text } = body;
+    const { text, approval } = body;
     const assistantId = typeof body.assistantId === "string" ? body.assistantId : undefined;
     // Accept `chatId` as an alias for `to` so runtime channel callbacks
     // (which send `{ chatId, text }`) work without translation.
@@ -155,6 +142,12 @@ export function createSmsDeliverHandler(config: GatewayConfig) {
       return Response.json({ error: "text is required" }, { status: 400 });
     }
 
+    // plainTextFallback already includes the full prompt text plus reply
+    // instructions, so use it as the entire SMS body to avoid duplication.
+    const smsBody = approval?.plainTextFallback && typeof approval.plainTextFallback === "string"
+      ? approval.plainTextFallback
+      : effectiveText;
+
     const from = resolveFromNumber(config, assistantId);
     if (!from) {
       tlog.error({ assistantId }, "Twilio SMS phone number not configured");
@@ -171,14 +164,14 @@ export function createSmsDeliverHandler(config: GatewayConfig) {
         config.twilioAuthToken,
         from,
         to,
-        effectiveText,
+        smsBody,
       );
     } catch (err) {
       tlog.error({ err, to }, "Failed to send SMS via Twilio");
       return Response.json({ error: "SMS delivery failed" }, { status: 502 });
     }
 
-    tlog.info({ to, textLength: effectiveText.length, messageSid: result.sid, status: result.status }, "SMS accepted by Twilio");
+    tlog.info({ to, textLength: smsBody.length, messageSid: result.sid, status: result.status }, "SMS accepted by Twilio");
     return Response.json({
       ok: true,
       messageSid: result.sid,

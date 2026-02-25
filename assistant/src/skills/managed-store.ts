@@ -125,6 +125,34 @@ export function removeSkillsIndexEntry(id: string): void {
   log.info({ id }, 'Removed managed skill from SKILLS.md index');
 }
 
+// ─── Version metadata ─────────────────────────────────────────────────────────
+
+interface SkillVersionMeta {
+  version: string;
+  installedAt: string;
+}
+
+function getVersionMetaPath(id: string): string {
+  return join(getManagedSkillDir(id), 'version.json');
+}
+
+function writeVersionMeta(id: string, version: string): void {
+  const meta: SkillVersionMeta = { version, installedAt: new Date().toISOString() };
+  atomicWriteFile(getVersionMetaPath(id), JSON.stringify(meta, null, 2) + '\n');
+}
+
+export function readSkillVersion(id: string): string | null {
+  const metaPath = getVersionMetaPath(id);
+  if (!existsSync(metaPath)) return null;
+  try {
+    const raw = readFileSync(metaPath, 'utf-8');
+    const meta: SkillVersionMeta = JSON.parse(raw);
+    return meta.version ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // ─── Create / Delete ─────────────────────────────────────────────────────────
 
 export interface CreateManagedSkillParams {
@@ -138,6 +166,7 @@ export interface CreateManagedSkillParams {
   overwrite?: boolean;
   addToIndex?: boolean;
   includes?: string[];
+  version?: string;
 }
 
 export interface CreateManagedSkillResult {
@@ -184,7 +213,18 @@ export function createManagedSkill(params: CreateManagedSkillParams): CreateMana
 
   mkdirSync(skillDir, { recursive: true });
   atomicWriteFile(skillFilePath, content);
-  log.info({ id: params.id, path: skillFilePath }, 'Created managed skill');
+
+  if (params.version) {
+    writeVersionMeta(params.id, params.version);
+  } else {
+    // Remove stale version metadata when overwriting without a version
+    const metaPath = getVersionMetaPath(params.id);
+    if (existsSync(metaPath)) {
+      rmSync(metaPath);
+    }
+  }
+
+  log.info({ id: params.id, path: skillFilePath, version: params.version }, 'Created managed skill');
 
   let indexUpdated = false;
   if (params.addToIndex !== false) {

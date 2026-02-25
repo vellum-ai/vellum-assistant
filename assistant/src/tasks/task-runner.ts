@@ -1,5 +1,7 @@
 import { getLogger } from '../util/logger.js';
 import { createConversation } from '../memory/conversation-store.js';
+import { GENERATING_TITLE, queueGenerateConversationTitle } from '../memory/conversation-title-service.js';
+import { invalidateAssistantInferredItemsForConversation } from '../memory/task-memory-cleanup.js';
 import { getTask, createTaskRun, updateTaskRun } from './task-store.js';
 import { buildTaskRules, setTaskRunRules, clearTaskRunRules } from './ephemeral-permissions.js';
 import { sanitizeToolList } from './tool-sanitizer.js';
@@ -43,7 +45,11 @@ export async function runTask(
   }
 
   const run = createTaskRun(task.id);
-  const conversation = createConversation({ title: `Task: ${task.title}`, threadType: 'background' });
+  const conversation = createConversation({ title: GENERATING_TITLE, threadType: 'background' });
+  queueGenerateConversationTitle({
+    conversationId: conversation.id,
+    context: { origin: 'task', systemHint: `Task: ${task.title}` },
+  });
 
   updateTaskRun(run.id, {
     conversationId: conversation.id,
@@ -77,6 +83,12 @@ export async function runTask(
     log.warn({ err, taskId: task.id, taskRunId: run.id }, 'Task execution failed');
 
     updateTaskRun(run.id, { status: 'failed', error: errorMessage, finishedAt: Date.now() });
+
+    try {
+      invalidateAssistantInferredItemsForConversation(conversation.id);
+    } catch (cleanupErr) {
+      log.warn({ err: cleanupErr, conversationId: conversation.id }, 'Failed to invalidate assistant-inferred memory items');
+    }
 
     return {
       taskRunId: run.id,

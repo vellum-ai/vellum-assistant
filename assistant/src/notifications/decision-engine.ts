@@ -189,7 +189,7 @@ function buildFallbackDecision(
 
 // ── Validation ─────────────────────────────────────────────────────────
 
-const VALID_CHANNELS = new Set<string>(['macos', 'telegram']);
+const VALID_CHANNELS = new Set<string>(['vellum', 'telegram']);
 
 function validateDecisionOutput(
   input: Record<string, unknown>,
@@ -248,15 +248,10 @@ function validateDecisionOutput(
 
 // ── Core evaluation function ───────────────────────────────────────────
 
-export interface EvaluateSignalOptions {
-  shadowMode?: boolean;
-}
-
 export async function evaluateSignal(
   signal: NotificationSignal,
   availableChannels: NotificationChannel[],
   preferenceContext?: string,
-  options?: EvaluateSignalOptions,
 ): Promise<NotificationDecision> {
   const config = getConfig();
   const decisionModel = config.notifications.decisionModel;
@@ -293,19 +288,6 @@ export async function evaluateSignal(
   }
 
   decision.persistedDecisionId = persistDecision(signal, decision);
-
-  if (options?.shadowMode ?? config.notifications.shadowMode) {
-    log.info(
-      {
-        signalId: signal.signalId,
-        shouldNotify: decision.shouldNotify,
-        channels: decision.selectedChannels,
-        fallbackUsed: decision.fallbackUsed,
-        confidence: decision.confidence,
-      },
-      'Shadow mode: decision logged but not dispatched',
-    );
-  }
 
   return decision;
 }

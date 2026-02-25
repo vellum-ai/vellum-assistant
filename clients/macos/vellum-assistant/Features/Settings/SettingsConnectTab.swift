@@ -13,6 +13,8 @@ struct SettingsConnectTab: View {
 
     @State private var gatewayUrlText: String = ""
     @FocusState private var isGatewayUrlFocused: Bool
+    @State private var platformUrlText: String = ""
+    @FocusState private var isPlatformUrlFocused: Bool
     @State private var bearerToken: String = ""
     @State private var tokenRevealed: Bool = false
     @State private var tokenCopied: Bool = false
@@ -21,7 +23,6 @@ struct SettingsConnectTab: View {
     @State private var showingRegenerateConfirmation: Bool = false
     @State private var gatewayExpanded: Bool = true
     @State private var advancedExpanded: Bool = false
-    @State private var diagnosticsExpanded: Bool = false
 
     // Telegram credential entry
     @State private var telegramBotTokenText = ""
@@ -50,20 +51,20 @@ struct SettingsConnectTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
-            pairingSection
-            ApprovedDevicesSection(store: store)
-            gatewaySection
             vellumSection
+            gatewaySection
             advancedSection
-            diagnosticsSection
-            channelsSection
+            connectionsSection
         }
         .onAppear {
             Task { await authManager.checkSession() }
-            if store.isDevMode { Task { await store.checkVellumPlatform() } }
+            store.refreshPlatformConfig()
+            Task { await store.checkVellumPlatform() }
             store.refreshIngressConfig()
             store.refreshAssistantEmail()
+            store.refreshApprovedDevices()
             gatewayUrlText = store.ingressPublicBaseUrl
+            platformUrlText = store.platformBaseUrl
             refreshBearerToken()
             store.refreshChannelGuardianStatus(channel: "telegram")
             store.refreshChannelGuardianStatus(channel: "sms")
@@ -78,6 +79,16 @@ struct SettingsConnectTab: View {
         .onChange(of: isGatewayUrlFocused) { _, focused in
             if !focused {
                 gatewayUrlText = store.ingressPublicBaseUrl
+            }
+        }
+        .onChange(of: store.platformBaseUrl) { _, newValue in
+            if !isPlatformUrlFocused {
+                platformUrlText = newValue
+            }
+        }
+        .onChange(of: isPlatformUrlFocused) { _, focused in
+            if !focused {
+                platformUrlText = store.platformBaseUrl
             }
         }
         .onChange(of: store.twilioHasCredentials) { _, hasCredentials in
@@ -103,28 +114,6 @@ struct SettingsConnectTab: View {
     }
 
     // MARK: - Vellum Section
-
-    private var platformHealthIcon: String {
-        if store.isCheckingVellumPlatform {
-            return "arrow.trianglehead.2.counterclockwise"
-        }
-        switch store.vellumPlatformReachable {
-        case .some(true): return "checkmark.circle.fill"
-        case .some(false): return "xmark.circle.fill"
-        case .none: return "questionmark.circle"
-        }
-    }
-
-    private var platformHealthIconColor: Color {
-        if store.isCheckingVellumPlatform {
-            return VColor.textMuted
-        }
-        switch store.vellumPlatformReachable {
-        case .some(true): return VColor.success
-        case .some(false): return VColor.error
-        case .none: return VColor.textMuted
-        }
-    }
 
     private var vellumSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -174,14 +163,35 @@ struct SettingsConnectTab: View {
             if store.isDevMode {
                 Divider().background(VColor.surfaceBorder)
 
-                channelStatusRow(
-                    label: "Platform URL",
-                    icon: platformHealthIcon,
-                    iconColor: platformHealthIconColor,
-                    value: AuthService.shared.baseURL,
-                    valueFont: VFont.mono
-                )
-                .help(store.vellumPlatformError ?? "")
+                Text("Platform URL")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
+
+                HStack(spacing: VSpacing.sm) {
+                    TextField("https://platform.vellum.ai", text: $platformUrlText)
+                        .focused($isPlatformUrlFocused)
+                        .vInputStyle()
+                        .font(VFont.mono)
+                        .onSubmit {
+                            store.savePlatformBaseUrl(platformUrlText)
+                            Task { await store.checkVellumPlatform() }
+                        }
+                    VButton(label: "Save", style: .primary) {
+                        store.savePlatformBaseUrl(platformUrlText)
+                        Task { await store.checkVellumPlatform() }
+                    }
+                }
+            }
+
+            Divider().background(VColor.surfaceBorder)
+
+            connectionStatusRow(
+                label: "Platform",
+                status: platformUrlStatusInfo,
+                isRefreshing: store.isCheckingVellumPlatform,
+                lastChecked: store.platformLastChecked
+            ) {
+                Task { await store.checkVellumPlatform() }
             }
         }
         .padding(VSpacing.lg)
@@ -199,26 +209,6 @@ struct SettingsConnectTab: View {
             isExpanded: $gatewayExpanded
         ) {
             VStack(alignment: .leading, spacing: VSpacing.md) {
-                // Gateway URL field
-                HStack(spacing: VSpacing.xs) {
-                    Text("Gateway URL")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textSecondary)
-                }
-
-                TextField("https://your-tunnel.example.com", text: $gatewayUrlText)
-                    .focused($isGatewayUrlFocused)
-                    .vInputStyle()
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textPrimary)
-
-                VButton(label: "Save", style: .primary) {
-                    store.saveIngressPublicBaseUrl(gatewayUrlText)
-                }
-
-                Divider()
-                    .background(VColor.surfaceBorder)
-
                 // Local Gateway Target (read-only)
                 HStack(spacing: VSpacing.xs) {
                     Text("Local Gateway Target")
@@ -263,6 +253,62 @@ struct SettingsConnectTab: View {
                 Text("Point your tunnel (ngrok, Cloudflare, etc.) to this address.")
                     .font(VFont.caption)
                     .foregroundColor(VColor.textSecondary)
+
+                // Gateway connection status (checks local daemon)
+                connectionStatusRow(
+                    label: "Gateway",
+                    status: gatewayStatusInfo,
+                    isRefreshing: store.isCheckingGateway,
+                    lastChecked: store.gatewayLastChecked
+                ) {
+                    Task { await store.testGatewayOnly() }
+                }
+
+                Divider()
+                    .background(VColor.surfaceBorder)
+
+                // Gateway URL field
+                HStack(spacing: VSpacing.xs) {
+                    Text("Gateway URL")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                }
+
+                HStack(spacing: VSpacing.sm) {
+                    TextField("https://your-tunnel.example.com", text: $gatewayUrlText)
+                        .focused($isGatewayUrlFocused)
+                        .vInputStyle()
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textPrimary)
+
+                    VButton(label: "Save", style: .primary) {
+                        store.saveIngressPublicBaseUrl(gatewayUrlText)
+                    }
+                }
+
+                // Tunnel connection status (checks public URL)
+                connectionStatusRow(
+                    label: "Tunnel",
+                    status: tunnelStatusInfo,
+                    isRefreshing: store.isCheckingTunnel,
+                    lastChecked: store.tunnelLastChecked
+                ) {
+                    Task { await store.testTunnelOnly() }
+                }
+
+                // Diagnostic message when gateway is up but tunnel is down
+                if store.gatewayReachable == true,
+                   !store.ingressPublicBaseUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   store.ingressReachable == false {
+                    HStack(spacing: VSpacing.sm) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(VColor.warning)
+                            .font(.system(size: 12))
+                        Text("Gateway is running but tunnel is unreachable. Check your tunnel configuration.")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.warning)
+                    }
+                }
             }
         }
         .padding(VSpacing.lg)
@@ -349,23 +395,19 @@ struct SettingsConnectTab: View {
         }
     }
 
-    // MARK: - Channels Section
+    // MARK: - Connections Section
 
-    private var channelsSection: some View {
+    private var connectionsSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Channels")
-                    .font(VFont.sectionTitle)
-                    .foregroundColor(VColor.textPrimary)
-                Text("Email, Telegram, SMS, and Voice integrations")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-            }
+            Text("Connections")
+                .font(VFont.sectionTitle)
+                .foregroundColor(VColor.textPrimary)
 
-            emailCard
+            mobileCard
             telegramCard
             twilioCard
             voiceCard
+            emailCard
         }
     }
 
@@ -977,6 +1019,14 @@ struct SettingsConnectTab: View {
             default: return nil
             }
         }()
+        let alreadyBound: Bool = {
+            switch channel {
+            case "telegram": return store.telegramGuardianAlreadyBound
+            case "sms": return store.smsGuardianAlreadyBound
+            case "voice": return store.voiceGuardianAlreadyBound
+            default: return false
+            }
+        }()
         let primaryIdentity = guardianPrimaryIdentity(channel: channel, identity: identity)
         let secondaryIdentity = guardianSecondaryIdentity(primary: primaryIdentity, identity: identity)
         let telegramProfileURL: URL? = channel == "telegram"
@@ -1054,10 +1104,17 @@ struct SettingsConnectTab: View {
             }
 
             if let error {
-                Text(error)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.error)
-                    .padding(.leading, 90 + VSpacing.sm)
+                HStack(spacing: VSpacing.sm) {
+                    Text(error)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.error)
+                    if alreadyBound {
+                        VButton(label: "Replace", style: .secondary) {
+                            store.startChannelGuardianVerification(channel: channel, rebind: true)
+                        }
+                    }
+                }
+                .padding(.leading, 90 + VSpacing.sm)
             }
         }
     }
@@ -1190,17 +1247,18 @@ struct SettingsConnectTab: View {
         }
     }
 
-    // MARK: - Pairing Section (Hero)
+    // MARK: - Mobile Card (Pairing + Approved Devices)
 
-    private var pairingSection: some View {
+    private var mobileCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Pair with iOS")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
-
-            Text("Scan the QR code with the Vellum iOS app to connect your iPhone.")
-                .font(VFont.body)
-                .foregroundColor(VColor.textSecondary)
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("Mobile")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+                Text("Connect your phone to your assistant through the iOS app")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+            }
 
             VButton(label: "Show QR Code", leftIcon: "qrcode", style: .primary) {
                 showingPairingQR = true
@@ -1212,15 +1270,10 @@ struct SettingsConnectTab: View {
             // LAN pairing works without a cloud gateway URL.
             let hasGateway = !store.resolvedIosGatewayUrl.isEmpty || LANIPHelper.currentLANAddress() != nil
             let trimmedOverrideToken = iosPairingTokenOverride.trimmingCharacters(in: .whitespacesAndNewlines)
-            // Has a usable token — either the daemon file token or a non-empty override.
             let hasToken = !bearerToken.isEmpty || !trimmedOverrideToken.isEmpty
-
-            // Token originates from the daemon file — true when the daemon token
-            // is present and no override token has been entered.
             let tokenFromDaemon = !bearerToken.isEmpty && trimmedOverrideToken.isEmpty
 
             if isRegeneratingToken {
-                // "Restarting daemon..." — spinner while daemon restarts with new token
                 HStack(spacing: VSpacing.sm) {
                     ProgressView()
                         .controlSize(.small)
@@ -1229,7 +1282,6 @@ struct SettingsConnectTab: View {
                         .foregroundColor(VColor.textSecondary)
                 }
             } else if hasGateway && hasToken {
-                // "Ready to pair" — green checkmark + subtle regenerate (daemon token only)
                 HStack(spacing: VSpacing.sm) {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundColor(VColor.success)
@@ -1249,17 +1301,15 @@ struct SettingsConnectTab: View {
                     }
                 }
             } else if !hasGateway {
-                // "Configure a gateway URL below" — amber warning
                 HStack(spacing: VSpacing.sm) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundColor(VColor.warning)
                         .font(.system(size: 14))
-                    Text("Configure a gateway URL below to enable pairing")
+                    Text("Configure a gateway URL to enable pairing")
                         .font(VFont.body)
                         .foregroundColor(VColor.warning)
                 }
             } else {
-                // "Bearer token required" — amber warning + Generate button
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     HStack(spacing: VSpacing.sm) {
                         Image(systemName: "exclamationmark.triangle.fill")
@@ -1274,127 +1324,52 @@ struct SettingsConnectTab: View {
                     }
                 }
             }
+
+            // Connected devices
+            if !store.approvedDevices.isEmpty {
+                Divider().background(VColor.surfaceBorder)
+
+                ForEach(store.approvedDevices, id: \.hashedDeviceId) { device in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(device.deviceName)
+                                .font(VFont.body)
+                                .foregroundColor(VColor.textPrimary)
+                            Text("Last paired: \(formattedDeviceDate(device.lastPairedAt))")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                        }
+                        Spacer()
+                        Button("Remove") {
+                            store.removeApprovedDevice(hashedDeviceId: device.hashedDeviceId)
+                        }
+                        .font(VFont.caption)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                    .padding(.vertical, VSpacing.xs)
+                }
+
+                Button("Clear All") {
+                    store.clearAllApprovedDevices()
+                }
+                .font(VFont.caption)
+                .foregroundColor(VColor.error)
+                .buttonStyle(.borderless)
+            }
         }
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(background: VColor.surfaceSubtle)
     }
 
-    // MARK: - Diagnostics Section (merged Status + Test Connection)
-
-    private var diagnosticsSection: some View {
-        VDisclosureSection(
-            title: "Diagnostics",
-            icon: "stethoscope",
-            isExpanded: $diagnosticsExpanded
-        ) {
-            VStack(alignment: .leading, spacing: VSpacing.md) {
-                statusContent
-
-                Divider().background(VColor.surfaceBorder)
-
-                testConnectionContent
-            }
-        }
-        .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceSubtle)
+    private func formattedDeviceDate(_ timestamp: Int) -> String {
+        let date = Date(timeIntervalSince1970: Double(timestamp) / 1000.0)
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: date, relativeTo: Date())
     }
 
-    @ViewBuilder
-    private var statusContent: some View {
-        if store.ingressPublicBaseUrl.isEmpty {
-            HStack(spacing: VSpacing.sm) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundColor(VColor.warning)
-                    .font(.system(size: 14))
-                Text("Set a Gateway URL to enable devices and integrations.")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
-            }
-        } else if !store.ingressEnabled {
-            HStack(spacing: VSpacing.sm) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundColor(VColor.warning)
-                    .font(.system(size: 14))
-                Text("Gateway URL is set but the gateway is not active. Check your tunnel or gateway configuration.")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
-            }
-        } else {
-            HStack(spacing: VSpacing.sm) {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(VColor.success)
-                    .font(.system(size: 14))
-                Text("Configured")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
-            }
-        }
-
-        Text("This URL is used by your devices and integrations to reach this Mac.")
-            .font(VFont.caption)
-            .foregroundColor(VColor.textMuted)
-    }
-
-    @ViewBuilder
-    private var testConnectionContent: some View {
-        // Test Connection button
-        HStack(spacing: VSpacing.sm) {
-            if store.isCheckingGateway {
-                VLoadingIndicator(size: 14, color: VColor.accent)
-                Text("Checking...")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
-            } else {
-                VButton(
-                    label: "Test Connection",
-                    leftIcon: "antenna.radiowaves.left.and.right",
-                    style: .secondary,
-                    isDisabled: store.isCheckingGateway
-                ) {
-                    Task { await store.testGatewayConnection() }
-                }
-            }
-        }
-
-        // Gateway status row
-        connectionStatusRow(
-            label: "Gateway",
-            status: gatewayStatusInfo
-        )
-
-        // Tunnel status row
-        connectionStatusRow(
-            label: "Tunnel",
-            status: tunnelStatusInfo
-        )
-
-        // Diagnostic message when gateway is up but tunnel is down
-        if store.gatewayReachable == true,
-           !store.ingressPublicBaseUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-           store.ingressReachable == false {
-            HStack(spacing: VSpacing.sm) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundColor(VColor.warning)
-                    .font(.system(size: 12))
-                Text("Gateway is running but tunnel is unreachable. Check your tunnel configuration.")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.warning)
-            }
-        }
-
-        // Last verified timestamp
-        if let lastChecked = store.gatewayLastChecked {
-            Text("Last verified: \(relativeTimeString(from: lastChecked))")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
-        }
-
-        // Helper text
-        Text("Gateway checks the local daemon. Tunnel checks the public URL.")
-            .font(VFont.caption)
-            .foregroundColor(VColor.textMuted)
-    }
 
     // MARK: - Connection Status Helpers
 
@@ -1415,6 +1390,18 @@ struct SettingsConnectTab: View {
         }
     }
 
+    private var platformUrlStatusInfo: ConnectionStatusInfo {
+        guard let reachable = store.vellumPlatformReachable else {
+            return ConnectionStatusInfo(label: "Unknown", color: VColor.textMuted, icon: "questionmark.circle.fill")
+        }
+        if reachable {
+            return ConnectionStatusInfo(label: "Reachable", color: VColor.success, icon: "checkmark.circle.fill")
+        } else {
+            let detail = store.vellumPlatformError ?? "Unreachable"
+            return ConnectionStatusInfo(label: detail, color: VColor.error, icon: "xmark.circle.fill")
+        }
+    }
+
     private var tunnelStatusInfo: ConnectionStatusInfo {
         let trimmedUrl = store.ingressPublicBaseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -1425,9 +1412,15 @@ struct SettingsConnectTab: View {
 
         // URL is non-empty but not a valid absolute HTTP(S) URL
         if let parsed = URL(string: trimmedUrl), let scheme = parsed.scheme, ["http", "https"].contains(scheme.lowercased()) {
-            // valid — fall through to reachability check below
+            // valid — fall through to further checks below
         } else {
             return ConnectionStatusInfo(label: "Invalid URL format", color: VColor.error, icon: "exclamationmark.circle.fill")
+        }
+
+        // URL is set but ingress is disabled — the backend ignores the URL when
+        // ingress.enabled is false, so public callbacks are effectively off.
+        if !store.ingressEnabled {
+            return ConnectionStatusInfo(label: "URL set but gateway not active", color: VColor.warning, icon: "exclamationmark.triangle.fill")
         }
 
         // Haven't tested yet
@@ -1442,7 +1435,13 @@ struct SettingsConnectTab: View {
         }
     }
 
-    private func connectionStatusRow(label: String, status: ConnectionStatusInfo) -> some View {
+    private func connectionStatusRow(
+        label: String,
+        status: ConnectionStatusInfo,
+        isRefreshing: Bool = false,
+        lastChecked: Date? = nil,
+        onRefresh: (() -> Void)? = nil
+    ) -> some View {
         HStack(spacing: VSpacing.sm) {
             Text(label)
                 .font(VFont.bodyMedium)
@@ -1456,6 +1455,31 @@ struct SettingsConnectTab: View {
             Text(status.label)
                 .font(VFont.body)
                 .foregroundColor(status.color)
+
+            Spacer()
+
+            if let onRefresh {
+                let tooltipText: String = {
+                    if isRefreshing { return "Checking..." }
+                    if let lastChecked { return "Last verified: \(relativeTimeString(from: lastChecked))" }
+                    return "Test connection"
+                }()
+
+                Button {
+                    if !isRefreshing { onRefresh() }
+                } label: {
+                    Image(systemName: "arrow.trianglehead.2.counterclockwise")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(isRefreshing ? VColor.accent : VColor.textMuted)
+                        .rotationEffect(.degrees(isRefreshing ? 360 : 0))
+                        .animation(isRefreshing ? .linear(duration: 1).repeatForever(autoreverses: false) : .default, value: isRefreshing)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Refresh \(label) status")
+                .help(tooltipText)
+            }
         }
     }
 

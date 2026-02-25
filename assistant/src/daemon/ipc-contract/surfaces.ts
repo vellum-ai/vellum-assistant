@@ -65,6 +65,7 @@ export interface ConfirmationSurfaceData {
   message: string;
   detail?: string;
   confirmLabel?: string;
+  confirmedLabel?: string;
   cancelLabel?: string;
   destructive?: boolean;
 }

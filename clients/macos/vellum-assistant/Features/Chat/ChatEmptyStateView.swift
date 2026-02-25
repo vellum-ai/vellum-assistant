@@ -90,7 +90,7 @@ struct ChatEmptyStateView: View {
                         isRetryableError: false,
                         onRetryError: {},
                         isConnectionError: false,
-                        onOpenDoctor: {},
+
                         onDismissError: onDismissError
                     )
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.lg, style: .continuous))
@@ -194,7 +194,7 @@ struct ChatTemporaryChatEmptyStateView: View {
                         isRetryableError: false,
                         onRetryError: {},
                         isConnectionError: false,
-                        onOpenDoctor: {},
+
                         onDismissError: onDismissError
                     )
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.lg, style: .continuous))

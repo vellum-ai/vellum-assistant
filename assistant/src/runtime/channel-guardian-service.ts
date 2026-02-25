@@ -197,7 +197,16 @@ export function validateAndConsumeChallenge(
   // Reset the rate-limit counter on success
   resetRateLimit(assistantId, channel, actorExternalUserId, actorChatId);
 
-  // Revoke any existing active binding before creating a new one
+  // Reject if a different user already holds the guardian binding
+  const existingBinding = getActiveBinding(assistantId, channel);
+  if (existingBinding && existingBinding.guardianExternalUserId !== actorExternalUserId) {
+    return {
+      success: false,
+      reason: 'A guardian is already bound for this channel. The existing guardian must be revoked before a new one can be verified.',
+    };
+  }
+
+  // Revoke any existing active binding before creating a new one (same-user re-verification)
   storeRevokeBinding(assistantId, channel);
 
   const metadata: Record<string, string> = {};

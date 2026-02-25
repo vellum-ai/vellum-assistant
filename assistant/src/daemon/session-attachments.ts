@@ -117,7 +117,9 @@ export async function resolveAssistantAttachments(
     );
 
     const toolDrafts = contentBlocksToDrafts(accumulatedToolContentBlocks);
-
+    // Most recent tool outputs (e.g., final browser screenshot) should win
+    // the MAX_ASSISTANT_ATTACHMENTS cap over older intermediate screenshots.
+    toolDrafts.reverse();
     const merged = deduplicateDrafts([...directiveDrafts.drafts, ...toolDrafts]);
     const validated = validateDrafts(merged);
     directiveWarnings.push(...validated.warnings);

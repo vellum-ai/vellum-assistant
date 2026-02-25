@@ -82,6 +82,7 @@ describe('IPC Validate', () => {
         type: 'user_message',
         sessionId: 'session-1',
         content: 'Hello',
+        interface: 'cli',
       });
       expect(result.valid).toBe(true);
     });
@@ -91,6 +92,7 @@ describe('IPC Validate', () => {
         type: 'user_message',
         sessionId: 'session-1',
         attachments: [{ filename: 'f.txt', mimeType: 'text/plain', data: 'abc' }],
+        interface: 'cli',
       });
       expect(result.valid).toBe(true);
     });
@@ -379,7 +381,7 @@ describe('IPC Validate', () => {
     // Minimal valid payloads for high-risk message types that require extra fields
     const HIGH_RISK_FIXTURES: Record<string, Record<string, unknown>> = {
       auth: { token: 'abc123' },
-      user_message: { sessionId: 's1', content: 'hi' },
+      user_message: { sessionId: 's1', content: 'hi', interface: 'cli' },
       confirmation_response: { requestId: 'r1', decision: 'allow' },
       secret_response: { requestId: 'r1' },
       ui_surface_action: { sessionId: 's1', surfaceId: 'sf1', actionId: 'a1' },

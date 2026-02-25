@@ -30,7 +30,7 @@ Gmail, Slack, and Telegram setup all require a publicly reachable URL for OAuth 
 
 ### Slack
 1. **Try connecting directly first.** Call `credential_store` with `action: "oauth2_connect"` and `service: "slack"`. The tool auto-fills Slack's OAuth endpoints and looks up any previously stored client credentials.
-2. **If it fails because no client_id is found:** The user needs to create a Slack App first. Install and load the **slack-oauth-setup** skill (which depends on **public-ingress** for the redirect URI):
+2. **If it fails because no client_id is found:** The user needs to create a Slack App first. Install and load the **slack-oauth-setup** skill:
    - Call `vellum_skills_catalog` with `action: "install"` and `skill_id: "slack-oauth-setup"`.
    - Then call `skill_load` with `skill: "slack-oauth-setup"`.
    - Tell the user Slack isn't connected yet and briefly explain what the setup involves, then use `ui_show` with `surface_type: "confirmation"` to ask for permission to start:
@@ -66,6 +66,7 @@ The sms-setup skill also includes optional **guardian verification** for SMS (in
 - If the user specifies a platform (e.g., "check my Slack"), pass it as the `platform` parameter.
 - If only one platform is connected, it is auto-selected.
 - If multiple platforms are connected and the user doesn't specify, ask which platform they mean — or search across all of them.
+- **Do not assume a specific provider.** When the user says "email" or "manage my email" without naming a provider, call `messaging_auth_test` for each email-capable platform to discover what's connected — don't default to Gmail or any other specific provider. Present whatever is connected; if nothing is, ask the user which email service they use and offer to set it up.
 
 ## Capabilities
 
@@ -75,6 +76,7 @@ The sms-setup skill also includes optional **guardian verification** for SMS (in
 - **Read Messages**: Read message history from a conversation
 - **Search**: Search messages with platform-appropriate query syntax
 - **Send**: Send a message (high risk — requires user approval)
+- **Send Notification**: Trigger a user notification through the unified notification router (medium risk)
 - **Reply**: Reply in a thread (medium risk)
 - **Mark Read**: Mark conversation as read
 
@@ -119,6 +121,32 @@ SMS is supported as a messaging provider with limited capabilities. The conversa
 - **Unsubscribe**: Unsubscribe via List-Unsubscribe header
 - **Draft (native)**: Create a draft in Gmail's Drafts folder
 
+### Attachments (Gmail)
+- **List Attachments**: `gmail_list_attachments` — list all attachments on a message with filename, MIME type, size, and attachment ID
+- **Download Attachment**: `gmail_download_attachment` — download an attachment to the working directory by message ID + attachment ID
+- **Send with Attachments**: `gmail_send_with_attachments` — send an email with file attachments (reads files from disk, builds multipart MIME)
+
+Workflow: use `gmail_list_attachments` to discover attachments, then `gmail_download_attachment` to save them locally.
+
+### Forward & Thread Operations (Gmail)
+- **Forward**: `gmail_forward` — forward a message to another recipient, preserving all attachments. Optionally prepend your own text
+- **Summarize Thread**: `gmail_summarize_thread` — LLM-powered thread summary with participants, decisions, open questions, and sentiment
+- **Follow-up Tracking**: `gmail_follow_up` — track/untrack messages for follow-up using a dedicated "Follow-up" label, or list all tracked messages
+
+### Smart Triage (Gmail)
+- **Triage**: `gmail_triage` — LLM-powered inbox classification of unread emails into categories: `needs_reply`, `fyi_only`, `can_archive`, `urgent`, `newsletter`, `promotional`
+  - Returns grouped report with reasoning and suggested actions per email
+  - Set `auto_apply: true` to auto-archive `can_archive` emails and label `needs_reply` as "Follow-up"
+  - Custom query support (default: `is:unread in:inbox`)
+
+### Inbox Automation (Gmail)
+- **Filters**: `gmail_filters` — list, create, or delete Gmail filters. Filter criteria include from, to, subject, query, has_attachment. Actions include adding/removing labels and forwarding
+- **Vacation Responder**: `gmail_vacation` — get, enable, or disable the vacation auto-responder with custom message, date range, and domain/contact restrictions
+
+### Google Contacts
+- **Contacts**: `google_contacts` — list or search Google Contacts by name or email. Returns name, email, phone, and organization
+  - Requires the `contacts.readonly` scope — users may need to re-authorize Gmail to grant this additional permission
+
 ## Slack Search Syntax
 
 When searching Slack, the query is passed directly to Slack's search API:
@@ -154,6 +182,12 @@ When searching Gmail, the query uses Gmail's search operators:
 - Only send when the user explicitly requests it.
 - When uncertain, always default to drafting.
 
+## Notifications vs Messages
+
+- Use `send_notification` when the user asks for an alert/notification (for example "send this as a desktop notification").
+- Use `messaging_send` when the user asks to send a message into a specific chat/email/SMS destination.
+- `send_notification` channel routing is LLM-driven; `preferred_channels` are hints, not hard channel forcing.
+
 ## Personalized Drafting
 
 When drafting messages, check your `<dynamic-user-profile>` for style items (e.g., "writing style: tone"). If present, match the user's natural voice.
@@ -174,6 +208,28 @@ Medium and high risk tools require a confidence score between 0 and 1:
 ## Activity Analysis
 
 Use `messaging_analyze_activity` to classify channels or conversations by activity level (high, medium, low, dead). Useful for decluttering — suggest leaving dead channels or archiving old emails.
+
+## Newsletter Decluttering
+
+Use `gmail_sender_digest` to help users identify and clean up high-volume senders like newsletters, marketing emails, and automated notifications.
+
+### Workflow
+
+1. **Scan**: Call `gmail_sender_digest` (default query targets Gmail's promotions category from the last 90 days)
+2. **Present**: Show results as a `ui_show` table with `selectionMode: "multiple"`:
+   - Columns: Sender, Email Count, Unsubscribable, Date Range, Sample Subject
+   - Action buttons: "Archive & Unsubscribe" (primary), "Archive Only" (secondary)
+3. **Act on selection**: For each selected sender:
+   - Prefer `gmail_archive_by_query` with the sender's `search_query` — this archives all matching messages in one call, regardless of volume
+   - Alternatively, use `gmail_batch_archive` with the sender's `message_ids` for smaller senders where all IDs are already collected
+   - If the action is "Archive & Unsubscribe" and `has_unsubscribe` is true, call `gmail_unsubscribe` with the sender's `newest_message_id`
+4. **Report**: Summarize results — e.g. "Archived 247 messages from 8 senders. Unsubscribed from 6."
+
+### Edge Cases
+
+- **Zero results**: Tell the user "No newsletter emails found" and suggest broadening the query (e.g. removing the category filter or extending the date range)
+- **Unsubscribe failures**: Report per-sender success/failure; the existing `gmail_unsubscribe` tool handles edge cases
+- **Large sender counts**: The `has_more` flag indicates a sender had more messages than collected — use `search_query` for follow-up archiving
 
 ## Batch Operations
 

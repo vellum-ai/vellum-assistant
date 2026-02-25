@@ -104,6 +104,134 @@ jobs:
     outputs:
       version: ${{ inputs.version }}
 
+  push-assistant-image:
+    needs: bump-and-tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [dev, production]
+    environment: ${{ matrix.environment }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: "v${{ needs.bump-and-tag.outputs.version }}"
+
+      - name: Get release SHA
+        id: release-sha
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Configure Docker for GCR
+        run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Compute image tags
+        id: tags
+        run: |
+          IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}"
+          VERSION="${{ needs.bump-and-tag.outputs.version }}"
+          TAGS="${IMAGE}:${{ steps.release-sha.outputs.sha }}"
+          TAGS=$(printf "%s\n%s" "$TAGS" "${IMAGE}:v${VERSION}")
+          TAGS=$(printf "%s\n%s" "$TAGS" "${IMAGE}:latest")
+          echo "tags<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$TAGS" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: assistant
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Summary
+        run: |
+          echo "## Assistant Image Published (${{ matrix.environment }})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** \`${{ matrix.environment }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** \`${{ needs.bump-and-tag.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Digest:** \`${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+
+  push-gateway-image:
+    needs: bump-and-tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [dev, production]
+    environment: ${{ matrix.environment }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: "v${{ needs.bump-and-tag.outputs.version }}"
+
+      - name: Get release SHA
+        id: release-sha
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Configure Docker for GCR
+        run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Compute image tags
+        id: tags
+        run: |
+          IMAGE="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}"
+          VERSION="${{ needs.bump-and-tag.outputs.version }}"
+          TAGS="${IMAGE}:${{ steps.release-sha.outputs.sha }}"
+          TAGS=$(printf "%s\n%s" "$TAGS" "${IMAGE}:v${VERSION}")
+          TAGS=$(printf "%s\n%s" "$TAGS" "${IMAGE}:latest")
+          echo "tags<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$TAGS" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: gateway
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Summary
+        run: |
+          echo "## Gateway Image Published (${{ matrix.environment }})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** \`${{ matrix.environment }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** \`${{ needs.bump-and-tag.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Digest:** \`${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+
   publish-npm:
     needs: bump-and-tag
     runs-on: ubuntu-latest
@@ -484,7 +612,7 @@ jobs:
           security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
 
   release:
-    needs: [bump-and-tag, publish-npm, publish-meta, build-macos]
+    needs: [bump-and-tag, publish-npm, publish-meta, build-macos, push-assistant-image, push-gateway-image]
     runs-on: ubuntu-latest
     steps:
       - name: Generate GitHub App token
@@ -702,9 +830,93 @@ jobs:
         run: bun run test
         working-directory: gateway
 
+  ci-playwright:
+    runs-on: macos-14
+    continue-on-error: true
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
+      actions: read
+    env:
+      APP_DISPLAY_NAME: Vellum
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 16.2
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Fetch Anthropic API key from Secret Manager
+        id: secrets
+        uses: google-github-actions/get-secretmanager-secrets@v2
+        with:
+          secrets: |-
+            ANTHROPIC_API_KEY:vellum-nonprod/ANTHROPIC_API_KEY
+
+      - name: Set Anthropic API key in env
+        run: echo "ANTHROPIC_API_KEY=${{ steps.secrets.outputs.ANTHROPIC_API_KEY }}" >> "$GITHUB_ENV"
+
+      - name: Cache SPM build artifacts
+        uses: actions/cache@v4
+        with:
+          path: clients/.build
+          key: macos-spm-${{ hashFiles('clients/Package.resolved') }}-${{ hashFiles('clients/**/*.swift') }}
+          restore-keys: |
+            macos-spm-${{ hashFiles('clients/Package.resolved') }}-
+            macos-spm-
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Build daemon binary
+        working-directory: assistant
+        run: |
+          bun install
+          bun build --compile --target=bun-darwin-arm64 src/daemon/main.ts \
+            --external electron --external "chromium-bidi/*" \
+            --outfile ../clients/macos/daemon-bin/vellum-daemon
+          chmod +x ../clients/macos/daemon-bin/vellum-daemon
+          cp node_modules/web-tree-sitter/web-tree-sitter.wasm ../clients/macos/daemon-bin/
+          cp node_modules/tree-sitter-bash/tree-sitter-bash.wasm ../clients/macos/daemon-bin/
+          cp -R src/config/bundled-skills ../clients/macos/daemon-bin/bundled-skills
+
+      - name: Build CLI binary
+        working-directory: cli
+        run: |
+          bun install
+          bun build --compile --target=bun-darwin-arm64 src/index.ts \
+            --external react-devtools-core \
+            --outfile ../clients/macos/cli-bin/vellum-cli
+          chmod +x ../clients/macos/cli-bin/vellum-cli
+
+      - name: Build macOS app
+        working-directory: clients/macos
+        run: |
+          SKIP_CLEAN=1 \
+          BUNDLE_DISPLAY_NAME="$APP_DISPLAY_NAME" \
+          SIGN_IDENTITY="-" \
+          ./build.sh build
+
+      - name: Install Playwright dependencies
+        working-directory: playwright
+        run: bun install
+
+      - name: Run Playwright tests
+        working-directory: playwright
+        run: bun run test
+
   notify:
     if: always() && !cancelled()
-    needs: [bump-and-tag, publish-npm, publish-meta, build-macos, release, update-platform, ci-assistant, ci-cli, ci-gateway]
+    needs: [bump-and-tag, publish-npm, publish-meta, build-macos, push-assistant-image, push-gateway-image, release, update-platform, ci-assistant, ci-cli, ci-gateway, ci-playwright]
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
@@ -729,6 +941,8 @@ jobs:
             "${{ needs.publish-npm.result }}" \
             "${{ needs.publish-meta.result }}" \
             "${{ needs.build-macos.result }}" \
+            "${{ needs.push-assistant-image.result }}" \
+            "${{ needs.push-gateway-image.result }}" \
             "${{ needs.release.result }}" \
             "${{ needs.update-platform.result }}"; do
             if [ "$result" = "failure" ]; then
@@ -751,9 +965,12 @@ jobs:
           A=$(ci_icon "${{ needs.ci-assistant.outcome }}")
           C=$(ci_icon "${{ needs.ci-cli.outcome }}")
           G=$(ci_icon "${{ needs.ci-gateway.outcome }}")
+          P=$(ci_icon "${{ needs.ci-playwright.outcome }}")
           D=$(ci_icon "${{ needs.build-macos.result }}")
+          AI=$(ci_icon "${{ needs.push-assistant-image.result }}")
+          GI=$(ci_icon "${{ needs.push-gateway-image.result }}")
 
-          CI_LINE="*CI Checks:*  ${A} assistant    ${C} cli    ${G} gateway    ${D} desktop"
+          CI_LINE="*CI Checks:*  ${A} assistant    ${C} cli    ${G} gateway    ${P} playwright    ${D} desktop    ${AI} assistant-docker    ${GI} gateway-docker"
           META_LINE="*Version:* \`${VERSION}\`\n*Triggered by:* ${{ github.actor }}"
 
           # Fetch release notes from GitHub release

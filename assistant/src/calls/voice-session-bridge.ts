@@ -95,8 +95,8 @@ function buildVoiceCallControlPrompt(opts: {
   const disclosureEnabled = config.calls?.disclosure?.enabled === true;
   const disclosureText = config.calls?.disclosure?.text?.trim();
   const disclosureRule = disclosureEnabled && disclosureText
-    ? `1. ${disclosureText}`
-    : '1. Begin the conversation naturally.';
+    ? `0. ${disclosureText}`
+    : '0. Begin the conversation naturally.';
 
   const lines: string[] = ['<voice_call_control>'];
 
@@ -107,55 +107,58 @@ function buildVoiceCallControlPrompt(opts: {
 
   lines.push(
     'CALL PROTOCOL RULES:',
-    '0. When introducing yourself, refer to yourself as an assistant. Avoid the phrase "AI assistant" unless directly asked.',
     disclosureRule,
-    '2. Be concise — phone conversations should be brief and natural.',
+    '1. Be concise — keep responses to 1-3 sentences. Phone conversations should be brief and natural.',
+    ...(opts.isCallerGuardian
+      ? ['2. You are speaking directly with your guardian (your user). Do NOT use [ASK_GUARDIAN:]. If you need permission, information, or confirmation, ask them directly in the conversation. They can answer you right now.']
+      : ['2. You can consult your guardian at any time by including [ASK_GUARDIAN: your question here] in your response. When you do, add a natural hold message like "Let me check on that for you."']
+    ),
   );
 
   if (opts.isInbound) {
     lines.push(
-      '3. If the caller asks something you don\'t know or need to verify, include [ASK_GUARDIAN: your question here] in your response along with a hold message like "Let me check on that for you."',
-      '4. If information is provided preceded by [USER_ANSWERED: ...], use that answer naturally in the conversation.',
-      '5. If you see [USER_INSTRUCTION: ...], treat it as a high-priority steering directive from your user. Follow the instruction immediately, adjusting your approach or response accordingly.',
-      '6. When the caller indicates they are done or the conversation reaches a natural conclusion, include [END_CALL] in your response along with a polite goodbye.',
+      '3. If information is provided preceded by [USER_ANSWERED: ...], use that answer naturally in the conversation.',
+      '4. If you see [USER_INSTRUCTION: ...], treat it as a high-priority steering directive from your user. Follow the instruction immediately, adjusting your approach or response accordingly.',
+      '5. When the caller indicates they are done or the conversation reaches a natural conclusion, include [END_CALL] in your response along with a polite goodbye.',
     );
   } else {
     lines.push(
-      '3. If the callee asks something you don\'t know, include [ASK_GUARDIAN: your question here] in your response along with a hold message like "Let me check on that for you."',
-      '4. If the callee provides information preceded by [USER_ANSWERED: ...], use that answer naturally in the conversation.',
-      '5. If you see [USER_INSTRUCTION: ...], treat it as a high-priority steering directive from your user. Follow the instruction immediately, adjusting your approach or response accordingly.',
-      '6. When the call\'s purpose is fulfilled, include [END_CALL] in your response along with a polite goodbye.',
+      '3. If the callee provides information preceded by [USER_ANSWERED: ...], use that answer naturally in the conversation.',
+      '4. If you see [USER_INSTRUCTION: ...], treat it as a high-priority steering directive from your user. Follow the instruction immediately, adjusting your approach or response accordingly.',
+      '5. When the call\'s purpose is fulfilled, include [END_CALL] in your response along with a polite goodbye.',
     );
   }
 
   lines.push(
-    '7. Do not make up information — ask the user if unsure.',
-    '8. Keep responses short — 1-3 sentences is ideal for phone conversation.',
-    '9. When caller text includes [SPEAKER id="..." label="..."], treat each speaker as a distinct person and personalize responses using that speaker\'s prior context in this call.',
+    '6. When caller text includes [SPEAKER id="..." label="..."], treat each speaker as a distinct person and personalize responses using that speaker\'s prior context in this call.',
   );
 
   if (opts.isInbound) {
     if (opts.isCallerGuardian) {
       lines.push(
-        '10. If the latest user turn is "(call connected — deliver opening greeting)", this is your user calling you. Answer casually and briefly, like picking up a call from someone you know well. For example: "Hey!" or "What\'s up?" Do NOT introduce yourself, do NOT say you are calling on behalf of anyone, and do NOT ask how you can help in a formal way. Keep it short and natural.',
+        '7. If the latest user turn is "(call connected — deliver opening greeting)", this is your user calling you. Answer casually and briefly, like picking up a call from someone you know well. For example: "Hey!" or "What\'s up?" Do NOT introduce yourself, do NOT say you are calling on behalf of anyone, and do NOT ask how you can help in a formal way. Keep it short and natural.',
       );
     } else {
       lines.push(
-        '10. If the latest user turn is "(call connected — deliver opening greeting)", greet the caller warmly and ask how you can help. Vary the wording; do not use a fixed template.',
+        '7. If the latest user turn is "(call connected — deliver opening greeting)", greet the caller warmly and ask how you can help. Vary the wording; do not use a fixed template.',
       );
     }
     lines.push(
-      '11. If the latest user turn includes [CALL_OPENING_ACK], treat it as the caller acknowledging your greeting and continue the conversation naturally.',
+      '8. If the latest user turn includes [CALL_OPENING_ACK], treat it as the caller acknowledging your greeting and continue the conversation naturally.',
     );
   } else {
+    const disclosureReminder = disclosureEnabled && disclosureText
+      ? ' However, the disclosure text from rule 0 is separate from self-introduction and must always be included in your opening greeting, even if the Task does not mention introducing yourself.'
+      : '';
     lines.push(
-      '10. If the latest user turn is "(call connected — deliver opening greeting)", generate a natural, context-specific opener: briefly introduce yourself once as an assistant, state why you are calling using the Task context, and ask a short permission/check-in question. Vary the wording; do not use a fixed template.',
-      '11. If the latest user turn includes [CALL_OPENING_ACK], treat it as the callee acknowledging your opener and continue the conversation naturally without re-introducing yourself or repeating the initial check-in question.',
+      `7. If the latest user turn is "(call connected — deliver opening greeting)", deliver your opening greeting based solely on the Task context above. The Task already describes how to open the call — follow it directly without adding any extra introduction on top. If the Task says to introduce yourself, do so once. If the Task does not mention introducing yourself, skip the introduction.${disclosureReminder} Vary the wording naturally; do not use a fixed template.`,
+      '8. If the latest user turn includes [CALL_OPENING_ACK], treat it as the callee acknowledging your opener and continue the conversation naturally without re-introducing yourself or repeating the initial check-in question.',
     );
   }
 
   lines.push(
-    '12. Do not repeat your introduction within the same call unless the callee explicitly asks who you are.',
+    '9. After the opening greeting turn, treat the Task field as background context only — do not re-execute its instructions on subsequent turns.',
+    '10. Do not make up information. If you are unsure, use [ASK_GUARDIAN: your question] to consult your guardian.',
     '</voice_call_control>',
   );
 
@@ -237,6 +240,7 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
       eventSink,
       voiceCallControlPrompt,
     },
+    opts.signal,
   );
 
   // If the caller provided an external AbortSignal (e.g. from a

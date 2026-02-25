@@ -9,8 +9,10 @@
 
 import type { Message } from '../providers/types.js';
 import type { ServerMessage } from './ipc-protocol.js';
+import type { GuardianRuntimeContext } from './session-runtime-assembly.js';
 import { createAssistantMessage } from '../agent/message-types.js';
 import * as conversationStore from '../memory/conversation-store.js';
+import { provenanceFromGuardianContext } from '../memory/conversation-store.js';
 import {
   registerWatchStartNotifier,
   unregisterWatchStartNotifier,
@@ -40,6 +42,7 @@ import { buildCallCompletionMessage } from '../calls/call-conversation-messages.
 export interface NotifierSessionContext {
   sendToClient: (msg: ServerMessage) => void;
   messages: Message[];
+  guardianContext?: GuardianRuntimeContext;
 }
 
 /**
@@ -102,7 +105,7 @@ export function registerSessionNotifiers(
       conversationId,
       'assistant',
       JSON.stringify([{ type: 'text', text: questionText }]),
-      { userMessageChannel: 'voice', assistantMessageChannel: 'voice' },
+      { ...provenanceFromGuardianContext(ctx.guardianContext), userMessageChannel: 'voice', assistantMessageChannel: 'voice', userMessageInterface: 'voice', assistantMessageInterface: 'voice' },
     );
 
     ctx.messages.push(createAssistantMessage(questionText));

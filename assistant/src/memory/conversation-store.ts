@@ -5,12 +5,13 @@ import { getDb, rawGet, rawExec } from './db.js';
 import { conversations, messages, toolInvocations, messageRuns, channelInboundEvents, memoryItemSources, memoryItems, memoryEmbeddings, memoryItemEntities, memorySegments, messageAttachments, llmRequestLogs } from './schema.js';
 import { getConfig } from '../config/loader.js';
 import { indexMessageNow } from './indexer.js';
-import { parseChannelId } from '../channels/types.js';
-import type { ChannelId } from '../channels/types.js';
-import { isChannelId, CHANNEL_IDS } from '../channels/types.js';
+import { parseChannelId, parseInterfaceId } from '../channels/types.js';
+import type { ChannelId, InterfaceId } from '../channels/types.js';
+import { isChannelId, CHANNEL_IDS, INTERFACE_IDS } from '../channels/types.js';
 import { getLogger } from '../util/logger.js';
 import { deleteOrphanAttachments } from './attachments-store.js';
 import { createRowMapper } from '../util/row-mapper.js';
+import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
 
 const log = getLogger('conversation-store');
 
@@ -19,6 +20,7 @@ const log = getLogger('conversation-store');
 // extra keys are allowed via passthrough so callers can attach ad-hoc data.
 
 const channelIdSchema = z.enum(CHANNEL_IDS);
+const interfaceIdSchema = z.enum(INTERFACE_IDS);
 
 const subagentNotificationSchema = z.object({
   subagentId: z.string(),
@@ -31,10 +33,33 @@ const subagentNotificationSchema = z.object({
 export const messageMetadataSchema = z.object({
   userMessageChannel: channelIdSchema.optional(),
   assistantMessageChannel: channelIdSchema.optional(),
+  userMessageInterface: interfaceIdSchema.optional(),
+  assistantMessageInterface: interfaceIdSchema.optional(),
   subagentNotification: subagentNotificationSchema.optional(),
+  // Provenance fields for trust-aware memory gating (M3)
+  provenanceActorRole: z.enum(['guardian', 'non-guardian', 'unverified_channel']).optional(),
+  provenanceSourceChannel: channelIdSchema.optional(),
+  provenanceGuardianExternalUserId: z.string().optional(),
+  provenanceRequesterIdentifier: z.string().optional(),
 }).passthrough();
 
 export type MessageMetadata = z.infer<typeof messageMetadataSchema>;
+
+/**
+ * Extract provenance metadata fields from a GuardianRuntimeContext.
+ * When no guardian context is provided, defaults to 'unverified_channel'
+ * because the absence of guardian context means we cannot verify trust —
+ * callers with actual guardian trust should always supply a real context.
+ */
+export function provenanceFromGuardianContext(ctx: GuardianRuntimeContext | null | undefined): Record<string, unknown> {
+  if (!ctx) return { provenanceActorRole: 'unverified_channel' };
+  return {
+    provenanceActorRole: ctx.actorRole,
+    provenanceSourceChannel: ctx.sourceChannel,
+    provenanceGuardianExternalUserId: ctx.guardianExternalUserId,
+    provenanceRequesterIdentifier: ctx.requesterIdentifier,
+  };
+}
 
 export interface ConversationRow {
   id: string;
@@ -51,6 +76,8 @@ export interface ConversationRow {
   source: string;
   memoryScopeId: string;
   originChannel: string | null;
+  originInterface: string | null;
+  isAutoTitle: number;
 }
 
 const parseConversation = createRowMapper<typeof conversations.$inferSelect, ConversationRow>({
@@ -68,6 +95,8 @@ const parseConversation = createRowMapper<typeof conversations.$inferSelect, Con
   source: 'source',
   memoryScopeId: 'memoryScopeId',
   originChannel: 'originChannel',
+  originInterface: 'originInterface',
+  isAutoTitle: 'isAutoTitle',
 });
 
 export interface MessageRow {
@@ -261,6 +290,8 @@ export function addMessage(conversationId: string, role: string, content: string
   try {
     const config = getConfig();
     const scopeId = getConversationMemoryScopeId(conversationId);
+    const parsed = metadata ? messageMetadataSchema.safeParse(metadata) : null;
+    const provenanceActorRole = parsed?.success ? parsed.data.provenanceActorRole : undefined;
     indexMessageNow({
       messageId: message.id,
       conversationId: message.conversationId,
@@ -268,6 +299,7 @@ export function addMessage(conversationId: string, role: string, content: string
       content: message.content,
       createdAt: message.createdAt,
       scopeId,
+      provenanceActorRole,
     }, config.memory);
   } catch (err) {
     log.warn({ err, conversationId, messageId: message.id }, 'Failed to index message for memory');
@@ -287,10 +319,12 @@ export function getMessages(conversationId: string): MessageRow[] {
     .map(parseMessage);
 }
 
-export function updateConversationTitle(id: string, title: string): void {
+export function updateConversationTitle(id: string, title: string, isAutoTitle?: number): void {
   const db = getDb();
+  const set: Record<string, unknown> = { title, updatedAt: Date.now() };
+  if (isAutoTitle !== undefined) set.isAutoTitle = isAutoTitle;
   db.update(conversations)
-    .set({ title, updatedAt: Date.now() })
+    .set(set)
     .where(eq(conversations.id, id))
     .run();
 }
@@ -763,4 +797,21 @@ export function getConversationOriginChannel(conversationId: string): ChannelId 
     .where(eq(conversations.id, conversationId))
     .get();
   return parseChannelId(row?.originChannel) ?? null;
+}
+
+export function setConversationOriginInterfaceIfUnset(conversationId: string, interfaceId: InterfaceId): void {
+  const db = getDb();
+  db.update(conversations)
+    .set({ originInterface: interfaceId })
+    .where(and(eq(conversations.id, conversationId), isNull(conversations.originInterface)))
+    .run();
+}
+
+export function getConversationOriginInterface(conversationId: string): InterfaceId | null {
+  const db = getDb();
+  const row = db.select({ originInterface: conversations.originInterface })
+    .from(conversations)
+    .where(eq(conversations.id, conversationId))
+    .get();
+  return parseInterfaceId(row?.originInterface) ?? null;
 }

@@ -391,8 +391,8 @@ public struct ToolConfirmationData: Equatable {
             }
             return reason
         case "bash", "host_bash":
-            if !r.isEmpty { return "Allow running a shell command \(r)?" }
-            return "Allow running a shell command?"
+            if !r.isEmpty { return "Allow running a command on your computer \(r)?" }
+            return "Allow running a command on your computer?"
         case "file_write", "host_file_write":
             if !r.isEmpty { return "Allow writing a file \(r)?" }
             let path = (input["path"]?.value as? String) ?? ""
@@ -979,6 +979,7 @@ public struct InlineSurfaceData: Identifiable, Equatable {
             && lhs.completionState == rhs.completionState
             && lhs.surfaceType == rhs.surfaceType
             && lhs.title == rhs.title
+            && lhs.data == rhs.data
             && lhs.actions == rhs.actions
     }
 

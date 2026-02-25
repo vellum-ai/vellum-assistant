@@ -1,8 +1,8 @@
 /**
  * Resolves per-channel destination endpoints for notification delivery.
  *
- * - macOS: no external endpoint needed — delivery goes through the IPC
- *   broadcast mechanism to connected desktop clients.
+ * - Vellum: no external endpoint needed — delivery goes through the IPC
+ *   broadcast mechanism to connected desktop/mobile clients.
  * - Telegram: requires a chat ID sourced from the guardian binding for the
  *   assistant.
  */
@@ -24,9 +24,9 @@ export function resolveDestinations(
 
   for (const channel of channels) {
     switch (channel) {
-      case 'macos': {
-        // macOS delivery is local IPC — no external endpoint required.
-        result.set('macos', { channel: 'macos' });
+      case 'vellum': {
+        // Vellum delivery is local IPC — no external endpoint required.
+        result.set('vellum', { channel: 'vellum' });
         break;
       }
       case 'telegram': {

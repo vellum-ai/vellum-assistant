@@ -17,6 +17,15 @@ public extension Color {
             opacity: alpha
         )
     }
+
+    /// Parse a hex color string (e.g., "#7C3AED" or "7C3AED") into a Color.
+    init(hexString: String, alpha: Double = 1.0) {
+        let cleaned = hexString.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "#", with: "")
+        var hexValue: UInt64 = 0
+        Scanner(string: cleaned).scanHexInt64(&hexValue)
+        self.init(hex: UInt(hexValue), alpha: alpha)
+    }
 }
 
 // MARK: - Adaptive Color Helper
@@ -160,7 +169,7 @@ public enum VColor {
     public static let warning = adaptiveColor(light: Amber._700, dark: Amber._600)
 
     // Chat
-    public static let userBubble = adaptiveColor(light: Moss._200, dark: Forest._900)
+    public static let userBubble = adaptiveColor(light: Moss._200, dark: Moss._950)
     public static let userBubbleText = adaptiveColor(light: Stone._900, dark: Moss._50)
     public static let userBubbleTextSecondary = adaptiveColor(light: Stone._600, dark: Moss._50.opacity(0.8))
 

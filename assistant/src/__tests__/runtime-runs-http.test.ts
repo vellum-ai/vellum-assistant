@@ -63,6 +63,9 @@ function makeCompletingSession(): Session {
     setAssistantId: () => {},
     setGuardianContext: () => {},
     setCommandIntent: () => {},
+    setTurnChannelContext: () => {},
+    setTurnInterfaceContext: () => {},
+    setVoiceCallControlPrompt: () => {},
     updateClient: () => {},
     runAgentLoop: async () => {
       processing = true;
@@ -83,6 +86,9 @@ function makeFailingSession(errorMsg: string): Session {
     setAssistantId: () => {},
     setGuardianContext: () => {},
     setCommandIntent: () => {},
+    setTurnChannelContext: () => {},
+    setTurnInterfaceContext: () => {},
+    setVoiceCallControlPrompt: () => {},
     updateClient: () => {},
     runAgentLoop: async (_content: string, _messageId: string, onEvent: (msg: ServerMessage) => void) => {
       onEvent({ type: 'error', message: errorMsg });
@@ -102,6 +108,9 @@ function makeConfirmationSession(toolName: string): Session {
     setAssistantId: () => {},
     setGuardianContext: () => {},
     setCommandIntent: () => {},
+    setTurnChannelContext: () => {},
+    setTurnInterfaceContext: () => {},
+    setVoiceCallControlPrompt: () => {},
     updateClient: (handler: (msg: ServerMessage) => void) => {
       clientHandler = handler;
     },
@@ -133,6 +142,9 @@ function makeHangingSession(): Session {
     setAssistantId: () => {},
     setGuardianContext: () => {},
     setCommandIntent: () => {},
+    setTurnChannelContext: () => {},
+    setTurnInterfaceContext: () => {},
+    setVoiceCallControlPrompt: () => {},
     updateClient: () => {},
     runAgentLoop: async () => {
       processing = true;
@@ -195,7 +207,12 @@ describe('runtime runs — HTTP layer', () => {
     const res = await fetch(runsUrl(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ conversationKey: 'conv-noauth', content: 'Hi' }),
+      body: JSON.stringify({
+        conversationKey: 'conv-noauth',
+        content: 'Hi',
+        sourceChannel: 'vellum',
+        interface: 'macos',
+      }),
     });
 
     expect(res.status).toBe(401);
@@ -208,7 +225,12 @@ describe('runtime runs — HTTP layer', () => {
     const res = await fetch(runsUrl(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer wrong-token' },
-      body: JSON.stringify({ conversationKey: 'conv-badauth', content: 'Hi' }),
+      body: JSON.stringify({
+        conversationKey: 'conv-badauth',
+        content: 'Hi',
+        sourceChannel: 'vellum',
+        interface: 'macos',
+      }),
     });
 
     expect(res.status).toBe(401);
@@ -241,7 +263,12 @@ describe('runtime runs — HTTP layer', () => {
     const res = await fetch(runsUrl(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
-      body: JSON.stringify({ conversationKey: 'conv-1', content: 'Hello' }),
+      body: JSON.stringify({
+        conversationKey: 'conv-1',
+        content: 'Hello',
+        sourceChannel: 'vellum',
+        interface: 'macos',
+      }),
     });
     const body = await res.json() as { id: string; status: string; messageId: string; createdAt: string };
 
@@ -260,7 +287,11 @@ describe('runtime runs — HTTP layer', () => {
     const res = await fetch(runsUrl(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
-      body: JSON.stringify({ content: 'Hello' }),
+      body: JSON.stringify({
+        content: 'Hello',
+        sourceChannel: 'vellum',
+        interface: 'macos',
+      }),
     });
 
     expect(res.status).toBe(400);
@@ -276,7 +307,12 @@ describe('runtime runs — HTTP layer', () => {
     const res = await fetch(runsUrl(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
-      body: JSON.stringify({ conversationKey: 'conv-2', content: '' }),
+      body: JSON.stringify({
+        conversationKey: 'conv-2',
+        content: '',
+        sourceChannel: 'vellum',
+        interface: 'macos',
+      }),
     });
 
     expect(res.status).toBe(400);
@@ -292,7 +328,12 @@ describe('runtime runs — HTTP layer', () => {
     const res1 = await fetch(runsUrl(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
-      body: JSON.stringify({ conversationKey: 'conv-busy', content: 'First' }),
+      body: JSON.stringify({
+        conversationKey: 'conv-busy',
+        content: 'First',
+        sourceChannel: 'vellum',
+        interface: 'macos',
+      }),
     });
     expect(res1.status).toBe(201);
 
@@ -302,7 +343,12 @@ describe('runtime runs — HTTP layer', () => {
     const res2 = await fetch(runsUrl(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
-      body: JSON.stringify({ conversationKey: 'conv-busy', content: 'Second' }),
+      body: JSON.stringify({
+        conversationKey: 'conv-busy',
+        content: 'Second',
+        sourceChannel: 'vellum',
+        interface: 'macos',
+      }),
     });
     expect(res2.status).toBe(409);
 
@@ -317,7 +363,12 @@ describe('runtime runs — HTTP layer', () => {
     const createRes = await fetch(runsUrl(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
-      body: JSON.stringify({ conversationKey: 'conv-get', content: 'Test' }),
+      body: JSON.stringify({
+        conversationKey: 'conv-get',
+        content: 'Test',
+        sourceChannel: 'vellum',
+        interface: 'macos',
+      }),
     });
     const { id } = await createRes.json() as { id: string };
 
@@ -337,7 +388,12 @@ describe('runtime runs — HTTP layer', () => {
     const createRes = await fetch(runsUrl(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
-      body: JSON.stringify({ conversationKey: 'conv-done', content: 'Build it' }),
+      body: JSON.stringify({
+        conversationKey: 'conv-done',
+        content: 'Build it',
+        sourceChannel: 'vellum',
+        interface: 'macos',
+      }),
     });
     const { id } = await createRes.json() as { id: string };
 
@@ -358,7 +414,12 @@ describe('runtime runs — HTTP layer', () => {
     const createRes = await fetch(runsUrl(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
-      body: JSON.stringify({ conversationKey: 'conv-fail', content: 'Do it' }),
+      body: JSON.stringify({
+        conversationKey: 'conv-fail',
+        content: 'Do it',
+        sourceChannel: 'vellum',
+        interface: 'macos',
+      }),
     });
     const { id } = await createRes.json() as { id: string };
 
@@ -391,7 +452,12 @@ describe('runtime runs — HTTP layer', () => {
     const createRes = await fetch(runsUrl(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
-      body: JSON.stringify({ conversationKey: 'conv-decide', content: 'Approve' }),
+      body: JSON.stringify({
+        conversationKey: 'conv-decide',
+        content: 'Approve',
+        sourceChannel: 'vellum',
+        interface: 'macos',
+      }),
     });
     const { id } = await createRes.json() as { id: string };
 
@@ -423,7 +489,12 @@ describe('runtime runs — HTTP layer', () => {
     const createRes = await fetch(runsUrl(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...AUTH_HEADERS },
-      body: JSON.stringify({ conversationKey: 'conv-bad-dec', content: 'Test' }),
+      body: JSON.stringify({
+        conversationKey: 'conv-bad-dec',
+        content: 'Test',
+        sourceChannel: 'vellum',
+        interface: 'macos',
+      }),
     });
     const { id } = await createRes.json() as { id: string };
 

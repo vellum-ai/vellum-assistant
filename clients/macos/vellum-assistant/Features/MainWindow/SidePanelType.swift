@@ -4,12 +4,12 @@ enum SidePanelType: Hashable, CaseIterable {
     case settings
     case directory
     case debug
-    case doctor
     case identity
     case documentEditor
     case avatarCustomization
     case voiceMode
     case assistantInbox
+    case apps
 
     init?(rawValue: String) {
         switch rawValue {
@@ -18,12 +18,12 @@ enum SidePanelType: Hashable, CaseIterable {
         case "settings": self = .settings
         case "directory": self = .directory
         case "debug": self = .debug
-        case "doctor": self = .doctor
         case "identity": self = .identity
         case "documentEditor": self = .documentEditor
         case "avatarCustomization": self = .avatarCustomization
         case "voiceMode": self = .voiceMode
         case "assistantInbox": self = .assistantInbox
+        case "apps": self = .apps
         default: return nil
         }
     }

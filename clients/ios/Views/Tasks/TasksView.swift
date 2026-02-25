@@ -346,7 +346,7 @@ struct TasksDisconnectedView: View {
                 Text("Tasks Require Connection")
                     .font(VFont.title)
                     .foregroundColor(VColor.textPrimary)
-                Text("Connect to your Mac to create and run one-shot tasks.")
+                Text("Connect to your Assistant to create and run one-shot tasks.")
                     .font(VFont.body)
                     .foregroundColor(VColor.textSecondary)
                     .multilineTextAlignment(.center)

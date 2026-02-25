@@ -16,6 +16,20 @@ interface WhatsAppTextMessage {
   text: { body: string };
 }
 
+interface WhatsAppInteractiveMessage {
+  id: string;
+  from: string;
+  timestamp: string;
+  type: "interactive";
+  interactive: {
+    type: "button_reply";
+    button_reply: {
+      id: string;
+      title: string;
+    };
+  };
+}
+
 interface WhatsAppAudioMessage {
   id: string;
   from: string;
@@ -23,7 +37,7 @@ interface WhatsAppAudioMessage {
   type: "audio" | "video" | "image" | "document" | "sticker";
 }
 
-type WhatsAppMessage = WhatsAppTextMessage | WhatsAppAudioMessage;
+type WhatsAppMessage = WhatsAppTextMessage | WhatsAppInteractiveMessage | WhatsAppAudioMessage;
 
 interface WhatsAppValue {
   messaging_product: "whatsapp";
@@ -84,14 +98,27 @@ export function normalizeWhatsAppWebhook(
     if (!messages || messages.length === 0) continue;
 
     for (const msg of messages) {
-      // Only forward text messages; other types (image, audio, etc.) are not supported
-      if (msg.type !== "text") continue;
+      let body: string;
+      let callbackData: string | undefined;
 
-      const textMsg = msg as WhatsAppTextMessage;
-      const body = textMsg.text?.body?.trim() ?? "";
+      if (msg.type === "text") {
+        const textMsg = msg as WhatsAppTextMessage;
+        body = textMsg.text?.body?.trim() ?? "";
+      } else if (msg.type === "interactive") {
+        // Interactive button reply — extract the button ID as callback data
+        const interactiveMsg = msg as WhatsAppInteractiveMessage;
+        if (interactiveMsg.interactive?.type !== "button_reply") continue;
+        const buttonReply = interactiveMsg.interactive.button_reply;
+        if (!buttonReply?.id) continue;
+        callbackData = buttonReply.id;
+        body = buttonReply.title ?? "";
+      } else {
+        // Other types (image, audio, etc.) are not supported
+        continue;
+      }
 
       // from is the sender's WhatsApp phone number in E.164 format
-      const from = textMsg.from;
+      const from = msg.from;
       if (!from) continue;
 
       // Resolve display name from contacts array when available
@@ -99,24 +126,25 @@ export function normalizeWhatsAppWebhook(
       const displayName = contact?.profile?.name ?? from;
 
       results.push({
-        whatsappMessageId: textMsg.id,
+        whatsappMessageId: msg.id,
         event: {
           version: "v1",
           sourceChannel: "whatsapp",
-          receivedAt: new Date(Number(textMsg.timestamp) * 1000).toISOString(),
+          receivedAt: new Date(Number(msg.timestamp) * 1000).toISOString(),
           message: {
             content: body,
             // Use sender phone number as the chat identifier for 1:1 conversations
             externalChatId: from,
-            externalMessageId: textMsg.id,
+            externalMessageId: msg.id,
+            ...(callbackData ? { callbackData } : {}),
           },
           sender: {
             externalUserId: from,
             displayName,
           },
           source: {
-            updateId: textMsg.id,
-            messageId: textMsg.id,
+            updateId: msg.id,
+            messageId: msg.id,
             chatType: "private",
           },
           raw: payload,

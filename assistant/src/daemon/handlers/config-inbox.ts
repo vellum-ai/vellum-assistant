@@ -1,7 +1,7 @@
 import * as net from 'node:net';
 import type { IngressInviteRequest, IngressMemberRequest, AssistantInboxEscalationRequest, AssistantInboxReplyRequest } from '../ipc-protocol.js';
 import type { ChannelId } from '../../channels/types.js';
-import { isChannelId } from '../../channels/types.js';
+import { isChannelId, isInterfaceId } from '../../channels/types.js';
 import { log, defineHandlers, type HandlerContext } from './shared.js';
 import {
   createInvite,
@@ -188,6 +188,7 @@ export function handleIngressMember(
     switch (msg.action) {
       case 'list': {
         const members = listMembers({
+          assistantId: msg.assistantId,
           sourceChannel: msg.sourceChannel,
           status: msg.status,
           policy: msg.policy,
@@ -210,6 +211,7 @@ export function handleIngressMember(
           return;
         }
         const member = upsertMember({
+          assistantId: msg.assistantId,
           sourceChannel: msg.sourceChannel,
           externalUserId: msg.externalUserId,
           externalChatId: msg.externalChatId,
@@ -400,9 +402,18 @@ async function executeApprove(
       userMessageChannel: sourceChannel,
       assistantMessageChannel: sourceChannel,
     });
+    const sourceInterface = isInterfaceId(sourceChannel) ? sourceChannel : undefined;
+    if (sourceInterface) {
+      session.setTurnInterfaceContext({
+        userMessageInterface: sourceInterface,
+        assistantMessageInterface: sourceInterface,
+      });
+    }
   }
   session.setAssistantId(assistantId);
-  session.setGuardianContext(null);
+  // Daemon inbox handler — the guardian approved this escalation, so tag as
+  // guardian to avoid 'unverified_channel' blocking memory extraction.
+  session.setGuardianContext({ actorRole: 'guardian', sourceChannel: sourceChannel ?? 'vellum' });
   session.setCommandIntent(null);
 
   // Process the message through the agent loop (no IPC event callback
@@ -477,9 +488,12 @@ async function executeDeny(
   }, bearerToken);
 
   // Store a system note about the denial in the conversation
+  const denialInterface = isInterfaceId(sourceChannel) ? sourceChannel : undefined;
   addMessage(conversationId, 'assistant', denialText, {
+    provenanceActorRole: 'guardian' as const,
     userMessageChannel: sourceChannel,
     assistantMessageChannel: sourceChannel,
+    ...(denialInterface ? { userMessageInterface: denialInterface, assistantMessageInterface: denialInterface } : {}),
   });
   updateThreadActivity(conversationId, 'outbound');
 
@@ -508,13 +522,20 @@ export function handleAssistantInboxReply(
 
     // Store the reply as an assistant message
     const bindingChannel = isChannelId(binding.sourceChannel) ? binding.sourceChannel : null;
+    const bindingInterface = isInterfaceId(binding.sourceChannel) ? binding.sourceChannel : null;
     const message = addMessage(
       conversationId,
       'assistant',
       content,
-      bindingChannel
-        ? { userMessageChannel: bindingChannel, assistantMessageChannel: bindingChannel }
-        : undefined,
+      {
+        provenanceActorRole: 'guardian' as const,
+        ...(bindingChannel
+          ? { userMessageChannel: bindingChannel, assistantMessageChannel: bindingChannel }
+          : {}),
+        ...(bindingInterface
+          ? { userMessageInterface: bindingInterface, assistantMessageInterface: bindingInterface }
+          : {}),
+      },
     );
 
     // Update thread activity timestamps (resets unread count, updates last_outbound_at)

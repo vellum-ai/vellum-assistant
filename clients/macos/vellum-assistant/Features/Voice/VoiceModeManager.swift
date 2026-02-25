@@ -30,6 +30,8 @@ final class VoiceModeManager: ObservableObject {
     private weak var settingsStore: SettingsStore?
     private var previousOnVoiceResponseComplete: ((String) -> Void)?
     private var previousOnVoiceTextDelta: ((String) -> Void)?
+    /// Guards against async auth callback activating after the panel is closed.
+    private var awaitingAuthorization = false
     /// Safety timeout to recover from stuck TTS.
     private var ttsTimeoutTask: Task<Void, Never>?
     /// Timer that fires when the conversation has been idle too long.
@@ -42,8 +44,6 @@ final class VoiceModeManager: ObservableObject {
     nonisolated init() {
         self.voiceService = OpenAIVoiceService()
     }
-
-    var hasAPIKey: Bool { voiceService.hasAPIKey }
 
     var stateLabel: String {
         if !pendingPermissionIds.isEmpty {
@@ -67,11 +67,24 @@ final class VoiceModeManager: ObservableObject {
         guard state == .off else { return }
         wasAutoDeactivated = false
 
-        guard voiceService.hasAPIKey else {
-            log.error("Voice mode: no OpenAI API key configured")
+        guard OpenAIVoiceService.isSpeechRecognitionAuthorized() else {
+            log.error("Voice mode: speech recognition not authorized")
+            awaitingAuthorization = true
+            OpenAIVoiceService.requestSpeechRecognitionAuthorization { [weak self] authorized in
+                guard let self, self.awaitingAuthorization else { return }
+                self.awaitingAuthorization = false
+                if authorized {
+                    log.info("Speech recognition authorized — retrying activation")
+                    self.activate(chatViewModel: chatViewModel, settingsStore: settingsStore)
+                    self.startListening()
+                } else {
+                    log.warning("Speech recognition authorization denied")
+                }
+            }
             return
         }
 
+        awaitingAuthorization = false
         self.chatViewModel = chatViewModel
         self.settingsStore = settingsStore
 
@@ -123,6 +136,7 @@ final class VoiceModeManager: ObservableObject {
     }
 
     func deactivate() {
+        awaitingAuthorization = false
         guard state != .off else { return }
 
         // Cancel conversation timeout before setting state to .off
@@ -177,7 +191,11 @@ final class VoiceModeManager: ObservableObject {
         partialTranscription = ""
         errorMessage = ""
         state = .listening
-        voiceService.startRecording()
+        guard voiceService.startRecording() else {
+            errorMessage = "Speech recognition unavailable"
+            state = .idle
+            return
+        }
         log.info("Voice mode: started listening")
     }
 
@@ -194,63 +212,34 @@ final class VoiceModeManager: ObservableObject {
         guard state == .listening else { return }
 
         state = .processing
-        log.info("Voice mode: silence detected, transcribing via Whisper")
+        log.info("Voice mode: silence detected, getting transcription")
 
         // Reset streaming TTS state for the new turn
         voiceService.resetStreamingTTS()
 
-        guard let audioData = voiceService.stopRecordingAndGetAudio() else {
-            state = .idle
-            return
-        }
-
         Task {
-            do {
-                let text = try await voiceService.transcribe(audioData)
-                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let text = await voiceService.stopRecordingAndGetTranscription()
+            let trimmed = (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
 
-                guard !trimmed.isEmpty, let chatViewModel else {
-                    state = .idle
-                    return
-                }
-
-                // If we're awaiting a permission response, handle it separately
-                if !self.pendingPermissionIds.isEmpty {
-                    self.partialTranscription = trimmed
-                    self.handlePermissionResponse(trimmed)
-                    return
-                }
-
-                partialTranscription = trimmed
-
-                // Send the transcribed message through the daemon (full context)
-                chatViewModel.pendingVoiceMessage = true
-                chatViewModel.inputText = trimmed
-                chatViewModel.sendMessage()
-                log.info("Voice mode: sent transcription to chat via daemon")
-            } catch {
-                log.error("Transcription failed: \(error.localizedDescription)")
-                partialTranscription = ""
-                if let voiceError = error as? OpenAIVoiceError {
-                    switch voiceError {
-                    case .apiError(let statusCode, _):
-                        if statusCode == 429 {
-                            self.errorMessage = "OpenAI rate limit exceeded. Check your billing at platform.openai.com"
-                        } else if statusCode == 401 {
-                            self.errorMessage = "Invalid OpenAI API key. Update it in Settings."
-                        } else {
-                            self.errorMessage = "OpenAI API error (\(statusCode))"
-                        }
-                    case .noAPIKey:
-                        self.errorMessage = "OpenAI API key not configured. Add it in Settings."
-                    default:
-                        self.errorMessage = "Transcription failed: \(error.localizedDescription)"
-                    }
-                } else {
-                    self.errorMessage = "Transcription failed: \(error.localizedDescription)"
-                }
+            guard !trimmed.isEmpty, let chatViewModel else {
                 state = .idle
+                return
             }
+
+            // If we're awaiting a permission response, handle it separately
+            if !self.pendingPermissionIds.isEmpty {
+                self.partialTranscription = trimmed
+                self.handlePermissionResponse(trimmed)
+                return
+            }
+
+            partialTranscription = trimmed
+
+            // Send the transcribed message through the daemon (full context)
+            chatViewModel.pendingVoiceMessage = true
+            chatViewModel.inputText = trimmed
+            chatViewModel.sendMessage()
+            log.info("Voice mode: sent transcription to chat via daemon")
         }
     }
 

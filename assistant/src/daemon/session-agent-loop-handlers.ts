@@ -8,12 +8,13 @@
 
 import type pino from 'pino';
 import type { ContentBlock, ImageContent } from '../providers/types.js';
-import type { TurnChannelContext } from '../channels/types.js';
+import type { TurnChannelContext, TurnInterfaceContext } from '../channels/types.js';
 import type { ServerMessage } from './ipc-protocol.js';
 import type { AgentEvent } from '../agent/loop.js';
 import type { AgentLoopSessionContext } from './session-agent-loop.js';
 import type { DirectiveRequest } from './assistant-attachments.js';
 import * as conversationStore from '../memory/conversation-store.js';
+import { provenanceFromGuardianContext } from '../memory/conversation-store.js';
 import { classifySessionError, isContextTooLarge, buildSessionErrorMessage } from './session-error.js';
 import { isProviderOrderingError } from './session-slash.js';
 import { cleanAssistantContent, drainDirectiveDisplayBuffer } from './assistant-attachments.js';
@@ -55,8 +56,11 @@ export interface EventHandlerDeps {
   readonly onEvent: (msg: ServerMessage) => void;
   readonly reqId: string;
   readonly isFirstMessage: boolean;
+  /** Whether the conversation title is replaceable — controls firstAssistantText accumulation for title generation. */
+  readonly shouldGenerateTitle: boolean;
   readonly rlog: pino.Logger;
   readonly turnChannelContext: TurnChannelContext;
+  readonly turnInterfaceContext: TurnInterfaceContext;
 }
 
 // ── Factory ──────────────────────────────────────────────────────────
@@ -112,7 +116,7 @@ export function handleTextDelta(
   state.pendingDirectiveDisplayBuffer = drained.bufferedRemainder;
   if (drained.emitText.length > 0) {
     deps.onEvent({ type: 'assistant_text_delta', text: drained.emitText, sessionId: deps.ctx.conversationId });
-    if (deps.isFirstMessage) state.firstAssistantText += drained.emitText;
+    if (deps.shouldGenerateTitle) state.firstAssistantText += drained.emitText;
   }
 }
 
@@ -259,7 +263,7 @@ export function handleMessageComplete(
       text: state.pendingDirectiveDisplayBuffer,
       sessionId: deps.ctx.conversationId,
     });
-    if (deps.isFirstMessage) state.firstAssistantText += state.pendingDirectiveDisplayBuffer;
+    if (deps.shouldGenerateTitle) state.firstAssistantText += state.pendingDirectiveDisplayBuffer;
     state.pendingDirectiveDisplayBuffer = '';
   }
 
@@ -275,8 +279,11 @@ export function handleMessageComplete(
       }),
     );
     const toolResultMetadata = {
+      ...provenanceFromGuardianContext(deps.ctx.guardianContext),
       userMessageChannel: deps.turnChannelContext.userMessageChannel,
       assistantMessageChannel: deps.turnChannelContext.assistantMessageChannel,
+      userMessageInterface: deps.turnInterfaceContext.userMessageInterface,
+      assistantMessageInterface: deps.turnInterfaceContext.assistantMessageInterface,
     };
     conversationStore.addMessage(
       deps.ctx.conversationId,
@@ -317,8 +324,11 @@ export function handleMessageComplete(
   }
 
   const assistantChannelMetadata = {
+    ...provenanceFromGuardianContext(deps.ctx.guardianContext),
     userMessageChannel: deps.turnChannelContext.userMessageChannel,
     assistantMessageChannel: deps.turnChannelContext.assistantMessageChannel,
+    userMessageInterface: deps.turnInterfaceContext.userMessageInterface,
+    assistantMessageInterface: deps.turnInterfaceContext.assistantMessageInterface,
   };
   const assistantMsg = conversationStore.addMessage(
     deps.ctx.conversationId,

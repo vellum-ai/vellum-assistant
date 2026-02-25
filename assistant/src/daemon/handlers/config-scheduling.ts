@@ -1,6 +1,7 @@
 import * as net from 'node:net';
 import { listSchedules, updateSchedule, deleteSchedule, describeCronExpression, getSchedule, createScheduleRun, completeScheduleRun } from '../../schedule/schedule-store.js';
 import { createConversation } from '../../memory/conversation-store.js';
+import { GENERATING_TITLE, queueGenerateConversationTitle } from '../../memory/conversation-title-service.js';
 import { listReminders, cancelReminder } from '../../tools/reminder/reminder-store.js';
 import type {
   ScheduleToggle,
@@ -101,7 +102,11 @@ export async function handleScheduleRunNow(
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log.warn({ err, jobId: schedule.id, name: schedule.name, taskId }, 'Manual scheduled task execution failed');
-      const fallbackConversation = createConversation({ title: `Schedule (manual): ${schedule.name}`, source: 'schedule' });
+      const fallbackConversation = createConversation({ title: GENERATING_TITLE, source: 'schedule' });
+      queueGenerateConversationTitle({
+        conversationId: fallbackConversation.id,
+        context: { origin: 'schedule', systemHint: `Schedule (manual): ${schedule.name}` },
+      });
       const runId = createScheduleRun(schedule.id, fallbackConversation.id);
       completeScheduleRun(runId, { status: 'error', error: message });
     }
@@ -109,7 +114,11 @@ export async function handleScheduleRunNow(
     return;
   }
 
-  const conversation = createConversation({ title: `Schedule (manual): ${schedule.name}`, source: 'schedule' });
+  const conversation = createConversation({ title: GENERATING_TITLE, source: 'schedule' });
+  queueGenerateConversationTitle({
+    conversationId: conversation.id,
+    context: { origin: 'schedule', systemHint: `Schedule (manual): ${schedule.name}` },
+  });
   const runId = createScheduleRun(schedule.id, conversation.id);
 
   try {

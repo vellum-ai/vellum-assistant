@@ -831,11 +831,11 @@ struct HomeBaseView: View {
                 .foregroundColor(VColor.textMuted)
                 .accessibilityHidden(true)
 
-            Text("Connect to Your Mac")
+            Text("Connect to your Assistant")
                 .font(VFont.title)
                 .foregroundColor(VColor.textPrimary)
 
-            Text("Home Base is available when connected to your assistant on Mac.")
+            Text("Home Base is available when connected to your Assistant.")
                 .font(VFont.body)
                 .foregroundColor(VColor.textSecondary)
                 .multilineTextAlignment(.center)

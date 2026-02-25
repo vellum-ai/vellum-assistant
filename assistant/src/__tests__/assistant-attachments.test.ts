@@ -375,6 +375,40 @@ describe('contentBlocksToDrafts', () => {
 // deduplicateDrafts
 // ---------------------------------------------------------------------------
 
+describe('validateDrafts with reversed tool drafts', () => {
+  test('most recent tool screenshots win the attachment cap when reversed before validation', () => {
+    // Simulate a browser session producing many screenshots chronologically.
+    // After reversing, the most recent (highest index) should appear first
+    // and win the MAX_ASSISTANT_ATTACHMENTS cap.
+    const totalScreenshots = MAX_ASSISTANT_ATTACHMENTS + 3;
+    const toolDrafts = Array.from({ length: totalScreenshots }, (_, i) =>
+      makeDraft({
+        sourceType: 'tool_block',
+        filename: `screenshot-step-${i}.png`,
+        mimeType: 'image/png',
+        kind: 'image',
+        dataBase64: `data${i}`,
+      }),
+    );
+
+    // Reverse to prioritize most recent
+    toolDrafts.reverse();
+
+    const result = validateDrafts(toolDrafts);
+    expect(result.accepted).toHaveLength(MAX_ASSISTANT_ATTACHMENTS);
+
+    // The accepted drafts should be the most recent screenshots (highest step numbers)
+    const acceptedFilenames = result.accepted.map(d => d.filename);
+    for (let i = 0; i < MAX_ASSISTANT_ATTACHMENTS; i++) {
+      expect(acceptedFilenames[i]).toBe(`screenshot-step-${totalScreenshots - 1 - i}.png`);
+    }
+
+    // The oldest screenshots should be dropped
+    expect(result.warnings).toHaveLength(3);
+    expect(result.warnings[0]).toContain('screenshot-step-2.png');
+  });
+});
+
 describe('deduplicateDrafts', () => {
   test('removes exact duplicates with same filename and content', () => {
     const d = makeDraft({ filename: 'same.txt', dataBase64: 'AAAA'.repeat(20) });

@@ -1,4 +1,4 @@
-import type { ChannelId } from '../channels/types.js';
+import type { ChannelId, InterfaceId } from '../channels/types.js';
 import type { GatewayConfig } from "../config.js";
 import { fetchImpl } from "../fetch.js";
 import { getLogger } from "../logger.js";
@@ -130,6 +130,8 @@ export class AttachmentValidationError extends Error {
 
 export type RuntimeInboundPayload = {
   sourceChannel: ChannelId;
+  /** Explicit interface identifier forwarded to the assistant. */
+  interface: InterfaceId;
   externalChatId: string;
   externalMessageId: string;
   content: string;

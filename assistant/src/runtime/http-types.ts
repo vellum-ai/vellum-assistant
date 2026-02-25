@@ -1,7 +1,7 @@
 /**
  * Shared types for the runtime HTTP server and its route handlers.
  */
-import type { ChannelId } from '../channels/types.js';
+import type { ChannelId, InterfaceId } from '../channels/types.js';
 import type { RunOrchestrator } from './run-orchestrator.js';
 import type { GuardianRuntimeContext } from '../daemon/session-runtime-assembly.js';
 import type { ApprovalMessageContext, ComposeApprovalMessageGenerativeOptions } from './approval-message-composer.js';
@@ -71,6 +71,7 @@ export type MessageProcessor = (
   attachmentIds?: string[],
   options?: RuntimeMessageSessionOptions,
   sourceChannel?: ChannelId,
+  sourceInterface?: InterfaceId,
 ) => Promise<{ messageId: string }>;
 
 /**
@@ -84,6 +85,7 @@ export type NonBlockingMessageProcessor = (
   attachmentIds?: string[],
   options?: RuntimeMessageSessionOptions,
   sourceChannel?: ChannelId,
+  sourceInterface?: InterfaceId,
 ) => Promise<{ messageId: string }>;
 
 /**

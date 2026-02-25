@@ -7,7 +7,7 @@
  * resolution.
  */
 
-import { and, desc, eq } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb } from '../memory/db.js';
 import { notificationPreferences } from '../memory/schema.js';
@@ -40,7 +40,7 @@ function rowToPreference(row: typeof notificationPreferences.$inferSelect): Noti
 
 export interface AppliesWhenConditions {
   timeRange?: { after?: string; before?: string }; // e.g. "22:00", "06:00"
-  channels?: string[];        // e.g. ["telegram", "macos"]
+  channels?: string[];        // e.g. ["telegram", "vellum"]
   urgencyLevels?: string[];   // e.g. ["high", "critical"]
   contexts?: string[];        // e.g. ["work_calls", "meetings"]
   [key: string]: unknown;

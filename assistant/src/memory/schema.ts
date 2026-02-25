@@ -15,6 +15,8 @@ export const conversations = sqliteTable('conversations', {
   source: text('source').notNull().default('user'),
   memoryScopeId: text('memory_scope_id').notNull().default('default'),
   originChannel: text('origin_channel'),
+  originInterface: text('origin_interface'),
+  isAutoTitle: integer('is_auto_title').notNull().default(1),
 });
 
 export const messages = sqliteTable('messages', {
@@ -830,7 +832,7 @@ export const guardianActionDeliveries = sqliteTable('guardian_action_deliveries'
   requestId: text('request_id')
     .notNull()
     .references(() => guardianActionRequests.id, { onDelete: 'cascade' }),
-  destinationChannel: text('destination_channel').notNull(),       // 'telegram' | 'sms' | 'macos'
+  destinationChannel: text('destination_channel').notNull(),       // 'telegram' | 'sms' | 'vellum'
   destinationConversationId: text('destination_conversation_id'),
   destinationChatId: text('destination_chat_id'),
   destinationExternalUserId: text('destination_external_user_id'),
@@ -941,6 +943,40 @@ export const notificationPreferences = sqliteTable('notification_preferences', {
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });
+
+// ── Sequences (multi-step outreach) ──────────────────────────────────
+
+export const sequences = sqliteTable('sequences', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  description: text('description'),
+  channel: text('channel').notNull(),
+  steps: text('steps').notNull(),                                    // JSON array of SequenceStep
+  exitOnReply: integer('exit_on_reply', { mode: 'boolean' }).notNull().default(true),
+  status: text('status').notNull().default('active'),                // active | paused | archived
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+export const sequenceEnrollments = sqliteTable('sequence_enrollments', {
+  id: text('id').primaryKey(),
+  sequenceId: text('sequence_id')
+    .notNull()
+    .references(() => sequences.id, { onDelete: 'cascade' }),
+  contactEmail: text('contact_email').notNull(),
+  contactName: text('contact_name'),
+  currentStep: integer('current_step').notNull().default(0),
+  status: text('status').notNull().default('active'),                // active | paused | completed | replied | cancelled | failed
+  threadId: text('thread_id'),
+  nextStepAt: integer('next_step_at'),                               // epoch ms
+  context: text('context'),                                          // JSON
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+}, (table) => [
+  index('idx_seq_enrollments_status_next_step').on(table.status, table.nextStepAt),
+  index('idx_seq_enrollments_sequence_id').on(table.sequenceId),
+  index('idx_seq_enrollments_contact_email').on(table.contactEmail),
+]);
 
 export const notificationDeliveries = sqliteTable('notification_deliveries', {
   id: text('id').primaryKey(),

@@ -176,6 +176,7 @@ final class ChatViewModelIOSTests: XCTestCase {
     func testTextDeltaCreatesAssistantMessage() {
         let delta = AssistantTextDeltaMessage(text: "Hello iOS user")
         viewModel.handleServerMessage(.assistantTextDelta(delta))
+        viewModel.flushStreamingBuffer()
 
         XCTAssertEqual(viewModel.messages.count, 1)
         XCTAssertEqual(viewModel.messages[0].role, .assistant)
@@ -193,6 +194,7 @@ final class ChatViewModelIOSTests: XCTestCase {
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Hel")))
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "lo ")))
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "world")))
+        viewModel.flushStreamingBuffer()
 
         XCTAssertEqual(viewModel.messages.count, 1)
         XCTAssertEqual(viewModel.messages[0].text, "Hello world")
@@ -204,6 +206,7 @@ final class ChatViewModelIOSTests: XCTestCase {
         viewModel.sendMessage()
 
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Answer")))
+        viewModel.flushStreamingBuffer()
 
         XCTAssertEqual(viewModel.messages.count, 2)
         XCTAssertEqual(viewModel.messages[0].role, .user)
@@ -218,6 +221,7 @@ final class ChatViewModelIOSTests: XCTestCase {
         viewModel.isThinking = true
 
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Response")))
+        viewModel.flushStreamingBuffer()
         viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage()))
 
         XCTAssertFalse(viewModel.isSending)
@@ -243,6 +247,7 @@ final class ChatViewModelIOSTests: XCTestCase {
 
         // Assistant starts streaming before user cancels
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Partial")))
+        viewModel.flushStreamingBuffer()
 
         // User initiates cancel, then server acknowledges
         viewModel.isCancelling = true
@@ -320,12 +325,14 @@ final class ChatViewModelIOSTests: XCTestCase {
 
         // 3. Assistant starts streaming
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "iOS is ")))
+        viewModel.flushStreamingBuffer()
         XCTAssertEqual(viewModel.messages.count, 2)
         XCTAssertTrue(viewModel.messages[1].isStreaming)
         XCTAssertFalse(viewModel.isThinking)
 
         // 4. More deltas arrive
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "great!")))
+        viewModel.flushStreamingBuffer()
         XCTAssertEqual(viewModel.messages[1].text, "iOS is great!")
 
         // 5. Message completes

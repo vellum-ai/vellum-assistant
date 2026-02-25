@@ -126,10 +126,10 @@ struct ChoosePathStep: View {
                 Button(action: onConnectToMac) {
                     HStack {
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
-                            Text("Connect to Mac")
+                            Text("Connect to Assistant")
                                 .font(VFont.bodyBold)
                                 .foregroundColor(VColor.textPrimary)
-                            Text("Use your Mac's local daemon")
+                            Text("Connect via your local network")
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.textSecondary)
                         }
@@ -165,11 +165,11 @@ struct DaemonSetupStep: View {
         VStack(spacing: VSpacing.xl) {
             Spacer()
 
-            Text("Connect to Mac")
+            Text("Connect to Assistant")
                 .font(VFont.title)
                 .foregroundColor(VColor.textPrimary)
 
-            Text("Scan the QR code from your Mac to pair.")
+            Text("Scan the QR code from your Assistant to pair.")
                 .font(VFont.body)
                 .foregroundColor(VColor.textSecondary)
                 .multilineTextAlignment(.center)
@@ -185,7 +185,7 @@ struct DaemonSetupStep: View {
                     VStack(alignment: .leading, spacing: VSpacing.xxs) {
                         Text("Scan QR Code")
                             .font(VFont.bodyBold)
-                        Text("Open Vellum on your Mac \u{2192} Settings \u{2192} Show QR Code")
+                        Text("Open Vellum on your Assistant \u{2192} Settings \u{2192} Show QR Code")
                             .font(VFont.caption)
                     }
                 }

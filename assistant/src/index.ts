@@ -22,13 +22,12 @@ import {
 } from './cli/config-commands.js';
 import { registerHooksCommand } from './hooks/cli.js';
 import { registerEmailCommand } from './cli/email.js';
-import { registerContactsCommand } from './cli/contacts.js';
-import { registerAutonomyCommand } from './cli/autonomy.js';
 import { registerDoordashCommand } from './cli/doordash.js';
 import { registerAmazonCommand } from './cli/amazon.js';
 import { registerTwitterCommand } from './cli/twitter.js';
 import { registerMapCommand } from './cli/map.js';
 import { registerInfluencerCommand } from './cli/influencer.js';
+import { registerSequenceCommand } from './cli/sequence.js';
 
 const program = new Command();
 
@@ -48,8 +47,6 @@ registerAuditCommand(program);
 registerDoctorCommand(program);
 registerHooksCommand(program);
 registerEmailCommand(program);
-registerContactsCommand(program);
-registerAutonomyCommand(program);
 registerDoordashCommand(program);
 registerAmazonCommand(program);
 registerCompletionsCommand(program);
@@ -57,5 +54,6 @@ registerCompletionsCommand(program);
 registerTwitterCommand(program);
 registerMapCommand(program);
 registerInfluencerCommand(program);
+registerSequenceCommand(program);
 
 program.parse();

@@ -30,6 +30,20 @@ export function handleGuardianVerification(
 
   try {
     if (msg.action === 'create_challenge') {
+      // Fail by default if a guardian is already bound, unless the caller
+      // explicitly opts in to rebinding by setting rebind: true.
+      const existingBinding = getGuardianBinding(assistantId, channel);
+      if (existingBinding && !msg.rebind) {
+        ctx.send(socket, {
+          type: 'guardian_verification_response',
+          success: false,
+          error: 'already_bound',
+          message: 'A guardian is already bound for this channel. Revoke the existing binding first, or set rebind: true to replace.',
+          channel,
+        });
+        return;
+      }
+
       const result = createVerificationChallenge(assistantId, channel, msg.sessionId);
 
       ctx.send(socket, {

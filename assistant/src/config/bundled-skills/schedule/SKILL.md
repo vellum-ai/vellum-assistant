@@ -72,3 +72,20 @@ Use `syntax` + `expression` to specify the schedule type explicitly, or just `ex
 - Only use `schedule_create` when the user explicitly wants recurring automation (e.g. "every day at 9am", "weekly on Mondays"). For one-time tasks, use the task list instead.
 - Timezones default to the system timezone if omitted. Use IANA timezone identifiers (e.g. "America/Los_Angeles").
 - Prefer RRULE for complex patterns that cron cannot express (e.g. "every other Tuesday", "last weekday of the month").
+
+## Capability Preflight
+
+Before confirming a schedule to the user, you MUST verify that you have the capabilities needed to execute the scheduled message autonomously. Scheduled messages run without user interaction — if a required integration is missing, the schedule will fail silently.
+
+When `schedule_create` returns, it includes an integration status summary. Cross-reference the scheduled task's requirements against the available integrations:
+
+- If the task involves **email** (reading, sending, OTP verification): an email integration must be connected (check the "email" category)
+- If the task involves **tweeting or reading Twitter**: Twitter must be connected
+- If the task involves **sending SMS or making calls**: SMS/Twilio must be connected
+- If the task involves **web browsing or form-filling**: browser automation must be available (check client type)
+- If the task involves a **multi-step workflow** (e.g., book appointment → read confirmation email), trace the full dependency chain
+
+If any required capability is missing:
+1. **Do NOT tell the user the schedule is ready** — instead, explain what's missing and why the schedule won't work yet
+2. Offer to help set up the missing integration first
+3. The schedule is still created (so timing is preserved), but make it clear it won't execute successfully until dependencies are resolved

@@ -30,8 +30,10 @@ import type { CallSession } from './types.js';
 import { VALID_CALLER_IDENTITY_MODES } from '../config/schema.js';
 import type { AssistantConfig } from '../config/types.js';
 import { getOrCreateConversation } from '../memory/conversation-key-store.js';
+import { queueGenerateConversationTitle } from '../memory/conversation-title-service.js';
 import { upsertBinding } from '../memory/external-conversation-store.js';
 import { addPointerMessage } from './call-pointer-messages.js';
+import { isGuardian } from '../runtime/channel-guardian-service.js';
 
 const log = getLogger('call-domain');
 
@@ -236,6 +238,23 @@ export function createInboundVoiceSession(
   updateCallSession(session.id, { providerCallSid: callSid });
   session.providerCallSid = callSid;
 
+  const callerIsGuardian = isGuardian(assistantId, 'voice', fromNumber);
+  const metadataHints: string[] = [
+    callerIsGuardian ? 'Caller is the guardian' : 'Caller is not the guardian (external caller)',
+    `Timestamp: ${new Date().toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`,
+  ];
+
+  queueGenerateConversationTitle({
+    conversationId: voiceConversationId,
+    context: {
+      origin: 'voice_inbound',
+      sourceChannel: 'voice',
+      assistantId,
+      systemHint: `Inbound call from ${fromNumber}`,
+      metadataHints,
+    },
+  });
+
   log.info(
     { callSessionId: session.id, callSid, voiceConversationId, from: fromNumber, to: toNumber, assistantId },
     'Created new inbound voice session',
@@ -318,6 +337,20 @@ export async function startCall(input: StartCallInput): Promise<StartCallResult 
       conversationId: voiceConversationId,
     });
     session.conversationId = voiceConversationId;
+
+    queueGenerateConversationTitle({
+      conversationId: voiceConversationId,
+      context: {
+        origin: 'voice_outbound',
+        sourceChannel: 'voice',
+        assistantId,
+        systemHint: `Outbound call to ${phoneNumber}`,
+        triggerTextSnippet: task,
+        metadataHints: [
+          `Timestamp: ${new Date().toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`,
+        ],
+      },
+    });
 
     log.info({ callSessionId: session.id, voiceConversationId, initiatedFrom: conversationId, to: phoneNumber, from: fromNumber, task }, 'Initiating outbound call');
 

@@ -99,6 +99,7 @@ describe('IPC round-trip benchmark', () => {
       type: 'user_message',
       sessionId: 'sess-abc-123',
       content: 'Hello, world! Special chars: \u00e9\u00e0\u00fc \ud83d\ude00 "quotes" & <angle>',
+      interface: 'cli',
       attachments: [
         {
           filename: 'test.txt',

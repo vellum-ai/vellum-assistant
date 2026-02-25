@@ -16,7 +16,7 @@ export interface NotificationSignal {
   signalId: string;
   assistantId: string;
   createdAt: number; // epoch ms
-  sourceChannel: string; // free-form: 'macos', 'telegram', 'voice', 'scheduler', etc.
+  sourceChannel: string; // free-form: 'vellum', 'telegram', 'voice', 'scheduler', etc.
   sourceSessionId: string;
   sourceEventName: string; // free-form: 'reminder_fired', 'schedule_complete', 'guardian_question', etc.
   contextPayload: Record<string, unknown>;

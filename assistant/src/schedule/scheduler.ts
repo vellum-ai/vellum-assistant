@@ -1,5 +1,7 @@
 import { getLogger } from '../util/logger.js';
 import { createConversation } from '../memory/conversation-store.js';
+import { GENERATING_TITLE, queueGenerateConversationTitle } from '../memory/conversation-title-service.js';
+import { invalidateAssistantInferredItemsForConversation } from '../memory/task-memory-cleanup.js';
 import {
   claimDueSchedules,
   createScheduleRun,
@@ -8,6 +10,7 @@ import {
 import { hasSetConstructs } from './recurrence-engine.js';
 import { claimDueReminders, completeReminder, failReminder, setReminderConversationId } from '../tools/reminder/reminder-store.js';
 import { runWatchersOnce, type WatcherNotifier, type WatcherEscalator } from '../watcher/engine.js';
+import { runSequencesOnce } from '../sequence/engine.js';
 
 const log = getLogger('scheduler');
 
@@ -103,14 +106,22 @@ async function runScheduleOnce(
         const message = err instanceof Error ? err.message : String(err);
         log.warn({ err, jobId: job.id, name: job.name, taskId, syntax: job.syntax, expression: job.expression, isRruleSet }, 'Scheduled task execution failed');
         // Create a fallback conversation for the schedule run record
-        const fallbackConversation = createConversation({ title: `Schedule: ${job.name}`, source: 'schedule' });
+        const fallbackConversation = createConversation({ title: GENERATING_TITLE, source: 'schedule' });
+        queueGenerateConversationTitle({
+          conversationId: fallbackConversation.id,
+          context: { origin: 'schedule', systemHint: `Schedule: ${job.name}` },
+        });
         const runId = createScheduleRun(job.id, fallbackConversation.id);
         completeScheduleRun(runId, { status: 'error', error: message });
       }
       continue;
     }
 
-    const conversation = createConversation({ title: `Schedule: ${job.name}`, source: 'schedule' });
+    const conversation = createConversation({ title: GENERATING_TITLE, source: 'schedule' });
+    queueGenerateConversationTitle({
+      conversationId: conversation.id,
+      context: { origin: 'schedule', systemHint: `Schedule: ${job.name}` },
+    });
     const runId = createScheduleRun(job.id, conversation.id);
     const isRruleSetMsg = job.syntax === 'rrule' && hasSetConstructs(job.expression);
 
@@ -124,6 +135,12 @@ async function runScheduleOnce(
       const message = err instanceof Error ? err.message : String(err);
       log.warn({ err, jobId: job.id, name: job.name, syntax: job.syntax, expression: job.expression, isRruleSet: isRruleSetMsg }, 'Schedule execution failed');
       completeScheduleRun(runId, { status: 'error', error: message });
+
+      try {
+        invalidateAssistantInferredItemsForConversation(conversation.id);
+      } catch (cleanupErr) {
+        log.warn({ err: cleanupErr, conversationId: conversation.id }, 'Failed to invalidate assistant-inferred memory items');
+      }
     }
   }
 
@@ -131,7 +148,11 @@ async function runScheduleOnce(
   const dueReminders = claimDueReminders(now);
   for (const reminder of dueReminders) {
     if (reminder.mode === 'execute') {
-      const conversation = createConversation({ title: `Reminder: ${reminder.label}`, source: 'reminder' });
+      const conversation = createConversation({ title: GENERATING_TITLE, source: 'reminder' });
+      queueGenerateConversationTitle({
+        conversationId: conversation.id,
+        context: { origin: 'reminder', systemHint: `Reminder: ${reminder.label}` },
+      });
       setReminderConversationId(reminder.id, conversation.id);
       try {
         log.info({ reminderId: reminder.id, label: reminder.label, conversationId: conversation.id }, 'Executing reminder');
@@ -162,6 +183,14 @@ async function runScheduleOnce(
     } catch (err) {
       log.error({ err }, 'Watcher tick failed');
     }
+  }
+
+  // ── Sequences (multi-step outreach) ──────────────────────────────
+  try {
+    const sequenceProcessed = await runSequencesOnce(processMessage);
+    processed += sequenceProcessed;
+  } catch (err) {
+    log.error({ err }, 'Sequence engine tick failed');
   }
 
   if (processed > 0) {

@@ -53,13 +53,13 @@ export function sweepExpiredGuardianActions(
     for (const delivery of deliveries) {
       if (delivery.status !== 'sent' && delivery.status !== 'pending') continue;
 
-      if ((delivery.destinationChannel === 'macos' || delivery.destinationChannel === 'mac') && delivery.destinationConversationId) {
-        // Add expiry message to mac guardian thread
+      if ((delivery.destinationChannel === 'vellum' || delivery.destinationChannel === 'macos' || delivery.destinationChannel === 'mac') && delivery.destinationConversationId) {
+        // Add expiry message to vellum guardian thread
         addMessage(
           delivery.destinationConversationId,
           'assistant',
           JSON.stringify([{ type: 'text', text: 'This guardian question has expired without a response.' }]),
-          { userMessageChannel: 'voice', assistantMessageChannel: 'macos' },
+          { userMessageChannel: 'voice', assistantMessageChannel: 'vellum', userMessageInterface: 'voice', assistantMessageInterface: 'vellum' },
         );
       } else if (delivery.destinationChatId) {
         // External channel — send expiry notice

@@ -1,6 +1,7 @@
 import type { SwarmPlan, SwarmTaskNode } from './types.js';
 import { VALID_SWARM_ROLES } from './types.js';
 import type { SwarmLimits } from './limits.js';
+import { detectCycles } from './graph-utils.js';
 
 export class SwarmPlanValidationError extends Error {
   constructor(
@@ -38,8 +39,9 @@ export function validateAndNormalizePlan(
   }));
   const originalIds = new Set(tasks.map((task) => task.id));
 
-  // --- Task count limit (silent truncation) ---
+  // --- Task count limit ---
   if (tasks.length > limits.maxTasks) {
+    console.warn(`Plan truncated from ${tasks.length} tasks to ${limits.maxTasks}`);
     tasks = tasks.slice(0, limits.maxTasks);
   }
 
@@ -82,9 +84,9 @@ export function validateAndNormalizePlan(
 
   // --- Cycle detection (Kahn's algorithm) ---
   if (!hasDuplicateIds(tasks) && issues.length === 0) {
-    const cycleResult = detectCycles(tasks);
-    if (cycleResult) {
-      issues.push(`Plan contains a dependency cycle: ${cycleResult}.`);
+    const cycleNodes = detectCycles(tasks);
+    if (cycleNodes) {
+      issues.push(`Plan contains a dependency cycle: ${cycleNodes.join(' -> ')}.`);
     }
   }
 
@@ -104,48 +106,3 @@ function hasDuplicateIds(tasks: SwarmTaskNode[]): boolean {
   return false;
 }
 
-/**
- * Detect cycles using Kahn's algorithm. Returns a description of the cycle
- * if one exists, or null if the graph is acyclic.
- */
-function detectCycles(tasks: SwarmTaskNode[]): string | null {
-  const inDegree = new Map<string, number>();
-  const adj = new Map<string, string[]>();
-
-  for (const task of tasks) {
-    inDegree.set(task.id, 0);
-    adj.set(task.id, []);
-  }
-
-  for (const task of tasks) {
-    for (const dep of task.dependencies) {
-      adj.get(dep)!.push(task.id);
-      inDegree.set(task.id, (inDegree.get(task.id) ?? 0) + 1);
-    }
-  }
-
-  const queue: string[] = [];
-  for (const [id, deg] of inDegree) {
-    if (deg === 0) queue.push(id);
-  }
-
-  let processed = 0;
-  while (queue.length > 0) {
-    const node = queue.shift()!;
-    processed++;
-    for (const neighbor of adj.get(node)!) {
-      const newDeg = (inDegree.get(neighbor) ?? 0) - 1;
-      inDegree.set(neighbor, newDeg);
-      if (newDeg === 0) queue.push(neighbor);
-    }
-  }
-
-  if (processed < tasks.length) {
-    const stuck = tasks
-      .filter((t) => (inDegree.get(t.id) ?? 0) > 0)
-      .map((t) => t.id);
-    return stuck.join(' -> ');
-  }
-
-  return null;
-}

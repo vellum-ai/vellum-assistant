@@ -5,12 +5,11 @@
  * and runs it through the decision engine + deterministic checks + dispatch
  * pipeline.
  *
- * Designed for fire-and-forget usage: errors are logged but never propagated
- * to the caller. The returned promise resolves even on failure.
+ * Designed for fire-and-forget usage by default: errors are logged and not
+ * propagated unless `throwOnError` is enabled.
  */
 
 import { v4 as uuid } from 'uuid';
-import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
 import { getActiveBinding } from '../memory/channel-guardian-store.js';
 import { createEvent, updateEventDedupeKey } from './events-store.js';
@@ -18,7 +17,7 @@ import { evaluateSignal } from './decision-engine.js';
 import { runDeterministicChecks, type DeterministicCheckContext } from './deterministic-checks.js';
 import { dispatchDecision } from './runtime-dispatch.js';
 import { NotificationBroadcaster } from './broadcaster.js';
-import { MacOSAdapter, type BroadcastFn } from './adapters/macos.js';
+import { VellumAdapter, type BroadcastFn } from './adapters/macos.js';
 import { TelegramAdapter } from './adapters/telegram.js';
 import type { NotificationSignal, AttentionHints } from './signal.js';
 import type { NotificationChannel } from './types.js';
@@ -31,7 +30,7 @@ let broadcasterInstance: NotificationBroadcaster | null = null;
 let registeredBroadcastFn: BroadcastFn | null = null;
 
 /**
- * Register the IPC broadcast function so the macOS adapter can deliver
+ * Register the IPC broadcast function so the vellum adapter can deliver
  * notifications through the daemon's IPC socket. Must be called once
  * during daemon startup (before any signals are emitted).
  */
@@ -47,7 +46,7 @@ function getBroadcaster(): NotificationBroadcaster {
       new TelegramAdapter(),
     ];
     if (registeredBroadcastFn) {
-      adapters.unshift(new MacOSAdapter(registeredBroadcastFn));
+      adapters.unshift(new VellumAdapter(registeredBroadcastFn));
     }
     broadcasterInstance = new NotificationBroadcaster(adapters);
   }
@@ -57,9 +56,9 @@ function getBroadcaster(): NotificationBroadcaster {
 // ── Connected channels resolution ──────────────────────────────────────
 
 function getConnectedChannels(assistantId: string): NotificationChannel[] {
-  // macOS is always considered connected (IPC socket is always available
+  // Vellum is always considered connected (IPC socket is always available
   // when the daemon is running).
-  const channels: NotificationChannel[] = ['macos'];
+  const channels: NotificationChannel[] = ['vellum'];
   // Only report Telegram as connected when there is an active guardian
   // binding for this assistant. Without a binding, the destination
   // resolver will fail to resolve a chat ID and dispatch will silently
@@ -89,22 +88,21 @@ export interface EmitSignalParams {
   contextPayload?: Record<string, unknown>;
   /** Optional deduplication key. */
   dedupeKey?: string;
+  /**
+   * When true, rethrow pipeline errors to the caller instead of only logging.
+   * Useful for direct user-invoked actions that must fail closed.
+   */
+  throwOnError?: boolean;
 }
 
 /**
  * Emit a notification signal through the full pipeline:
  * createEvent -> evaluateSignal -> runDeterministicChecks -> dispatchDecision.
  *
- * Fire-and-forget safe: all errors are caught and logged. The caller
- * should not await this in critical paths unless it needs the result.
+ * Fire-and-forget safe by default: errors are caught and logged unless
+ * `throwOnError` is enabled by the caller.
  */
 export async function emitNotificationSignal(params: EmitSignalParams): Promise<void> {
-  const config = getConfig();
-  if (!config.notifications?.enabled) {
-    log.debug({ sourceEventName: params.sourceEventName }, 'Notification system disabled, skipping signal');
-    return;
-  }
-
   const signalId = uuid();
   const assistantId = params.assistantId ?? 'self';
 
@@ -187,5 +185,8 @@ export async function emitNotificationSignal(params: EmitSignalParams): Promise<
       { err: errMsg, signalId, sourceEventName: params.sourceEventName },
       'Signal pipeline failed',
     );
+    if (params.throwOnError) {
+      throw err instanceof Error ? err : new Error(errMsg);
+    }
   }
 }

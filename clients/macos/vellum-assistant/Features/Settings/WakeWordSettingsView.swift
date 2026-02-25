@@ -2,26 +2,20 @@ import SwiftUI
 import VellumAssistantShared
 
 /// Wake word settings tab — enable/disable wake word listening,
-/// configure Picovoice access key, sensitivity, and conversation timeout.
+/// configure keyword phrase, and conversation timeout.
 struct WakeWordSettingsView: View {
     @AppStorage("wakeWordEnabled") private var wakeWordEnabled: Bool = false
-    @AppStorage("wakeWordSensitivity") private var wakeWordSensitivity: Double = 0.5
     @AppStorage("wakeWordTimeoutSeconds") private var wakeWordTimeoutSeconds: Int = 30
     @AppStorage("wakeWordKeyword") private var wakeWordKeyword: String = "computer"
 
-    @State private var picovoiceKeyText: String = ""
+    private let suggestedKeywords = ["computer", "jarvis", "hey vellum", "assistant"]
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
             statusSection
             enableSection
             keywordSection
-            accessKeySection
-            sensitivitySection
             timeoutSection
-        }
-        .onAppear {
-            picovoiceKeyText = APIKeyManager.getKey(for: "picovoice") ?? ""
         }
     }
 
@@ -79,85 +73,28 @@ struct WakeWordSettingsView: View {
                 .font(VFont.sectionTitle)
                 .foregroundColor(VColor.textPrimary)
 
-            HStack {
-                Text("Keyword")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
-                Spacer()
-                Picker("", selection: $wakeWordKeyword) {
-                    Text("Computer").tag("computer")
-                    Text("Jarvis").tag("jarvis")
-                    Text("Alexa").tag("alexa")
-                    Text("Hey Siri").tag("hey siri")
-                    Text("Picovoice").tag("picovoice")
-                    Text("Porcupine").tag("porcupine")
-                    Text("Terminator").tag("terminator")
-                    Text("Bumblebee").tag("bumblebee")
-                    Text("Blueberry").tag("blueberry")
-                    Text("Grapefruit").tag("grapefruit")
-                    Text("Grasshopper").tag("grasshopper")
-                }
-                .pickerStyle(.menu)
-                .frame(width: 160)
-                .accessibilityLabel("Wake word keyword")
-            }
-
-            Text("The keyword that triggers voice activation. Requires restart of wake word listening to take effect.")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
-        }
-        .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceSubtle)
-    }
-
-    // MARK: - Access Key
-
-    private var accessKeySection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Picovoice Access Key")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
-
-            SecureField("Enter Picovoice access key", text: $picovoiceKeyText)
+            TextField("Enter wake word or phrase", text: $wakeWordKeyword)
                 .vInputStyle()
-                .onSubmit { savePicovoiceKey() }
-                .accessibilityLabel("Picovoice access key")
+                .accessibilityLabel("Wake word keyword")
 
-            HStack {
-                Text("Required for wake word detection. Get a key at picovoice.ai.")
+            HStack(spacing: VSpacing.sm) {
+                ForEach(suggestedKeywords, id: \.self) { suggestion in
+                    Button(suggestion) {
+                        wakeWordKeyword = suggestion
+                    }
+                    .buttonStyle(.plain)
                     .font(VFont.caption)
-                    .foregroundColor(VColor.textMuted)
-                Spacer()
-                VButton(label: "Save", style: .primary) {
-                    savePicovoiceKey()
+                    .foregroundColor(wakeWordKeyword == suggestion ? VColor.accent : VColor.textMuted)
+                    .padding(.horizontal, VSpacing.sm)
+                    .padding(.vertical, VSpacing.xs)
+                    .background(
+                        RoundedRectangle(cornerRadius: VRadius.sm)
+                            .fill(wakeWordKeyword == suggestion ? VColor.accentSubtle : VColor.surface)
+                    )
                 }
             }
-        }
-        .padding(VSpacing.lg)
-        .vCard(background: VColor.surfaceSubtle)
-    }
 
-    // MARK: - Sensitivity
-
-    private var sensitivitySection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Sensitivity")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
-
-            HStack {
-                Text("Detection sensitivity")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textSecondary)
-                Spacer()
-                Text(String(format: "%.1f", wakeWordSensitivity))
-                    .font(VFont.mono)
-                    .foregroundColor(VColor.textSecondary)
-            }
-
-            VSlider(value: $wakeWordSensitivity, range: 0.0...1.0, step: 0.1)
-
-            Text("Higher values make detection more responsive but may increase false activations.")
+            Text("Type any word or phrase. Uses on-device speech recognition — no data leaves your Mac.")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textMuted)
         }
@@ -195,16 +132,5 @@ struct WakeWordSettingsView: View {
         }
         .padding(VSpacing.lg)
         .vCard(background: VColor.surfaceSubtle)
-    }
-
-    // MARK: - Helpers
-
-    private func savePicovoiceKey() {
-        let trimmed = picovoiceKeyText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
-            APIKeyManager.deleteKey(for: "picovoice")
-        } else {
-            APIKeyManager.setKey(trimmed, for: "picovoice")
-        }
     }
 }

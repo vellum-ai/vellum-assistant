@@ -16,6 +16,76 @@ const log = getLogger('token-manager');
 /** Buffer before expiry to trigger proactive refresh (5 minutes). */
 const EXPIRY_BUFFER_MS = 5 * 60 * 1000;
 
+// ── Token refresh circuit breaker ────────────────────────────────────
+// Prevents retry storms when a provider persistently rejects refresh
+// attempts (e.g. revoked refresh token returning 401 repeatedly).
+// Per-service state: after FAILURE_THRESHOLD consecutive failures, stop
+// attempting refreshes for a cooldown period that doubles on each
+// successive trip (exponential backoff), capped at MAX_COOLDOWN_MS.
+// A successful refresh resets the breaker for that service.
+
+const REFRESH_FAILURE_THRESHOLD = 3;
+const INITIAL_COOLDOWN_MS = 30_000;
+const MAX_COOLDOWN_MS = 10 * 60 * 1000;
+
+interface RefreshBreakerState {
+  consecutiveFailures: number;
+  openedAt: number;
+  cooldownMs: number;
+}
+
+const refreshBreakers = new Map<string, RefreshBreakerState>();
+
+function isRefreshBreakerOpen(service: string): boolean {
+  const state = refreshBreakers.get(service);
+  if (!state || state.consecutiveFailures < REFRESH_FAILURE_THRESHOLD) return false;
+  if (Date.now() - state.openedAt < state.cooldownMs) return true;
+  // Cooldown expired — transition to half-open: reset failure count so the
+  // next batch of failures must reach the threshold again to re-trip. The
+  // existing cooldownMs is preserved so re-tripping will escalate it.
+  state.consecutiveFailures = 0;
+  return false;
+}
+
+function recordRefreshSuccess(service: string): void {
+  if (refreshBreakers.has(service)) {
+    log.info({ service }, 'Token refresh circuit breaker closed — refresh succeeded');
+    refreshBreakers.delete(service);
+  }
+}
+
+function recordRefreshFailure(service: string): void {
+  const state = refreshBreakers.get(service);
+  if (!state) {
+    refreshBreakers.set(service, { consecutiveFailures: 1, openedAt: 0, cooldownMs: INITIAL_COOLDOWN_MS });
+    return;
+  }
+  state.consecutiveFailures++;
+  if (state.consecutiveFailures >= REFRESH_FAILURE_THRESHOLD) {
+    // Only escalate cooldown on the exact failure that trips the breaker.
+    // Concurrent in-flight failures that arrive after the threshold is
+    // already crossed must not double the cooldown again.
+    if (state.consecutiveFailures === REFRESH_FAILURE_THRESHOLD && state.openedAt > 0) {
+      state.cooldownMs = Math.min(state.cooldownMs * 2, MAX_COOLDOWN_MS);
+    }
+    state.openedAt = Date.now();
+    log.warn(
+      { service, consecutiveFailures: state.consecutiveFailures, cooldownMs: state.cooldownMs },
+      'Token refresh circuit breaker opened — skipping refresh attempts until cooldown expires',
+    );
+  }
+}
+
+/** @internal Test-only: reset all circuit breaker state */
+export function _resetRefreshBreakers(): void {
+  refreshBreakers.clear();
+}
+
+/** @internal Test-only: get breaker state for a service */
+export function _getRefreshBreakerState(service: string): RefreshBreakerState | undefined {
+  return refreshBreakers.get(service);
+}
+
 export class TokenExpiredError extends Error {
   constructor(public readonly service: string, message?: string) {
     super(message ?? `Token expired for "${service}". Re-authorization required.`);
@@ -69,9 +139,25 @@ async function doRefresh(service: string): Promise<string> {
   const authMethod = meta?.oauth2TokenEndpointAuthMethod as TokenEndpointAuthMethod | undefined;
   const resolvedTokenUrl = tokenUrl;
 
+  if (isRefreshBreakerOpen(service)) {
+    const state = refreshBreakers.get(service)!;
+    const remainingMs = state.cooldownMs - (Date.now() - state.openedAt);
+    throw new TokenExpiredError(
+      service,
+      `Token refresh for "${service}" is temporarily suspended after ${state.consecutiveFailures} consecutive failures. ` +
+      `Retrying in ${Math.ceil(remainingMs / 1000)}s. Please try again later or re-authorize.`,
+    );
+  }
+
   log.info({ service }, 'Refreshing OAuth2 access token');
 
-  const result = await refreshOAuth2Token(resolvedTokenUrl, clientId, refreshToken, clientSecret, authMethod);
+  let result;
+  try {
+    result = await refreshOAuth2Token(resolvedTokenUrl, clientId, refreshToken, clientSecret, authMethod);
+  } catch (err) {
+    recordRefreshFailure(service);
+    throw err;
+  }
 
   if (!setSecureKey(`credential:${service}:access_token`, result.accessToken)) {
     throw new Error(`Failed to store refreshed access token for "${service}"`);
@@ -92,6 +178,7 @@ async function doRefresh(service: string): Promise<string> {
 
   upsertCredentialMetadata(service, 'access_token', { expiresAt });
 
+  recordRefreshSuccess(service);
   log.info({ service }, 'OAuth2 access token refreshed successfully');
   return result.accessToken;
 }

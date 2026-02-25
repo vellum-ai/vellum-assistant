@@ -229,7 +229,7 @@ export function buildGuardianApprovalPrompt(
  * All other channels fall back to plain-text instructions embedded in the
  * message body.
  */
-const RICH_APPROVAL_CHANNELS: ReadonlySet<string> = new Set(['telegram']);
+const RICH_APPROVAL_CHANNELS: ReadonlySet<string> = new Set(['telegram', 'whatsapp']);
 
 /**
  * Returns true when the given channel supports rich approval UI such as

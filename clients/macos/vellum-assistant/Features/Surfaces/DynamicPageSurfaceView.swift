@@ -516,7 +516,17 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         }
     }
     static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
-        webView.configuration.userContentController.removeScriptMessageHandler(forName: "vellumBridge")
+        // Stop any in-flight loads to release networking resources.
+        webView.stopLoading()
+        // Remove the message handler to break the strong reference from
+        // WKUserContentController -> Coordinator that would otherwise
+        // keep the Coordinator (and everything it captures) alive.
+        let controller = webView.configuration.userContentController
+        controller.removeScriptMessageHandler(forName: "vellumBridge")
+        controller.removeAllUserScripts()
+        // Nil out the navigation delegate to sever the last reference
+        // from the web view back to the coordinator.
+        webView.navigationDelegate = nil
     }
 
     // MARK: - Coordinator

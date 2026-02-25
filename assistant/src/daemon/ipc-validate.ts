@@ -1,4 +1,4 @@
-import { isChannelId } from '../channels/types.js';
+import { isChannelId, isInterfaceId } from '../channels/types.js';
 import type { ClientMessage } from './ipc-contract.js';
 import inventory from './ipc-contract-inventory.json' with { type: 'json' };
 
@@ -86,6 +86,12 @@ const HIGH_RISK_VALIDATORS: Record<string, PropertyValidator> = {
     if (obj.channel !== undefined && !isChannelId(obj.channel)) {
       return 'user_message "channel" must be a valid channel ID when present';
     }
+    if (obj.interface === undefined) {
+      return 'user_message requires a valid "interface" field';
+    }
+    if (!isInterfaceId(obj.interface)) {
+      return 'user_message "interface" must be a valid interface ID';
+    }
     return null;
   },
 
@@ -106,6 +112,14 @@ const HIGH_RISK_VALIDATORS: Record<string, PropertyValidator> = {
       }
       if (!isChannelId(transport.channelId)) {
         return 'session_create "transport.channelId" must be a valid channel ID';
+      }
+      if (transport.interfaceId !== undefined) {
+        if (typeof transport.interfaceId !== 'string' || transport.interfaceId.trim().length === 0) {
+          return 'session_create "transport.interfaceId" must be a non-empty string when present';
+        }
+        if (!isInterfaceId(transport.interfaceId)) {
+          return 'session_create "transport.interfaceId" must be a valid interface ID when present';
+        }
       }
       if (transport.uxBrief !== undefined && typeof transport.uxBrief !== 'string') {
         return 'session_create "transport.uxBrief" must be a string when present';

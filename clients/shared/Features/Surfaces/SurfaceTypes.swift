@@ -20,15 +20,53 @@ public enum SurfaceActionStyle: String, Codable, Sendable {
     case destructive
 }
 
-public enum SelectionMode: String, Sendable {
+public enum SelectionMode: String, Sendable, Equatable {
     case single
     case multiple
     case none
 }
 
+// MARK: - Helpers
+
+/// Recursively strip Optional boxing from dictionary values so that
+/// NSDictionary equality compares the underlying values, not Optional wrappers.
+/// Swift's `as [String: Any]` cast on a `[String: Any?]` preserves the Optional
+/// wrapper (e.g., `Optional(1)`), which NSDictionary treats as a different object
+/// than the bare `1`.
+private func unwrapOptionals(_ dict: [String: Any?]) -> [String: Any] {
+    var result: [String: Any] = [:]
+    for (key, value) in dict {
+        guard let value = value else { continue }
+        if let nested = value as? [String: Any?] {
+            result[key] = unwrapOptionals(nested)
+        } else if let array = value as? [Any?] {
+            result[key] = unwrapOptionalsInArray(array)
+        } else {
+            result[key] = value
+        }
+    }
+    return result
+}
+
+/// Recursively strip Optional boxing from array elements.
+/// nil elements are preserved as NSNull() so that positional nulls affect equality
+/// (e.g., [1, nil, 3] is not equal to [1, 3]).
+private func unwrapOptionalsInArray(_ array: [Any?]) -> [Any] {
+    return array.map { element -> Any in
+        guard let element = element else { return NSNull() }
+        if let nested = element as? [String: Any?] {
+            return unwrapOptionals(nested)
+        } else if let nestedArray = element as? [Any?] {
+            return unwrapOptionalsInArray(nestedArray)
+        } else {
+            return element
+        }
+    }
+}
+
 // MARK: - Surface Data Models
 
-public struct CardSurfaceData: @unchecked Sendable {
+public struct CardSurfaceData: @unchecked Sendable, Equatable {
     public let title: String
     public let subtitle: String?
     public let body: String
@@ -46,9 +84,38 @@ public struct CardSurfaceData: @unchecked Sendable {
         self.template = template
         self.templateData = templateData
     }
+
+    public static func == (lhs: CardSurfaceData, rhs: CardSurfaceData) -> Bool {
+        guard lhs.title == rhs.title,
+              lhs.subtitle == rhs.subtitle,
+              lhs.body == rhs.body,
+              lhs.template == rhs.template else { return false }
+
+        // Compare metadata tuple arrays
+        switch (lhs.metadata, rhs.metadata) {
+        case (.none, .none):
+            break
+        case let (.some(l), .some(r)):
+            guard l.count == r.count && zip(l, r).allSatisfy({ $0.label == $1.label && $0.value == $1.value }) else { return false }
+        default:
+            return false
+        }
+
+        // Compare templateData via NSDictionary bridging (handles nested Any values).
+        // We must unwrap Optional boxing first: casting [String: Any?] to [String: Any]
+        // preserves Optional(...) wrappers, making logically equal values compare unequal.
+        switch (lhs.templateData, rhs.templateData) {
+        case (.none, .none):
+            return true
+        case let (.some(l), .some(r)):
+            return NSDictionary(dictionary: unwrapOptionals(l)).isEqual(to: unwrapOptionals(r))
+        default:
+            return false
+        }
+    }
 }
 
-public struct FormFieldOption: Sendable {
+public struct FormFieldOption: Sendable, Equatable {
     public let label: String
     public let value: String
 
@@ -58,7 +125,7 @@ public struct FormFieldOption: Sendable {
     }
 }
 
-public enum FormFieldType: String, Sendable {
+public enum FormFieldType: String, Sendable, Equatable {
     case text
     case textarea
     case select
@@ -100,7 +167,7 @@ public enum FormFieldDefault: Sendable, Equatable {
     }
 }
 
-public struct FormField: Identifiable, Sendable {
+public struct FormField: Identifiable, Sendable, Equatable {
     public let id: String
     public let type: FormFieldType
     public let label: String
@@ -120,7 +187,7 @@ public struct FormField: Identifiable, Sendable {
     }
 }
 
-public struct FormPage: Identifiable, Sendable {
+public struct FormPage: Identifiable, Sendable, Equatable {
     public let id: String
     public let title: String
     public let description: String?
@@ -134,7 +201,7 @@ public struct FormPage: Identifiable, Sendable {
     }
 }
 
-public struct FormPageLabels: Sendable {
+public struct FormPageLabels: Sendable, Equatable {
     public let next: String?
     public let back: String?
     public let submit: String?
@@ -146,7 +213,7 @@ public struct FormPageLabels: Sendable {
     }
 }
 
-public struct FormSurfaceData: Sendable {
+public struct FormSurfaceData: Sendable, Equatable {
     public let description: String?
     public let fields: [FormField]
     public let submitLabel: String?
@@ -162,7 +229,7 @@ public struct FormSurfaceData: Sendable {
     }
 }
 
-public struct ListItemData: Identifiable, Sendable {
+public struct ListItemData: Identifiable, Sendable, Equatable {
     public let id: String
     public let title: String
     public let subtitle: String?
@@ -178,7 +245,7 @@ public struct ListItemData: Identifiable, Sendable {
     }
 }
 
-public struct ListSurfaceData: Sendable {
+public struct ListSurfaceData: Sendable, Equatable {
     public let items: [ListItemData]
     public let selectionMode: SelectionMode
 
@@ -188,17 +255,19 @@ public struct ListSurfaceData: Sendable {
     }
 }
 
-public struct ConfirmationSurfaceData: Sendable {
+public struct ConfirmationSurfaceData: Sendable, Equatable {
     public let message: String
     public let detail: String?
     public let confirmLabel: String?
+    public let confirmedLabel: String?
     public let cancelLabel: String?
     public let destructive: Bool
 
-    public init(message: String, detail: String? = nil, confirmLabel: String? = nil, cancelLabel: String? = nil, destructive: Bool) {
+    public init(message: String, detail: String? = nil, confirmLabel: String? = nil, confirmedLabel: String? = nil, cancelLabel: String? = nil, destructive: Bool) {
         self.message = message
         self.detail = detail
         self.confirmLabel = confirmLabel
+        self.confirmedLabel = confirmedLabel
         self.cancelLabel = cancelLabel
         self.destructive = destructive
     }
@@ -235,7 +304,7 @@ public struct DynamicPagePreview: Sendable, Equatable {
     }
 }
 
-public struct DynamicPageSurfaceData: Sendable {
+public struct DynamicPageSurfaceData: Sendable, Equatable {
     public let html: String
     public let width: Int?
     public let height: Int?
@@ -257,7 +326,7 @@ public struct DynamicPageSurfaceData: Sendable {
     }
 }
 
-public struct FileUploadSurfaceData: Sendable {
+public struct FileUploadSurfaceData: Sendable, Equatable {
     public let prompt: String
     public let acceptedTypes: [String]?
     public let maxFiles: Int
@@ -271,7 +340,7 @@ public struct FileUploadSurfaceData: Sendable {
     }
 }
 
-public struct BrowserHighlight: Sendable, Identifiable {
+public struct BrowserHighlight: Sendable, Identifiable, Equatable {
     public var id: String { "\(x),\(y),\(w),\(h):\(label)" }
     public let x: Double
     public let y: Double
@@ -288,7 +357,7 @@ public struct BrowserHighlight: Sendable, Identifiable {
     }
 }
 
-public struct BrowserPage: Sendable, Identifiable {
+public struct BrowserPage: Sendable, Identifiable, Equatable {
     public let id: String
     public let title: String
     public let url: String
@@ -302,7 +371,7 @@ public struct BrowserPage: Sendable, Identifiable {
     }
 }
 
-public struct DocumentPreviewSurfaceData: Sendable {
+public struct DocumentPreviewSurfaceData: Sendable, Equatable {
     public let title: String
     public let surfaceId: String
     public let subtitle: String?
@@ -314,7 +383,7 @@ public struct DocumentPreviewSurfaceData: Sendable {
     }
 }
 
-public struct BrowserViewSurfaceData: Sendable {
+public struct BrowserViewSurfaceData: Sendable, Equatable {
     public let sessionId: String
     public let currentUrl: String
     public let status: String // "navigating", "idle", "interacting"
@@ -334,7 +403,7 @@ public struct BrowserViewSurfaceData: Sendable {
     }
 }
 
-public struct TableColumn: Identifiable, Sendable {
+public struct TableColumn: Identifiable, Sendable, Equatable {
     public let id: String
     public let label: String
     public let width: Int?
@@ -346,7 +415,7 @@ public struct TableColumn: Identifiable, Sendable {
     }
 }
 
-public struct TableRow: Identifiable, Sendable {
+public struct TableRow: Identifiable, Sendable, Equatable {
     public let id: String
     public let cells: [String: String]
     public let selectable: Bool
@@ -360,7 +429,7 @@ public struct TableRow: Identifiable, Sendable {
     }
 }
 
-public struct TableSurfaceData: Sendable {
+public struct TableSurfaceData: Sendable, Equatable {
     public let columns: [TableColumn]
     public let rows: [TableRow]
     public let selectionMode: SelectionMode
@@ -374,7 +443,7 @@ public struct TableSurfaceData: Sendable {
     }
 }
 
-public enum SurfaceData: Sendable {
+public enum SurfaceData: Sendable, Equatable {
     case card(CardSurfaceData)
     case form(FormSurfaceData)
     case list(ListSurfaceData)
@@ -653,6 +722,8 @@ public extension Surface {
         let detail: String? = update.keys.contains("detail") ? (update["detail"] as? String) : existing.detail
         let confirmLabel: String? = update.keys.contains("confirmLabel")
             ? (update["confirmLabel"] as? String) : existing.confirmLabel
+        let confirmedLabel: String? = update.keys.contains("confirmedLabel")
+            ? (update["confirmedLabel"] as? String) : existing.confirmedLabel
         let cancelLabel: String? = update.keys.contains("cancelLabel")
             ? (update["cancelLabel"] as? String) : existing.cancelLabel
         let destructive: Bool = (update["destructive"] as? Bool) ?? existing.destructive
@@ -661,6 +732,7 @@ public extension Surface {
             message: message,
             detail: detail,
             confirmLabel: confirmLabel,
+            confirmedLabel: confirmedLabel,
             cancelLabel: cancelLabel,
             destructive: destructive
         )
@@ -826,6 +898,7 @@ public extension Surface {
             message: message,
             detail: dict["detail"] as? String,
             confirmLabel: dict["confirmLabel"] as? String,
+            confirmedLabel: dict["confirmedLabel"] as? String,
             cancelLabel: dict["cancelLabel"] as? String,
             destructive: dict["destructive"] as? Bool ?? false
         )

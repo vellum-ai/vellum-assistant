@@ -2,7 +2,7 @@
  * Periodic retry sweep for failed channel inbound events.
  */
 
-import { parseChannelId, isChannelId } from '../channels/types.js';
+import { parseChannelId, parseInterfaceId, isChannelId } from '../channels/types.js';
 import { getLogger } from '../util/logger.js';
 import * as channelDeliveryStore from '../memory/channel-delivery-store.js';
 import * as conversationStore from '../memory/conversation-store.js';
@@ -90,6 +90,9 @@ export async function sweepFailedEvents(
       );
       continue;
     }
+    const sourceInterface = parseInterfaceId(payload.interface)
+      ?? parseInterfaceId(payload.sourceChannel)
+      ?? 'vellum';
     const sourceMetadata = payload.sourceMetadata as Record<string, unknown> | undefined;
     const assistantId = typeof payload.assistantId === 'string'
       ? payload.assistantId
@@ -118,6 +121,8 @@ export async function sweepFailedEvents(
           assistantId,
           guardianContext,
         },
+        sourceChannel,
+        sourceInterface,
       );
       channelDeliveryStore.linkMessage(event.id, userMessageId);
       channelDeliveryStore.markProcessed(event.id);

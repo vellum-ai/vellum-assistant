@@ -19,7 +19,7 @@ bun run ./src/index.ts <command> [options]
 Provision a new assistant instance and bootstrap the Vellum runtime on it.
 
 ```bash
-vellum-cli hatch [species] [options]
+vellum hatch [species] [options]
 ```
 
 #### Species
@@ -59,19 +59,19 @@ vellum-cli hatch [species] [options]
 
 ```bash
 # Hatch a local assistant (default)
-vellum-cli hatch
+vellum hatch
 
 # Hatch a vellum assistant on GCP
-vellum-cli hatch vellum --remote gcp
+vellum hatch vellum --remote gcp
 
 # Hatch an openclaw assistant on GCP in detached mode
-vellum-cli hatch openclaw --remote gcp -d
+vellum hatch openclaw --remote gcp -d
 
 # Hatch with a specific instance name
-vellum-cli hatch --name my-assistant --remote gcp
+vellum hatch --name my-assistant --remote gcp
 
 # Hatch on a custom SSH host
-VELLUM_CUSTOM_HOST=user@10.0.0.1 vellum-cli hatch --remote custom
+VELLUM_CUSTOM_HOST=user@10.0.0.1 vellum hatch --remote custom
 ```
 
 When hatching on GCP in interactive mode (without `-d`), the CLI displays an animated progress TUI that polls the instance's startup script output in real time. Press `Ctrl+C` to detach -- the instance will continue running in the background.
@@ -81,7 +81,7 @@ When hatching on GCP in interactive mode (without `-d`), the CLI displays an ani
 Delete a provisioned assistant instance. The cloud provider and connection details are automatically resolved from the saved assistant config (written during `hatch`).
 
 ```bash
-vellum-cli retire <name>
+vellum retire <name>
 ```
 
 The CLI looks up the instance by name in `~/.vellum.lock.json` and determines how to retire it based on the saved `cloud` field:
@@ -95,5 +95,5 @@ The CLI looks up the instance by name in `~/.vellum.lock.json` and determines ho
 
 ```bash
 # Retire an instance (cloud type resolved from config)
-vellum-cli retire my-assistant
+vellum retire my-assistant
 ```

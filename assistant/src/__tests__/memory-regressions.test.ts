@@ -104,8 +104,8 @@ import {
   searchMemoryItems,
   stripMemoryRecallMessages,
 } from '../memory/retriever.js';
-import { addMessage, createConversation, getConversationMemoryScopeId } from '../memory/conversation-store.js';
-import { backfillJob } from '../memory/job-handlers/backfill.js';
+import { addMessage, createConversation, getConversationMemoryScopeId, messageMetadataSchema, provenanceFromGuardianContext } from '../memory/conversation-store.js';
+import { backfillEntityRelationsJob, backfillJob } from '../memory/job-handlers/backfill.js';
 import { buildConversationSummaryJob, buildGlobalSummaryJob } from '../memory/job-handlers/summarization.js';
 import {
   conversations,
@@ -4431,5 +4431,407 @@ describe('Memory regressions', () => {
     for (const seg of segments) {
       expect(seg.scopeId).toBe(conv.memoryScopeId);
     }
+  });
+
+  test('backfillJob preserves provenance trust gating during reindex', () => {
+    const db = getDb();
+
+    const conv = createConversation('Backfill provenance trust gate');
+    const msgId = 'msg-backfill-untrusted-provenance';
+    db.insert(messages).values({
+      id: msgId,
+      conversationId: conv.id,
+      role: 'user',
+      content: 'Untrusted sender says preferences should not become durable profile memory.',
+      metadata: JSON.stringify({
+        provenanceActorRole: 'non-guardian',
+        provenanceSourceChannel: 'telegram',
+      }),
+      createdAt: conv.createdAt + 1,
+    }).run();
+
+    const fakeJob = {
+      id: 'job-backfill-untrusted-provenance',
+      type: 'backfill' as const,
+      payload: { force: true },
+      status: 'running' as const,
+      attempts: 0,
+      deferrals: 0,
+      runAfter: 0,
+      lastError: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    backfillJob(fakeJob, TEST_CONFIG);
+
+    const segments = db
+      .select()
+      .from(memorySegments)
+      .where(eq(memorySegments.messageId, msgId))
+      .all();
+    expect(segments.length).toBeGreaterThan(0);
+
+    const extractJobs = db
+      .select()
+      .from(memoryJobs)
+      .where(eq(memoryJobs.type, 'extract_items'))
+      .all()
+      .filter((job) => JSON.parse(job.payload).messageId === msgId);
+    expect(extractJobs).toHaveLength(0);
+  });
+
+  test('relation backfill skips untrusted provenance messages', () => {
+    const db = getDb();
+    const now = Date.now();
+    const originalEnabled = TEST_CONFIG.memory.entity.enabled;
+    const originalRelationsEnabled = TEST_CONFIG.memory.entity.extractRelations.enabled;
+    const originalBatchSize = TEST_CONFIG.memory.entity.extractRelations.backfillBatchSize;
+
+    TEST_CONFIG.memory.entity.enabled = true;
+    TEST_CONFIG.memory.entity.extractRelations.enabled = true;
+    TEST_CONFIG.memory.entity.extractRelations.backfillBatchSize = 50;
+
+    try {
+      db.insert(conversations).values({
+        id: 'conv-relation-provenance-gate',
+        title: null,
+        createdAt: now,
+        updatedAt: now,
+        totalInputTokens: 0,
+        totalOutputTokens: 0,
+        totalEstimatedCost: 0,
+        contextSummary: null,
+        contextCompactedMessageCount: 0,
+        contextCompactedAt: null,
+      }).run();
+
+      db.insert(messages).values([
+        {
+          id: 'msg-relation-trusted',
+          conversationId: 'conv-relation-provenance-gate',
+          role: 'user',
+          content: JSON.stringify([{ type: 'text', text: 'Trusted guardian message for relation backfill.' }]),
+          metadata: JSON.stringify({ provenanceActorRole: 'guardian', provenanceSourceChannel: 'telegram' }),
+          createdAt: now + 1,
+        },
+        {
+          id: 'msg-relation-untrusted',
+          conversationId: 'conv-relation-provenance-gate',
+          role: 'user',
+          content: JSON.stringify([{ type: 'text', text: 'Untrusted message that should be excluded from relation backfill extraction.' }]),
+          metadata: JSON.stringify({ provenanceActorRole: 'non-guardian', provenanceSourceChannel: 'telegram' }),
+          createdAt: now + 2,
+        },
+      ]).run();
+
+      const relationJob = {
+        id: 'job-relation-provenance-gate',
+        type: 'backfill_entity_relations' as const,
+        payload: { force: true },
+        status: 'running' as const,
+        attempts: 0,
+        deferrals: 0,
+        runAfter: 0,
+        lastError: null,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      backfillEntityRelationsJob(relationJob, TEST_CONFIG);
+
+      const extractJobs = db
+        .select()
+        .from(memoryJobs)
+        .where(eq(memoryJobs.type, 'extract_entities'))
+        .all();
+      const extractedMessageIds = extractJobs.map((job) => JSON.parse(job.payload).messageId);
+
+      expect(extractedMessageIds).toContain('msg-relation-trusted');
+      expect(extractedMessageIds).not.toContain('msg-relation-untrusted');
+    } finally {
+      TEST_CONFIG.memory.entity.enabled = originalEnabled;
+      TEST_CONFIG.memory.entity.extractRelations.enabled = originalRelationsEnabled;
+      TEST_CONFIG.memory.entity.extractRelations.backfillBatchSize = originalBatchSize;
+    }
+  });
+
+  // ── Provenance plumbing tests ────────────────────────────────────────
+
+  test('provenance fields are preserved in stored message metadata', () => {
+    const conv = createConversation('provenance-preserve');
+    const metadata = {
+      userMessageChannel: 'telegram' as const,
+      provenanceActorRole: 'non-guardian' as const,
+      provenanceSourceChannel: 'telegram' as const,
+      provenanceGuardianExternalUserId: 'guardian-123',
+      provenanceRequesterIdentifier: 'Alice',
+    };
+    const msg = addMessage(conv.id, 'user', 'Hello from telegram', metadata);
+
+    const db = getDb();
+    const stored = db
+      .select({ metadata: messages.metadata })
+      .from(messages)
+      .where(eq(messages.id, msg.id))
+      .get();
+
+    expect(stored).toBeTruthy();
+    const parsed = JSON.parse(stored!.metadata!);
+    expect(parsed.provenanceActorRole).toBe('non-guardian');
+    expect(parsed.provenanceSourceChannel).toBe('telegram');
+    expect(parsed.provenanceGuardianExternalUserId).toBe('guardian-123');
+    expect(parsed.provenanceRequesterIdentifier).toBe('Alice');
+  });
+
+  test('messageMetadataSchema validates provenance fields', () => {
+    const valid = messageMetadataSchema.safeParse({
+      provenanceActorRole: 'guardian',
+      provenanceSourceChannel: 'macos',
+    });
+    expect(valid.success).toBe(true);
+
+    const validNonGuardian = messageMetadataSchema.safeParse({
+      provenanceActorRole: 'non-guardian',
+      provenanceSourceChannel: 'telegram',
+      provenanceGuardianExternalUserId: 'g-123',
+      provenanceRequesterIdentifier: 'Bob',
+    });
+    expect(validNonGuardian.success).toBe(true);
+
+    const validUnverified = messageMetadataSchema.safeParse({
+      provenanceActorRole: 'unverified_channel',
+    });
+    expect(validUnverified.success).toBe(true);
+  });
+
+  test('provenanceFromGuardianContext returns unverified_channel default when no context', () => {
+    const result = provenanceFromGuardianContext(null);
+    expect(result.provenanceActorRole).toBe('unverified_channel');
+    expect(result.provenanceSourceChannel).toBeUndefined();
+
+    const result2 = provenanceFromGuardianContext(undefined);
+    expect(result2.provenanceActorRole).toBe('unverified_channel');
+  });
+
+  test('provenanceFromGuardianContext extracts fields from guardian context', () => {
+    const ctx = {
+      sourceChannel: 'telegram' as const,
+      actorRole: 'non-guardian' as const,
+      guardianExternalUserId: 'g-456',
+      requesterIdentifier: 'Charlie',
+    };
+    const result = provenanceFromGuardianContext(ctx);
+    expect(result.provenanceActorRole).toBe('non-guardian');
+    expect(result.provenanceSourceChannel).toBe('telegram');
+    expect(result.provenanceGuardianExternalUserId).toBe('g-456');
+    expect(result.provenanceRequesterIdentifier).toBe('Charlie');
+  });
+
+  test('indexMessageNow receives provenanceActorRole when metadata includes it', () => {
+    const conv = createConversation('provenance-indexer');
+    const metadata = {
+      provenanceActorRole: 'non-guardian' as const,
+      provenanceSourceChannel: 'telegram' as const,
+    };
+    // addMessage parses metadata and passes provenanceActorRole to indexMessageNow.
+    // We verify indirectly: the message is persisted with metadata and segments are indexed.
+    const msg = addMessage(conv.id, 'user', 'Test provenance indexing message with enough content to segment', metadata);
+    expect(msg.id).toBeTruthy();
+
+    // Verify segments were created (indexMessageNow was called successfully)
+    const segments = getDb()
+      .select()
+      .from(memorySegments)
+      .where(eq(memorySegments.messageId, msg.id))
+      .all();
+    expect(segments.length).toBeGreaterThan(0);
+  });
+
+  // ── Trust-aware extraction gating tests (M3) ───────────────────────
+
+  test('untrusted actor messages do not enqueue extract_items', () => {
+    const db = getDb();
+    const now = Date.now();
+    db.insert(conversations).values({
+      id: 'conv-untrusted-gate',
+      title: null,
+      createdAt: now,
+      updatedAt: now,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      contextCompactedAt: null,
+    }).run();
+    db.insert(messages).values({
+      id: 'msg-untrusted-gate',
+      conversationId: 'conv-untrusted-gate',
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'Untrusted user preference for dark mode.' }]),
+      createdAt: now,
+    }).run();
+
+    const result = indexMessageNow({
+      messageId: 'msg-untrusted-gate',
+      conversationId: 'conv-untrusted-gate',
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'Untrusted user preference for dark mode.' }]),
+      createdAt: now,
+      provenanceActorRole: 'non-guardian',
+    }, DEFAULT_CONFIG.memory);
+
+    expect(result.indexedSegments).toBeGreaterThan(0);
+
+    // No extract_items or resolve_conflicts jobs should be enqueued
+    const extractJobs = db.select().from(memoryJobs)
+      .where(
+        and(
+          eq(memoryJobs.type, 'extract_items'),
+        ),
+      )
+      .all()
+      .filter(j => JSON.parse(j.payload).messageId === 'msg-untrusted-gate');
+    expect(extractJobs.length).toBe(0);
+
+    // enqueuedJobs should reflect: embed jobs + summary (1), no extract (0), no conflict (0)
+    const expectedJobs = result.indexedSegments + 1; // embed per segment + summary
+    expect(result.enqueuedJobs).toBe(expectedJobs);
+  });
+
+  test('trusted guardian messages still enqueue extraction', () => {
+    const db = getDb();
+    const now = Date.now();
+    db.insert(conversations).values({
+      id: 'conv-trusted-gate',
+      title: null,
+      createdAt: now,
+      updatedAt: now,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      contextCompactedAt: null,
+    }).run();
+    db.insert(messages).values({
+      id: 'msg-trusted-gate',
+      conversationId: 'conv-trusted-gate',
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'Trusted guardian preference for light mode.' }]),
+      createdAt: now,
+    }).run();
+
+    const result = indexMessageNow({
+      messageId: 'msg-trusted-gate',
+      conversationId: 'conv-trusted-gate',
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'Trusted guardian preference for light mode.' }]),
+      createdAt: now,
+      provenanceActorRole: 'guardian',
+    }, DEFAULT_CONFIG.memory);
+
+    expect(result.indexedSegments).toBeGreaterThan(0);
+
+    // extract_items job should be enqueued for trusted guardian
+    const extractJobs = db.select().from(memoryJobs)
+      .where(eq(memoryJobs.type, 'extract_items'))
+      .all()
+      .filter(j => JSON.parse(j.payload).messageId === 'msg-trusted-gate');
+    expect(extractJobs.length).toBe(1);
+
+    // enqueuedJobs: embed per segment + extract_items (counts as 2: extract + summary) + conflict
+    // For user role: shouldExtract=true, shouldResolveConflicts=true (if enabled)
+    expect(result.enqueuedJobs).toBeGreaterThan(result.indexedSegments + 1);
+  });
+
+  test('legacy messages without provenance still enqueue extraction', () => {
+    const db = getDb();
+    const now = Date.now();
+    db.insert(conversations).values({
+      id: 'conv-legacy-gate',
+      title: null,
+      createdAt: now,
+      updatedAt: now,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      contextCompactedAt: null,
+    }).run();
+    db.insert(messages).values({
+      id: 'msg-legacy-gate',
+      conversationId: 'conv-legacy-gate',
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'Legacy message with no provenance info.' }]),
+      createdAt: now,
+    }).run();
+
+    const result = indexMessageNow({
+      messageId: 'msg-legacy-gate',
+      conversationId: 'conv-legacy-gate',
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'Legacy message with no provenance info.' }]),
+      createdAt: now,
+      // provenanceActorRole is intentionally omitted (undefined) for backwards compat
+    }, DEFAULT_CONFIG.memory);
+
+    expect(result.indexedSegments).toBeGreaterThan(0);
+
+    // extract_items job should still be enqueued for legacy messages (backwards compat)
+    const extractJobs = db.select().from(memoryJobs)
+      .where(eq(memoryJobs.type, 'extract_items'))
+      .all()
+      .filter(j => JSON.parse(j.payload).messageId === 'msg-legacy-gate');
+    expect(extractJobs.length).toBe(1);
+
+    // enqueuedJobs should include extraction jobs
+    expect(result.enqueuedJobs).toBeGreaterThan(result.indexedSegments + 1);
+  });
+
+  test('unverified_channel messages do not enqueue extract_items', () => {
+    const db = getDb();
+    const now = Date.now();
+    db.insert(conversations).values({
+      id: 'conv-unverified-gate',
+      title: null,
+      createdAt: now,
+      updatedAt: now,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      contextCompactedAt: null,
+    }).run();
+    db.insert(messages).values({
+      id: 'msg-unverified-gate',
+      conversationId: 'conv-unverified-gate',
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'Unverified channel preference for compact layout.' }]),
+      createdAt: now,
+    }).run();
+
+    const result = indexMessageNow({
+      messageId: 'msg-unverified-gate',
+      conversationId: 'conv-unverified-gate',
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'Unverified channel preference for compact layout.' }]),
+      createdAt: now,
+      provenanceActorRole: 'unverified_channel',
+    }, DEFAULT_CONFIG.memory);
+
+    expect(result.indexedSegments).toBeGreaterThan(0);
+
+    // No extract_items jobs should be enqueued for unverified channel
+    const extractJobs = db.select().from(memoryJobs)
+      .where(eq(memoryJobs.type, 'extract_items'))
+      .all()
+      .filter(j => JSON.parse(j.payload).messageId === 'msg-unverified-gate');
+    expect(extractJobs.length).toBe(0);
+
+    // enqueuedJobs should reflect: embed jobs + summary (1), no extract (0), no conflict (0)
+    const expectedJobs = result.indexedSegments + 1; // embed per segment + summary
+    expect(result.enqueuedJobs).toBe(expectedJobs);
   });
 });

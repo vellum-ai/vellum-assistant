@@ -1,6 +1,6 @@
 // Session lifecycle, auth, model config, and history types.
 
-import type { ChannelId } from '../../channels/types.js';
+import type { ChannelId, InterfaceId } from '../../channels/types.js';
 import type { ThreadType } from './shared.js';
 import type { UserMessageAttachment } from './shared.js';
 
@@ -18,6 +18,8 @@ export interface SessionListRequest {
 export interface SessionTransportMetadata {
   /** Logical channel identifier (e.g. "desktop", "telegram", "mobile"). */
   channelId: ChannelId;
+  /** Interface identifier for this transport (e.g. "macos", "ios", "cli"). */
+  interfaceId?: InterfaceId;
   /** Optional natural-language hints for channel-specific UX behavior. */
   hints?: string[];
   /** Optional concise UX brief for this channel. */
@@ -170,7 +172,7 @@ export interface ChannelBinding {
 
 export interface SessionListResponse {
   type: 'session_list_response';
-  sessions: Array<{ id: string; title: string; updatedAt: number; threadType?: ThreadType; source?: string; channelBinding?: ChannelBinding; conversationOriginChannel?: ChannelId }>;
+  sessions: Array<{ id: string; title: string; updatedAt: number; threadType?: ThreadType; source?: string; channelBinding?: ChannelBinding; conversationOriginChannel?: ChannelId; conversationOriginInterface?: InterfaceId }>;
   /** Whether more sessions exist beyond the returned page. */
   hasMore?: boolean;
 }

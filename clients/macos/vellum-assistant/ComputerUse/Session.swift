@@ -111,7 +111,11 @@ final class ComputerUseSession: ObservableObject {
 
         // Brief delay to let the popover close and the target app regain focus
         if initialDelayMs > 0 {
-            try? await Task.sleep(nanoseconds: initialDelayMs * 1_000_000)
+            do {
+                try await Task.sleep(nanoseconds: initialDelayMs * 1_000_000)
+            } catch {
+                log.warning("Initial delay interrupted: \(error)")
+            }
         }
 
         // 1. Subscribe before sending so we don't miss fast daemon responses
@@ -175,7 +179,12 @@ final class ComputerUseSession: ObservableObject {
 
                 // Wait while paused
                 while self.isPaused && !self.isCancelled {
-                    try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
+                    do {
+                        try await Task.sleep(nanoseconds: 100_000_000) // 100ms
+                    } catch {
+                        log.warning("Pause poll sleep interrupted: \(error)")
+                        break
+                    }
                 }
                 if self.isCancelled { break }
 
@@ -318,7 +327,11 @@ final class ComputerUseSession: ObservableObject {
             if let pid = primaryPID,
                let app = NSRunningApplication(processIdentifier: pid) {
                 app.activate()
-                try? await Task.sleep(nanoseconds: 200_000_000) // 200ms for focus to settle
+                do {
+                    try await Task.sleep(nanoseconds: 200_000_000) // 200ms for focus to settle
+                } catch {
+                    log.warning("Post-confirmation focus settle delay interrupted: \(error)")
+                }
             }
 
         case .blocked(let reason):
@@ -372,7 +385,11 @@ final class ComputerUseSession: ObservableObject {
             await waitForUISettle(previousTree: previousAXTreeText, previousHash: prevHash)
         } else if adaptiveDelayEnabled {
             // Small delay for first step or when no previous tree
-            try? await Task.sleep(nanoseconds: 300_000_000) // 300ms
+            do {
+                try await Task.sleep(nanoseconds: 300_000_000) // 300ms
+            } catch {
+                log.warning("First-step delay interrupted: \(error)")
+            }
         }
 
         // PERCEIVE + send next observation
@@ -407,7 +424,13 @@ final class ComputerUseSession: ObservableObject {
         // Use Task.detached so it doesn't inherit @MainActor isolation and can truly run concurrently
         let screenCap = self.screenCapture
         let screenshotPromise: Task<ScreenCaptureResult?, Never> = Task.detached {
-            try? await screenCap.captureScreenWithMetadata(maxWidth: 1280, maxHeight: 720)
+            do {
+                return try await screenCap.captureScreenWithMetadata(maxWidth: 1280, maxHeight: 720)
+            } catch {
+                Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "Session")
+                    .error("Screenshot capture failed: \(error)")
+                return nil
+            }
         }
 
         if let result = enumerator.enumerateCurrentWindow() {
@@ -793,7 +816,12 @@ final class ComputerUseSession: ObservableObject {
     /// Poll the AX tree until it changes or max polls are exhausted.
     private func waitForUISettle(previousTree: String?, previousHash: Int) async {
         // Always wait the minimum delay to let CGEvents propagate
-        try? await Task.sleep(nanoseconds: minDelayMs * 1_000_000)
+        do {
+            try await Task.sleep(nanoseconds: minDelayMs * 1_000_000)
+        } catch {
+            log.warning("UI settle minimum delay interrupted: \(error)")
+            return
+        }
 
         var elapsed = minDelayMs
         var pollCount = 0
@@ -823,7 +851,12 @@ final class ComputerUseSession: ObservableObject {
                 }
             }
 
-            try? await Task.sleep(nanoseconds: pollIntervalMs * 1_000_000)
+            do {
+                try await Task.sleep(nanoseconds: pollIntervalMs * 1_000_000)
+            } catch {
+                log.warning("UI settle poll sleep interrupted: \(error)")
+                return
+            }
             elapsed += pollIntervalMs
             pollCount += 1
         }

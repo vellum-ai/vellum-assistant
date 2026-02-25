@@ -6,7 +6,6 @@
  * loop after the decision engine and deterministic checks have run.
  */
 
-import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
 import type { NotificationBroadcaster } from './broadcaster.js';
 import type { NotificationSignal } from './signal.js';
@@ -23,10 +22,9 @@ export interface DispatchResult {
 /**
  * Dispatch a notification decision through the broadcaster.
  *
- * Handles three early-exit cases before delegating to the broadcaster:
+ * Handles two early-exit cases before delegating to the broadcaster:
  * 1. shouldNotify === false — the decision says not to notify
- * 2. Shadow mode — decisions are logged but not actually dispatched
- * 3. No selected channels — nothing to dispatch
+ * 2. No selected channels — nothing to dispatch
  */
 export async function dispatchDecision(
   signal: NotificationSignal,
@@ -42,25 +40,6 @@ export async function dispatchDecision(
     return {
       dispatched: false,
       reason: 'Decision: shouldNotify=false',
-      deliveryResults: [],
-    };
-  }
-
-  // Shadow mode: log the decision but skip actual delivery
-  const config = getConfig();
-  if (config.notifications.shadowMode) {
-    log.info(
-      {
-        signalId: signal.signalId,
-        channels: decision.selectedChannels,
-        confidence: decision.confidence,
-        fallbackUsed: decision.fallbackUsed,
-      },
-      'Shadow mode: skipping dispatch (decision logged only)',
-    );
-    return {
-      dispatched: false,
-      reason: 'Shadow mode enabled — dispatch skipped',
       deliveryResults: [],
     };
   }

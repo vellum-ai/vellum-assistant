@@ -13,9 +13,10 @@ import { buildSystemPrompt } from '../config/system-prompt.js';
 import { checkIngressForSecrets } from '../security/secret-ingress.js';
 import { IngressBlockedError } from '../util/errors.js';
 import * as conversationStore from '../memory/conversation-store.js';
+import { provenanceFromGuardianContext } from '../memory/conversation-store.js';
 import * as attachmentsStore from '../memory/attachments-store.js';
 import { Session, DEFAULT_MEMORY_POLICY, type SessionMemoryPolicy } from './session.js';
-import { parseChannelId, type ChannelId } from '../channels/types.js';
+import { parseChannelId, parseInterfaceId, type ChannelId, type InterfaceId } from '../channels/types.js';
 import { resolveChannelCapabilities } from './session-runtime-assembly.js';
 import { ComputerUseSession } from './computer-use-session.js';
 import {
@@ -68,7 +69,20 @@ function resolveTurnChannel(sourceChannel?: string, transportChannelId?: string)
     }
     return parsed;
   }
-  return 'macos';
+  return 'vellum';
+}
+
+function resolveTurnInterface(sourceInterface?: string): InterfaceId {
+  if (sourceInterface != null) {
+    const parsed = parseInterfaceId(sourceInterface);
+    if (!parsed) {
+      throw new Error(`Invalid sourceInterface: ${sourceInterface}`);
+    }
+    return parsed;
+  }
+  // Interface and channel are orthogonal dimensions; default explicitly
+  // instead of deriving interface from channel.
+  return 'vellum';
 }
 
 export class DaemonServer {
@@ -686,6 +700,7 @@ export class DaemonServer {
     attachmentIds?: string[],
     options?: SessionCreateOptions,
     sourceChannel?: string,
+    sourceInterface?: string,
   ): Promise<{ messageId: string }> {
     const ingressCheck = checkIngressForSecrets(content);
     if (ingressCheck.blocked) {
@@ -698,14 +713,19 @@ export class DaemonServer {
       throw new Error('Session is already processing a message');
     }
 
+    const resolvedChannel = resolveTurnChannel(sourceChannel, options?.transport?.channelId);
+    const resolvedInterface = resolveTurnInterface(sourceInterface);
     session.setAssistantId(options?.assistantId ?? 'self');
     session.setGuardianContext(options?.guardianContext ?? null);
-    session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel));
+    session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel, sourceInterface));
     session.setCommandIntent(options?.commandIntent ?? null);
-    const resolvedChannel = resolveTurnChannel(sourceChannel, options?.transport?.channelId);
     session.setTurnChannelContext({
       userMessageChannel: resolvedChannel,
       assistantMessageChannel: resolvedChannel,
+    });
+    session.setTurnInterfaceContext({
+      userMessageInterface: resolvedInterface,
+      assistantMessageInterface: resolvedInterface,
     });
 
     const attachments = attachmentIds
@@ -733,6 +753,7 @@ export class DaemonServer {
     attachmentIds?: string[],
     options?: SessionCreateOptions,
     sourceChannel?: string,
+    sourceInterface?: string,
   ): Promise<{ messageId: string }> {
     const ingressCheck = checkIngressForSecrets(content);
     if (ingressCheck.blocked) {
@@ -745,14 +766,19 @@ export class DaemonServer {
       throw new Error('Session is already processing a message');
     }
 
+    const resolvedChannel2 = resolveTurnChannel(sourceChannel, options?.transport?.channelId);
+    const resolvedInterface2 = resolveTurnInterface(sourceInterface);
     session.setAssistantId(options?.assistantId ?? 'self');
     session.setGuardianContext(options?.guardianContext ?? null);
-    session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel));
+    session.setChannelCapabilities(resolveChannelCapabilities(sourceChannel, sourceInterface));
     session.setCommandIntent(options?.commandIntent ?? null);
-    const resolvedChannel2 = resolveTurnChannel(sourceChannel, options?.transport?.channelId);
     session.setTurnChannelContext({
       userMessageChannel: resolvedChannel2,
       assistantMessageChannel: resolvedChannel2,
+    });
+    session.setTurnInterfaceContext({
+      userMessageInterface: resolvedInterface2,
+      assistantMessageInterface: resolvedInterface2,
     });
 
     const attachments = attachmentIds
@@ -768,9 +794,17 @@ export class DaemonServer {
 
     if (slashResult.kind === 'unknown') {
       const serverTurnCtx = session.getTurnChannelContext();
-      const serverChannelMeta = serverTurnCtx
-        ? { userMessageChannel: serverTurnCtx.userMessageChannel, assistantMessageChannel: serverTurnCtx.assistantMessageChannel }
-        : undefined;
+      const serverInterfaceCtx = session.getTurnInterfaceContext();
+      const serverProvenance = provenanceFromGuardianContext(session.guardianContext);
+      const serverChannelMeta = {
+        ...serverProvenance,
+        ...(serverTurnCtx
+          ? { userMessageChannel: serverTurnCtx.userMessageChannel, assistantMessageChannel: serverTurnCtx.assistantMessageChannel }
+          : {}),
+        ...(serverInterfaceCtx
+          ? { userMessageInterface: serverInterfaceCtx.userMessageInterface, assistantMessageInterface: serverInterfaceCtx.assistantMessageInterface }
+          : {}),
+      };
       const userMsg = createUserMessage(content, attachments);
       const persisted = conversationStore.addMessage(
         conversationId,
@@ -785,6 +819,13 @@ export class DaemonServer {
           conversationStore.setConversationOriginChannelIfUnset(conversationId, serverTurnCtx.userMessageChannel);
         } catch (err) {
           log.warn({ err, conversationId }, 'Failed to set origin channel (best-effort)');
+        }
+      }
+      if (serverInterfaceCtx) {
+        try {
+          conversationStore.setConversationOriginInterfaceIfUnset(conversationId, serverInterfaceCtx.userMessageInterface);
+        } catch (err) {
+          log.warn({ err, conversationId }, 'Failed to set origin interface (best-effort)');
         }
       }
 

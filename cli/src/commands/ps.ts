@@ -80,7 +80,11 @@ function classifyProcess(command: string): string {
   if (/qdrant/.test(command)) return "qdrant";
   if (/gateway/.test(command)) return "gateway";
   if (/openclaw/.test(command)) return "openclaw-adapter";
+  if (/vellum-daemon/.test(command)) return "daemon";
   if (/daemon\s+(start|restart)/.test(command)) return "daemon";
+  // Exclude macOS desktop app processes — their path contains .app/Contents/MacOS/
+  // but they are not background service processes.
+  if (/\.app\/Contents\/MacOS\//.test(command)) return "unknown";
   if (/vellum/.test(command)) return "vellum";
   return "unknown";
 }

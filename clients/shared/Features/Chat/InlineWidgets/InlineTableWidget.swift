@@ -26,6 +26,7 @@ public struct InlineTableWidget: View {
                         .font(VFont.captionMedium)
                         .foregroundColor(VColor.textMuted)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
                 }
             }
             .padding(.bottom, VSpacing.xxs)
@@ -46,8 +47,13 @@ public struct InlineTableWidget: View {
             }
         }
         .onAppear {
-            // Initialize selection from data
+            // Initialize selection from data and notify the parent so action
+            // buttons always carry the current selection — even if the user
+            // never toggles a checkbox.
             selectedIds = Set(data.rows.filter(\.selected).map(\.id))
+            if data.selectionMode != .none {
+                onAction("selection_changed", ["selectedIds": AnyCodable(Array(selectedIds))])
+            }
         }
     }
 
@@ -75,6 +81,7 @@ public struct InlineTableWidget: View {
                     .foregroundColor(VColor.textPrimary)
                     .lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
             }
         }
         .padding(.vertical, VSpacing.xs)

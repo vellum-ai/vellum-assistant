@@ -14,70 +14,77 @@ struct IdentityPanel: View {
     @State private var workspaceFiles: [WorkspaceFileNode] = []
     @State private var skills: [SkillInfo] = []
     @State private var viewingFilePath: String?
+    @State private var isFullscreen: Bool = false
 
-    private let maxContentWidth: CGFloat = 1100
+    private let sidebarWidth: CGFloat = 260
+
+    private let panelPadding: CGFloat = VSpacing.xl
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Header + ID card area (max width matches other panels)
-            VStack(alignment: .leading, spacing: 0) {
-                // Header
-                HStack(alignment: .center) {
-                    Text("Assistant ID")
+        HStack(alignment: .top, spacing: 0) {
+            // Left sidebar: title, avatar, ID card — hidden in fullscreen
+            if !isFullscreen {
+                VStack(alignment: .leading, spacing: 0) {
+                    // Header
+                    Text("Identity")
                         .font(VFont.panelTitle)
                         .foregroundColor(VColor.textPrimary)
+                        .padding(.bottom, VSpacing.lg)
+
+                    // Card wrapping avatar + ID fields
+                    VStack(spacing: 0) {
+                        // Compact avatar
+                        DinoSceneView(seed: identity?.name ?? remoteIdentity?.name ?? lockfileAssistant?.assistantId ?? "default", palette: appearance.palette, outfit: appearance.outfit)
+                            .frame(width: 120, height: 140)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.top, VSpacing.lg)
+
+                        // Customize Avatar CTA — directly under avatar
+                        VButton(label: "Customize Avatar", style: .secondary, isFullWidth: true, action: onCustomizeAvatar)
+                            .padding(.top, VSpacing.sm)
+                            .padding(.horizontal, VSpacing.lg)
+                            .padding(.bottom, VSpacing.lg)
+
+                        // ID card fields
+                        idCardSection(identity: identity, remoteIdentity: remoteIdentity)
+                            .padding(.horizontal, VSpacing.lg)
+                            .padding(.bottom, VSpacing.lg)
+                    }
+                    .background(VColor.backgroundSubtle)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+
                     Spacer()
                 }
-                .padding(.top, VSpacing.xxl)
-                .padding(.bottom, VSpacing.xl)
-
-                Divider().background(VColor.surfaceBorder)
-
-                // Avatar + ID card + CTA
-                HStack(alignment: .center, spacing: VSpacing.lg) {
-                    DinoSceneView(seed: identity?.name ?? remoteIdentity?.name ?? lockfileAssistant?.assistantId ?? "default", palette: appearance.palette, outfit: appearance.outfit)
-                        .frame(width: 180, height: 200)
-
-                    VStack(alignment: .leading, spacing: VSpacing.lg) {
-                        idCardSection(identity: identity, remoteIdentity: remoteIdentity)
-
-                        // Customize Avatar CTA
-                        Button(action: onCustomizeAvatar) {
-                            HStack(spacing: VSpacing.xs) {
-                                Image(systemName: "paintpalette")
-                                    .font(.system(size: 12, weight: .medium))
-                                Text("Customize Avatar")
-                                    .font(VFont.bodyMedium)
-                            }
-                            .foregroundColor(VColor.accent)
-                            .padding(.horizontal, VSpacing.lg)
-                            .padding(.vertical, VSpacing.sm)
-                            .background(
-                                RoundedRectangle(cornerRadius: VRadius.md)
-                                    .stroke(VColor.accent.opacity(0.3), lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.vertical, VSpacing.xl)
+                .frame(width: sidebarWidth)
+                .padding(.leading, panelPadding)
+                .padding(.trailing, VSpacing.lg)
+                .padding(.top, panelPadding)
+                .padding(.bottom, panelPadding)
+                .transition(.move(edge: .leading).combined(with: .opacity))
             }
-            .frame(maxWidth: maxContentWidth)
-            .padding(.horizontal, VSpacing.xxl)
-            .frame(maxWidth: .infinity)
 
-            // Constellation fills remaining space (pan + zoom to navigate)
+            // Hex grid fills the rest of the space — card when not fullscreen
             ConstellationView(
                 identity: identity,
                 skills: skills,
                 workspaceFiles: workspaceFiles,
                 onFileSelected: { path in
                     viewingFilePath = path
-                }
+                },
+                isFullscreen: $isFullscreen
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(adaptiveColor(light: Color(hex: 0xF5F3EB), dark: Moss._900))
+            .background(isFullscreen ? Color.clear : VColor.backgroundSubtle)
+            .clipShape(RoundedRectangle(cornerRadius: isFullscreen ? 0 : VRadius.lg))
+            .overlay(
+                RoundedRectangle(cornerRadius: isFullscreen ? 0 : VRadius.lg)
+                    .stroke(isFullscreen ? Color.clear : VColor.surfaceBorder, lineWidth: 1)
+            )
+            .padding(.top, isFullscreen ? 0 : panelPadding)
+            .padding(.trailing, isFullscreen ? 0 : panelPadding)
+            .padding(.bottom, isFullscreen ? 0 : panelPadding)
         }
+        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isFullscreen)
         .overlay {
             if let path = viewingFilePath {
                 // Dismiss backdrop
@@ -146,10 +153,10 @@ struct IdentityPanel: View {
                 idRow(label: "Given name", value: name)
             }
 
-            // Role: remote > local
+            // Role: remote > local (truncated with tooltip for long values)
             let role = remoteIdentity?.role.nilIfEmpty ?? identity?.role
             if let role, !role.isEmpty {
-                idRow(label: "Role", value: role)
+                idRow(label: "Role", value: role, truncate: true)
             }
 
             // Personality: remote > local
@@ -170,19 +177,25 @@ struct IdentityPanel: View {
         }
     }
 
-    private func idRow(label: String, value: String, mono: Bool = false) -> some View {
-        HStack(alignment: .top) {
+    private func idRow(label: String, value: String, mono: Bool = false, truncate: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.xxs) {
             Text(label)
                 .font(VFont.caption)
                 .foregroundColor(VColor.textMuted)
-                .frame(width: 100, alignment: .leading)
 
-            Text(value)
-                .font(mono ? VFont.mono : VFont.body)
-                .foregroundColor(VColor.textPrimary)
-                .textSelection(.enabled)
-
-            Spacer()
+            if truncate {
+                Text(value)
+                    .font(mono ? VFont.mono : VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .help(value)
+            } else {
+                Text(value)
+                    .font(mono ? VFont.mono : VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                    .textSelection(.enabled)
+            }
         }
     }
 

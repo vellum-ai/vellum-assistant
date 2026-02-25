@@ -96,6 +96,7 @@ import * as messagingListConversations from './bundled-skills/messaging/tools/me
 import * as messagingRead from './bundled-skills/messaging/tools/messaging-read.js';
 import * as messagingSearch from './bundled-skills/messaging/tools/messaging-search.js';
 import * as messagingSend from './bundled-skills/messaging/tools/messaging-send.js';
+import * as sendNotification from './bundled-skills/messaging/tools/send-notification.js';
 import * as messagingReply from './bundled-skills/messaging/tools/messaging-reply.js';
 import * as messagingMarkRead from './bundled-skills/messaging/tools/messaging-mark-read.js';
 import * as slackAddReaction from './bundled-skills/messaging/tools/slack-add-reaction.js';
@@ -110,6 +111,30 @@ import * as gmailBatchLabel from './bundled-skills/messaging/tools/gmail-batch-l
 import * as gmailTrash from './bundled-skills/messaging/tools/gmail-trash.js';
 import * as gmailUnsubscribe from './bundled-skills/messaging/tools/gmail-unsubscribe.js';
 import * as gmailDraft from './bundled-skills/messaging/tools/gmail-draft.js';
+import * as gmailListAttachments from './bundled-skills/messaging/tools/gmail-list-attachments.js';
+import * as gmailDownloadAttachment from './bundled-skills/messaging/tools/gmail-download-attachment.js';
+import * as gmailSendWithAttachments from './bundled-skills/messaging/tools/gmail-send-with-attachments.js';
+import * as gmailForward from './bundled-skills/messaging/tools/gmail-forward.js';
+import * as gmailSummarizeThread from './bundled-skills/messaging/tools/gmail-summarize-thread.js';
+import * as gmailFollowUp from './bundled-skills/messaging/tools/gmail-follow-up.js';
+import * as gmailTriage from './bundled-skills/messaging/tools/gmail-triage.js';
+import * as gmailFilters from './bundled-skills/messaging/tools/gmail-filters.js';
+import * as gmailVacation from './bundled-skills/messaging/tools/gmail-vacation.js';
+import * as gmailSenderDigest from './bundled-skills/messaging/tools/gmail-sender-digest.js';
+import * as gmailOutreachScan from './bundled-skills/messaging/tools/gmail-outreach-scan.js';
+import * as googleContacts from './bundled-skills/messaging/tools/google-contacts.js';
+import * as sequenceCreate from './bundled-skills/messaging/tools/sequence-create.js';
+import * as sequenceList from './bundled-skills/messaging/tools/sequence-list.js';
+import * as sequenceGet from './bundled-skills/messaging/tools/sequence-get.js';
+import * as sequenceUpdate from './bundled-skills/messaging/tools/sequence-update.js';
+import * as sequenceDelete from './bundled-skills/messaging/tools/sequence-delete.js';
+import * as sequenceEnroll from './bundled-skills/messaging/tools/sequence-enroll.js';
+import * as sequenceEnrollmentList from './bundled-skills/messaging/tools/sequence-enrollment-list.js';
+import * as sequencePause from './bundled-skills/messaging/tools/sequence-pause.js';
+import * as sequenceResume from './bundled-skills/messaging/tools/sequence-resume.js';
+import * as sequenceCancel from './bundled-skills/messaging/tools/sequence-cancel.js';
+import * as sequenceImport from './bundled-skills/messaging/tools/sequence-import.js';
+import * as sequenceAnalytics from './bundled-skills/messaging/tools/sequence-analytics.js';
 
 // ── playbooks ────────────────────────────────────────────────────────────────
 import * as playbookCreate from './bundled-skills/playbooks/tools/playbook-create.js';
@@ -245,6 +270,7 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ['messaging:tools/messaging-read.ts', messagingRead],
   ['messaging:tools/messaging-search.ts', messagingSearch],
   ['messaging:tools/messaging-send.ts', messagingSend],
+  ['messaging:tools/send-notification.ts', sendNotification],
   ['messaging:tools/messaging-reply.ts', messagingReply],
   ['messaging:tools/messaging-mark-read.ts', messagingMarkRead],
   ['messaging:tools/slack-add-reaction.ts', slackAddReaction],
@@ -259,6 +285,30 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ['messaging:tools/gmail-trash.ts', gmailTrash],
   ['messaging:tools/gmail-unsubscribe.ts', gmailUnsubscribe],
   ['messaging:tools/gmail-draft.ts', gmailDraft],
+  ['messaging:tools/gmail-list-attachments.ts', gmailListAttachments],
+  ['messaging:tools/gmail-download-attachment.ts', gmailDownloadAttachment],
+  ['messaging:tools/gmail-send-with-attachments.ts', gmailSendWithAttachments],
+  ['messaging:tools/gmail-forward.ts', gmailForward],
+  ['messaging:tools/gmail-summarize-thread.ts', gmailSummarizeThread],
+  ['messaging:tools/gmail-follow-up.ts', gmailFollowUp],
+  ['messaging:tools/gmail-triage.ts', gmailTriage],
+  ['messaging:tools/gmail-filters.ts', gmailFilters],
+  ['messaging:tools/gmail-vacation.ts', gmailVacation],
+  ['messaging:tools/gmail-sender-digest.ts', gmailSenderDigest],
+  ['messaging:tools/gmail-outreach-scan.ts', gmailOutreachScan],
+  ['messaging:tools/google-contacts.ts', googleContacts],
+  ['messaging:tools/sequence-create.ts', sequenceCreate],
+  ['messaging:tools/sequence-list.ts', sequenceList],
+  ['messaging:tools/sequence-get.ts', sequenceGet],
+  ['messaging:tools/sequence-update.ts', sequenceUpdate],
+  ['messaging:tools/sequence-delete.ts', sequenceDelete],
+  ['messaging:tools/sequence-enroll.ts', sequenceEnroll],
+  ['messaging:tools/sequence-enrollment-list.ts', sequenceEnrollmentList],
+  ['messaging:tools/sequence-pause.ts', sequencePause],
+  ['messaging:tools/sequence-resume.ts', sequenceResume],
+  ['messaging:tools/sequence-cancel.ts', sequenceCancel],
+  ['messaging:tools/sequence-import.ts', sequenceImport],
+  ['messaging:tools/sequence-analytics.ts', sequenceAnalytics],
 
   // playbooks
   ['playbooks:tools/playbook-create.ts', playbookCreate],

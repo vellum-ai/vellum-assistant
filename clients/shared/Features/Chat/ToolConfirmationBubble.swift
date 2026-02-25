@@ -21,6 +21,7 @@ public struct ToolConfirmationBubble: View {
     @State private var showScopePickerMenu = false
     @State private var keyboardModel: ToolConfirmationKeyboardModel?
     @State private var popoverKeyboardModel: ToolConfirmationPopoverKeyboardModel?
+    @AppStorage("hasSeenCommandExplanation") private var hasSeenCommandExplanation = false
     #if os(macOS)
     @State private var keyMonitor: Any?
     #endif
@@ -39,6 +40,10 @@ public struct ToolConfirmationBubble: View {
 
     private var needsScopeChoice: Bool {
         !confirmation.scopeOptions.isEmpty
+    }
+
+    private var isCommandTool: Bool {
+        confirmation.toolName == "bash" || confirmation.toolName == "host_bash"
     }
 
     private var isDecided: Bool {
@@ -167,12 +172,44 @@ public struct ToolConfirmationBubble: View {
     // MARK: - Tool Permission (pending)
 
     @ViewBuilder
+    private var commandExplanationBanner: some View {
+        HStack(alignment: .top, spacing: VSpacing.sm) {
+            Image(systemName: "info.circle.fill")
+                .font(.system(size: 14))
+                .foregroundColor(VColor.accent)
+                .padding(.top, 1)
+
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("What is this?")
+                    .font(VFont.captionMedium)
+                    .foregroundColor(VColor.textPrimary)
+
+                Text("Sometimes your assistant needs to run commands on your computer to complete tasks \u{2014} like installing software, checking settings, or organizing files. You\u{2019}ll always be asked for permission first, and nothing runs without your approval.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(VSpacing.sm)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.sm)
+                .fill(VColor.accent.opacity(0.08))
+        )
+    }
+
+    @ViewBuilder
     private var pendingContent: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             // Bold non-technical question
             Text(confirmation.humanDescription)
                 .font(VFont.bodyBold)
                 .foregroundColor(VColor.textPrimary)
+
+            // First-time educational banner for command confirmations
+            if isCommandTool && !hasSeenCommandExplanation {
+                commandExplanationBanner
+            }
 
             // Action buttons at top
             buttonRow
@@ -351,14 +388,14 @@ public struct ToolConfirmationBubble: View {
                 isPrimary: true,
                 isDanger: false,
                 isKeyboardSelected: keyboardModel?.selectedAction == .allowOnce
-            ) { onAllow() }
+            ) { markCommandExplanationSeen(); onAllow() }
             if hasRuleOptions && confirmation.persistentDecisionsAllowed { alwaysAllowInlineButton }
             confirmationButton(
                 "Don\u{2019}t Allow",
                 isPrimary: false,
                 isDanger: false,
                 isKeyboardSelected: keyboardModel?.selectedAction == .dontAllow
-            ) { onDeny() }
+            ) { markCommandExplanationSeen(); onDeny() }
             Spacer()
         }
         .onAppear {
@@ -475,6 +512,7 @@ public struct ToolConfirmationBubble: View {
 
     /// Activate the currently selected row in the nested popover.
     private func activatePopoverSelection() {
+        markCommandExplanationSeen()
         guard let model = popoverKeyboardModel else { return }
         let index = model.selectedIndex
 
@@ -558,8 +596,20 @@ public struct ToolConfirmationBubble: View {
     }
     #endif
 
+    /// Persist the command explanation banner dismissal so it only shows once.
+    /// Called when the user takes any action on the confirmation (approve, deny,
+    /// or always-allow) rather than on view disappearance, because `onDisappear`
+    /// fires on scroll/recycle in a `LazyVStack` and would dismiss the banner
+    /// before the user has actually seen it.
+    private func markCommandExplanationSeen() {
+        if isCommandTool && !hasSeenCommandExplanation {
+            hasSeenCommandExplanation = true
+        }
+    }
+
     /// Trigger the callback for a given top-level action.
     private func activateAction(_ action: ToolConfirmationKeyboardModel.Action) {
+        markCommandExplanationSeen()
         switch action {
         case .allowOnce:
             onAllow()
@@ -588,6 +638,7 @@ public struct ToolConfirmationBubble: View {
     /// Shared logic for the single-option Always Allow action, used by both the
     /// inline button click handler and keyboard Enter activation.
     private func handleSingleOptionAlwaysAllow() {
+        markCommandExplanationSeen()
         let pattern = confirmation.allowlistOptions.first?.pattern ?? ""
         if pattern.isEmpty {
             onAllow()
@@ -696,6 +747,7 @@ public struct ToolConfirmationBubble: View {
                             label: scopeOption.label,
                             isKeyboardSelected: popoverKeyboardModel?.mode == .scopes && popoverKeyboardModel?.selectedIndex == index
                         ) {
+                            markCommandExplanationSeen()
                             showAlwaysAllowMenu = false
                             pendingPattern = nil
                             popoverKeyboardModel = nil
@@ -715,6 +767,7 @@ public struct ToolConfirmationBubble: View {
                             subtitle: option.description,
                             isKeyboardSelected: popoverKeyboardModel?.mode == .patterns && popoverKeyboardModel?.selectedIndex == index
                         ) {
+                            markCommandExplanationSeen()
                             if option.pattern.isEmpty {
                                 showAlwaysAllowMenu = false
                                 popoverKeyboardModel = nil
@@ -764,6 +817,7 @@ public struct ToolConfirmationBubble: View {
                     label: scopeOption.label,
                     isKeyboardSelected: popoverKeyboardModel?.mode == .scopes && popoverKeyboardModel?.selectedIndex == index
                 ) {
+                    markCommandExplanationSeen()
                     showScopePickerMenu = false
                     popoverKeyboardModel = nil
                     if let pattern = pendingPattern {

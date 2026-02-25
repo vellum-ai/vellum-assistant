@@ -11,6 +11,7 @@
 import { v4 as uuid } from 'uuid';
 import { Session, type SessionMemoryPolicy } from '../daemon/session.js';
 import { createConversation } from '../memory/conversation-store.js';
+import { GENERATING_TITLE, queueGenerateConversationTitle } from '../memory/conversation-title-service.js';
 import { getConfig } from '../config/loader.js';
 import { getFailoverProvider } from '../providers/registry.js';
 import { RateLimitProvider } from '../providers/ratelimit.js';
@@ -111,8 +112,12 @@ export class SubagentManager {
     // ── Create conversation ─────────────────────────────────────────
     const subagentId = uuid();
     const conversation = createConversation({
-      title: `Subagent: ${config.label}`,
+      title: GENERATING_TITLE,
       threadType: 'background',
+    });
+    queueGenerateConversationTitle({
+      conversationId: conversation.id,
+      context: { origin: 'subagent', systemHint: `Subagent: ${config.label}` },
     });
 
     // ── Build session dependencies ──────────────────────────────────

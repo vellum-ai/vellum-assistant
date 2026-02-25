@@ -20,7 +20,7 @@ struct RideShotgunInvitationSheet: View {
                     .font(VFont.title)
                     .foregroundStyle(VColor.textPrimary)
 
-                Text("Let me watch your Mac briefly to learn how you work — I'll pick up patterns in your workflow and spot where I can save you time.")
+                Text("Let me watch your screen briefly to learn how you work — I'll pick up patterns in your workflow and spot where I can save you time.")
                     .font(VFont.body)
                     .foregroundStyle(VColor.textSecondary)
                     .multilineTextAlignment(.center)

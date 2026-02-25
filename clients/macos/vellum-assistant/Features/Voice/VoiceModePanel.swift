@@ -4,15 +4,12 @@ import VellumAssistantShared
 struct VoiceModePanel: View {
     @ObservedObject var manager: VoiceModeManager
     @ObservedObject var voiceService: OpenAIVoiceService
-    @ObservedObject var settingsStore: SettingsStore
     let onClose: () -> Void
-    var onKeySaved: (() -> Void)?
 
     @State private var showingInfo = false
     @State private var spinAngle: Double = 0
     @State private var ringJitter: [CGFloat] = [0, 0, 0]
     @State private var jitterTimer: Timer?
-    @State private var openaiKeyText: String = ""
 
     private let orbSize: CGFloat = 120
 
@@ -59,7 +56,7 @@ struct VoiceModePanel: View {
             // Info panel
             if showingInfo {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    infoRow(label: "STT", value: "OpenAI Whisper")
+                    infoRow(label: "STT", value: "Apple Speech (on-device)")
                     infoRow(label: "LLM", value: "Your selected model")
                     infoRow(label: "TTS", value: "ElevenLabs Flash v2.5")
                     Divider().background(VColor.surfaceBorder)
@@ -77,101 +74,60 @@ struct VoiceModePanel: View {
 
             Spacer()
 
-            if !manager.hasAPIKey {
-                VStack(spacing: VSpacing.lg) {
-                    Image(systemName: "key.fill")
-                        .font(.system(size: 32))
-                        .foregroundColor(VColor.textMuted)
-                    Text("OpenAI API key required")
-                        .font(VFont.bodyMedium)
-                        .foregroundColor(VColor.textSecondary)
-                        .textSelection(.enabled)
-                    Text("Enter your OpenAI API key to use voice mode with Whisper and TTS.")
+            // Voice orb
+            voiceOrb
+                .padding(.bottom, VSpacing.xxl)
+
+            // State label
+            Text(manager.stateLabel)
+                .font(VFont.bodyMedium)
+                .foregroundColor(VColor.textSecondary)
+                .padding(.bottom, VSpacing.sm)
+                .textSelection(.enabled)
+
+            // Error message
+            if !manager.errorMessage.isEmpty {
+                HStack(spacing: VSpacing.sm) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(VColor.warning)
+                        .font(.system(size: 14))
+                    Text(manager.errorMessage)
                         .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(VColor.warning)
                         .multilineTextAlignment(.center)
-                        .padding(.horizontal, VSpacing.xl)
                         .textSelection(.enabled)
-
-                    VStack(spacing: VSpacing.md) {
-                        SecureField("Your OpenAI API key", text: $openaiKeyText)
-                            .vInputStyle()
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textPrimary)
-                            .onSubmit {
-                                guard !openaiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-                                settingsStore.saveOpenAIKey(openaiKeyText)
-                                openaiKeyText = ""
-                                onKeySaved?()
-                            }
-
-                        VButton(label: "Save", style: .primary, isDisabled: openaiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
-                            settingsStore.saveOpenAIKey(openaiKeyText)
-                            openaiKeyText = ""
-                            onKeySaved?()
-                        }
-                    }
-                    .padding(.horizontal, VSpacing.xl)
                 }
-            } else {
-                // Voice orb
-                voiceOrb
-                    .padding(.bottom, VSpacing.xxl)
-
-                // State label
-                Text(manager.stateLabel)
-                    .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.textSecondary)
-                    .padding(.bottom, VSpacing.sm)
-                    .textSelection(.enabled)
-
-                // Error message
-                if !manager.errorMessage.isEmpty {
-                    HStack(spacing: VSpacing.sm) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundColor(VColor.warning)
-                            .font(.system(size: 14))
-                        Text(manager.errorMessage)
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.warning)
-                            .multilineTextAlignment(.center)
-                            .textSelection(.enabled)
-                    }
-                    .padding(.horizontal, VSpacing.xl)
-                    .padding(.vertical, VSpacing.md)
-                    .background(VColor.warning.opacity(0.1))
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                    .padding(.horizontal, VSpacing.xl)
-                    .padding(.bottom, VSpacing.lg)
-                }
-
+                .padding(.horizontal, VSpacing.xl)
+                .padding(.vertical, VSpacing.md)
+                .background(VColor.warning.opacity(0.1))
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                .padding(.horizontal, VSpacing.xl)
+                .padding(.bottom, VSpacing.lg)
             }
 
             Spacer()
 
             // Controls
-            if manager.hasAPIKey {
-                VStack(spacing: VSpacing.md) {
-                    Button(action: { manager.toggleListening() }) {
-                        Image(systemName: micIcon)
-                            .font(.system(size: 20, weight: .medium))
-                            .foregroundColor(micButtonForeground)
-                            .frame(width: 56, height: 56)
-                            .background(micButtonBackground)
-                            .clipShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(manager.state == .processing)
-
-                    Button(action: onClose) {
-                        Text("End Voice Mode")
-                            .font(VFont.captionMedium)
-                            .foregroundColor(VColor.textMuted)
-                    }
-                    .buttonStyle(.plain)
+            VStack(spacing: VSpacing.md) {
+                Button(action: { manager.toggleListening() }) {
+                    Image(systemName: micIcon)
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundColor(micButtonForeground)
+                        .frame(width: 56, height: 56)
+                        .background(micButtonBackground)
+                        .clipShape(Circle())
                 }
-                .padding(.bottom, VSpacing.xxl)
+                .buttonStyle(.plain)
+                .disabled(manager.state == .processing)
+
+                Button(action: onClose) {
+                    Text("End Voice Mode")
+                        .font(VFont.captionMedium)
+                        .foregroundColor(VColor.textMuted)
+                }
+                .buttonStyle(.plain)
             }
+            .padding(.bottom, VSpacing.xxl)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(VColor.background)

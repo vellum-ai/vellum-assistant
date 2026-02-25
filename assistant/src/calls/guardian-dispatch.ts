@@ -10,8 +10,6 @@
  */
 
 import { getLogger } from '../util/logger.js';
-import { getConfig } from '../config/loader.js';
-import { getGatewayInternalBaseUrl } from '../config/env.js';
 import { emitNotificationSignal } from '../notifications/emit-signal.js';
 import { getActiveBinding } from '../memory/channel-guardian-store.js';
 import {
@@ -19,21 +17,14 @@ import {
   createGuardianActionDelivery,
   updateDeliveryStatus,
 } from '../memory/guardian-action-store.js';
-import { deliverChannelReply } from '../runtime/gateway-client.js';
 import { getUserConsultationTimeoutMs } from './call-constants.js';
 import { getOrCreateConversation } from '../memory/conversation-key-store.js';
-import { addMessage } from '../memory/conversation-store.js';
+import { addMessage, updateConversationTitle } from '../memory/conversation-store.js';
 import type { CallPendingQuestion } from './types.js';
-import { readHttpToken } from '../util/platform.js';
 import type { ServerMessage } from '../daemon/ipc-contract.js';
 import { generateGuardianCopy } from './guardian-question-copy.js';
 
 const log = getLogger('guardian-dispatch');
-
-/** Resolve the gateway base URL for internal delivery callbacks. */
-function getGatewayBaseUrl(): string {
-  return getGatewayInternalBaseUrl();
-}
 
 export interface GuardianDispatchParams {
   callSessionId: string;
@@ -79,7 +70,7 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
 
     // Emit notification signal through the unified pipeline (fire-and-forget).
     // The existing guardian dispatch logic below handles the actual delivery
-    // to specific channels (telegram, sms, macos), so this signal is
+    // to specific channels (telegram, sms, vellum), so this signal is
     // supplementary — it lets the decision engine log and potentially route
     // to additional channels in the future.
     void emitNotificationSignal({
@@ -103,12 +94,6 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
       },
       dedupeKey: `guardian:${request.id}`,
     });
-
-    // When the notification system is fully active (enabled + not shadow),
-    // it handles external channel delivery (Telegram, SMS) — skip the
-    // legacy dispatch for those channels to avoid duplicate alerts.
-    const notifConfig = getConfig().notifications;
-    const notificationsActive = notifConfig?.enabled === true && notifConfig.shadowMode !== true;
 
     // Determine delivery destinations
     const destinations: Array<{
@@ -137,10 +122,10 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
       });
     }
 
-    // Mac (internal) delivery — always created
-    destinations.push({ channel: 'macos' });
+    // Vellum (internal) delivery — always created
+    destinations.push({ channel: 'vellum' });
 
-    // Start LLM copy generation concurrently — only awaited in the macOS branch
+    // Start LLM copy generation concurrently — only awaited in the vellum branch
     // so external channels (Telegram, SMS) dispatch without LLM latency.
     const guardianCopyPromise = generateGuardianCopy(
       pendingQuestion.questionText,
@@ -149,31 +134,35 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
 
     // Create delivery rows and dispatch
     for (const dest of destinations) {
-      if (dest.channel === 'macos') {
+      if (dest.channel === 'vellum') {
         // Create conversation and delivery row synchronously so they exist
         // before awaiting LLM copy — prevents a race where an external channel
-        // reply resolves the request before the macOS delivery is created.
+        // reply resolves the request before the vellum delivery is created.
         const macConvKey = `asst:${assistantId}:guardian:request:${request.id}`;
         const { conversationId: macConversationId } = getOrCreateConversation(macConvKey);
 
         const delivery = createGuardianActionDelivery({
           requestId: request.id,
-          destinationChannel: 'macos',
+          destinationChannel: 'vellum',
           destinationConversationId: macConversationId,
         });
 
         // Now await LLM-generated copy for the message content and thread title
         const guardianCopy = await guardianCopyPromise;
 
+        // Persist the generated thread title to the DB (replaces the
+        // "Generating title..." placeholder set by getOrCreateConversation)
+        updateConversationTitle(macConversationId, guardianCopy.threadTitle);
+
         // Add the guardian question as the initial message in the thread
         addMessage(
           macConversationId,
           'assistant',
           JSON.stringify([{ type: 'text', text: guardianCopy.initialMessage }]),
-          { userMessageChannel: 'voice', assistantMessageChannel: 'macos' },
+          { userMessageChannel: 'voice', assistantMessageChannel: 'vellum', userMessageInterface: 'voice', assistantMessageInterface: 'vellum' },
         );
 
-        // Emit IPC event for the mac client with the server-created conversation
+        // Emit IPC event for the vellum client with the server-created conversation
         if (broadcast) {
           broadcast({
             type: 'guardian_request_thread_created',
@@ -185,7 +174,7 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
           } as ServerMessage);
         }
         updateDeliveryStatus(delivery.id, 'sent');
-        log.info({ deliveryId: delivery.id, channel: 'macos', macConversationId }, 'Mac guardian delivery emitted');
+        log.info({ deliveryId: delivery.id, channel: 'vellum', macConversationId }, 'Vellum guardian delivery emitted');
       } else {
         const delivery = createGuardianActionDelivery({
           requestId: request.id,
@@ -193,13 +182,10 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
           destinationChatId: dest.chatId,
           destinationExternalUserId: dest.externalUserId,
         });
-        // External channel — POST to gateway (skip when notification pipeline handles delivery)
-        if (!notificationsActive) {
-          void deliverToExternalChannel(delivery.id, dest.channel, dest.chatId!, request.questionText, request.requestCode, assistantId, readHttpToken() ?? undefined);
-        } else {
-          updateDeliveryStatus(delivery.id, 'sent');
-          log.info({ deliveryId: delivery.id, channel: dest.channel }, 'Skipping legacy external delivery — notification pipeline active');
-        }
+        // External channel delivery is handled by the notification pipeline;
+        // mark the legacy delivery row as sent so auditing stays consistent.
+        updateDeliveryStatus(delivery.id, 'sent');
+        log.info({ deliveryId: delivery.id, channel: dest.channel }, 'Skipping legacy external delivery — notification pipeline active');
       }
     }
   } catch (err) {
@@ -207,37 +193,3 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
   }
 }
 
-async function deliverToExternalChannel(
-  deliveryId: string,
-  channel: string,
-  chatId: string,
-  questionText: string,
-  requestCode: string,
-  assistantId: string,
-  bearerToken?: string,
-): Promise<void> {
-  const gatewayBase = getGatewayBaseUrl();
-  const deliverUrl = `${gatewayBase}/deliver/${channel}`;
-
-  const messageText = [
-    `Your assistant needs your input during a phone call.`,
-    ``,
-    `Question: ${questionText}`,
-    ``,
-    `Reply to this message with your answer. (ref: ${requestCode})`,
-  ].join('\n');
-
-  try {
-    await deliverChannelReply(deliverUrl, {
-      chatId,
-      text: messageText,
-      assistantId,
-    }, bearerToken);
-    updateDeliveryStatus(deliveryId, 'sent');
-    log.info({ deliveryId, channel, chatId }, 'External guardian delivery sent');
-  } catch (err) {
-    const errorMsg = err instanceof Error ? err.message : String(err);
-    updateDeliveryStatus(deliveryId, 'failed', errorMsg);
-    log.error({ err, deliveryId, channel, chatId }, 'External guardian delivery failed');
-  }
-}

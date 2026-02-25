@@ -90,7 +90,7 @@ struct DaemonConnectionSection: View {
                     }
                 } else {
                     // Not configured state
-                    Text("Scan a QR code from your Mac to connect.")
+                    Text("Scan a QR code from your Assistant to connect.")
                         .font(VFont.body)
                         .foregroundColor(VColor.textSecondary)
                 }
@@ -115,9 +115,9 @@ struct DaemonConnectionSection: View {
                     .padding(.vertical, 12)
                 }
             } header: {
-                Text("Pair with Mac")
+                Text("Pair with Assistant")
             } footer: {
-                Text("Open Vellum on your Mac, go to Settings \u{2192} Connect, and tap Show QR Code.")
+                Text("Open Vellum on your Assistant, go to Settings \u{2192} Connect, and tap Show QR Code.")
             }
 
         }

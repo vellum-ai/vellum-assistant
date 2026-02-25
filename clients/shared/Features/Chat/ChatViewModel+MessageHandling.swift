@@ -373,6 +373,64 @@ extension ChatViewModel {
         }
     }
 
+    // MARK: - Streaming Delta Throttle
+
+    /// Cancel any pending flush and discard buffered text.
+    /// Called on every path that clears `currentAssistantMessageId` without
+    /// a normal `messageComplete` (cancel, error, handoff, reconnect, etc.)
+    /// to prevent a stale flush from creating an orphan assistant message.
+    func discardStreamingBuffer() {
+        streamingFlushTask?.cancel()
+        streamingFlushTask = nil
+        streamingDeltaBuffer = ""
+    }
+
+    /// Flush any buffered streaming text into the messages array.
+    /// Called on a timer and also eagerly on `messageComplete`.
+    func flushStreamingBuffer() {
+        // Always clear the task reference so scheduleStreamingFlush() can
+        // schedule a new flush even if the buffer was empty this time.
+        streamingFlushTask?.cancel()
+        streamingFlushTask = nil
+        guard !streamingDeltaBuffer.isEmpty else { return }
+        let buffered = streamingDeltaBuffer
+        streamingDeltaBuffer = ""
+
+        if let existingId = currentAssistantMessageId,
+           let index = messages.firstIndex(where: { $0.id == existingId }) {
+            if lastContentWasToolCall || messages[index].textSegments.isEmpty {
+                let segIdx = messages[index].textSegments.count
+                messages[index].textSegments.append(buffered)
+                messages[index].contentOrder.append(.text(segIdx))
+                lastContentWasToolCall = false
+            } else {
+                messages[index].textSegments[messages[index].textSegments.count - 1] += buffered
+            }
+        } else {
+            var msg = ChatMessage(role: .assistant, text: buffered, isStreaming: true)
+            if currentTurnUserText == "/model" {
+                msg.modelPicker = ModelPickerData()
+            } else if currentTurnUserText == "/models" {
+                msg.modelList = ModelListData()
+            } else if currentTurnUserText == "/commands" {
+                msg.commandList = CommandListData()
+            }
+            currentAssistantMessageId = msg.id
+            messages.append(msg)
+            lastContentWasToolCall = false
+        }
+    }
+
+    /// Schedule a flush after the throttle interval if one isn't already pending.
+    private func scheduleStreamingFlush() {
+        guard streamingFlushTask == nil else { return }
+        streamingFlushTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(Self.streamingFlushInterval * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            self?.flushStreamingBuffer()
+        }
+    }
+
     public func handleServerMessage(_ message: ServerMessage) {
         switch message {
         case .sessionInfo(let info):
@@ -452,32 +510,11 @@ extension ChatViewModel {
             if pendingVoiceMessage {
                 onVoiceTextDelta?(delta.text)
             }
-            if let existingId = currentAssistantMessageId,
-               let index = messages.firstIndex(where: { $0.id == existingId }) {
-                if lastContentWasToolCall || messages[index].textSegments.isEmpty {
-                    // Start a new text segment (first text or after a tool call)
-                    let segIdx = messages[index].textSegments.count
-                    messages[index].textSegments.append(delta.text)
-                    messages[index].contentOrder.append(.text(segIdx))
-                    lastContentWasToolCall = false
-                } else {
-                    // Append to the current (last) text segment
-                    messages[index].textSegments[messages[index].textSegments.count - 1] += delta.text
-                }
-            } else {
-                // Create new assistant message
-                var msg = ChatMessage(role: .assistant, text: delta.text, isStreaming: true)
-                if currentTurnUserText == "/model" {
-                    msg.modelPicker = ModelPickerData()
-                } else if currentTurnUserText == "/models" {
-                    msg.modelList = ModelListData()
-                } else if currentTurnUserText == "/commands" {
-                    msg.commandList = CommandListData()
-                }
-                currentAssistantMessageId = msg.id
-                messages.append(msg)
-                lastContentWasToolCall = false
-            }
+            // Buffer the delta text and schedule a coalesced flush instead
+            // of mutating `messages` on every single token. This reduces
+            // SwiftUI view-graph invalidation frequency by ~10-50x.
+            streamingDeltaBuffer += delta.text
+            scheduleStreamingFlush()
 
         case .suggestionResponse(let resp):
             // Only accept if this response matches our current request
@@ -487,6 +524,8 @@ extension ChatViewModel {
 
         case .messageComplete(let complete):
             guard belongsToSession(complete.sessionId) else { return }
+            // Flush any buffered streaming text before finalizing the message.
+            flushStreamingBuffer()
             let wasRefinement = isWorkspaceRefinementInFlight || cancelledDuringRefinement
             isWorkspaceRefinementInFlight = false
             cancelledDuringRefinement = false
@@ -612,6 +651,7 @@ extension ChatViewModel {
             currentTurnUserText = nil
             currentAssistantHasText = false
             lastContentWasToolCall = false
+            discardStreamingBuffer()
 
         case .generationCancelled(let cancelled):
             guard belongsToSession(cancelled.sessionId) else { return }
@@ -656,6 +696,7 @@ extension ChatViewModel {
             currentTurnUserText = nil
             currentAssistantHasText = false
             lastContentWasToolCall = false
+            discardStreamingBuffer()
             // Reset processing messages to sent
             for i in messages.indices {
                 if messages[i].role == .user && messages[i].status == .processing {
@@ -726,6 +767,9 @@ extension ChatViewModel {
         case .generationHandoff(let handoff):
             guard belongsToSession(handoff.sessionId) else { return }
             isThinking = false
+            // Flush buffered text so it lands on the current assistant message
+            // before we clear the ID and hand off to the next queued turn.
+            flushStreamingBuffer()
             // Must run before currentAssistantMessageId is cleared so attachments land on the right message
             ingestAssistantAttachments(handoff.attachments)
             // Keep isSending = true — daemon is handing off to next queued message
@@ -766,6 +810,9 @@ extension ChatViewModel {
             // handler below can reference the actual blocked text/attachments
             // rather than falling back to a potentially-wrong transcript lookup.
             let savedTurnUserText = currentTurnUserText
+            // Flush any buffered text so already-received tokens are preserved
+            // in the assistant message before we clear the turn state.
+            flushStreamingBuffer()
             // Mark current assistant message as no longer streaming
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
@@ -834,6 +881,8 @@ extension ChatViewModel {
             }
 
         case .confirmationRequest(let msg):
+            // Flush buffered text before inserting the confirmation message.
+            flushStreamingBuffer()
             // Route using sessionId when available (daemon >= v1.x includes
             // the conversationId). Fall back to the timestamp-based heuristic
             // via shouldAcceptConfirmation for older daemons that omit sessionId.
@@ -878,6 +927,8 @@ extension ChatViewModel {
             guard belongsToSession(msg.sessionId) else { return }
             guard !isCancelling else { return }
             guard !isWorkspaceRefinementInFlight else { return }
+            // Flush buffered text so it lands before the tool call in content order.
+            flushStreamingBuffer()
             lastToolUseReceivedAt = Date()
             // Suppress ToolCallChip for ui_show — the inline surface widget replaces it.
             if msg.toolName == "ui_show" || msg.toolName == "ui_update" || msg.toolName == "ui_dismiss" || msg.toolName == "request_file" {
@@ -1188,6 +1239,7 @@ extension ChatViewModel {
             currentTurnUserText = nil
             currentAssistantHasText = false
             lastContentWasToolCall = false
+            discardStreamingBuffer()
             // When the user intentionally cancelled, suppress the error.
             // Otherwise, insert an inline error message so errors are visually
             // distinct from normal assistant replies (rendered with a red box).
@@ -1202,8 +1254,11 @@ extension ChatViewModel {
                    messages.last?.toolCalls.isEmpty == true {
                     messages.removeAll(where: { $0.id == existingId })
                 }
+                // macOS shows ChatSessionErrorToast; only append inline error on iOS where the toast is unavailable
+                #if os(iOS)
                 let errorMsg = ChatMessage(role: .assistant, text: msg.userMessage, isError: true)
                 messages.append(errorMsg)
+                #endif
             }
             for i in messages.indices {
                 if messages[i].role == .user && messages[i].status == .processing {

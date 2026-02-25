@@ -2,6 +2,7 @@ import type { ToolContext, ToolExecutionResult } from '../types.js';
 import { createSchedule, isValidCronExpression, formatLocalDate, describeCronExpression } from '../../schedule/schedule-store.js';
 import { normalizeScheduleSyntax } from '../../schedule/recurrence-types.js';
 import { validateRruleSetLines } from '../../schedule/recurrence-engine.js';
+import { formatIntegrationSummary } from '../../schedule/integration-status.js';
 
 export async function executeScheduleCreate(
   input: Record<string, unknown>,
@@ -63,6 +64,7 @@ export async function executeScheduleCreate(
       : describeCronExpression(job.cronExpression);
 
     const nextRunDate = formatLocalDate(job.nextRunAt);
+    const integrations = formatIntegrationSummary();
     return {
       content: [
         `Schedule created successfully.`,
@@ -72,6 +74,9 @@ export async function executeScheduleCreate(
         `  Schedule: ${scheduleDescription}${job.timezone ? ` (${job.timezone})` : ''}`,
         `  Enabled: ${job.enabled}`,
         `  Next run: ${nextRunDate}`,
+        ``,
+        `Integrations: ${integrations}`,
+        `\u26a0 If this schedule requires an integration that isn't connected, it will fail at runtime. Warn the user about any missing capabilities before confirming the schedule is ready.`,
       ].join('\n'),
       isError: false,
     };

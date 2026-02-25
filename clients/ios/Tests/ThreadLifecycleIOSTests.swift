@@ -211,6 +211,7 @@ final class ThreadLifecycleIOSTests: XCTestCase {
 
         // Step 3: Assistant responds
         vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Welcome!")))
+        vm.flushStreamingBuffer()
         XCTAssertEqual(vm.messages.count, 2)
         XCTAssertEqual(vm.messages[1].role, .assistant)
 
@@ -228,12 +229,14 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         vm.inputText = "First question"
         vm.sendMessage()
         vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "First answer")))
+        vm.flushStreamingBuffer()
         vm.handleServerMessage(.messageComplete(MessageCompleteMessage()))
 
         // Second exchange
         vm.inputText = "Second question"
         vm.sendMessage()
         vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Second answer")))
+        vm.flushStreamingBuffer()
         vm.handleServerMessage(.messageComplete(MessageCompleteMessage()))
 
         XCTAssertEqual(vm.messages.count, 4)
@@ -279,7 +282,9 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         // Delta for session A
         let deltaA = AssistantTextDeltaMessage(text: "For A", sessionId: "sess-a")
         vm1.handleServerMessage(.assistantTextDelta(deltaA))
+        vm1.flushStreamingBuffer()
         vm2.handleServerMessage(.assistantTextDelta(deltaA))
+        vm2.flushStreamingBuffer()
 
         XCTAssertEqual(vm1.messages.count, 1, "VM1 should accept delta for its session")
         XCTAssertTrue(vm2.messages.isEmpty, "VM2 should ignore delta for a different session")
@@ -295,6 +300,7 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         vm.inputText = "Question"
         vm.sendMessage()
         vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Answer")))
+        vm.flushStreamingBuffer()
         vm.handleServerMessage(.messageComplete(MessageCompleteMessage()))
 
         XCTAssertEqual(vm.messages.count, 2)
