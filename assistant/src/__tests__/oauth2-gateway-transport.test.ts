@@ -1,4 +1,4 @@
-import { describe, test, expect, mock, beforeEach } from 'bun:test';
+import { describe, test, expect, mock, beforeEach, afterEach } from 'bun:test';
 
 // ---------------------------------------------------------------------------
 // Mocks — must be set up before importing the module under test
@@ -166,19 +166,38 @@ describe('OAuth2 gateway transport', () => {
       expect(result.tokens.accessToken).toBe('test-access-token');
     });
 
-    test('throws when ingress.publicBaseUrl is not configured', async () => {
+    test('falls back to loopback transport when ingress.publicBaseUrl is not configured', async () => {
       mockPublicBaseUrl = '';
 
-      // Without a public base URL, the flow should reject immediately
-      await expect(
-        startOAuth2Flow(BASE_OAUTH_CONFIG, { openUrl: () => {} }),
-      ).rejects.toThrow('OAuth requires a public ingress URL');
+      let capturedAuthUrl = '';
+      const flowPromise = startOAuth2Flow(BASE_OAUTH_CONFIG, {
+        openUrl: (url) => { capturedAuthUrl = url; },
+      });
+
+      // Give the loopback server time to start
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Auth URL should use a 127.0.0.1 redirect_uri
+      expect(capturedAuthUrl).toContain('redirect_uri=');
+      expect(capturedAuthUrl).toContain('127.0.0.1');
+      expect(capturedAuthUrl).toContain(encodeURIComponent('/oauth/callback'));
+
+      // Extract the redirect_uri and simulate the callback
+      const authUrl = new URL(capturedAuthUrl);
+      const redirectUri = authUrl.searchParams.get('redirect_uri')!;
+      const state = authUrl.searchParams.get('state')!;
+
+      // Make a request to the loopback server with the auth code
+      const callbackUrl = `${redirectUri}?code=loopback-auth-code&state=${state}`;
+      await fetch(callbackUrl);
+
+      const result = await flowPromise;
+      expect(result.tokens.accessToken).toBe('test-access-token');
     });
   });
 
   describe('explicit transport', () => {
     test('uses gateway transport when explicitly specified', async () => {
-      // Even with no publicBaseUrl, explicit gateway should work
       mockPublicBaseUrl = 'https://gw.example.com';
 
       let capturedAuthUrl = '';
@@ -200,8 +219,7 @@ describe('OAuth2 gateway transport', () => {
       expect(result.tokens.accessToken).toBe('test-access-token');
     });
 
-    test('ignores loopback transport option and uses gateway', async () => {
-      // Loopback transport was removed — gateway is always used
+    test('uses loopback transport when explicitly specified', async () => {
       mockPublicBaseUrl = 'https://gw.example.com';
 
       let capturedAuthUrl = '';
@@ -211,18 +229,32 @@ describe('OAuth2 gateway transport', () => {
         { callbackTransport: 'loopback' },
       );
 
-      await new Promise((r) => setTimeout(r, 10));
+      await new Promise((r) => setTimeout(r, 50));
 
-      // Should use gateway redirect, not loopback
-      expect(capturedAuthUrl).toContain(encodeURIComponent('https://gw.example.com'));
-      expect(capturedAuthUrl).not.toContain('127.0.0.1');
+      // Should use loopback redirect even though gateway URL is available
+      expect(capturedAuthUrl).toContain('127.0.0.1');
+      expect(capturedAuthUrl).not.toContain('gw.example.com');
 
-      const entries = Array.from(pendingCallbacks.entries());
-      expect(entries.length).toBe(1);
-      entries[0][1].resolve('gateway-code-despite-loopback-option');
+      // Simulate callback to loopback server
+      const authUrl = new URL(capturedAuthUrl);
+      const redirectUri = authUrl.searchParams.get('redirect_uri')!;
+      const state = authUrl.searchParams.get('state')!;
+      await fetch(`${redirectUri}?code=explicit-loopback-code&state=${state}`);
 
       const result = await flowPromise;
       expect(result.tokens.accessToken).toBe('test-access-token');
+    });
+
+    test('throws when gateway transport is explicitly requested without public URL', async () => {
+      mockPublicBaseUrl = '';
+
+      await expect(
+        startOAuth2Flow(
+          BASE_OAUTH_CONFIG,
+          { openUrl: () => {} },
+          { callbackTransport: 'gateway' },
+        ),
+      ).rejects.toThrow('Gateway transport requires a public ingress URL');
     });
   });
 
@@ -291,6 +323,105 @@ describe('OAuth2 gateway transport', () => {
 
       const entries = Array.from(pendingCallbacks.entries());
       entries[0][1].resolve('code-that-fails-exchange');
+
+      await expect(flowPromise).rejects.toThrow('OAuth2 token exchange failed');
+    });
+  });
+
+  describe('loopback transport flow', () => {
+    test('success: starts server, receives callback, exchanges for tokens', async () => {
+      let capturedAuthUrl = '';
+      const flowPromise = startOAuth2Flow(
+        BASE_OAUTH_CONFIG,
+        { openUrl: (url) => { capturedAuthUrl = url; } },
+        { callbackTransport: 'loopback' },
+      );
+
+      await new Promise((r) => setTimeout(r, 50));
+
+      expect(capturedAuthUrl).toContain('redirect_uri=');
+      expect(capturedAuthUrl).toContain('127.0.0.1');
+      expect(capturedAuthUrl).toContain('code_challenge=');
+      expect(capturedAuthUrl).toContain('code_challenge_method=S256');
+
+      const authUrl = new URL(capturedAuthUrl);
+      const redirectUri = authUrl.searchParams.get('redirect_uri')!;
+      const state = authUrl.searchParams.get('state')!;
+
+      const resp = await fetch(`${redirectUri}?code=loopback-code&state=${state}`);
+      expect(resp.status).toBe(200);
+      const html = await resp.text();
+      expect(html).toContain('Authorization Successful');
+
+      const result = await flowPromise;
+      expect(result.tokens.accessToken).toBe('test-access-token');
+      expect(result.tokens.refreshToken).toBe('test-refresh-token');
+    });
+
+    test('error: OAuth provider returns error parameter', async () => {
+      let capturedAuthUrl = '';
+      const flowPromise = startOAuth2Flow(
+        BASE_OAUTH_CONFIG,
+        { openUrl: (url) => { capturedAuthUrl = url; } },
+        { callbackTransport: 'loopback' },
+      );
+
+      await new Promise((r) => setTimeout(r, 50));
+
+      const authUrl = new URL(capturedAuthUrl);
+      const redirectUri = authUrl.searchParams.get('redirect_uri')!;
+      const state = authUrl.searchParams.get('state')!;
+
+      // Fire callback without awaiting — immediately check flowPromise rejection
+      fetch(`${redirectUri}?error=access_denied&state=${state}`).catch(() => {});
+
+      await expect(flowPromise).rejects.toThrow('OAuth2 authorization denied: access_denied');
+    });
+
+    test('rejects callback with wrong state parameter', async () => {
+      let capturedAuthUrl = '';
+      const flowPromise = startOAuth2Flow(
+        BASE_OAUTH_CONFIG,
+        { openUrl: (url) => { capturedAuthUrl = url; } },
+        { callbackTransport: 'loopback' },
+      );
+
+      await new Promise((r) => setTimeout(r, 50));
+
+      const authUrl = new URL(capturedAuthUrl);
+      const redirectUri = authUrl.searchParams.get('redirect_uri')!;
+
+      // Send callback with wrong state
+      const resp = await fetch(`${redirectUri}?code=bad-code&state=wrong-state`);
+      expect(resp.status).toBe(400);
+
+      // The flow should still be waiting (not resolved)
+      // Send the correct callback to clean up
+      const state = authUrl.searchParams.get('state')!;
+      await fetch(`${redirectUri}?code=correct-code&state=${state}`);
+
+      const result = await flowPromise;
+      expect(result.tokens.accessToken).toBe('test-access-token');
+    });
+
+    test('token exchange failure propagates error', async () => {
+      mockTokenResponse = { ok: false, status: 400, body: { error: 'invalid_grant' } };
+
+      let capturedAuthUrl = '';
+      const flowPromise = startOAuth2Flow(
+        BASE_OAUTH_CONFIG,
+        { openUrl: (url) => { capturedAuthUrl = url; } },
+        { callbackTransport: 'loopback' },
+      );
+
+      await new Promise((r) => setTimeout(r, 50));
+
+      const authUrl = new URL(capturedAuthUrl);
+      const redirectUri = authUrl.searchParams.get('redirect_uri')!;
+      const state = authUrl.searchParams.get('state')!;
+
+      // Fire callback without awaiting — immediately check flowPromise rejection
+      fetch(`${redirectUri}?code=code-that-fails&state=${state}`).catch(() => {});
 
       await expect(flowPromise).rejects.toThrow('OAuth2 token exchange failed');
     });

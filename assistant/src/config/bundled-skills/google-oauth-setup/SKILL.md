@@ -2,7 +2,7 @@
 name: "Google OAuth Setup"
 description: "Set up Google Cloud OAuth credentials for Gmail and Calendar using browser automation"
 user-invocable: true
-includes: ["browser", "public-ingress"]
+includes: ["browser"]
 metadata: {"vellum": {"emoji": "\ud83d\udd11"}}
 ---
 
@@ -16,10 +16,6 @@ If the user is on Telegram (or any non-macOS client without browser automation):
 
 Stop here. Do not attempt a manual walkthrough.
 
-## Prerequisites
-
-Before starting, check that `ingress.publicBaseUrl` is configured (`INGRESS_PUBLIC_BASE_URL` env var or workspace config). If it is not set, load and execute the **public-ingress** skill first (`skill_load` with `skill: "public-ingress"`) to set up an ngrok tunnel and persist the public URL. The OAuth redirect URI depends on this value.
-
 ## Step 1: Single Upfront Confirmation
 
 Use `ui_show` with `surface_type: "confirmation"` and this message:
@@ -29,7 +25,7 @@ Use `ui_show` with `surface_type: "confirmation"` and this message:
 > Here's what will happen:
 > 1. **A browser opens** — you sign in to your Google account
 > 2. **I automate everything** — project creation, APIs, OAuth config, credentials
-> 3. **You enter credentials** from a downloaded file (secure prompt — I never see them)
+> 3. **You enter credentials** from the dialog (secure prompt — I never see them)
 > 4. **You authorize Vellum** with one click
 >
 > The whole thing takes 2-3 minutes. Ready?
@@ -122,32 +118,25 @@ Navigate to `https://console.cloud.google.com/apis/credentials?project=PROJECT_I
 Click "+ Create Credentials" then select "OAuth client ID".
 
 Take a `browser_snapshot` and fill in:
-1. **Application type:** Select "Web application"
+1. **Application type:** Select **"Desktop app"** from the dropdown
 2. **Name:** "Vellum Assistant"
-3. **Authorized redirect URIs:** Click "Add URI" and enter `${ingress.publicBaseUrl}/webhooks/oauth/callback`
+
+**Do NOT add any redirect URIs** — Desktop app credentials handle localhost redirects automatically.
 
 Click "Create".
 
-## Step 7: Download Credentials JSON
+## Step 7: Secure Credential Entry
 
-Tell the user: "Almost done — downloading credentials..."
+After the credentials dialog appears showing the client ID and client secret, tell the user:
 
-After the credentials dialog appears, click the "Download JSON" button (it may say "DOWNLOAD JSON" or show a download icon).
-
-Use `browser_wait_for_download` to wait for the file to download.
-
-Tell the user: "Credentials downloaded!"
-
-## Step 8: Secure Credential Entry
-
-Tell the user: "I've downloaded the credentials file. Please open it and enter the values below. I won't see what you type — these go directly to secure storage."
+"Credentials created! Please enter the values from the dialog below. I won't see what you type — these go directly to secure storage."
 
 ```
 credential_store prompt:
   service: "integration:gmail"
   field: "client_id"
   label: "Google OAuth Client ID"
-  description: "Open the downloaded JSON file and copy the client_id value"
+  description: "Copy the Client ID from the dialog that just appeared"
   placeholder: "123456789.apps.googleusercontent.com"
 ```
 
@@ -156,11 +145,11 @@ credential_store prompt:
   service: "integration:gmail"
   field: "client_secret"
   label: "Google OAuth Client Secret"
-  description: "Copy the client_secret value from the same JSON file"
+  description: "Copy the Client secret from the same dialog"
   placeholder: "GOCSPX-..."
 ```
 
-## Step 9: OAuth2 Authorization
+## Step 8: OAuth2 Authorization
 
 Tell the user: "Opening Google sign-in so you can authorize Vellum. Just click 'Allow' on the consent page."
 
@@ -171,11 +160,11 @@ action: "oauth2_connect"
 service: "integration:gmail"
 ```
 
-This auto-reads client_id/client_secret from the secure store and auto-fills auth_url, token_url, scopes, and extra_params from well-known config.
+This auto-reads client_id/client_secret from the secure store and auto-fills auth_url, token_url, scopes, and extra_params from well-known config. The OAuth flow uses a localhost callback — no public URL or tunnel is needed.
 
 **If the user sees a "This app isn't verified" warning:** Tell them this is normal for apps in testing mode. Click "Advanced" then "Go to Vellum Assistant (unsafe)" to proceed.
 
-## Step 10: Done!
+## Step 9: Done!
 
 "**Gmail and Calendar are connected!** You can now read, search, and send emails, plus view and manage your calendar. Try asking me to check your inbox or show your upcoming events!"
 
