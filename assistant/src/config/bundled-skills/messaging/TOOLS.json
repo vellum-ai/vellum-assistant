@@ -597,6 +597,200 @@
       },
       "executor": "tools/google-contacts.ts",
       "execution_target": "host"
+    },
+    {
+      "name": "sequence_create",
+      "description": "Create an email sequence with multiple steps and delay intervals.",
+      "category": "messaging",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "description": "Name of the sequence" },
+          "channel": { "type": "string", "description": "Messaging channel (e.g. \"gmail\")" },
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "delay_seconds": { "type": "number", "description": "Delay before sending this step (in seconds)" },
+                "subject": { "type": "string", "description": "Subject line template" },
+                "body_prompt": { "type": "string", "description": "Prompt or body text for this step" },
+                "reply_to_thread": { "type": "boolean", "description": "Whether to reply in the existing thread (default true for step 2+)" },
+                "require_approval": { "type": "boolean", "description": "Whether to require user approval before sending (default false)" }
+              },
+              "required": ["body_prompt"]
+            },
+            "description": "Ordered list of sequence steps"
+          },
+          "description": { "type": "string", "description": "Optional description of the sequence" },
+          "exit_on_reply": { "type": "boolean", "description": "Whether to stop the sequence when the contact replies (default true)" }
+        },
+        "required": ["name", "channel", "steps"]
+      },
+      "executor": "tools/sequence-create.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "sequence_list",
+      "description": "List all email sequences with their status and enrollment counts.",
+      "category": "messaging",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string", "enum": ["active", "paused", "archived"], "description": "Filter by sequence status" }
+        }
+      },
+      "executor": "tools/sequence-list.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "sequence_get",
+      "description": "Get detailed information about a sequence including steps, enrollment counts, and status breakdown.",
+      "category": "messaging",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "description": "Sequence ID" }
+        },
+        "required": ["id"]
+      },
+      "executor": "tools/sequence-get.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "sequence_update",
+      "description": "Update a sequence's name, description, status, steps, or exit-on-reply setting.",
+      "category": "messaging",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "description": "Sequence ID to update" },
+          "name": { "type": "string", "description": "New name" },
+          "description": { "type": "string", "description": "New description" },
+          "status": { "type": "string", "enum": ["active", "paused", "archived"], "description": "New status" },
+          "exit_on_reply": { "type": "boolean", "description": "Whether to exit on contact reply" },
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "delay_seconds": { "type": "number", "description": "Delay before sending this step (in seconds)" },
+                "subject": { "type": "string", "description": "Subject line template" },
+                "body_prompt": { "type": "string", "description": "Prompt or body text for this step" },
+                "reply_to_thread": { "type": "boolean", "description": "Whether to reply in the existing thread" },
+                "require_approval": { "type": "boolean", "description": "Whether to require user approval before sending" }
+              },
+              "required": ["body_prompt"]
+            },
+            "description": "Replacement steps (replaces all existing steps)"
+          }
+        },
+        "required": ["id"]
+      },
+      "executor": "tools/sequence-update.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "sequence_delete",
+      "description": "Delete a sequence and cancel all its active enrollments.",
+      "category": "messaging",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "description": "Sequence ID to delete" }
+        },
+        "required": ["id"]
+      },
+      "executor": "tools/sequence-delete.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "sequence_enroll",
+      "description": "Enroll one or more contacts into a sequence. Accepts comma-separated emails or an array.",
+      "category": "messaging",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sequence_id": { "type": "string", "description": "Sequence ID to enroll contacts in" },
+          "emails": {
+            "description": "Email address(es) to enroll — comma-separated string or array",
+            "oneOf": [
+              { "type": "string" },
+              { "type": "array", "items": { "type": "string" } }
+            ]
+          },
+          "context": { "type": "object", "description": "Optional context object with personalization variables for the enrolled contacts" }
+        },
+        "required": ["sequence_id", "emails"]
+      },
+      "executor": "tools/sequence-enroll.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "sequence_enrollment_list",
+      "description": "List enrollments for a sequence, optionally filtered by status.",
+      "category": "messaging",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sequence_id": { "type": "string", "description": "Filter by sequence ID" },
+          "status": { "type": "string", "enum": ["active", "paused", "completed", "replied", "cancelled", "failed"], "description": "Filter by enrollment status" }
+        }
+      },
+      "executor": "tools/sequence-enrollment-list.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "sequence_pause",
+      "description": "Pause a sequence (stops processing all enrollments) or cancel a specific enrollment.",
+      "category": "messaging",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sequence_id": { "type": "string", "description": "Sequence ID to pause" },
+          "enrollment_id": { "type": "string", "description": "Specific enrollment ID to cancel (alternative to pausing whole sequence)" }
+        }
+      },
+      "executor": "tools/sequence-pause.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "sequence_resume",
+      "description": "Resume a paused sequence. Active enrollments will be processed on the next scheduler tick.",
+      "category": "messaging",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sequence_id": { "type": "string", "description": "Sequence ID to resume" }
+        },
+        "required": ["sequence_id"]
+      },
+      "executor": "tools/sequence-resume.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "sequence_cancel",
+      "description": "Cancel a specific enrollment, removing the contact from the sequence.",
+      "category": "messaging",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "enrollment_id": { "type": "string", "description": "Enrollment ID to cancel" }
+        },
+        "required": ["enrollment_id"]
+      },
+      "executor": "tools/sequence-cancel.ts",
+      "execution_target": "host"
     }
   ]
 }
