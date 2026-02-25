@@ -82,21 +82,8 @@ export async function ssh(): Promise<void> {
       { stdio: "inherit" },
     );
   } else if (cloud === "vellum") {
-    const namespace = entry.namespace;
-    if (!namespace) {
-      console.error("Error: Kubernetes namespace not found in assistant config.");
-      process.exit(1);
-    }
-
-    const podName = `${entry.assistantId}-0`;
-
-    console.log(`🔗 Connecting to ${entry.assistantId} via kubectl exec...\n`);
-
-    child = spawn(
-      "kubectl",
-      ["exec", "-it", podName, "-n", namespace, "-c", "assistant-container", "--", "/bin/bash"],
-      { stdio: "inherit" },
-    );
+    console.error("SSH to Vellum-managed instances is not supported from the assistant CLI. Use `vel ssh` instead.");
+    process.exit(1);
   } else if (cloud === "custom") {
     const host = extractHostFromUrl(entry.runtimeUrl);
     const sshUser = entry.sshUser ?? "root";
