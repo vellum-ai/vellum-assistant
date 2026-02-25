@@ -556,6 +556,8 @@ function startLoopbackServerForPreparedFlow(
       if (!listening) {
         // Pre-startup error (e.g. port in use): resolveSetup was never called,
         // so codePromise has no consumer — only reject the setup promise.
+        settled = true;
+        cleanup();
         rejectSetup(new Error(message));
       } else if (!settled) {
         // Post-startup error: setup promise already resolved, reject codePromise
