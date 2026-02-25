@@ -637,8 +637,7 @@ export class CallController {
   private isExpectedAbortError(err: unknown): boolean {
     if (!(err instanceof Error)) return false;
     return err.name === 'AbortError'
-      || err.name === 'APIUserAbortError'
-      || err.message === 'Session is already processing a message';
+      || err.name === 'APIUserAbortError';
   }
 
   private isCurrentRun(runVersion: number): boolean {
