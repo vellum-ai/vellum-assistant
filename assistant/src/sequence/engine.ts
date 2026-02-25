@@ -7,7 +7,7 @@
  */
 
 import { getLogger } from '../util/logger.js';
-import { createConversation } from '../memory/conversation-store.js';
+import { createConversation, getMessages } from '../memory/conversation-store.js';
 import { GENERATING_TITLE, queueGenerateConversationTitle } from '../memory/conversation-title-service.js';
 import type { ScheduleMessageProcessor } from '../schedule/scheduler.js';
 import {
@@ -17,6 +17,7 @@ import {
   getSequence,
   getEnrollment,
   rescheduleEnrollment,
+  updateEnrollmentThreadId,
 } from './store.js';
 import type { Sequence, SequenceEnrollment, SequenceStep } from './types.js';
 
@@ -24,6 +25,7 @@ const log = getLogger('sequence-engine');
 
 const MAX_RETRIES = 3;
 const BATCH_SIZE = 10;
+const ERROR_RETRY_DELAY_MS = 60_000;
 
 /**
  * Process due sequence enrollments. Called by the scheduler on each tick.
@@ -52,10 +54,9 @@ export async function runSequencesOnce(
       try {
         const current = getEnrollment(enrollment.id);
         if (current && current.status === 'active') {
-          const retryDelayMs = 60_000;
-          rescheduleEnrollment(enrollment.id, Date.now() + retryDelayMs);
+          rescheduleEnrollment(enrollment.id, Date.now() + ERROR_RETRY_DELAY_MS);
           log.info(
-            { enrollmentId: enrollment.id, retryAt: new Date(Date.now() + retryDelayMs).toISOString() },
+            { enrollmentId: enrollment.id, retryAt: new Date(Date.now() + ERROR_RETRY_DELAY_MS).toISOString() },
             'Rescheduled enrollment for retry after processing failure',
           );
         }
@@ -115,17 +116,38 @@ async function processEnrollment(
 
   await processMessage(conversation.id, prompt);
 
+  // Try to extract the email thread ID from conversation tool results so
+  // subsequent steps can reply in the same thread.
+  const threadId = extractThreadIdFromConversation(conversation.id) ?? undefined;
+  if (threadId) {
+    log.info({ enrollmentId: enrollment.id, threadId }, 'Captured thread ID from step execution');
+  }
+
+  // Steps that require approval create a draft instead of sending. Don't
+  // advance the enrollment — leave it at the current step with nextStepAt
+  // null so it won't be re-claimed. The approval/send flow is responsible
+  // for advancing the enrollment once the draft is approved.
+  if (step.requireApproval) {
+    if (threadId) updateEnrollmentThreadId(enrollment.id, threadId);
+    log.info({
+      enrollmentId: enrollment.id,
+      sequenceId: sequence.id,
+      step: step.index,
+    }, 'Step requires approval — pausing advancement until draft is approved');
+    return;
+  }
+
   // Advance to the next step
   const nextStepIndex = enrollment.currentStep + 1;
   if (nextStepIndex >= sequence.steps.length) {
     // This was the final step
-    advanceEnrollment(enrollment.id, undefined, null);
+    advanceEnrollment(enrollment.id, threadId, null);
     exitEnrollment(enrollment.id, 'completed');
     log.info({ enrollmentId: enrollment.id, sequenceId: sequence.id }, 'Sequence completed');
   } else {
     const nextStep = sequence.steps[nextStepIndex];
     const nextStepAt = Date.now() + (nextStep.delaySeconds * 1000);
-    advanceEnrollment(enrollment.id, undefined, nextStepAt);
+    advanceEnrollment(enrollment.id, threadId, nextStepAt);
     log.info({
       enrollmentId: enrollment.id,
       nextStep: nextStepIndex,
@@ -181,4 +203,38 @@ function advanceEnrollmentToCurrentStep(
 ): void {
   // Re-schedule 60 seconds from now so it gets picked up after the sequence resumes
   rescheduleEnrollment(enrollment.id, Date.now() + 60_000);
+}
+
+/**
+ * Scan conversation messages for an email thread ID returned by tool
+ * invocations. Looks for common patterns like "thread_id": "..." or
+ * "Thread ID: ..." in tool result text.
+ */
+function extractThreadIdFromConversation(conversationId: string): string | null {
+  try {
+    const msgs = getMessages(conversationId);
+    // Walk messages in reverse — the thread ID from the most recent tool call
+    // is the one we want.
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const msg = msgs[i];
+      const threadId = extractThreadIdFromContent(msg.content);
+      if (threadId) return threadId;
+    }
+  } catch (err) {
+    log.warn({ err, conversationId }, 'Failed to extract thread ID from conversation');
+  }
+  return null;
+}
+
+/** Extract a thread ID from raw message content (may be JSON content blocks or plain text). */
+function extractThreadIdFromContent(content: string): string | null {
+  // Pattern 1: JSON field like "threadId": "..." or "thread_id": "..."
+  const jsonMatch = content.match(/"(?:threadId|thread_id)"\s*:\s*"([^"]+)"/);
+  if (jsonMatch) return jsonMatch[1];
+
+  // Pattern 2: Prose like "Thread ID: <id>" (from tool result text)
+  const proseMatch = content.match(/[Tt]hread\s+(?:ID|id):\s*(\S+)/);
+  if (proseMatch) return proseMatch[1];
+
+  return null;
 }
