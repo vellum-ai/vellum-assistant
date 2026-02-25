@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, isNull, lt } from 'drizzle-orm';
+import { and, desc, eq, gte, isNull, lt, sql } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
 import type { AssistantConfig } from '../../config/types.js';
@@ -84,34 +84,30 @@ export async function buildConversationSummaryJob(job: MemoryJob, config: Assist
   const now = Date.now();
   const summaryId = existing?.id ?? uuid();
   const nextVersion = (existing?.version ?? 0) + 1;
-  if (existing) {
-    db.update(memorySummaries)
-      .set({
-        summary: summaryText,
-        tokenEstimate: estimateTextTokens(summaryText),
-        version: nextVersion,
-        scopeId,
-        startAt: rows[rows.length - 1].createdAt,
-        endAt: rows[0].createdAt,
-        updatedAt: now,
-      })
-      .where(eq(memorySummaries.id, existing.id))
-      .run();
-  } else {
-    db.insert(memorySummaries).values({
-      id: summaryId,
-      scope: 'conversation',
-      scopeKey: conversationId,
-      scopeId,
+  db.insert(memorySummaries).values({
+    id: summaryId,
+    scope: 'conversation',
+    scopeKey: conversationId,
+    scopeId,
+    summary: summaryText,
+    tokenEstimate: estimateTextTokens(summaryText),
+    version: nextVersion,
+    startAt: rows[rows.length - 1].createdAt,
+    endAt: rows[0].createdAt,
+    createdAt: now,
+    updatedAt: now,
+  }).onConflictDoUpdate({
+    target: [memorySummaries.scope, memorySummaries.scopeKey],
+    set: {
       summary: summaryText,
       tokenEstimate: estimateTextTokens(summaryText),
-      version: nextVersion,
+      version: sql`${memorySummaries.version} + 1`,
+      scopeId,
       startAt: rows[rows.length - 1].createdAt,
       endAt: rows[0].createdAt,
-      createdAt: now,
       updatedAt: now,
-    }).run();
-  }
+    },
+  }).run();
   enqueueMemoryJob('embed_summary', { summaryId });
 }
 
@@ -188,33 +184,28 @@ export async function buildGlobalSummaryJob(scope: 'weekly_global' | 'monthly_gl
 
   const ts = Date.now();
   const summaryId = existing?.id ?? uuid();
-  const nextVersion = (existing?.version ?? 0) + 1;
-  if (existing) {
-    db.update(memorySummaries)
-      .set({
-        summary: summaryText,
-        tokenEstimate: estimateTextTokens(summaryText),
-        version: nextVersion,
-        startAt: startMs,
-        endAt: endMs,
-        updatedAt: ts,
-      })
-      .where(eq(memorySummaries.id, existing.id))
-      .run();
-  } else {
-    db.insert(memorySummaries).values({
-      id: summaryId,
-      scope,
-      scopeKey,
+  db.insert(memorySummaries).values({
+    id: summaryId,
+    scope,
+    scopeKey,
+    summary: summaryText,
+    tokenEstimate: estimateTextTokens(summaryText),
+    version: (existing?.version ?? 0) + 1,
+    startAt: startMs,
+    endAt: endMs,
+    createdAt: ts,
+    updatedAt: ts,
+  }).onConflictDoUpdate({
+    target: [memorySummaries.scope, memorySummaries.scopeKey],
+    set: {
       summary: summaryText,
       tokenEstimate: estimateTextTokens(summaryText),
-      version: nextVersion,
+      version: sql`${memorySummaries.version} + 1`,
       startAt: startMs,
       endAt: endMs,
-      createdAt: ts,
       updatedAt: ts,
-    }).run();
-  }
+    },
+  }).run();
   enqueueMemoryJob('embed_summary', { summaryId });
 }
 

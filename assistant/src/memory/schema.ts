@@ -138,6 +138,7 @@ export const memorySummaries = sqliteTable('memory_summaries', {
   updatedAt: integer('updated_at').notNull(),
 }, (table) => [
   index('idx_memory_summaries_scope_id').on(table.scopeId),
+  uniqueIndex('idx_memory_summaries_scope_scope_key').on(table.scope, table.scopeKey),
 ]);
 
 export const memoryEmbeddings = sqliteTable('memory_embeddings', {
