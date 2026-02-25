@@ -1236,19 +1236,20 @@ public final class SettingsStore: ObservableObject {
 
     private func applyOutboundResponseState(channel: String, response: GuardianVerificationResponseMessage) {
         let sessionId = response.verificationSessionId
-        // Only convert expiresAt when the response includes it; resend success payloads
-        // omit expiresAt, and overwriting with nil would lose countdown tracking.
+        // Only update fields when the response includes them; partial payloads (e.g. resend
+        // success) omit fields like expiresAt, sendCount, and nextResendAt. Overwriting with
+        // nil/zero would lose countdown tracking and UI state.
         let expiresAt = response.expiresAt.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000.0) }
         let nextResendAt = response.nextResendAt.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000.0) }
-        let sendCount = response.sendCount ?? 0
+        let sendCount = response.sendCount
         let bootstrapUrl = response.telegramBootstrapUrl
 
         switch channel {
         case "telegram":
             telegramOutboundSessionId = sessionId
             if let expiresAt { telegramOutboundExpiresAt = expiresAt }
-            telegramOutboundNextResendAt = nextResendAt
-            telegramOutboundSendCount = sendCount
+            if let nextResendAt { telegramOutboundNextResendAt = nextResendAt }
+            if let sendCount { telegramOutboundSendCount = sendCount }
             if let bootstrapUrl {
                 telegramBootstrapUrl = bootstrapUrl
             } else if sessionId != nil {
@@ -1258,13 +1259,13 @@ public final class SettingsStore: ObservableObject {
         case "sms":
             smsOutboundSessionId = sessionId
             if let expiresAt { smsOutboundExpiresAt = expiresAt }
-            smsOutboundNextResendAt = nextResendAt
-            smsOutboundSendCount = sendCount
+            if let nextResendAt { smsOutboundNextResendAt = nextResendAt }
+            if let sendCount { smsOutboundSendCount = sendCount }
         case "voice":
             voiceOutboundSessionId = sessionId
             if let expiresAt { voiceOutboundExpiresAt = expiresAt }
-            voiceOutboundNextResendAt = nextResendAt
-            voiceOutboundSendCount = sendCount
+            if let nextResendAt { voiceOutboundNextResendAt = nextResendAt }
+            if let sendCount { voiceOutboundSendCount = sendCount }
         default:
             break
         }
