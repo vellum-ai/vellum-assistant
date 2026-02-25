@@ -6,7 +6,7 @@
  */
 
 import type { ServerMessage, UserMessageAttachment } from './ipc-protocol.js';
-import type { TurnChannelContext } from '../channels/types.js';
+import type { TurnChannelContext, TurnInterfaceContext } from '../channels/types.js';
 import { getLogger } from '../util/logger.js';
 
 const log = getLogger('session-queue');
@@ -20,6 +20,7 @@ export interface QueuedMessage {
   currentPage?: string;
   metadata?: Record<string, unknown>;
   turnChannelContext?: TurnChannelContext;
+  turnInterfaceContext?: TurnInterfaceContext;
   /** Timestamp (ms) when the message was enqueued. */
   queuedAt: number;
 }
