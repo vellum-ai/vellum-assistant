@@ -323,7 +323,7 @@ export async function handleSendMessage(
       mapping.conversationId,
       content ?? '',
       hasAttachments ? attachmentIds : undefined,
-      undefined,
+      { guardianContext: { actorRole: 'guardian', sourceChannel } },
       sourceChannel,
     );
     return Response.json({ accepted: true, messageId: result.messageId }, { status: 202 });
