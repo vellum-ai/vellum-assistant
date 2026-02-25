@@ -14,57 +14,62 @@ struct IdentityPanel: View {
     @State private var workspaceFiles: [WorkspaceFileNode] = []
     @State private var skills: [SkillInfo] = []
     @State private var viewingFilePath: String?
+    @State private var isFullscreen: Bool = false
 
     private let maxContentWidth: CGFloat = 1100
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header + ID card area (max width matches other panels)
-            VStack(alignment: .leading, spacing: 0) {
-                // Header
-                HStack(alignment: .center) {
-                    Text("Assistant ID")
-                        .font(VFont.panelTitle)
-                        .foregroundColor(VColor.textPrimary)
-                    Spacer()
-                }
-                .padding(.top, VSpacing.xxl)
-                .padding(.bottom, VSpacing.xl)
-
-                Divider().background(VColor.surfaceBorder)
-
-                // Avatar + ID card + CTA
-                HStack(alignment: .center, spacing: VSpacing.lg) {
-                    DinoSceneView(seed: identity?.name ?? remoteIdentity?.name ?? lockfileAssistant?.assistantId ?? "default", palette: appearance.palette, outfit: appearance.outfit)
-                        .frame(width: 180, height: 200)
-
-                    VStack(alignment: .leading, spacing: VSpacing.lg) {
-                        idCardSection(identity: identity, remoteIdentity: remoteIdentity)
-
-                        // Customize Avatar CTA
-                        Button(action: onCustomizeAvatar) {
-                            HStack(spacing: VSpacing.xs) {
-                                Image(systemName: "paintpalette")
-                                    .font(.system(size: 12, weight: .medium))
-                                Text("Customize Avatar")
-                                    .font(VFont.bodyMedium)
-                            }
-                            .foregroundColor(VColor.accent)
-                            .padding(.horizontal, VSpacing.lg)
-                            .padding(.vertical, VSpacing.sm)
-                            .background(
-                                RoundedRectangle(cornerRadius: VRadius.md)
-                                    .stroke(VColor.accent.opacity(0.3), lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(.plain)
+            // Header + ID card area — hidden in fullscreen so the
+            // constellation grid fills the entire panel height.
+            if !isFullscreen {
+                VStack(alignment: .leading, spacing: 0) {
+                    // Header
+                    HStack(alignment: .center) {
+                        Text("Assistant ID")
+                            .font(VFont.panelTitle)
+                            .foregroundColor(VColor.textPrimary)
+                        Spacer()
                     }
+                    .padding(.top, VSpacing.xxl)
+                    .padding(.bottom, VSpacing.xl)
+
+                    Divider().background(VColor.surfaceBorder)
+
+                    // Avatar + ID card + CTA
+                    HStack(alignment: .center, spacing: VSpacing.lg) {
+                        DinoSceneView(seed: identity?.name ?? remoteIdentity?.name ?? lockfileAssistant?.assistantId ?? "default", palette: appearance.palette, outfit: appearance.outfit)
+                            .frame(width: 180, height: 200)
+
+                        VStack(alignment: .leading, spacing: VSpacing.lg) {
+                            idCardSection(identity: identity, remoteIdentity: remoteIdentity)
+
+                            // Customize Avatar CTA
+                            Button(action: onCustomizeAvatar) {
+                                HStack(spacing: VSpacing.xs) {
+                                    Image(systemName: "paintpalette")
+                                        .font(.system(size: 12, weight: .medium))
+                                    Text("Customize Avatar")
+                                        .font(VFont.bodyMedium)
+                                }
+                                .foregroundColor(VColor.accent)
+                                .padding(.horizontal, VSpacing.lg)
+                                .padding(.vertical, VSpacing.sm)
+                                .background(
+                                    RoundedRectangle(cornerRadius: VRadius.md)
+                                        .stroke(VColor.accent.opacity(0.3), lineWidth: 1)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.vertical, VSpacing.xl)
                 }
-                .padding(.vertical, VSpacing.xl)
+                .frame(maxWidth: maxContentWidth)
+                .padding(.horizontal, VSpacing.xxl)
+                .frame(maxWidth: .infinity)
+                .transition(.move(edge: .top).combined(with: .opacity))
             }
-            .frame(maxWidth: maxContentWidth)
-            .padding(.horizontal, VSpacing.xxl)
-            .frame(maxWidth: .infinity)
 
             // Constellation fills remaining space (pan + zoom to navigate)
             ConstellationView(
@@ -73,11 +78,13 @@ struct IdentityPanel: View {
                 workspaceFiles: workspaceFiles,
                 onFileSelected: { path in
                     viewingFilePath = path
-                }
+                },
+                isFullscreen: $isFullscreen
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(adaptiveColor(light: Color(hex: 0xF5F3EB), dark: Moss._900))
         }
+        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isFullscreen)
         .overlay {
             if let path = viewingFilePath {
                 // Dismiss backdrop
