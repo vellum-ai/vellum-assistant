@@ -57,6 +57,7 @@ import {
   buildPromptDeliveryFailureContext,
   RUN_POLL_INTERVAL_MS,
   getEffectivePollMaxWait,
+  canonicalChannelAssistantId,
 } from './channel-route-shared.js';
 import { deliverReplyViaCallback } from './channel-delivery-routes.js';
 import { handleApprovalInterception } from './guardian-approval-interception.js';
@@ -144,6 +145,13 @@ export async function handleChannelInbound(
     return Response.json({ error: 'content or attachmentIds is required' }, { status: 400 });
   }
 
+  // Canonicalize the assistant ID so all DB-facing operations use the
+  // consistent 'self' key regardless of what the gateway sent.
+  const canonicalAssistantId = canonicalChannelAssistantId(assistantId);
+  if (canonicalAssistantId !== assistantId) {
+    log.debug({ raw: assistantId, canonical: canonicalAssistantId }, 'Canonicalized channel assistant ID');
+  }
+
   // ── Ingress ACL enforcement ──
   // Track the resolved member so the escalate branch can reference it after
   // recordInbound (where we have a conversationId).
@@ -155,7 +163,7 @@ export async function handleChannelInbound(
 
   if (body.senderExternalUserId) {
     resolvedMember = findMember({
-      assistantId,
+      assistantId: canonicalAssistantId,
       sourceChannel,
       externalUserId: body.senderExternalUserId,
       externalChatId,
@@ -242,7 +250,7 @@ export async function handleChannelInbound(
       sourceChannel,
       externalChatId,
       externalMessageId,
-      { sourceMessageId, assistantId },
+      { sourceMessageId, assistantId: canonicalAssistantId },
     );
 
     if (editResult.duplicate) {
@@ -301,13 +309,13 @@ export async function handleChannelInbound(
     sourceChannel,
     externalChatId,
     externalMessageId,
-    { sourceMessageId, assistantId },
+    { sourceMessageId, assistantId: canonicalAssistantId },
   );
 
   // external_conversation_bindings is assistant-agnostic. Restrict writes to
   // self so assistant-scoped legacy routes do not overwrite each other's
   // channel binding metadata for the same chat.
-  if (assistantId === 'self') {
+  if (canonicalAssistantId === 'self') {
     externalConversationStore.upsertBinding({
       conversationId: result.conversationId,
       sourceChannel,
@@ -323,7 +331,7 @@ export async function handleChannelInbound(
   // approval request and halt the run. This check runs after recordInbound
   // so we have a conversationId for the approval record.
   if (resolvedMember?.policy === 'escalate') {
-    const binding = getGuardianBinding(assistantId, sourceChannel);
+    const binding = getGuardianBinding(canonicalAssistantId, sourceChannel);
     if (!binding) {
       // Fail-closed: can't escalate without a guardian to route to
       log.info({ sourceChannel, memberId: resolvedMember.id }, 'Ingress ACL: escalate policy but no guardian binding, denying');
@@ -339,13 +347,13 @@ export async function handleChannelInbound(
       senderExternalUserId: body.senderExternalUserId,
       senderUsername: body.senderUsername,
       replyCallbackUrl: body.replyCallbackUrl,
-      assistantId,
+      assistantId: canonicalAssistantId,
     });
 
     createApprovalRequest({
       runId: `ingress-escalation-${Date.now()}`,
       conversationId: result.conversationId,
-      assistantId,
+      assistantId: canonicalAssistantId,
       channel: sourceChannel,
       requesterExternalUserId: body.senderExternalUserId ?? '',
       requesterChatId: externalChatId,
@@ -358,7 +366,7 @@ export async function handleChannelInbound(
     });
 
     // Update inbox thread escalation state so the desktop UI badge is accurate
-    refreshThreadEscalation(result.conversationId, assistantId);
+    refreshThreadEscalation(result.conversationId, canonicalAssistantId);
 
     // Emit notification signal through the unified pipeline (fire-and-forget).
     // This lets the decision engine route escalation alerts to all configured
@@ -367,7 +375,7 @@ export async function handleChannelInbound(
       sourceEventName: 'ingress.escalation',
       sourceChannel: sourceChannel,
       sourceSessionId: result.conversationId,
-      assistantId,
+      assistantId: canonicalAssistantId,
       attentionHints: {
         requiresAction: true,
         urgency: 'high',
@@ -460,7 +468,7 @@ export async function handleChannelInbound(
     const token = trimmedContent.slice('/guardian_verify '.length).trim();
     if (token.length > 0) {
       const verifyResult = validateAndConsumeChallenge(
-        assistantId,
+        canonicalAssistantId,
         sourceChannel,
         token,
         body.senderExternalUserId,
@@ -471,7 +479,7 @@ export async function handleChannelInbound(
 
       if (verifyResult.success) {
         upsertMember({
-          assistantId,
+          assistantId: canonicalAssistantId,
           sourceChannel,
           externalUserId: body.senderExternalUserId,
           externalChatId,
@@ -523,7 +531,7 @@ export async function handleChannelInbound(
     body.senderExternalUserId &&
     replyCallbackUrl
   ) {
-    const pendingDeliveries = getPendingDeliveriesByDestination(assistantId, sourceChannel, externalChatId);
+    const pendingDeliveries = getPendingDeliveriesByDestination(canonicalAssistantId, sourceChannel, externalChatId);
     if (pendingDeliveries.length > 0) {
       // Identity check: only the designated guardian can answer
       const validDeliveries = pendingDeliveries.filter(
@@ -642,7 +650,7 @@ export async function handleChannelInbound(
   // Uses shared channel-agnostic resolution so all ingress paths classify
   // guardian vs non-guardian actors the same way.
   const guardianCtx: GuardianContext = resolveGuardianContext({
-    assistantId,
+    assistantId: canonicalAssistantId,
     sourceChannel,
     externalChatId,
     senderExternalUserId: body.senderExternalUserId,
@@ -667,7 +675,7 @@ export async function handleChannelInbound(
       bearerToken,
       orchestrator: runOrchestrator,
       guardianCtx,
-      assistantId,
+      assistantId: canonicalAssistantId,
       approvalCopyGenerator,
       approvalConversationGenerator,
     });
@@ -710,7 +718,7 @@ export async function handleChannelInbound(
       senderUsername: body.senderUsername,
       guardianCtx: toGuardianRuntimeContext(sourceChannel, guardianCtx),
       replyCallbackUrl,
-      assistantId,
+      assistantId: canonicalAssistantId,
     });
 
     const contentToCheck = content ?? '';
@@ -746,7 +754,7 @@ export async function handleChannelInbound(
         replyCallbackUrl,
         bearerToken,
         guardianCtx,
-        assistantId,
+        assistantId: canonicalAssistantId,
         metadataHints,
         metadataUxBrief,
         commandIntent,
@@ -771,7 +779,7 @@ export async function handleChannelInbound(
         sourceLanguageCode,
         replyCallbackUrl,
         bearerToken,
-        assistantId,
+        assistantId: canonicalAssistantId,
       });
     }
   }
