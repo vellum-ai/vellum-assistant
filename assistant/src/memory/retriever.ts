@@ -626,82 +626,53 @@ export function stripMemoryRecallMessages<T extends { role: 'user' | 'assistant'
   const recallText = memoryRecallText ?? '';
   if (recallText.trim().length === 0) return messages;
 
-  // Try separate_context_message pattern first: look for the injected
-  // user+assistant pair (user message whose sole text block is the recall
-  // text, followed by an assistant ack message).
-  for (let index = messages.length - 1; index >= 0; index--) {
-    const message = messages[index];
-    if (message.role !== 'user') continue;
-    if (message.content.length !== 1) continue;
-    const block = message.content[0];
-    if (block.type !== 'text' || block.text !== recallText) continue;
-    // Check if the next message is the assistant ack
-    const next = messages[index + 1];
-    if (
-      next &&
-      next.role === 'assistant' &&
-      next.content.length === 1 &&
-      next.content[0].type === 'text' &&
-      next.content[0].text === MEMORY_CONTEXT_ACK
-    ) {
-      // Remove both the user context message and the assistant ack
-      return [...messages.slice(0, index), ...messages.slice(index + 2)];
-    }
-  }
-
-  // Fall back to prepend_user_block pattern: the recall text is a block
-  // inside a user message that also has real user content.
+  // Single backward scan: find the last user message containing the recall
+  // text block, regardless of whether it's the sole block (separate_context_message)
+  // or one of many (prepend_user_block / repair-merged).
   let targetIndex = -1;
   let blockIndex = -1;
-  for (let index = messages.length - 1; index >= 0; index--) {
-    const message = messages[index];
-    if (message.role !== 'user' || message.content.length === 0) continue;
-    let foundBlock = -1;
-    for (let bi = message.content.length - 1; bi >= 0; bi--) {
-      const block = message.content[bi];
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.role !== 'user' || msg.content.length === 0) continue;
+    for (let bi = msg.content.length - 1; bi >= 0; bi--) {
+      const block = msg.content[bi];
       if (block.type === 'text' && block.text === recallText) {
-        foundBlock = bi;
+        targetIndex = i;
+        blockIndex = bi;
         break;
       }
     }
-    if (foundBlock !== -1) {
-      targetIndex = index;
-      blockIndex = foundBlock;
-      break;
-    }
+    if (targetIndex !== -1) break;
   }
   if (targetIndex === -1) return messages;
 
-  // Check if the message after targetIndex is the assistant ack from a
-  // merged separate-context injection (deepRepairHistory can merge the
-  // standalone recall user message into an adjacent user message, leaving
-  // the ack orphaned). Only check when the injection strategy is
-  // separate_context_message -- prepend_user_block never injects a
-  // synthetic ack, so stripping here would delete a real assistant reply.
+  // When separate_context_message was used (or strategy is unknown), check
+  // for an adjacent assistant ack to strip. prepend_user_block never injects
+  // a synthetic ack, so we skip this to avoid deleting a real assistant reply.
+  const shouldStripAck = injectionStrategy !== 'prepend_user_block';
+  const isAck = (msg: T) =>
+    msg.role === 'assistant' &&
+    msg.content.length === 1 &&
+    msg.content[0].type === 'text' &&
+    msg.content[0].text === MEMORY_CONTEXT_ACK;
   const ackIndex =
-    injectionStrategy !== 'prepend_user_block' &&
-    targetIndex + 1 < messages.length &&
-    messages[targetIndex + 1].role === 'assistant' &&
-    messages[targetIndex + 1].content.length === 1 &&
-    messages[targetIndex + 1].content[0].type === 'text' &&
-    messages[targetIndex + 1].content[0].text === MEMORY_CONTEXT_ACK
+    shouldStripAck && targetIndex + 1 < messages.length && isAck(messages[targetIndex + 1])
       ? targetIndex + 1
       : -1;
 
   const cleaned: T[] = [];
-  for (let index = 0; index < messages.length; index++) {
-    if (index === ackIndex) continue;
-    const message = messages[index];
-    if (index !== targetIndex) {
-      cleaned.push(message);
+  for (let i = 0; i < messages.length; i++) {
+    if (i === ackIndex) continue;
+    if (i !== targetIndex) {
+      cleaned.push(messages[i]);
       continue;
     }
     const filteredContent = [
-      ...message.content.slice(0, blockIndex),
-      ...message.content.slice(blockIndex + 1),
+      ...messages[i].content.slice(0, blockIndex),
+      ...messages[i].content.slice(blockIndex + 1),
     ];
     if (filteredContent.length === 0) continue;
-    cleaned.push({ ...message, content: filteredContent } as T);
+    cleaned.push({ ...messages[i], content: filteredContent } as T);
   }
   return cleaned;
 }
