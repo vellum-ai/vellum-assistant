@@ -111,11 +111,13 @@ export const slackProvider: WatcherProvider = {
       // could provide a bare string instead of an array. Coerce to string[]
       // and filter out any non-string entries to prevent iterating characters.
       const rawChannels = slackConfig.channels;
-      const watchChannels: string[] = Array.isArray(rawChannels)
-        ? rawChannels.filter((ch): ch is string => typeof ch === 'string')
-        : typeof rawChannels === 'string'
-          ? [rawChannels]
-          : [];
+      const watchChannels: string[] = (
+        Array.isArray(rawChannels)
+          ? rawChannels.filter((ch): ch is string => typeof ch === 'string')
+          : typeof rawChannels === 'string'
+            ? [rawChannels]
+            : []
+      ).filter((ch) => ch.trim().length > 0);
 
       const includeDMs = typeof slackConfig.includeDMs === 'boolean' ? slackConfig.includeDMs : true;
 
