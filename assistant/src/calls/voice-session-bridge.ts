@@ -155,6 +155,7 @@ function buildVoiceCallControlPrompt(opts: {
 
   lines.push(
     '9. After the opening greeting turn, treat the Task field as background context only — do not re-execute its instructions on subsequent turns.',
+    '10. Do not make up information. If you are unsure, use [ASK_GUARDIAN: your question] to consult your guardian.',
     '</voice_call_control>',
   );
 
