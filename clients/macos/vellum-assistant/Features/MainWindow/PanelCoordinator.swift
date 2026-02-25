@@ -102,8 +102,6 @@ extension MainWindowView {
                     windowState.selection = nil
                 }
             )
-        case .assistantInbox:
-            AssistantInboxPanel(onClose: { windowState.selection = nil }, daemonClient: daemonClient)
         case .apps:
             AppsGridView(
                 appListManager: appListManager,
@@ -529,10 +527,6 @@ extension MainWindowView {
             // Document editor is handled inline in chatContentView
             EmptyView()
                 .onAppear { windowState.dismissOverlay() }
-        case .assistantInbox:
-            AssistantInboxPanel(onClose: { windowState.dismissOverlay() }, daemonClient: daemonClient)
-                .overlay(alignment: .topTrailing) { panelDismissButton }
-                .background(adaptiveColor(light: Moss._50, dark: Moss._950))
         case .apps:
             AppsGridView(
                 appListManager: appListManager,

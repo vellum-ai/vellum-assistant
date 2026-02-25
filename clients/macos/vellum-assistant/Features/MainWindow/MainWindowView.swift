@@ -1085,9 +1085,6 @@ struct MainWindowView: View {
             SidebarNavRow(icon: "sparkles", label: "Skills", isActive: windowState.activePanel == .agent) {
                 windowState.togglePanel(.agent)
             }
-            SidebarNavRow(icon: "tray.fill", label: "Inbox", isActive: windowState.activePanel == .assistantInbox) {
-                windowState.togglePanel(.assistantInbox)
-            }
             SidebarNavRow(icon: "square.grid.2x2", label: "Apps", isActive: windowState.activePanel == .apps) {
                 windowState.togglePanel(.apps)
             }
@@ -1199,9 +1196,6 @@ struct MainWindowView: View {
             }
             SidebarNavRow(icon: "sparkles", label: "Skills", isActive: windowState.activePanel == .agent, isExpanded: false) {
                 windowState.togglePanel(.agent)
-            }
-            SidebarNavRow(icon: "tray.fill", label: "Inbox", isActive: windowState.activePanel == .assistantInbox, isExpanded: false) {
-                windowState.togglePanel(.assistantInbox)
             }
             SidebarNavRow(icon: "square.grid.2x2", label: "Apps", isActive: windowState.activePanel == .apps, isExpanded: false) {
                 windowState.togglePanel(.apps)
