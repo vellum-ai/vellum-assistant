@@ -22,6 +22,7 @@ struct MessageListView: View {
     var onSubagentTap: ((String) -> Void)?
     var subagentDetailStore: SubagentDetailStore?
 
+    var threadId: UUID?
     @Binding var isNearBottom: Bool
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
     @AppStorage("completedConversationCount") private var completedConversationCount: Int = 0
@@ -310,5 +311,6 @@ struct MessageListView: View {
                 }
             }
         }
+        .id(threadId)
     }
 }

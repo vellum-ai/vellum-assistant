@@ -54,18 +54,6 @@ public struct IPCAddTrustRule: Codable, Sendable {
     }
 }
 
-public struct IPCAgentHeartbeatAlert: Codable, Sendable {
-    public let type: String
-    public let title: String
-    public let body: String
-
-    public init(type: String, title: String, body: String) {
-        self.type = type
-        self.title = title
-        self.body = body
-    }
-}
-
 public struct IPCAppDataRequest: Codable, Sendable {
     public let type: String
     public let surfaceId: String
@@ -1906,25 +1894,6 @@ public struct IPCGetSigningIdentityResponse: Codable, Sendable {
     }
 }
 
-/// Server push — broadcast when a guardian action request creates a thread for the mac channel.
-public struct IPCGuardianRequestThreadCreated: Codable, Sendable {
-    public let type: String
-    public let conversationId: String
-    public let requestId: String
-    public let callSessionId: String
-    public let title: String
-    public let questionText: String
-
-    public init(type: String, conversationId: String, requestId: String, callSessionId: String, title: String, questionText: String) {
-        self.type = type
-        self.conversationId = conversationId
-        self.requestId = requestId
-        self.callSessionId = callSessionId
-        self.title = title
-        self.questionText = questionText
-    }
-}
-
 public struct IPCGuardianVerificationRequest: Codable, Sendable {
     public let type: String
     public let action: String
@@ -1932,14 +1901,17 @@ public struct IPCGuardianVerificationRequest: Codable, Sendable {
     public let sessionId: String?
     public let assistantId: String?
     public let rebind: Bool?
+    /// E.164 phone number for SMS/voice, Telegram handle/chat-id. Used by outbound actions.
+    public let destination: String?
 
-    public init(type: String, action: String, channel: String? = nil, sessionId: String? = nil, assistantId: String? = nil, rebind: Bool? = nil) {
+    public init(type: String, action: String, channel: String? = nil, sessionId: String? = nil, assistantId: String? = nil, rebind: Bool? = nil, destination: String? = nil) {
         self.type = type
         self.action = action
         self.channel = channel
         self.sessionId = sessionId
         self.assistantId = assistantId
         self.rebind = rebind
+        self.destination = destination
     }
 }
 
@@ -1966,8 +1938,18 @@ public struct IPCGuardianVerificationResponse: Codable, Sendable {
     public let error: String?
     /// Human-readable error detail (e.g. for already_bound failures).
     public let message: String?
+    /// Session ID for outbound verification flows.
+    public let verificationSessionId: String?
+    /// Epoch ms when the verification session expires.
+    public let expiresAt: Int?
+    /// Epoch ms after which a resend is allowed.
+    public let nextResendAt: Int?
+    /// Number of SMS sends for this session.
+    public let sendCount: Int?
+    /// Telegram deep-link URL for bootstrap (M3 placeholder).
+    public let telegramBootstrapUrl: String?
 
-    public init(type: String, success: Bool, secret: String? = nil, instruction: String? = nil, bound: Bool? = nil, guardianExternalUserId: String? = nil, channel: String? = nil, assistantId: String? = nil, guardianDeliveryChatId: String? = nil, guardianUsername: String? = nil, guardianDisplayName: String? = nil, hasPendingChallenge: Bool? = nil, error: String? = nil, message: String? = nil) {
+    public init(type: String, success: Bool, secret: String? = nil, instruction: String? = nil, bound: Bool? = nil, guardianExternalUserId: String? = nil, channel: String? = nil, assistantId: String? = nil, guardianDeliveryChatId: String? = nil, guardianUsername: String? = nil, guardianDisplayName: String? = nil, hasPendingChallenge: Bool? = nil, error: String? = nil, message: String? = nil, verificationSessionId: String? = nil, expiresAt: Int? = nil, nextResendAt: Int? = nil, sendCount: Int? = nil, telegramBootstrapUrl: String? = nil) {
         self.type = type
         self.success = success
         self.secret = secret
@@ -1982,6 +1964,23 @@ public struct IPCGuardianVerificationResponse: Codable, Sendable {
         self.hasPendingChallenge = hasPendingChallenge
         self.error = error
         self.message = message
+        self.verificationSessionId = verificationSessionId
+        self.expiresAt = expiresAt
+        self.nextResendAt = nextResendAt
+        self.sendCount = sendCount
+        self.telegramBootstrapUrl = telegramBootstrapUrl
+    }
+}
+
+public struct IPCHeartbeatAlert: Codable, Sendable {
+    public let type: String
+    public let title: String
+    public let body: String
+
+    public init(type: String, title: String, body: String) {
+        self.type = type
+        self.title = title
+        self.body = body
     }
 }
 
@@ -2765,6 +2764,21 @@ public struct IPCNotificationIntent: Codable, Sendable {
     }
 }
 
+/// Server push — broadcast when a notification creates a new vellum conversation thread.
+public struct IPCNotificationThreadCreated: Codable, Sendable {
+    public let type: String
+    public let conversationId: String
+    public let title: String
+    public let sourceEventName: String
+
+    public init(type: String, conversationId: String, title: String, sourceEventName: String) {
+        self.type = type
+        self.conversationId = conversationId
+        self.title = title
+        self.sourceEventName = sourceEventName
+    }
+}
+
 public struct IPCOpenBundleRequest: Codable, Sendable {
     public let type: String
     public let filePath: String
@@ -3069,6 +3083,73 @@ public struct IPCPublishPageResponse: Codable, Sendable {
         self.publicUrl = publicUrl
         self.deploymentId = deploymentId
         self.error = error
+    }
+}
+
+/// Recording options shared across standalone and CU recording flows.
+public struct IPCRecordingOptions: Codable, Sendable {
+    public let captureScope: String?
+    public let displayId: String?
+    public let windowId: Double?
+    public let includeAudio: Bool?
+    public let includeMicrophone: Bool?
+    public let promptForSource: Bool?
+
+    public init(captureScope: String? = nil, displayId: String? = nil, windowId: Double? = nil, includeAudio: Bool? = nil, includeMicrophone: Bool? = nil, promptForSource: Bool? = nil) {
+        self.captureScope = captureScope
+        self.displayId = displayId
+        self.windowId = windowId
+        self.includeAudio = includeAudio
+        self.includeMicrophone = includeMicrophone
+        self.promptForSource = promptForSource
+    }
+}
+
+/// Server → Client: start a recording.
+public struct IPCRecordingStart: Codable, Sendable {
+    public let type: String
+    public let recordingId: String
+    public let attachToConversationId: String?
+    /// Recording options shared across standalone and CU recording flows.
+    public let options: IPCRecordingOptions?
+
+    public init(type: String, recordingId: String, attachToConversationId: String? = nil, options: IPCRecordingOptions? = nil) {
+        self.type = type
+        self.recordingId = recordingId
+        self.attachToConversationId = attachToConversationId
+        self.options = options
+    }
+}
+
+/// Client → Server: recording lifecycle status update.
+public struct IPCRecordingStatus: Codable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let status: String
+    public let filePath: String?
+    public let durationMs: Double?
+    public let error: String?
+    public let attachToConversationId: String?
+
+    public init(type: String, sessionId: String, status: String, filePath: String? = nil, durationMs: Double? = nil, error: String? = nil, attachToConversationId: String? = nil) {
+        self.type = type
+        self.sessionId = sessionId
+        self.status = status
+        self.filePath = filePath
+        self.durationMs = durationMs
+        self.error = error
+        self.attachToConversationId = attachToConversationId
+    }
+}
+
+/// Server → Client: stop a recording.
+public struct IPCRecordingStop: Codable, Sendable {
+    public let type: String
+    public let recordingId: String
+
+    public init(type: String, recordingId: String) {
+        self.type = type
+        self.recordingId = recordingId
     }
 }
 

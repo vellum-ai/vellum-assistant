@@ -69,6 +69,7 @@ import {
 import {
   handleDeleteAttachment,
   handleGetAttachment,
+  handleGetAttachmentContent,
   handleUploadAttachment,
 } from './routes/attachment-routes.js';
 import {
@@ -590,6 +591,9 @@ export class RuntimeHttpServer {
 
       if (endpoint === 'attachments' && req.method === 'POST') return await handleUploadAttachment(req);
       if (endpoint === 'attachments' && req.method === 'DELETE') return await handleDeleteAttachment(req);
+
+      const attachmentContentMatch = endpoint.match(/^attachments\/([^/]+)\/content$/);
+      if (attachmentContentMatch && req.method === 'GET') return handleGetAttachmentContent(attachmentContentMatch[1], req);
 
       const attachmentMatch = endpoint.match(/^attachments\/([^/]+)$/);
       if (attachmentMatch && req.method === 'GET') return handleGetAttachment(attachmentMatch[1]);

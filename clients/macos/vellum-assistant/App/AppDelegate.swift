@@ -127,6 +127,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var zoomManager: ZoomManager { services.zoomManager }
 
     let toolConfirmationNotificationService = ToolConfirmationNotificationService()
+    lazy var recordingManager: RecordingManager = RecordingManager(daemonClient: daemonClient)
+    var recordingPickerWindow: RecordingSourcePickerWindow?
+    var recordingHUDWindow: RecordingHUDWindow?
 
     private var onboardingWindow: OnboardingWindow?
     private var authWindow: NSWindow?
@@ -154,6 +157,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var refreshSkillsTask: Task<Void, Never>?
     var cachedApps: [AppItem] = []
     var refreshAppsTask: Task<Void, Never>?
+    /// Pending guardian fallback notification tokens, keyed by conversationId.
+    /// Used to avoid duplicate native alerts when notification_intent arrives.
+    var pendingGuardianFallbackNotifications: [String: UUID] = [:]
+    /// Recently delivered guardian fallback notifications (epoch ms), keyed by
+    /// conversationId. Incoming notification_intent for the same conversation
+    /// inside a short window is treated as a duplicate and suppressed.
+    var guardianFallbackDeliveredAtMs: [String: Double] = [:]
 
     /// Whether the current assistant runs remotely (cloud != "local").
     /// When true, local daemon hatching is skipped.
@@ -264,6 +274,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         setupWindowObserver()
         setupNotifications()
         setupAutoUpdate()
+        installCLISymlinkIfNeeded()
 
         if isFirstLaunch {
             // Gate showMainWindow on daemon readiness so the wake-up
@@ -796,30 +807,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             )
         }
 
-        // Guardian request threads — created when a voice call's ASK_GUARDIAN dispatches
-        // a question to the mac channel so the user can see and respond in chat.
-        daemonClient.onGuardianRequestThreadCreated = { [weak self] msg in
+        // Notification threads — created when the notification pipeline delivers
+        // to the vellum channel with start_new_conversation strategy.
+        daemonClient.onNotificationThreadCreated = { [weak self] msg in
             guard let self, !self.isAwaitingFirstLaunchReady else { return }
-            self.mainWindow?.threadManager.createGuardianRequestThread(
-                conversationId: msg.conversationId,
-                requestId: msg.requestId,
-                callSessionId: msg.callSessionId,
-                title: msg.title
-            )
-            if NSApp.isActive {
-                // App is in foreground — select thread and show window immediately
-                if let thread = self.mainWindow?.threadManager.threads.first(where: { $0.sessionId == msg.conversationId }) {
-                    self.mainWindow?.threadManager.activeThreadId = thread.id
-                }
-                self.showMainWindow()
-            } else {
-                // App is backgrounded — post native notification
-                self.deliverGuardianRequestNotification(
-                    title: msg.title,
-                    questionText: msg.questionText,
-                    conversationId: msg.conversationId
-                )
-            }
+            self.handleNotificationThreadCreated(msg)
         }
 
         // Handle escalation: text_qa -> computer_use via computer_use_request_control
@@ -874,6 +866,21 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        // Handle recording_start from daemon: check permission, then start recording
+        daemonClient.onRecordingStart = { [weak self] msg in
+            guard let self else { return }
+            self.handleRecordingStart(msg)
+        }
+
+        // Handle recording_stop from daemon
+        daemonClient.onRecordingStop = { [weak self] msg in
+            guard let self else { return }
+            Task {
+                _ = await self.recordingManager.stop(sessionId: msg.recordingId)
+                self.recordingHUDWindow?.dismiss()
+            }
+        }
+
         // Restart DaemonClient connection when the health monitor relaunches
         // the daemon process so we don't wait for the backoff timer to expire.
         assistantCli.onDaemonRestarted = { [weak self] in
@@ -924,6 +931,78 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.assistantCli.stop()
         }
         updateManager.startAutomaticChecks()
+    }
+
+    /// Installs a `/usr/local/bin/vellum` symlink pointing to the bundled
+    /// CLI binary so users can run `vellum` from their terminal.
+    ///
+    /// Skipped when dev mode is active (developers manage their own PATH)
+    /// or when `vellum` already resolves to a different executable
+    /// (avoids overwriting a developer's locally-built binary).
+    private func installCLISymlinkIfNeeded() {
+        guard !services.settingsStore.isDevMode else { return }
+
+        guard let execURL = Bundle.main.executableURL else { return }
+        let cliBinary = execURL.deletingLastPathComponent()
+            .appendingPathComponent("vellum-cli")
+        guard FileManager.default.fileExists(atPath: cliBinary.path) else { return }
+
+        let symlinkPath = "/usr/local/bin/vellum"
+        let fm = FileManager.default
+
+        // If the path exists, check whether it's our symlink or something else
+        if let attrs = try? fm.attributesOfItem(atPath: symlinkPath),
+           let type = attrs[.type] as? FileAttributeType {
+            if type == .typeSymbolicLink {
+                // Already a symlink — skip if it already points to our binary
+                if let dest = try? fm.destinationOfSymbolicLink(atPath: symlinkPath),
+                   dest == cliBinary.path {
+                    return
+                }
+            } else {
+                // Real file (not a symlink) — don't overwrite
+                return
+            }
+        }
+
+        // Check if `vellum` resolves elsewhere on PATH (developer's local build)
+        let whichProc = Process()
+        whichProc.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+        whichProc.arguments = ["vellum"]
+        let pipe = Pipe()
+        whichProc.standardOutput = pipe
+        whichProc.standardError = FileHandle.nullDevice
+        do {
+            try whichProc.run()
+            whichProc.waitUntilExit()
+            if whichProc.terminationStatus == 0 {
+                let resolved = String(
+                    data: pipe.fileHandleForReading.readDataToEndOfFile(),
+                    encoding: .utf8
+                )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if !resolved.isEmpty && resolved != symlinkPath {
+                    return
+                }
+            }
+        } catch {
+            // `which` failed to run — continue with symlink creation
+        }
+
+        // Create /usr/local/bin if needed, then create symlink
+        do {
+            let dir = (symlinkPath as NSString).deletingLastPathComponent
+            if !fm.fileExists(atPath: dir) {
+                try fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
+            }
+            // Remove stale symlink before creating a new one
+            if (try? fm.attributesOfItem(atPath: symlinkPath)) != nil {
+                try fm.removeItem(atPath: symlinkPath)
+            }
+            try fm.createSymbolicLink(atPath: symlinkPath, withDestinationPath: cliBinary.path)
+            log.info("Installed CLI symlink: \(symlinkPath) → \(cliBinary.path)")
+        } catch {
+            log.warning("Could not install CLI symlink at \(symlinkPath): \(error.localizedDescription)")
+        }
     }
 
     private func setupSurfaceManager() {
@@ -1293,11 +1372,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let window = QuickInputWindow()
-        window.onSubmit = { [weak self] message, imageData in
-            self?.handleQuickInputSubmit(message, imageData: imageData)
+        window.onSubmit = { [weak self, weak window] message, imageData in
+            let notify = window?.notifyOnComplete ?? false
+            self?.handleQuickInputSubmit(message, imageData: imageData, notifyOnComplete: notify)
         }
-        window.onSubmitToThread = { [weak self] message, imageData in
-            self?.handleQuickInputSubmitToThread(message, imageData: imageData)
+        window.onSubmitToThread = { [weak self, weak window] message, imageData in
+            let notify = window?.notifyOnComplete ?? false
+            self?.handleQuickInputSubmitToThread(message, imageData: imageData, notifyOnComplete: notify)
         }
         window.onSelectThread = { [weak self] threadId in
             self?.handleQuickInputSelectThread(threadId)
@@ -1340,11 +1421,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
 
             let window = QuickInputWindow()
-            window.onSubmit = { [weak self] message, imgData in
-                self?.handleQuickInputSubmit(message, imageData: imgData)
+            window.onSubmit = { [weak self, weak window] message, imgData in
+                let notify = window?.notifyOnComplete ?? false
+                self?.handleQuickInputSubmit(message, imageData: imgData, notifyOnComplete: notify)
             }
-            window.onSubmitToThread = { [weak self] message, imgData in
-                self?.handleQuickInputSubmitToThread(message, imageData: imgData)
+            window.onSubmitToThread = { [weak self, weak window] message, imgData in
+                let notify = window?.notifyOnComplete ?? false
+                self?.handleQuickInputSubmitToThread(message, imageData: imgData, notifyOnComplete: notify)
             }
             window.onSelectThread = { [weak self] threadId in
                 self?.handleQuickInputSelectThread(threadId)
@@ -1367,21 +1450,22 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         selectionWindow.show()
     }
 
-    private func handleQuickInputSubmit(_ message: String, imageData: Data?) {
-        showMainWindow()
+    private func handleQuickInputSubmit(_ message: String, imageData: Data?, notifyOnComplete: Bool) {
+        // Ensure mainWindow exists so we can get a ChatViewModel.
+        // Never show it — quick input is fire-and-forget.
+        ensureMainWindowExists()
         guard let mainWindow else { return }
         mainWindow.threadManager.createThread()
-        // Navigate the sidebar to the new thread's chat view so the user
-        // sees the conversation immediately (not Home Base or another panel).
         if let threadId = mainWindow.threadManager.activeThreadId {
             mainWindow.windowState.selection = .thread(threadId)
         }
         guard let viewModel = mainWindow.activeViewModel else { return }
 
+        if notifyOnComplete {
+            setupQuickInputNotification(on: viewModel)
+        }
+
         if let imageData {
-            // addAttachment is async — it spawns a Task internally for image
-            // processing. Wait for it to finish before sending the message so
-            // the attachment is included in the API call.
             viewModel.addAttachment(imageData: imageData, filename: "Screenshot.jpg")
             viewModel.inputText = message
             quickInputAttachmentCancellable = viewModel.attachmentManager.$isLoadingAttachment
@@ -1397,14 +1481,29 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func handleQuickInputSubmitToThread(_ message: String, imageData: Data?) {
+    private func handleQuickInputSubmitToThread(_ message: String, imageData: Data?, notifyOnComplete: Bool) {
         guard let mainWindow else { return }
         if let viewModel = mainWindow.activeViewModel {
+            if notifyOnComplete {
+                setupQuickInputNotification(on: viewModel)
+            }
             if let imageData {
                 viewModel.addAttachment(imageData: imageData, filename: "Screenshot.jpg")
             }
             viewModel.inputText = message
             viewModel.sendMessage()
+        }
+    }
+
+    /// Sets a one-shot `onResponseComplete` callback on the view model to send a macOS notification.
+    private func setupQuickInputNotification(on viewModel: ChatViewModel) {
+        let notificationService = services.activityNotificationService
+        viewModel.onResponseComplete = { [weak viewModel] summary in
+            // One-shot — clear the callback after firing
+            viewModel?.onResponseComplete = nil
+            Task {
+                await notificationService.notifyQuickInputComplete(summary: summary)
+            }
         }
     }
 
@@ -1703,27 +1802,33 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Main Window
 
+    /// Creates the MainWindow and wires callbacks, without showing it.
+    /// Safe to call multiple times — no-ops if mainWindow already exists.
+    @discardableResult
+    private func ensureMainWindowExists(isFirstLaunch: Bool = false) -> MainWindow {
+        if let existing = mainWindow { return existing }
+        let main = MainWindow(services: services, isFirstLaunch: isFirstLaunch)
+        main.onMicrophoneToggle = { [weak self] in
+            self?.voiceInput?.toggleRecording()
+        }
+        main.threadManager.onInlineConfirmationResponse = { [weak self] requestId, decision in
+            guard let self else { return }
+            self.toolConfirmationNotificationService.handleInlineResponse(requestId: requestId)
+            UNUserNotificationCenter.current().removeDeliveredNotifications(
+                withIdentifiers: ["tool-confirm-\(requestId)"]
+            )
+        }
+        mainWindow = main
+        observeAssistantStatus()
+        return main
+    }
+
     func showMainWindow(initialMessage: String? = nil, isFirstLaunch: Bool = false) {
         if let existing = mainWindow {
             existing.show()
             return
         }
-        let main = MainWindow(services: services, isFirstLaunch: isFirstLaunch)
-        main.onMicrophoneToggle = { [weak self] in
-            self?.voiceInput?.toggleRecording()
-        }
-        // Voice mode uses OpenAI Whisper + TTS directly (no VoiceInputManager needed)
-        main.threadManager.onInlineConfirmationResponse = { [weak self] requestId, decision in
-            guard let self else { return }
-            // Resume the notification service continuation with a sentinel so
-            // setupToolConfirmationNotifications skips the duplicate IPC send
-            // (the inline chat path already forwarded the response).
-            self.toolConfirmationNotificationService.handleInlineResponse(requestId: requestId)
-            // Remove the delivered notification from Notification Center
-            UNUserNotificationCenter.current().removeDeliveredNotifications(
-                withIdentifiers: ["tool-confirm-\(requestId)"]
-            )
-        }
+        let main = ensureMainWindowExists(isFirstLaunch: isFirstLaunch)
         // On first launch, defer the wake-up message until after the
         // "coming alive" transition so the animation plays uninterrupted.
         // For non-first-launch cases, send the message immediately so
@@ -1737,8 +1842,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         main.show()
-        mainWindow = main
-        observeAssistantStatus()
     }
 
     private func observeAssistantStatus() {
@@ -1849,6 +1952,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         surfaceManager.dismissAll()
         toolConfirmationNotificationService.dismissAll()
         secretPromptManager.dismissAll()
+        recordingManager.forceStop()
+        recordingHUDWindow?.dismiss()
         debugStateWriter.stop()
         assistantCli.stop()
     }

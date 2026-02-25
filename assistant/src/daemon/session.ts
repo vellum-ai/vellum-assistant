@@ -390,8 +390,9 @@ export class Session {
     activeSurfaceId?: string,
     currentPage?: string,
     metadata?: Record<string, unknown>,
+    options?: { isInteractive?: boolean },
   ): { queued: boolean; rejected?: boolean; requestId: string } {
-    return enqueueMessageImpl(this, content, attachments, onEvent, requestId, activeSurfaceId, currentPage, metadata);
+    return enqueueMessageImpl(this, content, attachments, onEvent, requestId, activeSurfaceId, currentPage, metadata, options);
   }
 
   getQueueDepth(): number {
@@ -514,8 +515,9 @@ export class Session {
     requestId?: string,
     activeSurfaceId?: string,
     currentPage?: string,
+    options?: { isInteractive?: boolean },
   ): Promise<string> {
-    return processMessageImpl(this as ProcessSessionContext, content, attachments, onEvent, requestId, activeSurfaceId, currentPage);
+    return processMessageImpl(this as ProcessSessionContext, content, attachments, onEvent, requestId, activeSurfaceId, currentPage, options);
   }
 
   // ── History ──────────────────────────────────────────────────────

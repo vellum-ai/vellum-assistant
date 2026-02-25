@@ -78,6 +78,8 @@ export type GatewayConfig = {
   whatsappTimeoutMs: number;
   whatsappMaxRetries: number;
   whatsappInitialBackoffMs: number;
+  /** When true, trust X-Forwarded-For for client IP resolution (set when behind a reverse proxy). */
+  trustProxy: boolean;
 };
 
 function parseRoutingJson(raw: string): RoutingEntry[] {
@@ -352,7 +354,9 @@ export function loadConfig(): GatewayConfig {
   let smsDeliverAuthBypass = smsDeliverAuthBypassRaw === "true";
 
   // Production guard: auth bypass flags must never be active outside dev mode.
-  const appVersion = process.env.APP_VERSION ?? "0.0.0-dev";
+  // Fail closed: treat missing APP_VERSION as production, since the gateway
+  // release pipeline does not inject it (unlike the daemon build).
+  const appVersion = process.env.APP_VERSION;
   const isDevMode = appVersion === "0.0.0-dev";
   if (!isDevMode) {
     if (telegramDeliverAuthBypass) {
@@ -368,6 +372,14 @@ export function loadConfig(): GatewayConfig {
       whatsappDeliverAuthBypass = false;
     }
   }
+
+  const trustProxyRaw = process.env.GATEWAY_TRUST_PROXY;
+  if (trustProxyRaw !== undefined && trustProxyRaw !== "true" && trustProxyRaw !== "false") {
+    throw new Error(
+      `GATEWAY_TRUST_PROXY must be "true" or "false", got "${trustProxyRaw}"`,
+    );
+  }
+  const trustProxy = trustProxyRaw === "true";
 
   const ingressPublicBaseUrl = process.env.INGRESS_PUBLIC_BASE_URL || undefined;
 
@@ -419,6 +431,7 @@ export function loadConfig(): GatewayConfig {
       hasWhatsAppAppSecret: !!whatsappAppSecret,
       hasWhatsAppWebhookVerifyToken: !!whatsappWebhookVerifyToken,
       whatsappDeliverAuthBypass,
+      trustProxy,
     },
     "Configuration loaded",
   );
@@ -465,5 +478,6 @@ export function loadConfig(): GatewayConfig {
     whatsappTimeoutMs,
     whatsappMaxRetries,
     whatsappInitialBackoffMs,
+    trustProxy,
   };
 }

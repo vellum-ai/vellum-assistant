@@ -1,45 +1,45 @@
 import { getConfig } from '../config/loader.js';
-import type { AgentHeartbeatAlert } from '../daemon/ipc-contract.js';
+import type { HeartbeatAlert } from '../daemon/ipc-contract.js';
 import { createConversation } from '../memory/conversation-store.js';
 import { GENERATING_TITLE, queueGenerateConversationTitle } from '../memory/conversation-title-service.js';
 import { readTextFileSync } from '../util/fs.js';
 import { getLogger } from '../util/logger.js';
 import { getWorkspacePromptPath } from '../util/platform.js';
 
-const log = getLogger('agent-heartbeat');
+const log = getLogger('heartbeat-check');
 
 const DEFAULT_CHECKLIST = `- Check the current weather and note anything notable
 - Review any recent news headlines worth flagging
 - Look for calendar events or reminders coming up soon`;
 
-export interface AgentHeartbeatDeps {
+export interface HeartbeatDeps {
   processMessage: (conversationId: string, content: string) => Promise<{ messageId: string }>;
-  alerter: (alert: AgentHeartbeatAlert) => void;
+  alerter: (alert: HeartbeatAlert) => void;
   /** Override for current hour (0-23), for testing. */
   getCurrentHour?: () => number;
 }
 
-export class AgentHeartbeatService {
-  private readonly deps: AgentHeartbeatDeps;
+export class HeartbeatService {
+  private readonly deps: HeartbeatDeps;
   private timer: ReturnType<typeof setInterval> | null = null;
   private activeRun: Promise<void> | null = null;
 
-  constructor(deps: AgentHeartbeatDeps) {
+  constructor(deps: HeartbeatDeps) {
     this.deps = deps;
   }
 
   start(): void {
-    const config = getConfig().agentHeartbeat;
+    const config = getConfig().heartbeat;
     if (!config.enabled) {
-      log.info('Agent heartbeat disabled by config');
+      log.info('Heartbeat disabled by config');
       return;
     }
     if (this.timer) return;
 
-    log.info({ intervalMs: config.intervalMs }, 'Agent heartbeat service started');
+    log.info({ intervalMs: config.intervalMs }, 'Heartbeat service started');
     this.timer = setInterval(() => {
       this.runOnce().catch((err) => {
-        log.error({ err }, 'Agent heartbeat runOnce failed');
+        log.error({ err }, 'Heartbeat runOnce failed');
       });
     }, config.intervalMs);
   }
@@ -55,11 +55,11 @@ export class AgentHeartbeatService {
       await Promise.race([this.activeRun, timeout]);
       clearTimeout(timerId!);
     }
-    log.info('Agent heartbeat service stopped');
+    log.info('Heartbeat service stopped');
   }
 
   async runOnce(): Promise<void> {
-    const config = getConfig().agentHeartbeat;
+    const config = getConfig().heartbeat;
     if (!config.enabled) return;
 
     // Active hours guard — only applied when both bounds are set.
@@ -88,7 +88,7 @@ export class AgentHeartbeatService {
   }
 
   private async executeRun(): Promise<void> {
-    log.info('Running agent heartbeat');
+    log.info('Running heartbeat');
 
     try {
       const checklist = this.readChecklist();
@@ -100,17 +100,17 @@ export class AgentHeartbeatService {
       });
       queueGenerateConversationTitle({
         conversationId: conversation.id,
-        context: { origin: 'heartbeat', systemHint: 'Agent Heartbeat' },
+        context: { origin: 'heartbeat', systemHint: 'Heartbeat' },
       });
 
       await this.deps.processMessage(conversation.id, prompt);
-      log.info({ conversationId: conversation.id }, 'Agent heartbeat completed');
+      log.info({ conversationId: conversation.id }, 'Heartbeat completed');
     } catch (err) {
-      log.error({ err }, 'Agent heartbeat failed');
+      log.error({ err }, 'Heartbeat failed');
       try {
         this.deps.alerter({
-          type: 'agent_heartbeat_alert',
-          title: 'Agent Heartbeat Failed',
+          type: 'heartbeat_alert',
+          title: 'Heartbeat Failed',
           body: err instanceof Error ? err.message : String(err),
         });
       } catch (alertErr) {

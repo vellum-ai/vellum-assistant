@@ -613,6 +613,7 @@ const RUNTIME_INJECTION_PREFIXES = [
   TEMPORAL_INJECTED_PREFIX,
   '<active_workspace>',
   '<active_dynamic_page>',
+  '<non_interactive_context>',
 ];
 
 /**
@@ -655,9 +656,28 @@ export function applyRuntimeInjections(
     guardianContext?: GuardianRuntimeContext | null;
     temporalContext?: string | null;
     voiceCallControlPrompt?: string | null;
+    isNonInteractive?: boolean;
   },
 ): Message[] {
   let result = runMessages;
+
+  // For non-interactive sessions (scheduled jobs, work items), instruct the
+  // model to never ask for clarification — there is no human present to answer.
+  if (options.isNonInteractive) {
+    const userTail = result[result.length - 1];
+    if (userTail && userTail.role === 'user') {
+      result = [
+        ...result.slice(0, -1),
+        {
+          ...userTail,
+          content: [
+            ...userTail.content,
+            { type: 'text' as const, text: '<non_interactive_context>\nNon-interactive scheduled task — do not ask for clarification or confirmation. Follow the instructions exactly using your best judgment. If recalled memory contains conflicting notes, prefer the explicit instruction in this message.\n</non_interactive_context>' },
+          ],
+        },
+      ];
+    }
+  }
 
   if (options.voiceCallControlPrompt) {
     const userTail = result[result.length - 1];

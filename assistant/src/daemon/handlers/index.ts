@@ -18,8 +18,9 @@ import { oauthConnectHandlers } from './oauth-connect.js';
 import { handleOpenBundle } from './open-bundle-handler.js';
 import { pairingHandlers } from './pairing.js';
 import { publishHandlers } from './publish.js';
+import { recordingHandlers } from './recording.js';
 import { sessionHandlers } from './sessions.js';
-import { defineHandlers, type DispatchMap,type HandlerContext, log } from './shared.js';
+import { defineHandlers, type DispatchMap, type HandlerContext, log } from './shared.js';
 import { signingHandlers } from './signing.js';
 import { skillHandlers } from './skills.js';
 import { subagentHandlers } from './subagents.js';
@@ -40,6 +41,11 @@ export {
   mergeToolResults,
   renderHistoryContent,
 } from './shared.js';
+
+export {
+  handleRecordingStart,
+  handleRecordingStop,
+} from './recording.js';
 
 // ─── Typed dispatch ──────────────────────────────────────────────────────────
 
@@ -119,6 +125,7 @@ const handlers = {
   ...dictationHandlers,
   ...inboxInviteHandlers,
   ...pairingHandlers,
+  ...recordingHandlers,
   ...inlineHandlers,
 } satisfies DispatchMap;
 

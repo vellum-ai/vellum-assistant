@@ -454,6 +454,7 @@ export async function handleTwilioConfig(
         phoneNumber,
         compliance: {
           numberType,
+          tollfreePhoneNumberSid: phoneSid,
           verificationSid: verification?.sid,
           verificationStatus: verification?.status,
           rejectionReason: verification?.rejectionReason,

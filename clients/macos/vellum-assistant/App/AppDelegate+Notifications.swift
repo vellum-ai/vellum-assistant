@@ -5,6 +5,8 @@ import VellumAssistantShared
 import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate+Notifications")
+private let guardianFallbackDedupWindowMs: Double = 30_000
+private let guardianFallbackDelayNs: UInt64 = 750_000_000
 
 extension AppDelegate {
 
@@ -73,18 +75,6 @@ extension AppDelegate {
             options: []
         )
 
-        let viewGuardianAction = UNNotificationAction(
-            identifier: "VIEW_GUARDIAN",
-            title: "View",
-            options: [.foreground]
-        )
-        let guardianRequestCategory = UNNotificationCategory(
-            identifier: "GUARDIAN_REQUEST",
-            actions: [viewGuardianAction],
-            intentIdentifiers: [],
-            options: []
-        )
-
         let viewNotificationIntentAction = UNNotificationAction(
             identifier: "VIEW_NOTIFICATION_INTENT",
             title: "View",
@@ -102,7 +92,6 @@ extension AppDelegate {
             toolConfirmationCategory,
             rideShotgunCategory,
             voiceResponseCategory,
-            guardianRequestCategory,
             notificationIntentCategory,
         ])
     }
@@ -145,19 +134,40 @@ extension AppDelegate {
         }
     }
 
-    func deliverNotificationIntent(_ msg: NotificationIntentMessage) {
+    private func conversationId(from deepLinkMetadata: [String: AnyCodable]?) -> String? {
+        if let direct = deepLinkMetadata?["conversationId"]?.value as? String {
+            return direct
+        }
+        if let snake = deepLinkMetadata?["conversation_id"]?.value as? String {
+            return snake
+        }
+        return nil
+    }
+
+    private func pruneGuardianFallbackMarkers(nowMs: Double) {
+        guardianFallbackDeliveredAtMs = guardianFallbackDeliveredAtMs.filter { _, deliveredAt in
+            nowMs - deliveredAt <= guardianFallbackDedupWindowMs
+        }
+    }
+
+    private func postNotificationIntent(
+        sourceEventName: String,
+        title: String,
+        body: String,
+        deepLinkMetadata: [String: AnyCodable]?
+    ) {
         let content = UNMutableNotificationContent()
-        content.title = msg.title
-        content.body = msg.body
+        content.title = title
+        content.body = body
         content.sound = .default
         content.categoryIdentifier = "NOTIFICATION_INTENT"
 
         var userInfo: [String: Any] = [
-            "sourceEventName": msg.sourceEventName,
+            "sourceEventName": sourceEventName,
         ]
-        if let metadata = msg.deepLinkMetadata {
+        if let metadata = deepLinkMetadata {
             for (key, wrapped) in metadata {
-                // Keep sourceEventName authoritative from the daemon envelope.
+                // Keep sourceEventName authoritative from the envelope.
                 if key == "sourceEventName" {
                     continue
                 }
@@ -177,6 +187,55 @@ extension AppDelegate {
             if let error {
                 log.error("Failed to post notification intent: \(error.localizedDescription)")
             }
+        }
+    }
+
+    func deliverNotificationIntent(_ msg: NotificationIntentMessage) {
+        if msg.sourceEventName == "guardian.question" {
+            let nowMs = Date().timeIntervalSince1970 * 1000
+            pruneGuardianFallbackMarkers(nowMs: nowMs)
+
+            if let conversationId = conversationId(from: msg.deepLinkMetadata) {
+                // If we already posted the fallback alert for this conversation,
+                // suppress the later notification_intent duplicate.
+                if let deliveredAt = guardianFallbackDeliveredAtMs.removeValue(forKey: conversationId),
+                   nowMs - deliveredAt <= guardianFallbackDedupWindowMs {
+                    return
+                }
+
+                // notification_intent arrived in time; invalidate pending fallback.
+                pendingGuardianFallbackNotifications.removeValue(forKey: conversationId)
+            }
+        }
+
+        postNotificationIntent(
+            sourceEventName: msg.sourceEventName,
+            title: msg.title,
+            body: msg.body,
+            deepLinkMetadata: msg.deepLinkMetadata
+        )
+    }
+
+    func scheduleGuardianNotificationFallback(conversationId: String, title: String) {
+        let token = UUID()
+        pendingGuardianFallbackNotifications[conversationId] = token
+
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: guardianFallbackDelayNs)
+            guard let self else { return }
+            guard self.pendingGuardianFallbackNotifications[conversationId] == token else { return }
+
+            self.pendingGuardianFallbackNotifications.removeValue(forKey: conversationId)
+            let nowMs = Date().timeIntervalSince1970 * 1000
+            self.guardianFallbackDeliveredAtMs[conversationId] = nowMs
+            self.pruneGuardianFallbackMarkers(nowMs: nowMs)
+
+            self.postNotificationIntent(
+                sourceEventName: "guardian.question",
+                title: title,
+                body: "A guardian question needs your attention.",
+                deepLinkMetadata: ["conversationId": AnyCodable(conversationId)]
+            )
         }
     }
 
@@ -249,16 +308,6 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
             await MainActor.run {
                 guard !self.isAwaitingFirstLaunchReady else { return }
                 self.showMainWindow()
-            }
-            return
-        }
-
-        // Handle guardian request notifications — open the guardian thread in the main window
-        if categoryId == "GUARDIAN_REQUEST" {
-            let conversationId = response.notification.request.content.userInfo["conversationId"] as? String
-            await MainActor.run {
-                guard !self.isAwaitingFirstLaunchReady else { return }
-                self.openConversationThread(conversationId: conversationId)
             }
             return
         }

@@ -76,7 +76,7 @@ export function createClaudeCodeBackend(): SwarmWorkerBackend {
           options: {
             cwd: input.workingDir,
             model: input.modelIntent
-              ? resolveModelIntent(getConfig().provider, input.modelIntent as ModelIntent)
+              ? resolveModelIntent('anthropic', input.modelIntent as ModelIntent)
               : 'claude-sonnet-4-6',
             canUseTool,
             permissionMode: 'default',

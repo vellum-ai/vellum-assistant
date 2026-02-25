@@ -90,7 +90,7 @@ export async function handleScheduleRunNow(
           (session as unknown as { taskRunId?: string }).taskRunId = taskRunId;
           await session.processMessage(message, [], (event) => {
             ctx.send(socket, event);
-          });
+          }, undefined, undefined, undefined, { isInteractive: false });
         },
       );
 
@@ -127,7 +127,7 @@ export async function handleScheduleRunNow(
     const session = await ctx.getOrCreateSession(conversation.id, socket, true);
     await session.processMessage(schedule.message, [], (event) => {
       ctx.send(socket, event);
-    });
+    }, undefined, undefined, undefined, { isInteractive: false });
     completeScheduleRun(runId, { status: 'ok' });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

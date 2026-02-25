@@ -8,14 +8,16 @@ import {
   setNestedValue,
 } from '../config/loader.js';
 import {
+  dismissPendingConflicts,
   getMemorySystemStatus,
   queryMemory,
   requestMemoryBackfill,
   requestMemoryCleanup,
   requestMemoryRebuildIndex,
 } from '../memory/admin.js';
+import { listPendingConflictDetails } from '../memory/conflict-store.js';
 import { listConversations } from '../memory/conversation-store.js';
-import { initializeDb } from '../memory/db.js';
+import { initializeDb, rawGet } from '../memory/db.js';
 import {
   clearAllRules,
   getAllRules,
@@ -330,5 +332,62 @@ export function registerMemoryCommand(program: Command): void {
       initializeDb();
       const jobId = requestMemoryRebuildIndex();
       log.info(`Queued rebuild-index job: ${jobId}`);
+    });
+
+  memory
+    .command('dismiss-conflicts')
+    .description('Dismiss pending memory conflicts (all or matching a pattern)')
+    .option('-a, --all', 'Dismiss all pending conflicts')
+    .option('-p, --pattern <regex>', 'Dismiss conflicts where either statement matches this regex')
+    .option('-s, --scope <id>', 'Memory scope (default: "default")')
+    .option('--dry-run', 'Show what would be dismissed without making changes')
+    .action((opts: { all?: boolean; pattern?: string; scope?: string; dryRun?: boolean }) => {
+      if (!opts.all && !opts.pattern) {
+        log.info('Usage: vellum memory dismiss-conflicts --all  OR  --pattern <regex>');
+        log.info('Use --dry-run to preview without making changes.');
+        return;
+      }
+
+      initializeDb();
+
+      const pattern = opts.pattern ? new RegExp(opts.pattern, 'i') : undefined;
+
+      if (opts.dryRun) {
+        const scopeId = opts.scope ?? 'default';
+        const totalPending = rawGet<{ c: number }>(
+          `SELECT COUNT(*) AS c FROM memory_item_conflicts WHERE scope_id = ? AND status = 'pending_clarification'`,
+          scopeId,
+        )?.c ?? 0;
+
+        // Show a sample of conflicts (can't paginate without dismissing)
+        const sample = listPendingConflictDetails(scopeId, 1000);
+        let matchCount = 0;
+        for (const conflict of sample) {
+          const matches = opts.all
+            || (pattern && (pattern.test(conflict.existingStatement) || pattern.test(conflict.candidateStatement)));
+          if (!matches) continue;
+          matchCount++;
+          log.info(`  [${conflict.id.slice(0, SHORT_HASH_LENGTH)}] "${conflict.existingStatement}" vs "${conflict.candidateStatement}"`);
+        }
+
+        if (opts.all) {
+          // --all matches everything, so matchCount is just the sample size
+          log.info(`\nDry run: ${totalPending} of ${totalPending} pending conflicts would be dismissed.`);
+        } else {
+          const moreNote = totalPending > sample.length ? ` (showing first ${sample.length} of ${totalPending})` : '';
+          log.info(`\nDry run: ${matchCount} of ${totalPending} pending conflicts would be dismissed.${moreNote}`);
+        }
+        return;
+      }
+
+      const result = dismissPendingConflicts({
+        all: opts.all,
+        pattern,
+        scopeId: opts.scope,
+      });
+      for (const detail of result.details) {
+        log.info(`  Dismissed [${detail.id.slice(0, SHORT_HASH_LENGTH)}]: "${detail.existingStatement}" vs "${detail.candidateStatement}"`);
+      }
+      log.info(`\nDismissed ${result.dismissed} conflicts. ${result.remaining} pending conflicts remain.`);
     });
 }

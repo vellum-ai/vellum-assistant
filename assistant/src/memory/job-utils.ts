@@ -74,9 +74,17 @@ export function classifyError(err: unknown): ErrorCategory {
     }
   }
 
-  // Connection/network errors without a status code
-  if (err instanceof Error && /ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENETUNREACH|fetch failed/i.test(err.message)) {
-    return 'retryable';
+  // Connection/network errors without a status code.
+  // Check both the message (Node.js style) and the `code` property (Bun style,
+  // e.g. code: "ConnectionRefused" from Bun's HTTP client).
+  if (err instanceof Error) {
+    if (/ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENETUNREACH|fetch failed/i.test(err.message)) {
+      return 'retryable';
+    }
+    const code = (err as Error & { code?: string }).code;
+    if (typeof code === 'string' && /^Connection(Refused|Reset|Timeout)|NetworkUnreachable|Unable.?to.?connect/i.test(code)) {
+      return 'retryable';
+    }
   }
 
   // Unknown errors default to fatal to avoid infinite retry loops

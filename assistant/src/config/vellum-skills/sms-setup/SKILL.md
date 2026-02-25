@@ -65,92 +65,101 @@ Examine the remote check results:
 
 ### Toll-Free Verification Submission
 
-When the remote check returns `toll_free_verification` as a failing check, the assistant must submit verification directly to the Twilio API. The daemon does not yet have an IPC action for this, so use the Twilio REST API directly.
+When the remote check returns `toll_free_verification` as a failing check, use the daemon's built-in IPC compliance actions. These handle credential lookup, phone number SID resolution, field validation, and Twilio API calls internally.
 
-**Prerequisites:** The assistant needs the Account SID and Auth Token. These are stored in daemon secure storage and can be accessed by importing `getSecureKey` from the daemon's `security/secure-keys` module:
+**Step 3a: Check compliance status.** First check if a verification already exists:
 
-```typescript
-import { getSecureKey } from "./src/security/secure-keys.js";
-const accountSid = getSecureKey("credential:twilio:account_sid");
-const authToken = getSecureKey("credential:twilio:auth_token");
+```json
+{
+  "type": "twilio_config",
+  "action": "sms_compliance_status"
+}
 ```
 
-**Step 3a: Look up the phone number SID.** The toll-free verification API requires the phone number's SID (format `PNxxxx`), not the E.164 number itself:
+The response includes a `compliance` object with `numberType`, `tollfreePhoneNumberSid`, `verificationSid`, `verificationStatus`, `rejectionReason`, `rejectionReasons`, `editAllowed`, and `editExpiration` fields. For toll-free numbers, `tollfreePhoneNumberSid` contains the Twilio phone number SID needed for verification submission.
 
-```
-GET https://api.twilio.com/2010-04-01/Accounts/{AccountSid}/IncomingPhoneNumbers.json?PhoneNumber={E.164 number}
-```
+- If `verificationStatus` is `PENDING_REVIEW` or `IN_REVIEW`, tell the user verification is already in progress and skip submission.
+- If `verificationStatus` is `TWILIO_APPROVED`, compliance is complete — proceed to Step 4.
+- If `verificationStatus` is `TWILIO_REJECTED` and `editAllowed` is true, offer to update the existing verification (Step 3d) instead of resubmitting.
+- If no verification exists (`verificationSid` is absent), proceed to collect information and submit.
 
-Extract the `sid` field from the matching number in `incoming_phone_numbers`.
+**Step 3b: Collect user information.** Collect the following from the user (assume individual/sole proprietor by default):
 
-**Step 3b: Check for existing verifications.** Before submitting, check if a verification already exists:
-
-```
-GET https://messaging.twilio.com/v1/Tollfree/Verifications
-```
-
-If a verification already exists for this number, report its status to the user and skip submission.
-
-**Step 3c: Check Trust Hub profile assignments.** Twilio auto-attaches toll-free numbers to their assigned Trust Hub Customer Profile. The verification API rejects submissions when the number is attached to a Primary Customer Profile (PCP). It requires either no profile, a Starter profile, or a Secondary Customer Profile (SCP).
-
-Check if the number is assigned to a profile:
-
-```
-GET https://trusthub.twilio.com/v1/CustomerProfiles?PageSize=50
-```
-
-For each profile, check `ChannelEndpointAssignments`:
-
-```
-GET https://trusthub.twilio.com/v1/CustomerProfiles/{ProfileSid}/ChannelEndpointAssignments?PageSize=50
-```
-
-If the number is assigned to a Primary profile:
-1. **Tell the user** the number is linked to a Primary Customer Profile, which blocks toll-free verification.
-2. **Offer two options:**
-   - **Option A:** Remove the number from the Primary profile (DELETE the ChannelEndpointAssignment), then resubmit. Warn that this may affect other services tied to that profile.
-   - **Option B:** Wait for the Starter profile to be approved (if one exists and is `in-review`), then link the number to that profile instead.
-3. **Do not silently retry.** The same error will recur until the profile assignment is resolved.
-
-**Step 3d: Collect user information.** Collect the following from the user (assume individual/sole proprietor by default):
-
-| Field | API Parameter | Notes |
+| Field | `verificationParams` key | Notes |
 |---|---|---|
-| Name | `BusinessName` | Can be personal name |
-| Business type | `BusinessType` | Use `SOLE_PROPRIETOR` for individuals. Valid values: `PRIVATE_PROFIT`, `PUBLIC_PROFIT`, `SOLE_PROPRIETOR`, `NON_PROFIT`, `GOVERNMENT` |
-| Website | `BusinessWebsite` | LinkedIn or personal site is fine |
-| Street address | `BusinessStreetAddress` | |
-| City | `BusinessCity` | |
-| State | `BusinessStateProvinceRegion` | |
-| Zip | `BusinessPostalCode` | |
-| Country | `BusinessCountry` | Two-letter ISO code, e.g. `US` |
-| Notification email | `NotificationEmail` | Where Twilio sends status updates |
-| Contact phone | `BusinessContactPhone` | E.164 format |
-| Contact first name | `BusinessContactFirstName` | |
-| Contact last name | `BusinessContactLastName` | |
-| Contact email | `BusinessContactEmail` | |
-| Use case category | `UseCaseCategories` | e.g. `ACCOUNT_NOTIFICATIONS` |
-| Use case summary | `UseCaseSummary` | Plain English description |
-| Message volume | `MessageVolume` | Estimated monthly messages, e.g. `100` |
-| Sample message | `ProductionMessageSample` | A realistic example message |
-| Opt-in type | `OptInType` | `VERBAL`, `WEB_FORM`, `PAPER_FORM`, `VIA_TEXT`, `MOBILE_QR_CODE` |
-| Opt-in image URL | `OptInImageUrls` | URL showing opt-in mechanism (can be website URL) |
+| Name | `businessName` | Can be personal name |
+| Business type | `businessType` | Use `SOLE_PROPRIETOR` for individuals. Valid values: `PRIVATE_PROFIT`, `PUBLIC_PROFIT`, `SOLE_PROPRIETOR`, `NON_PROFIT`, `GOVERNMENT` |
+| Website | `businessWebsite` | LinkedIn or personal site is fine |
+| Notification email | `notificationEmail` | Where Twilio sends status updates |
+| Use case category | `useCaseCategories` | Array, e.g. `["ACCOUNT_NOTIFICATIONS"]` |
+| Use case summary | `useCaseSummary` | Plain English description |
+| Message volume | `messageVolume` | Must be one of: `10`, `100`, `1,000`, `10,000`, `100,000`, `250,000`, `500,000`, `750,000`, `1,000,000`, `5,000,000`, `10,000,000+` |
+| Sample message | `productionMessageSample` | A realistic example message |
+| Opt-in type | `optInType` | `VERBAL`, `WEB_FORM`, `PAPER_FORM`, `VIA_TEXT`, `MOBILE_QR_CODE` |
+| Opt-in image URL | `optInImageUrls` | Array of URLs showing opt-in mechanism (can be website URL) |
 
-Do NOT ask for EIN, business registration number, or business registration authority. Explain that Twilio labels some fields as "business" fields even for individual submitters.
+The `tollfreePhoneNumberSid` is returned by the `sms_compliance_status` response in the `compliance` object. Use `compliance.tollfreePhoneNumberSid` from the Step 3a response as the value for `verificationParams.tollfreePhoneNumberSid` when submitting. Do NOT ask for EIN, business registration number, or business registration authority. Explain that Twilio labels some fields as "business" fields even for individual submitters.
 
-**Step 3e: Submit verification:**
+**Step 3c: Submit verification:**
 
+```json
+{
+  "type": "twilio_config",
+  "action": "sms_submit_tollfree_verification",
+  "verificationParams": {
+    "tollfreePhoneNumberSid": "<compliance.tollfreePhoneNumberSid from Step 3a>",
+    "businessName": "...",
+    "businessWebsite": "...",
+    "notificationEmail": "...",
+    "useCaseCategories": ["ACCOUNT_NOTIFICATIONS"],
+    "useCaseSummary": "...",
+    "productionMessageSample": "...",
+    "optInImageUrls": ["..."],
+    "optInType": "VERBAL",
+    "messageVolume": "100",
+    "businessType": "SOLE_PROPRIETOR"
+  }
+}
 ```
-POST https://messaging.twilio.com/v1/Tollfree/Verifications
-Content-Type: application/x-www-form-urlencoded
+
+The daemon validates all fields before submitting to Twilio and returns clear error messages for invalid values.
+
+**On success:** The response contains `compliance.verificationSid` and `compliance.verificationStatus` (typically `PENDING_REVIEW`). Tell the user Twilio typically reviews within 1-5 business days.
+
+**On failure:** Report the exact error from the response and guide the user through resolution.
+
+**Step 3d: Update a rejected verification** (if `editAllowed` is true):
+
+```json
+{
+  "type": "twilio_config",
+  "action": "sms_update_tollfree_verification",
+  "verificationSid": "<sid from compliance status>",
+  "verificationParams": {
+    "businessName": "updated value",
+    "useCaseSummary": "updated value"
+  }
+}
 ```
 
-With all fields as form-encoded parameters, including `TollfreePhoneNumberSid` (the PN SID from Step 3a).
+Only include fields that need to change. The daemon checks edit eligibility and expiration before attempting the update.
+
+**Step 3e: Delete and resubmit** (if editing is not allowed):
+
+```json
+{
+  "type": "twilio_config",
+  "action": "sms_delete_tollfree_verification",
+  "verificationSid": "<sid from compliance status>"
+}
+```
+
+After deletion, return to Step 3b to collect information and resubmit. Warn the user that deleting resets their position in the review queue.
 
 **Common errors:**
-- `"BusinessType must be one of [...]"` — Use exact enum values listed above
-- `"Customer profiles submitted with verifications must be either ISV Starters or Secondary Customer Profiles"` — The number is linked to a Primary profile. See Step 3c above.
-- `400` or `20001` errors — Check the `message` field for specifics and report to user
+- `"Customer profiles submitted with verifications must be either ISV Starters or Secondary Customer Profiles"` — The number is linked to a Primary Customer Profile in Trust Hub, which blocks toll-free verification. Tell the user and suggest they resolve the profile assignment in the Twilio Console.
+- Missing required fields — The daemon validates and reports which fields are missing.
+- Invalid enum values — The daemon validates `optInType`, `messageVolume`, and `useCaseCategories` and reports valid values.
 
 **On success:** Tell the user the verification has been submitted and is now `PENDING_REVIEW`. Twilio typically reviews within 1-5 business days. They'll receive status updates at the notification email provided.
 
@@ -213,4 +222,4 @@ console.log(JSON.stringify(res, null, 2));
 '
 ```
 
-For direct Twilio REST API calls (e.g., toll-free verification submission), use the same `bun -e` pattern with `getSecureKey` from `./src/security/secure-keys.js` to retrieve credentials, then use `fetch()`.
+All compliance operations (status checks, verification submission, updates, and deletion) are handled through the `twilio_config` IPC actions — no direct Twilio REST calls are needed.

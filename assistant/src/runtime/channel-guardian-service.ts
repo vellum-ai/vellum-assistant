@@ -9,7 +9,7 @@
 import { createHash,randomBytes } from 'crypto';
 import { v4 as uuid } from 'uuid';
 
-import type { GuardianBinding, VerificationChallenge } from '../memory/channel-guardian-store.js';
+import type { GuardianBinding, VerificationChallenge, SessionStatus, IdentityBindingStatus } from '../memory/channel-guardian-store.js';
 import {
   consumeChallenge,
   createBinding,
@@ -20,6 +20,13 @@ import {
   getRateLimit,
   recordInvalidAttempt,
   resetRateLimit,
+  createVerificationSession,
+  findActiveSession as storeFindActiveSession,
+  findSessionByIdentity as storeFindSessionByIdentity,
+  updateSessionStatus as storeUpdateSessionStatus,
+  updateSessionDelivery as storeUpdateSessionDelivery,
+  bindSessionIdentity as storeBindSessionIdentity,
+  countRecentSendsToDestination as storeCountRecentSendsToDestination,
   revokeBinding as storeRevokeBinding,
   revokePendingChallenges as storeRevokePendingChallenges,
 } from '../memory/channel-guardian-store.js';
@@ -70,14 +77,16 @@ function hashSecret(secret: string): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Generate a six-digit numeric secret for voice channel challenges.
- * Uses cryptographic randomness to pick a number in [100000, 999999].
+ * Generate a numeric secret for voice channel challenges.
+ * Uses cryptographic randomness to pick a number with the specified
+ * number of digits (defaults to 6). The result is always zero-padded
+ * to exactly `digits` characters.
  */
-function generateVoiceSecret(): string {
+function generateVoiceSecret(digits: number = 6): string {
   const buf = randomBytes(4);
   const num = buf.readUInt32BE(0);
-  // Map to the range [100000, 999999] (900000 possible values)
-  return String(100000 + (num % 900000));
+  const max = 10 ** digits;
+  return String(num % max).padStart(digits, '0');
 }
 
 /**
@@ -192,6 +201,65 @@ export function validateAndConsumeChallenge(
     };
   }
 
+  // ── Expected-identity check (outbound sessions) ──
+  // If the session has identity binding fields set and is in 'bound' state,
+  // verify the actor matches the expected identity. If identity_binding_status
+  // is 'pending_bootstrap', allow consumption (bootstrap path handles binding
+  // separately). If no expected identity fields are set (legacy/inbound-only),
+  // skip identity check for backward compatibility.
+  const hasExpectedIdentity =
+    challenge.expectedExternalUserId != null ||
+    challenge.expectedChatId != null ||
+    challenge.expectedPhoneE164 != null;
+
+  if (hasExpectedIdentity && challenge.identityBindingStatus === 'bound') {
+    let identityMatch = false;
+
+    // For SMS/voice: verify actorExternalUserId matches expectedPhoneE164
+    // OR actorExternalUserId matches expectedExternalUserId
+    if (challenge.expectedPhoneE164 != null) {
+      if (actorExternalUserId === challenge.expectedPhoneE164 ||
+          actorExternalUserId === challenge.expectedExternalUserId) {
+        identityMatch = true;
+      }
+    }
+
+    // For Telegram: verify actorChatId matches expectedChatId
+    // AND/OR actorExternalUserId matches expectedExternalUserId
+    if (challenge.expectedChatId != null) {
+      if (actorChatId === challenge.expectedChatId ||
+          actorExternalUserId === challenge.expectedExternalUserId) {
+        identityMatch = true;
+      }
+    }
+
+    // Fallback: if only expectedExternalUserId is set (no phone/chat)
+    if (challenge.expectedPhoneE164 == null && challenge.expectedChatId == null &&
+        challenge.expectedExternalUserId != null) {
+      if (actorExternalUserId === challenge.expectedExternalUserId) {
+        identityMatch = true;
+      }
+    }
+
+    if (!identityMatch) {
+      // Anti-oracle: use the same generic error message to avoid leaking
+      // whether the identity is wrong vs. the code is wrong.
+      recordInvalidAttempt(
+        assistantId, channel, actorExternalUserId, actorChatId,
+        RATE_LIMIT_WINDOW_MS, RATE_LIMIT_MAX_ATTEMPTS, RATE_LIMIT_LOCKOUT_MS,
+      );
+      return {
+        success: false,
+        reason: composeApprovalMessage({
+          scenario: 'guardian_verify_failed',
+          failureReason: 'The verification code is invalid or has expired.',
+        }),
+      };
+    }
+  }
+  // pending_bootstrap: allow consumption without identity check
+  // no expected identity: legacy/inbound-only, skip identity check
+
   // Consume the challenge so it cannot be reused
   consumeChallenge(challenge.id, actorExternalUserId, actorChatId);
 
@@ -286,4 +354,141 @@ export function getPendingChallenge(
   channel: string,
 ): VerificationChallenge | null {
   return findPendingChallengeForChannel(assistantId, channel);
+}
+
+// ---------------------------------------------------------------------------
+// Outbound Verification Sessions
+// ---------------------------------------------------------------------------
+
+export interface CreateOutboundSessionResult {
+  sessionId: string;
+  secret: string;
+  challengeHash: string;
+  expiresAt: number;
+  ttlSeconds: number;
+}
+
+/**
+ * Create an outbound verification session with expected identity pre-set.
+ * Returns session info including the secret for outbound delivery.
+ *
+ * For voice channels, generates a numeric code with the specified digit count.
+ * For text channels (SMS, Telegram), generates a hex secret.
+ */
+export function createOutboundSession(params: {
+  assistantId: string;
+  channel: string;
+  expectedExternalUserId?: string;
+  expectedChatId?: string;
+  expectedPhoneE164?: string;
+  identityBindingStatus?: IdentityBindingStatus;
+  destinationAddress?: string;
+  codeDigits?: number;
+  maxAttempts?: number;
+  sessionId?: string;
+}): CreateOutboundSessionResult {
+  const isVoice = params.channel === 'voice';
+  const secret = isVoice ? generateVoiceSecret(params.codeDigits ?? 6) : randomBytes(32).toString('hex');
+  const challengeHash = hashSecret(secret);
+  const sessionId = params.sessionId ?? uuid();
+  const expiresAt = Date.now() + CHALLENGE_TTL_MS;
+
+  createVerificationSession({
+    id: sessionId,
+    assistantId: params.assistantId,
+    channel: params.channel,
+    challengeHash,
+    expiresAt,
+    status: params.identityBindingStatus === 'pending_bootstrap' ? 'pending_bootstrap' : 'awaiting_response',
+    expectedExternalUserId: params.expectedExternalUserId,
+    expectedChatId: params.expectedChatId,
+    expectedPhoneE164: params.expectedPhoneE164,
+    identityBindingStatus: params.identityBindingStatus ?? 'bound',
+    destinationAddress: params.destinationAddress,
+    codeDigits: params.codeDigits,
+    maxAttempts: params.maxAttempts,
+  });
+
+  return {
+    sessionId,
+    secret,
+    challengeHash,
+    expiresAt,
+    ttlSeconds: CHALLENGE_TTL_MS / 1000,
+  };
+}
+
+/**
+ * Find the most recent active outbound session for a given
+ * (assistantId, channel).
+ */
+export function findActiveSession(
+  assistantId: string,
+  channel: string,
+): VerificationChallenge | null {
+  return storeFindActiveSession(assistantId, channel);
+}
+
+/**
+ * Identity-bound session lookup for the consume path.
+ */
+export function findSessionByIdentity(
+  assistantId: string,
+  channel: string,
+  externalUserId?: string,
+  chatId?: string,
+  phoneE164?: string,
+): VerificationChallenge | null {
+  return storeFindSessionByIdentity(assistantId, channel, externalUserId, chatId, phoneE164);
+}
+
+/**
+ * Transition a session's status.
+ */
+export function updateSessionStatus(
+  id: string,
+  status: SessionStatus,
+  extraFields?: Partial<{
+    consumedByExternalUserId: string;
+    consumedByChatId: string;
+  }>,
+): void {
+  storeUpdateSessionStatus(id, status, extraFields);
+}
+
+/**
+ * Update outbound delivery tracking fields on a session.
+ */
+export function updateSessionDelivery(
+  id: string,
+  lastSentAt: number,
+  sendCount: number,
+  nextResendAt: number | null,
+): void {
+  storeUpdateSessionDelivery(id, lastSentAt, sendCount, nextResendAt);
+}
+
+/**
+ * Count total SMS sends to a destination across all sessions within a
+ * rolling time window. Prevents circumvention of per-session limits by
+ * repeatedly creating new sessions to the same phone number.
+ */
+export function countRecentSendsToDestination(
+  channel: string,
+  destinationAddress: string,
+  windowMs: number,
+): number {
+  return storeCountRecentSendsToDestination(channel, destinationAddress, windowMs);
+}
+
+/**
+ * Telegram bootstrap completion: bind the expected identity fields and
+ * transition identity_binding_status from pending_bootstrap to bound.
+ */
+export function bindSessionIdentity(
+  id: string,
+  externalUserId: string,
+  chatId: string,
+): void {
+  storeBindSessionIdentity(id, externalUserId, chatId);
 }

@@ -728,6 +728,84 @@ sequenceDiagram
 
 ---
 
+## Standalone Screen Recording
+
+Standalone screen recording allows users to record their screen without starting a full computer-use session. The daemon manages the recording lifecycle and attaches the resulting video file to the conversation as a file-backed attachment.
+
+### Lifecycle
+
+```
+idle → starting → recording → stopping → idle
+                                      └→ failed → idle
+```
+
+A recording is initiated when the daemon detects a recording-only intent in the user's message (or a mixed-intent message that includes a recording clause). The daemon generates a unique `recordingId`, stores bidirectional mappings (`recordingId ↔ conversationId`), and sends a `recording_start` IPC message to the macOS client. The client manages the actual screen capture via `RecordingManager.swift` and reports status transitions back to the daemon.
+
+### Key Files
+
+| File | Role |
+|---|---|
+| `assistant/src/daemon/recording-intent.ts` | Detects and strips recording/stop-recording intent from user messages |
+| `assistant/src/daemon/handlers/recording.ts` | Daemon handler for start, stop, and status lifecycle events |
+| `clients/macos/vellum-assistant/ComputerUse/RecordingManager.swift` | macOS-side screen capture using ScreenCaptureKit |
+
+### IPC Messages
+
+| Message | Direction | Purpose |
+|---|---|---|
+| `recording_start` | Server → Client | Instructs the client to begin recording with a `recordingId` and optional `RecordingOptions` |
+| `recording_stop` | Server → Client | Instructs the client to stop the active recording |
+| `recording_status` | Client → Server | Reports lifecycle transitions: `started`, `stopped` (with `filePath`), or `failed` (with `error`) |
+
+### Intent Routing
+
+Recording-only prompts (e.g., "record my screen", "please start recording") are intercepted before reaching the classifier or computer-use session creation. The routing logic:
+
+1. `detectRecordingIntent(taskText)` checks if any recording phrases are present.
+2. `isRecordingOnly(taskText)` determines if the entire message is about recording (after stripping polite fillers like "please", "can you", "thanks").
+3. If recording-only: the daemon calls `handleRecordingStart()` directly, bypassing the classifier.
+4. If mixed-intent (e.g., "open Safari and record my screen"): `stripRecordingIntent()` removes the recording clause and starts recording as a side-effect while the remaining task proceeds through normal routing.
+5. Stop-recording follows the same pattern with `detectStopRecordingIntent()`, `isStopRecordingOnly()`, and `stripStopRecordingIntent()`.
+
+### File-Backed Attachments
+
+When a recording stops with a valid `filePath`, the handler:
+1. Validates the file exists and reads its size via `statSync`.
+2. Creates a file-backed attachment via `uploadFileBackedAttachment()` (avoids reading large video files into memory).
+3. Links the attachment to the last assistant message in the conversation (or creates a new one).
+4. Sends `assistant_text_delta` + `message_complete` with attachment metadata to the client.
+
+### Recording Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Daemon as Daemon (Bun)
+    participant Client as macOS Client
+    participant RM as RecordingManager
+
+    User->>Daemon: "record my screen"
+    Note over Daemon: detectRecordingIntent → true<br/>isRecordingOnly → true
+    Daemon->>Client: recording_start { recordingId, options }
+    Client->>RM: startRecording(recordingId)
+    RM-->>Client: capture started
+    Client->>Daemon: recording_status { status: 'started' }
+
+    Note over RM: Screen capture in progress...
+
+    User->>Daemon: "stop recording"
+    Note over Daemon: detectStopRecordingIntent → true<br/>isStopRecordingOnly → true
+    Daemon->>Client: recording_stop { recordingId }
+    Client->>RM: stopRecording()
+    RM-->>Client: file saved at filePath
+    Client->>Daemon: recording_status { status: 'stopped', filePath, durationMs }
+
+    Note over Daemon: uploadFileBackedAttachment<br/>linkAttachmentToMessage
+    Daemon->>Client: assistant_text_delta + message_complete { attachments }
+```
+
+---
+
 ## Ride Shotgun — Detailed Data Flow
 
 The Ride Shotgun system replaces the legacy ambient suggestion pipeline. Instead of continuously observing and generating suggestions, it uses a timer-based invitation model: after eligibility checks pass, the user is invited to a time-boxed observation session. Captures are sent to the daemon for analysis, and a summary is presented at the end.
@@ -4227,7 +4305,7 @@ sequenceDiagram
     alt ASK_GUARDIAN pattern detected
         Ctrl->>CallStore: createPendingQuestion()
         Ctrl->>GuardianDispatch: dispatchGuardianQuestion()
-        GuardianDispatch->>Mac: guardian_request_thread_created IPC
+        GuardianDispatch->>Mac: notification_thread_created IPC
         GuardianDispatch->>TG/SMS: POST /deliver/{channel}
         Note over Mac,TG/SMS: First channel to respond wins
         Mac/TG/SMS->>Routes: guardian answer
@@ -4408,9 +4486,10 @@ When the LLM emits `[ASK_GUARDIAN: question]` during a voice call, the controlle
 
 1. **Request creation**: A `guardian_action_request` row is created with a unique 6-character hex request code, the question text, a `pending` status, and an expiry timestamp.
 
-2. **Delivery fan-out**: Deliveries are created for each configured channel:
-   - **Mac (always)**: A server-side conversation is created with key `asst:${assistantId}:guardian:request:${request.id}`. The dispatch engine emits a `guardian_request_thread_created` IPC event so the desktop UI can display the question thread.
-   - **Telegram/SMS (if guardian binding exists)**: A `POST /deliver/{channel}` request is sent to the gateway with the question text and request code.
+2. **Delivery fan-out via notification pipeline**: The guardian dispatch calls `emitNotificationSignal()` and uses the same notification decision + broadcaster path as every other producer.
+   - **Vellum**: Conversation pairing happens in the notification broadcaster. The resulting `notification_thread_created` event surfaces the thread in the desktop UI.
+   - **Telegram/SMS**: Delivery is handled by channel adapters selected by the notification decision and guarded by configured bindings.
+   - Guardian dispatch records `guardian_action_deliveries` from pipeline delivery results. It also uses the per-dispatch `onThreadCreated` callback so vellum delivery rows are created as soon as thread pairing occurs (without waiting for slower channels).
 
 3. **Answer resolution**: The first channel to respond wins. Answer resolution uses an atomic `WHERE status = 'pending'` check on the `guardian_action_requests` table -- only the first writer succeeds in transitioning the request to `answered` status. The winning answer text and responding channel are recorded on the request row.
 
@@ -4422,13 +4501,9 @@ When the LLM emits `[ASK_GUARDIAN: question]` during a voice call, the controlle
 
 7. **Separation from channel guardian approvals**: Guardian action requests are SEPARATE from `channelGuardianApprovalRequests` (the existing channel tool-approval system). The channel guardian approval system handles tool-use permission grants (approve/deny a specific tool invocation). Guardian action requests handle free-form questions from voice calls that require human input to continue the conversation.
 
-#### Guardian Request Copy Generation Pipeline
-
-Thread titles and initial messages for guardian question threads are generated via `guardian-question-copy.ts`. The module calls the configured LLM provider (with `modelIntent: 'latency-optimized'`) to produce an emoji-prefixed, attention-oriented title and a richer initial message that explains the live-call context. A 5-second timeout guards the generation call. When no provider is configured, generation times out, or parsing fails, the module falls back to deterministic copy (`buildFallbackCopy`) that uses a warning emoji prefix and a simple template containing the question text. The generative copy is awaited only in the macOS delivery branch so that Telegram/SMS deliveries dispatch without LLM latency.
-
 #### macOS Notification + Deep-Link Flow
 
-When a guardian question is dispatched while the macOS app is backgrounded, the Swift client posts a native `UNUserNotificationCenter` notification under the `GUARDIAN_REQUEST` category. The notification title mirrors the emoji-prefixed thread title from the copy generation pipeline. Tapping the notification triggers the `openConversationThread` deep-link handler, which switches the main window to the guardian question thread so the user can reply immediately.
+When a guardian question is dispatched while the macOS app is backgrounded, the Swift client posts a native `UNUserNotificationCenter` notification from the generic `notification_intent` payload (`NOTIFICATION_INTENT` category). The deep-link metadata includes the paired conversation ID, so tapping the notification routes directly to the guardian thread.
 
 ### SQLite Tables
 
@@ -4689,27 +4764,84 @@ Keep-alive heartbeats (every 30 s by default):
 The notification module (`assistant/src/notifications/`) uses a signal-based architecture where producers emit free-form events and an LLM-backed decision engine determines whether, where, and how to notify the user. See `assistant/src/notifications/README.md` for the full developer guide.
 
 ```
-Producer → NotificationSignal → Decision Engine (LLM) → Deterministic Checks → Broadcaster → Adapters → Delivery
-                                       ↑
-                               Preference Summary
+Producer → NotificationSignal → Decision Engine (LLM) → Deterministic Checks → Broadcaster → Conversation Pairing → Adapters → Delivery
+                                       ↑                                                            ↓
+                               Preference Summary                                    notification_thread_created IPC
 ```
+
+### Channel Policy Registry
+
+`assistant/src/channels/config.ts` is the **single source of truth** for per-channel notification behavior. Every `ChannelId` must have an entry in the `CHANNEL_POLICIES` map (enforced at compile time via `satisfies Record<ChannelId, ChannelNotificationPolicy>`). Each policy defines:
+
+- **`deliveryEnabled`** — whether the channel can receive notification deliveries. The `NotificationChannel` type is derived from this flag: only channels with `deliveryEnabled: true` are valid notification targets.
+- **`conversationStrategy`** — how the notification pipeline materializes conversations for the channel:
+  - `start_new_conversation` — creates a fresh conversation per delivery (e.g. vellum desktop/mobile threads)
+  - `continue_existing_conversation` — intended to append to an existing channel-scoped conversation; currently materializes a background audit conversation per delivery (e.g. Telegram)
+  - `not_deliverable` — channel cannot receive notifications (e.g. voice)
+
+Helper functions: `getDeliverableChannels()`, `getChannelPolicy()`, `isNotificationDeliverable()`, `getConversationStrategy()`.
+
+### Conversation Pairing
+
+Every notification delivery materializes a conversation + seed message **before** the adapter sends it (`conversation-pairing.ts`). This ensures:
+
+1. Every delivery has an auditable conversation trail in the conversations table
+2. The macOS/iOS client can deep-link directly into the notification thread
+3. Delivery audit rows in `notification_deliveries` carry `conversation_id`, `message_id`, and `conversation_strategy` columns
+
+The pairing function (`pairDeliveryWithConversation`) is resilient — errors are caught and logged without breaking the delivery pipeline.
+
+### Notification Conversation Materialization
+
+The notification pipeline uses a single conversation materialization path across producers:
+
+1. **Canonical pipeline** (`emitNotificationSignal` → decision engine → broadcaster → conversation pairing → adapters): The broadcaster pairs each delivery with a conversation, then dispatches a `notification_intent` IPC event via the Vellum adapter. The IPC payload includes `deepLinkMetadata` (e.g. `{ conversationId }`) so the macOS/iOS client can deep-link to the relevant context when the user taps the notification.
+2. **Guardian bookkeeping** (`dispatchGuardianQuestion`): Guardian dispatch still creates `guardian_action_request` / `guardian_action_delivery` audit rows, but those rows are now derived from pipeline delivery results and the per-dispatch `onThreadCreated` callback instead of a second custom thread-creation path.
+
+### Thread Surfacing via `notification_thread_created` IPC
+
+When a vellum notification thread is paired with a conversation (strategy `start_new_conversation`), the broadcaster emits a `notification_thread_created` IPC event **immediately** (before waiting for slower channel deliveries like Telegram). This pushes the thread to the macOS/iOS client so it can display the notification thread in the sidebar and deep-link to it.
+
+### IPC Thread-Created Events
+
+Two IPC push events surface new threads in the macOS/iOS client sidebar:
+
+- **`notification_thread_created`** — Emitted by `broadcaster.ts` when a notification delivery creates a vellum conversation (strategy `start_new_conversation`). Payload: `{ conversationId, title, sourceEventName }`.
+- **`task_run_thread_created`** — Emitted by `work-item-runner.ts` when a task run creates a conversation. Payload: `{ conversationId, workItemId, title }`.
+
+All events follow the same pattern: the daemon creates a server-side conversation, persists an initial message, and broadcasts the IPC event so the macOS `ThreadManager` can create a visible thread in the sidebar.
+
+### Channel Delivery
+
+Notifications are delivered to two channel types:
+
+- **Vellum (always connected)**: Local IPC via the daemon's broadcast mechanism. The `VellumAdapter` emits a `notification_intent` message with rendered copy and optional `deepLinkMetadata`.
+- **Telegram (when guardian binding exists)**: HTTP POST to the gateway's `/deliver/telegram` endpoint. Requires an active guardian binding for the assistant.
+
+Connected channels are resolved at signal emission time: vellum is always included, and binding-based channels (Telegram) are included only when an active guardian binding exists for the assistant.
 
 **Key modules:**
 
 | Module | Purpose |
 |--------|---------|
+| `assistant/src/channels/config.ts` | Channel policy registry — single source of truth for per-channel notification behavior |
 | `assistant/src/notifications/emit-signal.ts` | Single entry point for all producers; orchestrates the full pipeline |
 | `assistant/src/notifications/decision-engine.ts` | LLM-based routing decisions with deterministic fallback |
 | `assistant/src/notifications/deterministic-checks.ts` | Hard invariant checks (dedupe, source-active suppression, channel availability) |
-| `assistant/src/notifications/broadcaster.ts` | Dispatches decisions to channel adapters |
-| `assistant/src/notifications/adapters/` | Per-channel delivery (macOS IPC, Telegram gateway) |
+| `assistant/src/notifications/broadcaster.ts` | Dispatches decisions to channel adapters; emits `notification_thread_created` IPC |
+| `assistant/src/notifications/conversation-pairing.ts` | Materializes conversation + message per delivery based on channel strategy |
+| `assistant/src/notifications/adapters/macos.ts` | Vellum adapter — broadcasts `notification_intent` via IPC with deep-link metadata |
+| `assistant/src/notifications/adapters/telegram.ts` | Telegram adapter — POSTs to gateway `/deliver/telegram` |
+| `assistant/src/notifications/destination-resolver.ts` | Resolves per-channel endpoints (vellum IPC, Telegram chat ID from guardian binding) |
+| `assistant/src/notifications/copy-composer.ts` | Template-based fallback copy when LLM copy is unavailable |
 | `assistant/src/notifications/preference-extractor.ts` | Detects preference statements in conversation messages |
 | `assistant/src/notifications/preferences-store.ts` | CRUD for user notification preferences |
 | `assistant/src/config/bundled-skills/messaging/tools/send-notification.ts` | Explicit producer tool for user-requested notifications; emits signals into the same routing pipeline |
+| `assistant/src/calls/guardian-dispatch.ts` | Guardian question dispatch that reuses canonical notification pairing and records guardian delivery bookkeeping from pipeline results |
 
-**Audit trail (SQLite):** `notification_events` → `notification_decisions` → `notification_deliveries`
+**Audit trail (SQLite):** `notification_events` → `notification_decisions` → `notification_deliveries` (with `conversation_id`, `message_id`, `conversation_strategy`)
 
-**Configuration:** `notifications.decisionModel` in `config.json`.
+**Configuration:** `notifications.decisionModelIntent` in `config.json`.
 
 ---
 

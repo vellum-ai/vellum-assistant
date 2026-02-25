@@ -2209,6 +2209,7 @@ public enum ServerMessage: Decodable, Sendable {
     case toolResult(ToolResultMessage)
     case reminderFired(ReminderFiredMessage)
     case notificationIntent(NotificationIntentMessage)
+    case notificationThreadCreated(IPCNotificationThreadCreated)
     case scheduleComplete(ScheduleCompleteMessage)
     case watchStarted(WatchStartedMessage)
     case watchCompleteRequest(WatchCompleteRequestMessage)
@@ -2276,7 +2277,6 @@ public enum ServerMessage: Decodable, Sendable {
     case workItemApprovePermissionsResponse(IPCWorkItemApprovePermissionsResponse)
     case workItemCancelResponse(IPCWorkItemCancelResponse)
     case taskRunThreadCreated(IPCTaskRunThreadCreated)
-    case guardianRequestThreadCreated(IPCGuardianRequestThreadCreated)
     case openTasksWindow(OpenTasksWindowMessage)
     case subagentSpawned(IPCSubagentSpawned)
     case subagentStatusChanged(IPCSubagentStatusChanged)
@@ -2297,6 +2297,8 @@ public enum ServerMessage: Decodable, Sendable {
     case pairingApprovalRequest(PairingApprovalRequestMessage)
     case approvedDevicesListResponse(ApprovedDevicesListResponseMessage)
     case approvedDeviceRemoveResponse(ApprovedDeviceRemoveResponseMessage)
+    case recordingStart(IPCRecordingStart)
+    case recordingStop(IPCRecordingStop)
     case pong
     case unknown(String)
 
@@ -2462,6 +2464,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "notification_intent":
             let message = try NotificationIntentMessage(from: decoder)
             self = .notificationIntent(message)
+        case "notification_thread_created":
+            let message = try IPCNotificationThreadCreated(from: decoder)
+            self = .notificationThreadCreated(message)
         case "schedule_complete":
             let message = try ScheduleCompleteMessage(from: decoder)
             self = .scheduleComplete(message)
@@ -2648,9 +2653,6 @@ public enum ServerMessage: Decodable, Sendable {
         case "task_run_thread_created":
             let message = try IPCTaskRunThreadCreated(from: decoder)
             self = .taskRunThreadCreated(message)
-        case "guardian_request_thread_created":
-            let message = try IPCGuardianRequestThreadCreated(from: decoder)
-            self = .guardianRequestThreadCreated(message)
         case "open_tasks_window":
             let message = try OpenTasksWindowMessage(from: decoder)
             self = .openTasksWindow(message)
@@ -2711,6 +2713,12 @@ public enum ServerMessage: Decodable, Sendable {
         case "approved_device_remove_response":
             let message = try ApprovedDeviceRemoveResponseMessage(from: decoder)
             self = .approvedDeviceRemoveResponse(message)
+        case "recording_start":
+            let message = try IPCRecordingStart(from: decoder)
+            self = .recordingStart(message)
+        case "recording_stop":
+            let message = try IPCRecordingStop(from: decoder)
+            self = .recordingStop(message)
         case "pong":
             self = .pong
         default:

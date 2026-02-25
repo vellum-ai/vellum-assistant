@@ -1,4 +1,4 @@
-import { blob, index,integer, real, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { blob, index,integer, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 export const conversations = sqliteTable('conversations', {
   id: text('id').primaryKey(),
@@ -138,6 +138,7 @@ export const memorySummaries = sqliteTable('memory_summaries', {
   updatedAt: integer('updated_at').notNull(),
 }, (table) => [
   index('idx_memory_summaries_scope_id').on(table.scopeId),
+  uniqueIndex('idx_memory_summaries_scope_scope_key').on(table.scope, table.scopeKey),
 ]);
 
 export const memoryEmbeddings = sqliteTable('memory_embeddings', {
@@ -152,7 +153,9 @@ export const memoryEmbeddings = sqliteTable('memory_embeddings', {
   contentHash: text('content_hash'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
-});
+}, (table) => [
+  uniqueIndex('idx_memory_embeddings_target_provider_model').on(table.targetType, table.targetId, table.provider, table.model),
+]);
 
 export const memoryJobs = sqliteTable('memory_jobs', {
   id: text('id').primaryKey(),
@@ -659,6 +662,19 @@ export const channelGuardianVerificationChallenges = sqliteTable('channel_guardi
   createdBySessionId: text('created_by_session_id'),
   consumedByExternalUserId: text('consumed_by_external_user_id'),
   consumedByChatId: text('consumed_by_chat_id'),
+  // Outbound session: expected-identity binding
+  expectedExternalUserId: text('expected_external_user_id'),
+  expectedChatId: text('expected_chat_id'),
+  expectedPhoneE164: text('expected_phone_e164'),
+  identityBindingStatus: text('identity_binding_status').default('bound'),
+  // Outbound session: delivery tracking
+  destinationAddress: text('destination_address'),
+  lastSentAt: integer('last_sent_at'),
+  sendCount: integer('send_count').default(0),
+  nextResendAt: integer('next_resend_at'),
+  // Session configuration
+  codeDigits: integer('code_digits').default(6),
+  maxAttempts: integer('max_attempts').default(3),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });
@@ -995,6 +1011,9 @@ export const notificationDeliveries = sqliteTable('notification_deliveries', {
   errorCode: text('error_code'),
   errorMessage: text('error_message'),
   sentAt: integer('sent_at'),
+  conversationId: text('conversation_id'),
+  messageId: text('message_id'),
+  conversationStrategy: text('conversation_strategy'),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });

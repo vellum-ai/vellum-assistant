@@ -1117,6 +1117,12 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
       conversationId: 'conv-guardian-001',
     },
   },
+  notification_thread_created: {
+    type: 'notification_thread_created',
+    conversationId: 'conv-notif-001',
+    title: 'Weather alert for your area',
+    sourceEventName: 'watcher.escalation',
+  },
   schedule_complete: {
     type: 'schedule_complete',
     scheduleId: 'sched-001',
@@ -1132,9 +1138,9 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     title: 'Urgent email from Alice',
     body: 'Meeting rescheduled to 3pm today.',
   },
-  agent_heartbeat_alert: {
-    type: 'agent_heartbeat_alert',
-    title: 'Agent heartbeat stalled',
+  heartbeat_alert: {
+    type: 'heartbeat_alert',
+    title: 'Heartbeat stalled',
     body: 'No activity detected in the last 60 minutes.',
   },
   watch_started: {
@@ -1757,14 +1763,6 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     conversationId: 'conv-task-run-001',
     workItemId: 'wi-001',
     title: 'Process report',
-  },
-  guardian_request_thread_created: {
-    type: 'guardian_request_thread_created',
-    conversationId: 'conv-guardian-001',
-    requestId: 'req-guardian-001',
-    callSessionId: 'call-001',
-    title: 'Guardian action request',
-    questionText: 'What is the gate code?',
   },
   subagent_spawned: {
     type: 'subagent_spawned',

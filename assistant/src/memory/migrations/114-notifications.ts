@@ -1,5 +1,6 @@
 import type { DrizzleDb } from '../db-connection.js';
 import { migrateNotificationTablesSchema } from './019-notification-tables-schema-migration.js';
+import { migrateNotificationDeliveryPairingColumns } from './027-notification-delivery-pairing-columns.js';
 
 /**
  * Notification system tables: preferences, events, decisions, and deliveries.
@@ -82,4 +83,7 @@ export function createNotificationTables(database: DrizzleDb): void {
   database.run(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_deliveries_unique ON notification_deliveries(notification_decision_id, channel, destination, attempt)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_notification_deliveries_decision_id ON notification_deliveries(notification_decision_id)`);
   database.run(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_notification_deliveries_assistant_status ON notification_deliveries(assistant_id, status)`);
+
+  // Add conversation pairing audit columns (idempotent ALTER TABLE)
+  migrateNotificationDeliveryPairingColumns(database);
 }

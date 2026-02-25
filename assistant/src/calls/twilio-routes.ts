@@ -6,7 +6,7 @@
  * - handleConnectAction: called when the ConversationRelay connection ends
  */
 
-import { getCallWelcomeGreeting } from '../config/env.js';
+import { getCallWelcomeGreeting, getRuntimeProxyBearerToken } from '../config/env.js';
 import { loadConfig } from '../config/loader.js';
 import { getTwilioRelayUrl } from '../inbound/public-ingress-urls.js';
 import { getLogger } from '../util/logger.js';
@@ -240,10 +240,9 @@ function buildVoiceWebhookTwiml(
   }
   const welcomeGreeting = buildWelcomeGreeting(task, getCallWelcomeGreeting());
 
-  // Include the gateway bearer token so the WebSocket relay endpoint can
-  // authenticate the connection. Without this, any client that guesses a
-  // callSessionId could inject frames into a live call.
-  const relayToken = readHttpToken() ?? undefined;
+  // Use the same token resolution the gateway uses for runtimeProxyBearerToken:
+  // env var override first, then the on-disk http-token file.
+  const relayToken = getRuntimeProxyBearerToken() ?? readHttpToken() ?? undefined;
 
   const twiml = generateTwiML(callSessionId, relayUrl, welcomeGreeting, profile, relayToken);
 

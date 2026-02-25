@@ -457,6 +457,7 @@ extension ChatViewModel {
                 if let pending = pendingUserMessage {
                     let attachments = pendingUserAttachments
                     pendingUserMessage = nil
+                    pendingUserMessageDisplayText = nil
                     pendingUserAttachments = nil
                     do {
                         try daemonClient.send(UserMessageMessage(
@@ -637,6 +638,17 @@ extension ChatViewModel {
             // Notify about completed tool calls
             if let toolCalls = completedToolCalls, let callback = onToolCallsComplete {
                 callback(toolCalls)
+            }
+            // Notify that the assistant response is complete
+            if let callback = onResponseComplete, !wasRefinement {
+                // Extract a summary from the last assistant message
+                if let existingId = messages.last(where: { $0.role == .assistant })?.id,
+                   let index = messages.firstIndex(where: { $0.id == existingId }) {
+                    let summary = messages[index].textSegments.joined()
+                    callback(summary)
+                } else {
+                    callback("Response complete")
+                }
             }
 
         case .undoComplete(let undoMsg):
