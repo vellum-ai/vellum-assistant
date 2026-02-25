@@ -7,7 +7,7 @@
 
 import { eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
-import { getDb, rawRun } from './db.js';
+import { getDb, rawRun, rawGet } from './db.js';
 import { attachments, messageAttachments } from './schema.js';
 
 export interface StoredAttachment {
@@ -207,6 +207,22 @@ export function uploadFileBackedAttachment(
     createdAt: now,
     filePath,
   };
+}
+
+/**
+ * Returns the file_path for a file-backed attachment, or null if not file-backed.
+ * Uses raw SQL since file_path is added via runtime migration and is not in the Drizzle schema.
+ */
+export function getFilePathForAttachment(attachmentId: string): string | null {
+  if (!filePathColumnEnsured) {
+    ensureFilePathColumn();
+    filePathColumnEnsured = true;
+  }
+  const row = rawGet<{ file_path: string | null }>(
+    'SELECT file_path FROM attachments WHERE id = ?',
+    attachmentId,
+  );
+  return row?.file_path ?? null;
 }
 
 export function uploadAttachment(
