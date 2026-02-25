@@ -99,15 +99,12 @@ bun run ipc:inventory:update      # regenerate ipc-contract-inventory.json
 ```
 Both generated files must be committed alongside your contract changes. CI checks (`check:ipc-generated` and `ipc:inventory`) will fail if they are out of sync.
 
-`AnthropicClient` is the shared HTTP client with retry logic (exponential backoff for 429/5xx). Still used by `KnowledgeCron` for local insight analysis (direct Haiku calls, not through daemon).
-
 ### Ambient Agent (`Ambient/`)
 
 A background screen-watching system that runs alongside the manual session loop:
 - `AmbientAgent` — orchestrates periodic capture → OCR → analyze cycles via daemon IPC (configurable interval, default 30s)
 - `AmbientAnalyzer.swift` — type definitions only (`AmbientDecision`, `AmbientAnalysisResult`); analysis logic lives in the daemon
 - `KnowledgeStore` — persists observations as JSON in Application Support (max 500 entries)
-- `KnowledgeCron` — triggers insight analysis after every N observations; generates higher-level insights via `InsightStore`
 
 ### Voice Input
 
