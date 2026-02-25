@@ -572,7 +572,8 @@ private struct ChatViewPreviewWrapper: View {
                 onDismissSessionError: {},
                 onCopyDebugInfo: {},
                 watchSession: nil,
-                onStopWatch: {}
+                onStopWatch: {},
+                subagentDetailStore: SubagentDetailStore()
             )
         }
     }
