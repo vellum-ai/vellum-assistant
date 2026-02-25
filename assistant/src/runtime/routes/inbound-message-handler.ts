@@ -17,6 +17,7 @@ import { findMember, updateLastSeen, upsertMember } from '../../memory/ingress-m
 import {
   getGuardianBinding,
   validateAndConsumeChallenge,
+  getPendingChallenge,
 } from '../channel-guardian-service.js';
 import { resolveGuardianContext } from '../guardian-context-resolver.js';
 import {
@@ -181,20 +182,36 @@ export async function handleChannelInbound(
       externalChatId,
     });
 
-    if (!resolvedMember && !isGuardianVerifyCommand) {
-      log.info({ sourceChannel, externalUserId: body.senderExternalUserId }, 'Ingress ACL: no member record, denying');
-      if (body.replyCallbackUrl) {
-        try {
-          await deliverChannelReply(body.replyCallbackUrl, {
-            chatId: externalChatId,
-            text: "Sorry, you haven't been approved to message this assistant. You can ask its Guardian for an invite.",
-            assistantId,
-          }, bearerToken);
-        } catch (err) {
-          log.error({ err, externalChatId }, 'Failed to deliver ACL rejection reply');
+    if (!resolvedMember) {
+      // Determine whether a /guardian_verify bypass is warranted: only allow
+      // when there is a pending (unconsumed, unexpired) challenge AND no
+      // active guardian binding for this (assistantId, channel).
+      let denyNonMember = true;
+      if (isGuardianVerifyCommand) {
+        const hasActiveBinding = !!getGuardianBinding(canonicalAssistantId, sourceChannel);
+        const hasPendingChallenge = !!getPendingChallenge(canonicalAssistantId, sourceChannel);
+        if (!hasActiveBinding && hasPendingChallenge) {
+          denyNonMember = false;
+        } else {
+          log.info({ sourceChannel, hasActiveBinding, hasPendingChallenge }, 'Ingress ACL: guardian_verify bypass denied');
         }
       }
-      return Response.json({ accepted: true, denied: true, reason: 'not_a_member' });
+
+      if (denyNonMember) {
+        log.info({ sourceChannel, externalUserId: body.senderExternalUserId }, 'Ingress ACL: no member record, denying');
+        if (body.replyCallbackUrl) {
+          try {
+            await deliverChannelReply(body.replyCallbackUrl, {
+              chatId: externalChatId,
+              text: "Sorry, you haven't been approved to message this assistant. You can ask its Guardian for an invite.",
+              assistantId,
+            }, bearerToken);
+          } catch (err) {
+            log.error({ err, externalChatId }, 'Failed to deliver ACL rejection reply');
+          }
+        }
+        return Response.json({ accepted: true, denied: true, reason: 'not_a_member' });
+      }
     }
 
     if (resolvedMember) {
