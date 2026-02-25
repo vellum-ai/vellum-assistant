@@ -1236,6 +1236,8 @@ public final class SettingsStore: ObservableObject {
 
     private func applyOutboundResponseState(channel: String, response: GuardianVerificationResponseMessage) {
         let sessionId = response.verificationSessionId
+        // Only convert expiresAt when the response includes it; resend success payloads
+        // omit expiresAt, and overwriting with nil would lose countdown tracking.
         let expiresAt = response.expiresAt.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000.0) }
         let nextResendAt = response.nextResendAt.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000.0) }
         let sendCount = response.sendCount ?? 0
@@ -1244,18 +1246,18 @@ public final class SettingsStore: ObservableObject {
         switch channel {
         case "telegram":
             telegramOutboundSessionId = sessionId
-            telegramOutboundExpiresAt = expiresAt
+            if let expiresAt { telegramOutboundExpiresAt = expiresAt }
             telegramOutboundNextResendAt = nextResendAt
             telegramOutboundSendCount = sendCount
             telegramBootstrapUrl = bootstrapUrl
         case "sms":
             smsOutboundSessionId = sessionId
-            smsOutboundExpiresAt = expiresAt
+            if let expiresAt { smsOutboundExpiresAt = expiresAt }
             smsOutboundNextResendAt = nextResendAt
             smsOutboundSendCount = sendCount
         case "voice":
             voiceOutboundSessionId = sessionId
-            voiceOutboundExpiresAt = expiresAt
+            if let expiresAt { voiceOutboundExpiresAt = expiresAt }
             voiceOutboundNextResendAt = nextResendAt
             voiceOutboundSendCount = sendCount
         default:

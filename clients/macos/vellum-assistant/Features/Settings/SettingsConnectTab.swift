@@ -1249,8 +1249,12 @@ struct SettingsConnectTab: View {
                 }
 
                 // Resend button with cooldown
+                // Disable resend during bootstrap: when bootstrapUrl is set the session is
+                // in pending_bootstrap state and the daemon rejects resend attempts.
                 HStack(spacing: VSpacing.sm) {
                     let canResend: Bool = {
+                        // Bootstrap sessions (Telegram handle-based) don't support resend
+                        if bootstrapUrl != nil { return false }
                         guard let nextResendAt else { return true }
                         return countdownNow >= nextResendAt
                     }()
