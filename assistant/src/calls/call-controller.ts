@@ -299,6 +299,9 @@ export class CallController {
       this.relay.sendTextToken('', true);
     }
     this.state = 'idle';
+    // Restart silence detection so a barge-in that never yields a
+    // follow-up utterance doesn't leave the call without a watchdog.
+    this.resetSilenceTimer();
   }
 
   /**
@@ -543,6 +546,11 @@ export class CallController {
               this.state = 'idle';
               updateCallSession(this.callSessionId, { status: 'in_progress' });
               expirePendingQuestions(this.callSessionId);
+              // Restart silence detection now that we're back to idle.
+              // flushPendingInstructions / drainPendingCallerUtterances will
+              // reset it again when they start a new turn, but we need the
+              // fallback in case neither queue has work.
+              this.resetSilenceTimer();
 
               const hasInstructions = this.pendingInstructions.length > 0;
               const hasUtterances = this.pendingCallerUtterances.length > 0;
