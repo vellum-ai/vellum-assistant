@@ -45,7 +45,7 @@ final class AssistantCli {
 
     private var cliBinaryURL: URL? {
         guard let execURL = Bundle.main.executableURL else { return nil }
-        let candidate = execURL.deletingLastPathComponent().appendingPathComponent("vellum")
+        let candidate = execURL.deletingLastPathComponent().appendingPathComponent("vellum-cli")
         return FileManager.default.fileExists(atPath: candidate.path) ? candidate : nil
     }
 

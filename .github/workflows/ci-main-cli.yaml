@@ -34,9 +34,7 @@ jobs:
         run: bun run typecheck
 
       - name: Compile check
-        run: |
-          bun build --compile src/index.ts --outfile /tmp/vellum-compile-check
-          rm -f /tmp/vellum-compile-check
+        run: bun build --compile src/index.ts --outfile /dev/null
 
       - name: Track consecutive failures
         if: always()
