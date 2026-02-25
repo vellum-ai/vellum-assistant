@@ -22,6 +22,8 @@ mock.module('../util/platform.js', () => ({
   getDbPath: () => join(testDir, 'test.db'),
   getLogPath: () => join(testDir, 'test.log'),
   ensureDataDir: () => {},
+  normalizeAssistantId: (id: string) => id === 'self' ? 'self' : id,
+  readHttpToken: () => 'test-bearer-token',
 }));
 
 mock.module('../util/logger.js', () => ({
@@ -30,11 +32,18 @@ mock.module('../util/logger.js', () => ({
   }),
 }));
 
-import type * as net from 'node:net';
+// SMS client mock — outbound SMS delivery is fire-and-forget, so we just track calls.
+const smsSendCalls: Array<{ to: string; text: string; assistantId?: string }> = [];
+mock.module('../messaging/providers/sms/client.js', () => ({
+  sendMessage: async (_gatewayUrl: string, _bearerToken: string, to: string, text: string, assistantId?: string) => {
+    smsSendCalls.push({ to, text, assistantId });
+    return { messageSid: 'SM-mock', status: 'queued' };
+  },
+}));
 
-import { handleGuardianVerification } from '../daemon/handlers/config.js';
-import type { HandlerContext } from '../daemon/handlers/shared.js';
-import type { GuardianVerificationRequest, GuardianVerificationResponse } from '../daemon/ipc-contract.js';
+mock.module('../config/env.js', () => ({
+  getGatewayInternalBaseUrl: () => 'http://127.0.0.1:7830',
+}));
 import {
   consumeChallenge,
   createApprovalRequest,
@@ -71,6 +80,14 @@ import {
   bindSessionIdentity as serviceBindSessionIdentity,
   validateAndConsumeChallenge,
 } from '../runtime/channel-guardian-service.js';
+import { handleGuardianVerification, MAX_SENDS_PER_SESSION, RESEND_COOLDOWN_MS } from '../daemon/handlers/config-channels.js';
+import type { GuardianVerificationRequest, GuardianVerificationResponse } from '../daemon/ipc-contract.js';
+import type { HandlerContext } from '../daemon/handlers/shared.js';
+import {
+  composeVerificationSms,
+  GUARDIAN_VERIFY_TEMPLATE_KEYS,
+} from '../runtime/guardian-verification-templates.js';
+import type * as net from 'node:net';
 
 initializeDb();
 
@@ -85,6 +102,7 @@ function resetTables(): void {
   db.run('DELETE FROM channel_guardian_verification_challenges');
   db.run('DELETE FROM channel_guardian_approval_requests');
   db.run('DELETE FROM channel_guardian_rate_limits');
+  smsSendCalls.length = 0;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2430,5 +2448,370 @@ describe('outbound verification sessions', () => {
     );
 
     expect(result.success).toBe(true);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 18. Outbound SMS Verification (IPC Handlers)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('outbound SMS verification', () => {
+  beforeEach(() => {
+    resetTables();
+  });
+
+  test('start_outbound creates session with expected E.164 identity and returns code', () => {
+    const { ctx, lastResponse } = createMockCtx();
+    const msg: GuardianVerificationRequest = {
+      type: 'guardian_verification',
+      action: 'start_outbound',
+      channel: 'sms',
+      assistantId: 'self',
+      destination: '+15551234567',
+    };
+
+    handleGuardianVerification(msg, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(true);
+    expect(resp!.verificationSessionId).toBeDefined();
+    expect(resp!.secret).toBeDefined();
+    expect(resp!.expiresAt).toBeGreaterThan(Date.now());
+    expect(resp!.nextResendAt).toBeGreaterThan(Date.now());
+    expect(resp!.sendCount).toBe(1);
+    expect(resp!.channel).toBe('sms');
+
+    // Verify the session was created with expected identity
+    const session = serviceFindActiveSession('self', 'sms');
+    expect(session).not.toBeNull();
+    expect(session!.expectedPhoneE164).toBe('+15551234567');
+    expect(session!.destinationAddress).toBe('+15551234567');
+  });
+
+  test('start_outbound rejects when active binding exists (rebind=false)', () => {
+    // Create an existing guardian binding
+    createBinding({
+      assistantId: 'self',
+      channel: 'sms',
+      guardianExternalUserId: '+15551234567',
+      guardianDeliveryChatId: 'sms-chat-1',
+    });
+
+    const { ctx, lastResponse } = createMockCtx();
+    const msg: GuardianVerificationRequest = {
+      type: 'guardian_verification',
+      action: 'start_outbound',
+      channel: 'sms',
+      assistantId: 'self',
+      destination: '+15559876543',
+      rebind: false,
+    };
+
+    handleGuardianVerification(msg, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(false);
+    expect(resp!.error).toBe('already_bound');
+  });
+
+  test('start_outbound allows rebind when rebind=true', () => {
+    // Create an existing guardian binding
+    createBinding({
+      assistantId: 'self',
+      channel: 'sms',
+      guardianExternalUserId: '+15551234567',
+      guardianDeliveryChatId: 'sms-chat-1',
+    });
+
+    const { ctx, lastResponse } = createMockCtx();
+    const msg: GuardianVerificationRequest = {
+      type: 'guardian_verification',
+      action: 'start_outbound',
+      channel: 'sms',
+      assistantId: 'self',
+      destination: '+15559876543',
+      rebind: true,
+    };
+
+    handleGuardianVerification(msg, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(true);
+    expect(resp!.verificationSessionId).toBeDefined();
+  });
+
+  test('resend_outbound before cooldown is rejected', () => {
+    // Start an outbound session first
+    const { ctx: startCtx } = createMockCtx();
+    handleGuardianVerification({
+      type: 'guardian_verification',
+      action: 'start_outbound',
+      channel: 'sms',
+      assistantId: 'self',
+      destination: '+15551234567',
+    }, mockSocket, startCtx);
+
+    // Immediately try to resend (before cooldown)
+    const { ctx, lastResponse } = createMockCtx();
+    handleGuardianVerification({
+      type: 'guardian_verification',
+      action: 'resend_outbound',
+      channel: 'sms',
+      assistantId: 'self',
+    }, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(false);
+    expect(resp!.error).toBe('rate_limited');
+  });
+
+  test('resend_outbound after cooldown succeeds and increments sendCount', () => {
+    // Start an outbound session
+    const { ctx: startCtx, lastResponse: startResp } = createMockCtx();
+    handleGuardianVerification({
+      type: 'guardian_verification',
+      action: 'start_outbound',
+      channel: 'sms',
+      assistantId: 'self',
+      destination: '+15551234567',
+    }, mockSocket, startCtx);
+
+    const startResponse = startResp();
+    expect(startResponse!.success).toBe(true);
+
+    // Manually update the session's nextResendAt to the past to simulate cooldown elapsed
+    const session = serviceFindActiveSession('self', 'sms');
+    expect(session).not.toBeNull();
+    storeUpdateSessionDelivery(session!.id, Date.now() - RESEND_COOLDOWN_MS - 1000, 1, Date.now() - 1000);
+
+    // Now resend should succeed
+    const { ctx, lastResponse } = createMockCtx();
+    handleGuardianVerification({
+      type: 'guardian_verification',
+      action: 'resend_outbound',
+      channel: 'sms',
+      assistantId: 'self',
+    }, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(true);
+    expect(resp!.sendCount).toBe(2);
+    expect(resp!.nextResendAt).toBeGreaterThan(Date.now());
+  });
+
+  test('resend_outbound exceeding max sends is rejected', () => {
+    // Start an outbound session
+    const { ctx: startCtx } = createMockCtx();
+    handleGuardianVerification({
+      type: 'guardian_verification',
+      action: 'start_outbound',
+      channel: 'sms',
+      assistantId: 'self',
+      destination: '+15551234567',
+    }, mockSocket, startCtx);
+
+    // Set the send count to MAX_SENDS_PER_SESSION and nextResendAt to the past
+    const session = serviceFindActiveSession('self', 'sms');
+    expect(session).not.toBeNull();
+    storeUpdateSessionDelivery(
+      session!.id,
+      Date.now() - RESEND_COOLDOWN_MS - 1000,
+      MAX_SENDS_PER_SESSION,
+      Date.now() - 1000,
+    );
+
+    // Resend should be rejected due to max sends
+    const { ctx, lastResponse } = createMockCtx();
+    handleGuardianVerification({
+      type: 'guardian_verification',
+      action: 'resend_outbound',
+      channel: 'sms',
+      assistantId: 'self',
+    }, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(false);
+    expect(resp!.error).toBe('max_sends_exceeded');
+  });
+
+  test('cancel_outbound revokes active session', () => {
+    // Start an outbound session
+    const { ctx: startCtx } = createMockCtx();
+    handleGuardianVerification({
+      type: 'guardian_verification',
+      action: 'start_outbound',
+      channel: 'sms',
+      assistantId: 'self',
+      destination: '+15551234567',
+    }, mockSocket, startCtx);
+
+    // Verify session exists
+    const sessionBefore = serviceFindActiveSession('self', 'sms');
+    expect(sessionBefore).not.toBeNull();
+
+    // Cancel it
+    const { ctx, lastResponse } = createMockCtx();
+    handleGuardianVerification({
+      type: 'guardian_verification',
+      action: 'cancel_outbound',
+      channel: 'sms',
+      assistantId: 'self',
+    }, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(true);
+    expect(resp!.channel).toBe('sms');
+
+    // Verify session is no longer active
+    const sessionAfter = serviceFindActiveSession('self', 'sms');
+    expect(sessionAfter).toBeNull();
+  });
+
+  test('inbound SMS from expected identity + correct code succeeds', () => {
+    // Create an outbound session
+    const { secret } = createOutboundSession({
+      assistantId: 'self',
+      channel: 'sms',
+      expectedPhoneE164: '+15551234567',
+      expectedExternalUserId: '+15551234567',
+      destinationAddress: '+15551234567',
+    });
+
+    // Validate with matching identity
+    const result = validateAndConsumeChallenge(
+      'self', 'sms', secret, '+15551234567', 'sms-chat-1',
+    );
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.bindingId).toBeDefined();
+    }
+  });
+
+  test('inbound SMS from wrong identity + correct code is rejected', () => {
+    // Create an outbound session with expected identity +15551234567
+    const { secret } = createOutboundSession({
+      assistantId: 'self',
+      channel: 'sms',
+      expectedPhoneE164: '+15551234567',
+      expectedExternalUserId: '+15551234567',
+      destinationAddress: '+15551234567',
+    });
+
+    // Try to validate with a different phone number (anti-oracle: same generic error)
+    const result = validateAndConsumeChallenge(
+      'self', 'sms', secret, '+15559999999', 'sms-chat-wrong',
+    );
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      // Anti-oracle: generic failure message, no identity-specific info leaked
+      expect(result.reason.toLowerCase()).toContain('failed');
+      expect(result.reason).not.toContain('identity');
+      expect(result.reason).not.toContain('mismatch');
+    }
+  });
+
+  test('template composer returns expected SMS format', () => {
+    const challengeSms = composeVerificationSms(
+      GUARDIAN_VERIFY_TEMPLATE_KEYS.CHALLENGE_REQUEST,
+      { code: '123456', expiresInMinutes: 10 },
+    );
+    expect(challengeSms).toContain('123456');
+    expect(challengeSms).toContain('10 minutes');
+    expect(challengeSms).toContain('verification code');
+
+    const resendSms = composeVerificationSms(
+      GUARDIAN_VERIFY_TEMPLATE_KEYS.RESEND,
+      { code: 'ABCDEF', expiresInMinutes: 5 },
+    );
+    expect(resendSms).toContain('ABCDEF');
+    expect(resendSms).toContain('5 minutes');
+    expect(resendSms).toContain('resent');
+
+    const alreadySms = composeVerificationSms(
+      GUARDIAN_VERIFY_TEMPLATE_KEYS.ALREADY_VERIFIED,
+      { code: 'unused', expiresInMinutes: 0 },
+    );
+    expect(alreadySms).toContain('already verified');
+  });
+
+  test('start_outbound rejects non-SMS channels', () => {
+    const { ctx, lastResponse } = createMockCtx();
+    handleGuardianVerification({
+      type: 'guardian_verification',
+      action: 'start_outbound',
+      channel: 'telegram',
+      assistantId: 'self',
+      destination: '@some_user',
+    }, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(false);
+    expect(resp!.error).toBe('unsupported_channel');
+  });
+
+  test('start_outbound rejects missing destination', () => {
+    const { ctx, lastResponse } = createMockCtx();
+    handleGuardianVerification({
+      type: 'guardian_verification',
+      action: 'start_outbound',
+      channel: 'sms',
+      assistantId: 'self',
+      // no destination
+    }, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(false);
+    expect(resp!.error).toBe('missing_destination');
+  });
+
+  test('start_outbound rejects invalid E.164 number', () => {
+    const { ctx, lastResponse } = createMockCtx();
+    handleGuardianVerification({
+      type: 'guardian_verification',
+      action: 'start_outbound',
+      channel: 'sms',
+      assistantId: 'self',
+      destination: '5551234567', // missing + prefix
+    }, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(false);
+    expect(resp!.error).toBe('invalid_destination');
+  });
+
+  test('template composer includes assistantName when provided', () => {
+    const sms = composeVerificationSms(
+      GUARDIAN_VERIFY_TEMPLATE_KEYS.CHALLENGE_REQUEST,
+      { code: '999999', expiresInMinutes: 10, assistantName: 'MyBot' },
+    );
+    expect(sms).toContain('[MyBot]');
+    expect(sms).toContain('999999');
+  });
+
+  test('cancel_outbound returns error when no active session', () => {
+    const { ctx, lastResponse } = createMockCtx();
+    handleGuardianVerification({
+      type: 'guardian_verification',
+      action: 'cancel_outbound',
+      channel: 'sms',
+      assistantId: 'self',
+    }, mockSocket, ctx);
+
+    const resp = lastResponse();
+    expect(resp).not.toBeNull();
+    expect(resp!.success).toBe(false);
+    expect(resp!.error).toBe('no_active_session');
   });
 });
