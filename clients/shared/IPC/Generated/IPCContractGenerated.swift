@@ -5295,8 +5295,15 @@ public struct IPCUserMessage: Codable, Sendable {
     public let bypassSecretCheck: Bool?
     /// Originating channel identifier (e.g. 'vellum'). Defaults to 'vellum' when absent.
     public let channel: String?
+    /// Originating interface identifier (e.g. 'macos'). Falls back to channel when absent.
+    public let interface_: String?
 
-    public init(type: String, sessionId: String, content: String? = nil, attachments: [IPCUserMessageAttachment]? = nil, activeSurfaceId: String? = nil, currentPage: String? = nil, bypassSecretCheck: Bool? = nil, channel: String? = nil) {
+    enum CodingKeys: String, CodingKey {
+        case type, sessionId, content, attachments, activeSurfaceId, currentPage, bypassSecretCheck, channel
+        case interface_ = "interface"
+    }
+
+    public init(type: String, sessionId: String, content: String? = nil, attachments: [IPCUserMessageAttachment]? = nil, activeSurfaceId: String? = nil, currentPage: String? = nil, bypassSecretCheck: Bool? = nil, channel: String? = nil, interface_: String? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.content = content
@@ -5305,6 +5312,7 @@ public struct IPCUserMessage: Codable, Sendable {
         self.currentPage = currentPage
         self.bypassSecretCheck = bypassSecretCheck
         self.channel = channel
+        self.interface_ = interface_
     }
 }
 

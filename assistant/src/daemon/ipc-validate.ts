@@ -1,4 +1,4 @@
-import { isChannelId } from '../channels/types.js';
+import { isChannelId, isInterfaceId } from '../channels/types.js';
 import type { ClientMessage } from './ipc-contract.js';
 import inventory from './ipc-contract-inventory.json' with { type: 'json' };
 
@@ -85,6 +85,9 @@ const HIGH_RISK_VALIDATORS: Record<string, PropertyValidator> = {
     }
     if (obj.channel !== undefined && !isChannelId(obj.channel)) {
       return 'user_message "channel" must be a valid channel ID when present';
+    }
+    if (obj.interface !== undefined && !isInterfaceId(obj.interface)) {
+      return 'user_message "interface" must be a valid interface ID when present';
     }
     return null;
   },

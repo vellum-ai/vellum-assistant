@@ -1,5 +1,5 @@
 import * as net from 'node:net';
-import { isChannelId, parseChannelId } from '../../channels/types.js';
+import { isChannelId, parseChannelId, parseInterfaceId, type InterfaceId } from '../../channels/types.js';
 import { silentlyWithLog } from '../../util/silently.js';
 import { v4 as uuid } from 'uuid';
 import * as conversationStore from '../../memory/conversation-store.js';
@@ -86,9 +86,12 @@ export async function handleUserMessage(
     });
 
     const ipcChannel = parseChannelId(msg.channel) ?? 'vellum';
+    const ipcInterfaceForQueue: InterfaceId = parseInterfaceId(msg.interface) ?? ipcChannel;
     const queuedChannelMetadata = {
       userMessageChannel: ipcChannel,
       assistantMessageChannel: ipcChannel,
+      userMessageInterface: ipcInterfaceForQueue,
+      assistantMessageInterface: ipcInterfaceForQueue,
     };
     const result = session.enqueueMessage(
       msg.content ?? '',
@@ -135,6 +138,11 @@ export async function handleUserMessage(
     session.setTurnChannelContext({
       userMessageChannel: ipcChannel,
       assistantMessageChannel: ipcChannel,
+    });
+    const ipcInterface: InterfaceId = parseInterfaceId(msg.interface) ?? ipcChannel;
+    session.setTurnInterfaceContext({
+      userMessageInterface: ipcInterface,
+      assistantMessageInterface: ipcInterface,
     });
     session.setAssistantId('self');
     // IPC/desktop user IS the guardian — default to guardian role so messages
@@ -309,6 +317,11 @@ export async function handleSessionCreate(
     session.setTurnChannelContext({
       userMessageChannel: transportChannel,
       assistantMessageChannel: transportChannel,
+    });
+    const transportInterface: InterfaceId = transportChannel;
+    session.setTurnInterfaceContext({
+      userMessageInterface: transportInterface,
+      assistantMessageInterface: transportInterface,
     });
     session.processMessage(msg.initialMessage, [], sendEvent, requestId).catch((err) => {
       const message = err instanceof Error ? err.message : String(err);
