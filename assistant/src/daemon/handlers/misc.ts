@@ -21,7 +21,7 @@ import type {
   SuggestionRequest,
   TaskSubmit,
 } from '../ipc-protocol.js';
-import { classifyRecordingIntent, detectRecordingIntent, detectStopRecordingIntent, hasSubstantiveContent, stripRecordingIntent, stripStopRecordingIntent } from '../recording-intent.js';
+import { classifyRecordingIntent, detectRecordingIntent, detectStopRecordingIntent, hasSubstantiveContent, isInterrogative, stripRecordingIntent, stripStopRecordingIntent } from '../recording-intent.js';
 import { buildSessionErrorMessage,classifySessionError } from '../session-error.js';
 import { handleCuSessionCreate } from './computer-use.js';
 import { handleRecordingStart, handleRecordingStop } from './recording.js';
@@ -138,6 +138,13 @@ export async function handleTaskSubmit(
           return;
         }
         case 'mixed': {
+          // Skip recording side effects for questions about recording
+          // (e.g., "how do I stop recording?") — let the model answer instead.
+          if (isInterrogative(msg.task, dynamicNames)) {
+            rlog.info('Mixed recording intent is interrogative — skipping side effects');
+            break;
+          }
+
           // Mixed = recording intent embedded in broader text (e.g., "open Chrome and record my screen").
           // Defer recording start/stop until after the classifier creates the final conversation,
           // so the recording attachment is linked to the correct conversation.

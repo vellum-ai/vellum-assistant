@@ -7,6 +7,7 @@ import {
   stripStopRecordingIntent,
   isStopRecordingOnly,
   classifyRecordingIntent,
+  isInterrogative,
 } from '../daemon/recording-intent.js';
 
 // ─── detectRecordingIntent ──────────────────────────────────────────────────
@@ -338,5 +339,50 @@ describe('classifyRecordingIntent', () => {
   // Name with colon separator
   test('handles colon separator after name', () => {
     expect(classifyRecordingIntent('Nova: record my screen', ['Nova'])).toBe('start_only');
+  });
+});
+
+// ─── isInterrogative ──────────────────────────────────────────────────────────
+
+describe('isInterrogative', () => {
+  // Questions about recording — should return true
+  test.each([
+    'how do I stop recording?',
+    'how do I record my screen?',
+    'what does screen recording do?',
+    'why is screen recording not working?',
+    'when should I stop recording?',
+    'where does the recording file go?',
+    'which display should I record?',
+    'What is the screen recording feature?',
+    'How do I start recording on Mac?',
+  ])('returns true for question: "%s"', (text) => {
+    expect(isInterrogative(text)).toBe(true);
+  });
+
+  // Imperative commands — should return false
+  test.each([
+    'record my screen',
+    'stop recording',
+    'open Chrome and record my screen',
+    'stop recording and close the browser',
+    'can you record my screen?',
+    'could you stop recording please',
+    'start recording',
+    'please record my screen',
+  ])('returns false for command: "%s"', (text) => {
+    expect(isInterrogative(text)).toBe(false);
+  });
+
+  // With dynamic names — strips name prefix first
+  test('strips dynamic name before checking', () => {
+    expect(isInterrogative('Nova, how do I stop recording?', ['Nova'])).toBe(true);
+    expect(isInterrogative('Nova, record my screen', ['Nova'])).toBe(false);
+  });
+
+  // Polite prefix + question
+  test('handles polite prefix before question word', () => {
+    expect(isInterrogative('please, how do I stop recording?')).toBe(true);
+    expect(isInterrogative('hey, what does screen recording do?')).toBe(true);
   });
 });

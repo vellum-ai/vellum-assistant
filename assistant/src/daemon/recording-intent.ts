@@ -168,6 +168,31 @@ export function hasSubstantiveContent(text: string, dynamicNames?: string[]): bo
   return cleaned.replace(/[.,;!?\s]+/g, '').length > 0;
 }
 
+// ─── Interrogative detection ────────────────────────────────────────────────
+
+/** WH-question starters — these almost always indicate a genuine question,
+ *  not an imperative command. Prevents "how do I stop recording?" from
+ *  triggering recording side effects in the mixed handler. */
+const WH_INTERROGATIVE = /^\s*(how|what|why|when|where|who|which)\b/i;
+
+/**
+ * Returns true if the text appears to be a question about recording rather
+ * than an imperative command that includes recording.
+ *
+ * "how do I stop recording?" → true  (question — don't trigger side effects)
+ * "open Chrome and record my screen" → false  (command — trigger recording)
+ * "can you record my screen?" → false  (polite imperative — trigger recording)
+ */
+export function isInterrogative(text: string, dynamicNames?: string[]): boolean {
+  let cleaned = text;
+  if (dynamicNames && dynamicNames.length > 0) {
+    cleaned = stripDynamicNames(cleaned, dynamicNames);
+  }
+  // Strip polite prefixes that don't change interrogative status
+  cleaned = cleaned.replace(/^\s*(hey|hi|hello|please|pls|plz)[,\s]+/i, '');
+  return WH_INTERROGATIVE.test(cleaned);
+}
+
 // ─── Unified classification ─────────────────────────────────────────────────
 
 /**

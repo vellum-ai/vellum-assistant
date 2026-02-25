@@ -32,7 +32,7 @@ import type {
   UserMessage,
 } from '../ipc-protocol.js';
 import { normalizeThreadType } from '../ipc-protocol.js';
-import { classifyRecordingIntent, detectRecordingIntent, detectStopRecordingIntent, hasSubstantiveContent, stripRecordingIntent, stripStopRecordingIntent } from '../recording-intent.js';
+import { classifyRecordingIntent, detectRecordingIntent, detectStopRecordingIntent, hasSubstantiveContent, isInterrogative, stripRecordingIntent, stripStopRecordingIntent } from '../recording-intent.js';
 import { buildSessionErrorMessage,classifySessionError } from '../session-error.js';
 import { generateVideoThumbnail } from '../video-thumbnail.js';
 import { handleRecordingStart, handleRecordingStop } from './recording.js';
@@ -123,6 +123,13 @@ export async function handleUserMessage(
           return;
         }
         case 'mixed': {
+          // Skip recording side effects for questions about recording
+          // (e.g., "how do I stop recording?") — let the model answer instead.
+          if (isInterrogative(messageText, dynamicNames)) {
+            rlog.info('Mixed recording intent is interrogative — skipping side effects');
+            break;
+          }
+
           // Mixed = recording intent embedded in broader text.
           // Handle the recording action, then check if remaining text is substantive.
           const hasStart = detectRecordingIntent(messageText);
