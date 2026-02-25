@@ -88,7 +88,7 @@ final class RecordingManager: ObservableObject {
                 // Only cancel if no other session has taken ownership of the recorder.
                 // If ownerSessionId points to a different session and the state is active,
                 // that session now owns the recorder — cancelling would tear down its recording.
-                if ownerSessionId == nil || !state.isActive {
+                if ownerSessionId == nil || state != .recording {
                     recorder.cancelRecording()
                 }
                 return false
