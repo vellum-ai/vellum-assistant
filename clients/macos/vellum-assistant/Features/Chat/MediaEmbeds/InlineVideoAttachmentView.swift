@@ -381,6 +381,9 @@ struct InlineVideoAttachmentView: View {
     }
 
     /// Poll `resolveDaemonPort()` at short intervals for up to `portWaitTimeout`.
+    /// Explicit `@MainActor` because `resolveDaemonPort` reads `DaemonClient.httpPort`
+    /// which is `@MainActor`-isolated.
+    @MainActor
     private func waitForPort() async -> Int? {
         let deadline = Date().addingTimeInterval(portWaitTimeout)
         while Date() < deadline {
