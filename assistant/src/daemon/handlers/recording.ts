@@ -1,7 +1,11 @@
 import * as net from 'node:net';
+import { existsSync, statSync, readFileSync } from 'node:fs';
+import * as path from 'node:path';
 import { v4 as uuid } from 'uuid';
 import type { RecordingStatus, RecordingOptions } from '../ipc-protocol.js';
 import { log, findSocketForSession, defineHandlers, type HandlerContext } from './shared.js';
+import * as conversationStore from '../../memory/conversation-store.js';
+import { uploadAttachment, linkAttachmentToMessage } from '../../memory/attachments-store.js';
 
 // ─── Deterministic maps ──────────────────────────────────────────────────────
 // These ensure stop resolves the exact active recording for a conversation,
@@ -93,7 +97,7 @@ export function handleRecordingStop(
 function handleRecordingStatus(
   msg: RecordingStatus,
   _socket: net.Socket,
-  _ctx: HandlerContext,
+  ctx: HandlerContext,
 ): void {
   const recordingId = msg.sessionId;
   const conversationId = standaloneRecordingConversationId.get(recordingId)
@@ -109,8 +113,70 @@ function handleRecordingStatus(
         { recordingId, conversationId, filePath: msg.filePath, durationMs: msg.durationMs },
         'Standalone recording stopped — file ready',
       );
-      // Clean up deterministic maps. Full finalization (attaching the file
-      // to the conversation as a message) is M4 scope.
+
+      // Finalize: attach the recording file to the conversation
+      if (msg.filePath) {
+        try {
+          if (!existsSync(msg.filePath)) {
+            log.error({ recordingId, filePath: msg.filePath }, 'Recording file does not exist');
+          } else if (!conversationId) {
+            log.warn({ recordingId }, 'No conversationId found for recording — cannot link attachment');
+          } else {
+            const stat = statSync(msg.filePath);
+            const sizeBytes = stat.size;
+            const filename = path.basename(msg.filePath);
+
+            // Infer MIME type from extension
+            const ext = filename.split('.').pop()?.toLowerCase();
+            const mimeType = ext === 'mov' ? 'video/quicktime' : ext === 'mp4' ? 'video/mp4' : 'video/mp4';
+
+            // Read file and encode as base64 for the attachment store
+            const fileData = readFileSync(msg.filePath);
+            const dataBase64 = fileData.toString('base64');
+
+            const attachment = uploadAttachment(filename, mimeType, dataBase64);
+            log.info({ recordingId, attachmentId: attachment.id, sizeBytes, filePath: msg.filePath }, 'Created attachment for standalone recording');
+
+            // Find or create an assistant message to attach the recording to
+            const existingMessages = conversationStore.getMessages(conversationId);
+            const lastAssistantMsg = [...existingMessages].reverse().find((m) => m.role === 'assistant');
+
+            let messageId: string;
+            if (lastAssistantMsg) {
+              messageId = lastAssistantMsg.id;
+            } else {
+              const newMsg = conversationStore.addMessage(
+                conversationId,
+                'assistant',
+                JSON.stringify([{ type: 'text', text: 'Screen recording attached.' }]),
+              );
+              messageId = newMsg.id;
+              log.info({ recordingId, conversationId, messageId }, 'Created assistant message for recording attachment');
+            }
+
+            linkAttachmentToMessage(messageId, attachment.id, 0);
+            log.info({ recordingId, messageId, attachmentId: attachment.id }, 'Linked recording attachment to assistant message');
+
+            // Notify the client
+            const socket = findSocketForSession(conversationId, ctx);
+            if (socket) {
+              ctx.send(socket, {
+                type: 'assistant_text_delta',
+                text: 'Screen recording complete. Your recording has been saved.',
+                sessionId: conversationId,
+              });
+              ctx.send(socket, {
+                type: 'message_complete',
+                sessionId: conversationId,
+              });
+            }
+          }
+        } catch (err) {
+          log.error({ err, recordingId, filePath: msg.filePath }, 'Failed to create attachment for standalone recording');
+        }
+      }
+
+      // Clean up deterministic maps
       standaloneRecordingConversationId.delete(recordingId);
       if (conversationId) {
         const current = recordingOwnerByConversation.get(conversationId);
@@ -126,6 +192,24 @@ function handleRecordingStatus(
         { recordingId, conversationId, error: msg.error },
         'Standalone recording failed',
       );
+
+      // Notify the client about the failure
+      if (conversationId) {
+        const socket = findSocketForSession(conversationId, ctx);
+        if (socket) {
+          ctx.send(socket, {
+            type: 'assistant_text_delta',
+            text: `Recording failed: ${msg.error ?? 'unknown error'}`,
+            sessionId: conversationId,
+          });
+          ctx.send(socket, {
+            type: 'message_complete',
+            sessionId: conversationId,
+          });
+        }
+      }
+
+      // Clean up deterministic maps
       standaloneRecordingConversationId.delete(recordingId);
       if (conversationId) {
         const current = recordingOwnerByConversation.get(conversationId);
