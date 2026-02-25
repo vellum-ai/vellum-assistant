@@ -89,10 +89,20 @@ export function recordInbound(
       mapping = { conversationId: legacyMapping.conversationId, created: false };
       setConversationKeyIfAbsent(scopedKey, legacyMapping.conversationId);
     } else {
-      mapping = getOrCreateConversation(scopedKey);
+      mapping = getOrCreateConversation(scopedKey, {
+        origin: 'channel_inbound',
+        sourceChannel,
+        assistantId,
+        externalChatId,
+      });
     }
   } else {
-    mapping = getOrCreateConversation(scopedKey);
+    mapping = getOrCreateConversation(scopedKey, {
+      origin: 'channel_inbound',
+      sourceChannel,
+      assistantId,
+      externalChatId,
+    });
   }
   const now = Date.now();
   const eventId = uuid();

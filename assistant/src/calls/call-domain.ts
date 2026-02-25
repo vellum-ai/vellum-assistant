@@ -30,7 +30,6 @@ import type { CallSession } from './types.js';
 import { VALID_CALLER_IDENTITY_MODES } from '../config/schema.js';
 import type { AssistantConfig } from '../config/types.js';
 import { getOrCreateConversation } from '../memory/conversation-key-store.js';
-import { queueGenerateConversationTitle } from '../memory/conversation-title-service.js';
 import { upsertBinding } from '../memory/external-conversation-store.js';
 import { addPointerMessage } from './call-pointer-messages.js';
 
@@ -218,7 +217,13 @@ export function createInboundVoiceSession(
   const voiceConvKey = assistantId && assistantId !== 'self'
     ? `asst:${assistantId}:voice:inbound:${callSid}`
     : `voice:inbound:${callSid}`;
-  const { conversationId: voiceConversationId } = getOrCreateConversation(voiceConvKey);
+  const { conversationId: voiceConversationId } = getOrCreateConversation(voiceConvKey, {
+    origin: 'voice_inbound',
+    sourceChannel: 'voice',
+    assistantId,
+    externalChatId: callSid,
+    systemHint: `Inbound call from ${fromNumber}`,
+  });
 
   upsertBinding({
     conversationId: voiceConversationId,
@@ -236,16 +241,6 @@ export function createInboundVoiceSession(
 
   updateCallSession(session.id, { providerCallSid: callSid });
   session.providerCallSid = callSid;
-
-  queueGenerateConversationTitle({
-    conversationId: voiceConversationId,
-    context: {
-      origin: 'voice_inbound',
-      sourceChannel: 'voice',
-      assistantId,
-      systemHint: `Inbound call from ${fromNumber}`,
-    },
-  });
 
   log.info(
     { callSessionId: session.id, callSid, voiceConversationId, from: fromNumber, to: toNumber, assistantId },
@@ -315,7 +310,14 @@ export async function startCall(input: StartCallInput): Promise<StartCallResult 
     const voiceConvKey = assistantId
       ? `asst:${assistantId}:voice:call:${session.id}`
       : `voice:call:${session.id}`;
-    const { conversationId: voiceConversationId } = getOrCreateConversation(voiceConvKey);
+    const { conversationId: voiceConversationId } = getOrCreateConversation(voiceConvKey, {
+      origin: 'voice_outbound',
+      sourceChannel: 'voice',
+      assistantId,
+      externalChatId: session.id,
+      systemHint: `Outbound call to ${phoneNumber}`,
+      triggerTextSnippet: task,
+    });
 
     upsertBinding({
       conversationId: voiceConversationId,
@@ -329,17 +331,6 @@ export async function startCall(input: StartCallInput): Promise<StartCallResult 
       conversationId: voiceConversationId,
     });
     session.conversationId = voiceConversationId;
-
-    queueGenerateConversationTitle({
-      conversationId: voiceConversationId,
-      context: {
-        origin: 'voice_outbound',
-        sourceChannel: 'voice',
-        assistantId,
-        systemHint: `Outbound call to ${phoneNumber}`,
-        triggerTextSnippet: task,
-      },
-    });
 
     log.info({ callSessionId: session.id, voiceConversationId, initiatedFrom: conversationId, to: phoneNumber, from: fromNumber, task }, 'Initiating outbound call');
 

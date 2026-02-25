@@ -157,7 +157,12 @@ export const smsMessagingProvider: MessagingProvider = {
       const conversationKey = assistantId && assistantId !== 'self'
         ? `asst:${assistantId}:${sourceChannel}:${conversationId}`
         : `${sourceChannel}:${conversationId}`;
-      const { conversationId: internalId } = getOrCreateConversation(conversationKey);
+      const { conversationId: internalId } = getOrCreateConversation(conversationKey, {
+        origin: 'channel_inbound',
+        sourceChannel,
+        assistantId,
+        externalChatId: conversationId,
+      });
       // external_conversation_bindings is assistant-agnostic (unique by
       // sourceChannel + externalChatId). Restrict proactive writes to self so
       // multi-assistant sends cannot clobber each other's binding metadata.

@@ -11,7 +11,8 @@ import { eq } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { getDb } from './db.js';
 import { conversations, conversationKeys } from './schema.js';
-import { GENERATING_TITLE } from './conversation-title-service.js';
+import { GENERATING_TITLE, queueGenerateConversationTitle } from './conversation-title-service.js';
+import type { TitleContext } from './conversation-title-service.js';
 
 export interface ConversationKeyMapping {
   id: string;
@@ -97,10 +98,11 @@ export function setConversationKeyIfAbsent(conversationKey: string, conversation
  */
 export function getOrCreateConversation(
   conversationKey: string,
+  titleContext?: TitleContext,
 ): { conversationId: string; created: boolean } {
   const db = getDb();
 
-  return db.transaction((tx) => {
+  const mapping = db.transaction((tx) => {
     const existing = tx
       .select()
       .from(conversationKeys)
@@ -140,4 +142,16 @@ export function getOrCreateConversation(
 
     return { conversationId, created: true };
   });
+
+  if (mapping.created && titleContext) {
+    queueGenerateConversationTitle({
+      conversationId: mapping.conversationId,
+      context: {
+        ...titleContext,
+        conversationKey,
+      },
+    });
+  }
+
+  return mapping;
 }

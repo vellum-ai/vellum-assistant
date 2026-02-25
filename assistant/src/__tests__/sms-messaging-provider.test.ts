@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, mock, test } from 'bun:test';
 import type { SmsSendResult } from '../messaging/providers/sms/client.js';
 
 const sendSmsMock = mock(async (..._args: unknown[]): Promise<SmsSendResult> => ({ messageSid: 'SM-mock-sid', status: 'queued' }));
-const getOrCreateConversationMock = mock((_key: string) => ({ conversationId: 'conv-1' }));
+const getOrCreateConversationMock = mock((_key: string, _context?: unknown) => ({ conversationId: 'conv-1' }));
 const upsertOutboundBindingMock = mock((_input: Record<string, unknown>) => {});
 
 let secureKeys: Record<string, string | undefined> = {
@@ -32,7 +32,7 @@ mock.module('../config/loader.js', () => ({
 }));
 
 mock.module('../memory/conversation-key-store.js', () => ({
-  getOrCreateConversation: (key: string) => getOrCreateConversationMock(key),
+  getOrCreateConversation: (key: string, context?: unknown) => getOrCreateConversationMock(key, context),
 }));
 
 mock.module('../memory/external-conversation-store.js', () => ({
@@ -88,7 +88,15 @@ describe('smsMessagingProvider', () => {
       'hi',
       'ast-alpha',
     );
-    expect(getOrCreateConversationMock).toHaveBeenCalledWith('asst:ast-alpha:sms:+15550002222');
+    expect(getOrCreateConversationMock).toHaveBeenCalledWith(
+      'asst:ast-alpha:sms:+15550002222',
+      {
+        origin: 'channel_inbound',
+        sourceChannel: 'sms',
+        assistantId: 'ast-alpha',
+        externalChatId: '+15550002222',
+      },
+    );
     expect(upsertOutboundBindingMock).not.toHaveBeenCalled();
   });
 
@@ -116,7 +124,15 @@ describe('smsMessagingProvider', () => {
       assistantId: 'self',
     });
 
-    expect(getOrCreateConversationMock).toHaveBeenCalledWith('sms:+15550003333');
+    expect(getOrCreateConversationMock).toHaveBeenCalledWith(
+      'sms:+15550003333',
+      {
+        origin: 'channel_inbound',
+        sourceChannel: 'sms',
+        assistantId: 'self',
+        externalChatId: '+15550003333',
+      },
+    );
     expect(upsertOutboundBindingMock).toHaveBeenCalledWith({
       conversationId: 'conv-1',
       sourceChannel: 'sms',

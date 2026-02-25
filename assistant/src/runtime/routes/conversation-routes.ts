@@ -267,7 +267,11 @@ export async function handleSendMessage(
     }
   }
 
-  const mapping = getOrCreateConversation(conversationKey);
+  const mapping = getOrCreateConversation(conversationKey, {
+    origin: 'runtime_api',
+    sourceChannel,
+    triggerTextSnippet: trimmedContent.length > 0 ? trimmedContent : undefined,
+  });
 
   // ── Queue-if-busy path (preferred when sendMessageDeps is wired) ────
   if (deps.sendMessageDeps) {

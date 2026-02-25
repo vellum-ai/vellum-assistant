@@ -123,7 +123,11 @@ export const telegramBotMessagingProvider: MessagingProvider = {
     try {
       const sourceChannel = 'telegram';
       const conversationKey = `${sourceChannel}:${conversationId}`;
-      const { conversationId: internalId } = getOrCreateConversation(conversationKey);
+      const { conversationId: internalId } = getOrCreateConversation(conversationKey, {
+        origin: 'channel_inbound',
+        sourceChannel,
+        externalChatId: conversationId,
+      });
       externalConversationStore.upsertOutboundBinding({
         conversationId: internalId,
         sourceChannel,

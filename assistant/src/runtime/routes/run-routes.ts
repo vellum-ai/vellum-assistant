@@ -63,7 +63,11 @@ export async function handleCreateRun(
     }
   }
 
-  const mapping = getOrCreateConversation(conversationKey);
+  const mapping = getOrCreateConversation(conversationKey, {
+    origin: 'runtime_api',
+    sourceChannel,
+    triggerTextSnippet: trimmedContent.length > 0 ? trimmedContent : undefined,
+  });
 
   try {
     const { run } = await runOrchestrator.startRun(

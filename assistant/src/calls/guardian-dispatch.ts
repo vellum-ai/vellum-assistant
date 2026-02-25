@@ -154,7 +154,14 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
         // before awaiting LLM copy — prevents a race where an external channel
         // reply resolves the request before the macOS delivery is created.
         const macConvKey = `asst:${assistantId}:guardian:request:${request.id}`;
-        const { conversationId: macConversationId } = getOrCreateConversation(macConvKey);
+        const { conversationId: macConversationId } = getOrCreateConversation(macConvKey, {
+          origin: 'guardian_request',
+          sourceChannel: 'macos',
+          assistantId,
+          externalChatId: request.id,
+          systemHint: 'Guardian approval request',
+          triggerTextSnippet: pendingQuestion.questionText,
+        });
 
         const delivery = createGuardianActionDelivery({
           requestId: request.id,

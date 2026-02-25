@@ -41,7 +41,9 @@ export function handleSubscribeAssistantEvents(
   const hub = options?.hub ?? assistantEventHub;
   const heartbeatIntervalMs = options?.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS;
 
-  const mapping = getOrCreateConversation(conversationKey);
+  const mapping = getOrCreateConversation(conversationKey, {
+    origin: 'runtime_api',
+  });
   const encoder = new TextEncoder();
 
   // ── Eager subscribe ──────────────────────────────────────────────────────

@@ -100,7 +100,12 @@ export const whatsappMessagingProvider: MessagingProvider = {
       const conversationKey = assistantId && assistantId !== 'self'
         ? `asst:${assistantId}:${sourceChannel}:${conversationId}`
         : `${sourceChannel}:${conversationId}`;
-      const { conversationId: internalId } = getOrCreateConversation(conversationKey);
+      const { conversationId: internalId } = getOrCreateConversation(conversationKey, {
+        origin: 'channel_inbound',
+        sourceChannel,
+        assistantId,
+        externalChatId: conversationId,
+      });
       if (!assistantId || assistantId === 'self') {
         externalConversationStore.upsertOutboundBinding({
           conversationId: internalId,
