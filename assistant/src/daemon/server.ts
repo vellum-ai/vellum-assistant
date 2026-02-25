@@ -15,6 +15,7 @@ import { RateLimitProvider } from '../providers/ratelimit.js';
 import { getFailoverProvider, initializeProviders } from '../providers/registry.js';
 import { RunOrchestrator } from '../runtime/run-orchestrator.js';
 import { checkIngressForSecrets } from '../security/secret-ingress.js';
+import { cleanupRecordingForSession } from './handlers/recording.js';
 import { getSubagentManager } from '../subagent/index.js';
 import { IngressBlockedError } from '../util/errors.js';
 import { getLogger } from '../util/logger.js';
@@ -459,6 +460,7 @@ export class DaemonServer {
           session.abort();
         }
         getSubagentManager().abortAllForParent(sessionId);
+        cleanupRecordingForSession(sessionId);
       }
       this.socketToSession.delete(socket);
       const cuSessionIds = this.socketToCuSession.get(socket);

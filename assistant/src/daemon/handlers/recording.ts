@@ -122,8 +122,15 @@ function handleRecordingStatus(
   ctx: HandlerContext,
 ): void {
   const recordingId = msg.sessionId;
-  const conversationId = standaloneRecordingConversationId.get(recordingId)
-    ?? msg.attachToConversationId;
+  const conversationId = standaloneRecordingConversationId.get(recordingId);
+
+  // Only accept status updates for recordings we initiated. Rejecting unknown
+  // IDs prevents forged recording_status messages from driving attachment
+  // finalization with arbitrary file paths.
+  if (!conversationId) {
+    log.warn({ recordingId }, 'Ignoring recording_status for unknown recording ID');
+    return;
+  }
 
   switch (msg.status) {
     case 'started':
@@ -138,8 +145,20 @@ function handleRecordingStatus(
 
       // Finalize: attach the recording file to the conversation
       if (msg.filePath) {
+        // Restrict accepted file paths to the app's recordings directory to
+        // prevent attachment of arbitrary files via crafted IPC messages.
+        const resolvedPath = path.resolve(msg.filePath);
+        const allowedDir = path.join(
+          process.env.HOME ?? '',
+          'Library/Application Support/vellum-assistant/recordings',
+        );
+        if (!resolvedPath.startsWith(allowedDir + path.sep) && resolvedPath !== allowedDir) {
+          log.warn({ recordingId, filePath: msg.filePath, allowedDir }, 'Recording file path outside allowed directory — rejecting');
+          break;
+        }
+
         try {
-          if (!existsSync(msg.filePath)) {
+          if (!existsSync(resolvedPath)) {
             log.error({ recordingId, filePath: msg.filePath }, 'Recording file does not exist');
             if (conversationId) {
               const errSocket = findSocketForSession(conversationId, ctx);
@@ -155,17 +174,17 @@ function handleRecordingStatus(
           } else if (!conversationId) {
             log.warn({ recordingId }, 'No conversationId found for recording — cannot link attachment');
           } else {
-            const stat = statSync(msg.filePath);
+            const stat = statSync(resolvedPath);
             const sizeBytes = stat.size;
-            const filename = path.basename(msg.filePath);
+            const filename = path.basename(resolvedPath);
 
             // Infer MIME type from extension
             const ext = filename.split('.').pop()?.toLowerCase();
             const mimeType = ext === 'mov' ? 'video/quicktime' : ext === 'mp4' ? 'video/mp4' : 'video/mp4';
 
             // Store as file-backed attachment (avoids reading large files into memory)
-            const attachment = uploadFileBackedAttachment(filename, mimeType, msg.filePath, sizeBytes);
-            log.info({ recordingId, attachmentId: attachment.id, sizeBytes, filePath: msg.filePath }, 'Created attachment for standalone recording');
+            const attachment = uploadFileBackedAttachment(filename, mimeType, resolvedPath, sizeBytes);
+            log.info({ recordingId, attachmentId: attachment.id, sizeBytes, filePath: resolvedPath }, 'Created attachment for standalone recording');
 
             // Always create a new assistant message for the recording attachment.
             // Reusing the last assistant message would attach the recording to an
@@ -262,6 +281,21 @@ function handleRecordingStatus(
       }
       break;
     }
+  }
+}
+
+// ─── Socket disconnect cleanup ───────────────────────────────────────────────
+
+/**
+ * Clean up recording state for a disconnected session. Called when the client
+ * socket closes to prevent stale entries from blocking future recordings.
+ */
+export function cleanupRecordingForSession(sessionId: string): void {
+  const recordingId = recordingOwnerByConversation.get(sessionId);
+  if (recordingId) {
+    log.warn({ sessionId, recordingId }, 'Cleaning up recording state for disconnected session');
+    standaloneRecordingConversationId.delete(recordingId);
+    recordingOwnerByConversation.delete(sessionId);
   }
 }
 
