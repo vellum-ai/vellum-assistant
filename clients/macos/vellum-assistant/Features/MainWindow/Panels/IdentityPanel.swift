@@ -16,62 +16,69 @@ struct IdentityPanel: View {
     @State private var viewingFilePath: String?
     @State private var isFullscreen: Bool = false
 
-    private let maxContentWidth: CGFloat = 1100
+    private let sidebarWidth: CGFloat = 260
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Header + ID card area — hidden in fullscreen so the
-            // constellation grid fills the entire panel height.
+        HStack(alignment: .top, spacing: 0) {
+            // Left sidebar: title, avatar, ID card — hidden in fullscreen
             if !isFullscreen {
                 VStack(alignment: .leading, spacing: 0) {
-                    // Header
-                    HStack(alignment: .center) {
-                        Text("Assistant ID")
-                            .font(VFont.panelTitle)
-                            .foregroundColor(VColor.textPrimary)
-                        Spacer()
-                    }
-                    .padding(.top, VSpacing.xxl)
-                    .padding(.bottom, VSpacing.xl)
+                    // Header — reduced top padding to align with close icon
+                    Text("Identity")
+                        .font(VFont.panelTitle)
+                        .foregroundColor(VColor.textPrimary)
+                        .padding(.top, VSpacing.lg)
+                        .padding(.bottom, VSpacing.lg)
 
-                    Divider().background(VColor.surfaceBorder)
-
-                    // Avatar + ID card + CTA
-                    HStack(alignment: .center, spacing: VSpacing.lg) {
+                    // Card wrapping avatar + ID fields + CTA
+                    VStack(alignment: .leading, spacing: 0) {
+                        // Compact avatar
                         DinoSceneView(seed: identity?.name ?? remoteIdentity?.name ?? lockfileAssistant?.assistantId ?? "default", palette: appearance.palette, outfit: appearance.outfit)
-                            .frame(width: 180, height: 200)
+                            .frame(width: 120, height: 140)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.top, VSpacing.lg)
 
-                        VStack(alignment: .leading, spacing: VSpacing.lg) {
-                            idCardSection(identity: identity, remoteIdentity: remoteIdentity)
+                        // ID card fields
+                        idCardSection(identity: identity, remoteIdentity: remoteIdentity)
+                            .padding(.top, VSpacing.lg)
+                            .padding(.horizontal, VSpacing.lg)
 
-                            // Customize Avatar CTA
-                            Button(action: onCustomizeAvatar) {
-                                HStack(spacing: VSpacing.xs) {
-                                    Image(systemName: "paintpalette")
-                                        .font(.system(size: 12, weight: .medium))
-                                    Text("Customize Avatar")
-                                        .font(VFont.bodyMedium)
-                                }
-                                .foregroundColor(VColor.accent)
-                                .padding(.horizontal, VSpacing.lg)
-                                .padding(.vertical, VSpacing.sm)
-                                .background(
-                                    RoundedRectangle(cornerRadius: VRadius.md)
-                                        .stroke(VColor.accent.opacity(0.3), lineWidth: 1)
-                                )
+                        // Customize Avatar CTA
+                        Button(action: onCustomizeAvatar) {
+                            HStack(spacing: VSpacing.xs) {
+                                Image(systemName: "paintpalette")
+                                    .font(.system(size: 12, weight: .medium))
+                                Text("Customize Avatar")
+                                    .font(VFont.bodyMedium)
                             }
-                            .buttonStyle(.plain)
+                            .foregroundColor(VColor.accent)
+                            .padding(.horizontal, VSpacing.lg)
+                            .padding(.vertical, VSpacing.sm)
+                            .background(
+                                RoundedRectangle(cornerRadius: VRadius.md)
+                                    .stroke(VColor.accent.opacity(0.3), lineWidth: 1)
+                            )
                         }
+                        .buttonStyle(.plain)
+                        .padding(.top, VSpacing.lg)
+                        .padding(.horizontal, VSpacing.lg)
+                        .padding(.bottom, VSpacing.lg)
                     }
-                    .padding(.vertical, VSpacing.xl)
+                    .background(VColor.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.lg)
+                            .stroke(VColor.surfaceBorder, lineWidth: 1)
+                    )
+
+                    Spacer()
                 }
-                .frame(maxWidth: maxContentWidth)
-                .padding(.horizontal, VSpacing.xxl)
-                .frame(maxWidth: .infinity)
-                .transition(.move(edge: .top).combined(with: .opacity))
+                .frame(width: sidebarWidth)
+                .padding(.horizontal, VSpacing.xl)
+                .transition(.move(edge: .leading).combined(with: .opacity))
             }
 
-            // Constellation fills remaining space (pan + zoom to navigate)
+            // Hex grid fills the rest of the space — full height, wrapped in a card
             ConstellationView(
                 identity: identity,
                 skills: skills,
@@ -82,7 +89,15 @@ struct IdentityPanel: View {
                 isFullscreen: $isFullscreen
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(adaptiveColor(light: Color(hex: 0xF5F3EB), dark: Moss._900))
+            .background(VColor.backgroundSubtle)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.lg)
+                    .stroke(VColor.surfaceBorder, lineWidth: 1)
+            )
+            .padding(.top, VSpacing.lg)
+            .padding(.trailing, VSpacing.xl)
+            .padding(.bottom, VSpacing.xl)
         }
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isFullscreen)
         .overlay {
@@ -153,10 +168,10 @@ struct IdentityPanel: View {
                 idRow(label: "Given name", value: name)
             }
 
-            // Role: remote > local
+            // Role: remote > local (truncated with tooltip for long values)
             let role = remoteIdentity?.role.nilIfEmpty ?? identity?.role
             if let role, !role.isEmpty {
-                idRow(label: "Role", value: role)
+                idRow(label: "Role", value: role, truncate: true)
             }
 
             // Personality: remote > local
@@ -177,17 +192,26 @@ struct IdentityPanel: View {
         }
     }
 
-    private func idRow(label: String, value: String, mono: Bool = false) -> some View {
+    private func idRow(label: String, value: String, mono: Bool = false, truncate: Bool = false) -> some View {
         HStack(alignment: .top) {
             Text(label)
                 .font(VFont.caption)
                 .foregroundColor(VColor.textMuted)
                 .frame(width: 100, alignment: .leading)
 
-            Text(value)
-                .font(mono ? VFont.mono : VFont.body)
-                .foregroundColor(VColor.textPrimary)
-                .textSelection(.enabled)
+            if truncate {
+                Text(value)
+                    .font(mono ? VFont.mono : VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .help(value)
+            } else {
+                Text(value)
+                    .font(mono ? VFont.mono : VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                    .textSelection(.enabled)
+            }
 
             Spacer()
         }

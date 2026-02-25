@@ -22,16 +22,15 @@ private enum SkillCategory: String, CaseIterable {
         }
     }
 
-    /// Category accent colors inspired by game skill trees.
-    /// Core = gold, Dev Tools = red, Comms = purple, fallback = teal.
+    /// Distinct accent colors per category so each group is visually separate.
     var color: Color {
         switch self {
-        case .core: return Color(hex: 0xE9C91A)
-        case .devTools: return Color(hex: 0xC1421B)
-        case .communication: return Color(hex: 0xAD88BC)
-        case .daily: return Color(hex: 0x0E9B8B)
-        case .utilities: return Color(hex: 0x0E9B8B)
-        case .skills: return Color(hex: 0x0E9B8B)
+        case .core: return Amber._500          // gold
+        case .devTools: return Danger._600      // red-orange
+        case .communication: return Color(hex: 0xAD88BC) // purple
+        case .daily: return Emerald._500        // bright green
+        case .utilities: return Forest._400     // sage green
+        case .skills: return Color(hex: 0x0E9B8B) // teal
         }
     }
 
@@ -88,32 +87,6 @@ private func inferCategory(_ skill: SkillInfo) -> SkillCategory {
         return .utilities
     }
     return .skills
-}
-
-// MARK: - Dot Grid Background
-
-private struct DotGridBackground: View {
-    let spacing: CGFloat = 20
-    let dotRadius: CGFloat = 1
-
-    var body: some View {
-        Canvas { context, size in
-            let cols = Int(size.width / spacing) + 1
-            let rows = Int(size.height / spacing) + 1
-            for row in 0..<rows {
-                for col in 0..<cols {
-                    let point = CGPoint(x: CGFloat(col) * spacing, y: CGFloat(row) * spacing)
-                    let rect = CGRect(
-                        x: point.x - dotRadius,
-                        y: point.y - dotRadius,
-                        width: dotRadius * 2,
-                        height: dotRadius * 2
-                    )
-                    context.fill(Circle().path(in: rect), with: .color(Moss._500.opacity(0.4)))
-                }
-            }
-        }
-    }
 }
 
 // MARK: - Hexagon Shape
@@ -400,7 +373,7 @@ private struct SkillPopoverView: View {
             RoundedRectangle(cornerRadius: VRadius.lg)
                 .stroke(VColor.surfaceBorder, lineWidth: 1)
         )
-        .vShadow(.md)
+        .vShadow(VShadow.md)
     }
 }
 
@@ -657,8 +630,6 @@ struct ConstellationView: View {
                 height: panOffset.height + dragOffset.height
             )
             ZStack {
-                DotGridBackground()
-
                 canvas(size: proxy.size)
                     .scaleEffect(zoomScale)
                     .offset(totalOffset)
@@ -695,8 +666,12 @@ struct ConstellationView: View {
                 .frame(width: proxy.size.width, height: proxy.size.height)
                 .clipped()
                 .contentShape(Rectangle())
+                .overlay(alignment: .topLeading) {
+                    fullscreenToggle
+                        .padding(VSpacing.lg)
+                }
                 .overlay(alignment: .bottomTrailing) {
-                    viewportToolbar(viewSize: proxy.size)
+                    viewportControls(viewSize: proxy.size)
                         .padding(VSpacing.lg)
                 }
                 .gesture(
@@ -726,6 +701,10 @@ struct ConstellationView: View {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                         phase = .complete
                     }
+                    // Auto-fit all hexes into the viewport on initial load
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        fitAll(viewSize: proxy.size)
+                    }
                 }
                 #if os(macOS)
                 .onKeyPress(.escape) {
@@ -742,10 +721,34 @@ struct ConstellationView: View {
         }
     }
 
-    // MARK: - Viewport Toolbar
+    // MARK: - Fullscreen Toggle (top-left)
+
+    private var fullscreenToggle: some View {
+        ViewportToolbarButton(
+            icon: isFullscreen
+                ? "arrow.down.right.and.arrow.up.left"
+                : "arrow.up.left.and.arrow.down.right.square",
+            accessibilityLabel: isFullscreen ? "Exit fullscreen" : "Enter fullscreen"
+        ) {
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                isFullscreen.toggle()
+            }
+        }
+        .padding(VSpacing.sm)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .fill(VColor.surface.opacity(0.85))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .stroke(VColor.surfaceBorder, lineWidth: 1)
+        )
+    }
+
+    // MARK: - Viewport Controls (bottom-right)
 
     @ViewBuilder
-    private func viewportToolbar(viewSize: CGSize) -> some View {
+    private func viewportControls(viewSize: CGSize) -> some View {
         HStack(spacing: VSpacing.xxs) {
             ViewportToolbarButton(icon: "plus.magnifyingglass", accessibilityLabel: "Zoom in") {
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
@@ -763,17 +766,6 @@ struct ConstellationView: View {
 
             ViewportToolbarButton(icon: "arrow.up.left.and.arrow.down.right", accessibilityLabel: "Fit all") {
                 fitAll(viewSize: viewSize)
-            }
-
-            ViewportToolbarButton(
-                icon: isFullscreen
-                    ? "arrow.down.right.and.arrow.up.left"
-                    : "arrow.up.left.and.arrow.down.right.square",
-                accessibilityLabel: isFullscreen ? "Exit fullscreen" : "Enter fullscreen"
-            ) {
-                withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                    isFullscreen.toggle()
-                }
             }
         }
         .padding(VSpacing.sm)
