@@ -13,6 +13,7 @@ export type MemoryJobType =
   | 'resolve_pending_conflicts_for_message'
   | 'cleanup_resolved_conflicts'
   | 'cleanup_stale_superseded_items'
+  | 'prune_old_conversations'
   | 'backfill_entity_relations'
   | 'check_contradictions'
   | 'refresh_weekly_summary'
@@ -203,6 +204,24 @@ export function enqueueCleanupStaleSupersededItemsJob(retentionMs?: number): str
     ? { retentionMs }
     : {};
   return enqueueMemoryJob('cleanup_stale_superseded_items', payload);
+}
+
+export function enqueuePruneOldConversationsJob(retentionDays?: number, batchSize?: number): string {
+  const db = getDb();
+  const existing = db
+    .select()
+    .from(memoryJobs)
+    .where(and(
+      eq(memoryJobs.type, 'prune_old_conversations'),
+      inArray(memoryJobs.status, ['pending', 'running']),
+    ))
+    .orderBy(asc(memoryJobs.createdAt))
+    .get();
+  if (existing) return existing.id;
+  const payload: Record<string, unknown> = {};
+  if (typeof retentionDays === 'number' && retentionDays > 0) payload.retentionDays = retentionDays;
+  if (typeof batchSize === 'number' && batchSize > 0) payload.batchSize = batchSize;
+  return enqueueMemoryJob('prune_old_conversations', payload);
 }
 
 export function claimMemoryJobs(limit: number): MemoryJob[] {

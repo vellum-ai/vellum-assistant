@@ -1,11 +1,12 @@
 import { and, asc, eq, inArray, lt } from 'drizzle-orm';
 import type { AssistantConfig } from '../../config/types.js';
 import { getLogger } from '../../util/logger.js';
-import { getDb } from '../db.js';
+import { getDb, rawAll } from '../db.js';
 import { checkContradictions } from '../contradiction-checker.js';
 import { enqueueMemoryJob, type MemoryJob } from '../jobs-store.js';
 import { asPositiveMs, asString } from '../job-utils.js';
 import { memoryEmbeddings, memoryItemEntities, memoryItems } from '../schema.js';
+import { deleteConversation } from '../conversation-store.js';
 
 const log = getLogger('memory-jobs-worker');
 
@@ -55,4 +56,41 @@ export function cleanupStaleSupersededItemsJob(job: MemoryJob, config: Assistant
     retentionMs,
     cutoff,
   }, 'Cleaned up stale superseded memory items');
+}
+
+export function pruneOldConversationsJob(job: MemoryJob, config: AssistantConfig): void {
+  const pruningConfig = config.memory.cleanup.conversationPruning;
+  if (!pruningConfig.enabled) return;
+
+  const retentionDays = (typeof job.payload.retentionDays === 'number' && job.payload.retentionDays > 0)
+    ? job.payload.retentionDays
+    : pruningConfig.retentionDays;
+  const batchSize = (typeof job.payload.batchSize === 'number' && job.payload.batchSize > 0)
+    ? job.payload.batchSize
+    : pruningConfig.batchSize;
+
+  const cutoffMs = Date.now() - retentionDays * 86_400_000;
+
+  // Find conversations with no activity since the cutoff.
+  // updatedAt is bumped on every message, so it reflects last activity.
+  const stale = rawAll<{ id: string }>(
+    `SELECT id FROM conversations WHERE updated_at < ? ORDER BY updated_at ASC LIMIT ?`,
+    cutoffMs, batchSize,
+  );
+  if (stale.length === 0) return;
+
+  for (const { id } of stale) {
+    deleteConversation(id);
+  }
+
+  log.info({
+    pruned: stale.length,
+    retentionDays,
+    cutoffMs,
+  }, 'Pruned old conversations');
+
+  // If we hit the batch limit, re-enqueue to continue in the next tick
+  if (stale.length >= batchSize) {
+    enqueueMemoryJob('prune_old_conversations', { retentionDays, batchSize });
+  }
 }

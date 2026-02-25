@@ -272,6 +272,25 @@ export const MemoryCleanupConfigSchema = z.object({
     .int('memory.cleanup.supersededItemRetentionMs must be an integer')
     .positive('memory.cleanup.supersededItemRetentionMs must be a positive integer')
     .default(30 * 24 * 60 * 60 * 1000),
+  conversationPruning: z.object({
+    enabled: z
+      .boolean({ error: 'memory.cleanup.conversationPruning.enabled must be a boolean' })
+      .default(true),
+    retentionDays: z
+      .number({ error: 'memory.cleanup.conversationPruning.retentionDays must be a number' })
+      .int('memory.cleanup.conversationPruning.retentionDays must be an integer')
+      .positive('memory.cleanup.conversationPruning.retentionDays must be a positive integer')
+      .default(90),
+    batchSize: z
+      .number({ error: 'memory.cleanup.conversationPruning.batchSize must be a number' })
+      .int('memory.cleanup.conversationPruning.batchSize must be an integer')
+      .positive('memory.cleanup.conversationPruning.batchSize must be a positive integer')
+      .default(20),
+  }).default({
+    enabled: true,
+    retentionDays: 90,
+    batchSize: 20,
+  }),
 });
 
 export const MemoryExtractionConfigSchema = z.object({
@@ -470,6 +489,11 @@ export const MemoryConfigSchema = z.object({
     enqueueIntervalMs: 6 * 60 * 60 * 1000,
     resolvedConflictRetentionMs: 30 * 24 * 60 * 60 * 1000,
     supersededItemRetentionMs: 30 * 24 * 60 * 60 * 1000,
+    conversationPruning: {
+      enabled: true,
+      retentionDays: 90,
+      batchSize: 20,
+    },
   }),
   extraction: MemoryExtractionConfigSchema.default({
     useLLM: true,
