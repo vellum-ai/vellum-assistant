@@ -66,6 +66,8 @@ export interface VerificationChallenge {
   // Session configuration
   codeDigits: number;
   maxAttempts: number;
+  // Telegram bootstrap deep-link token hash
+  bootstrapTokenHash: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -131,6 +133,7 @@ function rowToChallenge(row: typeof channelGuardianVerificationChallenges.$infer
     nextResendAt: row.nextResendAt ?? null,
     codeDigits: row.codeDigits ?? 6,
     maxAttempts: row.maxAttempts ?? 3,
+    bootstrapTokenHash: row.bootstrapTokenHash ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -284,6 +287,7 @@ export function createChallenge(params: {
     nextResendAt: null,
     codeDigits: 6,
     maxAttempts: 3,
+    bootstrapTokenHash: null,
     createdAt: now,
     updatedAt: now,
   };
@@ -403,6 +407,7 @@ export function createVerificationSession(params: {
   destinationAddress?: string | null;
   codeDigits?: number;
   maxAttempts?: number;
+  bootstrapTokenHash?: string | null;
 }): VerificationChallenge {
   const db = getDb();
   const now = Date.now();
@@ -439,6 +444,7 @@ export function createVerificationSession(params: {
     nextResendAt: null,
     codeDigits: params.codeDigits ?? 6,
     maxAttempts: params.maxAttempts ?? 3,
+    bootstrapTokenHash: params.bootstrapTokenHash ?? null,
     createdAt: now,
     updatedAt: now,
   };
@@ -471,6 +477,35 @@ export function findActiveSession(
       ),
     )
     .orderBy(desc(channelGuardianVerificationChallenges.createdAt))
+    .get();
+
+  return row ? rowToChallenge(row) : null;
+}
+
+/**
+ * Look up a pending_bootstrap session by its bootstrap token hash.
+ * Used by the Telegram /start gv_<token> bootstrap flow.
+ */
+export function findSessionByBootstrapTokenHash(
+  assistantId: string,
+  channel: string,
+  tokenHash: string,
+): VerificationChallenge | null {
+  const db = getDb();
+  const now = Date.now();
+
+  const row = db
+    .select()
+    .from(channelGuardianVerificationChallenges)
+    .where(
+      and(
+        eq(channelGuardianVerificationChallenges.assistantId, assistantId),
+        eq(channelGuardianVerificationChallenges.channel, channel),
+        eq(channelGuardianVerificationChallenges.bootstrapTokenHash, tokenHash),
+        eq(channelGuardianVerificationChallenges.status, 'pending_bootstrap'),
+        gt(channelGuardianVerificationChallenges.expiresAt, now),
+      ),
+    )
     .get();
 
   return row ? rowToChallenge(row) : null;
