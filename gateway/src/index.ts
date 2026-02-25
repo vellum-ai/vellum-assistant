@@ -287,7 +287,7 @@ function main() {
       }
 
       if (url.pathname === "/integrations/status" && req.method === "GET") {
-        if (!config.runtimeProxyBearerToken) {
+        if (!config.runtimeBearerToken) {
           return Response.json(
             { error: "Service not configured: bearer token required" },
             { status: 503 },
@@ -295,7 +295,7 @@ function main() {
         }
         const authResult = validateBearerToken(
           tracedReq.headers.get("authorization"),
-          config.runtimeProxyBearerToken,
+          config.runtimeBearerToken,
         );
         if (!authResult.authorized) {
           authRateLimiter.recordFailure(getClientIp(req, svr));
