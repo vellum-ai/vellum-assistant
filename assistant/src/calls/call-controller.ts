@@ -243,7 +243,16 @@ export class CallController {
     // Fire-and-forget: unblock the caller so the HTTP response and answer
     // persistence happen immediately, before LLM streaming begins.
     this.runTurn(content)
-      .then(() => this.drainPendingCallerUtterances())
+      .then(() => {
+        // If the answer turn ended the call (e.g. [END_CALL]), don't drain
+        // queued utterances — just discard them to avoid starting a fresh
+        // turn on a dead session.
+        if (this.state === 'idle' && this.isCallCompleted()) {
+          this.pendingCallerUtterances = [];
+          return;
+        }
+        this.drainPendingCallerUtterances();
+      })
       .catch((err) =>
         log.error({ err, callSessionId: this.callSessionId }, 'runTurn failed after user answer'),
       );
@@ -525,8 +534,24 @@ export class CallController {
             this.state = 'idle';
             updateCallSession(this.callSessionId, { status: 'in_progress' });
             expirePendingQuestions(this.callSessionId);
-            this.flushPendingInstructions();
-            this.drainPendingCallerUtterances();
+
+            const hasInstructions = this.pendingInstructions.length > 0;
+            const hasUtterances = this.pendingCallerUtterances.length > 0;
+
+            if (hasInstructions && hasUtterances) {
+              // Merge both queues into a single turn to avoid the race where
+              // flushPendingInstructions fires a turn that gets aborted by
+              // drainPendingCallerUtterances, losing the instructions.
+              const instructionPrefix = this.pendingInstructions
+                .map((instr) => `[USER_INSTRUCTION: ${instr}]`)
+                .join('\n');
+              this.pendingInstructions = [];
+              this.drainPendingCallerUtterances(instructionPrefix);
+            } else if (hasInstructions) {
+              this.flushPendingInstructions();
+            } else if (hasUtterances) {
+              this.drainPendingCallerUtterances();
+            }
           }
         }, getUserConsultationTimeoutMs());
         return;
@@ -611,6 +636,17 @@ export class CallController {
   }
 
   /**
+   * Check whether the underlying call session has already ended.
+   * Used to guard against post-completion work (e.g. draining queued
+   * utterances after an [END_CALL] turn).
+   */
+  private isCallCompleted(): boolean {
+    const session = getCallSession(this.callSessionId);
+    if (!session) return true;
+    return session.status === 'completed' || session.status === 'failed' || session.status === 'cancelled';
+  }
+
+  /**
    * Drain any instructions that were queued while the LLM was active.
    */
   private flushPendingInstructions(): void {
@@ -635,13 +671,28 @@ export class CallController {
    * Drain caller utterances that were queued while waiting_on_user.
    * Only the most recent utterance is processed — older ones are discarded
    * as stale since the caller likely moved on.
+   *
+   * @param contentPrefix — optional string (e.g. instruction markers) to
+   *   prepend to the turn content so instructions and the caller utterance
+   *   are sent as a single turn, avoiding concurrent-turn races.
    */
-  private drainPendingCallerUtterances(): void {
+  private drainPendingCallerUtterances(contentPrefix?: string): void {
     if (this.pendingCallerUtterances.length === 0) return;
 
     // Keep only the most recent utterance; discard stale older ones
     const latest = this.pendingCallerUtterances[this.pendingCallerUtterances.length - 1];
     this.pendingCallerUtterances = [];
+
+    if (contentPrefix) {
+      // Merge prefix content with the caller utterance into a single turn
+      const callerContent = this.formatCallerUtterance(latest.transcript, latest.speaker);
+      const combined = `${contentPrefix}\n${callerContent}`;
+      this.resetSilenceTimer();
+      this.runTurn(combined).catch((err) =>
+        log.error({ err, callSessionId: this.callSessionId }, 'runTurn failed after draining queued caller utterance with prefix'),
+      );
+      return;
+    }
 
     // Fire-and-forget so we don't block the current turn's cleanup.
     this.handleCallerUtterance(latest.transcript, latest.speaker).catch((err) =>
