@@ -371,7 +371,7 @@ final class ScreenRecorder: NSObject {
 
         // Each attempt gets a unique output file so failed attempts don't conflict
         let timestamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
-        let outputURL = Self.recordingsDirectory.appendingPathComponent("recording-\(timestamp).mov")
+        let outputURL = Self.recordingsDirectory.appendingPathComponent("recording-\(timestamp)-\(UUID().uuidString.prefix(8)).mov")
 
         let writer: AVAssetWriter
         do {
