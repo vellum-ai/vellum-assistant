@@ -84,7 +84,8 @@ export async function run(input: Record<string, unknown>, context: ToolContext):
   }
 
   const sourceEventName = asNonEmptyString(input.source_event_name) ?? 'user.send_notification';
-  const sourceSessionId = asNonEmptyString(input.conversation_id) ?? context.conversationId ?? context.sessionId;
+  const requestedConversationId = asNonEmptyString(input.conversation_id) ?? context.conversationId;
+  const sourceSessionId = requestedConversationId ?? context.sessionId;
   const title = asNonEmptyString(input.title);
   const dedupeKey = asNonEmptyString(input.dedupe_key);
 
@@ -94,7 +95,7 @@ export async function run(input: Record<string, unknown>, context: ToolContext):
     requestedBySessionId: context.sessionId,
   };
   if (title) contextPayload.requestedTitle = title;
-  if (context.conversationId) contextPayload.requestedByConversationId = context.conversationId;
+  if (requestedConversationId) contextPayload.requestedByConversationId = requestedConversationId;
   if (preferredChannels && preferredChannels.length > 0) contextPayload.preferredChannels = preferredChannels;
   if (deepLinkMetadata) contextPayload.deepLinkMetadata = deepLinkMetadata;
 
@@ -113,6 +114,7 @@ export async function run(input: Record<string, unknown>, context: ToolContext):
       },
       contextPayload,
       dedupeKey,
+      throwOnError: true,
     });
 
     return ok('Notification request queued. Channel selection and delivery are handled by the notification router.');

@@ -36,6 +36,7 @@ describe('send-notification tool', () => {
         message: 'Your verification code is 123456',
         title: 'Verification code',
         urgency: 'high',
+        conversation_id: 'conv-override',
         requires_action: true,
         preferred_channels: ['vellum'],
         deep_link_metadata: { conversationId: 'conv-deeplink' },
@@ -54,7 +55,7 @@ describe('send-notification tool', () => {
     expect(emitNotificationSignalMock).toHaveBeenCalledWith({
       sourceEventName: 'user.send_notification',
       sourceChannel: 'assistant_tool',
-      sourceSessionId: 'conv-1',
+      sourceSessionId: 'conv-override',
       assistantId: 'ast-alpha',
       attentionHints: {
         requiresAction: true,
@@ -68,11 +69,12 @@ describe('send-notification tool', () => {
         requestedByTool: 'send_notification',
         requestedBySessionId: 'sess-1',
         requestedTitle: 'Verification code',
-        requestedByConversationId: 'conv-1',
+        requestedByConversationId: 'conv-override',
         preferredChannels: ['vellum'],
         deepLinkMetadata: { conversationId: 'conv-deeplink' },
       },
       dedupeKey: 'voice-code-123456',
+      throwOnError: true,
     });
   });
 
@@ -120,5 +122,25 @@ describe('send-notification tool', () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain('shadow mode');
     expect(emitNotificationSignalMock).not.toHaveBeenCalled();
+  });
+
+  test('returns an error when the notification pipeline throws', async () => {
+    emitNotificationSignalMock.mockImplementationOnce(async () => {
+      throw new Error('database unavailable');
+    });
+
+    const result = await run(
+      { message: 'test notification' },
+      {
+        workingDir: '/tmp',
+        sessionId: 'sess-1',
+        conversationId: 'conv-1',
+        assistantId: 'ast-alpha',
+      },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('database unavailable');
+    expect(emitNotificationSignalMock).toHaveBeenCalledTimes(1);
   });
 });
