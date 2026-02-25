@@ -44,6 +44,7 @@ final class CopyThreadState {
     func cancel() {
         confirmationTimer?.cancel()
         confirmationTimer = nil
+        showConfirmation = false
     }
 }
 
