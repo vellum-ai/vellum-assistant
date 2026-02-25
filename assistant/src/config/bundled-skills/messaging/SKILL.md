@@ -215,7 +215,7 @@ Use `gmail_sender_digest` to help users identify and clean up high-volume sender
 
 ### Workflow
 
-1. **Scan**: Call `gmail_sender_digest` (default query targets emails with unsubscribe headers from the last 90 days)
+1. **Scan**: Call `gmail_sender_digest` (default query targets Gmail's promotions category from the last 90 days)
 2. **Present**: Show results as a `ui_show` table with `selectionMode: "multiple"`:
    - Columns: Sender, Email Count, Unsubscribable, Date Range, Sample Subject
    - Action buttons: "Archive & Unsubscribe" (primary), "Archive Only" (secondary)
@@ -227,7 +227,7 @@ Use `gmail_sender_digest` to help users identify and clean up high-volume sender
 
 ### Edge Cases
 
-- **Zero results**: Tell the user "No newsletter emails found" and suggest broadening the query (e.g. removing `has:unsubscribe` or extending the date range)
+- **Zero results**: Tell the user "No newsletter emails found" and suggest broadening the query (e.g. removing the category filter or extending the date range)
 - **Unsubscribe failures**: Report per-sender success/failure; the existing `gmail_unsubscribe` tool handles edge cases
 - **Large sender counts**: The `has_more` flag indicates a sender had more messages than collected — use `search_query` for follow-up archiving
 
