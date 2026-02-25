@@ -4,7 +4,8 @@
 
 AI-powered assistant platform by Vellum.
 
-## Architecture
+<details>
+<summary><h2>Architecture</h2></summary>
 
 The platform has three main components:
 
@@ -12,7 +13,10 @@ The platform has three main components:
 - **Native clients** (`clients/`): Swift Package with macOS and iOS apps sharing ~45-50% of code via `VellumAssistantShared`. The macOS app is a menu bar assistant with computer-use (accessibility + CGEvent). The iOS app is a chat client supporting standalone mode (direct Anthropic API) and connected-to-Mac mode (TCP proxy through the daemon).
 - **Gateway** (`gateway/`): Standalone Bun + TypeScript service that serves as the public ingress boundary for all external webhooks and callbacks. Owns Telegram integration end-to-end (receives webhooks, routes to assistants, delivers replies). Routes Twilio voice and SMS webhooks, handles OAuth callbacks, and optionally acts as an authenticated reverse proxy for the assistant runtime API (client → gateway → runtime).
 
-## Repository Structure
+</details>
+
+<details>
+<summary><h2>Repository Structure</h2></summary>
 
 ```
 /
@@ -25,11 +29,17 @@ The platform has three main components:
 └── .github/           # GitHub Actions workflows
 ```
 
-## Prerequisites
+</details>
+
+<details>
+<summary><h2>Prerequisites</h2></summary>
 
 - **Docker** is required. The sandbox uses Docker as its default backend for container-level isolation. Install [Docker Desktop](https://docs.docker.com/get-docker/) (macOS/Windows) or Docker Engine (Linux) and ensure the daemon is running before starting the assistant.
 
-## Git Hooks
+</details>
+
+<details>
+<summary><h2>Git Hooks</h2></summary>
 
 This repository includes git hooks to help maintain code quality and security. The hooks are installed by running the install script directly.
 
@@ -40,7 +50,10 @@ To manually install or update hooks:
 
 See [.githooks/README.md](./.githooks/README.md) for more details about available hooks.
 
-## Assistant Runtime
+</details>
+
+<details>
+<summary><h2>Assistant Runtime</h2></summary>
 
 The assistant runtime lives in `/assistant`.
 
@@ -52,7 +65,10 @@ bun run src/index.ts daemon start
 
 > **Note:** Some dependencies (`agentmail`, `@pydantic/logfire-node`) are optional at runtime but required for full `tsc --noEmit` type-checking to pass. They are installed automatically by `bun install`.
 
-## Sandbox and Host Access Model
+</details>
+
+<details>
+<summary><h2>Sandbox and Host Access Model</h2></summary>
 
 - Default tool workspace: `~/.vellum/workspace` (persistent global sandbox filesystem).
 - Sandbox-scoped tools: `file_read`, `file_write`, `file_edit`, and `bash`.
@@ -143,7 +159,10 @@ Host tools (`host_bash`, `host_file_read`, `host_file_write`, `host_file_edit`) 
 
 Run `vellum doctor` for a full diagnostic check including sandbox backend status.
 
-## Credential Storage and Secret Security
+</details>
+
+<details>
+<summary><h2>Credential Storage and Secret Security</h2></summary>
 
 The assistant can store and use credentials (API keys, tokens, passwords) without exposing secret values to the LLM or logs.
 
@@ -194,7 +213,10 @@ If a proxied command receives a 401 or 403 despite having the correct credential
 4. **Check the header template**: Ensure the credential has an `injectionTemplate` with `injectionType: "header"` and the correct `headerName` (e.g., `Authorization`) and `valuePrefix` (e.g., `Bearer `).
 5. **Enable debug logging**: Set `LOG_LEVEL=debug` to see decision traces from the policy engine and rewrite callback, including which patterns matched and which credential was selected.
 
-## Integrations
+</details>
+
+<details>
+<summary><h2>Integrations</h2></summary>
 
 Vellum integrates with third-party services via OAuth2. Each integration is exposed as a bundled skill with its own set of tools.
 
@@ -239,7 +261,10 @@ Twitter integration supports two operation paths: **OAuth** (X API v2) and **Bro
 
 **Setup**: For OAuth posting, store your Twitter app's Client ID via the credential vault (`credential:integration:twitter:oauth_client_id`), optionally store a Client Secret, and initiate the OAuth2 flow from the Settings UI. For browser operations, ensure Chrome is running with remote debugging enabled and an authenticated x.com tab.
 
-## Dynamic Skill Authoring
+</details>
+
+<details>
+<summary><h2>Dynamic Skill Authoring</h2></summary>
 
 The assistant can create, test, and persist new skills at runtime. This is useful when no existing tool or skill covers a user's need.
 
@@ -286,7 +311,10 @@ When a parent skill is loaded via `skill_load`:
 
 The `scaffold_managed_skill` tool accepts an optional `includes` array to set this metadata when creating managed skills.
 
-## Browser Capabilities
+</details>
+
+<details>
+<summary><h2>Browser Capabilities</h2></summary>
 
 Web browsing is provided by the bundled `browser` skill. Browser tools are not available by default — the skill must be loaded first.
 
@@ -316,7 +344,10 @@ Once loaded, the following tools become available for the remainder of the sessi
 
 All `browser_*` tools are declared as low-risk. The system seeds default trust rules for `skill_load` and every `browser_*` tool, so they are auto-allowed in both legacy and strict permission modes out of the box. The exception is `browser_navigate` (and `web_fetch`) with `allow_private_network=true` — these are elevated to high-risk and will prompt for approval unless a matching trust rule has `allowHighRisk: true`. Users can override the default rules via `~/.vellum/protected/trust.json` if they want to require explicit approval (default rules cannot be removed, only disabled).
 
-## Permission Modes and Trust Rules
+</details>
+
+<details>
+<summary><h2>Permission Modes and Trust Rules</h2></summary>
 
 The assistant uses a permission system to control which tool actions the agent can execute without explicit user approval. Permission behavior is configured via `permissions.mode`:
 
@@ -382,7 +413,10 @@ When `file_write`, `file_edit`, `host_file_write`, or `host_file_edit` targets a
 
 See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full permission evaluation flow diagrams and [`assistant/docs/skills.md`](assistant/docs/skills.md) for detailed skills security documentation.
 
-## Assistant Attachments
+</details>
+
+<details>
+<summary><h2>Assistant Attachments</h2></summary>
 
 The assistant can attach files and images to its replies. Attachments flow through three delivery channels:
 
@@ -423,7 +457,10 @@ The assistant creates attachments from two sources:
 
 Limits: up to 5 attachments per turn, 20 MB each.
 
-## Assistant Events SSE Stream
+</details>
+
+<details>
+<summary><h2>Assistant Events SSE Stream</h2></summary>
 
 The runtime HTTP server exposes a Server-Sent Events (SSE) endpoint that streams real-time assistant events for a specific conversation. This provides a transport-agnostic alternative to the Unix socket IPC for HTTP clients (web apps, remote integrations, etc.).
 
@@ -529,7 +566,10 @@ while (true) {
 }
 ```
 
-## Inline Media Embeds
+</details>
+
+<details>
+<summary><h2>Inline Media Embeds</h2></summary>
 
 The desktop app automatically renders inline previews for images and video URLs that appear in chat messages. Instead of showing a bare link, recognized URLs are replaced with an embedded preview directly in the conversation.
 
@@ -557,7 +597,10 @@ Media embeds are controlled by settings under `ui.mediaEmbeds` in `~/.vellum/wor
 - Image loads are **lazy** — off-screen images are not fetched until they scroll into view.
 - Video webviews are **torn down when scrolled offscreen** to free memory and stop background activity.
 
-## Remote Access
+</details>
+
+<details>
+<summary><h2>Remote Access</h2></summary>
 
 Access a remote assistant daemon from your local machine via SSH.
 
@@ -598,7 +641,10 @@ Over SSH-forwarded sockets, the probe fails automatically (the filesystems don't
 
 Run `vellum doctor` for a full diagnostic check including socket path and autostart policy.
 
-## Claude Code Workflow
+</details>
+
+<details>
+<summary><h2>Claude Code Workflow</h2></summary>
 
 This repo includes Claude Code slash commands (in `.claude/commands/`) for agent-driven development.
 
@@ -673,7 +719,10 @@ All workflows use squash-merge (no merge commits), worktree isolation for parall
 
 **Validation**: Slash commands do **not** run tests, type-checking (`tsc`), or linting by default. These steps are only performed when the task specifically requires it (e.g., "fix the type errors", "make the tests pass"). This keeps agent-driven workflows fast for well-scoped changes.
 
-## Release Management
+</details>
+
+<details>
+<summary><h2>Release Management</h2></summary>
 
 Releases are cut using the `/release` Claude Code command and follow a fully automated pipeline from tag to client update.
 
@@ -701,6 +750,8 @@ The macOS app uses [Sparkle](https://sparkle-project.org/) for automatic updates
 ### First-time installation
 
 New users download the latest DMG from the [public updates repo releases page](https://github.com/vellum-ai/velly/releases/latest), open it, and drag the app to their Applications folder. All subsequent updates are handled automatically by Sparkle.
+
+</details>
 
 ## License
 
