@@ -108,12 +108,15 @@ public final class ToolConfirmationNotificationService {
     }
 
     private func formatBody(_ message: ConfirmationRequestMessage) -> String {
-        // For shell commands, prefer the human-readable reason over the raw command
+        // For shell commands, show both the human-readable reason and the raw command
         if message.toolName == "bash" || message.toolName == "host_bash" {
+            let command = commandPreview(toolName: message.toolName, input: message.input)
             if let reason = message.input["reason"]?.value as? String, !reason.isEmpty {
-                let body = reason.prefix(1).uppercased() + reason.dropFirst()
+                let capitalizedReason = reason.prefix(1).uppercased() + reason.dropFirst()
+                let body = "\(capitalizedReason)\n$ \(command)"
                 return body.count > 200 ? String(body.prefix(197)) + "..." : body
             }
+            return command.count > 200 ? String(command.prefix(197)) + "..." : command
         }
         let preview = commandPreview(toolName: message.toolName, input: message.input)
         if preview.count > 200 {
