@@ -16,7 +16,7 @@ struct MessageListView: View {
     let onDismissDocumentWidget: ((String) -> Void)?
     let onReportMessage: ((String?) -> Void)?
     let mediaEmbedSettings: MediaEmbedResolverSettings?
-    let daemonHttpPort: Int?
+    let resolveDaemonPort: () -> Int?
     var onModelPickerSelect: ((UUID, String) -> Void)?
     var onAbortSubagent: ((String) -> Void)?
     var onSubagentTap: ((String) -> Void)?
@@ -148,7 +148,7 @@ struct MessageListView: View {
                                 dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
                                 onReportMessage: onReportMessage,
                                 mediaEmbedSettings: mediaEmbedSettings,
-                                daemonHttpPort: daemonHttpPort,
+                                resolveDaemonPort: resolveDaemonPort,
                                 showAvatar: !previousIsAssistant,
                                 isLatestAssistantMessage: message.role == .assistant && displayMessages.last(where: { $0.role == .assistant })?.id == message.id,
                                 activeSurfaceId: activeSurfaceId

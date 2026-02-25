@@ -14,7 +14,7 @@ struct ChatBubble: View {
     let dismissedDocumentSurfaceIds: Set<String>
     var onReportMessage: ((String?) -> Void)?
     var mediaEmbedSettings: MediaEmbedResolverSettings?
-    var daemonHttpPort: Int?
+    var resolveDaemonPort: (() -> Int?) = { nil }
     var showAvatar: Bool = true
     var isLatestAssistantMessage: Bool = false
 
@@ -331,7 +331,7 @@ struct ChatBubble: View {
                 if !partitioned.videos.isEmpty {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
                         ForEach(partitioned.videos) { attachment in
-                            InlineVideoAttachmentView(attachment: attachment, daemonHttpPort: daemonHttpPort)
+                            InlineVideoAttachmentView(attachment: attachment, resolveDaemonPort: resolveDaemonPort)
                         }
                     }
                 }

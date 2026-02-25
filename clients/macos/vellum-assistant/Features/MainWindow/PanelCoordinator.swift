@@ -747,7 +747,7 @@ struct ActiveChatViewWrapper: View {
                 windowState.selectedSubagentId = subagentId
             },
             subagentDetailStore: viewModel.subagentDetailStore,
-            daemonHttpPort: daemonClient.httpPort,
+            resolveDaemonPort: { [weak daemonClient] in daemonClient?.httpPort },
             isHistoryLoaded: viewModel.isHistoryLoaded,
             dismissedDocumentSurfaceIds: viewModel.dismissedDocumentSurfaceIds,
             onDismissDocumentWidget: { viewModel.dismissDocumentSurface(id: $0) },

@@ -5,6 +5,28 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "InlineVideoAttachment")
 
+/// Classifies playback failures so we can log specific root causes and show
+/// slightly more helpful messages to the user.
+private enum VideoPlaybackError: String {
+    case portMissing = "port_missing"
+    case fetchFailed = "fetch_failed"
+    case invalidMedia = "invalid_media"
+    case decodeFailed = "decode_failed"
+    case unknown = "unknown"
+
+    /// User-facing description shown in the failed-state overlay.
+    var userMessage: String {
+        switch self {
+        case .portMissing:
+            return "Could not connect to video service"
+        case .fetchFailed:
+            return "Could not download video"
+        case .invalidMedia, .decodeFailed, .unknown:
+            return "Could not play video"
+        }
+    }
+}
+
 /// Inline video player for file-based video attachments (e.g. video/mp4).
 ///
 /// Decodes base64 attachment data to a temp file and plays it with native
@@ -12,20 +34,22 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 /// on scroll. Supports lazy-loading large attachments via the daemon HTTP API.
 struct InlineVideoAttachmentView: View {
     let attachment: ChatAttachment
-    let daemonHttpPort: Int?
+    /// Resolves the daemon HTTP port at call time so we always use the
+    /// current port even after a daemon reconnect.
+    let resolveDaemonPort: () -> Int?
 
     @State private var player: AVPlayer?
     @State private var isPlaying = false
     @State private var isLoading = false
-    @State private var failed = false
+    @State private var failureReason: VideoPlaybackError?
     @State private var videoAspectRatio: CGFloat
     @State private var isHovering = false
     @State private var isSaving = false
     @State private var thumbnailImage: NSImage?
 
-    init(attachment: ChatAttachment, daemonHttpPort: Int?) {
+    init(attachment: ChatAttachment, resolveDaemonPort: @escaping () -> Int?) {
         self.attachment = attachment
-        self.daemonHttpPort = daemonHttpPort
+        self.resolveDaemonPort = resolveDaemonPort
 
         if let img = attachment.thumbnailImage {
             // Use pixel dimensions for accurate aspect ratio (immune to DPI metadata).
@@ -45,6 +69,8 @@ struct InlineVideoAttachmentView: View {
             _videoAspectRatio = State(initialValue: 3.0 / 4.0)
         }
     }
+
+    private var failed: Bool { failureReason != nil }
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -144,7 +170,7 @@ struct InlineVideoAttachmentView: View {
                 .font(.system(size: 20))
                 .foregroundStyle(VColor.textSecondary)
 
-            Text("Could not play video")
+            Text(failureReason?.userMessage ?? "Could not play video")
                 .font(VFont.caption)
                 .foregroundStyle(VColor.textSecondary)
         }
@@ -249,7 +275,8 @@ struct InlineVideoAttachmentView: View {
 
     private func playFromBase64(_ base64: String) async {
         guard let data = Data(base64Encoded: base64) else {
-            await MainActor.run { failed = true }
+            log.warning("Base64 decode failed for attachment \(self.attachment.id, privacy: .public) — category: \(VideoPlaybackError.decodeFailed.rawValue, privacy: .public)")
+            await MainActor.run { failureReason = .decodeFailed }
             return
         }
 
@@ -257,7 +284,8 @@ struct InlineVideoAttachmentView: View {
         do {
             try data.write(to: fileURL)
         } catch {
-            await MainActor.run { failed = true }
+            log.error("Failed to write decoded video to disk for attachment \(self.attachment.id, privacy: .public): \(error.localizedDescription, privacy: .public) — category: \(VideoPlaybackError.invalidMedia.rawValue, privacy: .public)")
+            await MainActor.run { failureReason = .invalidMedia }
             return
         }
 
@@ -265,8 +293,14 @@ struct InlineVideoAttachmentView: View {
     }
 
     private func fetchAndPlay() {
-        guard let port = daemonHttpPort, let attachmentId = attachment.id.isEmpty ? nil : attachment.id else {
-            failed = true
+        guard let port = resolveDaemonPort() else {
+            log.warning("Daemon HTTP port unavailable — cannot fetch attachment \(self.attachment.id, privacy: .public) — category: \(VideoPlaybackError.portMissing.rawValue, privacy: .public)")
+            failureReason = .portMissing
+            return
+        }
+        guard let attachmentId = attachment.id.isEmpty ? nil : attachment.id else {
+            log.warning("Attachment ID is empty — cannot fetch — category: \(VideoPlaybackError.fetchFailed.rawValue, privacy: .public)")
+            failureReason = .fetchFailed
             return
         }
 
@@ -279,10 +313,10 @@ struct InlineVideoAttachmentView: View {
                 await MainActor.run { isLoading = false }
                 await playFromFile(fileURL)
             } catch {
-                log.error("Failed to fetch attachment \(attachmentId): \(error.localizedDescription)")
+                log.error("Failed to fetch attachment \(attachmentId, privacy: .public): \(error.localizedDescription, privacy: .public) — category: \(VideoPlaybackError.fetchFailed.rawValue, privacy: .public)")
                 await MainActor.run {
                     isLoading = false
-                    failed = true
+                    failureReason = .fetchFailed
                 }
             }
         }
@@ -315,7 +349,12 @@ struct InlineVideoAttachmentView: View {
                 await MainActor.run { isSaving = false }
             }
         } else if attachment.isLazyLoad {
-            guard let port = daemonHttpPort, let attachmentId = attachment.id.isEmpty ? nil : attachment.id else {
+            guard let port = resolveDaemonPort() else {
+                log.warning("Daemon HTTP port unavailable — cannot save attachment \(self.attachment.id, privacy: .public)")
+                isSaving = false
+                return
+            }
+            guard let attachmentId = attachment.id.isEmpty ? nil : attachment.id else {
                 isSaving = false
                 return
             }
@@ -325,6 +364,7 @@ struct InlineVideoAttachmentView: View {
                     try data.write(to: destURL)
                     await MainActor.run { isSaving = false }
                 } catch {
+                    log.error("Failed to save attachment \(attachmentId, privacy: .public) via fetch: \(error.localizedDescription, privacy: .public)")
                     await MainActor.run { isSaving = false }
                 }
             }
@@ -345,7 +385,11 @@ struct InlineVideoAttachmentView: View {
         if let fileURL = cachedFileURL {
             NSWorkspace.shared.open(fileURL)
         } else if attachment.isLazyLoad {
-            guard let port = daemonHttpPort, let attachmentId = attachment.id.isEmpty ? nil : attachment.id else { return }
+            guard let port = resolveDaemonPort() else {
+                log.warning("Daemon HTTP port unavailable — cannot open attachment \(self.attachment.id, privacy: .public) in external player")
+                return
+            }
+            guard let attachmentId = attachment.id.isEmpty ? nil : attachment.id else { return }
             isLoading = true
             Task {
                 do {
@@ -357,6 +401,7 @@ struct InlineVideoAttachmentView: View {
                         NSWorkspace.shared.open(fileURL)
                     }
                 } catch {
+                    log.error("Failed to fetch attachment \(attachmentId, privacy: .public) for external player: \(error.localizedDescription, privacy: .public)")
                     await MainActor.run { isLoading = false }
                 }
             }

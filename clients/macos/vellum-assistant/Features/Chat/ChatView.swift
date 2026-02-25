@@ -54,7 +54,7 @@ struct ChatView: View {
     var onAbortSubagent: ((String) -> Void)?
     var onSubagentTap: ((String) -> Void)?
     var subagentDetailStore: SubagentDetailStore?
-    var daemonHttpPort: Int?
+    var resolveDaemonPort: (() -> Int?) = { nil }
     var isHistoryLoaded: Bool = true
     var dismissedDocumentSurfaceIds: Set<String> = []
     var onDismissDocumentWidget: ((String) -> Void)?
@@ -168,7 +168,7 @@ struct ChatView: View {
                             onDismissDocumentWidget: onDismissDocumentWidget,
                             onReportMessage: onReportMessage,
                             mediaEmbedSettings: mediaEmbedSettings,
-                            daemonHttpPort: daemonHttpPort,
+                            resolveDaemonPort: resolveDaemonPort,
                             onModelPickerSelect: onModelPickerSelect,
                             onAbortSubagent: onAbortSubagent,
                             onSubagentTap: onSubagentTap,
