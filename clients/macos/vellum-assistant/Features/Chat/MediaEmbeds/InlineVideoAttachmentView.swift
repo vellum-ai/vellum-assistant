@@ -366,16 +366,16 @@ struct InlineVideoAttachmentView: View {
             return
         }
 
+        // Resolve port on MainActor before entering the Task to avoid
+        // reading @MainActor-isolated DaemonClient.httpPort off-actor.
+        guard let port = resolveDaemonPort() else {
+            failureReason = .portMissing
+            return
+        }
+
         isLoading = true
         loadingMessage = "Loading video..."
         Task {
-            guard let port = resolveDaemonPort() else {
-                await MainActor.run {
-                    isLoading = false
-                    failureReason = .portMissing
-                }
-                return
-            }
             await doFetch(port: port)
         }
     }
