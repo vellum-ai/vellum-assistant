@@ -9,13 +9,13 @@
 
 import { v4 as uuid } from 'uuid';
 import type { Message, ContentBlock } from '../providers/types.js';
-import type { ChannelId, TurnChannelContext } from '../channels/types.js';
+import type { ChannelId, TurnChannelContext, InterfaceId, TurnInterfaceContext } from '../channels/types.js';
 import type { ServerMessage, UsageStats, SurfaceType, SurfaceData, DynamicPageSurfaceData } from './ipc-protocol.js';
 import type { AgentLoop, CheckpointDecision, AgentEvent } from '../agent/loop.js';
 import type { Provider } from '../providers/types.js';
 import { createAssistantMessage } from '../agent/message-types.js';
 import * as conversationStore from '../memory/conversation-store.js';
-import { getConversationOriginChannel, provenanceFromGuardianContext } from '../memory/conversation-store.js';
+import { getConversationOriginChannel, getConversationOriginInterface, provenanceFromGuardianContext } from '../memory/conversation-store.js';
 import type { PermissionPrompter } from '../permissions/prompter.js';
 import { getConfig } from '../config/loader.js';
 import { getLogger } from '../util/logger.js';
@@ -37,7 +37,7 @@ import {
   stripInjectedContext,
 } from './session-runtime-assembly.js';
 import { buildTemporalContext } from './date-context.js';
-import type { ActiveSurfaceContext, ChannelCapabilities, ChannelTurnContextParams, GuardianRuntimeContext } from './session-runtime-assembly.js';
+import type { ActiveSurfaceContext, ChannelCapabilities, ChannelTurnContextParams, InterfaceTurnContextParams, GuardianRuntimeContext } from './session-runtime-assembly.js';
 import {
   cleanAssistantContent,
   type AssistantAttachmentDraft,
@@ -132,6 +132,7 @@ export interface AgentLoopSessionContext {
   canHandoffAtCheckpoint(): boolean;
   drainQueue(reason: QueueDrainReason): void;
   getTurnChannelContext(): TurnChannelContext | null;
+  getTurnInterfaceContext(): TurnInterfaceContext | null;
 }
 
 // ── runAgentLoop ─────────────────────────────────────────────────────
@@ -161,6 +162,15 @@ export async function runAgentLoopImpl(
     const origin = getConversationOriginChannel(ctx.conversationId);
     if (origin) return { userMessageChannel: origin, assistantMessageChannel: origin };
     return { userMessageChannel: 'vellum' as ChannelId, assistantMessageChannel: 'vellum' as ChannelId };
+  })();
+
+  // Capture interface context with the same anti-race snapshot pattern.
+  const capturedTurnInterfaceContext: TurnInterfaceContext = (() => {
+    const live = ctx.getTurnInterfaceContext();
+    if (live) return live;
+    const origin = getConversationOriginInterface(ctx.conversationId);
+    if (origin) return { userMessageInterface: origin, assistantMessageInterface: origin };
+    return { userMessageInterface: 'vellum' as InterfaceId, assistantMessageInterface: 'vellum' as InterfaceId };
   })();
 
   ctx.lastAssistantAttachments = [];
@@ -308,12 +318,17 @@ export async function runAgentLoopImpl(
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     });
 
-    // Use the channel context captured at the top of this function so it
-    // reflects the channel that originally sent *this* turn's message,
-    // even if a newer message from a different channel arrived since.
+    // Use the channel/interface context captured at the top of this function
+    // so it reflects the channel/interface that originally sent *this* turn's
+    // message, even if a newer message from a different channel arrived since.
     const channelTurnContext: ChannelTurnContextParams = {
       turnContext: capturedTurnChannelContext,
       conversationOriginChannel: getConversationOriginChannel(ctx.conversationId),
+    };
+
+    const interfaceTurnContext: InterfaceTurnContextParams = {
+      turnContext: capturedTurnInterfaceContext,
+      conversationOriginInterface: getConversationOriginInterface(ctx.conversationId),
     };
 
     runMessages = applyRuntimeInjections(runMessages, {
@@ -323,6 +338,7 @@ export async function runAgentLoopImpl(
       channelCapabilities: ctx.channelCapabilities ?? null,
       channelCommandContext: ctx.commandIntent ?? null,
       channelTurnContext,
+      interfaceTurnContext,
       guardianContext: ctx.guardianContext ?? null,
       temporalContext,
       voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
@@ -439,6 +455,7 @@ export async function runAgentLoopImpl(
           channelCapabilities: ctx.channelCapabilities ?? null,
           channelCommandContext: ctx.commandIntent ?? null,
           channelTurnContext,
+          interfaceTurnContext,
           guardianContext: ctx.guardianContext ?? null,
           temporalContext,
           voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
@@ -475,6 +492,7 @@ export async function runAgentLoopImpl(
             channelCapabilities: ctx.channelCapabilities ?? null,
             channelCommandContext: ctx.commandIntent ?? null,
             channelTurnContext,
+            interfaceTurnContext,
             guardianContext: ctx.guardianContext ?? null,
             temporalContext,
             voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
