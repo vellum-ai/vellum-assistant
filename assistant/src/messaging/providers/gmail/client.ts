@@ -7,6 +7,12 @@ import type {
   GmailDraft,
   GmailModifyRequest,
   GmailMessageFormat,
+  GmailAttachment,
+  GmailFilter,
+  GmailFilterCriteria,
+  GmailFilterAction,
+  GmailFiltersListResponse,
+  GmailVacationSettings,
 } from './types.js';
 
 const GMAIL_API_BASE = 'https://gmail.googleapis.com/gmail/v1/users/me';
@@ -201,4 +207,78 @@ export async function sendMessage(
 /** Get the authenticated user's profile (email address). */
 export async function getProfile(token: string): Promise<GmailProfile> {
   return request<GmailProfile>(token, '/profile');
+}
+
+/** Get attachment data for a message. */
+export async function getAttachment(
+  token: string,
+  messageId: string,
+  attachmentId: string,
+): Promise<GmailAttachment> {
+  return request<GmailAttachment>(token, `/messages/${messageId}/attachments/${attachmentId}`);
+}
+
+/** Send an email with a pre-built raw MIME payload (for multipart/attachments). */
+export async function sendMessageRaw(
+  token: string,
+  raw: string,
+  threadId?: string,
+): Promise<GmailMessage> {
+  const payload: Record<string, unknown> = { raw };
+  if (threadId) payload.threadId = threadId;
+  return request<GmailMessage>(token, '/messages/send', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+/** Create a user label. */
+export async function createLabel(
+  token: string,
+  name: string,
+  opts?: { messageListVisibility?: 'show' | 'hide'; labelListVisibility?: 'labelShow' | 'labelShowIfUnread' | 'labelHide' },
+): Promise<GmailLabel> {
+  return request<GmailLabel>(token, '/labels', {
+    method: 'POST',
+    body: JSON.stringify({ name, ...opts }),
+  });
+}
+
+/** List all Gmail filters. */
+export async function listFilters(token: string): Promise<GmailFilter[]> {
+  const resp = await request<GmailFiltersListResponse>(token, '/settings/filters');
+  return resp.filter ?? [];
+}
+
+/** Create a Gmail filter. */
+export async function createFilter(
+  token: string,
+  criteria: GmailFilterCriteria,
+  action: GmailFilterAction,
+): Promise<GmailFilter> {
+  return request<GmailFilter>(token, '/settings/filters', {
+    method: 'POST',
+    body: JSON.stringify({ criteria, action }),
+  });
+}
+
+/** Delete a Gmail filter. */
+export async function deleteFilter(token: string, filterId: string): Promise<void> {
+  await request<void>(token, `/settings/filters/${filterId}`, { method: 'DELETE' });
+}
+
+/** Get vacation auto-reply settings. */
+export async function getVacation(token: string): Promise<GmailVacationSettings> {
+  return request<GmailVacationSettings>(token, '/settings/vacation');
+}
+
+/** Update vacation auto-reply settings. */
+export async function updateVacation(
+  token: string,
+  settings: GmailVacationSettings,
+): Promise<GmailVacationSettings> {
+  return request<GmailVacationSettings>(token, '/settings/vacation', {
+    method: 'PUT',
+    body: JSON.stringify(settings),
+  });
 }

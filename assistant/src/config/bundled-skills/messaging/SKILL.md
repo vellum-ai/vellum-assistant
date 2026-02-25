@@ -120,6 +120,32 @@ SMS is supported as a messaging provider with limited capabilities. The conversa
 - **Unsubscribe**: Unsubscribe via List-Unsubscribe header
 - **Draft (native)**: Create a draft in Gmail's Drafts folder
 
+### Attachments (Gmail)
+- **List Attachments**: `gmail_list_attachments` — list all attachments on a message with filename, MIME type, size, and attachment ID
+- **Download Attachment**: `gmail_download_attachment` — download an attachment to the working directory by message ID + attachment ID
+- **Send with Attachments**: `gmail_send_with_attachments` — send an email with file attachments (reads files from disk, builds multipart MIME)
+
+Workflow: use `gmail_list_attachments` to discover attachments, then `gmail_download_attachment` to save them locally.
+
+### Forward & Thread Operations (Gmail)
+- **Forward**: `gmail_forward` — forward a message to another recipient, preserving all attachments. Optionally prepend your own text
+- **Summarize Thread**: `gmail_summarize_thread` — LLM-powered thread summary with participants, decisions, open questions, and sentiment
+- **Follow-up Tracking**: `gmail_follow_up` — track/untrack messages for follow-up using a dedicated "Follow-up" label, or list all tracked messages
+
+### Smart Triage (Gmail)
+- **Triage**: `gmail_triage` — LLM-powered inbox classification of unread emails into categories: `needs_reply`, `fyi_only`, `can_archive`, `urgent`, `newsletter`, `promotional`
+  - Returns grouped report with reasoning and suggested actions per email
+  - Set `auto_apply: true` to auto-archive `can_archive` emails and label `needs_reply` as "Follow-up"
+  - Custom query support (default: `is:unread in:inbox`)
+
+### Inbox Automation (Gmail)
+- **Filters**: `gmail_filters` — list, create, or delete Gmail filters. Filter criteria include from, to, subject, query, has_attachment. Actions include adding/removing labels and forwarding
+- **Vacation Responder**: `gmail_vacation` — get, enable, or disable the vacation auto-responder with custom message, date range, and domain/contact restrictions
+
+### Google Contacts
+- **Contacts**: `google_contacts` — list or search Google Contacts by name or email. Returns name, email, phone, and organization
+  - Requires the `contacts.readonly` scope — users may need to re-authorize Gmail to grant this additional permission
+
 ## Slack Search Syntax
 
 When searching Slack, the query is passed directly to Slack's search API:
