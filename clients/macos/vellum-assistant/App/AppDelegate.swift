@@ -267,6 +267,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         setupWindowObserver()
         setupNotifications()
         setupAutoUpdate()
+        installCLISymlinkIfNeeded()
 
         if isFirstLaunch {
             // Gate showMainWindow on daemon readiness so the wake-up
@@ -942,6 +943,78 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.assistantCli.stop()
         }
         updateManager.startAutomaticChecks()
+    }
+
+    /// Installs a `/usr/local/bin/vellum` symlink pointing to the bundled
+    /// CLI binary so users can run `vellum` from their terminal.
+    ///
+    /// Skipped when dev mode is active (developers manage their own PATH)
+    /// or when `vellum` already resolves to a different executable
+    /// (avoids overwriting a developer's locally-built binary).
+    private func installCLISymlinkIfNeeded() {
+        guard !services.settingsStore.isDevMode else { return }
+
+        guard let execURL = Bundle.main.executableURL else { return }
+        let cliBinary = execURL.deletingLastPathComponent()
+            .appendingPathComponent("vellum-cli")
+        guard FileManager.default.fileExists(atPath: cliBinary.path) else { return }
+
+        let symlinkPath = "/usr/local/bin/vellum"
+        let fm = FileManager.default
+
+        // If the path exists, check whether it's our symlink or something else
+        if let attrs = try? fm.attributesOfItem(atPath: symlinkPath),
+           let type = attrs[.type] as? FileAttributeType {
+            if type == .typeSymbolicLink {
+                // Already a symlink — skip if it already points to our binary
+                if let dest = try? fm.destinationOfSymbolicLink(atPath: symlinkPath),
+                   dest == cliBinary.path {
+                    return
+                }
+            } else {
+                // Real file (not a symlink) — don't overwrite
+                return
+            }
+        }
+
+        // Check if `vellum` resolves elsewhere on PATH (developer's local build)
+        let whichProc = Process()
+        whichProc.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+        whichProc.arguments = ["vellum"]
+        let pipe = Pipe()
+        whichProc.standardOutput = pipe
+        whichProc.standardError = FileHandle.nullDevice
+        do {
+            try whichProc.run()
+            whichProc.waitUntilExit()
+            if whichProc.terminationStatus == 0 {
+                let resolved = String(
+                    data: pipe.fileHandleForReading.readDataToEndOfFile(),
+                    encoding: .utf8
+                )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if !resolved.isEmpty && resolved != symlinkPath {
+                    return
+                }
+            }
+        } catch {
+            // `which` failed to run — continue with symlink creation
+        }
+
+        // Create /usr/local/bin if needed, then create symlink
+        do {
+            let dir = (symlinkPath as NSString).deletingLastPathComponent
+            if !fm.fileExists(atPath: dir) {
+                try fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
+            }
+            // Remove stale symlink before creating a new one
+            if (try? fm.attributesOfItem(atPath: symlinkPath)) != nil {
+                try fm.removeItem(atPath: symlinkPath)
+            }
+            try fm.createSymbolicLink(atPath: symlinkPath, withDestinationPath: cliBinary.path)
+            log.info("Installed CLI symlink: \(symlinkPath) → \(cliBinary.path)")
+        } catch {
+            log.warning("Could not install CLI symlink at \(symlinkPath): \(error.localizedDescription)")
+        }
     }
 
     private func setupSurfaceManager() {
