@@ -54,7 +54,8 @@ export function migrateEmbeddingsNullableVectorJson(database: DrizzleDb): void {
         vector_blob BLOB,
         content_hash TEXT,
         created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
+        updated_at INTEGER NOT NULL,
+        UNIQUE (target_type, target_id, provider, model)
       )
     `);
     raw.exec(/*sql*/ `
