@@ -126,6 +126,10 @@ function renderSuccessPage(): string {
   return `<!DOCTYPE html><html><head><title>Authorization Successful</title><style>body{font-family:system-ui,sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;background:#f5f5f5}div{text-align:center;padding:2rem;background:white;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1)}</style></head><body><div><h1>Authorization Successful</h1><p>You can close this tab and return to the app.</p></div></body></html>`;
 }
 
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 function renderErrorPage(message: string): string {
-  return `<!DOCTYPE html><html><head><title>Authorization Failed</title><style>body{font-family:system-ui,sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;background:#f5f5f5}div{text-align:center;padding:2rem;background:white;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1)}</style></head><body><div><h1>Authorization Failed</h1><p>${message}</p></div></body></html>`;
+  return `<!DOCTYPE html><html><head><title>Authorization Failed</title><style>body{font-family:system-ui,sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;background:#f5f5f5}div{text-align:center;padding:2rem;background:white;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1)}</style></head><body><div><h1>Authorization Failed</h1><p>${escapeHtml(message)}</p></div></body></html>`;
 }
