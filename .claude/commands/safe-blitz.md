@@ -551,7 +551,7 @@ Repeat the following until the exit condition is met:
    - If Codex status is `approved`, proceed to the exit condition check (step 7c).
    - If Codex status is `changes_requested`, proceed to step 2.
 
-2. **Address Codex feedback.** When Codex requests changes:
+2. **Address Codex feedback.** When Codex requests changes, push fixes directly to the feature branch (do NOT create separate feedback PRs):
 
    a. Read the review comments on the final PR to understand the requested changes:
       ```bash
@@ -559,39 +559,88 @@ Repeat the following until the exit condition is met:
       gh api repos/{owner}/{repo}/pulls/<final-pr-number>/comments --jq '.[] | select(.user.login | test("codex")) | {path: .path, body: .body, line: .line}'
       ```
 
-   b. For each piece of actionable feedback, add a namespaced TODO item to `.private/TODO.md`:
-      ```
-      - [<namespace>] Address the feedback on <final-pr-url>: <summary of change requested>
-      ```
-
-   c. Run the swarm workflow (`.claude/commands/swarm.md`) with these modifications:
-      - Pass `--namespace <namespace>` so only namespaced feedback items are processed.
-      - Pass the worker count as the first positional argument (or default: 12).
-      - All agents must use `--base <feature-branch-name>` (not main).
-      - Create worktrees from the feature branch: `.claude/worktree create swarm/<namespace>/task-<counter> origin/<feature-branch-name>`.
-      - Agents must NOT use `--merge` in `.claude/ship`. All PRs are created without auto-merging.
-
-   d. After the swarm completes, merge any approved feedback PRs into the feature branch (squash merge, in order of PR number):
+   b. Create a worktree from the feature branch:
       ```bash
-      gh pr merge <feedback-pr-number> --squash
+      .claude/worktree create swarm/<namespace>/final-fix-<counter> origin/<feature-branch-name>
       ```
 
-   e. Fetch the updated feature branch:
+   c. Spawn a `general-purpose` agent using the **final-PR feedback agent prompt** (see below). The agent pushes fixes directly to `<feature-branch-name>` instead of creating a new PR.
+
+   d. When the agent finishes, clean up the worktree:
+      ```bash
+      .claude/worktree remove swarm/<namespace>/final-fix-<counter> --delete-branch
+      ```
+
+   e. Fetch the updated feature branch and get the latest commit SHA:
       ```bash
       git fetch origin <feature-branch-name>
+      LATEST_COMMIT=$(git rev-parse origin/<feature-branch-name>)
       ```
 
    f. Resolve the addressed review threads on the final PR:
       ```bash
-      .claude/gh-review resolve-threads <final-pr-number> "Addressed in feedback PRs"
+      .claude/gh-review resolve-threads <final-pr-number> "Addressed in direct push to <feature-branch-name>"
       ```
 
    g. Re-trigger Codex review by commenting on the final PR again:
       ```bash
-      gh pr comment <final-pr-number> --body "@codex review"
+      gh pr comment <final-pr-number> --body "@codex review this PR again — the previous issues have been fixed in commit $LATEST_COMMIT"
       ```
 
    h. Return to step 1 of this loop.
+
+Maintain an internal counter for worktree naming (e.g., `final-fix-1`, `final-fix-2`, ...) and a **cycle counter** starting at 0. The maximum number of feedback cycles is **3** — after 3 full rounds of addressing feedback, proceed to Phase 7c regardless. Check the cycle limit before step 2 on each iteration.
+
+### Final-PR feedback agent prompt
+
+This template is used for feedback tasks during the holistic Codex review loop (Phase 7b). Instead of creating a new PR, the agent pushes fixes directly to the feature branch.
+
+```
+You are working on a single task in an isolated git worktree.
+
+## Project context
+Read AGENTS.md in the repo root for project conventions and structure.
+
+## Repo-specific gotchas
+- `gh pr view` does NOT support a `merged` --json field. Use `state` and `mergedAt`: `gh pr view <N> --json state,mergedAt,title,url`
+- This repo does NOT allow merge commits. Always use `gh pr merge <N> --squash`.
+- Do NOT wait for CI checks to pass before merging. Merge immediately.
+- `tail` and `head` may not be available in the shell. Don't pipe to them.
+
+## Your worktree
+<absolute path to worktree>
+ALL work happens here. Do NOT touch the main repo.
+
+## Your task
+Address the review feedback on the final PR #<final-pr-number> (<final-pr-url>):
+<summary of changes requested>
+
+## Workflow
+1. Read the review comments on the final PR to understand what changes are requested:
+   ```bash
+   gh api repos/{owner}/{repo}/pulls/<final-pr-number>/reviews --jq '.[-1].body'
+   gh api repos/{owner}/{repo}/pulls/<final-pr-number>/comments --jq '.[] | {path: .path, body: .body, line: .line}'
+   ```
+2. Implement the requested fixes in your worktree.
+3. Do NOT run tests, type-checking (tsc), or linting unless the task specifically requires it.
+4. Commit and push directly to the feature branch:
+   ```bash
+   cd <worktree>
+   git add -A
+   git commit -m "<descriptive message about what feedback was addressed>"
+   git push origin HEAD:<feature-branch-name>
+   ```
+5. Resolve the addressed review threads:
+   ```bash
+   .claude/gh-review resolve-threads <final-pr-number> "Addressed in direct push to <feature-branch-name>"
+   ```
+6. Do NOT create a new PR. Do NOT use .claude/ship.
+7. Send a message to "lead" with:
+   - A summary of what feedback was addressed
+   - Which files were modified
+   - Any issues or concerns
+
+```
 
 ### 7c. Verify CI is stable
 
@@ -601,7 +650,7 @@ Once Codex has approved (or there are no remaining change requests), verify that
 gh pr checks <final-pr-number> --json name,state,conclusion --jq '.[] | {name: .name, state: .state, conclusion: .conclusion}'
 ```
 
-- If any required checks are failing, investigate and address the failures using the same swarm workflow as step 7b (create TODO items, swarm, merge fixes, re-check).
+- If any required checks are failing, investigate and address the failures using the same direct-push approach as step 7b (create a worktree from the feature branch, spawn a feedback agent, push fixes directly to the feature branch, re-check).
 - If checks are still running, wait 60 seconds and poll again. Log: `"CI checks still running on final PR #<final-pr-number>..."`
 - If all checks pass (or there are no required checks), proceed to Phase 8.
 
@@ -634,7 +683,6 @@ gh project view "$GH_PROJECT_NUMBER" --owner "$GH_PROJECT_OWNER" --format json |
 | M2  | <title>                            | #11   | #16  | merged -> feature    |
 | M3  | <title>                            | #12   | #17  | merged -> feature    |
 
-**Feedback PRs:** <count, if any>
 **Codex review:** Approved
 **CI status:** All checks passing
 ```
