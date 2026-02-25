@@ -168,6 +168,21 @@ export function handleGuardianVerification(
         }
       }
       const hasPendingChallenge = getPendingChallenge(assistantId, channel) != null;
+
+      // Include active outbound session state so the UI can resume
+      // after app restart and detect bootstrap completion.
+      const activeOutboundSession = findActiveSession(assistantId, channel);
+      const outboundFields: Record<string, unknown> = {};
+      if (activeOutboundSession) {
+        outboundFields.verificationSessionId = activeOutboundSession.id;
+        outboundFields.expiresAt = activeOutboundSession.expiresAt;
+        outboundFields.nextResendAt = activeOutboundSession.nextResendAt;
+        outboundFields.sendCount = activeOutboundSession.sendCount;
+        // Note: telegramBootstrapUrl is NOT included because the plaintext
+        // token is not stored (only the hash). If the client restarts during
+        // bootstrap, the user must cancel and restart the flow.
+      }
+
       ctx.send(socket, {
         type: 'guardian_verification_response',
         success: true,
@@ -179,6 +194,7 @@ export function handleGuardianVerification(
         assistantId,
         guardianDeliveryChatId: binding?.guardianDeliveryChatId,
         hasPendingChallenge,
+        ...outboundFields,
       });
     } else if (msg.action === 'revoke') {
       revokeGuardianBinding(assistantId, channel);
@@ -616,6 +632,22 @@ function handleResendOutbound(
       channel,
     });
     return;
+  }
+
+  // Enforce per-destination rate limit on resend (same as start_outbound)
+  const resendDestination = session.destinationAddress ?? session.expectedPhoneE164 ?? session.expectedChatId;
+  if (resendDestination) {
+    const recentDestSends = countRecentSendsToDestination(channel, resendDestination, DESTINATION_RATE_WINDOW_MS);
+    if (recentDestSends >= MAX_SENDS_PER_DESTINATION_WINDOW) {
+      ctx.send(socket, {
+        type: 'guardian_verification_response',
+        success: false,
+        error: 'rate_limited',
+        message: 'Too many verification attempts to this destination. Please try again later.',
+        channel,
+      });
+      return;
+    }
   }
 
   // We need the secret to compose the resend message, but the store only

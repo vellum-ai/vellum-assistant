@@ -99,7 +99,9 @@ import {
   revokeBinding,
   updateApprovalDecision,
 } from '../memory/channel-guardian-store.js';
+import { eq } from 'drizzle-orm';
 import { getDb, initializeDb, resetDb } from '../memory/db.js';
+import { channelGuardianVerificationChallenges } from '../memory/schema.js';
 import {
   createVerificationChallenge,
   getGuardianBinding,
@@ -584,15 +586,18 @@ describe('guardian service challenge validation', () => {
     expect(oldBinding).not.toBeNull();
     expect(oldBinding!.guardianExternalUserId).toBe('old-user');
 
-    // Verify with a new user
+    // Attempt verification with a different user — should be rejected
+    // because a different guardian is already bound for this channel.
     const { secret } = createVerificationChallenge('asst-1', 'telegram');
-    validateAndConsumeChallenge('asst-1', 'telegram', secret, 'new-user', 'new-chat');
+    const result = validateAndConsumeChallenge('asst-1', 'telegram', secret, 'new-user', 'new-chat');
 
-    // The old binding should be revoked, new one active
-    const newBinding = getActiveBinding('asst-1', 'telegram');
-    expect(newBinding).not.toBeNull();
-    expect(newBinding!.guardianExternalUserId).toBe('new-user');
-    expect(newBinding!.guardianDeliveryChatId).toBe('new-chat');
+    // The different-user takeover should be blocked
+    expect(result.success).toBe(false);
+
+    // The original binding should remain active
+    const binding = getActiveBinding('asst-1', 'telegram');
+    expect(binding).not.toBeNull();
+    expect(binding!.guardianExternalUserId).toBe('old-user');
   });
 });
 
@@ -1548,9 +1553,8 @@ describe('voice guardian challenge generation', () => {
     expect(result.challengeId).toBeDefined();
     expect(result.secret).toBeDefined();
     expect(result.secret).toMatch(/^\d{6}$/);
-    const num = parseInt(result.secret, 10);
-    expect(num).toBeGreaterThanOrEqual(100000);
-    expect(num).toBeLessThanOrEqual(999999);
+    // Zero-padded: "079316" is valid, so check string length not numeric range
+    expect(result.secret.length).toBe(6);
   });
 
   test('createVerificationChallenge for non-voice returns 64-char hex secret', () => {
@@ -1709,13 +1713,17 @@ describe('voice guardian challenge validation', () => {
     expect(oldBinding).not.toBeNull();
     expect(oldBinding!.guardianExternalUserId).toBe('old-voice-user');
 
+    // Attempt verification with a different user — should be rejected
     const { secret } = createVerificationChallenge('asst-1', 'voice');
-    validateAndConsumeChallenge('asst-1', 'voice', secret, 'new-voice-user', 'new-voice-chat');
+    const result = validateAndConsumeChallenge('asst-1', 'voice', secret, 'new-voice-user', 'new-voice-chat');
 
-    const newBinding = getActiveBinding('asst-1', 'voice');
-    expect(newBinding).not.toBeNull();
-    expect(newBinding!.guardianExternalUserId).toBe('new-voice-user');
-    expect(newBinding!.guardianDeliveryChatId).toBe('new-voice-chat');
+    // The different-user takeover should be blocked
+    expect(result.success).toBe(false);
+
+    // The original binding should remain active
+    const binding = getActiveBinding('asst-1', 'voice');
+    expect(binding).not.toBeNull();
+    expect(binding!.guardianExternalUserId).toBe('old-voice-user');
   });
 });
 
@@ -2312,9 +2320,11 @@ describe('outbound verification sessions', () => {
 
     // First session should no longer be findable as active
     const db = getDb();
-    const firstRow = db.query.channelGuardianVerificationChallenges.findFirst({
-      where: (t, { eq: e }) => e(t.id, firstId),
-    });
+    const firstRow = db
+      .select()
+      .from(channelGuardianVerificationChallenges)
+      .where(eq(channelGuardianVerificationChallenges.id, firstId))
+      .get();
     expect(firstRow).toBeDefined();
     expect(firstRow!.status).toBe('revoked');
   });
@@ -3380,7 +3390,7 @@ describe('outbound voice verification', () => {
     expect(voiceCallInitCalls.length).toBeGreaterThanOrEqual(1);
     const lastCall = voiceCallInitCalls[voiceCallInitCalls.length - 1];
     expect(lastCall.phoneNumber).toBe('+15551234567');
-    expect(lastCall.guardianVerificationSessionId).toBe(resp!.verificationSessionId);
+    expect(lastCall.guardianVerificationSessionId).toBe(resp!.verificationSessionId!);
   });
 
   test('start_outbound for voice rejects invalid E.164', () => {
@@ -3484,13 +3494,19 @@ describe('outbound voice verification', () => {
     const now = Date.now();
     for (let i = 0; i < 10; i++) {
       // Insert sessions with recent lastSentAt to simulate sends
-      const sessionId = `rate-limit-voice-${i}`;
-      db.run(
-        `INSERT INTO channel_guardian_verification_challenges
-         (id, assistant_id, channel, challenge_hash, expires_at, status, destination_address, last_sent_at, send_count)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [sessionId, 'self', 'voice', `hash-${i}`, now + 600_000, 'awaiting_response', '+15551234567', now - 1000, 1],
-      );
+      db.insert(channelGuardianVerificationChallenges).values({
+        id: `rate-limit-voice-${i}`,
+        assistantId: 'self',
+        channel: 'voice',
+        challengeHash: `hash-${i}`,
+        expiresAt: now + 600_000,
+        status: 'awaiting_response',
+        destinationAddress: '+15551234567',
+        lastSentAt: now - 1000,
+        sendCount: 1,
+        createdAt: now,
+        updatedAt: now,
+      }).run();
     }
 
     const { ctx, lastResponse } = createMockCtx();

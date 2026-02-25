@@ -45,9 +45,11 @@ struct SettingsConnectTab: View {
     // Outbound guardian verification destination input (keyed by channel)
     @State private var guardianDestinationText: [String: String] = [:]
 
-    // Countdown timer for outbound verification expiry
+    // Countdown timer for outbound verification expiry (ref-counted so
+    // closing one channel row doesn't stop the timer for remaining rows)
     @State private var countdownNow: Date = Date()
     @State private var countdownTimer: Timer?
+    @State private var countdownTimerRefCount: Int = 0
 
     // Token regeneration state
     @State private var isRegeneratingToken: Bool = false
@@ -1304,6 +1306,7 @@ struct SettingsConnectTab: View {
     // MARK: - Countdown Timer
 
     private func startCountdownTimer() {
+        countdownTimerRefCount += 1
         guard countdownTimer == nil else { return }
         countdownNow = Date()
         countdownTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
@@ -1314,6 +1317,8 @@ struct SettingsConnectTab: View {
     }
 
     private func stopCountdownTimer() {
+        countdownTimerRefCount = max(countdownTimerRefCount - 1, 0)
+        guard countdownTimerRefCount == 0 else { return }
         countdownTimer?.invalidate()
         countdownTimer = nil
     }

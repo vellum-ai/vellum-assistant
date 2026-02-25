@@ -4771,7 +4771,7 @@ Guardian verification binds a trusted human identity to a channel so the assista
 ### Channel-Specific Flows
 
 - **SMS**: User provides guardian's E.164 phone number. Daemon sends an outbound SMS with a verification code. Guardian replies to the assistant's Twilio number with the code. Session binds on code match.
-- **Telegram**: User provides guardian's Telegram handle or chat ID. Daemon generates a bootstrap deep-link URL (`https://t.me/<bot>?start=verify_<token>`). Guardian opens the link and sends the code to the bot. Session binds on code match.
+- **Telegram**: User provides guardian's Telegram handle or chat ID. Daemon generates a bootstrap deep-link URL (`https://t.me/<bot>?start=gv_<token>`). Guardian opens the link and sends the code to the bot. Session binds on code match.
 - **Voice**: User provides guardian's E.164 phone number. Daemon initiates an outbound call via Twilio ConversationRelay. Guardian answers and provides the code via DTMF or speech. Session binds on code match.
 
 ### Identity Binding
