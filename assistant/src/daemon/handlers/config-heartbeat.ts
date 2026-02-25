@@ -112,7 +112,7 @@ export function handleHeartbeatRunsList(
   try {
     const limit = msg.limit ?? 20;
     // Get background conversations and filter to heartbeat-origin only
-    const all = conversationStore.listConversations(limit * 5, true);
+    const all = conversationStore.listConversations(limit * 20, true);
     const bgConversations = all
       .filter((c) => c.source === 'heartbeat')
       .slice(0, limit);
