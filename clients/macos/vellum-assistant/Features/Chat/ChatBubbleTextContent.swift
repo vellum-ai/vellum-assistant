@@ -36,20 +36,29 @@ extension ChatBubble {
     /// Cached inline markdown AttributedString to avoid re-parsing on every render.
     /// Uses `inlineMarkdownCache` (not `markdownCache`) to avoid cross-contamination
     /// with `markdownText`, which applies slash-command highlighting before caching.
-    /// When `isStreaming` is true the result is computed but not stored, since
-    /// streaming text changes every token and caching intermediates wastes memory.
+    /// When `isStreaming` is true the result is not stored in the main LRU cache
+    /// (to avoid filling it with intermediate text states), but a single-entry
+    /// dedup cache returns the previous result when the text hasn't changed
+    /// between SwiftUI reevaluations.
     static func cachedInlineMarkdown(for text: String, isStreaming: Bool = false) -> AttributedString {
         if let cached = inlineMarkdownCache[text] {
             lruCounter += 1
             inlineMarkdownCache[text] = (cached.value, lruCounter)
             return cached.value
         }
+        // Streaming dedup: return the last-parsed result when text is unchanged.
+        if isStreaming, let last = lastStreamingInlineMarkdown, last.text == text {
+            return last.value
+        }
         let options = AttributedString.MarkdownParsingOptions(
             interpretedSyntax: .inlineOnlyPreservingWhitespace
         )
         let result = (try? AttributedString(markdown: text, options: options))
             ?? AttributedString(text)
-        if isStreaming { return result }
+        if isStreaming {
+            lastStreamingInlineMarkdown = (text, result)
+            return result
+        }
         if inlineMarkdownCache.count >= maxCacheSize {
             // Evict the least-recently-used entry (lowest accessTime).
             if let lruKey = inlineMarkdownCache.min(by: { $0.value.accessTime < $1.value.accessTime })?.key {
@@ -62,16 +71,25 @@ extension ChatBubble {
     }
 
     /// Cached markdown segment parser to avoid re-parsing on every render.
-    /// When `isStreaming` is true the result is computed but not stored, since
-    /// streaming text changes every token and caching intermediates wastes memory.
+    /// When `isStreaming` is true the result is not stored in the main LRU
+    /// cache (to avoid filling it with intermediate text states), but a
+    /// single-entry dedup cache returns the previous result when the text
+    /// hasn't changed between SwiftUI reevaluations.
     static func cachedSegments(for text: String, isStreaming: Bool = false) -> [MarkdownSegment] {
         if let cached = segmentCache[text] {
             lruCounter += 1
             segmentCache[text] = (cached.value, lruCounter)
             return cached.value
         }
+        // Streaming dedup: return the last-parsed result when text is unchanged.
+        if isStreaming, let last = lastStreamingSegments, last.text == text {
+            return last.value
+        }
         let result = parseMarkdownSegments(text)
-        if isStreaming { return result }
+        if isStreaming {
+            lastStreamingSegments = (text, result)
+            return result
+        }
         if segmentCache.count >= maxCacheSize {
             // Evict the least-recently-used entry (lowest accessTime).
             if let lruKey = segmentCache.min(by: { $0.value.accessTime < $1.value.accessTime })?.key {
@@ -84,8 +102,10 @@ extension ChatBubble {
     }
 
     /// Cached markdown parser to avoid re-parsing on every render.
-    /// Skips caching when the message is still streaming to avoid
-    /// filling the cache with intermediate text states.
+    /// When streaming, results are not stored in the main LRU cache (to
+    /// avoid filling it with intermediate text states), but a single-entry
+    /// dedup cache returns the previous result when the text hasn't changed
+    /// between SwiftUI reevaluations.
     var markdownText: AttributedString {
         let textToRender = message.text
         let trimmed = textToRender.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -95,6 +115,11 @@ extension ChatBubble {
             Self.lruCounter += 1
             Self.markdownCache[trimmed] = (cached.value, Self.lruCounter)
             return cached.value
+        }
+
+        // Streaming dedup: return the last-parsed result when text is unchanged.
+        if message.isStreaming, let last = Self.lastStreamingMarkdown, last.text == trimmed {
+            return last.value
         }
 
         // Parse markdown
@@ -113,8 +138,12 @@ extension ChatBubble {
             parsed[attrStart..<attrEnd].foregroundColor = VColor.slashCommand
         }
 
-        // Skip caching during streaming — intermediate text wastes cache slots
-        if message.isStreaming { return parsed }
+        // Skip main cache during streaming — intermediate text wastes cache slots.
+        // Store in the single-entry dedup cache instead.
+        if message.isStreaming {
+            Self.lastStreamingMarkdown = (trimmed, parsed)
+            return parsed
+        }
 
         // Store in cache with LRU eviction
         if Self.markdownCache.count >= Self.maxCacheSize {

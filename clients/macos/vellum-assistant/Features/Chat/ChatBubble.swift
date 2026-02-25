@@ -398,4 +398,16 @@ struct ChatBubble: View {
     /// inline results (and vice versa) if they shared a dictionary.
     @MainActor static var inlineMarkdownCache = [String: (value: AttributedString, accessTime: Int)]()
     static let maxCacheSize = 100
+
+    // MARK: - Streaming Dedup Caches
+    //
+    // During streaming, the LRU caches above skip storing results to avoid
+    // filling up with intermediate text states. However SwiftUI reevaluates
+    // view bodies multiple times per token, often with identical text.
+    // These single-entry caches hold the last-parsed streaming result so
+    // redundant reevaluations return instantly without re-parsing.
+
+    @MainActor static var lastStreamingSegments: (text: String, value: [MarkdownSegment])?
+    @MainActor static var lastStreamingInlineMarkdown: (text: String, value: AttributedString)?
+    @MainActor static var lastStreamingMarkdown: (text: String, value: AttributedString)?
 }
