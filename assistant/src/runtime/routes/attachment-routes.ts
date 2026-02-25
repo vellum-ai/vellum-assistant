@@ -123,7 +123,9 @@ export function handleGetAttachment(attachmentId: string): Response {
     return Response.json({ error: 'Attachment not found' }, { status: 404 });
   }
 
-  const isFileBacked = !attachment.dataBase64;
+  // Use the file_path column to detect file-backed attachments, not string
+  // truthiness of dataBase64 (which would also match valid zero-byte uploads).
+  const isFileBacked = !!getFilePathForAttachment(attachmentId);
 
   return Response.json({
     id: attachment.id,
