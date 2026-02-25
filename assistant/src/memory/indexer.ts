@@ -7,6 +7,7 @@ import { getMemoryCheckpoint, setMemoryCheckpoint } from './checkpoints.js';
 import { getDb } from './db.js';
 import { enqueueMemoryJob, enqueueResolvePendingConflictsForMessageJob } from './jobs-store.js';
 import { extractTextFromStoredMessageContent } from './message-content.js';
+import { bumpMemoryVersion } from './recall-cache.js';
 import { memorySegments } from './schema.js';
 import { segmentText } from './segmenter.js';
 
@@ -113,6 +114,12 @@ export function indexMessageNow(
 
   if (skippedEmbedJobs > 0) {
     log.debug(`Skipped ${skippedEmbedJobs}/${segments.length} embed_segment jobs (content unchanged)`);
+  }
+
+  // Invalidate recall cache when synchronous segment writes changed content,
+  // so lexical/recency retrieval doesn't serve stale results during worker lag.
+  if (segments.length - skippedEmbedJobs > 0) {
+    bumpMemoryVersion();
   }
 
   if (!isTrustedActor && (shouldExtract || shouldResolveConflicts)) {
