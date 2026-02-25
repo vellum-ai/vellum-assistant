@@ -11,7 +11,7 @@ import { parseSlashCandidate } from '../../skills/slash-commands.js';
 import { classifySessionError, buildSessionErrorMessage } from '../session-error.js';
 import { resolveBlobPath, deleteBlob, isValidBlobId } from '../ipc-blob-store.js';
 import { getConfig } from '../../config/loader.js';
-import { isRecordingOnly, detectStopRecordingIntent } from '../recording-intent.js';
+import { isRecordingOnly, isStopRecordingOnly } from '../recording-intent.js';
 import { handleRecordingStart, handleRecordingStop } from './recording.js';
 import type {
   TaskSubmit,
@@ -72,16 +72,20 @@ export async function handleTaskSubmit(
     // session and routes it to the standalone recording flow instead.
     const config = getConfig();
     if (config.daemon.standaloneRecording) {
-      if (detectStopRecordingIntent(msg.task)) {
+      if (isStopRecordingOnly(msg.task)) {
         // Find the active session for this socket so we can resolve the
         // conversation that owns the recording.
         const activeSessionId = ctx.socketToSession.get(socket);
+        let stopped = false;
         if (activeSessionId) {
-          handleRecordingStop(activeSessionId, ctx);
+          stopped = handleRecordingStop(activeSessionId, ctx) !== undefined;
         }
         rlog.info('Recording stop intent intercepted');
-        ctx.send(socket, { type: 'assistant_text_delta', text: 'Stopping the recording.' });
-        ctx.send(socket, { type: 'message_complete' });
+        ctx.send(socket, {
+          type: 'assistant_text_delta',
+          text: stopped ? 'Stopping the recording.' : 'No active recording to stop.',
+        });
+        ctx.send(socket, { type: 'message_complete', sessionId: activeSessionId });
         return;
       }
 
@@ -99,7 +103,7 @@ export async function handleTaskSubmit(
         });
         rlog.info({ sessionId: conversation.id }, 'Recording-only intent intercepted — routed to standalone recording');
         ctx.send(socket, { type: 'assistant_text_delta', text: 'Starting screen recording.' });
-        ctx.send(socket, { type: 'message_complete' });
+        ctx.send(socket, { type: 'message_complete', sessionId: conversation.id });
         return;
       }
     }

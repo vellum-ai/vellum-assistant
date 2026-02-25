@@ -23,6 +23,15 @@ const STOP_RECORDING_PATTERNS: RegExp[] = [
   /\bhalt\s+(the\s+)?recording\b/i,
 ];
 
+// ─── Stop-recording clause removal for mixed-intent prompts ─────────────────
+
+const STOP_RECORDING_CLAUSE_PATTERNS: RegExp[] = [
+  /\b(and\s+)?(also\s+)?stop\s+(the\s+)?recording\b/i,
+  /\b(and\s+)?(also\s+)?end\s+(the\s+)?recording\b/i,
+  /\b(and\s+)?(also\s+)?finish\s+(the\s+)?recording\b/i,
+  /\b(and\s+)?(also\s+)?halt\s+(the\s+)?recording\b/i,
+];
+
 // ─── Clause removal for mixed-intent prompts ─────────────────────────────────
 
 const RECORDING_CLAUSE_PATTERNS: RegExp[] = [
@@ -83,4 +92,30 @@ export function stripRecordingIntent(taskText: string): string {
   }
   // Clean up any leftover double spaces or leading/trailing whitespace
   return result.replace(/\s{2,}/g, ' ').trim();
+}
+
+/**
+ * Removes stop-recording clauses from a message, returning the cleaned text.
+ * Analogous to stripRecordingIntent but for stop-recording phrases.
+ */
+export function stripStopRecordingIntent(taskText: string): string {
+  let result = taskText;
+  for (const pattern of STOP_RECORDING_CLAUSE_PATTERNS) {
+    result = result.replace(pattern, '');
+  }
+  return result.replace(/\s{2,}/g, ' ').trim();
+}
+
+/**
+ * Returns true if the prompt is purely about stopping recording with no
+ * additional task. Analogous to isRecordingOnly but for stop-recording.
+ * "stop recording" -> true
+ * "how do I stop recording?" -> false (has additional context)
+ * "stop recording and close the browser" -> false (has CU task component)
+ */
+export function isStopRecordingOnly(taskText: string): boolean {
+  if (!detectStopRecordingIntent(taskText)) return false;
+
+  const stripped = stripStopRecordingIntent(taskText);
+  return stripped.replace(/[.,;!?\s]+/g, '').length === 0;
 }
