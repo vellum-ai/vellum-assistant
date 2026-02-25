@@ -202,7 +202,7 @@ struct NewSkillSheet: View {
                 }
             }
 
-            formField(label: "Skill ID", text: $skillId, placeholder: "my-skill-id")
+            formField(label: "Skill ID", text: $skillId, placeholder: "my-skill-id", error: skillIdError)
             formField(label: "Name", text: $name, placeholder: "My Skill")
             formField(label: "Description", text: $description, placeholder: "A short description")
             formField(label: "Emoji", text: $emoji, placeholder: "")
@@ -330,11 +330,21 @@ struct NewSkillSheet: View {
 
     // MARK: - Helpers
 
+    private var skillIdError: String? {
+        let trimmed = skillId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if skillsManager.skills.contains(where: { $0.id == trimmed }) {
+            return "A skill with this ID already exists"
+        }
+        return nil
+    }
+
     private var isFormValid: Bool {
         !skillId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
         !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
         !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !bodyMarkdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !bodyMarkdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        skillIdError == nil
     }
 
     private func errorLabel(_ text: String) -> some View {
@@ -348,7 +358,7 @@ struct NewSkillSheet: View {
         }
     }
 
-    private func formField(label: String, text: Binding<String>, placeholder: String) -> some View {
+    private func formField(label: String, text: Binding<String>, placeholder: String, error: String? = nil) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             Text(label)
                 .font(VFont.caption)
@@ -362,8 +372,11 @@ struct NewSkillSheet: View {
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.sm)
-                        .stroke(VColor.surfaceBorder, lineWidth: 1)
+                        .stroke(error != nil ? VColor.error : VColor.surfaceBorder, lineWidth: 1)
                 )
+            if let error {
+                errorLabel(error)
+            }
         }
     }
 }
