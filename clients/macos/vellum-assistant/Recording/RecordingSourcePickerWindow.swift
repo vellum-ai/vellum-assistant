@@ -14,6 +14,9 @@ final class RecordingSourcePickerWindow: NSObject, NSWindowDelegate {
     /// Guards against double-invocation of the cancel callback (e.g., if
     /// the Cancel button is pressed and then the window also closes).
     private var cancelFired = false
+    /// Observation token for window-move notifications so we can update
+    /// the "This display" badge when the picker is dragged to another monitor.
+    private var moveObserver: NSObjectProtocol?
 
     /// Show the source picker window.
     ///
@@ -67,10 +70,25 @@ final class RecordingSourcePickerWindow: NSObject, NSWindowDelegate {
         NSApp.activate(ignoringOtherApps: true)
 
         self.window = newWindow
+        // Let the view model know which window it's in so it can detect the current display
+        vm.pickerWindow = newWindow
+
+        // Update the "This display" badge whenever the window moves to a different monitor
+        moveObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didMoveNotification,
+            object: newWindow,
+            queue: .main
+        ) { [weak self] _ in
+            self?.viewModel?.updateCurrentDisplay()
+        }
     }
 
     /// Dismiss the picker window.
     func dismiss() {
+        if let observer = moveObserver {
+            NotificationCenter.default.removeObserver(observer)
+            moveObserver = nil
+        }
         window?.delegate = nil
         window?.close()
         window = nil
@@ -83,6 +101,10 @@ final class RecordingSourcePickerWindow: NSObject, NSWindowDelegate {
     nonisolated func windowWillClose(_ notification: Notification) {
         Task { @MainActor in
             fireCancel()
+            if let observer = moveObserver {
+                NotificationCenter.default.removeObserver(observer)
+                moveObserver = nil
+            }
             window = nil
             viewModel = nil
         }
