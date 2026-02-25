@@ -5,8 +5,8 @@ import VellumAssistantShared
 import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate+Notifications")
-private let guardianFallbackDedupWindowMs: Double = 30_000
-private let guardianFallbackDelayNs: UInt64 = 750_000_000
+private let fallbackDedupWindowMs: Double = 30_000
+private let fallbackDelayNs: UInt64 = 750_000_000
 
 extension AppDelegate {
 
@@ -18,8 +18,10 @@ extension AppDelegate {
         center.delegate = self
 
         center.requestAuthorization(options: [.alert, .sound]) { granted, error in
-            if let error {
-                log.error("Notification authorization error: \(error.localizedDescription)")
+            if granted {
+                log.info("Notification authorization granted")
+            } else {
+                log.warning("Notification authorization denied (error: \(error?.localizedDescription ?? "none"))")
             }
         }
 
@@ -144,9 +146,28 @@ extension AppDelegate {
         return nil
     }
 
-    private func pruneGuardianFallbackMarkers(nowMs: Double) {
-        guardianFallbackDeliveredAtMs = guardianFallbackDeliveredAtMs.filter { _, deliveredAt in
-            nowMs - deliveredAt <= guardianFallbackDedupWindowMs
+    private func pruneFallbackMarkers(nowMs: Double) {
+        fallbackDeliveredAtMs = fallbackDeliveredAtMs.filter { _, deliveredAt in
+            nowMs - deliveredAt <= fallbackDedupWindowMs
+        }
+    }
+
+    /// Check notification authorization before posting. Returns true if
+    /// notifications are authorized and can be delivered.
+    private func checkNotificationAuthorization() async -> Bool {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        switch settings.authorizationStatus {
+        case .authorized, .provisional, .ephemeral:
+            return true
+        case .denied:
+            log.warning("Notification authorization status is denied — skipping notification post")
+            return false
+        case .notDetermined:
+            log.warning("Notification authorization status is notDetermined — skipping notification post")
+            return false
+        @unknown default:
+            log.warning("Notification authorization status is unknown (\(settings.authorizationStatus.rawValue)) — skipping notification post")
+            return false
         }
     }
 
@@ -178,34 +199,39 @@ extension AppDelegate {
         }
         content.userInfo = userInfo
 
+        let notificationId = "notification-intent-\(UUID().uuidString)"
         let request = UNNotificationRequest(
-            identifier: "notification-intent-\(UUID().uuidString)",
+            identifier: notificationId,
             content: content,
             trigger: nil
         )
-        UNUserNotificationCenter.current().add(request) { error in
-            if let error {
-                log.error("Failed to post notification intent: \(error.localizedDescription)")
+
+        Task {
+            guard await checkNotificationAuthorization() else { return }
+
+            UNUserNotificationCenter.current().add(request) { error in
+                if let error {
+                    log.error("Failed to post notification intent (id: \(notificationId), source: \(sourceEventName)): \(error.localizedDescription)")
+                }
             }
         }
     }
 
     func deliverNotificationIntent(_ msg: NotificationIntentMessage) {
-        if msg.sourceEventName == "guardian.question" {
-            let nowMs = Date().timeIntervalSince1970 * 1000
-            pruneGuardianFallbackMarkers(nowMs: nowMs)
+        let nowMs = Date().timeIntervalSince1970 * 1000
+        pruneFallbackMarkers(nowMs: nowMs)
 
-            if let conversationId = conversationId(from: msg.deepLinkMetadata) {
-                // If we already posted the fallback alert for this conversation,
-                // suppress the later notification_intent duplicate.
-                if let deliveredAt = guardianFallbackDeliveredAtMs.removeValue(forKey: conversationId),
-                   nowMs - deliveredAt <= guardianFallbackDedupWindowMs {
-                    return
-                }
-
-                // notification_intent arrived in time; invalidate pending fallback.
-                pendingGuardianFallbackNotifications.removeValue(forKey: conversationId)
+        if let conversationId = conversationId(from: msg.deepLinkMetadata) {
+            // If we already posted the fallback alert for this conversation,
+            // suppress the later notification_intent duplicate.
+            if let deliveredAt = fallbackDeliveredAtMs.removeValue(forKey: conversationId),
+               nowMs - deliveredAt <= fallbackDedupWindowMs {
+                log.info("Suppressing duplicate notification_intent for conversation \(conversationId) (fallback already delivered)")
+                return
             }
+
+            // notification_intent arrived in time; invalidate pending fallback.
+            pendingFallbackNotifications.removeValue(forKey: conversationId)
         }
 
         postNotificationIntent(
@@ -216,24 +242,39 @@ extension AppDelegate {
         )
     }
 
-    func scheduleGuardianNotificationFallback(conversationId: String, title: String) {
+    /// Schedules a fallback local notification for any notification_thread_created
+    /// event. If the corresponding notification_intent IPC arrives within the
+    /// delay window, the fallback is cancelled (preventing duplicates). Guardian
+    /// questions use a specific body; all other event types use a generic body.
+    func scheduleNotificationFallback(
+        conversationId: String,
+        title: String,
+        sourceEventName: String
+    ) {
         let token = UUID()
-        pendingGuardianFallbackNotifications[conversationId] = token
+        pendingFallbackNotifications[conversationId] = token
 
         Task { [weak self] in
-            try? await Task.sleep(nanoseconds: guardianFallbackDelayNs)
+            try? await Task.sleep(nanoseconds: fallbackDelayNs)
             guard let self else { return }
-            guard self.pendingGuardianFallbackNotifications[conversationId] == token else { return }
+            guard self.pendingFallbackNotifications[conversationId] == token else { return }
 
-            self.pendingGuardianFallbackNotifications.removeValue(forKey: conversationId)
+            self.pendingFallbackNotifications.removeValue(forKey: conversationId)
             let nowMs = Date().timeIntervalSince1970 * 1000
-            self.guardianFallbackDeliveredAtMs[conversationId] = nowMs
-            self.pruneGuardianFallbackMarkers(nowMs: nowMs)
+            self.fallbackDeliveredAtMs[conversationId] = nowMs
+            self.pruneFallbackMarkers(nowMs: nowMs)
+
+            let body: String
+            if sourceEventName == "guardian.question" {
+                body = "A guardian question needs your attention."
+            } else {
+                body = "A notification needs your attention."
+            }
 
             self.postNotificationIntent(
-                sourceEventName: "guardian.question",
+                sourceEventName: sourceEventName,
                 title: title,
-                body: "A guardian question needs your attention.",
+                body: body,
                 deepLinkMetadata: ["conversationId": AnyCodable(conversationId)]
             )
         }

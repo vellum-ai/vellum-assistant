@@ -242,7 +242,8 @@ extension AppDelegate {
 
     /// Creates the thread in the sidebar and applies urgency surfacing policy.
     /// Guardian questions are time-sensitive, so they are foregrounded when the
-    /// app is active and guaranteed a native alert when backgrounded.
+    /// app is active. All notification types get a fallback native alert when
+    /// backgrounded to guarantee delivery if the notification_intent IPC is late.
     func handleNotificationThreadCreated(_ msg: IPCNotificationThreadCreated) {
         mainWindow?.threadManager.createNotificationThread(
             conversationId: msg.conversationId,
@@ -250,19 +251,22 @@ extension AppDelegate {
             sourceEventName: msg.sourceEventName
         )
 
-        guard msg.sourceEventName == "guardian.question" else { return }
-
-        if NSApp.isActive {
+        // Guardian questions get foregrounded immediately when the app is active.
+        if msg.sourceEventName == "guardian.question" && NSApp.isActive {
             openConversationThread(conversationId: msg.conversationId)
             return
         }
 
-        // notification_intent is normally emitted moments later by the
-        // vellum adapter. Schedule a fallback so guardian alerts are still
-        // guaranteed if that intent fails to arrive.
-        scheduleGuardianNotificationFallback(
+        // When the app is in the background (or for non-guardian events even when
+        // active), schedule a fallback notification. notification_intent is normally
+        // emitted moments later by the vellum adapter; if it arrives in time the
+        // fallback is cancelled to prevent duplicates.
+        guard !NSApp.isActive else { return }
+
+        scheduleNotificationFallback(
             conversationId: msg.conversationId,
-            title: msg.title
+            title: msg.title,
+            sourceEventName: msg.sourceEventName
         )
     }
 
