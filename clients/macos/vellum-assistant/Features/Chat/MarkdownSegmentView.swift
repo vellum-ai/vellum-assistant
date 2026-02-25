@@ -15,15 +15,19 @@ struct MarkdownSegmentView: View {
     var codeBackgroundColor: Color = VColor.backgroundSubtle
     var hrColor: Color = VColor.surfaceBorder
 
+    @Environment(\.conversationZoomScale) private var zoomScale
+
     var body: some View {
         let groups = groupedSegments
+        let scaledBodySize: CGFloat = 13 * zoomScale
+        let scaledCodeLabelSize: CGFloat = 11 * zoomScale
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
                 switch group {
                 case .selectableRun(let runSegments):
                     let attributed = buildCombinedAttributedString(from: runSegments)
                     Text(attributed)
-                        .font(.system(size: 13))
+                        .font(.system(size: scaledBodySize))
                         .lineSpacing(4)
                         .foregroundColor(textColor)
                         .tint(tintColor)
@@ -35,14 +39,14 @@ struct MarkdownSegmentView: View {
                     VStack(alignment: .leading, spacing: 0) {
                         if let language, !language.isEmpty {
                             Text(language)
-                                .font(.system(size: 11, weight: .medium))
+                                .font(.system(size: scaledCodeLabelSize, weight: .medium))
                                 .foregroundColor(mutedTextColor)
                                 .padding(.horizontal, VSpacing.sm)
                                 .padding(.top, VSpacing.xs)
                         }
                         ScrollView(.horizontal, showsIndicators: false) {
                             Text(code)
-                                .font(VFont.mono)
+                                .font(.custom("DMMono-Regular", size: 13 * zoomScale))
                                 .foregroundColor(textColor)
                                 .textSelection(.enabled)
                                 .fixedSize(horizontal: true, vertical: true)
@@ -142,12 +146,14 @@ struct MarkdownSegmentView: View {
     private func buildCombinedAttributedString(from segments: [MarkdownSegment]) -> AttributedString {
         // Build a stable cache key from the segment contents and style
         // inputs that affect the output (e.g. secondaryTextColor for list
-        // prefix coloring) so different visual contexts don't share entries.
+        // prefix coloring, zoomScale for font sizing) so different visual
+        // contexts don't share entries.
         var hasher = Hasher()
         for segment in segments {
             hasher.combine(String(describing: segment))
         }
         hasher.combine(secondaryTextColor.description)
+        hasher.combine(zoomScale)
         let cacheKey = hasher.finalize()
 
         if let cached = Self.attributedStringCache[cacheKey] {
@@ -156,7 +162,7 @@ struct MarkdownSegmentView: View {
             return cached.value
         }
 
-        let result = Self.buildAttributedStringUncached(from: segments, secondaryTextColor: secondaryTextColor)
+        let result = Self.buildAttributedStringUncached(from: segments, secondaryTextColor: secondaryTextColor, zoomScale: zoomScale)
 
         // Evict the least-recently-used entry when the cache is full.
         if Self.attributedStringCache.count >= Self.attributedStringCacheLimit {
@@ -172,7 +178,8 @@ struct MarkdownSegmentView: View {
     /// Pure builder with no side effects — separated for caching.
     private static func buildAttributedStringUncached(
         from segments: [MarkdownSegment],
-        secondaryTextColor: Color
+        secondaryTextColor: Color,
+        zoomScale: CGFloat = 1.0
     ) -> AttributedString {
         let mdOptions = AttributedString.MarkdownParsingOptions(
             interpretedSyntax: .inlineOnlyPreservingWhitespace
@@ -193,16 +200,17 @@ struct MarkdownSegmentView: View {
             case .heading(let level, let headingText):
                 var heading = AttributedString(headingText)
                 heading.font = switch level {
-                case 1: .system(size: 20, weight: .bold)
-                case 2: .system(size: 17, weight: .semibold)
-                case 3: .system(size: 14, weight: .semibold)
-                default: .system(size: 13, weight: .semibold)
+                case 1: .system(size: 20 * zoomScale, weight: .bold)
+                case 2: .system(size: 17 * zoomScale, weight: .semibold)
+                case 3: .system(size: 14 * zoomScale, weight: .semibold)
+                default: .system(size: 13 * zoomScale, weight: .semibold)
                 }
                 result += heading
 
             case .list(let items):
-                let indentStep: CGFloat = 16
-                let font = NSFont.systemFont(ofSize: 13)
+                let indentStep: CGFloat = 16 * zoomScale
+                let scaledSize: CGFloat = 13 * zoomScale
+                let font = NSFont.systemFont(ofSize: scaledSize)
 
                 for (itemIndex, item) in items.enumerated() {
                     if itemIndex > 0 {
@@ -224,7 +232,7 @@ struct MarkdownSegmentView: View {
 
                     var prefixAttr = AttributedString(prefix)
                     prefixAttr.foregroundColor = secondaryTextColor
-                    prefixAttr.font = .system(size: 13)
+                    prefixAttr.font = .system(size: scaledSize)
                     prefixAttr.applyParagraphStyle(paraStyle)
                     result += prefixAttr
 

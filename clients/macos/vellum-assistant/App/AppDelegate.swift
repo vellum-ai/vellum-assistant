@@ -125,6 +125,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var browserPiPManager: BrowserPiPManager { services.browserPiPManager }
     private var secretPromptManager: SecretPromptManager { services.secretPromptManager }
     var zoomManager: ZoomManager { services.zoomManager }
+    var conversationZoomManager: ConversationZoomManager { services.conversationZoomManager }
 
     let toolConfirmationNotificationService = ToolConfirmationNotificationService()
     lazy var recordingManager: RecordingManager = RecordingManager(daemonClient: daemonClient)
