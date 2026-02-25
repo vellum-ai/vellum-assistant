@@ -19,6 +19,7 @@ import { createWhatsAppWebhookHandler } from "./http/routes/whatsapp-webhook.js"
 import { createWhatsAppDeliverHandler } from "./http/routes/whatsapp-deliver.js";
 import { createOAuthCallbackHandler } from "./http/routes/oauth-callback.js";
 import { createPairingProxyHandler } from "./http/routes/pairing-proxy.js";
+import { validateBearerToken } from "./http/auth/bearer.js";
 import { getLogger, initLogger } from "./logger.js";
 import { CircuitBreakerOpenError } from "./runtime/client.js";
 import { buildSchema } from "./schema.js";
@@ -240,6 +241,19 @@ function main() {
       }
 
       if (url.pathname === "/integrations/status" && req.method === "GET") {
+        if (!config.runtimeProxyBearerToken) {
+          return Response.json(
+            { error: "Service not configured: bearer token required" },
+            { status: 503 },
+          );
+        }
+        const authResult = validateBearerToken(
+          tracedReq.headers.get("authorization"),
+          config.runtimeProxyBearerToken,
+        );
+        if (!authResult.authorized) {
+          return Response.json({ error: "Unauthorized" }, { status: 401 });
+        }
         return Response.json({
           email: {
             address: config.assistantEmail ?? null,
