@@ -10,7 +10,7 @@ export type {
 export { VALID_SWARM_ROLES } from './types.js';
 
 export type { SwarmLimits } from './limits.js';
-export { resolveSwarmLimits, SWARM_HARD_LIMITS } from './limits.js';
+export { resolveSwarmLimits, getTimeoutForRole, SWARM_HARD_LIMITS } from './limits.js';
 
 export {
   validateAndNormalizePlan,

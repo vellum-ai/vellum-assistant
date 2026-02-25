@@ -67,6 +67,14 @@ export const SwarmConfigSchema = z.object({
     .int('swarm.workerTimeoutSec must be an integer')
     .positive('swarm.workerTimeoutSec must be a positive integer')
     .default(900),
+  roleTimeoutsSec: z
+    .object({
+      router: z.number().int().positive().optional(),
+      researcher: z.number().int().positive().optional(),
+      coder: z.number().int().positive().optional(),
+      reviewer: z.number().int().positive().optional(),
+    })
+    .default({}),
   plannerModel: z
     .string({ error: 'swarm.plannerModel must be a string' })
     .default('claude-haiku-4-5-20251001'),

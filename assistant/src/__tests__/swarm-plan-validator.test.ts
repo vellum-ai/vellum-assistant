@@ -325,6 +325,7 @@ describe('resolveSwarmLimits', () => {
       maxTasks: 8,
       maxRetriesPerTask: 1,
       workerTimeoutSec: 900,
+      roleTimeoutsSec: {},
     });
   });
 });

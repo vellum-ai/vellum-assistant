@@ -1,5 +1,6 @@
 import type { SwarmPlan, SwarmTaskNode, SwarmTaskResult, SwarmExecutionSummary } from './types.js';
 import type { SwarmLimits } from './limits.js';
+import { getTimeoutForRole } from './limits.js';
 import type { SwarmWorkerBackend } from './worker-backend.js';
 import { runWorkerTask } from './worker-runner.js';
 import type { Provider } from '../providers/types.js';
@@ -141,6 +142,8 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
       .filter((d): d is { taskId: string; summary: string } => d != null);
 
     try {
+      const taskTimeoutMs = getTimeoutForRole(limits, task.role) * 1000;
+
       let result = await runWorkerTask({
         task,
         upstreamContext: plan.objective,
@@ -148,7 +151,7 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
         backend,
         workingDir,
         model,
-        timeoutMs: limits.workerTimeoutSec * 1000,
+        timeoutMs: taskTimeoutMs,
         signal,
       });
 
@@ -167,7 +170,7 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
           backend,
           workingDir,
           model,
-          timeoutMs: limits.workerTimeoutSec * 1000,
+          timeoutMs: taskTimeoutMs,
           signal,
         });
       }
