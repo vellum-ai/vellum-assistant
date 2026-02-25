@@ -1,5 +1,5 @@
 import { writeFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { basename, resolve } from 'node:path';
 import type { ToolContext, ToolExecutionResult } from '../../../../tools/types.js';
 import { withValidToken } from '../../../../security/token-manager.js';
 import { getMessagingProvider } from '../../../../messaging/registry.js';
@@ -25,7 +25,10 @@ export async function run(input: Record<string, unknown>, context: ToolContext):
       const buffer = Buffer.from(base64, 'base64');
 
       const outputDir = context.workingDir ?? process.cwd();
-      const outputPath = resolve(outputDir, filename);
+      // Sanitize filename: strip path separators to prevent traversal attacks from crafted MIME filenames
+      const safeName = basename(filename).replace(/\.\./g, '_');
+      const outputPath = resolve(outputDir, safeName);
+      if (!outputPath.startsWith(outputDir)) return err('Invalid filename: path traversal detected.');
       await writeFile(outputPath, buffer);
 
       return ok(`Attachment saved to ${outputPath} (${buffer.length} bytes).`);

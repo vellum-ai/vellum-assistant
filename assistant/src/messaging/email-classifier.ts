@@ -55,8 +55,8 @@ const SYSTEM_PROMPT = `You are an email triage system. Given email metadata (sen
 For each email, provide:
 - category: One of the categories above
 - reasoning: Brief explanation of the classification (1 sentence)
-- suggestedAction: What the user should do (e.g., "Reply to confirm", "Archive", "Read later")
-- urgencyScore: 0.0 (not urgent) to 1.0 (extremely urgent)
+- suggested_action: What the user should do (e.g., "Reply to confirm", "Archive", "Read later")
+- urgency_score: 0.0 (not urgent) to 1.0 (extremely urgent)
 
 You MUST respond using the \`store_classifications\` tool. Do not respond with text.`;
 
