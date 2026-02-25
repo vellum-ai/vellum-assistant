@@ -67,6 +67,7 @@ final class ComputerUseSession: ObservableObject {
     private let verifier: ActionVerifier
     private let logger: SessionLogger
     private let initialDelayMs: UInt64
+    private var screenRecorder: ScreenRecorder?
     private var didChromeAccessibilityCheck = false
     private var previousAXTreeText: String?
     private var previousElements: [AXElement]?
@@ -130,11 +131,21 @@ final class ComputerUseSession: ObservableObject {
         log.info("Session starting — task: \(self.task, privacy: .public)")
 
         // Start recording if required — must succeed before destructive actions are allowed.
-        // When a real ScreenRecorder is wired up, its start() call goes here and
-        // updateRecordingState(.started) should only be called after it confirms recording.
         if requiresRecording {
-            // TODO: call screenRecorder.start() and only transition on success
-            updateRecordingState(.started)
+            let recorder = ScreenRecorder()
+            self.screenRecorder = recorder
+            do {
+                try await recorder.start(
+                    captureScope: recordingOptions?.captureScope,
+                    displayId: recordingOptions?.displayId,
+                    windowId: recordingOptions?.windowId,
+                    includeAudio: recordingOptions?.includeAudio ?? false
+                )
+                updateRecordingState(.started)
+            } catch {
+                log.error("Failed to start screen recording: \(error.localizedDescription)")
+                updateRecordingState(.failed(reason: error.localizedDescription))
+            }
         }
 
         let screenSize = screenCapture.screenSize()
@@ -192,6 +203,7 @@ final class ComputerUseSession: ObservableObject {
                 log.error("Failed to send session abort message: \(error)")
             }
             logger.finishSession(result: "failed: no window")
+            await stopRecorderIfNeeded()
             return
         }
 
@@ -276,9 +288,28 @@ final class ComputerUseSession: ObservableObject {
         }
 
         // Stop recording if it was started
-        if requiresRecording && recordingState == .started {
-            updateRecordingState(.stopped)
+        if requiresRecording {
+            await stopRecorderIfNeeded()
         }
+    }
+
+    // MARK: - Recording Cleanup
+
+    /// Ensures the screen recorder is stopped and cleaned up.
+    /// Safe to call even when no recorder is active.
+    private func stopRecorderIfNeeded() async {
+        guard let recorder = screenRecorder, recorder.isRecording else {
+            screenRecorder = nil
+            return
+        }
+        do {
+            let result = try await recorder.stop()
+            updateRecordingStopped(filePath: result.filePath, durationMs: result.durationMs)
+        } catch {
+            log.error("Failed to stop screen recording during cleanup: \(error.localizedDescription)")
+            updateRecordingState(.failed(reason: error.localizedDescription))
+        }
+        screenRecorder = nil
     }
 
     // MARK: - Action Handler
