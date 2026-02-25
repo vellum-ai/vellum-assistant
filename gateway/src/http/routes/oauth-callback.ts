@@ -11,19 +11,11 @@ const MIN_STATE_LENGTH = 32;
 // Track consumed state tokens to prevent replay attacks. Each entry has a TTL
 // so the set doesn't grow unboundedly.
 const CONSUMED_STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
-const MAX_CONSUMED_STATES = 1000;
+/** Exported for testing. */
+export const MAX_CONSUMED_STATES = 1000;
 const consumedStates = new Map<string, ReturnType<typeof setTimeout>>();
 
 function markStateConsumed(state: string): void {
-  // Evict oldest entry if at capacity to prevent unbounded memory growth
-  if (consumedStates.size >= MAX_CONSUMED_STATES) {
-    const oldest = consumedStates.keys().next().value;
-    if (oldest !== undefined) {
-      clearTimeout(consumedStates.get(oldest)!);
-      consumedStates.delete(oldest);
-    }
-  }
-
   const timer = setTimeout(() => {
     consumedStates.delete(state);
   }, CONSUMED_STATE_TTL_MS);
@@ -74,6 +66,17 @@ export function createOAuthCallbackHandler(config: GatewayConfig) {
         status: 400,
         headers: { "Content-Type": "text/html" },
       });
+    }
+
+    // Reject when the consumed-state map is full rather than evicting entries.
+    // Eviction would let an attacker flood with fake states to clear legitimate
+    // entries and replay a real callback.
+    if (consumedStates.size >= MAX_CONSUMED_STATES) {
+      log.warn("OAuth consumed-state map at capacity, rejecting callback");
+      return new Response(
+        renderErrorPage("Service temporarily unavailable. Please try again later."),
+        { status: 503, headers: { "Content-Type": "text/html" } },
+      );
     }
 
     // Optimistically mark consumed so concurrent duplicate callbacks are
