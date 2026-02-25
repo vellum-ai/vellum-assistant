@@ -393,8 +393,20 @@ class IOSThreadStore: ObservableObject {
         }
         let vm = ChatViewModel(daemonClient: daemonClient)
         viewModels[threadId] = vm
+
+        // Copy sessionId from the thread so the VM joins the existing
+        // daemon session instead of bootstrapping a new one.
+        if let thread = threads.first(where: { $0.id == threadId }) {
+            vm.sessionId = thread.sessionId
+        }
+
         wireReconnectCallback(vm: vm, threadId: threadId)
-        observeForTitleGeneration(vm: vm, threadId: threadId)
+
+        // Only auto-title threads without a daemon session (new local threads).
+        // Daemon threads already have titles from the session list.
+        if threads.first(where: { $0.id == threadId })?.sessionId == nil {
+            observeForTitleGeneration(vm: vm, threadId: threadId)
+        }
         observeForActivityTracking(vm: vm, threadId: threadId)
         return vm
     }
