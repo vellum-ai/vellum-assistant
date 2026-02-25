@@ -3,7 +3,7 @@
  * messages from all channels. Handles ingress ACL, edits, guardian
  * verification, guardian action answers, and approval interception.
  */
-import { isChannelId, CHANNEL_IDS, parseInterfaceId } from '../../channels/types.js';
+import { isChannelId, CHANNEL_IDS, INTERFACE_IDS, parseInterfaceId } from '../../channels/types.js';
 import type { ChannelId, InterfaceId } from '../../channels/types.js';
 import * as conversationStore from '../../memory/conversation-store.js';
 import * as attachmentsStore from '../../memory/attachments-store.js';
@@ -127,7 +127,21 @@ export async function handleChannelInbound(
 
   // Validate and narrow the interface field. Fall back to sourceChannel for
   // backward compatibility with gateway versions that don't send `interface`.
-  const sourceInterface: InterfaceId = parseInterfaceId(body.interface) ?? sourceChannel;
+  // When an explicit but invalid value is provided, reject with 400 to
+  // surface protocol regressions rather than silently masking them.
+  let sourceInterface: InterfaceId;
+  if (body.interface == null || body.interface === '') {
+    sourceInterface = sourceChannel;
+  } else {
+    const parsed = parseInterfaceId(body.interface);
+    if (!parsed) {
+      return Response.json(
+        { error: `Invalid interface: ${body.interface}. Valid values: ${INTERFACE_IDS.join(', ')}` },
+        { status: 400 },
+      );
+    }
+    sourceInterface = parsed;
+  }
 
   if (!externalChatId || typeof externalChatId !== 'string') {
     return Response.json({ error: 'externalChatId is required' }, { status: 400 });
