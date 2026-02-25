@@ -52,13 +52,17 @@ final class RecordingManager: ObservableObject {
 
     /// Start a new recording.
     ///
+    /// This method is async — it awaits the actual recorder start and only
+    /// returns `true` after the recording has been confirmed. Callers should
+    /// await the result before showing UI (e.g., the recording HUD).
+    ///
     /// - Parameters:
     ///   - sessionId: The recording session ID (matches `recordingId` from `RecordingStart`).
     ///   - options: Recording options (capture scope, display/window, audio).
     ///   - attachToConversationId: Optional conversation ID to attach the recording to.
-    /// - Returns: `true` if the recording started successfully, `false` if already recording.
+    /// - Returns: `true` if the recording started successfully, `false` otherwise.
     @discardableResult
-    func start(sessionId: String, options: IPCRecordingOptions? = nil, attachToConversationId: String? = nil) -> Bool {
+    func start(sessionId: String, options: IPCRecordingOptions? = nil, attachToConversationId: String? = nil) async -> Bool {
         guard !state.isActive else {
             log.warning("Cannot start recording — already active (state=\(String(describing: self.state)), owner=\(self.ownerSessionId ?? "nil"))")
             sendStatus(sessionId: sessionId, status: "failed", error: "Another recording is already active")
@@ -69,26 +73,35 @@ final class RecordingManager: ObservableObject {
         self.attachToConversationId = attachToConversationId
         self.state = .starting
 
-        Task {
-            do {
-                try await recorder.start(
-                    captureScope: options?.captureScope ?? "display",
-                    displayId: options?.displayId,
-                    windowId: options?.windowId.flatMap { Int(exactly: $0) },
-                    includeAudio: options?.includeAudio ?? false
-                )
-                state = .recording
-                sendStatus(sessionId: sessionId, status: "started")
-                log.info("Recording started for session \(sessionId, privacy: .public)")
-            } catch {
+        do {
+            try await recorder.start(
+                captureScope: options?.captureScope ?? "display",
+                displayId: options?.displayId,
+                windowId: options?.windowId.flatMap { Int(exactly: $0) },
+                includeAudio: options?.includeAudio ?? false
+            )
+
+            // Guard against stale completion: if stop() or forceStop() was called
+            // while we were awaiting recorder.start(), don't override the state.
+            guard state == .starting, ownerSessionId == sessionId else {
+                log.info("Recording start completed but state changed during await — not overriding (state=\(String(describing: self.state)))")
+                return false
+            }
+
+            state = .recording
+            sendStatus(sessionId: sessionId, status: "started")
+            log.info("Recording started for session \(sessionId, privacy: .public)")
+            return true
+        } catch {
+            // Only update state if we're still the active start attempt
+            if state == .starting, ownerSessionId == sessionId {
                 let message = error.localizedDescription
                 state = .failed(message)
                 sendStatus(sessionId: sessionId, status: "failed", error: message)
                 log.error("Recording failed to start: \(message, privacy: .public)")
             }
+            return false
         }
-
-        return true
     }
 
     // MARK: - Stop
@@ -137,12 +150,24 @@ final class RecordingManager: ObservableObject {
     // MARK: - Force Stop
 
     /// Force-stop any active recording, regardless of owner. Used during app shutdown.
+    ///
+    /// This method is synchronous and safe to call from `applicationWillTerminate`
+    /// where async work cannot complete before the process exits.
+    /// It discards the recording rather than trying to finalize the file.
     func forceStop() {
-        guard state.isActive, let sessionId = ownerSessionId else { return }
+        guard state.isActive else { return }
 
-        Task {
-            _ = await stop(sessionId: sessionId)
+        recorder.cancelRecording()
+
+        let sessionId = ownerSessionId
+        state = .idle
+        ownerSessionId = nil
+        attachToConversationId = nil
+
+        if let sessionId {
+            sendStatus(sessionId: sessionId, status: "failed", error: "Recording cancelled during shutdown")
         }
+        log.info("Force-stopped recording (synchronous cancel)")
     }
 
     // MARK: - IPC
