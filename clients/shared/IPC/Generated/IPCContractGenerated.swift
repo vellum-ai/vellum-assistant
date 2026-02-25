@@ -1940,10 +1940,28 @@ public struct IPCHeartbeatRunsListResponseRun: Codable, Sendable {
 public struct IPCHistoryRequest: Codable, Sendable {
     public let type: String
     public let sessionId: String
+    /// Max messages to return. Defaults to 50.
+    public let limit: Double?
+    /// Pagination cursor: return messages with timestamp before this value.
+    public let beforeTimestamp: Double?
+    /// Include attachment base64 data. Defaults to false in light mode.
+    public let includeAttachments: Bool?
+    /// Include tool screenshot base64 data. Defaults to false in light mode.
+    public let includeToolImages: Bool?
+    /// Include surface HTML payloads. Defaults to false in light mode.
+    public let includeSurfaceData: Bool?
+    /// Shorthand: 'light' = all include flags false (default), 'full' = all include flags true.
+    public let mode: String?
 
-    public init(type: String, sessionId: String) {
+    public init(type: String, sessionId: String, limit: Double? = nil, beforeTimestamp: Double? = nil, includeAttachments: Bool? = nil, includeToolImages: Bool? = nil, includeSurfaceData: Bool? = nil, mode: String? = nil) {
         self.type = type
         self.sessionId = sessionId
+        self.limit = limit
+        self.beforeTimestamp = beforeTimestamp
+        self.includeAttachments = includeAttachments
+        self.includeToolImages = includeToolImages
+        self.includeSurfaceData = includeSurfaceData
+        self.mode = mode
     }
 }
 
@@ -1951,11 +1969,17 @@ public struct IPCHistoryResponse: Codable, Sendable {
     public let type: String
     public let sessionId: String
     public let messages: [IPCHistoryResponseMessage]
+    /// Whether older messages exist beyond the returned page.
+    public let hasMore: Bool
+    /// Timestamp of the oldest message in the response (client uses as next pagination cursor).
+    public let oldestTimestamp: Double?
 
-    public init(type: String, sessionId: String, messages: [IPCHistoryResponseMessage]) {
+    public init(type: String, sessionId: String, messages: [IPCHistoryResponseMessage], hasMore: Bool, oldestTimestamp: Double? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.messages = messages
+        self.hasMore = hasMore
+        self.oldestTimestamp = oldestTimestamp
     }
 }
 

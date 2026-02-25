@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { z } from 'zod';
 
@@ -321,6 +321,46 @@ export function getMessages(conversationId: string): MessageRow[] {
     .orderBy(asc(messages.createdAt))
     .all()
     .map(parseMessage);
+}
+
+export interface PaginatedMessagesResult {
+  messages: MessageRow[];
+  /** Whether older messages exist beyond the returned page. */
+  hasMore: boolean;
+}
+
+/**
+ * Paginated variant of getMessages. Returns the most recent `limit` messages
+ * (optionally before a cursor timestamp), in chronological order.
+ */
+export function getMessagesPaginated(
+  conversationId: string,
+  limit: number,
+  beforeTimestamp?: number,
+): PaginatedMessagesResult {
+  const db = getDb();
+  const conditions = [eq(messages.conversationId, conversationId)];
+  if (beforeTimestamp !== undefined) {
+    conditions.push(lt(messages.createdAt, beforeTimestamp));
+  }
+
+  // Fetch limit+1 rows ordered newest-first so we can detect hasMore
+  const rows = db
+    .select()
+    .from(messages)
+    .where(and(...conditions))
+    .orderBy(desc(messages.createdAt))
+    .limit(limit + 1)
+    .all()
+    .map(parseMessage);
+
+  const hasMore = rows.length > limit;
+  const page = hasMore ? rows.slice(0, limit) : rows;
+
+  // Return in chronological order (oldest first) for the client
+  page.reverse();
+
+  return { messages: page, hasMore };
 }
 
 export function updateConversationTitle(id: string, title: string, isAutoTitle?: number): void {
