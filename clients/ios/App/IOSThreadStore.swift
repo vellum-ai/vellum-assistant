@@ -92,6 +92,10 @@ class IOSThreadStore: ObservableObject {
     /// The response handler compares this against `sessionListGeneration` to detect and
     /// discard stale responses from the previous connection.
     private var expectedSessionListGeneration: UInt64 = 0
+    /// SessionIds that the user has locally edited (renamed/archived/unarchived)
+    /// since the cache was loaded. Only these threads preserve local overrides
+    /// when the daemon response arrives; all others accept daemon data.
+    private var locallyEditedSessionIds: Set<String> = []
 
     init(daemonClient: any DaemonClientProtocol) {
         self.daemonClient = daemonClient
@@ -222,6 +226,7 @@ class IOSThreadStore: ObservableObject {
         if let daemon = newClient as? DaemonClient {
             // Connected mode — show cached threads instantly or spinner on first launch.
             isConnectedMode = true
+            locallyEditedSessionIds.removeAll()
             let cached = Self.loadConnectedCache()
             if cached.isEmpty {
                 isLoadingInitialThreads = true
@@ -239,6 +244,7 @@ class IOSThreadStore: ObservableObject {
             // Switched back to standalone mode — reload persisted threads.
             isConnectedMode = false
             isLoadingInitialThreads = false
+            locallyEditedSessionIds.removeAll()
             clearConnectedCache()
             let loaded = Self.load()
             if loaded.isEmpty {
@@ -264,7 +270,23 @@ class IOSThreadStore: ObservableObject {
         }
 
         let filteredSessions = response.sessions.filter { $0.threadType != "private" }
-        guard !filteredSessions.isEmpty || (response.hasMore == false && threadListOffset == 0) else {
+
+        // Handle empty first-page response: clear stale cached sessions.
+        if filteredSessions.isEmpty && threadListOffset == 0 {
+            let keepThreads = threads.filter { $0.sessionId == nil || $0.isPrivate }
+            for thread in threads where thread.sessionId != nil && !thread.isPrivate {
+                viewModels.removeValue(forKey: thread.id)
+            }
+            threads = keepThreads.isEmpty ? [IOSThread()] : keepThreads
+            isLoadingInitialThreads = false
+            isLoadingMoreThreads = false
+            hasMoreThreads = response.hasMore ?? false
+            clearConnectedCache()
+            locallyEditedSessionIds.removeAll()
+            return
+        }
+
+        guard !filteredSessions.isEmpty else {
             // Empty non-first page means nothing more to append.
             isLoadingMoreThreads = false
             isLoadingInitialThreads = false
@@ -289,20 +311,57 @@ class IOSThreadStore: ObservableObject {
             restoredThreads.append(thread)
         }
 
-        // First page: replace the default empty placeholder thread if present.
+        // First page: three-case merge logic.
         if threadListOffset == 0 {
-            let defaultIsEmpty = threads.count == 1
+            let isSinglePlaceholder = threads.count == 1
+                && threads[0].sessionId == nil
                 && viewModels[threads[0].id]?.messages.isEmpty ?? true
                 && viewModels[threads[0].id]?.sessionId == nil
-            if defaultIsEmpty, let defaultThread = threads.first {
+
+            // All non-private threads are cached (have sessionId, no VM created yet).
+            let allAreCached = !threads.isEmpty
+                && threads.filter({ !$0.isPrivate }).allSatisfy {
+                    $0.sessionId != nil && viewModels[$0.id] == nil
+                }
+
+            if isSinglePlaceholder, let defaultThread = threads.first {
+                // Case 1: Single empty placeholder — replace entirely.
                 viewModels.removeValue(forKey: defaultThread.id)
                 threads = restoredThreads
+            } else if allAreCached {
+                // Case 2: All threads are from cache (no VMs, no user interaction).
+                // Replace with daemon data, preserving local overrides and private threads.
+                let privateThreads = threads.filter { $0.isPrivate }
+
+                var localOverrides: [String: IOSThread] = [:]
+                for thread in threads {
+                    if let sid = thread.sessionId, locallyEditedSessionIds.contains(sid) {
+                        localOverrides[sid] = thread
+                    }
+                }
+
+                var merged: [IOSThread] = []
+                for var restored in restoredThreads {
+                    if let local = localOverrides[restored.sessionId ?? ""] {
+                        restored = IOSThread(
+                            title: local.title,
+                            createdAt: restored.createdAt,
+                            lastActivityAt: restored.lastActivityAt,
+                            sessionId: restored.sessionId,
+                            isArchived: local.isArchived
+                        )
+                    }
+                    merged.append(restored)
+                }
+
+                threads = merged + privateThreads
+                locallyEditedSessionIds.removeAll()
             } else {
+                // Case 3: User is active (VMs exist or local threads present).
                 // Deduplicate: only prepend restored threads whose sessionId
                 // doesn't already exist in the current thread list.
                 let existingSessionIds: Set<String> = Set(
                     threads.compactMap { thread -> String? in
-                        // Check both the thread's own sessionId AND the VM's bound sessionId
                         if let sid = thread.sessionId { return sid }
                         return viewModels[thread.id]?.sessionId
                     }
@@ -310,7 +369,6 @@ class IOSThreadStore: ObservableObject {
                 var newThreads: [IOSThread] = []
                 for restored in restoredThreads {
                     if let sid = restored.sessionId, existingSessionIds.contains(sid) {
-                        // Already have a thread for this session — discard the duplicate VM.
                         viewModels.removeValue(forKey: restored.id)
                     } else {
                         newThreads.append(restored)
@@ -505,6 +563,7 @@ class IOSThreadStore: ObservableObject {
 
     func deleteThread(_ thread: IOSThread) {
         viewModels.removeValue(forKey: thread.id)
+        if let sid = thread.sessionId { locallyEditedSessionIds.remove(sid) }
         threads.removeAll { $0.id == thread.id }
         // Always keep at least one active (non-archived) non-private thread.
         // Private threads are managed separately and should not prevent the
@@ -514,24 +573,31 @@ class IOSThreadStore: ObservableObject {
         } else {
             save()
         }
+        saveConnectedCache()
     }
 
     func updateTitle(_ title: String, for threadId: UUID) {
         guard let idx = threads.firstIndex(where: { $0.id == threadId }) else { return }
         threads[idx].title = title
+        if let sid = threads[idx].sessionId { locallyEditedSessionIds.insert(sid) }
         save()
+        saveConnectedCache()
     }
 
     func archiveThread(_ thread: IOSThread) {
         guard let idx = threads.firstIndex(where: { $0.id == thread.id }) else { return }
         threads[idx].isArchived = true
+        if let sid = threads[idx].sessionId { locallyEditedSessionIds.insert(sid) }
         save()
+        saveConnectedCache()
     }
 
     func unarchiveThread(_ thread: IOSThread) {
         guard let idx = threads.firstIndex(where: { $0.id == thread.id }) else { return }
         threads[idx].isArchived = false
+        if let sid = threads[idx].sessionId { locallyEditedSessionIds.insert(sid) }
         save()
+        saveConnectedCache()
     }
 
     /// Update lastActivityAt to now for the given thread.
