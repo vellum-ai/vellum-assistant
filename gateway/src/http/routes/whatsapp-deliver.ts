@@ -117,17 +117,30 @@ export function createWhatsAppDeliverHandler(config: GatewayConfig) {
       }
     }
 
+    let textSent = false;
+
     try {
       if (text) {
         await sendWhatsAppReply(config, to, text, approval);
-      }
-
-      if (attachments && attachments.length > 0) {
-        await sendWhatsAppAttachments(config, to, assistantId, attachments);
+        textSent = true;
       }
     } catch (err) {
-      tlog.error({ err, to }, "Failed to deliver WhatsApp reply");
+      tlog.error({ err, to }, "Failed to deliver WhatsApp text");
       return Response.json({ error: "Delivery failed" }, { status: 502 });
+    }
+
+    if (attachments && attachments.length > 0) {
+      const result = await sendWhatsAppAttachments(config, to, assistantId, attachments);
+
+      if (result.allFailed && !textSent) {
+        // Nothing was delivered at all -- signal failure so the caller can retry
+        tlog.error({ to, failureCount: result.failureCount }, "All attachments failed and no text was sent");
+        return Response.json({ error: "Delivery failed" }, { status: 502 });
+      }
+
+      if (result.failureCount > 0) {
+        tlog.warn({ to, failureCount: result.failureCount, totalCount: result.totalCount }, "Partial attachment delivery failure");
+      }
     }
 
     tlog.info({ to, hasText: !!text, attachmentCount: attachments?.length ?? 0, hasApproval: !!approval }, "WhatsApp reply sent");
