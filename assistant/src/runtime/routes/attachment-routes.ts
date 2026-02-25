@@ -159,21 +159,54 @@ export function handleGetAttachmentContent(attachmentId: string, req: Request): 
     const rangeHeader = req.headers.get('Range');
 
     if (rangeHeader) {
-      const match = rangeHeader.match(/bytes=(\d+)-(\d*)/);
-      if (match) {
-        const start = parseInt(match[1]);
-        const end = match[2] ? parseInt(match[2]) : attachment.sizeBytes - 1;
-        const slice = file.slice(start, end + 1);
-        return new Response(slice, {
-          status: 206,
-          headers: {
-            'Content-Type': attachment.mimeType,
-            'Content-Range': `bytes ${start}-${end}/${attachment.sizeBytes}`,
-            'Accept-Ranges': 'bytes',
-            'Content-Length': String(end - start + 1),
-          },
+      const fileSize = attachment.sizeBytes;
+      let start: number;
+      let end: number;
+
+      // Parse suffix range: bytes=-N (last N bytes)
+      const suffixMatch = rangeHeader.match(/bytes=-(\d+)/);
+      if (suffixMatch) {
+        const suffixLen = parseInt(suffixMatch[1]);
+        start = Math.max(0, fileSize - suffixLen);
+        end = fileSize - 1;
+      } else {
+        // Parse standard range: bytes=start-end
+        const match = rangeHeader.match(/bytes=(\d+)-(\d*)/);
+        if (!match) {
+          // Unparseable range — return full file
+          return new Response(file, {
+            headers: {
+              'Content-Type': attachment.mimeType,
+              'Content-Length': String(fileSize),
+              'Accept-Ranges': 'bytes',
+            },
+          });
+        }
+        start = parseInt(match[1]);
+        end = match[2] ? parseInt(match[2]) : fileSize - 1;
+      }
+
+      // Clamp end to file size
+      end = Math.min(end, fileSize - 1);
+
+      // Reject invalid ranges
+      if (start > end || start >= fileSize) {
+        return new Response(null, {
+          status: 416,
+          headers: { 'Content-Range': `bytes */${fileSize}` },
         });
       }
+
+      const slice = file.slice(start, end + 1);
+      return new Response(slice, {
+        status: 206,
+        headers: {
+          'Content-Type': attachment.mimeType,
+          'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+          'Accept-Ranges': 'bytes',
+          'Content-Length': String(end - start + 1),
+        },
+      });
     }
 
     return new Response(file, {
