@@ -152,6 +152,9 @@ final class RecordingManager: ObservableObject {
                 state = .failed(message)
                 sendStatus(sessionId: sessionId, status: "failed", error: message)
                 log.error("Recording failed to start: \(message, privacy: .public)")
+                // Note: telemetry logging is handled inside ScreenRecorder.start()
+                // with richer context (source dimensions, config labels). Logging
+                // here again would double-report with lower-fidelity data.
             }
             return false
         }
