@@ -44,6 +44,11 @@ final class RecordingManager: ObservableObject {
     private let recorder = ScreenRecorder()
     private weak var daemonClient: DaemonClient?
 
+    /// Callback invoked when source validation fails with `.noMatchingDisplay`
+    /// or `.noMatchingWindow` and `promptForSource` was set. The caller
+    /// (AppDelegate) can use this to re-show the source picker.
+    var onSourceValidationFailed: ((_ sessionId: String, _ attachToConversationId: String?) -> Void)?
+
     init(daemonClient: DaemonClient? = nil) {
         self.daemonClient = daemonClient
     }
@@ -62,7 +67,7 @@ final class RecordingManager: ObservableObject {
     ///   - attachToConversationId: Optional conversation ID to attach the recording to.
     /// - Returns: `true` if the recording started successfully, `false` otherwise.
     @discardableResult
-    func start(sessionId: String, options: IPCRecordingOptions? = nil, attachToConversationId: String? = nil) async -> Bool {
+    func start(sessionId: String, options: IPCRecordingOptions? = nil, attachToConversationId: String? = nil, promptForSource: Bool = false) async -> Bool {
         guard !state.isActive else {
             log.warning("Cannot start recording — already active (state=\(String(describing: self.state)), owner=\(self.ownerSessionId ?? "nil"))")
             sendStatus(sessionId: sessionId, status: "failed", error: "Another recording is already active")
@@ -120,6 +125,29 @@ final class RecordingManager: ObservableObject {
         } catch {
             // Only update state if we're still the active start attempt
             if state == .starting, ownerSessionId == sessionId {
+                // If source validation failed and promptForSource was set,
+                // re-show the source picker instead of failing permanently.
+                let isSourceValidationError: Bool
+                if let recorderError = error as? RecorderError {
+                    switch recorderError {
+                    case .noMatchingDisplay, .noMatchingWindow:
+                        isSourceValidationError = true
+                    default:
+                        isSourceValidationError = false
+                    }
+                } else {
+                    isSourceValidationError = false
+                }
+
+                if isSourceValidationError && promptForSource {
+                    log.warning("Source validation failed with promptForSource — re-showing source picker for session \(sessionId, privacy: .public)")
+                    state = .idle
+                    ownerSessionId = nil
+                    onSourceValidationFailed?(sessionId, attachToConversationId)
+                    self.attachToConversationId = nil
+                    return false
+                }
+
                 let message = error.localizedDescription
                 state = .failed(message)
                 sendStatus(sessionId: sessionId, status: "failed", error: message)
