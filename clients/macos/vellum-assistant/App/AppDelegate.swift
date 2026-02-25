@@ -260,6 +260,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         return .complete
     }()
 
+    /// Timestamp (CFAbsoluteTime) when the bootstrap sequence started.
+    /// Used to compute stage timing metrics for observability.
+    private var bootstrapStartTime: CFAbsoluteTime?
+
     /// Whether the app is currently in the first-launch bootstrap sequence.
     /// Other entry points (dock reopen, hotkey, menu bar) must not show
     /// the main window while this is true — the bootstrap task will show
@@ -271,11 +275,26 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         UserDefaults.standard.set(bootstrapState.rawValue, forKey: "bootstrapState")
     }
 
-    /// Transitions to a new bootstrap state and persists it.
+    /// Transitions to a new bootstrap state, persists it, and emits stage timing logs.
     private func transitionBootstrap(to newState: BootstrapState) {
         log.info("Bootstrap state: \(self.bootstrapState.rawValue) → \(newState.rawValue)")
         bootstrapState = newState
         persistBootstrapState()
+
+        // Emit stage timing when a start timestamp is available.
+        if let start = bootstrapStartTime {
+            let elapsedMs = Int((CFAbsoluteTimeGetCurrent() - start) * 1000)
+            switch newState {
+            case .pendingWakeupSend:
+                log.info("bootstrap.daemon_ready_ms: \(elapsedMs)")
+            case .pendingFirstReply:
+                log.info("bootstrap.wakeup_sent_ms: \(elapsedMs)")
+            case .complete:
+                log.info("bootstrap.first_reply_ms: \(elapsedMs)")
+            case .pendingDaemon:
+                break
+            }
+        }
     }
 
     private func proceedToApp(isFirstLaunch: Bool = false) {
@@ -321,6 +340,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             // Enter the bootstrap state machine. The sequence is:
             // pendingDaemon → pendingWakeupSend → pendingFirstReply → complete
             // Each transition is persisted so a restart resumes correctly.
+            bootstrapStartTime = CFAbsoluteTimeGetCurrent()
             transitionBootstrap(to: .pendingDaemon)
             Task {
                 let ready = await awaitDaemonReady(timeout: 15)
