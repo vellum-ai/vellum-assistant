@@ -20,6 +20,7 @@ import {
   composeVerificationTelegram,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
 } from '../../runtime/guardian-verification-templates.js';
+import { startGuardianVerificationCall } from '../../calls/call-domain.js';
 import { sendMessage as sendSms } from '../../messaging/providers/sms/client.js';
 import { getGatewayInternalBaseUrl } from '../../config/env.js';
 import { getCredentialMetadata } from '../../tools/credentials/metadata-store.js';
@@ -229,12 +230,14 @@ function handleStartOutbound(
     handleStartOutboundSms(msg, socket, ctx, assistantId, channel);
   } else if (channel === 'telegram') {
     handleStartOutboundTelegram(msg, socket, ctx, assistantId, channel);
+  } else if (channel === 'voice') {
+    handleStartOutboundVoice(msg, socket, ctx, assistantId, channel);
   } else {
     ctx.send(socket, {
       type: 'guardian_verification_response',
       success: false,
       error: 'unsupported_channel',
-      message: `Outbound verification is only supported for SMS and Telegram. Got: ${channel}`,
+      message: `Outbound verification is only supported for SMS, Telegram, and voice. Got: ${channel}`,
       channel,
     });
   }
@@ -445,6 +448,93 @@ function handleStartOutboundTelegram(
   }
 }
 
+function handleStartOutboundVoice(
+  msg: GuardianVerificationRequest,
+  socket: net.Socket,
+  ctx: HandlerContext,
+  assistantId: string,
+  channel: ChannelId,
+): void {
+  const destination = msg.destination;
+  if (!destination) {
+    ctx.send(socket, {
+      type: 'guardian_verification_response',
+      success: false,
+      error: 'missing_destination',
+      message: 'A destination phone number is required for outbound voice verification.',
+      channel,
+    });
+    return;
+  }
+
+  if (!isValidE164(destination)) {
+    ctx.send(socket, {
+      type: 'guardian_verification_response',
+      success: false,
+      error: 'invalid_destination',
+      message: 'Destination must be a valid E.164 phone number (e.g. +15551234567).',
+      channel,
+    });
+    return;
+  }
+
+  // Check for existing active binding (unless rebind=true)
+  const existingBinding = getGuardianBinding(assistantId, channel);
+  if (existingBinding && !msg.rebind) {
+    ctx.send(socket, {
+      type: 'guardian_verification_response',
+      success: false,
+      error: 'already_bound',
+      message: 'A guardian is already bound for this channel. Set rebind: true to replace.',
+      channel,
+    });
+    return;
+  }
+
+  // Enforce per-destination rate limit
+  const recentSendCount = countRecentSendsToDestination(channel, destination, DESTINATION_RATE_WINDOW_MS);
+  if (recentSendCount >= MAX_SENDS_PER_DESTINATION_WINDOW) {
+    ctx.send(socket, {
+      type: 'guardian_verification_response',
+      success: false,
+      error: 'rate_limited',
+      message: 'Too many verification attempts to this phone number. Please try again later.',
+      channel,
+    });
+    return;
+  }
+
+  // Create outbound session with 6-digit code for voice
+  const sessionResult = createOutboundSession({
+    assistantId,
+    channel,
+    expectedPhoneE164: destination,
+    expectedExternalUserId: destination,
+    destinationAddress: destination,
+    codeDigits: 6,
+  });
+
+  const now = Date.now();
+  const nextResendAt = now + RESEND_COOLDOWN_MS;
+  const sendCount = 1;
+
+  updateSessionDelivery(sessionResult.sessionId, now, sendCount, nextResendAt);
+
+  // Initiate the outbound Twilio call (fire-and-forget)
+  initiateGuardianVoiceCall(destination, sessionResult.sessionId, assistantId);
+
+  ctx.send(socket, {
+    type: 'guardian_verification_response',
+    success: true,
+    verificationSessionId: sessionResult.sessionId,
+    secret: sessionResult.secret,
+    expiresAt: sessionResult.expiresAt,
+    nextResendAt,
+    sendCount,
+    channel,
+  });
+}
+
 function handleResendOutbound(
   _msg: GuardianVerificationRequest,
   socket: net.Socket,
@@ -546,6 +636,33 @@ function handleResendOutbound(
       type: 'guardian_verification_response',
       success: true,
       verificationSessionId: newSession.sessionId,
+      nextResendAt,
+      sendCount: newSendCount,
+      channel,
+    });
+  } else if (channel === 'voice') {
+    // Voice resend: create fresh session and initiate a new call
+    const newSession = createOutboundSession({
+      assistantId,
+      channel,
+      expectedPhoneE164: destination,
+      expectedExternalUserId: destination,
+      destinationAddress: destination,
+      codeDigits: 6,
+    });
+
+    const now = Date.now();
+    const newSendCount = currentSendCount + 1;
+    const nextResendAt = now + RESEND_COOLDOWN_MS;
+
+    updateSessionDelivery(newSession.sessionId, now, newSendCount, nextResendAt);
+    initiateGuardianVoiceCall(destination, newSession.sessionId, assistantId);
+
+    ctx.send(socket, {
+      type: 'guardian_verification_response',
+      success: true,
+      verificationSessionId: newSession.sessionId,
+      secret: newSession.secret,
       nextResendAt,
       sendCount: newSendCount,
       channel,
@@ -681,6 +798,38 @@ function deliverVerificationTelegram(
       }
     } catch (err) {
       log.error({ err, chatId, assistantId }, 'Failed to deliver verification Telegram message');
+    }
+  })();
+}
+
+// ---------------------------------------------------------------------------
+// Voice call delivery helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Initiate an outbound Twilio call to the guardian's phone for voice
+ * verification. Fire-and-forget with error logging — the IPC response
+ * is sent before the call is placed.
+ */
+function initiateGuardianVoiceCall(
+  phoneNumber: string,
+  guardianVerificationSessionId: string,
+  assistantId: string,
+): void {
+  (async () => {
+    try {
+      const result = await startGuardianVerificationCall({
+        phoneNumber,
+        guardianVerificationSessionId,
+        assistantId,
+      });
+      if (result.ok) {
+        log.info({ phoneNumber, guardianVerificationSessionId, callSid: result.callSid }, 'Guardian verification call initiated');
+      } else {
+        log.error({ phoneNumber, guardianVerificationSessionId, error: result.error }, 'Failed to initiate guardian verification call');
+      }
+    } catch (err) {
+      log.error({ err, phoneNumber, guardianVerificationSessionId }, 'Failed to initiate guardian verification call');
     }
   })();
 }
