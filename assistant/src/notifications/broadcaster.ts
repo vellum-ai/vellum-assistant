@@ -121,8 +121,10 @@ export class NotificationBroadcaster {
 
       // For the vellum channel, merge the conversationId into deep-link metadata
       // so the macOS/iOS client can navigate directly to the notification thread.
+      // Skip when skipThreadPush is true — the caller manages its own conversation
+      // and deep-link metadata (e.g., guardian-dispatch).
       let deepLinkTarget = decision.deepLinkTarget;
-      if (channel === 'vellum' && pairing.conversationId) {
+      if (channel === 'vellum' && pairing.conversationId && !options?.skipThreadPush) {
         deepLinkTarget = { ...deepLinkTarget, conversationId: pairing.conversationId };
 
         // Emit notification_thread_created immediately when the vellum
