@@ -21,9 +21,12 @@ let mockPage: {
   url: ReturnType<typeof mock>;
   goto: ReturnType<typeof mock>;
   screenshot: ReturnType<typeof mock>;
+  selectOption: ReturnType<typeof mock>;
+  hover: ReturnType<typeof mock>;
   close: () => Promise<void>;
   isClosed: () => boolean;
   keyboard: { press: ReturnType<typeof mock> };
+  mouse: { wheel: ReturnType<typeof mock>; move: ReturnType<typeof mock> };
 };
 
 let snapshotMaps: Map<string, Map<string, string>>;
@@ -74,6 +77,9 @@ import {
   executeBrowserClose,
   executeBrowserExtract,
   executeBrowserPressKey,
+  executeBrowserScroll,
+  executeBrowserSelectOption,
+  executeBrowserHover,
 } from '../tools/browser/headless-browser.js';
 import type { ToolContext } from '../tools/types.js';
 
@@ -93,9 +99,12 @@ function resetMockPage() {
     url: mock(() => 'https://example.com/'),
     goto: mock(async () => ({ status: () => 200, url: () => 'https://example.com/' })),
     screenshot: mock(async () => Buffer.from('fake-jpeg-data')),
+    selectOption: mock(async () => []),
+    hover: mock(async () => {}),
     close: async () => {},
     isClosed: () => false,
     keyboard: { press: mock(async () => {}) },
+    mouse: { wheel: mock(async () => {}), move: mock(async () => {}) },
   };
 }
 
@@ -456,6 +465,148 @@ describe('executeBrowserPressKey', () => {
   });
 });
 
+// ── browser_scroll ───────────────────────────────────────────────────
+
+describe('executeBrowserScroll', () => {
+  beforeEach(() => {
+    resetMockPage();
+    snapshotMaps.clear();
+  });
+
+  test('scrolls down by default amount', async () => {
+    const result = await executeBrowserScroll({ direction: 'down' }, ctx);
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Scrolled down by 500px');
+    expect(mockPage.mouse.wheel).toHaveBeenCalledWith(0, 500);
+  });
+
+  test('scrolls up by custom amount', async () => {
+    const result = await executeBrowserScroll({ direction: 'up', amount: 300 }, ctx);
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Scrolled up by 300px');
+    expect(mockPage.mouse.wheel).toHaveBeenCalledWith(0, -300);
+  });
+
+  test('scrolls left', async () => {
+    const result = await executeBrowserScroll({ direction: 'left', amount: 200 }, ctx);
+    expect(result.isError).toBe(false);
+    expect(mockPage.mouse.wheel).toHaveBeenCalledWith(-200, 0);
+  });
+
+  test('scrolls right', async () => {
+    const result = await executeBrowserScroll({ direction: 'right', amount: 200 }, ctx);
+    expect(result.isError).toBe(false);
+    expect(mockPage.mouse.wheel).toHaveBeenCalledWith(200, 0);
+  });
+
+  test('errors when direction is missing', async () => {
+    const result = await executeBrowserScroll({}, ctx);
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('direction is required');
+  });
+
+  test('errors when direction is invalid', async () => {
+    const result = await executeBrowserScroll({ direction: 'diagonal' }, ctx);
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('direction is required');
+  });
+});
+
+// ── browser_select_option ────────────────────────────────────────────
+
+describe('executeBrowserSelectOption', () => {
+  beforeEach(() => {
+    resetMockPage();
+    snapshotMaps.clear();
+  });
+
+  test('selects by value via element_id', async () => {
+    snapshotMaps.set('test-session', new Map([['e4', '[data-vellum-eid="e4"]']]));
+    const result = await executeBrowserSelectOption({ element_id: 'e4', value: 'ca' }, ctx);
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Selected option');
+    expect(result.content).toContain('value="ca"');
+    expect(mockPage.selectOption).toHaveBeenCalledWith('[data-vellum-eid="e4"]', { value: 'ca' });
+  });
+
+  test('selects by label', async () => {
+    const result = await executeBrowserSelectOption({ selector: '#state', label: 'California' }, ctx);
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('label="California"');
+    expect(mockPage.selectOption).toHaveBeenCalledWith('#state', { label: 'California' });
+  });
+
+  test('selects by index', async () => {
+    const result = await executeBrowserSelectOption({ selector: '#state', index: 2 }, ctx);
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('index=2');
+    expect(mockPage.selectOption).toHaveBeenCalledWith('#state', { index: 2 });
+  });
+
+  test('errors when no option specifier provided', async () => {
+    const result = await executeBrowserSelectOption({ selector: '#state' }, ctx);
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('One of value, label, or index is required');
+  });
+
+  test('errors when neither element_id nor selector provided', async () => {
+    const result = await executeBrowserSelectOption({ value: 'ca' }, ctx);
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Either element_id or selector is required');
+  });
+
+  test('handles select option error from page', async () => {
+    mockPage.selectOption = mock(async () => { throw new Error('Not a select element'); });
+    const result = await executeBrowserSelectOption({ selector: '#div', value: 'x' }, ctx);
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Select option failed');
+    expect(result.content).toContain('Not a select element');
+  });
+});
+
+// ── browser_hover ────────────────────────────────────────────────────
+
+describe('executeBrowserHover', () => {
+  beforeEach(() => {
+    resetMockPage();
+    snapshotMaps.clear();
+  });
+
+  test('hovers by element_id via snapshot map', async () => {
+    snapshotMaps.set('test-session', new Map([['e2', '[data-vellum-eid="e2"]']]));
+    const result = await executeBrowserHover({ element_id: 'e2' }, ctx);
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('Hovered element');
+    expect(mockPage.hover).toHaveBeenCalledWith('[data-vellum-eid="e2"]', { timeout: 10000 });
+  });
+
+  test('hovers by raw selector', async () => {
+    const result = await executeBrowserHover({ selector: '.menu-trigger' }, ctx);
+    expect(result.isError).toBe(false);
+    expect(mockPage.hover).toHaveBeenCalledWith('.menu-trigger', { timeout: 10000 });
+  });
+
+  test('errors when neither element_id nor selector provided', async () => {
+    const result = await executeBrowserHover({}, ctx);
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Either element_id or selector is required');
+  });
+
+  test('errors when element_id not found in snapshot map', async () => {
+    const result = await executeBrowserHover({ element_id: 'e99' }, ctx);
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('element_id "e99" not found');
+  });
+
+  test('handles hover error from page', async () => {
+    mockPage.hover = mock(async () => { throw new Error('Element detached'); });
+    const result = await executeBrowserHover({ selector: '#gone' }, ctx);
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Hover failed');
+    expect(result.content).toContain('Element detached');
+  });
+});
+
 // ── Wrapper contract tests ───────────────────────────────────────────
 // Verify that execution functions can be called the same way skill wrapper
 // scripts invoke them: run(input, context) → ToolExecutionResult
@@ -523,6 +674,29 @@ describe('browser execution wrapper contract', () => {
 
   test('executeBrowserClose matches wrapper contract', async () => {
     const result = await executeBrowserClose({}, ctx);
+    expect(result).toHaveProperty('content');
+    expect(result).toHaveProperty('isError');
+    expect(result.isError).toBe(false);
+  });
+
+  test('executeBrowserScroll matches wrapper contract', async () => {
+    const result = await executeBrowserScroll({ direction: 'down' }, ctx);
+    expect(result).toHaveProperty('content');
+    expect(result).toHaveProperty('isError');
+    expect(result.isError).toBe(false);
+  });
+
+  test('executeBrowserSelectOption matches wrapper contract', async () => {
+    snapshotMaps.set('test-session', new Map([['e4', '[data-vellum-eid="e4"]']]));
+    const result = await executeBrowserSelectOption({ element_id: 'e4', value: 'opt1' }, ctx);
+    expect(result).toHaveProperty('content');
+    expect(result).toHaveProperty('isError');
+    expect(result.isError).toBe(false);
+  });
+
+  test('executeBrowserHover matches wrapper contract', async () => {
+    snapshotMaps.set('test-session', new Map([['e2', '[data-vellum-eid="e2"]']]));
+    const result = await executeBrowserHover({ element_id: 'e2' }, ctx);
     expect(result).toHaveProperty('content');
     expect(result).toHaveProperty('isError');
     expect(result.isError).toBe(false);
