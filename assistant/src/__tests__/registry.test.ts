@@ -112,11 +112,10 @@ describe('tool registry host tools', () => {
 });
 
 describe('tool registry dynamic-tools tools', () => {
-  test('registers evaluate, scaffold, delete, and skill_load tools', async () => {
+  test('registers scaffold, delete, and skill_load tools', async () => {
     await initializeTools();
 
     const dynamicToolNames = [
-      'evaluate_typescript_code',
       'scaffold_managed_skill',
       'delete_managed_skill',
       'skill_load',
@@ -131,13 +130,6 @@ describe('tool registry dynamic-tools tools', () => {
     for (const toolName of dynamicToolNames) {
       expect(definitionNames).toContain(toolName);
     }
-  });
-
-  test('evaluate_typescript_code is registered as High risk', async () => {
-    await initializeTools();
-    const tool = getTool('evaluate_typescript_code');
-    expect(tool).toBeDefined();
-    expect(tool?.defaultRiskLevel).toBe(RiskLevel.High);
   });
 
   test('scaffold and delete are registered as High risk', async () => {
@@ -170,7 +162,7 @@ describe('tool manifest', () => {
   test('manifest declares expected core lazy tools', () => {
     const lazyNames = new Set(lazyTools.map((t) => t.name));
     expect(lazyNames.has('bash')).toBe(true);
-    expect(lazyNames.has('evaluate_typescript_code')).toBe(true);
+    expect(lazyNames.has('evaluate_typescript_code')).toBe(false);
     expect(lazyNames.has('claude_code')).toBe(false);
     expect(lazyNames.has('swarm_delegate')).toBe(true);
   });
