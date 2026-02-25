@@ -1485,9 +1485,15 @@ struct SettingsConnectTab: View {
 
         // URL is non-empty but not a valid absolute HTTP(S) URL
         if let parsed = URL(string: trimmedUrl), let scheme = parsed.scheme, ["http", "https"].contains(scheme.lowercased()) {
-            // valid — fall through to reachability check below
+            // valid — fall through to further checks below
         } else {
             return ConnectionStatusInfo(label: "Invalid URL format", color: VColor.error, icon: "exclamationmark.circle.fill")
+        }
+
+        // URL is set but ingress is disabled — the backend ignores the URL when
+        // ingress.enabled is false, so public callbacks are effectively off.
+        if !store.ingressEnabled {
+            return ConnectionStatusInfo(label: "URL set but gateway not active", color: VColor.warning, icon: "exclamationmark.triangle.fill")
         }
 
         // Haven't tested yet
