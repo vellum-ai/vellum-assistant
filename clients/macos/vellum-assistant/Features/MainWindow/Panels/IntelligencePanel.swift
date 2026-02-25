@@ -20,7 +20,8 @@ struct IntelligencePanel: View {
     private let maxContentWidth: CGFloat = 1100
 
     var body: some View {
-        ScrollView {
+        VStack(alignment: .leading, spacing: 0) {
+            // Header + tab bar (fixed at top)
             VStack(alignment: .leading, spacing: 0) {
                 // Header
                 HStack(alignment: .center) {
@@ -47,14 +48,13 @@ struct IntelligencePanel: View {
                     Divider().background(VColor.surfaceBorder)
                 }
                 .padding(.bottom, VSpacing.lg)
-
-                // Tab content
-                tabContent
             }
             .frame(maxWidth: maxContentWidth)
             .padding(.horizontal, VSpacing.xxl)
-            .padding(.bottom, VSpacing.xxl)
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            // Tab content — each tab manages its own scrolling
+            tabContent
         }
     }
 
@@ -88,23 +88,37 @@ struct IntelligencePanel: View {
     private var tabContent: some View {
         switch selectedTab {
         case .identity:
-            placeholderContent("Identity")
-        case .installedSkills:
-            placeholderContent("Installed Skills")
-        case .communitySkills:
-            placeholderContent("Community Skills")
-        }
-    }
+            IdentityPanel(
+                onClose: onClose,
+                onCustomizeAvatar: onCustomizeAvatar,
+                daemonClient: daemonClient
+            )
 
-    @ViewBuilder
-    private func placeholderContent(_ title: String) -> some View {
-        VStack {
-            Spacer().frame(height: 100)
-            Text(title)
-                .font(VFont.body)
-                .foregroundColor(VColor.textMuted)
-                .frame(maxWidth: .infinity, alignment: .center)
-            Spacer().frame(height: 100)
+        case .installedSkills:
+            ScrollView {
+                AgentPanelContent(
+                    onInvokeSkill: onInvokeSkill,
+                    daemonClient: daemonClient,
+                    visibleTab: .installed
+                )
+                .frame(maxWidth: maxContentWidth)
+                .padding(.horizontal, VSpacing.xxl)
+                .padding(.bottom, VSpacing.xxl)
+                .frame(maxWidth: .infinity)
+            }
+
+        case .communitySkills:
+            ScrollView {
+                AgentPanelContent(
+                    onInvokeSkill: onInvokeSkill,
+                    daemonClient: daemonClient,
+                    visibleTab: .available
+                )
+                .frame(maxWidth: maxContentWidth)
+                .padding(.horizontal, VSpacing.xxl)
+                .padding(.bottom, VSpacing.xxl)
+                .frame(maxWidth: .infinity)
+            }
         }
     }
 }
