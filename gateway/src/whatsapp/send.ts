@@ -77,12 +77,18 @@ export async function sendWhatsAppReply(
   log.debug({ to, chunks: chunks.length }, "WhatsApp reply sent");
 }
 
+export type AttachmentResult = {
+  allFailed: boolean;
+  failureCount: number;
+  totalCount: number;
+};
+
 export async function sendWhatsAppAttachments(
   config: GatewayConfig,
   to: string,
   assistantId: string | undefined,
   attachments: RuntimeAttachmentMeta[],
-): Promise<void> {
+): Promise<AttachmentResult> {
   const failures: string[] = [];
 
   for (const meta of attachments) {
@@ -130,8 +136,11 @@ export async function sendWhatsAppAttachments(
       log.error({ err, to }, "Failed to send attachment failure notice");
     }
 
-    if (failures.length === attachments.length) {
-      throw new Error(`All ${failures.length} attachment(s) failed to deliver`);
-    }
   }
+
+  return {
+    allFailed: failures.length === attachments.length,
+    failureCount: failures.length,
+    totalCount: attachments.length,
+  };
 }
