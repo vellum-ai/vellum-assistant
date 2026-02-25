@@ -81,10 +81,14 @@ import type { OAuthConnectResult } from '../oauth/connect-types.js';
 let orchestratorResult: OAuthConnectResult | null = null;
 let orchestratorError: Error | null = null;
 let lastOrchestratorOptions: Record<string, unknown> | undefined;
+let shouldCallOpenUrl = false;
 
 mock.module('../oauth/connect-orchestrator.js', () => ({
   orchestrateOAuthConnect: async (options: Record<string, unknown>) => {
     lastOrchestratorOptions = options;
+    if (shouldCallOpenUrl && typeof options.openUrl === 'function') {
+      (options.openUrl as (url: string) => void)('https://accounts.google.com/o/oauth2/v2/auth?test=1');
+    }
     if (orchestratorError) throw orchestratorError;
     return orchestratorResult;
   },
@@ -142,6 +146,7 @@ describe('OAuth connect handler', () => {
     orchestratorResult = null;
     orchestratorError = null;
     lastOrchestratorOptions = undefined;
+    shouldCallOpenUrl = false;
   });
 
   test('missing service returns error', async () => {
@@ -224,6 +229,7 @@ describe('OAuth connect handler', () => {
 
   test('orchestrator error returns sanitized failure', async () => {
     secureKeyStore['credential:integration:gmail:client_id'] = 'test-client-id';
+    secureKeyStore['credential:integration:gmail:client_secret'] = 'test-client-secret';
 
     orchestratorResult = {
       success: false,
@@ -306,37 +312,23 @@ describe('OAuth connect handler', () => {
 
   test('openUrl callback sends open_url IPC message', async () => {
     secureKeyStore['credential:integration:gmail:client_id'] = 'test-client-id';
+    secureKeyStore['credential:integration:gmail:client_secret'] = 'test-client-secret';
 
-    // We need to capture the openUrl callback and invoke it
     orchestratorResult = {
       success: true,
       deferred: false,
       grantedScopes: [],
     };
 
-    // Override mock to call openUrl
-    const originalResult = orchestratorResult;
-    let capturedOpenUrl: ((url: string) => void) | undefined;
-    mock.module('../oauth/connect-orchestrator.js', () => ({
-      orchestrateOAuthConnect: async (options: Record<string, unknown>) => {
-        lastOrchestratorOptions = options;
-        capturedOpenUrl = options.openUrl as (url: string) => void;
-        if (capturedOpenUrl) {
-          capturedOpenUrl('https://accounts.google.com/o/oauth2/v2/auth?test=1');
-        }
-        return originalResult;
-      },
-    }));
+    // Enable the openUrl callback in the top-level orchestrator mock
+    shouldCallOpenUrl = true;
 
     const msg: OAuthConnectStartRequest = {
       type: 'oauth_connect_start',
       service: 'gmail',
     };
     const { ctx, sent } = createTestContext();
-
-    // Need to re-import to get the new mock
-    const { handleOAuthConnectStart } = await import('../daemon/handlers/oauth-connect.js');
-    await handleOAuthConnectStart(msg, {} as net.Socket, ctx);
+    await handleMessage(msg, {} as net.Socket, ctx);
 
     await new Promise((r) => setTimeout(r, 50));
 
