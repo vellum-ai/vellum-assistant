@@ -45,9 +45,14 @@ function isIdempotent(options?: RequestInit): boolean {
   return IDEMPOTENT_METHODS.has(method);
 }
 
-async function request<T>(token: string, path: string, options?: RequestInit): Promise<T> {
+interface GmailRequestOptions extends RequestInit {
+  /** Override method-based retry eligibility. When true, retries on 429/5xx even for POST requests. */
+  retryable?: boolean;
+}
+
+async function request<T>(token: string, path: string, options?: GmailRequestOptions): Promise<T> {
   const url = `${GMAIL_API_BASE}${path}`;
-  const canRetry = isIdempotent(options);
+  const canRetry = options?.retryable ?? isIdempotent(options);
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const resp = await fetch(url, {
@@ -145,6 +150,7 @@ export async function modifyMessage(
   return request<GmailMessage>(token, `/messages/${messageId}/modify`, {
     method: 'POST',
     body: JSON.stringify(modifications),
+    retryable: true,
   });
 }
 
@@ -157,6 +163,7 @@ export async function batchModifyMessages(
   await request<void>(token, '/messages/batchModify', {
     method: 'POST',
     body: JSON.stringify({ ids: messageIds, ...modifications }),
+    retryable: true,
   });
 }
 
@@ -167,6 +174,7 @@ export async function trashMessage(
 ): Promise<GmailMessage> {
   return request<GmailMessage>(token, `/messages/${messageId}/trash`, {
     method: 'POST',
+    retryable: true,
   });
 }
 
