@@ -51,11 +51,7 @@ final class HTTPTransport {
     private let sourceChannel: String
 
     private static var defaultSourceChannel: String {
-        #if os(iOS)
-        return "ios"
-        #else
-        return "macos"
-        #endif
+        return "vellum"
     }
 
     /// Currently active SSE task.

@@ -16,7 +16,7 @@ import { join } from 'node:path';
  * interacting.  Used to gate UI-specific references and permission asks.
  */
 export interface ChannelCapabilities {
-  /** The raw channel identifier (e.g. "macos", "telegram", "sms"). */
+  /** The raw channel identifier (e.g. "vellum", "telegram", "sms"). */
   channel: string;
   /** Whether this channel can render the dashboard UI (apps, dynamic pages). */
   dashboardCapable: boolean;
@@ -48,17 +48,17 @@ export function resolveChannelCapabilities(sourceChannel?: string | null): Chann
     case 'dashboard':
     case 'http-api':
     case 'mac':
-      channel = 'macos';
+    case 'macos':
+    case 'ios':
+      channel = 'vellum';
       break;
     default:
       channel = sourceChannel;
   }
 
   switch (channel) {
-    case 'macos':
+    case 'vellum':
       return { channel, dashboardCapable: true, supportsDynamicUi: true, supportsVoiceInput: true };
-    case 'ios':
-      return { channel, dashboardCapable: false, supportsDynamicUi: false, supportsVoiceInput: true };
     case 'telegram':
     case 'sms':
     case 'voice':

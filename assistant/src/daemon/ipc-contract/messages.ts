@@ -15,7 +15,7 @@ export interface UserMessage {
   currentPage?: string;
   /** When true, skip the secret-ingress check. Set by the client when the user clicks "Send Anyway". */
   bypassSecretCheck?: boolean;
-  /** Originating channel identifier (e.g. 'macos', 'ios'). Defaults to 'macos' when absent. */
+  /** Originating channel identifier (e.g. 'vellum'). Defaults to 'vellum' when absent. */
   channel?: ChannelId;
 }
 

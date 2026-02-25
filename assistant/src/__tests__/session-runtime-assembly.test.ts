@@ -21,39 +21,51 @@ import { buildChannelAwarenessSection } from '../config/system-prompt.js';
 // ---------------------------------------------------------------------------
 
 describe('resolveChannelCapabilities', () => {
-  test('defaults to macos when no source channel is provided', () => {
+  test('defaults to vellum when no source channel is provided', () => {
     const caps = resolveChannelCapabilities();
-    expect(caps.channel).toBe('macos');
+    expect(caps.channel).toBe('vellum');
     expect(caps.dashboardCapable).toBe(true);
     expect(caps.supportsDynamicUi).toBe(true);
     expect(caps.supportsVoiceInput).toBe(true);
   });
 
-  test('defaults to macos for null source channel', () => {
+  test('defaults to vellum for null source channel', () => {
     const caps = resolveChannelCapabilities(null);
-    expect(caps.channel).toBe('macos');
+    expect(caps.channel).toBe('vellum');
     expect(caps.dashboardCapable).toBe(true);
   });
 
-  test('normalises "dashboard" to "macos"', () => {
+  test('normalises "dashboard" to "vellum"', () => {
     const caps = resolveChannelCapabilities('dashboard');
-    expect(caps.channel).toBe('macos');
+    expect(caps.channel).toBe('vellum');
     expect(caps.dashboardCapable).toBe(true);
     expect(caps.supportsDynamicUi).toBe(true);
     expect(caps.supportsVoiceInput).toBe(true);
   });
 
-  test('normalises "http-api" to "macos"', () => {
+  test('normalises "http-api" to "vellum"', () => {
     const caps = resolveChannelCapabilities('http-api');
-    expect(caps.channel).toBe('macos');
+    expect(caps.channel).toBe('vellum');
     expect(caps.dashboardCapable).toBe(true);
     expect(caps.supportsDynamicUi).toBe(true);
     expect(caps.supportsVoiceInput).toBe(true);
   });
 
-  test('normalises "mac" to "macos"', () => {
+  test('normalises "mac" to "vellum"', () => {
     const caps = resolveChannelCapabilities('mac');
-    expect(caps.channel).toBe('macos');
+    expect(caps.channel).toBe('vellum');
+    expect(caps.dashboardCapable).toBe(true);
+  });
+
+  test('normalises "macos" to "vellum"', () => {
+    const caps = resolveChannelCapabilities('macos');
+    expect(caps.channel).toBe('vellum');
+    expect(caps.dashboardCapable).toBe(true);
+  });
+
+  test('normalises "ios" to "vellum"', () => {
+    const caps = resolveChannelCapabilities('ios');
+    expect(caps.channel).toBe('vellum');
     expect(caps.dashboardCapable).toBe(true);
   });
 
@@ -63,14 +75,6 @@ describe('resolveChannelCapabilities', () => {
     expect(caps.dashboardCapable).toBe(false);
     expect(caps.supportsDynamicUi).toBe(false);
     expect(caps.supportsVoiceInput).toBe(false);
-  });
-
-  test('resolves "ios" with voice but no dashboard/dynamic-ui', () => {
-    const caps = resolveChannelCapabilities('ios');
-    expect(caps.channel).toBe('ios');
-    expect(caps.dashboardCapable).toBe(false);
-    expect(caps.supportsDynamicUi).toBe(false);
-    expect(caps.supportsVoiceInput).toBe(true);
   });
 
   test('resolves "whatsapp" as all-capabilities-false', () => {
@@ -118,7 +122,7 @@ describe('injectChannelCapabilityContext', () => {
 
   test('injects channel capabilities block for dashboard channel', () => {
     const caps: ChannelCapabilities = {
-      channel: 'macos',
+      channel: 'vellum',
       dashboardCapable: true,
       supportsDynamicUi: true,
       supportsVoiceInput: true,
@@ -341,8 +345,8 @@ describe('buildChannelAwarenessSection', () => {
 // ---------------------------------------------------------------------------
 
 describe('trust-gating via channel capabilities', () => {
-  test('macos channel does not add constraint rules', () => {
-    const caps = resolveChannelCapabilities('macos');
+  test('vellum channel does not add constraint rules', () => {
+    const caps = resolveChannelCapabilities('vellum');
     const message: Message = {
       role: 'user',
       content: [{ type: 'text', text: 'Enable my microphone' }],
@@ -629,7 +633,7 @@ describe('buildChannelTurnContextBlock', () => {
 
   test('uses "unknown" when conversationOriginChannel is null', () => {
     const block = buildChannelTurnContextBlock({
-      turnContext: { userMessageChannel: 'macos', assistantMessageChannel: 'macos' },
+      turnContext: { userMessageChannel: 'vellum', assistantMessageChannel: 'vellum' },
       conversationOriginChannel: null,
     });
     expect(block).toContain('conversation_origin_channel: unknown');
@@ -637,12 +641,12 @@ describe('buildChannelTurnContextBlock', () => {
 
   test('handles mixed channels', () => {
     const block = buildChannelTurnContextBlock({
-      turnContext: { userMessageChannel: 'telegram', assistantMessageChannel: 'macos' },
-      conversationOriginChannel: 'ios',
+      turnContext: { userMessageChannel: 'telegram', assistantMessageChannel: 'vellum' },
+      conversationOriginChannel: 'vellum',
     });
     expect(block).toContain('user_message_channel: telegram');
-    expect(block).toContain('assistant_message_channel: macos');
-    expect(block).toContain('conversation_origin_channel: ios');
+    expect(block).toContain('assistant_message_channel: vellum');
+    expect(block).toContain('conversation_origin_channel: vellum');
   });
 });
 
@@ -673,8 +677,8 @@ describe('injectChannelTurnContext', () => {
 
   test('preserves original message content', () => {
     const params: ChannelTurnContextParams = {
-      turnContext: { userMessageChannel: 'macos', assistantMessageChannel: 'macos' },
-      conversationOriginChannel: 'macos',
+      turnContext: { userMessageChannel: 'vellum', assistantMessageChannel: 'vellum' },
+      conversationOriginChannel: 'vellum',
     };
     const result = injectChannelTurnContext(baseUserMessage, params);
     const lastBlock = result.content[result.content.length - 1];

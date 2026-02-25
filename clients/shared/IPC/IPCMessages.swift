@@ -293,11 +293,7 @@ public typealias UserMessageMessage = IPCUserMessage
 extension IPCUserMessage {
     /// Platform-derived default channel identifier.
     private static var defaultChannel: String {
-        #if os(iOS)
-        return "ios"
-        #else
-        return "macos"
-        #endif
+        return "vellum"
     }
 
     public init(sessionId: String, content: String, attachments: [IPCAttachment]?, activeSurfaceId: String? = nil, currentPage: String? = nil, bypassSecretCheck: Bool? = nil, channel: String? = nil) {

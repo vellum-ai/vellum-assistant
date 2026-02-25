@@ -68,7 +68,7 @@ function resolveTurnChannel(sourceChannel?: string, transportChannelId?: string)
     }
     return parsed;
   }
-  return 'macos';
+  return 'vellum';
 }
 
 export class DaemonServer {

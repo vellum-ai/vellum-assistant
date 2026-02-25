@@ -94,7 +94,7 @@ export interface RunStartOptions {
   /**
    * The originating channel (e.g. 'telegram', 'slack'). When provided,
    * channel capabilities are resolved for this channel instead of the
-   * default 'macos'.
+   * default 'vellum'.
    */
   sourceChannel?: ChannelId;
   /**
@@ -227,8 +227,8 @@ export class RunOrchestrator {
     session.setGuardianContext(options?.guardianContext ?? null);
     session.setCommandIntent(options?.commandIntent ?? null);
     session.setTurnChannelContext(options?.turnChannelContext ?? {
-      userMessageChannel: parseChannelId(options?.sourceChannel) ?? 'macos',
-      assistantMessageChannel: parseChannelId(options?.sourceChannel) ?? 'macos',
+      userMessageChannel: parseChannelId(options?.sourceChannel) ?? 'vellum',
+      assistantMessageChannel: parseChannelId(options?.sourceChannel) ?? 'vellum',
     });
 
     const attachments = attachmentIds
@@ -241,8 +241,8 @@ export class RunOrchestrator {
 
     // Set channel capabilities based on the originating channel so capabilities
     // (e.g. attachment scope) match the actual transport rather than always
-    // defaulting to 'macos'.
-    session.setChannelCapabilities(resolveChannelCapabilities(options?.sourceChannel ?? 'macos'));
+    // defaulting to 'vellum'.
+    session.setChannelCapabilities(resolveChannelCapabilities(options?.sourceChannel ?? 'vellum'));
     session.setVoiceCallControlPrompt(options?.voiceCallControlPrompt ?? null);
 
     // Serialized publish chain so hub subscribers observe events in order.

@@ -189,7 +189,7 @@ function buildFallbackDecision(
 
 // ── Validation ─────────────────────────────────────────────────────────
 
-const VALID_CHANNELS = new Set<string>(['macos', 'telegram']);
+const VALID_CHANNELS = new Set<string>(['vellum', 'telegram']);
 
 function validateDecisionOutput(
   input: Record<string, unknown>,

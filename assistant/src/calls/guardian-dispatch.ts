@@ -79,7 +79,7 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
 
     // Emit notification signal through the unified pipeline (fire-and-forget).
     // The existing guardian dispatch logic below handles the actual delivery
-    // to specific channels (telegram, sms, macos), so this signal is
+    // to specific channels (telegram, sms, vellum), so this signal is
     // supplementary — it lets the decision engine log and potentially route
     // to additional channels in the future.
     void emitNotificationSignal({
@@ -137,10 +137,10 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
       });
     }
 
-    // Mac (internal) delivery — always created
-    destinations.push({ channel: 'macos' });
+    // Vellum (internal) delivery — always created
+    destinations.push({ channel: 'vellum' });
 
-    // Start LLM copy generation concurrently — only awaited in the macOS branch
+    // Start LLM copy generation concurrently — only awaited in the vellum branch
     // so external channels (Telegram, SMS) dispatch without LLM latency.
     const guardianCopyPromise = generateGuardianCopy(
       pendingQuestion.questionText,
@@ -149,16 +149,16 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
 
     // Create delivery rows and dispatch
     for (const dest of destinations) {
-      if (dest.channel === 'macos') {
+      if (dest.channel === 'vellum') {
         // Create conversation and delivery row synchronously so they exist
         // before awaiting LLM copy — prevents a race where an external channel
-        // reply resolves the request before the macOS delivery is created.
+        // reply resolves the request before the vellum delivery is created.
         const macConvKey = `asst:${assistantId}:guardian:request:${request.id}`;
         const { conversationId: macConversationId } = getOrCreateConversation(macConvKey);
 
         const delivery = createGuardianActionDelivery({
           requestId: request.id,
-          destinationChannel: 'macos',
+          destinationChannel: 'vellum',
           destinationConversationId: macConversationId,
         });
 
@@ -174,10 +174,10 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
           macConversationId,
           'assistant',
           JSON.stringify([{ type: 'text', text: guardianCopy.initialMessage }]),
-          { userMessageChannel: 'voice', assistantMessageChannel: 'macos' },
+          { userMessageChannel: 'voice', assistantMessageChannel: 'vellum' },
         );
 
-        // Emit IPC event for the mac client with the server-created conversation
+        // Emit IPC event for the vellum client with the server-created conversation
         if (broadcast) {
           broadcast({
             type: 'guardian_request_thread_created',
@@ -189,7 +189,7 @@ export async function dispatchGuardianQuestion(params: GuardianDispatchParams): 
           } as ServerMessage);
         }
         updateDeliveryStatus(delivery.id, 'sent');
-        log.info({ deliveryId: delivery.id, channel: 'macos', macConversationId }, 'Mac guardian delivery emitted');
+        log.info({ deliveryId: delivery.id, channel: 'vellum', macConversationId }, 'Vellum guardian delivery emitted');
       } else {
         const delivery = createGuardianActionDelivery({
           requestId: request.id,

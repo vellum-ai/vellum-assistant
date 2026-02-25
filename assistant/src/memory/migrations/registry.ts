@@ -74,6 +74,11 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     version: 10,
     description: 'Drop legacy enum-based notification tables so they can be recreated with the new signal-contract schema',
   },
+  {
+    key: 'migration_rename_macos_ios_channel_to_vellum_v1',
+    version: 11,
+    description: 'Rename macos and ios channel identifiers to vellum across all tables',
+  },
 ];
 
 export interface MigrationValidationResult {

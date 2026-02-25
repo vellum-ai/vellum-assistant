@@ -5293,7 +5293,7 @@ public struct IPCUserMessage: Codable, Sendable {
     public let currentPage: String?
     /// When true, skip the secret-ingress check. Set by the client when the user clicks "Send Anyway".
     public let bypassSecretCheck: Bool?
-    /// Originating channel identifier (e.g. 'macos', 'ios'). Defaults to 'macos' when absent.
+    /// Originating channel identifier (e.g. 'vellum'). Defaults to 'vellum' when absent.
     public let channel: String?
 
     public init(type: String, sessionId: String, content: String? = nil, attachments: [IPCUserMessageAttachment]? = nil, activeSurfaceId: String? = nil, currentPage: String? = nil, bypassSecretCheck: Bool? = nil, channel: String? = nil) {

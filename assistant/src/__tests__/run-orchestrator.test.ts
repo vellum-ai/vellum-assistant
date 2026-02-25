@@ -305,10 +305,10 @@ describe('startRun channel capability resolution', () => {
     await new Promise((r) => setTimeout(r, 50));
 
     expect(capturedCapabilities).not.toBeNull();
-    expect(capturedCapabilities!.channel).toBe('macos');
+    expect(capturedCapabilities!.channel).toBe('vellum');
   });
 
-  test('defaults to macos (from http-api fallback) when options are provided without sourceChannel', async () => {
+  test('defaults to vellum when options are provided without sourceChannel', async () => {
     const conversation = createConversation('options no channel test');
     let capturedCapabilities: ChannelCapabilities | null = null;
 
@@ -342,7 +342,7 @@ describe('startRun channel capability resolution', () => {
     await new Promise((r) => setTimeout(r, 50));
 
     expect(capturedCapabilities).not.toBeNull();
-    expect(capturedCapabilities!.channel).toBe('macos');
+    expect(capturedCapabilities!.channel).toBe('vellum');
   });
 });
 
