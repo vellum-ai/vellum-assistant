@@ -123,11 +123,15 @@ export class NotificationBroadcaster {
             copy.threadTitle ??
             copy.title ??
             signal.sourceEventName;
-          this.onThreadCreated({
-            conversationId: pairing.conversationId,
-            title: threadTitle,
-            sourceEventName: signal.sourceEventName,
-          });
+          try {
+            this.onThreadCreated({
+              conversationId: pairing.conversationId,
+              title: threadTitle,
+              sourceEventName: signal.sourceEventName,
+            });
+          } catch (err) {
+            log.error({ err, signalId: signal.signalId }, 'onThreadCreated callback failed — continuing broadcast');
+          }
         }
       }
 
