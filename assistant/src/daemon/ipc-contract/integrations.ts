@@ -190,6 +190,7 @@ export interface TwilioConfigResponse {
   warning?: string;
   compliance?: {
     numberType?: string;
+    tollfreePhoneNumberSid?: string;
     verificationSid?: string;
     verificationStatus?: string;
     rejectionReason?: string;
