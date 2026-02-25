@@ -152,6 +152,16 @@ final class RecordingManager: ObservableObject {
                 state = .failed(message)
                 sendStatus(sessionId: sessionId, status: "failed", error: message)
                 log.error("Recording failed to start: \(message, privacy: .public)")
+
+                if let recorderError = error as? RecorderError {
+                    RecordingTelemetry.logError(
+                        category: RecordingTelemetry.categorize(recorderError),
+                        sourceWidth: nil,
+                        sourceHeight: nil,
+                        configLabel: nil,
+                        message: message
+                    )
+                }
             }
             return false
         }

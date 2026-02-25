@@ -85,6 +85,16 @@ final class ScreenRecorder: NSObject {
     /// Label of the encode config that was successfully used, for telemetry (M9).
     private(set) var activeConfigLabel: String?
 
+    // MARK: - Telemetry State
+
+    /// Source dimensions before normalization, captured at start for telemetry.
+    private var telemetrySourceWidth: Int?
+    private var telemetrySourceHeight: Int?
+    /// Scale factor used to derive capture dimensions, for telemetry.
+    private var telemetryScaleFactor: Double?
+    /// Display ID being recorded, for telemetry (nil for window captures).
+    private var telemetryDisplayID: UInt32?
+
     /// Callback invoked when the SCStream stops with an error mid-recording.
     /// RecordingManager sets this to react to stream failures (update state, send IPC, clean up).
     var onStreamError: ((RecorderError) -> Void)?
@@ -271,6 +281,10 @@ final class ScreenRecorder: NSObject {
             let windowScale = Self.scaleFactor(for: windowDisplayID)
             captureWidth = Int(CGFloat(window.frame.width) * windowScale)
             captureHeight = Int(CGFloat(window.frame.height) * windowScale)
+            telemetrySourceWidth = captureWidth
+            telemetrySourceHeight = captureHeight
+            telemetryScaleFactor = Double(windowScale)
+            telemetryDisplayID = nil
             log.info("Window capture: windowID=\(windowId), displayID=\(windowDisplayID), scaleFactor=\(windowScale), sourceSize=\(Int(window.frame.width))x\(Int(window.frame.height)), streamSize=\(captureWidth)x\(captureHeight)")
         } else {
             // Display capture (default)
@@ -290,6 +304,10 @@ final class ScreenRecorder: NSObject {
             let displayScale = Self.scaleFactor(for: targetDisplay.displayID)
             captureWidth = Int(CGFloat(targetDisplay.width) * displayScale)
             captureHeight = Int(CGFloat(targetDisplay.height) * displayScale)
+            telemetrySourceWidth = captureWidth
+            telemetrySourceHeight = captureHeight
+            telemetryScaleFactor = Double(displayScale)
+            telemetryDisplayID = targetDisplay.displayID
             log.info("Display capture: displayID=\(targetDisplay.displayID), scaleFactor=\(displayScale), sourceSize=\(targetDisplay.width)x\(targetDisplay.height), streamSize=\(captureWidth)x\(captureHeight)")
 
             // Monitor this display for reconfiguration (unplug, resolution change)
@@ -316,23 +334,61 @@ final class ScreenRecorder: NSObject {
                 switch attemptResult {
                 case .success:
                     activeConfigLabel = encodeConfig.label
+                    let usedFallback = index > 0
+                    RecordingTelemetry.logStart(
+                        displayID: telemetryDisplayID,
+                        sourceWidth: telemetrySourceWidth ?? captureWidth,
+                        sourceHeight: telemetrySourceHeight ?? captureHeight,
+                        scaleFactor: telemetryScaleFactor ?? 1.0,
+                        encodeWidth: encodeConfig.width,
+                        encodeHeight: encodeConfig.height,
+                        configLabel: encodeConfig.label,
+                        usedFallback: usedFallback
+                    )
                     log.info("Encoder config '\(encodeConfig.label, privacy: .public)' succeeded")
                     return
                 case .writerSetupFailed(let reason):
                     log.warning("Encoder config '\(encodeConfig.label, privacy: .public)' failed: writer setup error — \(reason, privacy: .public)")
                     if isLastConfig {
+                        RecordingTelemetry.logError(
+                            category: .writer,
+                            sourceWidth: telemetrySourceWidth,
+                            sourceHeight: telemetrySourceHeight,
+                            configLabel: encodeConfig.label,
+                            message: "All fallbacks exhausted (last: writer setup — \(reason))"
+                        )
                         throw RecorderError.allFallbacksExhausted
                     }
+                    let nextLabel = fallbackConfigs[index + 1].label
+                    RecordingTelemetry.logFallbackAttempt(fromConfig: encodeConfig.label, toConfig: nextLabel, reason: "writer setup — \(reason)")
                 case .noFramesReceived:
                     log.warning("Encoder config '\(encodeConfig.label, privacy: .public)' failed: no frames received within timeout")
                     if isLastConfig {
+                        RecordingTelemetry.logError(
+                            category: .codec,
+                            sourceWidth: telemetrySourceWidth,
+                            sourceHeight: telemetrySourceHeight,
+                            configLabel: encodeConfig.label,
+                            message: "All fallbacks exhausted (last: no frames received)"
+                        )
                         throw RecorderError.allFallbacksExhausted
                     }
+                    let nextLabel = fallbackConfigs[index + 1].label
+                    RecordingTelemetry.logFallbackAttempt(fromConfig: encodeConfig.label, toConfig: nextLabel, reason: "no frames received")
                 case .streamStartFailed(let reason):
                     log.warning("Encoder config '\(encodeConfig.label, privacy: .public)' failed: stream start error — \(reason, privacy: .public)")
                     if isLastConfig {
+                        RecordingTelemetry.logError(
+                            category: .stream,
+                            sourceWidth: telemetrySourceWidth,
+                            sourceHeight: telemetrySourceHeight,
+                            configLabel: encodeConfig.label,
+                            message: "All fallbacks exhausted (last: stream start — \(reason))"
+                        )
                         throw RecorderError.allFallbacksExhausted
                     }
+                    let nextLabel = fallbackConfigs[index + 1].label
+                    RecordingTelemetry.logFallbackAttempt(fromConfig: encodeConfig.label, toConfig: nextLabel, reason: "stream start — \(reason)")
                 }
             }
 
@@ -342,6 +398,7 @@ final class ScreenRecorder: NSObject {
             // If start() fails after registering the display reconfiguration callback,
             // unregister it to avoid a dangling callback referencing this instance.
             unregisterDisplayReconfiguration()
+            clearTelemetryState()
             throw error
         }
     }
@@ -555,7 +612,15 @@ final class ScreenRecorder: NSObject {
 
         guard hasReceivedVideoFrame else {
             log.error("Stop: no video frames captured — discarding recording")
+            RecordingTelemetry.logError(
+                category: .codec,
+                sourceWidth: telemetrySourceWidth,
+                sourceHeight: telemetrySourceHeight,
+                configLabel: activeConfigLabel,
+                message: "No video frames captured during recording"
+            )
             cleanUpWriter()
+            clearTelemetryState()
             throw RecorderError.noFramesCaptured
         }
 
@@ -593,7 +658,11 @@ final class ScreenRecorder: NSObject {
 
         let fileSize = (try? FileManager.default.attributesOfItem(atPath: outputURL.path)[.size] as? Int) ?? 0
 
+        let stopStatus: RecordingTelemetry.TerminalStatus = writerStatus == .completed ? .success : .error
+        RecordingTelemetry.logStop(durationMs: durationMs, fileSize: fileSize, status: stopStatus)
+
         cleanUpWriter()
+        clearTelemetryState()
         log.info("Recording complete — duration=\(durationMs)ms, fileSize=\(fileSize) bytes, file=\(outputURL.path, privacy: .public)")
 
         return RecordingResult(filePath: outputURL.path, durationMs: durationMs)
@@ -652,6 +721,15 @@ final class ScreenRecorder: NSObject {
     func cancelRecording() {
         guard isRecordingActive else { return }
 
+        // Emit cancel telemetry before tearing down state
+        let durationMs: Int
+        if let startDate = recordingStartDate {
+            durationMs = Int(Date().timeIntervalSince(startDate) * 1000)
+        } else {
+            durationMs = 0
+        }
+        RecordingTelemetry.logStop(durationMs: durationMs, fileSize: 0, status: .cancel)
+
         // Unregister display monitoring since the recording session is ending.
         unregisterDisplayReconfiguration()
 
@@ -668,6 +746,7 @@ final class ScreenRecorder: NSObject {
         }
 
         cleanUpWriter()
+        clearTelemetryState()
     }
 
     // MARK: - Stream Error Handling
@@ -709,6 +788,14 @@ final class ScreenRecorder: NSObject {
 
             log.error("Stream error during active recording — cleaning up (error=\(recorderError.localizedDescription, privacy: .public))")
 
+            RecordingTelemetry.logError(
+                category: RecordingTelemetry.categorize(recorderError),
+                sourceWidth: telemetrySourceWidth,
+                sourceHeight: telemetrySourceHeight,
+                configLabel: activeConfigLabel,
+                message: recorderError.localizedDescription ?? "Unknown stream error"
+            )
+
             // Unregister display monitoring since the recording session is ending.
             unregisterDisplayReconfiguration()
 
@@ -721,6 +808,7 @@ final class ScreenRecorder: NSObject {
 
             stream = nil
             cleanUpWriter()
+            clearTelemetryState()
 
             onStreamError?(recorderError)
         }
@@ -737,6 +825,16 @@ final class ScreenRecorder: NSObject {
         recordingStartDate = nil
         outputDelegate = nil
         activeConfigLabel = nil
+    }
+
+    /// Reset telemetry state. Called separately from cleanUpWriter because
+    /// telemetry state must persist across fallback attempts within a single
+    /// start() call, but should be cleared when the recording fully ends.
+    private func clearTelemetryState() {
+        telemetrySourceWidth = nil
+        telemetrySourceHeight = nil
+        telemetryScaleFactor = nil
+        telemetryDisplayID = nil
     }
 
     // MARK: - Display Reconfiguration Monitoring
@@ -784,6 +882,7 @@ final class ScreenRecorder: NSObject {
                 }
                 self.stream = nil
                 self.cleanUpWriter()
+                self.clearTelemetryState()
                 self.onStreamError?(.sourceUnavailable("The recorded display was disconnected or removed."))
             }
         } else if flags.contains(.movedFlag) || flags.contains(.setMainFlag) || flags.contains(.setModeFlag) {
