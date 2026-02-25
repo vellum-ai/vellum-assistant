@@ -617,6 +617,8 @@ export async function startGuardianVerificationCall(
       provider: 'twilio',
       fromNumber: identityResult.fromNumber,
       toNumber: phoneNumber,
+      callMode: 'guardian_verification',
+      guardianVerificationSessionId,
       assistantId,
     });
     sessionId = session.id;

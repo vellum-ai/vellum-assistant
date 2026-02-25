@@ -50,11 +50,29 @@ export function generateTwiML(
   welcomeGreeting: string | null,
   profile: { language: string; transcriptionProvider: string; ttsProvider: string; voice: string },
   relayToken?: string,
+  customParameters?: Record<string, string>,
 ): string {
   const greetingAttr = welcomeGreeting && welcomeGreeting.trim().length > 0
     ? `\n      welcomeGreeting="${escapeXml(welcomeGreeting.trim())}"`
     : '';
   const tokenParam = relayToken ? `&amp;token=${escapeXml(encodeURIComponent(relayToken))}` : '';
+
+  // Build <Parameter> elements for custom parameters to propagate
+  // through the ConversationRelay setup payload for observability.
+  let parameterElements = '';
+  if (customParameters) {
+    for (const [key, value] of Object.entries(customParameters)) {
+      parameterElements += `\n      <Parameter name="${escapeXml(key)}" value="${escapeXml(value)}" />`;
+    }
+  }
+
+  // When there are no Parameter children, use self-closing tag to preserve
+  // the original TwiML format. With children, use open/close tags.
+  const hasParameters = parameterElements.length > 0;
+  const relayClose = hasParameters
+    ? `>${parameterElements}\n    </ConversationRelay>`
+    : '/>';
+
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
@@ -67,7 +85,7 @@ ${greetingAttr}
       ttsProvider="${escapeXml(profile.ttsProvider)}"
       interruptible="true"
       dtmfDetection="true"
-    />
+    ${relayClose}
   </Connect>
 </Response>`;
 }
@@ -158,7 +176,7 @@ export async function handleVoiceWebhook(req: Request, forwardedAssistantId?: st
       assistantId: forwardedAssistantId,
     });
 
-    return buildVoiceWebhookTwiml(session.id, session.assistantId ?? undefined, session.task);
+    return buildVoiceWebhookTwiml(session.id, session.assistantId ?? undefined, session.task, session.guardianVerificationSessionId);
   }
 
   // ── Outbound mode: callSessionId is present ─────────────────────
@@ -179,18 +197,24 @@ export async function handleVoiceWebhook(req: Request, forwardedAssistantId?: st
     log.info({ callSessionId, callSid }, 'Stored CallSid from voice webhook');
   }
 
-  return buildVoiceWebhookTwiml(callSessionId, session.assistantId ?? undefined, session.task);
+  return buildVoiceWebhookTwiml(callSessionId, session.assistantId ?? undefined, session.task, session.guardianVerificationSessionId);
 }
 
 /**
  * Shared TwiML generation for both inbound and outbound voice webhooks.
  * Resolves voice quality profile, relay URL, and welcome greeting,
  * then returns a Response with the generated TwiML.
+ *
+ * When `guardianVerificationSessionId` is provided, it is included as a
+ * `<Parameter>` in the TwiML for observability and compatibility with
+ * the Twilio setup payload. The persisted call session mode is the
+ * primary signal for deterministic flow selection in the relay server.
  */
 function buildVoiceWebhookTwiml(
   callSessionId: string,
   assistantId: string | undefined,
   task: string | null,
+  guardianVerificationSessionId?: string | null,
 ): Response {
   let profile = resolveVoiceQualityProfile(loadConfig());
 
@@ -244,7 +268,15 @@ function buildVoiceWebhookTwiml(
   // env var override first, then the on-disk http-token file.
   const relayToken = getRuntimeProxyBearerToken() ?? readHttpToken() ?? undefined;
 
-  const twiml = generateTwiML(callSessionId, relayUrl, welcomeGreeting, profile, relayToken);
+  // Propagate guardianVerificationSessionId as a TwiML <Parameter> for
+  // observability. This is not the sole source of truth; the relay
+  // server reads the persisted call_mode from the call session first.
+  const customParameters: Record<string, string> | undefined =
+    guardianVerificationSessionId
+      ? { guardianVerificationSessionId }
+      : undefined;
+
+  const twiml = generateTwiML(callSessionId, relayUrl, welcomeGreeting, profile, relayToken, customParameters);
 
   log.info({ callSessionId }, 'Returning ConversationRelay TwiML');
 

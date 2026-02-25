@@ -44,6 +44,7 @@ export { createSequenceTables } from './115-sequences.js';
 export { createMessagesFts } from './116-messages-fts.js';
 export { migrateGuardianVerificationSessions } from './026-guardian-verification-sessions.js';
 export { migrateGuardianBootstrapToken } from './027-guardian-bootstrap-token.js';
+export { migrateCallSessionMode } from './028-call-session-mode.js';
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

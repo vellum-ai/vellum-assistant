@@ -15,6 +15,7 @@ import {
   createSequenceTables,
   createTasksAndWorkItemsTables,
   createWatchersAndLogsTables,
+  migrateCallSessionMode,
   migrateGuardianBootstrapToken,
   migrateGuardianVerificationSessions,
   migrateMessagesFtsBackfill,
@@ -46,6 +47,9 @@ export function initializeDb(): void {
 
   // 7. Call sessions (outgoing AI phone calls)
   createCallSessionsTables(database);
+
+  // 7b. Call session mode/metadata for deterministic flow selection
+  migrateCallSessionMode(database);
 
   // 8. Follow-ups
   createFollowupsTables(database);
