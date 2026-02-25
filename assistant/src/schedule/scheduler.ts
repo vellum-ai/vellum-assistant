@@ -1,6 +1,7 @@
 import { getLogger } from '../util/logger.js';
 import { createConversation } from '../memory/conversation-store.js';
 import { GENERATING_TITLE, queueGenerateConversationTitle } from '../memory/conversation-title-service.js';
+import { invalidateAssistantInferredItemsForConversation } from '../memory/task-memory-cleanup.js';
 import {
   claimDueSchedules,
   createScheduleRun,
@@ -134,6 +135,12 @@ async function runScheduleOnce(
       const message = err instanceof Error ? err.message : String(err);
       log.warn({ err, jobId: job.id, name: job.name, syntax: job.syntax, expression: job.expression, isRruleSet: isRruleSetMsg }, 'Schedule execution failed');
       completeScheduleRun(runId, { status: 'error', error: message });
+
+      try {
+        invalidateAssistantInferredItemsForConversation(conversation.id);
+      } catch (cleanupErr) {
+        log.warn({ err: cleanupErr, conversationId: conversation.id }, 'Failed to invalidate assistant-inferred memory items');
+      }
     }
   }
 
