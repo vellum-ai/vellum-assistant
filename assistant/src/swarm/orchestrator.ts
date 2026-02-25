@@ -4,6 +4,9 @@ import type { SwarmWorkerBackend } from './worker-backend.js';
 import { runWorkerTask } from './worker-runner.js';
 import type { Provider } from '../providers/types.js';
 import { synthesizeResults } from './synthesizer.js';
+import { getLogger } from '../util/logger.js';
+
+const log = getLogger('swarm-orchestrator');
 
 export type OrchestratorEventKind =
   | 'plan_created'
@@ -136,26 +139,8 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
       })
       .filter((d): d is { taskId: string; summary: string } => d != null);
 
-    let result = await runWorkerTask({
-      task,
-      upstreamContext: plan.objective,
-      dependencyOutputs: depOutputs,
-      backend,
-      workingDir,
-      model,
-      timeoutMs: limits.workerTimeoutSec * 1000,
-      signal,
-    });
-
-    let retries = 0;
-    while (result.status === 'failed' && retries < limits.maxRetriesPerTask && !signal?.aborted) {
-      retries++;
-      // Exponential backoff with ±25% jitter to prevent thundering herd
-      const baseDelayMs = 1000 * Math.pow(2, retries - 1);
-      const jitter = baseDelayMs * 0.25 * (2 * Math.random() - 1);
-      await abortableSleep(baseDelayMs + jitter, signal);
-      if (signal?.aborted) break;
-      result = await runWorkerTask({
+    try {
+      let result = await runWorkerTask({
         task,
         upstreamContext: plan.objective,
         dependencyOutputs: depOutputs,
@@ -165,10 +150,48 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
         timeoutMs: limits.workerTimeoutSec * 1000,
         signal,
       });
-    }
-    result.retryCount = retries;
 
-    processResult(result);
+      let retries = 0;
+      while (result.status === 'failed' && retries < limits.maxRetriesPerTask && !signal?.aborted) {
+        retries++;
+        // Exponential backoff with ±25% jitter to prevent thundering herd
+        const baseDelayMs = 1000 * Math.pow(2, retries - 1);
+        const jitter = baseDelayMs * 0.25 * (2 * Math.random() - 1);
+        await abortableSleep(baseDelayMs + jitter, signal);
+        if (signal?.aborted) break;
+        result = await runWorkerTask({
+          task,
+          upstreamContext: plan.objective,
+          dependencyOutputs: depOutputs,
+          backend,
+          workingDir,
+          model,
+          timeoutMs: limits.workerTimeoutSec * 1000,
+          signal,
+        });
+      }
+      result.retryCount = retries;
+
+      if (result.status === 'failed') {
+        log.error({ taskId: task.id, error: result.summary, retries }, 'Swarm task execution failed');
+      }
+
+      processResult(result);
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      log.error({ taskId: task.id, error: error.message, stack: error.stack }, 'Swarm task execution failed unexpectedly');
+      processResult({
+        taskId: task.id,
+        status: 'failed',
+        summary: `Unexpected error: ${error.message}`,
+        artifacts: [],
+        issues: [error.message],
+        nextSteps: [],
+        rawOutput: '',
+        durationMs: 0,
+        retryCount: 0,
+      });
+    }
   }
 
   while (ready.length > 0 || activeCount > 0) {
@@ -188,7 +211,10 @@ export async function executeSwarm(opts: ExecuteSwarmOptions): Promise<SwarmExec
           activeCount--;
           signalProgress();
         })
-        .catch(() => {});
+        .catch((err) => {
+          const error = err instanceof Error ? err : new Error(String(err));
+          log.error({ taskId: task.id, error: error.message, stack: error.stack }, 'Swarm task runner failed');
+        });
     }
 
     // Nothing left to launch and nothing running — we're done
