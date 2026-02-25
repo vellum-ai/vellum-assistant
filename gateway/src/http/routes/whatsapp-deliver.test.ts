@@ -9,6 +9,7 @@ mock.module("../../whatsapp/send.js", () => ({
   sendWhatsAppReply: async (...args: unknown[]) => {
     sendWhatsAppReplyCalls.push(args);
   },
+  sendWhatsAppAttachments: mock(() => Promise.resolve({ allFailed: false, failureCount: 0, totalCount: 0 })),
 }));
 
 const { createWhatsAppDeliverHandler } = await import("./whatsapp-deliver.js");
@@ -58,6 +59,7 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     whatsappTimeoutMs: 15000,
     whatsappMaxRetries: 3,
     whatsappInitialBackoffMs: 1000,
+    trustProxy: false,
     ...overrides,
   };
   if (merged.runtimeGatewayOriginSecret === undefined) {
@@ -197,7 +199,7 @@ describe("/deliver/whatsapp", () => {
     const res = await handler(req);
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.error).toBe("text is required");
+    expect(body.error).toBe("text or attachments required");
   });
 
   it("returns 400 when JSON is invalid", async () => {
@@ -240,37 +242,34 @@ describe("/deliver/whatsapp", () => {
     expect(sendWhatsAppReplyCalls[0][1]).toBe("+15551111111");
   });
 
-  it("uses fallback text when attachments are present but text is missing", async () => {
+  it("delivers attachments when text is missing but attachments are present", async () => {
     const handler = createWhatsAppDeliverHandler(makeConfig());
     const req = makeRequest({
       to: "+15559876543",
-      attachments: [{ url: "https://example.com/image.png" }],
+      attachments: [{ id: "att-1", url: "https://example.com/image.png" }],
     });
     const res = await handler(req);
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.ok).toBe(true);
 
-    expect(sendWhatsAppReplyCalls).toHaveLength(1);
-    expect(sendWhatsAppReplyCalls[0][2]).toBe(
-      "I have a media attachment to share, but WhatsApp media delivery is not yet supported.",
-    );
+    // Text reply should NOT have been called — only attachments
+    expect(sendWhatsAppReplyCalls).toHaveLength(0);
   });
 
-  it("uses fallback text when text is empty string and attachments present", async () => {
+  it("delivers both text and attachments when both are present", async () => {
     const handler = createWhatsAppDeliverHandler(makeConfig());
     const req = makeRequest({
       to: "+15559876543",
-      text: "   ",
-      attachments: [{ url: "https://example.com/image.png" }],
+      text: "Here is a file",
+      attachments: [{ id: "att-1", url: "https://example.com/image.png" }],
     });
     const res = await handler(req);
     expect(res.status).toBe(200);
 
+    // Text reply should have been sent
     expect(sendWhatsAppReplyCalls).toHaveLength(1);
-    expect(sendWhatsAppReplyCalls[0][2]).toBe(
-      "I have a media attachment to share, but WhatsApp media delivery is not yet supported.",
-    );
+    expect(sendWhatsAppReplyCalls[0][2]).toBe("Here is a file");
   });
 
   it("returns 502 when sendWhatsAppReply throws", async () => {
@@ -279,6 +278,7 @@ describe("/deliver/whatsapp", () => {
       sendWhatsAppReply: async () => {
         throw new Error("WhatsApp API failure");
       },
+      sendWhatsAppAttachments: mock(() => Promise.resolve({ allFailed: false, failureCount: 0, totalCount: 0 })),
     }));
 
     // Re-import to get the handler with the throwing mock
@@ -297,6 +297,7 @@ describe("/deliver/whatsapp", () => {
       sendWhatsAppReply: async (...args: unknown[]) => {
         sendWhatsAppReplyCalls.push(args);
       },
+      sendWhatsAppAttachments: mock(() => Promise.resolve({ allFailed: false, failureCount: 0, totalCount: 0 })),
     }));
   });
 

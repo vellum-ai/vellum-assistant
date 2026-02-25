@@ -67,12 +67,13 @@ export function migrateEmbeddingsNullableVectorJson(database: DrizzleDb): void {
         id, target_type, target_id, provider, model, dimensions,
         vector_json, vector_blob, content_hash, created_at, updated_at
       FROM memory_embeddings
+      ORDER BY updated_at DESC
     `);
     raw.exec(/*sql*/ `DROP TABLE memory_embeddings`);
     raw.exec(/*sql*/ `ALTER TABLE memory_embeddings_new RENAME TO memory_embeddings`);
 
-    // Recreate indexes destroyed by the DROP TABLE (createCoreIndexes ran earlier)
-    raw.exec(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_embeddings_target_provider_model ON memory_embeddings(target_type, target_id, provider, model)`);
+    // Recreate the content_hash index destroyed by the DROP TABLE (the UNIQUE
+    // constraint autoindex covers target_type+target_id+provider+model already)
     raw.exec(/*sql*/ `CREATE INDEX IF NOT EXISTS idx_memory_embeddings_content_hash ON memory_embeddings(content_hash, provider, model)`);
 
     raw.query(

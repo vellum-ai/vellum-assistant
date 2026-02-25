@@ -38,12 +38,13 @@ let draining = false;
 // Shared rate limiter for auth failures and unauthenticated endpoints
 const authRateLimiter = new AuthRateLimiter();
 
-function getClientIp(req: Request, server: ReturnType<typeof Bun.serve>): string {
-  // Prefer X-Forwarded-For when behind a reverse proxy
-  const forwarded = req.headers.get("x-forwarded-for");
-  if (forwarded) {
-    const first = forwarded.split(",")[0].trim();
-    if (first) return first;
+function getClientIp(req: Request, server: ReturnType<typeof Bun.serve>, trustProxy: boolean): string {
+  if (trustProxy) {
+    const forwarded = req.headers.get("x-forwarded-for");
+    if (forwarded) {
+      const first = forwarded.split(",")[0].trim();
+      if (first) return first;
+    }
   }
   const addr = server.requestIP(req);
   return addr?.address ?? "unknown";
@@ -166,14 +167,18 @@ function main() {
 
       // Rate-limit check for auth-protected and pairing endpoints.
       // Checked early so blocked IPs are rejected before any work.
-      const isAuthRoute = url.pathname.startsWith("/v1/") ||
-        url.pathname === "/integrations/status" ||
+      const isAuthRoute = url.pathname === "/integrations/status" ||
         url.pathname === "/deliver/telegram" ||
         url.pathname === "/deliver/sms" ||
         url.pathname === "/deliver/whatsapp" ||
-        url.pathname.startsWith("/pairing/");
+        url.pathname.startsWith("/pairing/") ||
+        (url.pathname.startsWith("/v1/") &&
+          url.pathname !== "/v1/calls/twilio/voice-webhook" &&
+          url.pathname !== "/v1/calls/twilio/status" &&
+          url.pathname !== "/v1/calls/twilio/connect-action" &&
+          url.pathname !== "/v1/calls/relay");
       if (isAuthRoute) {
-        const clientIp = getClientIp(req, svr);
+        const clientIp = getClientIp(req, svr, config.trustProxy);
         if (authRateLimiter.isBlocked(clientIp)) {
           log.warn({ ip: clientIp, path: url.pathname }, "Auth rate limit exceeded");
           return Response.json(
@@ -213,7 +218,7 @@ function main() {
         }
         const res = await handleTelegramDeliver(tracedReq);
         if (res.status === 401) {
-          authRateLimiter.recordFailure(getClientIp(req, svr));
+          authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
         }
         return res;
       }
@@ -246,7 +251,7 @@ function main() {
       if (url.pathname === "/deliver/sms") {
         const res = await handleSmsDeliver(tracedReq);
         if (res.status === 401) {
-          authRateLimiter.recordFailure(getClientIp(req, svr));
+          authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
         }
         return res;
       }
@@ -270,7 +275,7 @@ function main() {
         }
         const res = await handleWhatsAppDeliver(tracedReq);
         if (res.status === 401) {
-          authRateLimiter.recordFailure(getClientIp(req, svr));
+          authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
         }
         return res;
       }
@@ -298,7 +303,7 @@ function main() {
           config.runtimeBearerToken,
         );
         if (!authResult.authorized) {
-          authRateLimiter.recordFailure(getClientIp(req, svr));
+          authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
           return Response.json({ error: "Unauthorized" }, { status: 401 });
         }
         return Response.json({
@@ -313,14 +318,14 @@ function main() {
       if (url.pathname === "/pairing/request" && tracedReq.method === "POST") {
         const res = await pairingProxy.handlePairingRequest(tracedReq);
         if (res.status === 401 || res.status === 403) {
-          authRateLimiter.recordFailure(getClientIp(req, svr));
+          authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
         }
         return res;
       }
       if (url.pathname === "/pairing/status" && tracedReq.method === "GET") {
         const res = await pairingProxy.handlePairingStatus(tracedReq);
         if (res.status === 401 || res.status === 403) {
-          authRateLimiter.recordFailure(getClientIp(req, svr));
+          authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
         }
         return res;
       }
@@ -328,7 +333,7 @@ function main() {
       if (handleRuntimeProxy) {
         const res = await handleRuntimeProxy(tracedReq);
         if (res.status === 401) {
-          authRateLimiter.recordFailure(getClientIp(req, svr));
+          authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
         }
         return res;
       }

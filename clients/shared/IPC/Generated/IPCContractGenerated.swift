@@ -54,7 +54,7 @@ public struct IPCAddTrustRule: Codable, Sendable {
     }
 }
 
-public struct IPCAgentHeartbeatAlert: Codable, Sendable {
+public struct IPCHeartbeatAlert: Codable, Sendable {
     public let type: String
     public let title: String
     public let body: String

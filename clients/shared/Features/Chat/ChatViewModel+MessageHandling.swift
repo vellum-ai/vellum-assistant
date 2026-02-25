@@ -457,6 +457,7 @@ extension ChatViewModel {
                 if let pending = pendingUserMessage {
                     let attachments = pendingUserAttachments
                     pendingUserMessage = nil
+                    pendingUserMessageDisplayText = nil
                     pendingUserAttachments = nil
                     do {
                         try daemonClient.send(UserMessageMessage(

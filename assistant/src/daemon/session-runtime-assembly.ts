@@ -613,6 +613,7 @@ const RUNTIME_INJECTION_PREFIXES = [
   TEMPORAL_INJECTED_PREFIX,
   '<active_workspace>',
   '<active_dynamic_page>',
+  '<non_interactive_context>',
 ];
 
 /**
@@ -671,7 +672,7 @@ export function applyRuntimeInjections(
           ...userTail,
           content: [
             ...userTail.content,
-            { type: 'text' as const, text: '\n\n[Non-interactive scheduled task — do not ask for clarification or confirmation. Follow the instructions exactly using your best judgment. If recalled memory contains conflicting notes, prefer the explicit instruction in this message.]' },
+            { type: 'text' as const, text: '<non_interactive_context>\nNon-interactive scheduled task — do not ask for clarification or confirmation. Follow the instructions exactly using your best judgment. If recalled memory contains conflicting notes, prefer the explicit instruction in this message.\n</non_interactive_context>' },
           ],
         },
       ];

@@ -53,6 +53,7 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     whatsappTimeoutMs: 15000,
     whatsappMaxRetries: 3,
     whatsappInitialBackoffMs: 1000,
+    trustProxy: false,
     ...overrides,
   };
   if (merged.runtimeGatewayOriginSecret === undefined) {

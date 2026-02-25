@@ -108,7 +108,19 @@ export async function buildConversationSummaryJob(job: MemoryJob, config: Assist
       updatedAt: now,
     },
   }).run();
-  enqueueMemoryJob('embed_summary', { summaryId });
+
+  // Re-query to get the actual persisted row ID — during a race the ON CONFLICT
+  // path keeps the winner's ID, not the pre-generated UUID from the loser.
+  const actualRow = db.select({ id: memorySummaries.id })
+    .from(memorySummaries)
+    .where(and(
+      eq(memorySummaries.scope, 'conversation'),
+      eq(memorySummaries.scopeKey, conversationId),
+    ))
+    .get();
+  if (actualRow) {
+    enqueueMemoryJob('embed_summary', { summaryId: actualRow.id });
+  }
 }
 
 export async function buildGlobalSummaryJob(scope: 'weekly_global' | 'monthly_global', config: AssistantConfig): Promise<void> {
@@ -206,7 +218,19 @@ export async function buildGlobalSummaryJob(scope: 'weekly_global' | 'monthly_gl
       updatedAt: ts,
     },
   }).run();
-  enqueueMemoryJob('embed_summary', { summaryId });
+
+  // Re-query to get the actual persisted row ID — during a race the ON CONFLICT
+  // path keeps the winner's ID, not the pre-generated UUID from the loser.
+  const actualRow = db.select({ id: memorySummaries.id })
+    .from(memorySummaries)
+    .where(and(
+      eq(memorySummaries.scope, scope),
+      eq(memorySummaries.scopeKey, scopeKey),
+    ))
+    .get();
+  if (actualRow) {
+    enqueueMemoryJob('embed_summary', { summaryId: actualRow.id });
+  }
 }
 
 async function summarizeWithLLM(

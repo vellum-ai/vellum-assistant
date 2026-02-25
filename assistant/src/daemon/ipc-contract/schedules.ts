@@ -90,8 +90,8 @@ export interface WatcherEscalation {
   body: string;
 }
 
-export interface AgentHeartbeatAlert {
-  type: 'agent_heartbeat_alert';
+export interface HeartbeatAlert {
+  type: 'heartbeat_alert';
   title: string;
   body: string;
 }
@@ -113,4 +113,4 @@ export type _SchedulesServerMessages =
   | ScheduleComplete
   | WatcherNotification
   | WatcherEscalation
-  | AgentHeartbeatAlert;
+  | HeartbeatAlert;

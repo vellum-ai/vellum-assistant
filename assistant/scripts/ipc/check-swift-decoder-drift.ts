@@ -48,8 +48,8 @@ const SWIFT_OMIT_ALLOWLIST = new Set<string>([
   // Watcher messages — not yet consumed by the macOS client
   'watcher_escalation',
   'watcher_notification',
-  // Agent heartbeat alerts — not yet consumed by the macOS client
-  'agent_heartbeat_alert',
+  // Heartbeat alerts — not yet consumed by the macOS client
+  'heartbeat_alert',
   // Browser handoff — not yet consumed by the macOS client
   'browser_handoff_request',
   // Guardian verification — daemon-internal for Telegram channel setup

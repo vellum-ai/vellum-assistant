@@ -301,7 +301,9 @@ export function drainQueue(session: ProcessSessionContext, reason: QueueDrainRea
   // Fire-and-forget: persistUserMessage set session.processing = true
   // so subsequent messages will still be enqueued.
   // runAgentLoop's finally block will call drainQueue when this run completes.
-  session.runAgentLoop(resolvedContent, userMessageId, next.onEvent).catch((err) => {
+  session.runAgentLoop(resolvedContent, userMessageId, next.onEvent,
+    next.isInteractive !== undefined ? { isInteractive: next.isInteractive } : undefined,
+  ).catch((err) => {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err, conversationId: session.conversationId, requestId: next.requestId }, 'Error processing queued message');
     next.onEvent({ type: 'error', message: `Failed to process queued message: ${message}` });

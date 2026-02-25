@@ -314,6 +314,7 @@ export async function handleSendMessage(
           userMessageInterface: sourceInterface,
           assistantMessageInterface: sourceInterface,
         },
+        { isInteractive: false },
       );
       if (result.rejected) {
         return Response.json(

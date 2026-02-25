@@ -390,8 +390,9 @@ export class Session {
     activeSurfaceId?: string,
     currentPage?: string,
     metadata?: Record<string, unknown>,
+    options?: { isInteractive?: boolean },
   ): { queued: boolean; rejected?: boolean; requestId: string } {
-    return enqueueMessageImpl(this, content, attachments, onEvent, requestId, activeSurfaceId, currentPage, metadata);
+    return enqueueMessageImpl(this, content, attachments, onEvent, requestId, activeSurfaceId, currentPage, metadata, options);
   }
 
   getQueueDepth(): number {
