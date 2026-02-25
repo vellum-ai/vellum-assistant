@@ -40,9 +40,9 @@ export interface TwitterIntegrationConfigRequest {
 
 export interface TelegramConfigRequest {
   type: 'telegram_config';
-  action: 'get' | 'set' | 'clear' | 'set_commands';
-  botToken?: string;  // Only for action: 'set'
-  commands?: Array<{ command: string; description: string }>;  // Only for action: 'set_commands'
+  action: 'get' | 'set' | 'clear' | 'set_commands' | 'setup';
+  botToken?: string;  // Only for action: 'set' or 'setup'
+  commands?: Array<{ command: string; description: string }>;  // Only for action: 'set_commands' or 'setup'
 }
 
 export interface TwilioConfigRequest {
@@ -183,6 +183,10 @@ export interface TelegramConfigResponse {
   hasWebhookSecret: boolean;
   lastError?: string;
   error?: string;
+  /** Names of bot commands that were registered (present after set_commands or setup). */
+  commandsRegistered?: string[];
+  /** Non-fatal warning (e.g. commands registration failed during setup but token was configured). */
+  warning?: string;
 }
 
 export interface TwilioConfigResponse {

@@ -110,6 +110,13 @@ import {
   handlePairingRequest,
   handlePairingStatus,
 } from './routes/pairing-routes.js';
+import {
+  handleClearTelegramConfig,
+  handleGetTelegramConfig,
+  handleSetTelegramCommands,
+  handleSetTelegramConfig,
+  handleSetupTelegram,
+} from './routes/integration-routes.js';
 import { handleAddSecret } from './routes/secret-routes.js';
 
 // Re-export for consumers
@@ -576,6 +583,13 @@ export class RuntimeHttpServer {
       if (endpoint === 'contacts/merge' && req.method === 'POST') return await handleMergeContacts(req);
       const contactMatch = endpoint.match(/^contacts\/([^/]+)$/);
       if (contactMatch && req.method === 'GET') return handleGetContact(contactMatch[1]);
+
+      // Integrations — Telegram config
+      if (endpoint === 'integrations/telegram/config' && req.method === 'GET') return handleGetTelegramConfig();
+      if (endpoint === 'integrations/telegram/config' && req.method === 'POST') return await handleSetTelegramConfig(req);
+      if (endpoint === 'integrations/telegram/config' && req.method === 'DELETE') return await handleClearTelegramConfig();
+      if (endpoint === 'integrations/telegram/commands' && req.method === 'POST') return await handleSetTelegramCommands(req);
+      if (endpoint === 'integrations/telegram/setup' && req.method === 'POST') return await handleSetupTelegram(req);
 
       if (endpoint === 'attachments' && req.method === 'POST') return await handleUploadAttachment(req);
       if (endpoint === 'attachments' && req.method === 'DELETE') return await handleDeleteAttachment(req);
