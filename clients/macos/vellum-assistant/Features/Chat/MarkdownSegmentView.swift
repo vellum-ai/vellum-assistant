@@ -206,16 +206,15 @@ struct MarkdownSegmentView: View {
 
                     let indentLevel = CGFloat(item.indent / 2)
                     let leftMargin = indentLevel * indentStep
-                    let prefix = item.ordered ? "\(item.number).\t" : "\u{2022}\t"
+                    let prefix = item.ordered ? "\(item.number). " : "\u{2022} "
 
-                    let prefixForMeasure = item.ordered ? "\(item.number). " : "\u{2022} "
-                    let prefixSize = (prefixForMeasure as NSString).size(withAttributes: [.font: font])
+                    let prefixSize = (prefix as NSString).size(withAttributes: [.font: font])
                     let textColumn = leftMargin + prefixSize.width
 
                     nonisolated(unsafe) let paraStyle = NSMutableParagraphStyle()
                     paraStyle.firstLineHeadIndent = leftMargin
                     paraStyle.headIndent = textColumn
-                    paraStyle.tabStops = [NSTextTab(textAlignment: .left, location: textColumn)]
+                    paraStyle.tabStops = []
 
                     var prefixAttr = AttributedString(prefix)
                     prefixAttr.foregroundColor = secondaryTextColor

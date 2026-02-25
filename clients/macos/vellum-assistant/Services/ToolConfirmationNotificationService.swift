@@ -108,6 +108,13 @@ public final class ToolConfirmationNotificationService {
     }
 
     private func formatBody(_ message: ConfirmationRequestMessage) -> String {
+        // For shell commands, prefer the human-readable reason over the raw command
+        if message.toolName == "bash" || message.toolName == "host_bash" {
+            if let reason = message.input["reason"]?.value as? String, !reason.isEmpty {
+                let body = reason.prefix(1).uppercased() + reason.dropFirst()
+                return body.count > 200 ? String(body.prefix(197)) + "..." : body
+            }
+        }
         let preview = commandPreview(toolName: message.toolName, input: message.input)
         if preview.count > 200 {
             return String(preview.prefix(197)) + "..."
@@ -119,7 +126,7 @@ public final class ToolConfirmationNotificationService {
         switch toolName {
         case "file_write":      return "Write File"
         case "file_edit":       return "Edit File"
-        case "bash":            return "Run Command"
+        case "bash", "host_bash": return "Run Command"
         case "web_fetch":       return "Fetch URL"
         case "schedule_create": return "Create Schedule"
         case "schedule_update": return "Update Schedule"
