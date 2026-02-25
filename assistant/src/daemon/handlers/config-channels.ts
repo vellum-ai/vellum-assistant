@@ -29,8 +29,13 @@ import type { ChannelId } from '../../channels/types.js';
 import type {
   ChannelReadinessRequest,
   GuardianVerificationRequest,
+  GuardianVerificationResponse,
 } from '../ipc-protocol.js';
 import { defineHandlers, type HandlerContext, log } from './shared.js';
+
+// -- Transport-agnostic result type (omits the IPC `type` discriminant) --
+
+export type GuardianVerificationResult = Omit<GuardianVerificationResponse, 'type'>;
 
 // ---------------------------------------------------------------------------
 // Rate limit constants for outbound verification
@@ -111,6 +116,104 @@ function getTelegramBotUsername(): string | undefined {
 }
 
 // ---------------------------------------------------------------------------
+// Extracted business logic functions
+// ---------------------------------------------------------------------------
+
+export function createGuardianChallenge(
+  channel?: ChannelId,
+  assistantId?: string,
+  rebind?: boolean,
+  sessionId?: string,
+): GuardianVerificationResult {
+  const resolvedAssistantId = normalizeAssistantId(assistantId ?? 'self');
+  const resolvedChannel = channel ?? 'telegram';
+
+  const existingBinding = getGuardianBinding(resolvedAssistantId, resolvedChannel);
+  if (existingBinding && !rebind) {
+    return {
+      success: false,
+      error: 'already_bound',
+      message: 'A guardian is already bound for this channel. Revoke the existing binding first, or set rebind: true to replace.',
+      channel: resolvedChannel,
+    };
+  }
+
+  const result = createVerificationChallenge(resolvedAssistantId, resolvedChannel, sessionId);
+
+  return {
+    success: true,
+    secret: result.secret,
+    instruction: result.instruction,
+    channel: resolvedChannel,
+  };
+}
+
+export function getGuardianStatus(
+  channel?: ChannelId,
+  assistantId?: string,
+): GuardianVerificationResult {
+  const resolvedAssistantId = normalizeAssistantId(assistantId ?? 'self');
+  const resolvedChannel = channel ?? 'telegram';
+
+  const binding = getGuardianBinding(resolvedAssistantId, resolvedChannel);
+  let guardianUsername: string | undefined;
+  let guardianDisplayName: string | undefined;
+  if (binding?.metadataJson) {
+    try {
+      const parsed = JSON.parse(binding.metadataJson) as Record<string, unknown>;
+      if (typeof parsed.username === 'string' && parsed.username.trim().length > 0) {
+        guardianUsername = parsed.username.trim();
+      }
+      if (typeof parsed.displayName === 'string' && parsed.displayName.trim().length > 0) {
+        guardianDisplayName = parsed.displayName.trim();
+      }
+    } catch {
+      // ignore malformed metadata
+    }
+  }
+  if (binding?.guardianDeliveryChatId && (!guardianUsername || !guardianDisplayName)) {
+    const ext = externalConversationStore.getBindingByChannelChat(
+      resolvedChannel,
+      binding.guardianDeliveryChatId,
+    );
+    if (!guardianUsername && ext?.username) {
+      guardianUsername = ext.username;
+    }
+    if (!guardianDisplayName && ext?.displayName) {
+      guardianDisplayName = ext.displayName;
+    }
+  }
+  const hasPendingChallenge = getPendingChallenge(resolvedAssistantId, resolvedChannel) != null;
+
+  // Include active outbound session state so the UI can resume
+  // after app restart and detect bootstrap completion.
+  const activeOutboundSession = findActiveSession(resolvedAssistantId, resolvedChannel);
+  const outboundFields: Record<string, unknown> = {};
+  if (activeOutboundSession) {
+    outboundFields.verificationSessionId = activeOutboundSession.id;
+    outboundFields.expiresAt = activeOutboundSession.expiresAt;
+    outboundFields.nextResendAt = activeOutboundSession.nextResendAt;
+    outboundFields.sendCount = activeOutboundSession.sendCount;
+    if (activeOutboundSession.status === 'pending_bootstrap') {
+      outboundFields.pendingBootstrap = true;
+    }
+  }
+
+  return {
+    success: true,
+    bound: binding != null,
+    guardianExternalUserId: binding?.guardianExternalUserId,
+    guardianUsername,
+    guardianDisplayName,
+    channel: resolvedChannel,
+    assistantId: resolvedAssistantId,
+    guardianDeliveryChatId: binding?.guardianDeliveryChatId,
+    hasPendingChallenge,
+    ...outboundFields,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Guardian verification handler
 // ---------------------------------------------------------------------------
 
@@ -126,92 +229,11 @@ export function handleGuardianVerification(
 
   try {
     if (msg.action === 'create_challenge') {
-      // Fail by default if a guardian is already bound, unless the caller
-      // explicitly opts in to rebinding by setting rebind: true.
-      const existingBinding = getGuardianBinding(assistantId, channel);
-      if (existingBinding && !msg.rebind) {
-        ctx.send(socket, {
-          type: 'guardian_verification_response',
-          success: false,
-          error: 'already_bound',
-          message: 'A guardian is already bound for this channel. Revoke the existing binding first, or set rebind: true to replace.',
-          channel,
-        });
-        return;
-      }
-
-      const result = createVerificationChallenge(assistantId, channel, msg.sessionId);
-
-      ctx.send(socket, {
-        type: 'guardian_verification_response',
-        success: true,
-        secret: result.secret,
-        instruction: result.instruction,
-        channel,
-      });
+      const result = createGuardianChallenge(channel, assistantId, msg.rebind, msg.sessionId);
+      ctx.send(socket, { type: 'guardian_verification_response', ...result });
     } else if (msg.action === 'status') {
-      const binding = getGuardianBinding(assistantId, channel);
-      let guardianUsername: string | undefined;
-      let guardianDisplayName: string | undefined;
-      if (binding?.metadataJson) {
-        try {
-          const parsed = JSON.parse(binding.metadataJson) as Record<string, unknown>;
-          if (typeof parsed.username === 'string' && parsed.username.trim().length > 0) {
-            guardianUsername = parsed.username.trim();
-          }
-          if (typeof parsed.displayName === 'string' && parsed.displayName.trim().length > 0) {
-            guardianDisplayName = parsed.displayName.trim();
-          }
-        } catch {
-          // ignore malformed metadata
-        }
-      }
-      if (binding?.guardianDeliveryChatId && (!guardianUsername || !guardianDisplayName)) {
-        const ext = externalConversationStore.getBindingByChannelChat(
-          channel,
-          binding.guardianDeliveryChatId,
-        );
-        if (!guardianUsername && ext?.username) {
-          guardianUsername = ext.username;
-        }
-        if (!guardianDisplayName && ext?.displayName) {
-          guardianDisplayName = ext.displayName;
-        }
-      }
-      const hasPendingChallenge = getPendingChallenge(assistantId, channel) != null;
-
-      // Include active outbound session state so the UI can resume
-      // after app restart and detect bootstrap completion.
-      const activeOutboundSession = findActiveSession(assistantId, channel);
-      const outboundFields: Record<string, unknown> = {};
-      if (activeOutboundSession) {
-        outboundFields.verificationSessionId = activeOutboundSession.id;
-        outboundFields.expiresAt = activeOutboundSession.expiresAt;
-        outboundFields.nextResendAt = activeOutboundSession.nextResendAt;
-        outboundFields.sendCount = activeOutboundSession.sendCount;
-        // Signal to the client that the session is still in pending_bootstrap
-        // state so it does not clear the bootstrap URL during status polling.
-        // The plaintext token is NOT stored (only the hash), so the URL
-        // itself cannot be reconstructed; the client must preserve whatever
-        // URL it received from the initial start_outbound response.
-        if (activeOutboundSession.status === 'pending_bootstrap') {
-          outboundFields.pendingBootstrap = true;
-        }
-      }
-
-      ctx.send(socket, {
-        type: 'guardian_verification_response',
-        success: true,
-        bound: binding != null,
-        guardianExternalUserId: binding?.guardianExternalUserId,
-        guardianUsername,
-        guardianDisplayName,
-        channel,
-        assistantId,
-        guardianDeliveryChatId: binding?.guardianDeliveryChatId,
-        hasPendingChallenge,
-        ...outboundFields,
-      });
+      const result = getGuardianStatus(channel, assistantId);
+      ctx.send(socket, { type: 'guardian_verification_response', ...result });
     } else if (msg.action === 'revoke') {
       revokeGuardianBinding(assistantId, channel);
       revokePendingChallenges(assistantId, channel);

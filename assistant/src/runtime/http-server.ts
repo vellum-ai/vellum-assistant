@@ -112,6 +112,8 @@ import {
 } from './routes/pairing-routes.js';
 import {
   handleClearTelegramConfig,
+  handleCreateGuardianChallenge,
+  handleGetGuardianStatus,
   handleGetTelegramConfig,
   handleSetTelegramCommands,
   handleSetTelegramConfig,
@@ -590,6 +592,10 @@ export class RuntimeHttpServer {
       if (endpoint === 'integrations/telegram/config' && req.method === 'DELETE') return await handleClearTelegramConfig();
       if (endpoint === 'integrations/telegram/commands' && req.method === 'POST') return await handleSetTelegramCommands(req);
       if (endpoint === 'integrations/telegram/setup' && req.method === 'POST') return await handleSetupTelegram(req);
+
+      // Integrations — Guardian verification
+      if (endpoint === 'integrations/guardian/challenge' && req.method === 'POST') return await handleCreateGuardianChallenge(req);
+      if (endpoint === 'integrations/guardian/status' && req.method === 'GET') return handleGetGuardianStatus(url);
 
       if (endpoint === 'attachments' && req.method === 'POST') return await handleUploadAttachment(req);
       if (endpoint === 'attachments' && req.method === 'DELETE') return await handleDeleteAttachment(req);
