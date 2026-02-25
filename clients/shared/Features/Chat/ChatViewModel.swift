@@ -210,6 +210,10 @@ public final class ChatViewModel: ObservableObject {
     /// Causes `populateFromHistory` to do a full message replace instead of
     /// prepending, so the missed assistant response is displayed.
     private var needsReconnectCatchUp: Bool = false
+    /// Called when the SSE stream reconnects while a run was in progress.
+    /// The store/restorer registers the sessionId in pendingHistoryBySessionId
+    /// and sends a history request so the response is routed back properly.
+    public var onReconnectHistoryNeeded: ((_ sessionId: String) -> Void)?
     var pendingUserMessage: String?
     /// Optional callback for sending notifications when tool-use messages complete
     public var onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)?
@@ -453,7 +457,7 @@ public final class ChatViewModel: ObservableObject {
                     self?.currentAssistantMessageId = nil
                     if let sessionId = self?.sessionId {
                         self?.needsReconnectCatchUp = true
-                        try? self?.daemonClient.send(HistoryRequestMessage(sessionId: sessionId))
+                        self?.onReconnectHistoryNeeded?(sessionId)
                     }
                 }
                 #if os(iOS)
