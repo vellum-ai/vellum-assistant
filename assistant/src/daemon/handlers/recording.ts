@@ -173,6 +173,15 @@ function handleRecordingStatus(
         );
         if (!resolvedPath.startsWith(allowedDir + path.sep) && resolvedPath !== allowedDir) {
           log.warn({ recordingId, filePath: msg.filePath, allowedDir }, 'Recording file path outside allowed directory — rejecting');
+          const errSocket = findSocketForSession(conversationId, ctx);
+          if (errSocket) {
+            ctx.send(errSocket, {
+              type: 'assistant_text_delta',
+              text: 'Recording file is unavailable or expired.',
+              sessionId: conversationId,
+            });
+            ctx.send(errSocket, { type: 'message_complete', sessionId: conversationId });
+          }
           // Clean up maps before breaking so future recordings aren't blocked
           cleanupMaps(recordingId, conversationId);
           break;
