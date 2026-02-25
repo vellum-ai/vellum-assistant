@@ -129,14 +129,20 @@ export interface SurfaceSessionContext {
   withSurface<T>(surfaceId: string, fn: () => T | Promise<T>): Promise<T>;
 }
 
+export type SurfaceMutex = {
+  <T>(surfaceId: string, fn: () => T | Promise<T>): Promise<T>;
+  /** Number of surfaces with an active chain — exposed for tests. */
+  readonly size: number;
+};
+
 /**
  * Per-surface async mutex using Promise chaining.
  * Operations on the same surfaceId are serialized; different surfaces run concurrently.
  */
-export function createSurfaceMutex(): <T>(surfaceId: string, fn: () => T | Promise<T>) => Promise<T> {
+export function createSurfaceMutex(): SurfaceMutex {
   const chains = new Map<string, Promise<void>>();
 
-  return <T>(surfaceId: string, fn: () => T | Promise<T>): Promise<T> => {
+  const mutex = <T>(surfaceId: string, fn: () => T | Promise<T>): Promise<T> => {
     const prev = chains.get(surfaceId) ?? Promise.resolve();
     const next = prev.then(fn, fn);
     // Keep the chain alive but swallow errors so one failure doesn't block subsequent ops
@@ -150,6 +156,9 @@ export function createSurfaceMutex(): <T>(surfaceId: string, fn: () => T | Promi
     });
     return next;
   };
+
+  Object.defineProperty(mutex, 'size', { get: () => chains.size });
+  return mutex as SurfaceMutex;
 }
 
 /**
