@@ -2,7 +2,9 @@ import * as net from 'node:net';
 
 import { getConfiguredProvider } from '../../providers/provider-send-message.js';
 import type { DictationRequest } from '../ipc-protocol.js';
-import { defineHandlers, type HandlerContext,log } from './shared.js';
+import { resolveProfile } from '../dictation-profile-store.js';
+import { applyDictionary, expandSnippets } from '../dictation-text-processing.js';
+import { defineHandlers, type HandlerContext, log } from './shared.js';
 
 // Action verbs that signal the user wants a full agent session rather than inline text
 const ACTION_VERBS = ['slack', 'email', 'send', 'create', 'open', 'search', 'find'];
@@ -53,8 +55,8 @@ export function detectDictationMode(msg: DictationRequest): DictationMode {
   return 'dictation';
 }
 
-function buildDictationPrompt(msg: DictationRequest): string {
-  return [
+function buildDictationPrompt(msg: DictationRequest, stylePrompt?: string): string {
+  const sections = [
     'You are a dictation assistant. Clean up the following speech transcription for direct insertion into a text field.',
     '',
     '## Rules',
@@ -81,11 +83,17 @@ function buildDictationPrompt(msg: DictationRequest): string {
     '- The user\'s writing patterns and preferences may be available from memory context — follow those when present',
     '',
     buildAppMetadataBlock(msg),
-  ].join('\n');
+  ];
+
+  if (stylePrompt) {
+    sections.push('', '## User Style Instructions', stylePrompt);
+  }
+
+  return sections.join('\n');
 }
 
-function buildCommandPrompt(msg: DictationRequest): string {
-  return [
+function buildCommandPrompt(msg: DictationRequest, stylePrompt?: string): string {
+  const sections = [
     'You are a text transformation assistant. The user has selected text and given a voice command to transform it.',
     '',
     '## Rules',
@@ -110,12 +118,21 @@ function buildCommandPrompt(msg: DictationRequest): string {
     '- The user\'s writing patterns and preferences may be available from memory context — follow those when present',
     '',
     buildAppMetadataBlock(msg),
+  ];
+
+  if (stylePrompt) {
+    sections.push('', '## User Style Instructions', stylePrompt);
+  }
+
+  sections.push(
     '',
     'Selected text:',
     msg.context.selectedText ?? '',
     '',
     `Instruction: ${msg.transcription}`,
-  ].join('\n');
+  );
+
+  return sections.join('\n');
 }
 
 export async function handleDictationRequest(
@@ -126,6 +143,20 @@ export async function handleDictationRequest(
   const mode = detectDictationMode(msg);
   log.info({ mode, transcriptionLength: msg.transcription.length }, 'Dictation request received');
 
+  // Resolve profile for all modes (metadata is included in response)
+  const resolution = resolveProfile(
+    msg.context.bundleIdentifier,
+    msg.context.appName,
+    msg.profileId,
+  );
+  const { profile, source: profileSource } = resolution;
+  log.info({ profileId: profile.id, profileSource }, 'Resolved dictation profile');
+
+  const profileMeta = {
+    resolvedProfileId: profile.id,
+    profileSource,
+  };
+
   // Action mode: return immediately — the client will route to a full agent session
   if (mode === 'action') {
     ctx.send(socket, {
@@ -133,25 +164,31 @@ export async function handleDictationRequest(
       text: msg.transcription,
       mode: 'action',
       actionPlan: `User wants to: ${msg.transcription}`,
+      ...profileMeta,
     });
     return;
   }
 
-  // Dictation / command mode: make a single-turn LLM call for text cleanup or transformation
-  const systemPrompt = mode === 'dictation'
-    ? buildDictationPrompt(msg)
-    : buildCommandPrompt(msg);
+  // Pre-LLM snippet expansion (dictation mode only)
+  const transcription = mode === 'dictation'
+    ? expandSnippets(msg.transcription, profile.snippets)
+    : msg.transcription;
 
-  const userText = mode === 'dictation'
-    ? msg.transcription
-    : msg.transcription; // command prompt already embeds the selected text and instruction
+  // Dictation / command mode: make a single-turn LLM call for text cleanup or transformation
+  const stylePrompt = profile.stylePrompt || undefined;
+  const systemPrompt = mode === 'dictation'
+    ? buildDictationPrompt(msg, stylePrompt)
+    : buildCommandPrompt(msg, stylePrompt);
+
+  const userText = transcription;
 
   try {
     const provider = getConfiguredProvider();
     if (!provider) {
       log.warn('Dictation: no provider available, returning raw transcription');
-      const fallbackText = mode === 'command' ? (msg.context.selectedText ?? msg.transcription) : msg.transcription;
-      ctx.send(socket, { type: 'dictation_response', text: fallbackText, mode });
+      const fallbackText = mode === 'command' ? (msg.context.selectedText ?? transcription) : transcription;
+      const normalizedText = applyDictionary(fallbackText, profile.dictionary);
+      ctx.send(socket, { type: 'dictation_response', text: normalizedText, mode, ...profileMeta });
       return;
     }
 
@@ -163,15 +200,19 @@ export async function handleDictationRequest(
     );
 
     const textBlock = response.content.find((b) => b.type === 'text');
-    const inlineFallback = mode === 'command' ? (msg.context.selectedText ?? msg.transcription) : msg.transcription;
+    const inlineFallback = mode === 'command' ? (msg.context.selectedText ?? transcription) : transcription;
     const cleanedText = textBlock && 'text' in textBlock ? textBlock.text.trim() : inlineFallback;
 
-    ctx.send(socket, { type: 'dictation_response', text: cleanedText, mode });
+    // Post-LLM dictionary normalization
+    const normalizedText = applyDictionary(cleanedText, profile.dictionary);
+
+    ctx.send(socket, { type: 'dictation_response', text: normalizedText, mode, ...profileMeta });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, 'Dictation LLM call failed, returning raw transcription');
-    const fallbackText = mode === 'command' ? (msg.context.selectedText ?? msg.transcription) : msg.transcription;
-    ctx.send(socket, { type: 'dictation_response', text: fallbackText, mode });
+    const fallbackText = mode === 'command' ? (msg.context.selectedText ?? transcription) : transcription;
+    const normalizedText = applyDictionary(fallbackText, profile.dictionary);
+    ctx.send(socket, { type: 'dictation_response', text: normalizedText, mode, ...profileMeta });
     ctx.send(socket, { type: 'error', message: `Dictation cleanup failed: ${message}` });
   }
 }

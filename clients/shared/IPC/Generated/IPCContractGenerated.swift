@@ -1193,11 +1193,13 @@ public struct IPCDictationRequest: Codable, Sendable {
     public let type: String
     public let transcription: String
     public let context: IPCDictationContext
+    public let profileId: String?
 
-    public init(type: String, transcription: String, context: IPCDictationContext) {
+    public init(type: String, transcription: String, context: IPCDictationContext, profileId: String? = nil) {
         self.type = type
         self.transcription = transcription
         self.context = context
+        self.profileId = profileId
     }
 }
 
@@ -1206,12 +1208,16 @@ public struct IPCDictationResponse: Codable, Sendable {
     public let text: String
     public let mode: String
     public let actionPlan: String?
+    public let resolvedProfileId: String?
+    public let profileSource: String?
 
-    public init(type: String, text: String, mode: String, actionPlan: String? = nil) {
+    public init(type: String, text: String, mode: String, actionPlan: String? = nil, resolvedProfileId: String? = nil, profileSource: String? = nil) {
         self.type = type
         self.text = text
         self.mode = mode
         self.actionPlan = actionPlan
+        self.resolvedProfileId = resolvedProfileId
+        self.profileSource = profileSource
     }
 }
 
