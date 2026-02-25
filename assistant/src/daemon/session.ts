@@ -26,7 +26,15 @@ import { ToolExecutor } from '../tools/executor.js';
 import type { UserDecision } from '../permissions/types.js';
 import { getConfig } from '../config/loader.js';
 import { buildSystemPrompt } from '../config/system-prompt.js';
-import { classifyResponseTier, tierMaxTokens, tierModel } from './response-tier.js';
+import {
+  classifyResponseTier,
+  classifyResponseTierDetailed,
+  resolveWithHint,
+  classifyResponseTierAsync,
+  tierMaxTokens,
+  tierModel,
+  type SessionTierHint,
+} from './response-tier.js';
 import { TraceEmitter } from './trace-emitter.js';
 import { EventBus } from '../events/bus.js';
 import type { AssistantDomainEvents } from '../events/domain-events.js';
@@ -231,6 +239,9 @@ export class Session {
     // (where user text is empty — only tool_result blocks) inherit it
     // instead of falling to 'low'.
     let lastUserMessageTier: import('./response-tier.js').ResponseTier = 'high';
+    let sessionTierHint: SessionTierHint | null = null;
+    const recentUserTexts: string[] = []; // circular buffer, max 3
+    const MAX_RECENT_TEXTS = 3;
 
     const resolveSystemPromptCallback = (history: import('../providers/types.js').Message[]): ResolvedSystemPrompt => {
       // Extract last user message text, ignoring runtime-injected context blocks
@@ -250,13 +261,37 @@ export class Session {
         isToolResultOnly = hasToolResult && userText.trim().length === 0;
       }
 
-      // Tool-use continuation: inherit previous tier
-      const tier = isToolResultOnly
-        ? lastUserMessageTier
-        : classifyResponseTier(userText, this.turnCount);
+      let tier: import('./response-tier.js').ResponseTier;
 
-      if (!isToolResultOnly) {
+      if (isToolResultOnly) {
+        // Tool-use continuation: inherit previous tier
+        tier = lastUserMessageTier;
+      } else {
+        const classification = classifyResponseTierDetailed(userText, this.turnCount);
+        tier = resolveWithHint(classification, sessionTierHint, this.turnCount);
         lastUserMessageTier = tier;
+
+        // Update recent user texts buffer
+        const trimmedText = userText.trim();
+        if (trimmedText) {
+          if (recentUserTexts.length >= MAX_RECENT_TEXTS) {
+            recentUserTexts.shift();
+          }
+          recentUserTexts.push(trimmedText);
+        }
+
+        // Fire background Haiku classification when confidence is low
+        if (classification.confidence === 'low') {
+          void classifyResponseTierAsync([...recentUserTexts]).then((asyncTier) => {
+            if (asyncTier) {
+              sessionTierHint = {
+                tier: asyncTier,
+                turn: this.turnCount,
+                timestamp: Date.now(),
+              };
+            }
+          });
+        }
       }
 
       const model = tierModel(tier, provider.name);

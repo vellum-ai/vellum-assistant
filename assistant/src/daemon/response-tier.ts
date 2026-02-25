@@ -5,15 +5,31 @@
  * - maxTokens budget for the LLM response
  * - Which system prompt sections are included
  *
- * The classifier is deterministic (pure regex/heuristic) so it adds
- * zero latency to the critical path.
+ * Two layers:
+ * 1. Deterministic regex/heuristic (zero latency, runs every turn)
+ * 2. Background Haiku classification (fire-and-forget, advises future turns)
  */
 
 import { getLogger } from '../util/logger.js';
+import { getConfiguredProvider, createTimeout, extractText, userMessage } from '../providers/provider-send-message.js';
 
 const log = getLogger('response-tier');
 
 export type ResponseTier = 'low' | 'medium' | 'high';
+
+export type TierConfidence = 'high' | 'low';
+
+export interface TierClassification {
+  tier: ResponseTier;
+  reason: string;
+  confidence: TierConfidence;
+}
+
+export interface SessionTierHint {
+  tier: ResponseTier;
+  turn: number;
+  timestamp: number;
+}
 
 // ── Patterns ──────────────────────────────────────────────────────────
 
@@ -25,44 +41,142 @@ const CODE_FENCE = /```/;
 const FILE_PATH = /(?:^|[\s"'(])(?:\/|~\/|\.\/)\S/;
 const MULTI_PARAGRAPH = /\n\s*\n/;
 
+// ── Confidence thresholds ─────────────────────────────────────────────
+
+const HINT_MAX_TURN_AGE = 4;
+const HINT_MAX_AGE_MS = 5 * 60 * 1000; // 5 minutes
+
 /**
- * Classify the complexity tier of a user message.
- *
- * Priority: high signals checked first, then low signals. Everything
- * else falls through to medium.
+ * Classify the complexity tier of a user message (backward-compat wrapper).
  */
 export function classifyResponseTier(message: string, _turnCount: number): ResponseTier {
+  return classifyResponseTierDetailed(message, _turnCount).tier;
+}
+
+/**
+ * Classify with confidence scoring. High confidence means the regex
+ * matched an unambiguous signal; low confidence means the message
+ * fell through to the default medium bucket.
+ */
+export function classifyResponseTierDetailed(message: string, _turnCount: number): TierClassification {
   const trimmed = message.trim();
   const len = trimmed.length;
 
-  // Polite imperative: "can you build...", "could you create...", "would you implement..."
-  // These are requests, not questions — treat them like imperatives.
   const isPoliteImperative = /^(can|could|would|will)\s+you\s+/i.test(trimmed) && BUILD_KEYWORDS.test(trimmed);
 
   const isQuestion = !isPoliteImperative && (
     /\?$/.test(trimmed) || /^(what|who|where|when|why|how|which|can|could|should|would|is|are|do|does|did|will|has|have)\b/i.test(trimmed)
   );
 
-  // ── High signals (any match → high) ──
-  if (len > 500) return tagged('high', 'length>500');
-  if (CODE_FENCE.test(trimmed)) return tagged('high', 'code_fence');
-  if (FILE_PATH.test(trimmed)) return tagged('high', 'file_path');
-  if (MULTI_PARAGRAPH.test(trimmed)) return tagged('high', 'multi_paragraph');
-  if (!isQuestion && BUILD_KEYWORDS.test(trimmed)) return tagged('high', 'build_keyword');
+  // ── High signals (any match → high tier, high confidence) ──
+  if (len > 500) return tagged('high', 'length>500', 'high');
+  if (CODE_FENCE.test(trimmed)) return tagged('high', 'code_fence', 'high');
+  if (FILE_PATH.test(trimmed)) return tagged('high', 'file_path', 'high');
+  if (MULTI_PARAGRAPH.test(trimmed)) return tagged('high', 'multi_paragraph', 'high');
+  if (!isQuestion && BUILD_KEYWORDS.test(trimmed)) return tagged('high', 'build_keyword', 'high');
 
-  // ── Low signals (any match → low) ──
-  // Only classify as greeting when the message is short and has no build
-  // keywords, so "hey, can you build a dashboard" stays high-tier.
-  if (GREETING_PATTERNS.test(trimmed) && len < 40 && !BUILD_KEYWORDS.test(trimmed)) return tagged('low', 'greeting');
-  if (len < 80 && !BUILD_KEYWORDS.test(trimmed)) return tagged('low', 'short_no_keywords');
+  // ── Low signals (any match → low tier, high confidence) ──
+  if (GREETING_PATTERNS.test(trimmed) && len < 40 && !BUILD_KEYWORDS.test(trimmed)) return tagged('low', 'greeting', 'high');
+  if (len < 80 && !BUILD_KEYWORDS.test(trimmed)) return tagged('low', 'short_no_keywords', 'high');
 
-  // ── Default ──
-  return tagged('medium', 'default');
+  // ── Default (low confidence — ambiguous) ──
+  return tagged('medium', 'default', 'low');
 }
 
-function tagged(tier: ResponseTier, reason: string): ResponseTier {
-  log.debug({ tier, reason }, 'Classified response tier');
-  return tier;
+/**
+ * When regex confidence is low, defer to a non-stale session hint
+ * from a previous background Haiku classification.
+ */
+export function resolveWithHint(
+  classification: TierClassification,
+  hint: SessionTierHint | null,
+  currentTurn: number,
+): ResponseTier {
+  if (classification.confidence === 'high' || !hint) {
+    return classification.tier;
+  }
+
+  const turnAge = currentTurn - hint.turn;
+  const timeAge = Date.now() - hint.timestamp;
+
+  if (turnAge > HINT_MAX_TURN_AGE || timeAge > HINT_MAX_AGE_MS) {
+    log.debug({ turnAge, timeAge }, 'Session tier hint is stale, ignoring');
+    return classification.tier;
+  }
+
+  log.debug(
+    { regexTier: classification.tier, hintTier: hint.tier, turnAge },
+    'Deferring to session tier hint',
+  );
+  return hint.tier;
+}
+
+// ── Async Haiku classification ────────────────────────────────────────
+
+const ASYNC_CLASSIFICATION_TIMEOUT_MS = 8_000;
+
+const TIER_SYSTEM_PROMPT =
+  'You classify user messages by complexity. ' +
+  'Reply with exactly one word: low, medium, or high.\n' +
+  'low = greetings, thanks, short acknowledgements\n' +
+  'medium = simple questions, short requests, clarifications\n' +
+  'high = build/implement/refactor requests, multi-step tasks, code-heavy work';
+
+/**
+ * Fire-and-forget Haiku call to classify the conversation trajectory.
+ * Returns the classified tier or null on any failure.
+ */
+export async function classifyResponseTierAsync(
+  recentUserTexts: string[],
+): Promise<ResponseTier | null> {
+  const provider = getConfiguredProvider();
+  if (!provider) {
+    log.debug('No provider available for async tier classification');
+    return null;
+  }
+
+  const combined = recentUserTexts
+    .map((t, i) => `[Message ${i + 1}]: ${t}`)
+    .join('\n');
+
+  try {
+    const { signal, cleanup } = createTimeout(ASYNC_CLASSIFICATION_TIMEOUT_MS);
+    try {
+      const response = await provider.sendMessage(
+        [userMessage(combined)],
+        undefined,
+        TIER_SYSTEM_PROMPT,
+        {
+          config: {
+            modelIntent: 'latency-optimized',
+            max_tokens: 8,
+          },
+          signal,
+        },
+      );
+      cleanup();
+
+      const text = extractText(response).toLowerCase();
+      if (text === 'low' || text === 'medium' || text === 'high') {
+        log.debug({ tier: text }, 'Async tier classification result');
+        return text;
+      }
+
+      log.debug({ text }, 'Async tier classification returned unexpected value');
+      return null;
+    } finally {
+      cleanup();
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.debug({ err: message }, 'Async tier classification failed');
+    return null;
+  }
+}
+
+function tagged(tier: ResponseTier, reason: string, confidence: TierConfidence): TierClassification {
+  log.debug({ tier, reason, confidence }, 'Classified response tier');
+  return { tier, reason, confidence };
 }
 
 // ── Token scaling ─────────────────────────────────────────────────────
