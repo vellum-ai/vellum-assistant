@@ -178,6 +178,7 @@ export class RunOrchestrator {
     content: string,
     attachmentIds?: string[],
     options?: RunStartOptions,
+    signal?: AbortSignal,
   ): Promise<RunHandle> {
     // Block inbound content that contains secrets — mirrors the IPC check in sessions.ts
     const ingressCheck = checkIngressForSecrets(content);
@@ -200,12 +201,20 @@ export class RunOrchestrator {
     if (session.isProcessing()) {
       // Voice barge-in can race with turn teardown. Wait briefly for the
       // previous run to finish aborting before giving up.
+      // The caller can pass an AbortSignal so superseded turns bail out
+      // of this wait early instead of occupying the session.
       const maxWaitMs = 3000;
       const pollIntervalMs = 50;
       let waited = 0;
       while (session.isProcessing() && waited < maxWaitMs) {
+        if (signal?.aborted) {
+          throw new Error('Run aborted while waiting for session');
+        }
         await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
         waited += pollIntervalMs;
+      }
+      if (signal?.aborted) {
+        throw new Error('Run aborted while waiting for session');
       }
       if (session.isProcessing()) {
         throw new Error('Session is already processing a message');

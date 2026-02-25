@@ -240,6 +240,7 @@ export async function startVoiceTurn(opts: VoiceTurnOptions): Promise<VoiceTurnH
       eventSink,
       voiceCallControlPrompt,
     },
+    opts.signal,
   );
 
   // If the caller provided an external AbortSignal (e.g. from a
