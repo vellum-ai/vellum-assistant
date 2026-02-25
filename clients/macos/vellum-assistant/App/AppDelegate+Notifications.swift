@@ -157,6 +157,10 @@ extension AppDelegate {
         ]
         if let metadata = msg.deepLinkMetadata {
             for (key, wrapped) in metadata {
+                // Keep sourceEventName authoritative from the daemon envelope.
+                if key == "sourceEventName" {
+                    continue
+                }
                 if let normalized = normalizeNotificationUserInfoValue(wrapped.value) {
                     userInfo[key] = normalized
                 }
