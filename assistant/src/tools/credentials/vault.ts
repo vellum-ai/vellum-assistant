@@ -791,7 +791,13 @@ class CredentialStoreTool implements Tool {
         if (!service) {
           return { content: 'Error: service is required for describe action', isError: true };
         }
-        const wellKnown = WELL_KNOWN_OAUTH[service];
+        // Try direct lookup, then fall back to integration: prefix for
+        // newly added providers that may not have a SERVICE_ALIASES entry yet.
+        const wellKnown = WELL_KNOWN_OAUTH[service]
+          ?? (!service.includes(':') ? WELL_KNOWN_OAUTH[`integration:${service}`] : undefined);
+        const resolvedService = WELL_KNOWN_OAUTH[service] ? service
+          : (!service.includes(':') && WELL_KNOWN_OAUTH[`integration:${service}`]) ? `integration:${service}`
+            : service;
         if (!wellKnown) {
           return { content: `No well-known OAuth config found for "${rawService}". Available services: ${Object.keys(SERVICE_ALIASES).join(', ')}`, isError: false };
         }
@@ -804,17 +810,29 @@ class CredentialStoreTool implements Tool {
         } else if (transport === 'loopback') {
           redirectUri = '(automatic — no redirect URI needed, uses random localhost port)';
         } else {
-          redirectUri = '${ingress.publicBaseUrl}/webhooks/oauth/callback (requires public ingress URL)';
+          // Try to compute the actual URL from config/env
+          try {
+            const { loadConfig } = await import('../../config/loader.js');
+            const { getPublicBaseUrl } = await import('../../inbound/public-ingress-urls.js');
+            const baseUrl = getPublicBaseUrl(loadConfig());
+            redirectUri = `${baseUrl}/webhooks/oauth/callback`;
+          } catch {
+            redirectUri = '(requires INGRESS_PUBLIC_BASE_URL — not currently configured)';
+          }
         }
 
+        // Prefer explicit setup metadata, fall back to heuristic
+        const requiresClientSecret = wellKnown.setup?.requiresClientSecret
+          ?? !!(wellKnown.tokenEndpointAuthMethod || wellKnown.extraParams);
+
         const info: Record<string, unknown> = {
-          service,
+          service: resolvedService,
           authUrl: wellKnown.authUrl,
           tokenUrl: wellKnown.tokenUrl,
           scopes: wellKnown.scopes,
           callbackTransport: transport,
           redirectUri,
-          requiresClientSecret: !!(wellKnown.tokenEndpointAuthMethod || wellKnown.extraParams),
+          requiresClientSecret,
         };
         if (wellKnown.setup) info.setup = wellKnown.setup;
         if (wellKnown.extraParams) info.extraParams = wellKnown.extraParams;
