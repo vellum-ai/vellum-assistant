@@ -436,7 +436,7 @@ describe("twilio-sms-webhook", () => {
     expect(handleInboundMock).toHaveBeenCalledTimes(0);
   });
 
-  it("MMS payload (NumMedia > 0) returns unsupported notice and does not forward", async () => {
+  it("MMS payload (NumMedia > 0) sends unsupported notice and forwards text body", async () => {
     const handler = createTwilioSmsWebhookHandler(baseConfig);
     const url = "http://localhost:7830/webhooks/twilio/sms";
     const params = {
@@ -463,11 +463,14 @@ describe("twilio-sms-webhook", () => {
     expect((text as string).toLowerCase()).toContain("not supported");
     expect(assistantId).toBe("ast-default");
 
-    // handleInbound should NOT have been called
-    expect(handleInboundMock).toHaveBeenCalledTimes(0);
+    // Text body should have been forwarded as a regular message
+    expect(handleInboundMock).toHaveBeenCalledTimes(1);
+    const [, event] = handleInboundMock.mock.calls[0] as unknown[];
+    const typedEvent = event as { message: { content: string } };
+    expect(typedEvent.message.content).toBe("Check out this photo");
   });
 
-  it("MMS detected via MediaUrl0 when NumMedia is absent", async () => {
+  it("MMS detected via MediaUrl0 when NumMedia is absent forwards text body", async () => {
     const handler = createTwilioSmsWebhookHandler(baseConfig);
     const url = "http://localhost:7830/webhooks/twilio/sms";
     const params = {
@@ -492,8 +495,11 @@ describe("twilio-sms-webhook", () => {
     expect((text as string).toLowerCase()).toContain("not supported");
     expect(assistantId).toBe("ast-default");
 
-    // handleInbound should NOT have been called
-    expect(handleInboundMock).toHaveBeenCalledTimes(0);
+    // Text body should have been forwarded
+    expect(handleInboundMock).toHaveBeenCalledTimes(1);
+    const [, event] = handleInboundMock.mock.calls[0] as unknown[];
+    const typedEvent = event as { message: { content: string } };
+    expect(typedEvent.message.content).toBe("Check out this photo");
   });
 
   it("routes by To phone number when assistantPhoneNumbers is configured", async () => {
@@ -575,7 +581,11 @@ describe("twilio-sms-webhook", () => {
     expect(sendSmsReplyMock).toHaveBeenCalledTimes(1);
     const [, , , assistantId] = sendSmsReplyMock.mock.calls[0] as unknown[];
     expect(assistantId).toBe("ast-beta");
-    expect(handleInboundMock).toHaveBeenCalledTimes(0);
+    // Text body should have been forwarded
+    expect(handleInboundMock).toHaveBeenCalledTimes(1);
+    const [, event] = handleInboundMock.mock.calls[0] as unknown[];
+    const typedEvent = event as { message: { content: string } };
+    expect(typedEvent.message.content).toBe("MMS inbound");
   });
 
   it("falls through to standard routing when To number is not in assistantPhoneNumbers", async () => {
@@ -718,7 +728,7 @@ describe("twilio-sms-webhook", () => {
     expect((text as string).toLowerCase()).toContain("could not be routed");
   });
 
-  it("MMS detected via MediaContentType0 when NumMedia is absent", async () => {
+  it("MMS detected via MediaContentType0 when NumMedia is absent forwards text body", async () => {
     const handler = createTwilioSmsWebhookHandler(baseConfig);
     const url = "http://localhost:7830/webhooks/twilio/sms";
     const params = {
@@ -743,7 +753,36 @@ describe("twilio-sms-webhook", () => {
     expect((text as string).toLowerCase()).toContain("not supported");
     expect(assistantId).toBe("ast-default");
 
-    // handleInbound should NOT have been called
+    // Text body should have been forwarded
+    expect(handleInboundMock).toHaveBeenCalledTimes(1);
+    const [, event] = handleInboundMock.mock.calls[0] as unknown[];
+    const typedEvent = event as { message: { content: string } };
+    expect(typedEvent.message.content).toBe("Here is a file");
+  });
+
+  it("MMS with empty body sends unsupported notice but does not forward", async () => {
+    const handler = createTwilioSmsWebhookHandler(baseConfig);
+    const url = "http://localhost:7830/webhooks/twilio/sms";
+    const params = {
+      Body: "",
+      From: "+15551234567",
+      To: "+15559876543",
+      MessageSid: "SM-mms-nobody",
+      NumMedia: "1",
+      MediaUrl0: "https://api.twilio.com/media/789",
+      MediaContentType0: "image/jpeg",
+    };
+    const req = buildSignedSmsRequest(url, params, AUTH_TOKEN);
+    const res = await handler(req);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+
+    // Unsupported notice should have been sent
+    expect(sendSmsReplyMock).toHaveBeenCalledTimes(1);
+
+    // handleInbound should NOT have been called — no text to forward
     expect(handleInboundMock).toHaveBeenCalledTimes(0);
   });
 });
