@@ -1437,6 +1437,35 @@
       },
       "executor": "tools/sequence-cancel.ts",
       "execution_target": "host"
+    },
+    {
+      "name": "sequence_import",
+      "description": "Import contacts from a CSV/TSV file and enroll them in a sequence. First call shows a preview; set auto_enroll=true to enroll.",
+      "category": "messaging",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Absolute path to the CSV/TSV file"
+          },
+          "sequence_id": {
+            "type": "string",
+            "description": "Sequence ID to enroll contacts in"
+          },
+          "auto_enroll": {
+            "type": "boolean",
+            "description": "Set to true to enroll contacts (default false = preview mode)"
+          }
+        },
+        "required": [
+          "file_path",
+          "sequence_id"
+        ]
+      },
+      "executor": "tools/sequence-import.ts",
+      "execution_target": "host"
     }
   ]
 }
