@@ -165,19 +165,21 @@ function main() {
         return Response.json({ status: "ok" });
       }
 
-      // Rate-limit check for auth-protected and pairing endpoints.
-      // Checked early so blocked IPs are rejected before any work.
-      const isAuthRoute = url.pathname === "/integrations/status" ||
+      // Rate-limit check for auth-protected, pairing, and unauthenticated
+      // endpoints that forward to the runtime (OAuth callback is publicly
+      // reachable and forwards every valid-looking request).
+      const isRateLimitedRoute = url.pathname === "/integrations/status" ||
         url.pathname === "/deliver/telegram" ||
         url.pathname === "/deliver/sms" ||
         url.pathname === "/deliver/whatsapp" ||
         url.pathname.startsWith("/pairing/") ||
+        url.pathname === "/webhooks/oauth/callback" ||
         (url.pathname.startsWith("/v1/") &&
           url.pathname !== "/v1/calls/twilio/voice-webhook" &&
           url.pathname !== "/v1/calls/twilio/status" &&
           url.pathname !== "/v1/calls/twilio/connect-action" &&
           url.pathname !== "/v1/calls/relay");
-      if (isAuthRoute) {
+      if (isRateLimitedRoute) {
         const clientIp = getClientIp(req, svr, config.trustProxy);
         if (authRateLimiter.isBlocked(clientIp)) {
           log.warn({ ip: clientIp, path: url.pathname }, "Auth rate limit exceeded");
@@ -288,7 +290,11 @@ function main() {
       }
 
       if (url.pathname === "/webhooks/oauth/callback" && tracedReq.method === "GET") {
-        return handleOAuthCallback(tracedReq);
+        const res = await handleOAuthCallback(tracedReq);
+        if (res.status === 400) {
+          authRateLimiter.recordFailure(getClientIp(req, svr, config.trustProxy));
+        }
+        return res;
       }
 
       if (url.pathname === "/integrations/status" && req.method === "GET") {
