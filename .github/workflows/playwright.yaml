@@ -63,26 +63,9 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Build daemon binary
-        working-directory: assistant
-        run: |
-          bun install
-          bun build --compile --target=bun-darwin-arm64 src/daemon/main.ts \
-            --external electron --external "chromium-bidi/*" \
-            --outfile ../clients/macos/daemon-bin/vellum-daemon
-          chmod +x ../clients/macos/daemon-bin/vellum-daemon
-          cp node_modules/web-tree-sitter/web-tree-sitter.wasm ../clients/macos/daemon-bin/
-          cp node_modules/tree-sitter-bash/tree-sitter-bash.wasm ../clients/macos/daemon-bin/
-          cp -R src/config/bundled-skills ../clients/macos/daemon-bin/bundled-skills
-
-      - name: Build CLI binary
-        working-directory: cli
-        run: |
-          bun install
-          bun build --compile --target=bun-darwin-arm64 src/index.ts \
-            --external react-devtools-core \
-            --outfile ../clients/macos/cli-bin/vellum-cli
-          chmod +x ../clients/macos/cli-bin/vellum-cli
+      - name: Build binaries
+        working-directory: clients/macos
+        run: CLI_EXTERNALS="react-devtools-core" ./build.sh build-binaries
 
       - name: Build macOS app
         working-directory: clients/macos

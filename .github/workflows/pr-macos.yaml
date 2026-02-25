@@ -75,51 +75,21 @@ jobs:
           key: macos-bun-cli-${{ hashFiles('cli/bun.lock') }}
           restore-keys: macos-bun-cli-
 
+      - name: Cache Bun dependencies (gateway)
+        uses: actions/cache@v4
+        with:
+          path: gateway/node_modules
+          key: macos-bun-gateway-${{ hashFiles('gateway/bun.lock') }}
+          restore-keys: macos-bun-gateway-
+
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
-      - name: Build daemon binary
-        working-directory: assistant
-        run: |
-          bun install
-          bun build --compile --target=bun-darwin-arm64 src/daemon/main.ts \
-            --external electron --external "chromium-bidi/*" \
-            --outfile ../clients/macos/daemon-bin/vellum-daemon-arm64
-          bun build --compile --target=bun-darwin-x64 src/daemon/main.ts \
-            --external electron --external "chromium-bidi/*" \
-            --outfile ../clients/macos/daemon-bin/vellum-daemon-x64
-          lipo -create \
-            ../clients/macos/daemon-bin/vellum-daemon-arm64 \
-            ../clients/macos/daemon-bin/vellum-daemon-x64 \
-            -output ../clients/macos/daemon-bin/vellum-daemon
-          rm ../clients/macos/daemon-bin/vellum-daemon-arm64 ../clients/macos/daemon-bin/vellum-daemon-x64
-          chmod +x ../clients/macos/daemon-bin/vellum-daemon
-          cp node_modules/web-tree-sitter/web-tree-sitter.wasm ../clients/macos/daemon-bin/
-          cp node_modules/tree-sitter-bash/tree-sitter-bash.wasm ../clients/macos/daemon-bin/
-          cp -R src/config/bundled-skills ../clients/macos/daemon-bin/bundled-skills
-          echo "Daemon universal binary built:"
-          ls -lh ../clients/macos/daemon-bin/vellum-daemon
-          file ../clients/macos/daemon-bin/vellum-daemon
-
-      - name: Build CLI binary
-        working-directory: cli
-        run: |
-          bun install
-          bun build --compile --target=bun-darwin-arm64 src/index.ts \
-            --outfile ../clients/macos/cli-bin/vellum-cli-arm64
-          bun build --compile --target=bun-darwin-x64 src/index.ts \
-            --outfile ../clients/macos/cli-bin/vellum-cli-x64
-          lipo -create \
-            ../clients/macos/cli-bin/vellum-cli-arm64 \
-            ../clients/macos/cli-bin/vellum-cli-x64 \
-            -output ../clients/macos/cli-bin/vellum-cli
-          rm ../clients/macos/cli-bin/vellum-cli-arm64 ../clients/macos/cli-bin/vellum-cli-x64
-          chmod +x ../clients/macos/cli-bin/vellum-cli
-          echo "CLI universal binary built:"
-          ls -lh ../clients/macos/cli-bin/vellum-cli
-          file ../clients/macos/cli-bin/vellum-cli
+      - name: Build binaries
+        working-directory: clients/macos
+        run: UNIVERSAL=1 BUILD_GATEWAY=1 ./build.sh build-binaries
 
       - name: Build release .app
         working-directory: clients/macos
@@ -140,7 +110,7 @@ jobs:
       - name: Free disk space
         working-directory: clients/macos
         run: |
-          rm -rf .build daemon-bin cli-bin
+          rm -rf .build daemon-bin cli-bin gateway-bin
           rm -rf ~/Library/Developer/Xcode/DerivedData 2>/dev/null || true
           rm -rf ~/Library/Caches/org.swift.swiftpm 2>/dev/null || true
           df -h .

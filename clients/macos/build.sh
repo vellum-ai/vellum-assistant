@@ -5,17 +5,22 @@ set -euo pipefail
 # Replaces XcodeGen + xcodebuild with: swift build → .app bundle → codesign.
 #
 # Usage:
-#   ./build.sh              Build debug .app
-#   ./build.sh run          Build + launch + watch for changes (auto-rebuild)
-#   ./build.sh release      Build release .app
-#   ./build.sh test         Run tests (no .app needed)
-#   ./build.sh clean        Remove build artifacts
-#   ./build.sh lint         Build with strict concurrency (catches CI-only errors locally)
+#   ./build.sh                Build debug .app
+#   ./build.sh run            Build + launch + watch for changes (auto-rebuild)
+#   ./build.sh release        Build release .app
+#   ./build.sh build-binaries Build only Bun binaries (daemon, CLI, gateway)
+#   ./build.sh test           Run tests (no .app needed)
+#   ./build.sh clean          Remove build artifacts
+#   ./build.sh lint           Build with strict concurrency (catches CI-only errors locally)
 #
 # Environment variables (for CI):
 #   DISPLAY_VERSION   Override CFBundleShortVersionString (default: 0.1.0)
 #   BUILD_VERSION     Override CFBundleVersion (default: 1)
 #   SIGN_IDENTITY     Override code signing identity
+#   UNIVERSAL=1       Cross-compile Bun binaries for arm64 + x64 (universal binary via lipo)
+#   BUILD_GATEWAY=1   Also build the gateway binary (skipped by default)
+#   APP_VERSION=x.y   Embed version in daemon binary via --define
+#   CLI_EXTERNALS     Space-separated extra --external flags for CLI build
 
 if [ -z "${DEVELOPER_DIR:-}" ]; then
     # Use xcode-select, but fall back to Xcode.app if it points to
@@ -77,6 +82,89 @@ fi
 # Export SIGN_IDENTITY so nested invocations (watch mode) inherit it
 export SIGN_IDENTITY
 
+# Source directories for Bun binaries
+ASSISTANT_SRC_DIR="$SCRIPT_DIR/../../assistant"
+CLI_SRC_DIR="$SCRIPT_DIR/../../cli"
+GATEWAY_SRC_DIR="$SCRIPT_DIR/../../gateway"
+
+# ---------------------------------------------------------------------------
+# build_bun_binary — compile a TypeScript project to a native binary via Bun.
+#
+# Usage: build_bun_binary <src_dir> <entry_point> <output_dir> <output_name> [extra_flags...]
+#
+# When UNIVERSAL=1, cross-compiles for arm64 + x64 and produces a fat binary
+# via lipo. Otherwise compiles for the current architecture only.
+# ---------------------------------------------------------------------------
+build_bun_binary() {
+    local src_dir="$1" entry="$2" out_dir="$3" out_name="$4"
+    shift 4
+    local extra_flags=("$@")
+
+    mkdir -p "$out_dir"
+    (cd "$src_dir" && bun install --frozen-lockfile 2>/dev/null || bun install)
+
+    local build_flags=(--compile "${extra_flags[@]}")
+
+    if [ "${UNIVERSAL:-}" = "1" ]; then
+        echo "Building $out_name (universal)..."
+        bun build "${build_flags[@]}" --target=bun-darwin-arm64 "$entry" \
+            --outfile "$out_dir/${out_name}-arm64"
+        bun build "${build_flags[@]}" --target=bun-darwin-x64 "$entry" \
+            --outfile "$out_dir/${out_name}-x64"
+        lipo -create \
+            "$out_dir/${out_name}-arm64" \
+            "$out_dir/${out_name}-x64" \
+            -output "$out_dir/$out_name"
+        rm "$out_dir/${out_name}-arm64" "$out_dir/${out_name}-x64"
+    else
+        echo "Building $out_name..."
+        bun build "${build_flags[@]}" "$entry" --outfile "$out_dir/$out_name"
+    fi
+
+    chmod +x "$out_dir/$out_name"
+    echo "$out_name built: $out_dir/$out_name"
+    [ "${UNIVERSAL:-}" = "1" ] && file "$out_dir/$out_name"
+}
+
+# ---------------------------------------------------------------------------
+# build_binaries — build all Bun binaries (daemon, CLI, and optionally gateway).
+#
+# Env vars: UNIVERSAL, BUILD_GATEWAY, APP_VERSION, CLI_EXTERNALS (see header).
+# ---------------------------------------------------------------------------
+build_binaries() {
+    command -v bun &>/dev/null || { echo "ERROR: bun is required but not found"; exit 1; }
+
+    # Daemon
+    local daemon_flags=(--external electron --external "chromium-bidi/*")
+    if [ -n "${APP_VERSION:-}" ]; then
+        daemon_flags+=(--define "process.env.APP_VERSION='$APP_VERSION'")
+    fi
+    build_bun_binary "$ASSISTANT_SRC_DIR" "$ASSISTANT_SRC_DIR/src/daemon/main.ts" \
+        "$SCRIPT_DIR/daemon-bin" "vellum-daemon" "${daemon_flags[@]}"
+    # Copy WASM assets (not bundled by bun --compile)
+    cp "$ASSISTANT_SRC_DIR/node_modules/web-tree-sitter/web-tree-sitter.wasm" "$SCRIPT_DIR/daemon-bin/"
+    cp "$ASSISTANT_SRC_DIR/node_modules/tree-sitter-bash/tree-sitter-bash.wasm" "$SCRIPT_DIR/daemon-bin/"
+    # Copy bundled skills
+    rm -rf "$SCRIPT_DIR/daemon-bin/bundled-skills"
+    cp -R "$ASSISTANT_SRC_DIR/src/config/bundled-skills" "$SCRIPT_DIR/daemon-bin/bundled-skills"
+
+    # CLI
+    local cli_flags=()
+    if [ -n "${CLI_EXTERNALS:-}" ]; then
+        for ext in $CLI_EXTERNALS; do
+            cli_flags+=(--external "$ext")
+        done
+    fi
+    build_bun_binary "$CLI_SRC_DIR" "$CLI_SRC_DIR/src/index.ts" \
+        "$SCRIPT_DIR/cli-bin" "vellum-cli" "${cli_flags[@]}"
+
+    # Gateway (optional)
+    if [ "${BUILD_GATEWAY:-}" = "1" ]; then
+        build_bun_binary "$GATEWAY_SRC_DIR" "$GATEWAY_SRC_DIR/src/index.ts" \
+            "$SCRIPT_DIR/gateway-bin" "vellum-gateway"
+    fi
+}
+
 case "$CMD" in
     test)
         echo "Running tests..."
@@ -116,10 +204,15 @@ case "$CMD" in
         echo "Done."
         exit 0
         ;;
+    build-binaries)
+        build_binaries
+        echo "All binaries built."
+        exit 0
+        ;;
     build|run|release)
         ;;
     *)
-        echo "Usage: $0 [build|run|release|test|clean|lint]"
+        echo "Usage: $0 [build|run|release|build-binaries|test|clean|lint]"
         exit 1
         ;;
 esac
@@ -172,7 +265,6 @@ if [ ! -f "$MACOS_DIR/$BUNDLE_DISPLAY_NAME" ] || [ "$EXECUTABLE" -nt "$MACOS_DIR
 fi
 
 # Auto-build daemon binary if missing or stale (source changed) and bun is available
-ASSISTANT_SRC_DIR="$SCRIPT_DIR/../../assistant"
 DAEMON_BIN_NEEDS_BUILD=false
 if [ -d "$ASSISTANT_SRC_DIR/src" ] && command -v bun &>/dev/null; then
     if [ ! -f "$SCRIPT_DIR/daemon-bin/vellum-daemon" ]; then
@@ -185,17 +277,14 @@ if [ -d "$ASSISTANT_SRC_DIR/src" ] && command -v bun &>/dev/null; then
     fi
 fi
 if [ "$DAEMON_BIN_NEEDS_BUILD" = true ]; then
-    echo "Building daemon binary from source..."
-    mkdir -p "$SCRIPT_DIR/daemon-bin"
-    (cd "$ASSISTANT_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
-    bun build --compile "$ASSISTANT_SRC_DIR/src/daemon/main.ts" \
-      --external electron --external "chromium-bidi/*" \
-      --outfile "$SCRIPT_DIR/daemon-bin/vellum-daemon"
-    chmod +x "$SCRIPT_DIR/daemon-bin/vellum-daemon"
-    # Copy WASM assets next to daemon binary (not bundled by bun --compile)
+    local_daemon_flags=(--external electron --external "chromium-bidi/*")
+    if [ -n "${APP_VERSION:-}" ]; then
+        local_daemon_flags+=(--define "process.env.APP_VERSION='$APP_VERSION'")
+    fi
+    build_bun_binary "$ASSISTANT_SRC_DIR" "$ASSISTANT_SRC_DIR/src/daemon/main.ts" \
+        "$SCRIPT_DIR/daemon-bin" "vellum-daemon" "${local_daemon_flags[@]}"
     cp "$ASSISTANT_SRC_DIR/node_modules/web-tree-sitter/web-tree-sitter.wasm" "$SCRIPT_DIR/daemon-bin/"
     cp "$ASSISTANT_SRC_DIR/node_modules/tree-sitter-bash/tree-sitter-bash.wasm" "$SCRIPT_DIR/daemon-bin/"
-    echo "Daemon binary built: $SCRIPT_DIR/daemon-bin/vellum-daemon"
 fi
 
 # Always refresh bundled skills from source (skill assets like SKILL.md aren't
@@ -214,7 +303,6 @@ if [ -f "$SCRIPT_DIR/daemon-bin/vellum-daemon" ]; then
 fi
 
 # Auto-build CLI binary if missing or stale (source changed) and bun is available
-CLI_SRC_DIR="$SCRIPT_DIR/../../cli"
 CLI_BIN_NEEDS_BUILD=false
 if [ -d "$CLI_SRC_DIR/src" ] && command -v bun &>/dev/null; then
     if [ ! -f "$SCRIPT_DIR/cli-bin/vellum-cli" ]; then
@@ -227,12 +315,14 @@ if [ -d "$CLI_SRC_DIR/src" ] && command -v bun &>/dev/null; then
     fi
 fi
 if [ "$CLI_BIN_NEEDS_BUILD" = true ]; then
-    echo "Building CLI binary from source..."
-    mkdir -p "$SCRIPT_DIR/cli-bin"
-    (cd "$CLI_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
-    bun build --compile "$CLI_SRC_DIR/src/index.ts" --outfile "$SCRIPT_DIR/cli-bin/vellum-cli"
-    chmod +x "$SCRIPT_DIR/cli-bin/vellum-cli"
-    echo "CLI binary built: $SCRIPT_DIR/cli-bin/vellum-cli"
+    local_cli_flags=()
+    if [ -n "${CLI_EXTERNALS:-}" ]; then
+        for ext in $CLI_EXTERNALS; do
+            local_cli_flags+=(--external "$ext")
+        done
+    fi
+    build_bun_binary "$CLI_SRC_DIR" "$CLI_SRC_DIR/src/index.ts" \
+        "$SCRIPT_DIR/cli-bin" "vellum-cli" "${local_cli_flags[@]}"
 fi
 
 # Also rebuild if CLI binary changed or newly added
@@ -243,7 +333,6 @@ if [ -f "$SCRIPT_DIR/cli-bin/vellum-cli" ]; then
 fi
 
 # Auto-build gateway binary if missing or stale (source changed) and bun is available
-GATEWAY_SRC_DIR="$SCRIPT_DIR/../../gateway"
 GATEWAY_BIN_NEEDS_BUILD=false
 if [ -d "$GATEWAY_SRC_DIR/src" ] && command -v bun &>/dev/null; then
     if [ ! -f "$SCRIPT_DIR/gateway-bin/vellum-gateway" ]; then
@@ -256,12 +345,8 @@ if [ -d "$GATEWAY_SRC_DIR/src" ] && command -v bun &>/dev/null; then
     fi
 fi
 if [ "$GATEWAY_BIN_NEEDS_BUILD" = true ]; then
-    echo "Building gateway binary from source..."
-    mkdir -p "$SCRIPT_DIR/gateway-bin"
-    (cd "$GATEWAY_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
-    bun build --compile "$GATEWAY_SRC_DIR/src/index.ts" --outfile "$SCRIPT_DIR/gateway-bin/vellum-gateway"
-    chmod +x "$SCRIPT_DIR/gateway-bin/vellum-gateway"
-    echo "Gateway binary built: $SCRIPT_DIR/gateway-bin/vellum-gateway"
+    build_bun_binary "$GATEWAY_SRC_DIR" "$GATEWAY_SRC_DIR/src/index.ts" \
+        "$SCRIPT_DIR/gateway-bin" "vellum-gateway"
 fi
 
 # Also rebuild if gateway binary changed or newly added
