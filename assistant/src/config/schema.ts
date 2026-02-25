@@ -185,6 +185,11 @@ export const AssistantConfigSchema = z.object({
     .int('maxTokens must be an integer')
     .positive('maxTokens must be a positive integer')
     .default(16000),
+  maxToolUseTurns: z
+    .number({ error: 'maxToolUseTurns must be a number' })
+    .int('maxToolUseTurns must be an integer')
+    .positive('maxToolUseTurns must be a positive integer')
+    .default(60),
   thinking: ThinkingConfigSchema.default({
     enabled: false,
     budgetTokens: 10000,

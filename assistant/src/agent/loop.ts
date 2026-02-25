@@ -36,11 +36,15 @@ export type AgentEvent =
 
 const DEFAULT_CONFIG: AgentLoopConfig = {
   maxTokens: 16000,
-  maxToolUseTurns: 30,
+  maxToolUseTurns: 60,
 };
 
 const PROGRESS_CHECK_INTERVAL = 5;
 const PROGRESS_CHECK_REMINDER = 'You have been using tools for several turns. Check whether you are making meaningful progress toward the user\'s goal. If you are stuck in a loop or not making progress, summarize what you have tried and ask the user for guidance instead of continuing.';
+
+// Warn the model N turns before the hard limit so it can wrap up gracefully
+const APPROACHING_LIMIT_OFFSET = 5;
+const APPROACHING_LIMIT_WARNING = 'You are approaching the tool-use turn limit. You have {remaining} turns remaining. Wrap up your current task — summarize progress and present results to the user. If you cannot finish, explain what remains and ask the user how to proceed.';
 
 export class AgentLoop {
   private provider: Provider;
@@ -373,7 +377,14 @@ export class AgentLoop {
           history.push({ role: 'user', content: resultBlocks });
           break;
         }
-        if (toolUseTurns % PROGRESS_CHECK_INTERVAL === 0) {
+        // Soft warning a few turns before the hard limit
+        const softLimit = (this.config.maxToolUseTurns ?? 0) - APPROACHING_LIMIT_OFFSET;
+        if (softLimit > 0 && toolUseTurns === softLimit) {
+          resultBlocks.push({
+            type: 'text',
+            text: `<system_notice>${APPROACHING_LIMIT_WARNING.replace('{remaining}', String(APPROACHING_LIMIT_OFFSET))}</system_notice>`,
+          });
+        } else if (toolUseTurns % PROGRESS_CHECK_INTERVAL === 0) {
           resultBlocks.push({
             type: 'text',
             text: `<system_notice>${PROGRESS_CHECK_REMINDER}</system_notice>`,
