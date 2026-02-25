@@ -672,6 +672,7 @@ function buildDynamicSkillWorkflowSection(): string {
     '5. Load with `skill_load` before use.',
     '',
     '**Never persist or delete skills without explicit user confirmation.** To remove: `delete_managed_skill`.',
+    'After a skill is written or deleted, the next turn may run in a recreated session due to file-watcher eviction. Continue normally.',
     '',
     '### Browser Skill Prerequisite',
     'If you need browser capabilities (navigating web pages, clicking elements, extracting content) and `browser_*` tools are not available, load the "browser" skill first using `skill_load`.',
