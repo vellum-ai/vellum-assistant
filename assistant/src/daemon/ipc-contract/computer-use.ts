@@ -90,6 +90,7 @@ export interface RecordingOptions {
   displayId?: string;        // CGDirectDisplayID as string
   windowId?: number;          // CGWindowID
   includeAudio?: boolean;
+  includeMicrophone?: boolean;
   promptForSource?: boolean;  // show source picker
 }
 

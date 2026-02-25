@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import VellumAssistantShared
 import os
 
@@ -81,6 +82,19 @@ extension AppDelegate {
         attachToConversationId: String?
     ) {
         Task {
+            // Check microphone permission if microphone is requested
+            if options?.includeMicrophone == true {
+                let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+                if micStatus == .notDetermined {
+                    let granted = await AVCaptureDevice.requestAccess(for: .audio)
+                    if !granted {
+                        log.warning("Microphone permission denied — recording without microphone")
+                    }
+                } else if micStatus == .denied || micStatus == .restricted {
+                    log.warning("Microphone permission denied — recording without microphone")
+                }
+            }
+
             let started = await recordingManager.start(
                 sessionId: recordingId,
                 options: options,

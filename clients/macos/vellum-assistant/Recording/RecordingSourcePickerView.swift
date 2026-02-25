@@ -158,7 +158,7 @@ struct RecordingSourcePickerView: View {
 
     private var bottomBar: some View {
         VStack(spacing: VSpacing.md) {
-            // Audio toggle
+            // Audio toggles
             Toggle(isOn: $viewModel.includeAudio) {
                 HStack(spacing: VSpacing.sm) {
                     Image(systemName: "speaker.wave.2")
@@ -170,6 +170,20 @@ struct RecordingSourcePickerView: View {
             }
             .toggleStyle(.switch)
             .padding(.horizontal, VSpacing.xl)
+
+            if #available(macOS 14, *) {
+                Toggle(isOn: $viewModel.includeMicrophone) {
+                    HStack(spacing: VSpacing.sm) {
+                        Image(systemName: "mic")
+                            .foregroundColor(VColor.textSecondary)
+                        Text("Include microphone")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textPrimary)
+                    }
+                }
+                .toggleStyle(.switch)
+                .padding(.horizontal, VSpacing.xl)
+            }
 
             // Buttons
             HStack(spacing: VSpacing.md) {

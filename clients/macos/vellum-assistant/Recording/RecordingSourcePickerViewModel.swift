@@ -37,6 +37,7 @@ final class RecordingSourcePickerViewModel: ObservableObject {
     @Published var selectedDisplayId: UInt32?
     @Published var selectedWindowId: Int?
     @Published var includeAudio: Bool = false
+    @Published var includeMicrophone: Bool = false
 
     @Published private(set) var displays: [DisplaySource] = []
     @Published private(set) var windows: [WindowSource] = []
@@ -49,6 +50,7 @@ final class RecordingSourcePickerViewModel: ObservableObject {
             displayId: captureScope == .display ? selectedDisplayId.map { String($0) } : nil,
             windowId: captureScope == .window ? selectedWindowId.map { Double($0) } : nil,
             includeAudio: includeAudio,
+            includeMicrophone: includeMicrophone,
             promptForSource: false
         )
     }

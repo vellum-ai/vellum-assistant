@@ -43,6 +43,7 @@ final class ScreenRecorder: NSObject {
     private var assetWriter: AVAssetWriter?
     private var videoInput: AVAssetWriterInput?
     private var audioInput: AVAssetWriterInput?
+    private var micInput: AVAssetWriterInput?
     private var startTime: CMTime?
     private var lastVideoTime: CMTime?
     private var recordingStartDate: Date?
@@ -76,11 +77,13 @@ final class ScreenRecorder: NSObject {
     ///   - displayId: CGDirectDisplayID as UInt32. Required when captureScope is `display`.
     ///   - windowId: CGWindowID. Required when captureScope is `window`.
     ///   - includeAudio: Whether to capture system audio (default: false).
+    ///   - includeMicrophone: Whether to capture microphone audio (default: false). Requires macOS 14+.
     func start(
         captureScope: String = "display",
         displayId: String? = nil,
         windowId: Int? = nil,
-        includeAudio: Bool = false
+        includeAudio: Bool = false,
+        includeMicrophone: Bool = false
     ) async throws {
         guard !isRecordingActive else {
             log.warning("Already recording — ignoring start request")
@@ -133,6 +136,12 @@ final class ScreenRecorder: NSObject {
             config.channelCount = 2
         }
 
+        // SCStreamConfiguration.captureMicrophone and SCStreamOutputType.microphone
+        // require macOS 15+ despite being declared in the macOS 14 SDK headers.
+        if includeMicrophone, #available(macOS 15, *) {
+            config.captureMicrophone = true
+        }
+
         // Set up AVAssetWriter
         try Self.ensureRecordingsDirectory()
         let timestamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
@@ -156,7 +165,7 @@ final class ScreenRecorder: NSObject {
         writer.add(vInput)
         self.videoInput = vInput
 
-        // Audio input: AAC (optional)
+        // Audio input: AAC (optional — system audio)
         if includeAudio {
             let audioSettings: [String: Any] = [
                 AVFormatIDKey: kAudioFormatMPEG4AAC,
@@ -170,6 +179,20 @@ final class ScreenRecorder: NSObject {
             self.audioInput = aInput
         }
 
+        // Microphone input: AAC (optional — separate track, macOS 14+)
+        if includeMicrophone, #available(macOS 15, *) {
+            let micSettings: [String: Any] = [
+                AVFormatIDKey: kAudioFormatMPEG4AAC,
+                AVSampleRateKey: 48000,
+                AVNumberOfChannelsKey: 1,
+                AVEncoderBitRateKey: 64000,
+            ]
+            let mInput = AVAssetWriterInput(mediaType: .audio, outputSettings: micSettings)
+            mInput.expectsMediaDataInRealTime = true
+            writer.add(mInput)
+            self.micInput = mInput
+        }
+
         self.assetWriter = writer
 
         // Create stream and output delegate
@@ -181,6 +204,9 @@ final class ScreenRecorder: NSObject {
         try captureStream.addStreamOutput(delegate, type: .screen, sampleHandlerQueue: outputQueue)
         if includeAudio {
             try captureStream.addStreamOutput(delegate, type: .audio, sampleHandlerQueue: outputQueue)
+        }
+        if includeMicrophone, #available(macOS 15, *) {
+            try captureStream.addStreamOutput(delegate, type: .microphone, sampleHandlerQueue: outputQueue)
         }
 
         self.stream = captureStream
@@ -226,6 +252,7 @@ final class ScreenRecorder: NSObject {
         // Finish writing
         videoInput?.markAsFinished()
         audioInput?.markAsFinished()
+        micInput?.markAsFinished()
 
         let outputURL = writer.outputURL
 
@@ -280,6 +307,10 @@ final class ScreenRecorder: NSObject {
                 if let aInput = audioInput, aInput.isReadyForMoreMediaData {
                     aInput.append(sampleBuffer)
                 }
+            case .microphone:
+                if let mInput = micInput, mInput.isReadyForMoreMediaData {
+                    mInput.append(sampleBuffer)
+                }
             @unknown default:
                 break
             }
@@ -313,6 +344,7 @@ final class ScreenRecorder: NSObject {
         assetWriter = nil
         videoInput = nil
         audioInput = nil
+        micInput = nil
         startTime = nil
         lastVideoTime = nil
         recordingStartDate = nil

@@ -78,7 +78,8 @@ final class RecordingManager: ObservableObject {
                 captureScope: options?.captureScope ?? "display",
                 displayId: options?.displayId,
                 windowId: options?.windowId.flatMap { Int(exactly: $0) },
-                includeAudio: options?.includeAudio ?? false
+                includeAudio: options?.includeAudio ?? false,
+                includeMicrophone: options?.includeMicrophone ?? false
             )
 
             // Guard against stale completion: if stop() or forceStop() was called
