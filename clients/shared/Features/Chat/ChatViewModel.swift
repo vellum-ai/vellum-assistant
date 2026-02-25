@@ -1676,10 +1676,10 @@ public final class ChatViewModel: ObservableObject {
             let toolsBeforeText = item.toolCallsBeforeText ?? true
             if let historyToolCalls = item.toolCalls {
                 toolCalls = historyToolCalls.map { tc in
-                    ToolCallData(
+                    var toolCall = ToolCallData(
                         toolName: tc.name,
                         inputSummary: summarizeToolInput(tc.input),
-                        inputFull: formatAllToolInput(tc.input),
+                        inputFull: "",
                         inputRawValue: extractToolInput(tc.input),
                         result: tc.result,
                         isError: tc.isError ?? false,
@@ -1687,6 +1687,10 @@ public final class ChatViewModel: ObservableObject {
                         arrivedBeforeText: toolsBeforeText,
                         imageData: tc.imageData
                     )
+                    // Defer expensive formatting — store the raw dict for lazy computation
+                    // when the user expands the tool call chip.
+                    toolCall.inputRawDict = tc.input
+                    return toolCall
                 }
             }
             let attachments: [ChatAttachment] = mapIPCAttachments(item.attachments ?? [])

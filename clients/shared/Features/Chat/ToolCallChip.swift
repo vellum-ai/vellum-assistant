@@ -15,6 +15,15 @@ public struct ToolCallChip: View {
         toolCall.result != nil || toolCall.cachedImage != nil
     }
 
+    /// Lazily resolved full input text. If `inputFull` was deferred during history
+    /// load, compute it from the raw dictionary on first access (when the user
+    /// expands the chip) instead of during `populateFromHistory`.
+    private var resolvedInputFull: String {
+        if !toolCall.inputFull.isEmpty { return toolCall.inputFull }
+        if let dict = toolCall.inputRawDict { return ToolCallData.formatAllToolInput(dict) }
+        return ""
+    }
+
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Chip header (always visible)
@@ -71,8 +80,8 @@ public struct ToolCallChip: View {
                             Text(toolCall.friendlyName)
                                 .font(VFont.captionMedium)
                                 .foregroundColor(VColor.textSecondary)
-                            if !toolCall.inputFull.isEmpty {
-                                Text(toolCall.inputFull)
+                            if !resolvedInputFull.isEmpty {
+                                Text(resolvedInputFull)
                                     .font(VFont.monoSmall)
                                     .foregroundColor(VColor.textSecondary)
                                     .textSelection(.enabled)
