@@ -4,12 +4,12 @@ import { getDataDir } from '../util/platform.js';
 
 // Re-export all domain schemas
 export type {
-  AgentHeartbeatConfig,
+  HeartbeatConfig,
   SwarmConfig,
   WorkspaceGitConfig,
 } from './agent-schema.js';
 export {
-  AgentHeartbeatConfigSchema,
+  HeartbeatConfigSchema,
   SwarmConfigSchema,
   WorkspaceGitConfigSchema,
 } from './agent-schema.js';
@@ -128,7 +128,7 @@ export {
 } from './skills-schema.js';
 
 // Imports for AssistantConfigSchema composition
-import { AgentHeartbeatConfigSchema, SwarmConfigSchema, WorkspaceGitConfigSchema } from './agent-schema.js';
+import { HeartbeatConfigSchema, SwarmConfigSchema, WorkspaceGitConfigSchema } from './agent-schema.js';
 import { CallsConfigSchema } from './calls-schema.js';
 import {
   AuditLogConfigSchema,
@@ -204,7 +204,7 @@ export const AssistantConfigSchema = z.object({
   pricingOverrides: z
     .array(ModelPricingOverrideSchema)
     .default([]),
-  agentHeartbeat: AgentHeartbeatConfigSchema.default({} as any),
+  heartbeat: HeartbeatConfigSchema.default({} as any),
   swarm: SwarmConfigSchema.default({} as any),
   skills: SkillsConfigSchema.default({} as any),
   workspaceGit: WorkspaceGitConfigSchema.default({} as any),

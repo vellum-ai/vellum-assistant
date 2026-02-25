@@ -183,7 +183,6 @@
   ],
   "serverWireTypes": [
     "accept_starter_bundle_response",
-    "agent_heartbeat_alert",
     "app_data_response",
     "app_diff_response",
     "app_file_at_version_response",
@@ -230,6 +229,7 @@
     "generation_handoff",
     "get_signing_identity",
     "guardian_verification_response",
+    "heartbeat_alert",
     "history_response",
     "home_base_get_response",
     "identity_get_response",

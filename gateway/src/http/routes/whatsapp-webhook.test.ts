@@ -76,6 +76,7 @@ const baseConfig: GatewayConfig = {
   whatsappTimeoutMs: 15000,
   whatsappMaxRetries: 3,
   whatsappInitialBackoffMs: 1000,
+    trustProxy: false,
 };
 
 function buildPostReq(body: Record<string, unknown>): Request {

@@ -1133,9 +1133,9 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     title: 'Urgent email from Alice',
     body: 'Meeting rescheduled to 3pm today.',
   },
-  agent_heartbeat_alert: {
-    type: 'agent_heartbeat_alert',
-    title: 'Agent heartbeat stalled',
+  heartbeat_alert: {
+    type: 'heartbeat_alert',
+    title: 'Heartbeat stalled',
     body: 'No activity detected in the last 60 minutes.',
   },
   watch_started: {
