@@ -62,6 +62,7 @@ export function enqueueMessage(
   activeSurfaceId?: string,
   currentPage?: string,
   metadata?: Record<string, unknown>,
+  options?: { isInteractive?: boolean },
 ): { queued: boolean; rejected?: boolean; requestId: string } {
   if (!ctx.processing) {
     return { queued: false, requestId };
@@ -79,6 +80,7 @@ export function enqueueMessage(
     metadata,
     turnChannelContext,
     turnInterfaceContext,
+    isInteractive: options?.isInteractive,
     queuedAt: Date.now(),
   });
   if (!pushed) {
