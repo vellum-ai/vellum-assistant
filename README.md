@@ -4,6 +4,35 @@
 
 AI-powered assistant platform by Vellum.
 
+## Table of Contents
+
+- [**Overview**](#overview)
+  - Architecture
+  - Repository Structure
+- [**Getting Started**](#getting-started)
+  - Prerequisites
+  - Git Hooks
+  - Assistant Runtime
+- [**Security & Permissions**](#security--permissions)
+  - Sandbox and Host Access Model
+  - Credential Storage and Secret Security
+  - Permission Modes and Trust Rules
+- [**Features & Capabilities**](#features--capabilities)
+  - Integrations
+  - Dynamic Skill Authoring
+  - Browser Capabilities
+  - Assistant Attachments
+  - Inline Media Embeds
+- [**API & Communication**](#api--communication)
+  - Assistant Events SSE Stream
+  - Remote Access
+- [**Development Workflow**](#development-workflow)
+  - Claude Code Workflow
+  - Release Management
+- [**License**](#license)
+
+## Overview
+
 <details>
 <summary><b>Architecture</b></summary>
 
@@ -30,6 +59,8 @@ The platform has three main components:
 ```
 
 </details>
+
+## Getting Started
 
 <details>
 <summary><b>Prerequisites</b></summary>
@@ -66,6 +97,8 @@ bun run src/index.ts daemon start
 > **Note:** Some dependencies (`agentmail`, `@pydantic/logfire-node`) are optional at runtime but required for full `tsc --noEmit` type-checking to pass. They are installed automatically by `bun install`.
 
 </details>
+
+## Security & Permissions
 
 <details>
 <summary><b>Sandbox and Host Access Model</b></summary>
@@ -216,6 +249,77 @@ If a proxied command receives a 401 or 403 despite having the correct credential
 </details>
 
 <details>
+<summary><b>Permission Modes and Trust Rules</b></summary>
+
+The assistant uses a permission system to control which tool actions the agent can execute without explicit user approval. Permission behavior is configured via `permissions.mode`:
+
+| Mode | Default? | Behavior |
+|---|---|---|
+| `workspace` | Yes | Workspace-scoped operations (file reads/writes/edits within workspace, sandboxed bash) are auto-allowed without prompting. Host operations, network requests, and operations outside the workspace still follow the normal approval flow. Explicit deny and ask rules override auto-allow. |
+| `strict` | No | Every tool invocation without an explicit matching trust rule prompts the user. No implicit auto-allow for any risk level. |
+| `legacy` (deprecated) | No | Low-risk tools auto-allowed, medium/high prompted. **Deprecated — will be removed in a future release.** |
+
+To switch modes:
+
+```bash
+# Workspace mode (default) — workspace-scoped ops auto-allowed, others follow risk-based policy
+vellum config set permissions.mode '"workspace"'
+
+# Strict — ALL tools require an explicit trust rule, no implicit auto-allow
+vellum config set permissions.mode '"strict"'
+
+# Legacy — low-risk tools auto-allowed, medium/high prompted (deprecated)
+vellum config set permissions.mode '"legacy"'
+```
+
+> **Note:** Legacy mode is deprecated. If your config uses `permissions.mode: "legacy"`, switch to `workspace` or `strict`. A runtime warning is emitted on first use.
+
+Existing users with `permissions.mode: "strict"` or `permissions.mode: "legacy"` explicitly in their config will continue to use those modes unchanged.
+
+### Trust rules
+
+User approval decisions are persisted as trust rules in `~/.vellum/protected/trust.json`. Rules support:
+
+- **Pattern matching**: Minimatch glob patterns for tool commands and file paths.
+- **Execution target binding**: Rules can be scoped to `sandbox` or `host` execution contexts.
+- **High-risk override**: Rules with `allowHighRisk: true` auto-allow even high-risk tool invocations.
+
+### Shell command allowlist options
+
+When you approve a shell command (`host_bash` or `bash`), the permission prompt offers parser-derived allowlist options based on the command's structure. The shell parser extracts "action keys" — hierarchical identifiers that represent the command family — instead of using whitespace-split patterns.
+
+For example, `cd /repo && gh pr view 5525 --json title` generates these allowlist options:
+
+- `cd /repo && gh pr view 5525 --json title` — the full original command text (exactly what will be approved)
+- `gh pr view *` — any `gh pr view` command (trust rule pattern: `action:gh pr view`)
+- `gh pr *` — any `gh pr` command (trust rule pattern: `action:gh pr`)
+- `gh *` — any `gh` command (trust rule pattern: `action:gh`)
+
+Setup prefixes (`cd`, `export`, `pushd`, etc.) are stripped before deriving action keys for the broader pattern options, but the exact option always uses the full original command text.
+
+**Compound commands** (with `&&`, `||`, `|`) that contain multiple non-prefix actions only offer an exact-command option — no broad action-family patterns. This prevents a complex pipeline from being over-generalized into a permissive rule.
+
+**Scope ordering**: When persisting a rule, scope options are always ordered from narrowest to broadest: project > parent directories > everywhere. The macOS app shows an explicit scope picker (two-step flow: select pattern, then select scope) so users always see where the rule will apply.
+
+### Version-bound skill approvals
+
+When you approve a skill-originated action, the trust rule can record the skill's version hash. If the skill's source files change, the hash changes and the old rule no longer matches — you are re-prompted. This prevents modified skills from silently inheriting previous approvals.
+
+### Starter approval bundle
+
+In strict mode, a **starter bundle** can be accepted to seed common safe rules (file reads, glob, grep, web search, etc.), reducing initial prompt noise without compromising security for mutation or execution tools.
+
+### Skill source mutation protection
+
+When `file_write`, `file_edit`, `host_file_write`, or `host_file_edit` targets a path inside a skill directory (managed, bundled, workspace, or extra), the operation is escalated to **high risk**. This prevents the agent from modifying skill code — which could alter its own capabilities — without explicit user consent. Note that mutations via `bash` are not covered by this escalation.
+
+See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full permission evaluation flow diagrams and [`assistant/docs/skills.md`](assistant/docs/skills.md) for detailed skills security documentation.
+
+</details>
+
+## Features & Capabilities
+
+<details>
 <summary><b>Integrations</b></summary>
 
 Vellum integrates with third-party services via OAuth2. Each integration is exposed as a bundled skill with its own set of tools.
@@ -347,75 +451,6 @@ All `browser_*` tools are declared as low-risk. The system seeds default trust r
 </details>
 
 <details>
-<summary><b>Permission Modes and Trust Rules</b></summary>
-
-The assistant uses a permission system to control which tool actions the agent can execute without explicit user approval. Permission behavior is configured via `permissions.mode`:
-
-| Mode | Default? | Behavior |
-|---|---|---|
-| `workspace` | Yes | Workspace-scoped operations (file reads/writes/edits within workspace, sandboxed bash) are auto-allowed without prompting. Host operations, network requests, and operations outside the workspace still follow the normal approval flow. Explicit deny and ask rules override auto-allow. |
-| `strict` | No | Every tool invocation without an explicit matching trust rule prompts the user. No implicit auto-allow for any risk level. |
-| `legacy` (deprecated) | No | Low-risk tools auto-allowed, medium/high prompted. **Deprecated — will be removed in a future release.** |
-
-To switch modes:
-
-```bash
-# Workspace mode (default) — workspace-scoped ops auto-allowed, others follow risk-based policy
-vellum config set permissions.mode '"workspace"'
-
-# Strict — ALL tools require an explicit trust rule, no implicit auto-allow
-vellum config set permissions.mode '"strict"'
-
-# Legacy — low-risk tools auto-allowed, medium/high prompted (deprecated)
-vellum config set permissions.mode '"legacy"'
-```
-
-> **Note:** Legacy mode is deprecated. If your config uses `permissions.mode: "legacy"`, switch to `workspace` or `strict`. A runtime warning is emitted on first use.
-
-Existing users with `permissions.mode: "strict"` or `permissions.mode: "legacy"` explicitly in their config will continue to use those modes unchanged.
-
-### Trust rules
-
-User approval decisions are persisted as trust rules in `~/.vellum/protected/trust.json`. Rules support:
-
-- **Pattern matching**: Minimatch glob patterns for tool commands and file paths.
-- **Execution target binding**: Rules can be scoped to `sandbox` or `host` execution contexts.
-- **High-risk override**: Rules with `allowHighRisk: true` auto-allow even high-risk tool invocations.
-
-### Shell command allowlist options
-
-When you approve a shell command (`host_bash` or `bash`), the permission prompt offers parser-derived allowlist options based on the command's structure. The shell parser extracts "action keys" — hierarchical identifiers that represent the command family — instead of using whitespace-split patterns.
-
-For example, `cd /repo && gh pr view 5525 --json title` generates these allowlist options:
-
-- `cd /repo && gh pr view 5525 --json title` — the full original command text (exactly what will be approved)
-- `gh pr view *` — any `gh pr view` command (trust rule pattern: `action:gh pr view`)
-- `gh pr *` — any `gh pr` command (trust rule pattern: `action:gh pr`)
-- `gh *` — any `gh` command (trust rule pattern: `action:gh`)
-
-Setup prefixes (`cd`, `export`, `pushd`, etc.) are stripped before deriving action keys for the broader pattern options, but the exact option always uses the full original command text.
-
-**Compound commands** (with `&&`, `||`, `|`) that contain multiple non-prefix actions only offer an exact-command option — no broad action-family patterns. This prevents a complex pipeline from being over-generalized into a permissive rule.
-
-**Scope ordering**: When persisting a rule, scope options are always ordered from narrowest to broadest: project > parent directories > everywhere. The macOS app shows an explicit scope picker (two-step flow: select pattern, then select scope) so users always see where the rule will apply.
-
-### Version-bound skill approvals
-
-When you approve a skill-originated action, the trust rule can record the skill's version hash. If the skill's source files change, the hash changes and the old rule no longer matches — you are re-prompted. This prevents modified skills from silently inheriting previous approvals.
-
-### Starter approval bundle
-
-In strict mode, a **starter bundle** can be accepted to seed common safe rules (file reads, glob, grep, web search, etc.), reducing initial prompt noise without compromising security for mutation or execution tools.
-
-### Skill source mutation protection
-
-When `file_write`, `file_edit`, `host_file_write`, or `host_file_edit` targets a path inside a skill directory (managed, bundled, workspace, or extra), the operation is escalated to **high risk**. This prevents the agent from modifying skill code — which could alter its own capabilities — without explicit user consent. Note that mutations via `bash` are not covered by this escalation.
-
-See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full permission evaluation flow diagrams and [`assistant/docs/skills.md`](assistant/docs/skills.md) for detailed skills security documentation.
-
-</details>
-
-<details>
 <summary><b>Assistant Attachments</b></summary>
 
 The assistant can attach files and images to its replies. Attachments flow through three delivery channels:
@@ -458,6 +493,39 @@ The assistant creates attachments from two sources:
 Limits: up to 5 attachments per turn, 20 MB each.
 
 </details>
+
+<details>
+<summary><b>Inline Media Embeds</b></summary>
+
+The desktop app automatically renders inline previews for images and video URLs that appear in chat messages. Instead of showing a bare link, recognized URLs are replaced with an embedded preview directly in the conversation.
+
+### Supported Content
+
+- **Images**: URLs ending in common image extensions (`.png`, `.jpg`, `.gif`, `.webp`, etc.) are rendered as inline images with lazy loading.
+- **Videos**: Embeds from YouTube, Vimeo, and Loom are rendered as click-to-play video players.
+
+URLs inside code blocks and code spans are never converted to embeds.
+
+### Settings
+
+Media embeds are controlled by settings under `ui.mediaEmbeds` in `~/.vellum/workspace/config.json`. These settings are also accessible from the standalone Settings window and the main-window settings panel.
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `enabled` | `true` | Global toggle for all inline media embeds |
+| `videoAllowlistDomains` | `["youtube.com", "youtu.be", "vimeo.com", "loom.com"]` | Domains allowed to render video embeds |
+| `enabledSince` | *(timestamp)* | Only messages created after this timestamp show embeds, so toggling the feature on does not retroactively modify older conversations |
+
+### Security and Privacy
+
+- Video embeds use **ephemeral webview storage** — no cookies or site data persist between sessions.
+- Videos require an explicit **click to play**; nothing auto-plays.
+- Image loads are **lazy** — off-screen images are not fetched until they scroll into view.
+- Video webviews are **torn down when scrolled offscreen** to free memory and stop background activity.
+
+</details>
+
+## API & Communication
 
 <details>
 <summary><b>Assistant Events SSE Stream</b></summary>
@@ -569,37 +637,6 @@ while (true) {
 </details>
 
 <details>
-<summary><b>Inline Media Embeds</b></summary>
-
-The desktop app automatically renders inline previews for images and video URLs that appear in chat messages. Instead of showing a bare link, recognized URLs are replaced with an embedded preview directly in the conversation.
-
-### Supported Content
-
-- **Images**: URLs ending in common image extensions (`.png`, `.jpg`, `.gif`, `.webp`, etc.) are rendered as inline images with lazy loading.
-- **Videos**: Embeds from YouTube, Vimeo, and Loom are rendered as click-to-play video players.
-
-URLs inside code blocks and code spans are never converted to embeds.
-
-### Settings
-
-Media embeds are controlled by settings under `ui.mediaEmbeds` in `~/.vellum/workspace/config.json`. These settings are also accessible from the standalone Settings window and the main-window settings panel.
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `enabled` | `true` | Global toggle for all inline media embeds |
-| `videoAllowlistDomains` | `["youtube.com", "youtu.be", "vimeo.com", "loom.com"]` | Domains allowed to render video embeds |
-| `enabledSince` | *(timestamp)* | Only messages created after this timestamp show embeds, so toggling the feature on does not retroactively modify older conversations |
-
-### Security and Privacy
-
-- Video embeds use **ephemeral webview storage** — no cookies or site data persist between sessions.
-- Videos require an explicit **click to play**; nothing auto-plays.
-- Image loads are **lazy** — off-screen images are not fetched until they scroll into view.
-- Video webviews are **torn down when scrolled offscreen** to free memory and stop background activity.
-
-</details>
-
-<details>
 <summary><b>Remote Access</b></summary>
 
 Access a remote assistant daemon from your local machine via SSH.
@@ -642,6 +679,8 @@ Over SSH-forwarded sockets, the probe fails automatically (the filesystems don't
 Run `vellum doctor` for a full diagnostic check including socket path and autostart policy.
 
 </details>
+
+## Development Workflow
 
 <details>
 <summary><b>Claude Code Workflow</b></summary>
