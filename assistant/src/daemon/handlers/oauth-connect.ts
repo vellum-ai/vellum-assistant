@@ -1,7 +1,7 @@
 import * as net from 'node:net';
 
 import { orchestrateOAuthConnect } from '../../oauth/connect-orchestrator.js';
-import { resolveService } from '../../oauth/provider-profiles.js';
+import { getProviderProfile, resolveService } from '../../oauth/provider-profiles.js';
 import { getSecureKey } from '../../security/secure-keys.js';
 import { assertMetadataWritable } from '../../tools/credentials/metadata-store.js';
 import type { OAuthConnectStartRequest } from '../ipc-protocol.js';
@@ -53,6 +53,21 @@ export async function handleOAuthConnectStart(
       getSecureKey(`credential:${resolvedService}:client_secret`) ??
       getSecureKey(`credential:${resolvedService}:oauth_client_secret`) ??
       undefined;
+
+    // Fail early when client_secret is required but missing — guide the
+    // user to collect it from the keychain rather than letting the OAuth
+    // flow proceed and fail at token exchange.
+    const profile = getProviderProfile(resolvedService);
+    const requiresSecret = profile?.setup?.requiresClientSecret
+      ?? !!(profile?.tokenEndpointAuthMethod || profile?.extraParams);
+    if (requiresSecret && !clientSecret) {
+      ctx.send(socket, {
+        type: 'oauth_connect_result',
+        success: false,
+        error: `client_secret is required for "${msg.service}" but not found in the keychain. Store it first via the credential vault.`,
+      });
+      return;
+    }
 
     const result = await orchestrateOAuthConnect({
       service: msg.service,
