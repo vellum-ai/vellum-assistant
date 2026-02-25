@@ -61,10 +61,8 @@ struct RecordingSourcePickerView: View {
                 switch viewModel.captureScope {
                 case .display:
                     ForEach(viewModel.displays) { display in
-                        sourceRow(
-                            title: display.name,
-                            subtitle: "\(display.width) x \(display.height)",
-                            icon: "display",
+                        displayRow(
+                            display: display,
                             isSelected: viewModel.selectedDisplayId == display.id
                         ) {
                             viewModel.selectedDisplayId = display.id
@@ -115,6 +113,65 @@ struct RecordingSourcePickerView: View {
                         .foregroundColor(VColor.textPrimary)
                         .lineLimit(1)
                     Text(subtitle)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(VColor.accent)
+                }
+            }
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.sm)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .fill(isSelected ? VColor.accent.opacity(0.1) : Color.clear)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .stroke(isSelected ? VColor.accent.opacity(0.3) : VColor.surfaceBorder, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Row for a display source showing name, resolution + scale, and a badge
+    /// when this is the display the picker window is on.
+    private func displayRow(
+        display: DisplaySource,
+        isSelected: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: VSpacing.md) {
+                Image(systemName: "display")
+                    .font(.system(size: 16))
+                    .foregroundColor(isSelected ? VColor.accent : VColor.textSecondary)
+                    .frame(width: 24)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: VSpacing.sm) {
+                        Text(display.name)
+                            .font(VFont.bodyMedium)
+                            .foregroundColor(VColor.textPrimary)
+                            .lineLimit(1)
+                        if display.isCurrentDisplay {
+                            Text("This display")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.accent)
+                                .padding(.horizontal, VSpacing.xs)
+                                .padding(.vertical, 1)
+                                .background(
+                                    Capsule()
+                                        .fill(VColor.accent.opacity(0.15))
+                                )
+                        }
+                    }
+                    Text(display.subtitle)
                         .font(VFont.caption)
                         .foregroundColor(VColor.textSecondary)
                         .lineLimit(1)
