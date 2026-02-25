@@ -115,35 +115,33 @@ Tell the user:
 
 ### Channel Step 6: Store Credentials
 
-**IMPORTANT — Secure credential collection only:** Never ask the user to paste credentials in chat. Always collect credentials through the secure credential prompt flow using `credential_store` with `action: "prompt"`. If the user has already pasted a credential in the conversation, inform them that for security reasons you cannot use credentials shared in chat and must collect them through the secure prompt instead.
-
 Tell the user:
 
 > **Step 5: Store your credentials**
 >
-> I'll now open secure input fields for your Client ID and Client Secret. These values are never visible in our conversation.
+> Please send me the **Client ID** and **Client Secret** from the dialog. I'll store them securely right away.
 
-First, collect the Client ID via secure prompt:
+Wait for the user to send both values. They may send them in one message or two — adapt accordingly.
+
+Once you have the Client ID, store it:
 
 ```
-credential_store prompt:
+credential_store store:
   service: "integration:gmail"
   field: "client_id"
-  label: "Google OAuth Client ID"
-  description: "Paste the Client ID from the dialog (looks like 123456789-xxxxx.apps.googleusercontent.com)"
-  placeholder: "123456789-xxxxx.apps.googleusercontent.com"
+  value: "<the Client ID the user sent>"
 ```
 
-Then collect the Client Secret via secure prompt:
+Once you have the Client Secret, store it:
 
 ```
-credential_store prompt:
+credential_store store:
   service: "integration:gmail"
   field: "client_secret"
-  label: "Google OAuth Client Secret"
-  description: "Paste the Client Secret from the dialog (starts with GOCSPX-...)"
-  placeholder: "GOCSPX-..."
+  value: "<the Client Secret the user sent>"
 ```
+
+> **Note:** Channel clients (Telegram, SMS) do not support secure credential prompts, so credentials are collected via chat and stored immediately. The values are not retained in conversation history after storage.
 
 ### Channel Step 7: Authorize
 
