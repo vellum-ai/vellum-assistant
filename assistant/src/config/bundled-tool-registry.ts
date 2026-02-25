@@ -132,6 +132,7 @@ import * as sequencePause from './bundled-skills/messaging/tools/sequence-pause.
 import * as sequenceResume from './bundled-skills/messaging/tools/sequence-resume.js';
 import * as sequenceCancel from './bundled-skills/messaging/tools/sequence-cancel.js';
 import * as sequenceImport from './bundled-skills/messaging/tools/sequence-import.js';
+import * as sequenceAnalytics from './bundled-skills/messaging/tools/sequence-analytics.js';
 
 // ── playbooks ────────────────────────────────────────────────────────────────
 import * as playbookCreate from './bundled-skills/playbooks/tools/playbook-create.js';
@@ -303,6 +304,7 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ['messaging:tools/sequence-resume.ts', sequenceResume],
   ['messaging:tools/sequence-cancel.ts', sequenceCancel],
   ['messaging:tools/sequence-import.ts', sequenceImport],
+  ['messaging:tools/sequence-analytics.ts', sequenceAnalytics],
 
   // playbooks
   ['playbooks:tools/playbook-create.ts', playbookCreate],
