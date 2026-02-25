@@ -387,6 +387,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             let viewModel = makeViewModel()
             viewModel.sessionId = thread.sessionId
             chatViewModels[id] = viewModel
+            evictStaleCachedViewModels()
         }
 
         touchVMAccessOrder(id)
