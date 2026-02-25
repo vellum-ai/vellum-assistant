@@ -8,7 +8,7 @@
  * requests track per-run guardian approval decisions.
  */
 
-import { and, count, desc, eq, gt, gte, inArray, lte, or, sum } from 'drizzle-orm';
+import { and, count, desc, eq, gt, gte, inArray, lte, or } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
 import { getDb } from './db.js';
@@ -49,7 +49,7 @@ export interface VerificationChallenge {
   channel: string;
   challengeHash: string;
   expiresAt: number;
-  status: ChallengeStatus;
+  status: SessionStatus;
   createdBySessionId: string | null;
   consumedByExternalUserId: string | null;
   consumedByChatId: string | null;
@@ -355,7 +355,7 @@ export function findPendingChallengeForChannel(
       and(
         eq(channelGuardianVerificationChallenges.assistantId, assistantId),
         eq(channelGuardianVerificationChallenges.channel, channel),
-        eq(channelGuardianVerificationChallenges.status, 'pending'),
+        inArray(channelGuardianVerificationChallenges.status, ['pending', 'pending_bootstrap', 'awaiting_response']),
         gt(channelGuardianVerificationChallenges.expiresAt, now),
       ),
     )
@@ -617,10 +617,11 @@ export function updateSessionDelivery(
 }
 
 /**
- * Count SMS sends to a specific destination across all sessions within a
- * rolling time window. Used to enforce per-destination rate limits that
- * span across sessions, preventing circumvention via repeated
- * start_outbound calls.
+ * Count actual sends to a specific destination across all sessions within a
+ * rolling time window. Uses COUNT of rows with a last_sent_at timestamp
+ * inside the window rather than SUM(send_count) to avoid double-counting
+ * cumulative session counters when resend creates new sessions that carry
+ * forward the cumulative count.
  */
 export function countRecentSendsToDestination(
   channel: string,
@@ -631,18 +632,18 @@ export function countRecentSendsToDestination(
   const cutoff = Date.now() - windowMs;
 
   const result = db
-    .select({ total: sum(channelGuardianVerificationChallenges.sendCount) })
+    .select({ total: count() })
     .from(channelGuardianVerificationChallenges)
     .where(
       and(
         eq(channelGuardianVerificationChallenges.channel, channel),
         eq(channelGuardianVerificationChallenges.destinationAddress, destinationAddress),
-        gte(channelGuardianVerificationChallenges.createdAt, cutoff),
+        gte(channelGuardianVerificationChallenges.lastSentAt, cutoff),
       ),
     )
     .get();
 
-  return result?.total != null ? Number(result.total) : 0;
+  return result?.total ?? 0;
 }
 
 /**

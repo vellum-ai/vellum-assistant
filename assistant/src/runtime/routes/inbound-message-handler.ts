@@ -38,6 +38,7 @@ import {
 } from '../channel-approvals.js';
 import {
   createOutboundSession,
+  findActiveSession,
   getGuardianBinding,
   getPendingChallenge,
   validateAndConsumeChallenge,
@@ -221,12 +222,17 @@ export async function handleChannelInbound(
       // active guardian binding for this (assistantId, channel).
       let denyNonMember = true;
       if (isGuardianVerifyCommand) {
-        const hasActiveBinding = !!getGuardianBinding(canonicalAssistantId, sourceChannel);
+        // Allow bypass when there is any consumable challenge or active
+        // outbound session.  The !hasActiveBinding guard is intentionally
+        // omitted: rebind sessions create a consumable challenge while a
+        // binding already exists, and the identity check inside
+        // validateAndConsumeChallenge prevents unauthorized takeovers.
         const hasPendingChallenge = !!getPendingChallenge(canonicalAssistantId, sourceChannel);
-        if (!hasActiveBinding && hasPendingChallenge) {
+        const hasActiveOutboundSession = !!findActiveSession(canonicalAssistantId, sourceChannel);
+        if (hasPendingChallenge || hasActiveOutboundSession) {
           denyNonMember = false;
         } else {
-          log.info({ sourceChannel, hasActiveBinding, hasPendingChallenge }, 'Ingress ACL: guardian_verify bypass denied');
+          log.info({ sourceChannel, hasPendingChallenge, hasActiveOutboundSession }, 'Ingress ACL: guardian_verify bypass denied');
         }
       }
 
