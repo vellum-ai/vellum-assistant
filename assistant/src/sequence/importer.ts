@@ -46,7 +46,9 @@ function isValidEmail(email: string): boolean {
 
 // ── Column detection ────────────────────────────────────────────────
 
-const EMAIL_HEADERS = ['email', 'e-mail', 'email_address', 'emailaddress', 'mail'];
+// Alias lists are pre-normalized (same transform as normalizeHeader) so lookups
+// match regardless of the original casing, spacing, or punctuation in the file.
+const EMAIL_HEADERS = ['email', 'e_mail', 'email_address', 'emailaddress', 'mail'];
 const NAME_HEADERS = ['name', 'full_name', 'fullname', 'display_name', 'displayname'];
 const FIRST_NAME_HEADERS = ['first_name', 'firstname', 'first'];
 const LAST_NAME_HEADERS = ['last_name', 'lastname', 'last'];
@@ -115,11 +117,57 @@ function parseCSVLine(line: string, delimiter: string): string[] {
 }
 
 /**
+ * Split CSV text into rows while respecting quoted fields that contain newlines.
+ * A newline inside a quoted field is part of the field value, not a row boundary.
+ */
+function splitCSVRows(content: string): string[] {
+  const rows: string[] = [];
+  let current = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < content.length; i++) {
+    const ch = content[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (content[i + 1] === '"') {
+          // Escaped quote
+          current += '""';
+          i++;
+        } else {
+          inQuotes = false;
+          current += ch;
+        }
+      } else {
+        current += ch;
+      }
+    } else {
+      if (ch === '"') {
+        inQuotes = true;
+        current += ch;
+      } else if (ch === '\r' && content[i + 1] === '\n') {
+        // CRLF row boundary
+        if (current.trim().length > 0) rows.push(current);
+        current = '';
+        i++; // skip the \n
+      } else if (ch === '\n') {
+        // LF row boundary
+        if (current.trim().length > 0) rows.push(current);
+        current = '';
+      } else {
+        current += ch;
+      }
+    }
+  }
+  if (current.trim().length > 0) rows.push(current);
+  return rows;
+}
+
+/**
  * Parse a CSV/TSV file into structured contacts.
  */
 export function parseContactFile(filePath: string): ParseResult {
   const content = readFileSync(filePath, 'utf-8');
-  const lines = content.split(/\r?\n/).filter((l) => l.trim().length > 0);
+  const lines = splitCSVRows(content);
 
   if (lines.length === 0) {
     return { contacts: [], errors: [{ row: 0, reason: 'File is empty' }], headers: [] };
