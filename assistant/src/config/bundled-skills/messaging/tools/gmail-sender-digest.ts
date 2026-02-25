@@ -14,6 +14,8 @@ interface SenderAggregation {
   messageCount: number;
   hasUnsubscribe: boolean;
   newestMessageId: string;
+  newestUnsubscribableMessageId: string | null;
+  newestUnsubscribableEpoch: number;
   oldestDate: string;
   newestDate: string;
   messageIds: string[];
@@ -84,6 +86,8 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
             messageCount: 0,
             hasUnsubscribe: false,
             newestMessageId: msg.id,
+            newestUnsubscribableMessageId: null,
+            newestUnsubscribableEpoch: 0,
             oldestDate: dateStr,
             newestDate: dateStr,
             messageIds: [],
@@ -120,6 +124,13 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
           agg.newestMessageId = msg.id;
         }
 
+        // Track the newest message that actually has List-Unsubscribe so
+        // gmail_unsubscribe() is called with a message that carries the header
+        if (listUnsub && msgEpoch >= agg.newestUnsubscribableEpoch) {
+          agg.newestUnsubscribableMessageId = msg.id;
+          agg.newestUnsubscribableEpoch = msgEpoch;
+        }
+
         // Collect sample subjects
         if (subject && agg.sampleSubjects.length < MAX_SAMPLE_SUBJECTS) {
           agg.sampleSubjects.push(subject);
@@ -137,12 +148,16 @@ export async function run(input: Record<string, unknown>, _context: ToolContext)
         email: s.email,
         message_count: s.messageCount,
         has_unsubscribe: s.hasUnsubscribe,
-        newest_message_id: s.newestMessageId,
+        // When unsubscribe is available, point to a message that carries the header
+        newest_message_id: (s.hasUnsubscribe && s.newestUnsubscribableMessageId)
+          ? s.newestUnsubscribableMessageId
+          : s.newestMessageId,
         oldest_date: s.oldestDate,
         newest_date: s.newestDate,
         message_ids: s.messageIds,
         has_more: s.hasMore,
-        search_query: `from:${s.email}`,
+        // Preserve original query filters so follow-up searches stay scoped
+        search_query: `from:${s.email} ${query}`,
         sample_subjects: s.sampleSubjects,
       }));
 
