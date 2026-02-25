@@ -32,7 +32,7 @@ public struct SubagentStatusChip: View {
         if subagent.isTerminal {
             chipContent(phase: 0)
         } else {
-            TimelineView(.periodic(every: 0.4)) { context in
+            TimelineView(.periodic(from: .now, by: 0.4)) { context in
                 chipContent(phase: Int(context.date.timeIntervalSince1970 / 0.4) % 3)
             }
         }

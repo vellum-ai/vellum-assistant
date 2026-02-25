@@ -1928,8 +1928,10 @@ public final class ChatViewModel: ObservableObject {
         messageLoopTask?.cancel()
         streamingFlushTask?.cancel()
         cancelTimeoutTask?.cancel()
-        refinementFailureDismissTask?.cancel()
-        refinementFlushTask?.cancel()
+        // refinementFailureDismissTask and refinementFlushTask are accessed via
+        // @MainActor computed properties (forwarded from ChatMessageManager), which
+        // cannot be referenced from nonisolated deinit. Both tasks use [weak self],
+        // so they will exit naturally when self is deallocated.
         reconnectLatchTimeoutTask?.cancel()
         reconnectDebounceTask?.cancel()
         if let observer = reconnectObserver {

@@ -72,7 +72,7 @@ public struct SubagentThreadView: View {
     }
 
     public var body: some View {
-        TimelineView(.periodic(every: 0.4)) { context in
+        TimelineView(.periodic(from: .now, by: 0.4)) { context in
             let phase = isRunning ? Int(context.date.timeIntervalSince1970 / 0.4) % 3 : 0
             HStack(alignment: .center, spacing: 0) {
                 // L-shaped connector: vertical line from parent → curves right into the thread bar

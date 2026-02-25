@@ -40,7 +40,7 @@ struct RunningIndicator: View {
     }
 
     private var indicatorContent: some View {
-        TimelineView(.periodic(every: 0.4)) { context in
+        TimelineView(.periodic(from: .now, by: 0.4)) { context in
             let elapsed = context.date.timeIntervalSince(startDate)
             let phase = Int(elapsed / 0.4) % 3
             let currentLabel = displayLabel(elapsed: elapsed)
