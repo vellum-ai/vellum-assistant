@@ -169,6 +169,10 @@ Use generic terms in comments, logs, and variable names — write "LLM" instead 
 - **Race conditions:** Always check whether a decision has already been resolved before delivering the engine's optimistic reply. If `handleChannelDecision` returns `applied: false`, deliver an "already resolved" notice and return `stale_ignored`.
 - **Requester self-cancel:** A requester with a pending guardian approval must be able to cancel their own request (but not self-approve).
 
+## Memory Provenance Invariant
+
+All memory extraction and retrieval decisions must consider actor-role provenance. Untrusted actors (non-guardian, unverified_channel) must not trigger profile extraction or receive memory recall/conflict disclosures. This invariant is enforced in `indexer.ts` (write gate) and `session-memory.ts` (read gate).
+
 ## Tooling Direction
 
 Do not add new tool registrations using the `class ____Tool implements Tool {` pattern.
